@@ -56,18 +56,41 @@ These are roles, not necessarily people. One person may wear multiple hats; SEV-
 
 Every user-fund-holding contract inherits two pause surfaces:
 
-- **`pause()`** — only `owner` (multisig). Subject to no timelock, but requires multisig coordination (slow).
-- **`pause()` via PauseGuardian** — only `pauseGuardian` address. No timelock, no multisig coordination. **This is the fast path.**
+> ⚠️ **CORRECTED 2026-08-19 — the fast path documented here did not work.** This section told the
+> guardian to call `pause()`. That function is `onlyOwner` on every contract, so the guardian
+> calling it **reverts**: in a live incident the responder would have followed the runbook, watched
+> the transaction fail, and spent the first minutes of the emergency debugging the runbook instead
+> of stopping the bleeding. The guardian's entry point is a **separate function**, `guardianPause()`.
+> Verified against source across all nine contracts that expose it.
+
+- **`pause()`** — only `owner` (multisig). No timelock, but requires multisig coordination (slow).
+- **`guardianPause()`** — only the `pauseGuardian` address. No timelock, no multisig coordination.
+  **This is the fast path.** Selector `0xd4593872`. It takes no arguments.
+- **Unpausing is not symmetric.** `unpause()` is `onlyOwner`. A guardian can stop the protocol but
+  cannot restart it, which is the correct asymmetry — but it means every guardian pause commits you
+  to a multisig round trip to undo, so it is not a free action.
+
+**The wider blast radius, worth knowing before you pick a target.** Per-contract pausing cannot
+reach an oracle consumer that has not deployed yet. `TegridyFactory.emergencyDisablePair(pair)`
+(selector `0xe24d0ff7`, guardian-or-feeToSetter, no timelock) sets `disabledPairs`, which is checked
+inside **both** `TegridyTWAP.update()` and `TegridyTWAP.consult()` — so one call closes every oracle
+consumer at once, including `TegridyLending` on the day it deploys. The cost of that reach: the
+native pair's swap/mint/skim/sync all revert and the router refuses routes (`burn()` stays open, so
+LPs can still exit), and **undoing it is a 48-hour timelock**. Reach for it when the oracle itself is
+the problem; reach for `guardianPause()` when one contract is.
 
 ### Pauseable contracts
 
-| Contract | Function | Caller |
+The two columns are different functions, not one function with two callers. Calling the owner's
+function as the guardian reverts.
+
+| Contract | Owner call | Guardian fast path |
 |---|---|---|
-| `TegridyStaking` | `pause()` / `unpause()` | owner OR `pauseGuardian` |
-| `TegridyRestaking` | `pause()` / `unpause()` | owner OR `pauseGuardian` |
-| `SwapFeeRouter` | `pause()` / `unpause()` | owner OR `pauseGuardian` |
-| `RevenueDistributor` | `pause()` / `unpause()` | owner OR `pauseGuardian` |
-| `POLAccumulator` | `pause()` / `unpause()` | owner OR `pauseGuardian` |
+| `TegridyStaking` | `pause()` / `unpause()` | `guardianPause()` |
+| `TegridyRestaking` | `pause()` / `unpause()` | `guardianPause()` — *contract not deployed* |
+| `SwapFeeRouter` | `pause()` / `unpause()` | `guardianPause()` |
+| `RevenueDistributor` | `pause()` / `unpause()` | `guardianPause()` |
+| `POLAccumulator` | `pause()` / `unpause()` | `guardianPause()` |
 | `TegridyLPFarming` | `pause()` / `unpause()` | owner only |
 | `TegridyLending` | `pause()` / `unpause()` | owner only |
 | `TegridyNFTLending` | `pause()` / `unpause()` | owner only |

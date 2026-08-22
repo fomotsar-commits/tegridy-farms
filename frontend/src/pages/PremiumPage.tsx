@@ -10,7 +10,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { getTxUrl } from '../lib/explorer';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
-import { goldCardBenefits } from '../lib/premiumBenefits';
+import { goldCardBenefits, goldCardSubhead, revenueSharingSubhead } from '../lib/premiumBenefits';
 
 // F375: the PremiumAccess contract charges monthlyFee × months with NO discount
 // (subscribe() = `monthlyFeeToweli * months`), and the hook approves/passes the
@@ -73,10 +73,15 @@ export default function PremiumPage() {
   const hasError = premium.isDataError || revenue.isDataError;
   const errorMsg = premium.dataError?.message || revenue.dataError?.message || 'Failed to load contract data';
 
-  // PremiumAccess isn't part of the relaunch deployment (address zeroed in
-  // constants.ts). Render a clean placeholder rather than a live subscribe flow
-  // wired to an undeployed contract. Revenue-share stats remain available on
-  // the Dashboard. Restore the address post-redeploy to bring this page back.
+  // ⚠ THIS BRANCH IS UNREACHABLE TODAY, and the comment that used to sit here said
+  // the opposite. PremiumAccess IS deployed and wired —
+  // PREMIUM_ACCESS_ADDRESS is 0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5
+  // (constants.ts), un-gated 2026-07-21 — so isDeployed() is true and the page always
+  // renders the live flow below.
+  //
+  // Kept, not deleted: it is the correct fallback if the address is ever zeroed again,
+  // and a page that renders a subscribe button against 0x0 is the failure it prevents.
+  // What was wrong was the comment asserting it as the CURRENT state.
   if (!isDeployed(PREMIUM_ACCESS_ADDRESS)) {
     return (
       <div className="-mt-14 relative min-h-screen">
@@ -138,7 +143,7 @@ export default function PremiumPage() {
             Gold <span style={{ color: '#d4a017' }}>Card</span>
           </h1>
           <p className="text-white text-base md:text-lg max-w-lg mx-auto">
-            Back the protocol in TOWELI — and earn real ETH from swap fees, like every staker.
+            {goldCardSubhead({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading })}
           </p>
         </m.div>
 
@@ -386,7 +391,9 @@ export default function PremiumPage() {
         {/* Revenue Sharing Section */}
         <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Revenue Sharing</h2>
-          <p className="text-white text-[12px] mb-5">100% of protocol fees distributed to stakers</p>
+          <p className="text-white text-[12px] mb-5">
+            {revenueSharingSubhead({ ethDistributed: revenue.totalDistributed, isLoading: revenue.isDataLoading })}
+          </p>
 
           {revenue.isDataLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

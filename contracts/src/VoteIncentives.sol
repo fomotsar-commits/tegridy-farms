@@ -96,7 +96,31 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         mirrors the `setVoteIncentivesAdmin` / `setRestakingContract` patterns.
     ///         Locks the GaugeController address once wired so a captured owner
     ///         cannot retarget the bribe-eligibility check.
+    /// @dev    AUDIT FIX (governance-gates 2026-08) VI-GC-02 — CONTROL CHANGE; read
+    ///         this before trusting the sentence above. `setGaugeController` itself
+    ///         is still strictly one-shot: once wired it ALWAYS reverts here. But the
+    ///         address is no longer absolutely immutable — `applyGaugeControllerChange`
+    ///         below can rewrite it, and that function is `onlyAdmin`, i.e. reachable
+    ///         ONLY through `VoteIncentivesAdmin.proposeGaugeControllerChange` +
+    ///         `executeGaugeControllerChange`, behind a 48h propose/execute timelock
+    ///         with the candidate AND the ETA both bound at sign time. So a captured
+    ///         owner key alone still cannot retarget the bribe-eligibility check — it
+    ///         can only start a 48h-visible rotation whose candidate must additionally
+    ///         survive the functional probe. Relaxed because pre-fix a single typo'd
+    ///         wire permanently bricked `depositBribe` / `depositBribeETH` with no
+    ///         recovery short of redeploying the contract.
     error GaugeControllerAlreadySet();
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-01: the candidate address
+    ///         failed the functional probe — it is not a contract, or it does not
+    ///         answer `pairToGauge(address)` sanely. Pre-fix the setter checked only
+    ///         `code.length`, so ANY deployed contract could be wired into this slot
+    ///         and permanently brick `depositBribe` / `depositBribeETH`.
+    error GaugeControllerProbeFailed();
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-WIRE-01: the one-shot
+    ///         `setRestakingContract` wire was handed a non-contract (or a length-23
+    ///         EIP-7702-delegated EOA). Same name/semantics as the identical guard on
+    ///         GaugeController and MemeBountyBoard.
+    error NotAContract();
     /// @notice AUDIT FIX (pass-8): GOV-INT-01 — `depositBribe`/`depositBribeETH`
     ///         reverts when the briber's pair has no registered gauge. Closes
     ///         the stranded-bond bug where bribes deposited on un-gauged pairs
@@ -112,20 +136,60 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     ///         deploys that haven't wired a GaugeController yet, but a
     ///         production deploy MUST wire it post-construction via
     ///         `setGaugeController(address)` to close GOV-INT-01.
-    /// @dev    Wired exactly once. Pattern of record: Velodrome / Aerodrome's
-    ///         pair → gauge registry on the Voter contract.
+    /// @dev    Wired once via the one-shot `setGaugeController` below. Rotation
+    ///         afterwards is possible ONLY through `applyGaugeControllerChange`,
+    ///         which is `onlyAdmin` and therefore sits behind VoteIncentivesAdmin's
+    ///         48h propose/execute timelock (AUDIT FIX governance-gates 2026-08
+    ///         VI-GC-02). Pattern of record: Velodrome / Aerodrome's pair → gauge
+    ///         registry on the Voter contract.
     address public gaugeController;
+
+    /// @dev AUDIT FIX (governance-gates 2026-08) VI-GC-01 — shared wire helper with a
+    ///      FUNCTIONAL probe, not just a code-length check.
+    ///      `pairToGauge(address(0))` must return exactly one 32-byte word equal to
+    ///      zero. That is a sound oracle: `address(0)` can never be a registered pair
+    ///      (`GaugeController.proposeAddGauge` reverts `InvalidPair` on a zero pair),
+    ///      so a genuine controller always answers "unmapped", while
+    ///        - an EOA / wrong contract without the selector reverts or returns empty
+    ///          returndata (length 0), and
+    ///        - a fallback-everything contract returns empty returndata,
+    ///      both of which fail here. Low-level `staticcall` rather than `try/catch` so
+    ///      a short/garbage return is caught explicitly instead of bubbling a decode
+    ///      panic.
+    function _wireGaugeController(address gc) internal {
+        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): mirror the
+        //         OwnableNoRenounce length-23 carve-out so a typo'd 7702-EOA
+        //         doesn't compile-pass and brick this setter. Retained.
+        uint256 codeLen = gc.code.length;
+        if (codeLen == 0 || codeLen == 23) revert GaugeControllerProbeFailed();
+        (bool ok, bytes memory ret) =
+            gc.staticcall(abi.encodeWithSelector(IGaugeControllerPairs.pairToGauge.selector, address(0)));
+        if (!ok || ret.length != 32 || abi.decode(ret, (bytes32)) != bytes32(0)) {
+            revert GaugeControllerProbeFailed();
+        }
+        gaugeController = gc;
+        emit GaugeControllerSet(gc);
+    }
 
     function setGaugeController(address _gaugeController) external onlyOwner {
         if (_gaugeController == address(0)) revert ZeroAddress();
         if (gaugeController != address(0)) revert GaugeControllerAlreadySet();
-        // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): mirror the
-        //         OwnableNoRenounce length-23 carve-out so a typo'd 7702-EOA
-        //         doesn't compile-pass and brick this one-shot setter.
-        uint256 codeLen = _gaugeController.code.length;
-        require(codeLen > 0 && codeLen != 23, "GC_MUST_BE_CONTRACT");
-        gaugeController = _gaugeController;
-        emit GaugeControllerSet(_gaugeController);
+        _wireGaugeController(_gaugeController);
+    }
+
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-02 — rotate path for a
+    ///         mis-wired GaugeController. `setGaugeController` above stays ONE-SHOT
+    ///         (a captured owner key alone still cannot retarget bribe eligibility);
+    ///         rotation is reachable only through the sister `VoteIncentivesAdmin`,
+    ///         i.e. only after its 48h propose/execute timelock has elapsed, with the
+    ///         candidate bound at sign time. Pre-fix a single typo permanently bricked
+    ///         every bribe deposit with no recovery short of redeploying.
+    /// @dev    `address(0)` is rejected by `_wireGaugeController` (code length 0), and
+    ///         `VoteIncentivesAdmin.proposeGaugeControllerChange` rejects it earlier
+    ///         still — no separate ZeroAddress branch is spent here (this contract has
+    ///         ~300 bytes of EIP-170 headroom).
+    function applyGaugeControllerChange(address _gaugeController) external onlyAdmin {
+        _wireGaugeController(_gaugeController);
     }
 
     /// @dev AUDIT FIX (pass-8): GOV-INT-01 — internal pair-eligibility check.
@@ -1178,6 +1242,17 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function setRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
         if (restakingContract != address(0)) revert RestakingAlreadySet();
+        // AUDIT FIX (governance-gates 2026-08) VI-WIRE-01: this ONE-SHOT wire was the
+        // only such setter on this contract with no code-length guard — its siblings
+        // `setVoteIncentivesAdmin` and `setGaugeController` both carry one, as does
+        // GaugeController.propose/executeRestakingContract. A typo'd or wrong-chain
+        // address is unrecoverable here and silently zeroes the bribe vote power of
+        // every restaker. Length-23 is the EIP-7702 delegation-pointer carve-out used
+        // everywhere else in the repo. Custom error rather than a revert string:
+        // VoteIncentives is the tightest deploy-path contract in the repo and a string
+        // literal costs materially more bytecode.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         restakingContract = _restaking;
         emit RestakingContractSet(_restaking);
     }

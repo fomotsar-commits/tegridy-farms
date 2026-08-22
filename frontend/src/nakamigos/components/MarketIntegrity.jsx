@@ -111,7 +111,7 @@ function tileGrid(children) {
 }
 
 // ── Ownership concentration (from the shared detection core) ──
-function OwnershipPanel({ result, truncated }) {
+export function OwnershipPanel({ result, truncated }) {
   if (!result || !result.measured) {
     return (
       <Section title="Ownership concentration" subtitle="Who holds the collection — via the shared distribution core.">
@@ -125,7 +125,7 @@ function OwnershipPanel({ result, truncated }) {
   return (
     <Section
       title="Ownership concentration"
-      subtitle="Effective-holder read over the owner set (LP/burn/contract wallets excluded)."
+      subtitle="Effective-holder read over the owner set. Burn/dead addresses are removed; this feed carries no contract or venue labels, so vault, escrow and pool contracts are counted as holders."
       chip={<Chip color={band.color}>{band.label}</Chip>}
     >
       <p style={{ fontFamily: "var(--display)", fontSize: 14, color: "var(--text)", lineHeight: 1.5, margin: "12px 0 0" }}>

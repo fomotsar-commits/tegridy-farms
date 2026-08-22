@@ -388,15 +388,29 @@ contract Audit195Revenue is Test {
         uint256 pending = dist.totalPendingWithdrawals();
         assertTrue(pending > 0);
 
-        // Next distribute should not re-earmark the pending amount
+        // TEST REALIGN 2026-08 [REV-RESERVE-01]: this assertion used to RE-DERIVE the
+        // implementation's own `reserved` expression (including the buggy
+        // `+ totalPendingWithdrawals` term) and compare the contract against itself —
+        // a tautology that would have passed for ANY reserve formula. It now pins the
+        // actual invariants instead:
+        //   (1) exactly the newly-arrived ETH is earmarked — the queued payee's ETH is
+        //       NOT re-counted as new revenue (the original intent of this test), and
+        //   (2) none of the new revenue is STRANDED either. Pre-fix, `pending` was
+        //       reserved twice, so `newETH` came up short by exactly `pending` and that
+        //       much genuinely-new revenue silently failed to reach any epoch.
+        //   (3) the pending queue stays fully funded throughout.
         vm.warp(block.timestamp + 4 hours + 1);
         _fund(3 ether);
         uint256 earBefore = dist.totalEarmarked();
-        uint256 reserved = (earBefore > dist.totalClaimed() ? earBefore - dist.totalClaimed() : 0) + dist.totalPendingWithdrawals();
-        uint256 expectedNew = address(dist).balance - reserved;
         dist.distribute();
-        // Should only earmark newETH (balance - reserved), not re-count pending
-        assertEq(dist.totalEarmarked(), earBefore + expectedNew, "pending not re-earmarked");
+        assertEq(dist.totalEarmarked(), earBefore + 3 ether, "exactly the new 3 ETH earmarked");
+        assertEq(dist.totalPendingWithdrawals(), pending, "pending queue untouched by distribute");
+        assertGe(address(dist).balance, dist.totalPendingWithdrawals(), "pending queue stays solvent");
+
+        // And the queued payee can still actually pull their ETH afterwards.
+        vm.prank(address(rej));
+        rej.doWithdrawPending();
+        assertEq(dist.pendingWithdrawals(address(rej)), 0, "payee drained their queue");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -602,15 +616,35 @@ contract Audit195Revenue is Test {
         ve.removeLock(bob);
         ve.removeLock(carol);
 
-        // Now sweep
+        // TEST REALIGN 2026-08 [REV-SWEEP-01]: sweepDust() is now 48h-timelocked
+        // like its three siblings (executeEmergencyWithdrawExcess / executeTokenSweep
+        // / executeForfeitReclaim). The capability is unchanged; only the delay is new.
         uint256 tb = treasury.balance;
+        dist.proposeDustSweep();
+        vm.warp(block.timestamp + 48 hours + 1);
         dist.sweepDust();
         assertTrue(treasury.balance > tb, "dust swept");
     }
 
     function test_sweepDust_reverts_no_dust() public {
+        // TEST REALIGN 2026-08 [REV-SWEEP-01]: the timelock now fires first, so the
+        // no-dust revert is only reachable behind a matured proposal.
+        dist.proposeDustSweep();
+        vm.warp(block.timestamp + 48 hours + 1);
         vm.expectRevert(RevenueDistributor.NoDustToSweep.selector);
         dist.sweepDust();
+    }
+
+    /// AUDIT FIX 2026-08 [REV-SWEEP-01] (HIGH): pre-fix `sweepDust()` was a
+    /// byte-for-byte clone of `executeEmergencyWithdrawExcess()` minus the timelock,
+    /// and its reserve excludes UNDISTRIBUTED revenue — so the owner could take the
+    /// entire pre-distribution float in one transaction with delay 0.
+    function test_sweepDust_requires_timelock() public {
+        _fund(5 ether);
+        uint256 tb = treasury.balance;
+        vm.expectRevert(abi.encodeWithSelector(TimelockAdmin.NoPendingProposal.selector, dist.DUST_SWEEP()));
+        dist.sweepDust();
+        assertEq(treasury.balance, tb, "no ETH may leave with delay 0");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

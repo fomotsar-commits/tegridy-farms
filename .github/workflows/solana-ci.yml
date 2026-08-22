@@ -55,7 +55,7 @@ jobs:
   diff-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Clone pinned upstream
         run: |
           git clone "$UPSTREAM_REPO" /tmp/upstream
@@ -83,7 +83,13 @@ jobs:
           # CRLF is stripped on BOTH sides: the fork carries CRLF for some files, and
           # without normalising, every line reads as changed (736 lines of noise for an
           # 86-line real delta).
-          EXPECTED_DELTA_SHA256=789f7ada2258faf69994135ac882d0a41745cce1a98efe4e76639a9bc9dd6baa
+          # RE-PINNED 2026-08-08. The delta gained one functional line and a block of
+          # comments: `admin::ID` moved off the Squads MULTISIG ACCOUNT
+          # (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK) — which can neither sign a CPI
+          # nor pay rent, and therefore made `create_amm_config` permanently uncallable —
+          # onto the deploy authority. Diffing the old delta against the new one shows
+          # exactly one changed `pubkey!` line; everything else added is comment.
+          EXPECTED_DELTA_SHA256=d754bab20b61d2e7c9ce1ff91f2876efca41f38ee6b4b45c796b49043f9c69b3
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched
@@ -123,16 +129,80 @@ jobs:
           echo "✅ Delta from upstream $UPSTREAM_COMMIT matches the pinned hash exactly"
           echo "   ($(grep -c '^[<>]' /tmp/tegridy-delta.txt) changed lines across 3 files)"
 
+  # The SECOND vendored upstream: Raydium CLMM's concentrated-liquidity math, which
+  # prices the segmented (Meteora-shaped) curve. Same reasoning as the cp-swap guard
+  # above — we tell auditors this is a diff-review of audited upstream, so that claim
+  # has to be mechanical rather than a promise in a comment.
+  #
+  # Why a separate job: different upstream repo and a different pinned commit, so it
+  # cannot share UPSTREAM_COMMIT. Runs in parallel; adds no wall-clock.
+  clmm-vendor-guard:
+    runs-on: ubuntu-latest
+    env:
+      CLMM_REPO: https://github.com/raydium-io/raydium-clmm
+      # Apache-2.0 — verified by READING LICENSE in the upstream repo, not from GitHub
+      # API metadata or an npm `license` field. See docs/CURVE_FORK_EVALUATION.md for
+      # why that distinction matters (Meteora's SDK says MIT; its program is not).
+      CLMM_COMMIT: bf7c2413ec685d2ce9d5422d44182b770cd37598
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Clone pinned CLMM upstream
+        run: |
+          git clone "$CLMM_REPO" /tmp/clmm
+          git -C /tmp/clmm checkout --quiet "$CLMM_COMMIT"
+      - name: Assert the vendored CLMM math is upstream plus only the pinned delta
+        run: |
+          set -euo pipefail
+          UP=/tmp/clmm/programs/amm/src/libraries
+          OURS=solana/tegridy-amm/programs/tegridy-launch/src/vendor
+
+          # Every .rs here must be a vendored upstream file, except mod.rs which is
+          # ours (provenance header, module wiring, the ErrorCode shim). A new file
+          # appearing in this directory means someone added hand-written math to a
+          # directory whose whole purpose is that it contains none.
+          EXTRA=$(ls "$OURS" | grep -vE '^(big_num|fixed_point_64|full_math|liquidity_math|sqrt_price_math|tick_math|unsafe_math|mod)\.rs$' || true)
+          if [ -n "$EXTRA" ]; then
+            echo "::error::Unexpected file(s) in the vendor directory — it must hold ONLY vendored upstream + mod.rs:"
+            echo "$EXTRA"
+            exit 1
+          fi
+
+          EXPECTED_CLMM_DELTA_SHA256=3572d8d767f5a808a757339d491f6d280f3c3a77c8d75edc08b10c26bdea75ec
+
+          {
+            for f in big_num.rs fixed_point_64.rs full_math.rs liquidity_math.rs sqrt_price_math.rs tick_math.rs unsafe_math.rs; do
+              echo "=== $f ==="
+              diff <(sed 's/\r$//' "$UP/$f") <(sed 's/\r$//' "$OURS/$f") || true
+            done
+          } > /tmp/clmm-delta.txt
+
+          ACTUAL=$(sha256sum /tmp/clmm-delta.txt | cut -d' ' -f1)
+          echo "─── the delta being hashed ───"
+          cat /tmp/clmm-delta.txt
+          echo "──────────────────────────────"
+          if [ "$ACTUAL" != "$EXPECTED_CLMM_DELTA_SHA256" ]; then
+            echo "::error::Vendored CLMM math DIVERGED from pinned upstream."
+            echo "  expected $EXPECTED_CLMM_DELTA_SHA256"
+            echo "  actual   $ACTUAL"
+            echo "The delta must stay import rewrites + the documented U1024/U512 deletions and the fail-closed MulDiv branch."
+            echo "If you changed a FORMULA or a ROUNDING DIRECTION here, stop: that is"
+            echo "novel math wearing a vendored file's name, and it voids the diff-review"
+            echo "scoping we give auditors. Otherwise re-pin the hash IN THE SAME PR."
+            exit 1
+          fi
+          echo "✅ Vendored CLMM math matches pinned upstream $CLMM_COMMIT"
+          echo "   ($(grep -c '^[<>]' /tmp/clmm-delta.txt) changed lines: import rewrites + the U1024 deletion)"
+
   build:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/cp-swap
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
       - name: Cache cargo
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -148,9 +218,43 @@ jobs:
         # `--features devnet` selects the real devnet authorities. A default (non-devnet)
         # build compiles too but embeds fail-closed System-Program sentinels, so we do
         # NOT publish that as a deployable artifact.
-        run: cargo build-sbf --features devnet
+        #
+        # THIS BUILD PRODUCES A PUBLISHED ARTIFACT, so it carries the same two
+        # guards the tegridy-launch build carries — it had NEITHER:
+        #
+        #  1. `cargo build-sbf` CAN EXIT 0 HAVING COMPILED NOTHING. On a runner
+        #     where platform-tools is absent it installs the toolchain and
+        #     returns success. That vacuum-passed the launch job on 2026-07-28.
+        #  2. An SBF function that overflows its 4 KB stack frame is a LINKER
+        #     WARNING, not an error. The build "succeeds" and the program dies
+        #     on-chain with "Access violation ... at address 0x4000000000000008".
+        #     `cargo check` cannot see it — it is not an SBF target — so this
+        #     grep is the only thing between that warning and a published .so.
+        #
+        # Removing the artifact first is what makes the assertion mean anything:
+        # a stale .so from a previous step or a warm cache would otherwise
+        # satisfy `test -f` for a build that did nothing.
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/raydium_cp_swap.so
+          rm -f "$SO"
+          cargo build-sbf --features devnet 2>&1 | tee /tmp/cpswap-build.log
+          if [ ! -f "$SO" ]; then
+            echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
+            cargo build-sbf --features devnet 2>&1 | tee -a /tmp/cpswap-build.log
+          fi
+          if [ ! -f "$SO" ]; then
+            echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled, and the artifact published below would be stale or absent"
+            exit 1
+          fi
+          if grep -q "exceeded max offset" /tmp/cpswap-build.log; then
+            echo "::error::SBF stack frame overflow — a function exceeds its 4KB frame. Box large Account<T> fields."
+            grep -B3 "exceeded max offset" /tmp/cpswap-build.log
+            exit 1
+          fi
+          ls -l "$SO"
       - name: Publish compiled .so (DEVNET deployable binary — mainnet is an operator verifiable build)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
           name: tegridy-cp-amm-devnet-sbf
           path: solana/tegridy-amm/target/deploy/*.so
@@ -163,10 +267,10 @@ jobs:
       run:
         working-directory: solana/tegridy-amm/programs/tegridy-launch
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -226,19 +330,47 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
-          [ -f "$SO" ] || { echo "no artifact to measure"; exit 0; }
+          # Was `exit 0` — a step that ends in a stack-overflow check must not
+          # be able to opt out of reaching it. The build step above asserts this
+          # file exists, so its absence here means something upstream lied.
+          [ -f "$SO" ] || { echo "::error::no $SO to measure — the build step claimed success"; exit 1; }
           BYTES=$(stat -c%s "$SO")
+          # Rent model, and why the peak is NOT "settled x 2".
+          #
+          # A deploy holds TWO accounts at once:
+          #   1. the write buffer, sized to the PROGRAM (b + hdr) — it holds the
+          #      bytes being uploaded, so it is never sized to max_len;
+          #   2. programdata, sized to MAX_LEN (max_len + hdr) — the upgrade
+          #      headroom you asked for.
+          # The buffer is closed and refunded at the end, so:
+          #
+          #   settled = (max_len + hdr) * rate
+          #   peak    = (b + hdr) * rate  +  (max_len + hdr) * rate
+          #
+          # With the CLI default (max_len = 2b) that peak is (3b + 2*hdr) * rate.
+          # This step used to print `settled_default * 2` = (4b + 2*hdr) * rate,
+          # which overstates the peak by ~33% — it sized the BUFFER at max_len too.
+          #
+          # Sanity check on the settled figure, against a number that is on chain
+          # rather than derived: cp-swap's .so is 793,824 bytes and its live
+          # programdata account holds 5.526 SOL. (793824 + 45) * 6960.89 = 5.526e9
+          # lamports exactly — so cp-swap was deployed with an exact --max-len, and
+          # the `(size + hdr) * rate` shape is confirmed, not assumed.
           awk -v b="$BYTES" 'BEGIN {
             rate = 6960.89; hdr = 45;
-            exact = (b + hdr) * rate / 1e9;
-            dbl   = (2 * b + hdr) * rate / 1e9;
+            exact = (b + hdr) * rate / 1e9;          # settled, --max-len = b
+            dbl   = (2 * b + hdr) * rate / 1e9;      # settled, CLI default max_len = 2b
+            peak_exact   = exact + exact;            # buffer(b) + programdata(b)
+            peak_default = exact + dbl;              # buffer(b) + programdata(2b)
             printf "### tegridy-launch - measured deploy cost\n\n";
             printf "| | |\n|---|---|\n";
             printf "| .so size | %d bytes |\n", b;
-            printf "| rent, --max-len exact | **%.3f SOL** |\n", exact;
-            printf "| rent, CLI default (2x max_len) | **%.3f SOL** |\n", dbl;
-            printf "| peak float during deploy | ~**%.3f SOL** |\n\n", dbl * 2;
-            printf "Peak exceeds the settled cost because the write-buffer holds its own rent until it is closed and refunded.\n";
+            printf "| rent settled, --max-len exact | **%.3f SOL** |\n", exact;
+            printf "| rent settled, CLI default (2x max_len) | **%.3f SOL** |\n", dbl;
+            printf "| peak float, --max-len exact | ~**%.3f SOL** |\n", peak_exact;
+            printf "| peak float, CLI default | ~**%.3f SOL** |\n\n", peak_default;
+            printf "Peak exceeds the settled cost because the write buffer holds its OWN rent, sized to the program (%d bytes), until it is closed and refunded. It is never sized to max_len.\n\n", b;
+            printf "So peak = (size + 45) * rate + (max_len + 45) * rate. With the CLI default that is (3*size + 90) * rate, NOT twice the settled default.\n\n";
             printf "Rent is a refundable deposit, not a fee. Pass an explicit --max-len to avoid paying double for upgrade headroom.\n";
           }' | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -265,9 +397,42 @@ jobs:
       # contexts, not that they actually reject. Devnet feature, because the
       # default build embeds fail-closed sentinels that cannot initialize.
       - name: Build SBF program (devnet authorities, for the deployable artifact)
-        run: cargo build-sbf --features devnet
+        # THIS is the build whose output gets published, and it was the only
+        # unguarded one in the job — the guards above protect the DEFAULT build,
+        # whose .so this step then overwrites.
+        #
+        # That ordering made the failure mode worse than "no artifact". Both
+        # builds write the SAME path. If this one exits 0 without compiling
+        # (toolchain-install path), the default build's .so is still sitting
+        # there — so `if-no-files-found: error` is satisfied and CI publishes
+        # the DEFAULT binary under the devnet name. That build embeds
+        # fail-closed System-Program sentinels: it deploys, and then cannot
+        # initialize. Deleting first turns that silent substitution into a
+        # failed step.
+        run: |
+          set -euo pipefail
+          SO=../../target/deploy/tegridy_launch.so
+          rm -f "$SO"
+          cargo build-sbf --features devnet 2>&1 | tee /tmp/sbf-build-devnet.log
+          if [ ! -f "$SO" ]; then
+            echo "::warning::devnet cargo build-sbf produced no artifact — retrying"
+            cargo build-sbf --features devnet 2>&1 | tee -a /tmp/sbf-build-devnet.log
+          fi
+          if [ ! -f "$SO" ]; then
+            echo "::error::devnet cargo build-sbf exited 0 but produced no $SO — refusing to publish the previous (fail-closed sentinel) build under the devnet artifact name"
+            exit 1
+          fi
+          # Same 4KB-frame check as the default build. The devnet feature swaps
+          # in different constants, so it is a genuinely different link — a
+          # clean default build is not evidence about this one.
+          if grep -q "exceeded max offset" /tmp/sbf-build-devnet.log; then
+            echo "::error::SBF stack frame overflow in the DEVNET build — a function exceeds its 4KB frame. Box large Account<T> fields."
+            grep -B3 "exceeded max offset" /tmp/sbf-build-devnet.log
+            exit 1
+          fi
+          ls -l "$SO"
       - name: Publish compiled .so (DEVNET — never a mainnet artifact)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
         with:
           name: tegridy-launch-devnet-sbf
           path: solana/tegridy-amm/target/deploy/tegridy_launch.so
@@ -290,9 +455,9 @@ jobs:
       run:
         working-directory: solana/tegridy-amm
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
 
@@ -431,9 +596,9 @@ jobs:
       run:
         working-directory: solana/tegridy-amm
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
 
@@ -562,3 +727,45 @@ jobs:
           done
 
           yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Required-status aggregator, mirroring contracts-ci.yml's all-tests-pass.
+  #
+  # Before this job, solana-ci exposed six independent check names and no
+  # single one meant "the Solana side is good". Branch protection would have
+  # had to name all six, and adding a seventh job would silently leave it
+  # unrequired. Point the rule at "solana-ci / all-checks-pass" instead.
+  #
+  # `if: always()` plus an explicit read of every result: under always(), a
+  # skipped or failed dependency still lets this job run, so `needs` alone
+  # gates nothing. A skipped job is NOT a pass here — that is the same
+  # green-over-nothing shape the contracts aggregator exists to refuse.
+  # ─────────────────────────────────────────────────────────────────────
+  all-checks-pass:
+    name: all-checks-pass
+    needs: [diff-guard, clmm-vendor-guard, build, launch-curve, launch-constraints, migration-rehearsal]
+    runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate job results
+        run: |
+          set -uo pipefail
+          FAILED=0
+          for PAIR in \
+            "diff-guard=${{ needs['diff-guard'].result }}" \
+            "clmm-vendor-guard=${{ needs['clmm-vendor-guard'].result }}" \
+            "build=${{ needs.build.result }}" \
+            "launch-curve=${{ needs['launch-curve'].result }}" \
+            "launch-constraints=${{ needs['launch-constraints'].result }}" \
+            "migration-rehearsal=${{ needs['migration-rehearsal'].result }}"; do
+            JOB="${PAIR%%=*}"
+            RESULT="${PAIR#*=}"
+            echo "${JOB}: ${RESULT}"
+            if [ "$RESULT" != "success" ]; then FAILED=1; fi
+          done
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error title=solana-ci did not fully pass::at least one job above is not 'success'. A skipped job counts as a failure here."
+            exit 1
+          fi
+          echo "All solana-ci jobs passed"

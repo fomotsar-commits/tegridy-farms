@@ -38,7 +38,10 @@
 
   <!-- Shield badge top-left -->
   <g transform="translate(68 66)" filter="url(#soft-shadow)">
-    <rect x="0" y="0" width="180" height="34" rx="17"
+    <!-- Widened 180→232 to fit the qualifier. The badge said "AUDITED · BUG BOUNTY" while the
+         README it sits on top of says there is no professional firm audit yet — the reviews
+         are all internal. Same pill, same glyph, honest word. -->
+    <rect x="0" y="0" width="232" height="34" rx="17"
           fill="rgba(139,92,246,0.15)" stroke="rgba(245,228,184,0.35)" stroke-width="1" />
     <g transform="translate(14 9)" stroke="#f5e4b8" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
       <path d="M8 0l6 2.25v4.5c0 3.75-2.625 6.375-6 6.75-3.375-0.375-6-3-6-6.75v-4.5L8 0z" />
@@ -46,7 +49,7 @@
     </g>
     <text x="40" y="22" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
           font-size="12" font-weight="600" fill="#f5e4b8" letter-spacing="0.04em">
-      AUDITED · BUG BOUNTY
+      SELF-AUDITED · BUG BOUNTY
     </text>
   </g>
 
@@ -69,8 +72,11 @@
   <!-- Pillars row -->
   <g transform="translate(68 360)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
     <g>
-      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">100% OF SWAP FEES</text>
-      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">flow to stakers in ETH</text>
+      <!-- Corrected 2026-08-12: this pillar read "100% OF SWAP FEES / flow to stakers in ETH".
+           ReferralSplitter takes an unremovable 20% before the staker rail sees anything, and
+           nothing has been distributed yet — so both the quantity and the tense were wrong. -->
+      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">SWAP FEES IN ETH</text>
+      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">routed to lockers, not minted</text>
     </g>
     <g transform="translate(380 0)">
       <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">FIXED SUPPLY</text>

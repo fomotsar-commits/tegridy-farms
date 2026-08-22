@@ -20,7 +20,9 @@ import { useNFTBoost } from './useNFTBoost';
 /// declines or the tx fails.
 export function useAutoRefreshBoost(opts: {
   /// Callback to call when a refresh is needed. Pass useLPFarming().refreshBoost.
-  onRefreshNeeded: (target: `0x${string}`) => void;
+  /// Omit on read-only surfaces that only need `needsRefresh` to point the user
+  /// at a surface that can actually send the transaction.
+  onRefreshNeeded?: (target: `0x${string}`) => void;
   /// If true, fire onRefreshNeeded automatically when conditions are met.
   /// If false, only set `needsRefresh = true` and let the UI prompt the user.
   /// Default: false (UI-prompt mode is safer — surfaces a confirmation step).
@@ -63,7 +65,7 @@ export function useAutoRefreshBoost(opts: {
   const sessionKey = `lpFarmingBoostSync_${address ?? 'unknown'}_${jbacCount}`;
 
   useEffect(() => {
-    if (!opts.auto || !needsRefresh || !address) return;
+    if (!opts.auto || !opts.onRefreshNeeded || !needsRefresh || !address) return;
     if (firedRef.current === sessionKey) return;
     try {
       const stored = typeof window !== 'undefined' ? window.localStorage.getItem(sessionKey) : null;

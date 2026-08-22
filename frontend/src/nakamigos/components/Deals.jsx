@@ -1,24 +1,16 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { OPENSEA_ITEM } from "../constants";
-import { fulfillSeaportOrder } from "../api";
+import { fulfillSeaportOrder, getProvider } from "../api";
 import { fulfillNativeOrder } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
+import { validateOrderQuick } from "../lib/orderValidator";
 import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 
 /* ── Discount threshold: listing must be at least 10% below max trait floor ── */
 const DEAL_THRESHOLD = 0.9;
 
-/* ── Format time ago ── */
-function formatTimeAgo(ms) {
-  if (!ms) return "";
-  const diff = Date.now() - ms;
-  if (diff < 60000) return "just now";
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  return `${Math.floor(diff / 86400000)}d ago`;
-}
 
 /* ── Styles ── */
 const S = {
@@ -445,12 +437,10 @@ export default function Deals({
   tokens,
   listings,
   listingsLoading,
-  stats,
   onPick,
   wallet,
   onConnect,
   addToast,
-  onAddToCart,
   onRefresh,
   loadAll,
   hasMore,
@@ -683,6 +673,29 @@ export default function Deals({
     }
     setBuying(nft.id);
     try {
+      // Same Layer 1+2 pre-flight the cart runs before checkout. A deals row is
+      // computed from a listings snapshot that refreshes on a 60s timer, so the
+      // most-discounted rows — the ones people click — are exactly the ones most
+      // likely to be already gone. Refuse before the wallet opens, with the
+      // reason, instead of paying gas into a revert.
+      let ethersProvider = null;
+      try {
+        const ethProvider = getProvider();
+        if (ethProvider) {
+          const { ethers } = await import("ethers");
+          ethersProvider = new ethers.BrowserProvider(ethProvider);
+        }
+      } catch {
+        // No provider — validateOrderQuick still runs the free Layer 1 checks.
+      }
+      const preflight = await validateOrderQuick(ethersProvider, nft);
+      if (preflight.status === "red") {
+        addToast(`#${nft.id} can't be bought — ${preflight.reason || "listing is no longer fillable"}`, "error");
+        setBuying(null);
+        onRefresh?.();
+        return;
+      }
+
       const result = nft.isNative && nft.nativeOrder
         ? await fulfillNativeOrder(nft.nativeOrder)
         : await fulfillSeaportOrder(nft);
@@ -705,7 +718,7 @@ export default function Deals({
       addToast("Purchase failed", "error");
     }
     setBuying(null);
-  }, [wallet, onConnect, addToast, collection.slug]);
+  }, [wallet, onConnect, addToast, collection.slug, onRefresh]);
 
   /* ── Summary stats ── */
   const summaryStats = useMemo(() => {

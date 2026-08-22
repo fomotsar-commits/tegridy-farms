@@ -598,6 +598,11 @@ body {
   text-shadow: none;
 }
 
+/* F45, mirror case — these flip the PLATE near-white while card body copy stays
+   `text-white` at ~100 callsites, so light-mode card text sits at ~1.4:1. The
+   foreground is not on the class, so CSS alone cannot re-pair them; which half moves
+   is the same unresolved art-ground decision as `.heading-luxury`. Left as authored
+   and pinned by name in lib/lightThemeContrast.test.ts so the set cannot grow. */
 [data-theme="light"] .glass,
 [data-theme="light"] .glass-card,
 [data-theme="light"] .glass-card-strong,
@@ -609,20 +614,31 @@ body {
   background: rgba(255, 255, 255, 0.85);
 }
 
+/* F45 — this override has NO ground of its own: `.heading-luxury` always resolves
+   against whatever the page paints, and every art-backed page paints a
+   theme-invariant `#060c1a` layer in both themes. Navy on that is ~1.4:1. It is
+   left exactly as authored because correcting it means choosing the light-mode
+   model — keep the dark art murals and let light mode be light chrome over a dark
+   canvas, or give art-backed pages a light scrim so navy reads — and that choice
+   is unresolved. It is therefore the one class named as UNGUARDED in
+   lib/lightThemeContrast.test.ts rather than silently covered. */
 [data-theme="light"] .heading-luxury {
   color: #1e1b4b;
   text-shadow: none;
 }
 
-[data-theme="light"] .label-pill {
-  background: rgba(124, 58, 237, 0.08);
-  color: #4c1d95;
-}
-
-[data-theme="light"] .stat-value {
-  background: rgba(124, 58, 237, 0.06);
-  text-shadow: none;
-}
+/* F45 — a chip that carries its own ground takes BOTH halves from one theme.
+   `.label-pill` and `.stat-value` paint a near-opaque black plate under a cream
+   foreground precisely so they read over whatever art sits behind the parent.
+   The light-theme rules that stood here swapped that plate for an 8% / 6% purple
+   wash and (with the `.stat-value` colour rule further down) flipped the text to
+   #4c1d95 / #1e1b4b. A wash is not a ground: the text then resolved against the
+   PAGE ground, which is the same theme-invariant `#060c1a` art layer, putting
+   both chips at ~1.4:1 app-wide in light mode.
+   Deleting them restores the base pair, which is legible under EITHER candidate
+   light-mode model; a translucent wash is legible under neither. If the owner
+   later picks the scrim model, replace them with a light plate AND a dark
+   foreground in one rule — never one half alone. */
 
 [data-theme="light"] .btn-secondary {
   background: rgba(255, 255, 255, 0.90);
@@ -695,10 +711,6 @@ body {
 [data-theme="light"] .nav-link.active {
   color: #15803d;
   background-color: rgba(34, 197, 94, 0.12);
-}
-
-[data-theme="light"] .stat-value {
-  color: var(--color-text-primary);
 }
 
 /* ─── Theme transition ─── */

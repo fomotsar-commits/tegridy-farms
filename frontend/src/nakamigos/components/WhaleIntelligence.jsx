@@ -166,12 +166,15 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
   // fall back to collection config supply, then 20000 as last resort
   const SUPPLY = stats?.supply || collection.supply || 20000;
   const [totalOwners, setTotalOwners] = useState(0);
-  const [apiTotalHeld, setApiTotalHeld] = useState(0);
   const [expandedNfts, setExpandedNfts] = useState([]);
+  const [expandedTotal, setExpandedTotal] = useState(0);
   const [loadingNfts, setLoadingNfts] = useState(false);
   // Distinguish an outage from a genuinely-empty wallet in the expanded view (F724).
   const [expandedError, setExpandedError] = useState(false);
-  const [error, setError] = useState(null);
+  // One slot per feed: a single shared slot lets whichever loader finishes last
+  // erase the other's message.
+  const [holdersError, setHoldersError] = useState(null);
+  const [activityError, setActivityError] = useState(null);
 
   const mountedRef = useRef(true);
 
@@ -180,13 +183,21 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     try {
       const data = await fetchTopHolders({ contract: collection.contract, limit: 25 });
       if (!mountedRef.current) return;
-      setHolders(data.holders || []);
+      const list = data.holders || [];
+      setHolders(list);
       setTotalOwners(data.totalOwners || 0);
-      setApiTotalHeld(data.totalHeld || 0);
       setHoldersLive(!data.fallback);
+      // fetchTopHolders never rejects — an outage surfaces as fallback:true with
+      // ZERO rows, which used to render as a silently blank panel. The
+      // length check keeps a degraded-but-populated response off the error path.
+      setHoldersError(
+        data.fallback && list.length === 0
+          ? "Could not load top holders for this collection — the holder API did not respond."
+          : null
+      );
     } catch (err) {
       console.warn("WhaleIntelligence: fetchTopHolders error:", err.message);
-      if (mountedRef.current) setError("Could not load top holders. Please check your connection and try again.");
+      if (mountedRef.current) setHoldersError("Could not load top holders for this collection — the holder API did not respond.");
     } finally {
       if (mountedRef.current) setLoadingHolders(false);
     }
@@ -196,11 +207,19 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     try {
       const data = await fetchActivity({ contract: collection.contract, limit: 50 });
       if (!mountedRef.current) return;
-      setActivities(data.activities || []);
+      const list = data.activities || [];
+      setActivities(list);
       setActivityLive(!data.fallback);
+      // Same shape as loadHolders: an outage resolves rather than rejecting, so
+      // "zero sales" and "we couldn't ask" must not render as the same claim.
+      setActivityError(
+        data.fallback && list.length === 0
+          ? "Could not load the activity feed for this collection — the sales API did not respond."
+          : null
+      );
     } catch (err) {
       console.warn("WhaleIntelligence: fetchActivity error:", err.message);
-      if (mountedRef.current) setError("Could not load activity feed. Please check your connection and try again.");
+      if (mountedRef.current) setActivityError("Could not load the activity feed for this collection — the sales API did not respond.");
     } finally {
       if (mountedRef.current) setLoadingActivity(false);
     }
@@ -211,14 +230,14 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     setHolders([]);
     setActivities([]);
     setTotalOwners(0);
-    setApiTotalHeld(0);
     setLoadingHolders(true);
     setLoadingActivity(true);
     setHoldersLive(false);
     setActivityLive(false);
     setExpandedHolder(null);
     setExpandedNfts([]);
-    setError(null);
+    setHoldersError(null);
+    setActivityError(null);
   }, [collection.contract]);
 
   useEffect(() => {
@@ -251,11 +270,17 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       setExpandedNfts([]);
       setExpandedError(false);
       setLoadingNfts(true);
-      const data = await fetchWalletNfts(address, collection.contract, collection.metadataBase);
+      // This panel is a thumbnail preview, so it deliberately walks only the
+      // first few pages rather than every page of a thousand-token whale. The
+      // count rendered beside it comes from `totalCount` (the wallet's real
+      // holding count, reported on every page), never from how many thumbnails
+      // happened to load.
+      const data = await fetchWalletNfts(address, collection.contract, collection.metadataBase, { maxPages: 3 });
       if (!mountedRef.current) return;
       // An outage returns { tokens:[], error } — don't claim "none held".
       if (data?.error && (data.tokens?.length || 0) === 0) setExpandedError(true);
       setExpandedNfts(data.tokens || []);
+      setExpandedTotal(data?.totalCount || 0);
       setLoadingNfts(false);
     },
     [expandedHolder, collection.contract, collection.metadataBase]
@@ -439,7 +464,7 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
     }
     resolveAll();
     return () => { mounted = false; };
-  }, [holders, whaleTransactions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [holders, whaleTransactions]);
 
   /* ── Helper: get display name for an address (ENS or shortened) ── */
   const getDisplayName = useCallback((fullAddress, shortAddress) => {
@@ -510,10 +535,10 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
       />
 
       {/* ── Error banner ── */}
-      {error && (
+      {(holdersError || activityError) && (
         <div className="error-banner" style={{ marginBottom: 16 }}>
-          <span>{error}</span>
-          <button onClick={() => { setError(null); loadHolders(); loadActivity(); }}>Retry</button>
+          <span>{[holdersError, activityError].filter(Boolean).join(" ")}</span>
+          <button onClick={() => { setHoldersError(null); setActivityError(null); loadHolders(); loadActivity(); }}>Retry</button>
         </div>
       )}
 
@@ -561,12 +586,24 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                 fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow)",
                 display: "flex", alignItems: "center", gap: 6,
               }}>
-                {"⚠"} Showing cached example holders — live holder API unavailable
+                {"⚠"} Live holder API unavailable — this list is not a live read
               </div>
             )}
 
             {loadingHolders ? (
               <SectionSkeleton rows={10} height={52} />
+            ) : holdersError ? (
+              <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
+                <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"⚠"}</div>
+                <div className="empty-state-title" style={{ fontSize: 13 }}>Holder data unavailable</div>
+                <div className="empty-state-text" style={{ fontSize: 10 }}>The holder API did not respond for {collection.name}. Nothing is shown rather than a guess — use Retry above.</div>
+              </div>
+            ) : holders.length === 0 ? (
+              <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
+                <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"🐳"}</div>
+                <div className="empty-state-title" style={{ fontSize: 13 }}>No holders returned</div>
+                <div className="empty-state-text" style={{ fontSize: 10 }}>The holder API returned an empty owner set for {collection.name}.</div>
+              </div>
             ) : (
               <div
                 style={{
@@ -795,7 +832,12 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                                   letterSpacing: "0.06em",
                                 }}
                               >
-                                {expandedNfts.length} {collection.name.toUpperCase()} HELD
+                                {expandedTotal || expandedNfts.length} {collection.name.toUpperCase()} HELD
+                                {expandedTotal > expandedNfts.length && (
+                                  <span style={{ color: "var(--yellow, #fbbf24)", marginLeft: 6 }}>
+                                    &middot; previewing {expandedNfts.length}
+                                  </span>
+                                )}
                               </div>
                               <div
                                 style={{
@@ -952,9 +994,15 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
               </div>
             ) : (
               <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
-                <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDCCA"}</div>
-                <div className="empty-state-title" style={{ fontSize: 13 }}>No Holder Data for {collection.name}</div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>Holder distribution will appear once data is loaded.</div>
+                <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{holdersError ? "\u26A0" : "\uD83D\uDCCA"}</div>
+                <div className="empty-state-title" style={{ fontSize: 13 }}>
+                  {holdersError ? `Holder data unavailable for ${collection.name}` : `No Holder Data for ${collection.name}`}
+                </div>
+                <div className="empty-state-text" style={{ fontSize: 10 }}>
+                  {holdersError
+                    ? "Concentration cannot be measured without the owner set \u2014 use Retry above."
+                    : `No owners were returned for ${collection.name}.`}
+                </div>
               </div>
             )}
           </div>
@@ -1148,7 +1196,9 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
                 <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\u2191\u2193"}</div>
                 <div className="empty-state-title" style={{ fontSize: 13 }}>No Whale Activity for {collection.name}</div>
                 <div className="empty-state-text" style={{ fontSize: 10 }}>
-                  {activities.length === 0
+                  {activityError
+                    ? `Sales data for ${collection.name} could not be loaded — this is not a report of zero sales.`
+                    : activities.length === 0
                     ? `No recent sales found for ${collection.name}.`
                     : `None of the ${activities.length} recent ${collection.name} sales involved top ${holders.length} holders.`}
                 </div>
@@ -1187,7 +1237,11 @@ export default function WhaleIntelligence({ onViewProfile, stats } = {}) {
               <div className="empty-state" style={{ padding: "32px 0", minHeight: "auto" }}>
                 <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDC33"}</div>
                 <div className="empty-state-title" style={{ fontSize: 13 }}>No Whale Activity for {collection.name}</div>
-                <div className="empty-state-text" style={{ fontSize: 10 }}>Large {collection.name} holder transactions will appear here as they happen.</div>
+                <div className="empty-state-text" style={{ fontSize: 10 }}>
+                  {activityError
+                    ? `Activity feed unavailable for ${collection.name} — no claim is being made about whale activity.`
+                    : `Large ${collection.name} holder transactions will appear here as they happen.`}
+                </div>
               </div>
             ) : (
               <div

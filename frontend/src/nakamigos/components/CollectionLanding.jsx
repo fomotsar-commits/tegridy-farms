@@ -21,7 +21,7 @@ function StatShimmer({ width = "60%" }) {
 }
 
 /* ─── Single stat cell ─── */
-function Stat({ label, value, loading, shimmerWidth }) {
+function Stat({ label, value, loading, shimmerWidth, cached }) {
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{
@@ -33,6 +33,19 @@ function Stat({ label, value, loading, shimmerWidth }) {
         textTransform: "uppercase",
       }}>
         {label}
+        {/* Marks a tile whose number is a stored constant rather than a
+            measurement, so it is never read as this minute's figure. */}
+        {cached && (
+          <span
+            title="Cached estimate — live stats unavailable right now"
+            style={{
+              marginLeft: 5, fontSize: 8, border: "1px solid var(--border)",
+              borderRadius: 3, padding: "0 3px",
+            }}
+          >
+            cached
+          </span>
+        )}
       </div>
       {loading ? <StatShimmer width={shimmerWidth} /> : (
         <div style={{
@@ -629,6 +642,7 @@ function CollectionCard({ collection, stats, statsLoading, statsError, previewIm
             label="Volume"
             loading={isLoading}
             shimmerWidth="70%"
+            cached={!isError && !!stats?.volumeFallback}
             value={isError ? dash : stats ? formatStat(stats.volume, " ETH") : dash}
           />
           <Stat

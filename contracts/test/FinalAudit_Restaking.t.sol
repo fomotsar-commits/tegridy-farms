@@ -7,6 +7,7 @@ import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
+import {TegridyRestakingAdmin} from "../src/TegridyRestakingAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
@@ -50,6 +51,7 @@ contract FinalAuditRestaking is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
+    TegridyRestakingAdmin restakingAdmin; // EIP-170 split: timelocked param governance
     RestakingMonitorView rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
@@ -86,6 +88,11 @@ contract FinalAuditRestaking is Test {
             address(weth),
             BONUS_RATE
         );
+
+        // EIP-170 split: the timelocked admin surface lives on the sister;
+        // the host only exposes the onlyAdmin applyXxx hooks it calls.
+        restakingAdmin = new TegridyRestakingAdmin(address(restaking));
+        restaking.setRestakingAdmin(address(restakingAdmin));
         rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Set restaking contract on staking so revalidateBoost works
@@ -224,9 +231,9 @@ contract FinalAuditRestaking is Test {
         toweli.transfer(address(restaking), 2 * STAKE_AMOUNT + 1000 ether);
 
         // Owner attributes stuck rewards to Alice
-        restaking.proposeAttributeStuckRewards(alice, 500 ether);
+        restakingAdmin.proposeAttributeStuckRewards(alice, 500 ether);
         vm.warp(block.timestamp + 24 hours + 1);
-        restaking.executeAttributeStuckRewards();
+        restakingAdmin.executeAttributeStuckRewards();
 
         // Verify Alice has unforwarded
         assertEq(restaking.unforwardedBaseRewards(alice), 500 ether);
@@ -396,11 +403,11 @@ contract FinalAuditRestaking is Test {
         // the typed-error guards moved to the propose side (and re-check on execute).
         // Should revert for bonusRewardToken
         vm.expectRevert(TegridyRestaking.CannotSweepBonusToken.selector);
-        restaking.proposeSweepStuckRewards(address(weth));
+        restakingAdmin.proposeSweepStuckRewards(address(weth));
 
         // Should revert for rewardToken
         vm.expectRevert(TegridyRestaking.CannotSweepRewardToken.selector);
-        restaking.proposeSweepStuckRewards(address(toweli));
+        restakingAdmin.proposeSweepStuckRewards(address(toweli));
     }
 
     // =========================================================================

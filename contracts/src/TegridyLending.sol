@@ -63,6 +63,14 @@ interface ITegridyStaking {
     ///         a prior holder, then re-read at settlement to compute the delta
     ///         the current loan actually earned. Public mapping in TegridyStaking.
     function unsettledRewardsByTokenId(uint256 tokenId) external view returns (uint256);
+    /// @notice AUDIT FIX [staking-attribution] 2026-08: the per-(tokenId, holder)
+    ///         entry — what `claimUnsettledForTokenId` would actually drain for
+    ///         `holder`. `unsettledRewardsByTokenId` above is the AGGREGATE over all
+    ///         tracked holders, so it over-states this contract's own slice whenever
+    ///         another tracked holder has undrained residue on the same tokenId.
+    ///         Every "MY residue" read in this file uses THIS view with
+    ///         `holder = address(this)`.
+    function unsettledByTokenIdHolder(uint256 tokenId, address holder) external view returns (uint256);
 }
 
 /// @dev Minimal interface for TegridyPair reserve queries (used by the ETH-floor check).
@@ -1287,10 +1295,23 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // bucket) is attributed to THIS loan's delta, not to the prior
         // holder. Without this snapshot, a borrower whose loan opens after a
         // prior loan deferred its settlement (paused staking) would drain
-        // the prior loan's slice. Reads via the staking interface's
-        // `unsettledRewardsByTokenId` getter (now in ITegridyStaking) —
-        // public mapping in TegridyStaking.sol:174.
-        loanRewardsSnapshot[loanId] = staking.unsettledRewardsByTokenId(_tokenId);
+        // the prior loan's slice.
+        //
+        // AUDIT FIX [staking-attribution] 2026-08 [MEDIUM — borrower/lender
+        // UNDER-PAYMENT]: this read THE AGGREGATE `unsettledRewardsByTokenId`,
+        // which under the per-(tokenId, holder) ledger also counts a FOREIGN
+        // tracked holder's undrained residue on this same tokenId (e.g.
+        // TegridyRestaking's, from a pre-loan restake cycle that exited against a
+        // short pool). Settlement pays out `totalDrained - min(snapshot,
+        // totalDrained)`, and `totalDrained` is now strictly THIS contract's own
+        // ledger entry — so every wei of foreign residue inflated `snapshot`,
+        // was subtracted as if it were a "prior holder's" slice, and silently
+        // suppressed the borrower's payout. With foreign residue >= what the loan
+        // earned, `myShare` collapsed to ZERO. Reading our OWN entry makes the
+        // snapshot and the drain the same quantity, which is what the delta
+        // arithmetic assumes. `address(this)` is the tracked holder here because
+        // the NFT is escrowed to this contract (transfer on the next line).
+        loanRewardsSnapshot[loanId] = staking.unsettledByTokenIdHolder(_tokenId, address(this));
 
         // Transfer NFT from borrower to this contract (collateral escrow)
         staking.transferFrom(msg.sender, address(this), _tokenId);
@@ -1536,7 +1557,12 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // bucket (try/catch absorbed). Account for what's STILL in the bucket
         // beyond our snapshot — that's our slice the borrower can recover via
         // `pullEscrowRewards` once staking is unpaused.
-        uint256 remainingInBucket = staking.unsettledRewardsByTokenId(tokenId);
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry, not the aggregate.
+        // This is differenced against `snapshot` (also our own entry now), and it
+        // sizes `escrowRewardsOwed` — a real liability. Reading the aggregate would
+        // book a foreign holder's residue as debt this contract owes the borrower,
+        // against tokens it can never drain.
+        uint256 remainingInBucket = staking.unsettledByTokenIdHolder(tokenId, address(this));
         if (remainingInBucket > snapshot) {
             uint256 myDeferred = remainingInBucket - snapshot;
             escrowRewardsOwed[_loanId] += myDeferred;
@@ -1697,7 +1723,9 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             emit EscrowRewardsAttributed(_loanId, myShare);
         }
 
-        uint256 remainingInBucket = staking.unsettledRewardsByTokenId(tokenId);
+        // AUDIT FIX [staking-attribution] 2026-08: OUR OWN entry — same reasoning as
+        // the repay path above (differenced against `snapshot`, sizes a real liability).
+        uint256 remainingInBucket = staking.unsettledByTokenIdHolder(tokenId, address(this));
         if (remainingInBucket > snapshot) {
             uint256 myDeferred = remainingInBucket - snapshot;
             escrowRewardsOwed[_loanId] += myDeferred;
@@ -2265,6 +2293,40 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
     /// @notice Pause-extended deadline for a loan.
     /// @dev    AUDIT FIX: DEEP-LD2-M4 — subtract per-loan `pausedDurationAtStart`
     ///         snapshot so pre-loan pauses cannot retroactively extend deadlines.
+    /// @dev    AUDIT FIX 2026-08 (LEND-PAUSE-INFLIGHT): the IN-FLIGHT pause term
+    ///         is bounded by `MAX_PAUSE_BLOCK_LIQUIDATION`.
+    ///
+    ///         Pre-fix this function added the whole open-ended in-flight pause
+    ///         (`block.timestamp - pauseStartTime`), so in the gate used by
+    ///         `claimDefaultedCollateral`
+    ///           `block.timestamp <= effectiveDeadline + GRACE_PERIOD + buffer`
+    ///         the `block.timestamp` terms CANCELLED. Any pause that began
+    ///         before `deadline + grace` therefore blocked the lender's claim
+    ///         FOREVER — however long the pause ran — while `repayLoan` (which
+    ///         carries no `whenNotPaused`) stayed open the entire time. That
+    ///         made the 7-day cap checked at the top of
+    ///         `claimDefaultedCollateral` completely inert, the opposite of what
+    ///         its NatSpec promises, and turned an ordinary incident-response
+    ///         pause into a permanent liquidation block.
+    ///
+    ///         The bound is deliberately NARROW: only the in-flight term is
+    ///         clamped. The ACCUMULATED term (`totalPausedDuration -
+    ///         pausedDurationAtStart`) is left untouched — it is real elapsed
+    ///         downtime the borrower is owed back, and it cannot produce the
+    ///         `block.timestamp`-cancellation above because it does not grow
+    ///         with `block.timestamp`.
+    ///
+    ///         The clamp lives HERE, in the single place this contract computes
+    ///         the fact, so `repayLoan`, `claimDefaultedCollateral` and the
+    ///         public `isDefaulted` view all keep reading the SAME value. That
+    ///         preserves the repay/claim symmetry this contract documents at
+    ///         `claimDefaultedCollateral` ("both sides wait through pause
+    ///         symmetrically") and prevents the UI from ever reporting a loan as
+    ///         defaulted while the claim path refuses it. Clamping only the
+    ///         lender's gate would have broken both properties.
+    ///
+    ///         The clamp is an upper bound on an ADDITION, so it can never make
+    ///         a loan claimable earlier than its own base deadline.
     function effectiveDeadline(uint256 _loanId) public view returns (uint256) {
         if (_loanId >= loans.length) revert InvalidLoanId();
         Loan storage loan = loans[_loanId];
@@ -2273,7 +2335,10 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
             ? totalPausedDuration - loan.pausedDurationAtStart
             : 0;
         if (paused() && pauseStartTime != 0 && block.timestamp > pauseStartTime) {
-            pauseExt += block.timestamp - pauseStartTime;
+            // AUDIT FIX 2026-08 (LEND-PAUSE-INFLIGHT): bound the in-flight term.
+            uint256 inFlight = block.timestamp - pauseStartTime;
+            if (inFlight > MAX_PAUSE_BLOCK_LIQUIDATION) inFlight = MAX_PAUSE_BLOCK_LIQUIDATION;
+            pauseExt += inFlight;
         }
         return base + pauseExt;
     }

@@ -44,10 +44,26 @@ export function useFarmActions() {
     lastActionRef.current = 'action';
   }, [address]);
 
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({
+  const {
+    data: receipt,
+    isLoading: isConfirming,
+    isSuccess: isReceiptFetched,
+    isError: isReceiptError,
+  } = useWaitForTransactionReceipt({
     chainId: CHAIN_ID,
     hash,
   });
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
+  // FETCHED" — a transaction that reverted on-chain also produces a receipt,
+  // so `isSuccess` latched true and the UI showed confetti + "Transaction
+  // confirmed" for a stake/withdraw/claim that moved nothing. Only
+  // `receipt.status === 'success'` is an actual on-chain success.
+  // `receipt` is always defined once wagmi reports isSuccess at runtime; the
+  // null-check is defensive only, so a wagmi shape drift can never turn a
+  // genuinely successful tx into a false "reverted" alarm.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
+  const isTxError = isReceiptError || isReverted;
 
   useEffect(() => {
     if (isSuccess && hash) {
@@ -90,10 +106,23 @@ export function useFarmActions() {
 
   useEffect(() => {
     if (isTxError && hash) {
-      toast.error('Transaction failed', { id: `err-${hash}` });
+      toast.error(isReverted ? 'Transaction reverted on-chain' : 'Transaction failed', {
+        id: `err-${hash}`,
+        description: isReverted
+          ? 'The network rejected it — nothing was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then adjust your amount or lock and try again.'
+          : undefined,
+        action: {
+          label: 'Explorer',
+          onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
+        },
+      });
+      // A reverted tx moved nothing, so drop the in-flight snapshots — otherwise
+      // a later *successful* tx would fire trackStake for this dead stake.
+      pendingStakeRef.current = null;
+      txAddressRef.current = undefined;
       lastActionRef.current = 'action';
     }
-  }, [isTxError, hash]);
+  }, [isTxError, isReverted, hash, chainId]);
 
   useEffect(() => {
     // F474: classify wallet cancellations as a soft "Cancelled" info toast

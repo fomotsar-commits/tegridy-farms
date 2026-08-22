@@ -25,7 +25,7 @@ jobs:
 
     steps:
       # AUDIT R056: SHA-pinned (was floating @v4) — supply-chain hardening.
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -72,6 +72,107 @@ jobs:
         # be re-checked before porting to main.
         run: npm test
 
+      # indexer-solana/ is a separate Node service, so its tests cannot be
+      # collected by the step above: vitest's `root` is frontend/ and include
+      # globs are resolved under it — nothing above frontend/ is reachable,
+      # whatever the glob says (src/test/vitestCollection.test.ts asserts that
+      # boundary and lists this step as the runner for these files).
+      #
+      # It reuses the vitest installed here rather than a second node_modules:
+      # the service itself has one runtime dependency and no dev tree, and a
+      # test runner it does not ship is a runner that never drifts from this one.
+      - name: Solana indexer unit tests
+        run: npx vitest run --root ../indexer-solana --environment node
+
+      # bot/ is the same shape as indexer-solana above — a long-running service
+      # outside frontend/, unreachable by this project's include glob — so it gets
+      # its own root and is listed as the runner for `bot/` in
+      # src/test/vitestCollection.test.ts.
+      #
+      # It ships ZERO npm dependencies (the Telegram transport is plain fetch), so
+      # there is nothing to install here and nothing that could reach the bot's
+      # secret through a postinstall. The non-custodial guard itself is NOT in this
+      # step: api/__tests__/bot-noncustodial.test.js runs in the frontend suite so
+      # that an edit to the API or the migration cannot skip it.
+      - name: Telegram bot unit tests
+        run: npx vitest run --root ../bot --environment node
+
+      # Every protocol address, decoded rather than eyeballed.
+      #
+      # 2026-08-08: an operator wallet was recorded in notes only as a truncated
+      # "5hNA2MXk…927v", and a later session INVENTED a full address to fit that
+      # pattern — 45 characters decoding to 33 bytes, which is not a Solana pubkey
+      # at all. It looked completely plausible sitting next to the real one. Nobody
+      # funded it, so nothing was lost; that was luck.
+      #
+      # A wrong address is visually indistinguishable from a right one, so review
+      # cannot catch this class of error and a markdown table would not have
+      # helped. Decoding catches it every time. This step also fails when a new
+      # contract lands in constants.ts without being registered, so an address can
+      # never enter the codebase unexplained.
+      - name: Address registry
+        run: node scripts/verify-addresses.mjs
+
+      # The registry's drift guard used to be ONE-DIRECTIONAL: it walked
+      # constants.ts and asked the registry about each address it found, so its
+      # reach was "addresses the frontend already imports, in one syntax". Seven
+      # live mainnet contracts were invisible to it — four DELEGATECALL libraries,
+      # the JBAC escrow vault, and the two retired staking deployments that still
+      # custody user positions (an ARRAY literal the regex could not match). The
+      # step above was green the whole time.
+      #
+      # It is bidirectional now (check 6 starts from the Foundry broadcast
+      # receipts), and this proves it can still FAIL: each case forces the failure
+      # condition against a synthetic input and asserts a failure comes back, with
+      # a control that the same shape passes when it should. A green gate is not
+      # evidence a gate works — it is equally consistent with a gate that cannot
+      # see anything.
+      - name: Address-registry drift guard self-test
+        run: node scripts/verify-addresses.mjs --self-test
+
+      # Which pubkeys are baked into the deployed Solana programs.
+      #
+      # A `pubkey!()` constant cannot be read from an account or an explorer, and
+      # a reproducible build of a WRONG constant still reproduces and still hashes
+      # correctly — so neither `solana-verify` nor reading lib.rs answers the
+      # question. (The mainnet authority constants are hand-patched at build time
+      # per MAINNET_RUNBOOK §2 and never committed, so trunk's source shows
+      # placeholders.) Searching the binary for each key's raw 32 bytes is the only
+      # check that works, and getting it wrong once already cost a program upgrade:
+      # cp-swap shipped with admin::ID set to the Squads multisig account, which
+      # can neither sign nor pay, leaving graduation permanently on
+      # AmmNotConfigured.
+      #
+      # This runs the decision table, including the two cases that would make the
+      # tool confidently wrong: the ProgramData header (bytes 13..45 hold the
+      # UPGRADE AUTHORITY, which must not be reported as a baked-in constant) and
+      # low-entropy keys (the System sentinel is 32 zero bytes, which "match"
+      # anything). It also cross-checks every roster key against addresses.json.
+      - name: Solana program-constant verifier self-test
+        working-directory: .
+        run: node scripts/verify-program-constants.mjs --self-test
+
+      # The pre-deploy guard is the only control on the Vercel CLI path, and it
+      # runs on an operator's laptop where nothing verifies it still works. Its
+      # decision table is pure, so prove it here on every push instead of
+      # discovering it is broken during an incident. `working-directory` is
+      # overridden because the script lives at the repo root, not in frontend/.
+      - name: Pre-deploy guard self-test
+        working-directory: .
+        run: node scripts/predeploy-check.mjs --self-test
+
+      # Same reasoning: the ownership verifier runs on an operator's laptop
+      # during the custody sprint, so its decision table is proven here.
+      - name: Ownership verifier self-test
+        working-directory: .
+        run: node scripts/verify-ownership.mjs --self-test
+
+      # Guards an IRREVERSIBLE broadcast. Its decision table has to be right the
+      # first time — there is no second call to fix a wrong one.
+      - name: One-shot guard self-test
+        working-directory: .
+        run: node scripts/oneshot-guard.mjs --self-test
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -81,7 +182,7 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -126,7 +227,7 @@ jobs:
         working-directory: frontend
 
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -136,8 +237,15 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
+      # webkit is required by the iphone-safari / ipad-safari projects in
+      # playwright.config.ts — the iOS device descriptors run on WebKit because
+      # that is the only engine iOS ships. Omitting it here does not shrink the
+      # matrix, it fails the run with "browser not installed".
+      #
+      # The anvil job below stays chromium-only on purpose: it passes
+      # --project=chromium, so webkit would be a download it never opens.
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Download build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -167,13 +275,14 @@ jobs:
         # not fail in the serial run. CI runs serial, so it should not surface
         # here; if it ever does, `retries: 2` is the backstop.
         #
-        # ⚠ The 44 skips are NOT this step failing to run things. They are
-        # `test.skip(!onAnvil, 'ANVIL_RPC_URL unset')` gates in
-        # claim-rewards/lending/liquidity/stake/swap.spec.ts — 20 tests x 2
-        # projects — plus 4 unconditional skips. NOTHING in .github/ sets
-        # ANVIL_RPC_URL, so the entire state-changing money-path E2E surface
-        # runs in no pipeline at all. That is a real coverage gap and needs an
-        # Anvil-fork job; it is NOT fixed by this flip.
+        # The 40 money-path skips this comment used to describe are FIXED
+        # (2026-08-12), and they were worse than recorded: each
+        # `test.skip(!onAnvil, …)` sat in DESCRIBE scope, where Playwright
+        # applies it to the whole group — so all 20 tests in
+        # claim-rewards/lending/liquidity/stake/swap.spec.ts were skipped, not
+        # just the 5 that need a chain. 15 of them need no chain at all and now
+        # run right here; the 5 state-changing ones are gated per-test and run
+        # in the e2e-anvil job below.
         run: npx playwright test
 
       - name: Upload E2E Report
@@ -182,4 +291,120 @@ jobs:
         with:
           name: playwright-report
           path: frontend/playwright-report
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────
+  # THE MONEY PATHS, ON A REAL CHAIN.
+  #
+  # Every state-changing E2E test — stake, swap, add/remove liquidity,
+  # borrow/repay, claim — was skipped in every pipeline. Not by policy: the
+  # harness that runs them (frontend/scripts/run-e2e-with-anvil.mjs) was
+  # already committed, complete, and unreachable, because its usage line
+  # pointed at `pnpm e2e` and no `e2e` script existed in package.json. One
+  # missing line kept the entire money-path surface out of CI.
+  #
+  # Three things had to be true for this job to mean anything, and none were:
+  #   1. an `e2e` script that reaches the harness              (package.json)
+  #   2. the wallet mock announcing itself over EIP-6963, or the app never
+  #      calls it and every "connected" assertion is really an assertion
+  #      about the disconnected surface                        (fixtures/wallet.ts)
+  #   3. the app's OWN rpc transports pointed at the fork — wagmi answers
+  #      reads from src/lib/wagmi.ts's public endpoints, never from the
+  #      connector, so funding an account on anvil funded an account the app
+  #      never asks about                                      (fixtures/wallet.ts)
+  #
+  # ⚠ FIRST EXECUTION. The five state-changing specs have never run against a
+  # chain in any pipeline. This job is their first verdict. If one is red it
+  # is red for a reason — fix the spec or the app. Do NOT re-add a skip.
+  # ─────────────────────────────────────────────────────────────────────
+  e2e-anvil:
+    name: E2E Tests (Anvil fork — money paths)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --ignore-scripts
+
+      # anvil ships with Foundry; nothing else here needs forge.
+      - name: Install Foundry (anvil)
+        uses: foundry-rs/foundry-toolchain@de808b1eea699e761c404bda44ba8f21aba30b2c # v1.3.1
+        with:
+          version: stable
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: frontend/dist
+
+      # chromium only. These specs assert transaction flow, not layout — the
+      # mobile-chrome projection of the same DOM is already covered by the
+      # mock-mode e2e job above, and a fork run costs real wall-clock.
+      #
+      # E2E_REQUIRE_ANVIL makes a runner without Foundry a hard failure. The
+      # harness otherwise falls back to mock-mode, which would quietly restore
+      # exactly the all-skipped run this job exists to replace.
+      - name: Money-path E2E against an Anvil mainnet fork
+        env:
+          E2E_REQUIRE_ANVIL: "1"
+          ANVIL_FORK_URL: https://ethereum-rpc.publicnode.com
+          PLAYWRIGHT_JSON_OUTPUT_NAME: anvil-report.json
+        run: |
+          npm run e2e -- --project=chromium --reporter=list,json \
+            e2e/swap.spec.ts \
+            e2e/stake.spec.ts \
+            e2e/liquidity.spec.ts \
+            e2e/lending.spec.ts \
+            e2e/claim-rewards.spec.ts
+
+      # THE GUARD THAT MAKES THIS A GATE.
+      #
+      # Playwright exits 0 on a run where every test SKIPPED. If ANVIL_RPC_URL
+      # failed to reach the specs — harness change, env rename, anything — the
+      # five state-changing tests would skip themselves and this job would go
+      # green having proved nothing, which is the precise failure mode that hid
+      # them for months. So the skip count is asserted separately from the exit
+      # code, and any skip at all fails.
+      - name: Assert the money paths actually executed
+        run: |
+          set -euo pipefail
+          test -f anvil-report.json || { echo "::error::no anvil-report.json — the run produced no report"; exit 1; }
+          EXPECTED="$(jq '.stats.expected // 0' anvil-report.json)"
+          SKIPPED="$(jq '.stats.skipped // 0' anvil-report.json)"
+          echo "passed=$EXPECTED skipped=$SKIPPED"
+          if [ "$SKIPPED" -ne 0 ]; then
+            echo "::error title=Money-path E2E skipped::${SKIPPED} test(s) skipped in the Anvil job. This job exists because these tests were skipped everywhere; a skip here is a green report over an unexecuted money path. Check that ANVIL_RPC_URL reaches the specs."
+            if ! jq -r '.. | objects | select(.status? == "skipped") | .title? // empty' anvil-report.json; then
+              echo "(could not enumerate the skipped titles from the report)"
+            fi
+            exit 1
+          fi
+          if [ "$EXPECTED" -lt 20 ]; then
+            echo "::error title=Money-path E2E selection shrank::only ${EXPECTED} tests ran; expected the full 20 across the five money-path specs. A spec file that stops matching is a silent coverage loss."
+            exit 1
+          fi
+
+      - name: Upload Anvil E2E Report
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-anvil
+          path: |
+            frontend/playwright-report
+            frontend/anvil-report.json
           retention-days: 7

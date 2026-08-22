@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { TRAIT_LORE } from "../constants";
 import NftImage from "./NftImage";

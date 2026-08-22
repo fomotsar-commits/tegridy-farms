@@ -1,4 +1,4 @@
-import { useRef, useMemo, memo, useState, useEffect, useCallback } from "react";
+import { useRef, useMemo, memo, useState, useEffect } from "react";
 import React from "react";
 import { m } from "framer-motion";
 import usePrefersReducedMotion from "../hooks/usePrefersReducedMotion";
@@ -224,7 +224,7 @@ function MeshGradient({ colors }) {
 // ═══ Premium glass orbs — bokeh-like floating lights ═══
 function GlassOrbs({ color }) {
   const orbs = useMemo(() =>
-    Array.from({ length: 8 }, (_, i) => ({
+    Array.from({ length: 8 }, () => ({
       x: 10 + Math.random() * 80,
       y: 10 + Math.random() * 80,
       size: 60 + Math.random() * 120,
@@ -303,7 +303,7 @@ function LightRays({ color }) {
 // ═══ Premium floating dust motes ═══
 function DustMotes({ color }) {
   const motes = useMemo(() =>
-    Array.from({ length: 20 }, (_, i) => ({
+    Array.from({ length: 20 }, () => ({
       x: Math.random() * 100,
       y: Math.random() * 100,
       size: 2 + Math.random() * 3,
@@ -316,24 +316,29 @@ function DustMotes({ color }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 1, overflow: "hidden" }}>
-      {motes.map((m, i) => (
+      {/* The callback param is `mote`, NOT `m`: `m` is the framer-motion import
+          on line 3, and shadowing it here made `<m.div>` resolve to the plain
+          mote object, whose `.div` is undefined. React threw "Element type is
+          invalid" on every render and BackgroundErrorBoundary swallowed it, so
+          this whole layer silently never drew. */}
+      {motes.map((mote, i) => (
         <m.div
           key={i}
           animate={{
-            y: [0, m.driftY],
-            x: [0, m.driftX],
+            y: [0, mote.driftY],
+            x: [0, mote.driftX],
             opacity: [0, 0.6, 0.8, 0.4, 0],
           }}
-          transition={{ duration: m.dur, delay: m.delay, repeat: Infinity, ease: "easeInOut" }}
+          transition={{ duration: mote.dur, delay: mote.delay, repeat: Infinity, ease: "easeInOut" }}
           style={{
             position: "absolute",
-            left: `${m.x}%`,
-            top: `${m.y}%`,
-            width: m.size,
-            height: m.size,
+            left: `${mote.x}%`,
+            top: `${mote.y}%`,
+            width: mote.size,
+            height: mote.size,
             borderRadius: "50%",
             background: color,
-            boxShadow: `0 0 ${m.size * 3}px ${color}`,
+            boxShadow: `0 0 ${mote.size * 3}px ${color}`,
           }}
         />
       ))}

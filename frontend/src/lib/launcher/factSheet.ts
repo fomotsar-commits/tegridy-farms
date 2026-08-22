@@ -8,6 +8,7 @@
 // not meet the tier's structural bar. All wording is neutral and factual.
 
 import type { Address, Hex } from 'viem';
+import type { HeatTier } from '../heat/heatOracle';
 
 /** Tiers are STRUCTURAL gates, not quality ratings. See gate.ts. */
 export type LaunchTier =
@@ -30,6 +31,19 @@ export interface ResidualPower {
   holder?: Address | null;
   /** Plain-language, buyer-facing sentence. Always factual, never reassuring. */
   disclosure: string;
+  /**
+   * THE THIRD STATE for `present`. FALSE when the read behind this power never
+   * landed — as opposed to landing and reporting the power absent.
+   *
+   * `present: false` had two meanings and one of them is a lie: a 429 on
+   * `isBalanceLimitActive()` degrades to `false`, which reads out as "No maximum
+   * wallet balance is enforced." — a statement about a contract nobody queried,
+   * folded permanently into `disclosuresDigest`.
+   *
+   * Emitted ONLY when false. Absent means read, so every existing producer and
+   * every already-computed digest is byte-for-byte unaffected.
+   */
+  readable?: boolean;
 }
 
 /** LP lock disclosure. */
@@ -39,6 +53,21 @@ export interface LiquidityDisclosure {
   /** Unix seconds; null = no lock / perpetual / unknown (see `note`). */
   unlockAt: number | null;
   note: string;
+  /**
+   * FALSE when the lock state was never read at all — as opposed to read and found
+   * unlocked. Absent means read, so every existing producer is unaffected.
+   *
+   * This exists because `locked: false` had two meanings and only one of them was true.
+   * `readMigrationStream` is inert against the V1 locker (no token -> position-tokenId
+   * index exists), so it returns a hardcoded `locked: false` without touching the chain,
+   * and `note` then read "Liquidity is not locked; it may be withdrawable by the
+   * liquidity owner." — a claim about a locker nobody queried.
+   *
+   * That sentence is not cosmetic: `attestation.canonicalDisclosuresJson` folds this
+   * whole object into `disclosuresDigest`, which is published ON-CHAIN. An unverified
+   * assertion was being committed permanently.
+   */
+  readable?: boolean;
 }
 
 /** One line of the launch's fee constitution. Shares are basis points of the trade fee. */
@@ -46,6 +75,44 @@ export interface FeeConstitutionLine {
   recipient: string; // label or address
   shareBps: number;
   role: 'creator' | 'attention-beneficiary' | 'protocol-stakers' | 'protocol-pol' | 'doppler' | 'other';
+}
+
+/**
+ * HOW THIS LAUNCH'S VENUE LINE WAS PRICED. Published beside the constitution because the
+ * constitution alone shows the split without showing what set it.
+ *
+ * Present ONLY when a pricing feature was in force (see launchPricing.isStandardPricing);
+ * absent means every launch's standard rate, which the constitution already states. That
+ * absence is what keeps `disclosuresDigest` identical for sheets computed before pricing
+ * existed.
+ *
+ * The bps here are shares of the migration pool's TRADE FEE, matching FeeConstitutionLine
+ * — not shares of trade volume, and not a fee charged to create the launch (there is
+ * none; a creator pays network gas only).
+ */
+export interface LaunchPricingDisclosure {
+  /** bps of the pool trade fee the venue keeps under this launch's constitution. */
+  venueShareBps: number;
+  /** The venue's standard line, so the reader can see the discount rather than be told it. */
+  standardVenueShareBps: number;
+  /** bps the launcher's Heat tier moved from the venue's line to the creator. */
+  tierDiscountBps: number;
+  /** bps the creator revenue share moved from the venue's line to the creator. */
+  creatorRevenueShareBps: number;
+  /**
+   * The Heat tier the price was resolved at, rendered VERBATIM as the island words it.
+   * NULL when no fresh reading existed — never a fallback tier, because a tier the island
+   * did not give is a claim about a wallet nobody measured.
+   */
+  pricedAtTier: HeatTier | null;
+  /**
+   * THE THIRD STATE for `pricedAtTier`. FALSE when tier pricing was in force and the
+   * instrument gave nothing to price on, so the standard rate is a fallback rather than
+   * this wallet's price. Emitted only when false.
+   */
+  tierReadable?: boolean;
+  /** Plain-language, buyer-facing. Factual; never a projection of what a creator will earn. */
+  note: string;
 }
 
 /** One vesting schedule attached to an allocation. */
@@ -84,12 +151,54 @@ export interface LaunchFactSheet {
   residualPowers: ResidualPower[];
   liquidity: LiquidityDisclosure;
   feeConstitution: FeeConstitutionLine[];
+  /**
+   * What set the venue's line of `feeConstitution` above. Absent = the standard rate with
+   * neither pricing feature in force, which is what the constitution already says.
+   */
+  pricing?: LaunchPricingDisclosure;
   vesting: VestingSchedule[];
+  /**
+   * THE THIRD STATE for `vesting`. FALSE when the per-beneficiary schedules were
+   * never ENUMERATED — as opposed to enumerated and found to be none.
+   *
+   * `vesting: []` had two meanings and one of them is a lie. The on-chain collector
+   * cannot enumerate schedules at all: DopplerERC20V1 exposes `vestedTotalAmount()`
+   * (a single total) and `vestingStart()`, and there is no per-beneficiary index to
+   * walk. So `collectTokenFacts` returns an empty array for every token, and
+   * `canonicalDisclosuresJson` folds that empty array into the ON-CHAIN digest — an
+   * unknown published as the value "none".
+   *
+   * Emitted ONLY when false. Absent means enumerated, so a caller that really does
+   * know the schedules (the wizard projection, a graduated-locker read) is unchanged
+   * and its digest does not move.
+   */
+  vestingReadable?: boolean;
   /** Basis points of supply held by team/insiders, and how much of that is on-chain-vested. */
   teamAllocationBps: number;
   teamAllocationVestedBps: number;
   // outcome
   tier: LaunchTier;
+  /**
+   * THE THIRD STATE for `tier`. FALSE when the gate could not actually DECIDE —
+   * i.e. at least one check rested on an input nobody read, and the tier would flip
+   * depending on how that unread input resolved.
+   *
+   * `tier: 'none'` had two meanings and one of them is a lie: "evaluated, does not
+   * meet the bar" and "could not be evaluated". The launch-time attest path hits the
+   * second one on every launch — it re-collects with no LockResolver, the LP-lock
+   * checks fail on an unqueried locker, and a token the wizard rendered FLAGSHIP one
+   * screen earlier encodes as `tier = 0` (see TIER_CODE) permanently, on someone
+   * else's token.
+   *
+   * The uint8 `tier` column has no room for a third value, so the honest move is not
+   * to encode a fourth code — it is to REFUSE. `attestation.attestationRefusal()`
+   * reads this field and blocks the write. Same for the `uint64 liquidityUnlockAt`
+   * column, whose 0 means both "no lock" and "not read".
+   *
+   * Emitted ONLY when false. Absent means the gate decided, so every existing
+   * producer and every already-computed digest is byte-for-byte unaffected.
+   */
+  tierDeterminate?: boolean;
   /** Every gate check with its pass/fail and reason — the audit trail. */
   gateChecks: GateCheck[];
   /** When these facts were read (unix seconds). Facts are point-in-time. */
@@ -103,6 +212,20 @@ export interface GateCheck {
   requiredFor: 'listable' | 'flagship';
   passed: boolean;
   detail: string;
+  /**
+   * THE THIRD STATE for `passed`. FALSE when this check's INPUT was never read, so
+   * `passed` is the conservative fallback rather than a finding.
+   *
+   * A gate substitutes the value that CLOSES the gate when a read fails, which is
+   * right for tiering and wrong for publishing — and in two places it is not even
+   * gate-closing: an unread `owner()` degrades to `null` degrades to "ownership
+   * renounced", which PASSES the flagship admin bar, and an unread
+   * `vestedTotalAmount()` degrades to 0 bps, which PASSES the insider-float cap.
+   * A fabricated pass and a fabricated fail are the same defect.
+   *
+   * Emitted ONLY when false, so a determinate audit trail digests exactly as before.
+   */
+  readable?: boolean;
 }
 
 /**

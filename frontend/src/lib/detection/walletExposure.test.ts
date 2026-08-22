@@ -74,6 +74,41 @@ describe('deriveHoldingExposure — honest-framing gate', () => {
   });
 });
 
+describe('UNMEASURED_REASON — promises only what the code actually does', () => {
+  // The honest-gating above is worthless if the copy explaining the gap makes a
+  // commitment the code never honours. Nothing re-runs a failed scan:
+  // useWalletExposure's effect is keyed on the holding SET, so a failure stays
+  // failed until the holdings change, and there is no retry control on the page.
+  // This string is also reached when the scanner resolved `null` (its source does
+  // not cover the token) and when no scanner is injected at all — for those a
+  // retry promise is false no matter what retry wiring might exist later.
+  //
+  // Asserting `.toBe(UNMEASURED_REASON)` elsewhere pins nothing about the wording
+  // — it is true for any string. These pin the invariant instead.
+
+  it('makes no forward-looking promise that the read will happen later', () => {
+    expect(UNMEASURED_REASON).not.toMatch(
+      /will retry|will be retried|retry(ing)?\b|try again|trying again|check back|coming soon|shortly|in a moment|is pending\b|pending a\b|awaiting\b|once (it|the)\b/i,
+    );
+  });
+
+  it('still states the honest facts it is there to convey', () => {
+    // Guards the other direction: nobody "fixes" the test above by gutting the
+    // string. It must still say what IS true — the position size is exact, and
+    // the distribution specifically is what is missing.
+    expect(UNMEASURED_REASON).toMatch(/position size/i);
+    expect(UNMEASURED_REASON).toMatch(/exact/i);
+    expect(UNMEASURED_REASON).toMatch(/distribution/i);
+    expect(UNMEASURED_REASON).toMatch(/not available/i);
+  });
+
+  it('is the reason an unmeasured holding actually carries', () => {
+    // Ties the wording invariants above to the value a card renders, so the two
+    // cannot drift apart.
+    expect(deriveHoldingExposure(null).reason).toBe(UNMEASURED_REASON);
+  });
+});
+
 describe('summarizeExposures', () => {
   const measured = (band: HoldingExposure['band']): HoldingExposure => ({
     status: 'measured',

@@ -24,7 +24,8 @@
 //   from the aggregator catchall via `?resource=launch-cohort` behind a lazy import, exactly
 //   like _lib/launch-radar.js and _lib/launcher-outcomes.js. See api/SERVERLESS_BUDGET.md.
 
-import { checkRateLimit } from "./ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
+import { isOriginAllowed } from "./aggregator-proxy.js";
 import { logSafe } from "./logSafe.js";
 
 const AIRLOCK = "0xde3599a2ec440b296373a983c85c365da55d9dfa";
@@ -48,9 +49,9 @@ const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const ALLOWED_ORIGINS = [
   "https://memetic.fun",
   "https://www.memetic.fun",
+  "https://memetics.finance",
+  "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
-  "https://nakamigos.gallery",
-  "https://www.nakamigos.gallery",
 ];
 
 function setCors(req, res) {
@@ -88,6 +89,53 @@ export function assetsFromLogs(logs) {
   return out;
 }
 
+/** The Etherscan getLogs URL for the Airlock's whole `Create` history. */
+function createLogsUrl(key) {
+  return (
+    `https://api.etherscan.io/v2/api?chainid=1&module=logs&action=getLogs` +
+    `&address=${AIRLOCK}&topic0=${CREATE_TOPIC0}` +
+    `&fromBlock=${AIRLOCK_FIRST_BLOCK}&toBlock=latest&page=1&offset=${MAX_LOGS}&apikey=${key}`
+  );
+}
+
+/**
+ * Find ONE asset's `Create` log — its birth block and transaction.
+ *
+ * Exported for the birth-record route, which needs `birth_block` as chain truth. It
+ * reuses this module's enumeration rather than writing a second one because the Airlock's
+ * `Create` event does NOT index `asset` (only `numeraire` is), so there is no per-asset
+ * topic filter and the only way to find one is to walk the same window.
+ *
+ * Returns `{ blockNumber, transactionHash }`, or `{ truncated: true }` when the window
+ * hit MAX_LOGS without a match (we did not find it — NOT proof it does not exist), or
+ * null when the asset genuinely is not in the history. The caller must keep those apart:
+ * a truncated window that returned null would publish "this token was never launched".
+ */
+export async function createLogFor(asset, key) {
+  if (!key) return null;
+  const want = String(asset).toLowerCase();
+  const r = await fetch(createLogsUrl(key), { headers: { accept: "application/json" } });
+  if (!r.ok) throw new Error(`etherscan ${r.status}`);
+  const j = await r.json();
+  if (!Array.isArray(j?.result)) {
+    const msg = String(j?.result ?? j?.message ?? "");
+    if (/no records found/i.test(msg)) return null;
+    throw new Error("etherscan non-array result");
+  }
+  for (const log of j.result) {
+    const a = assetFromCreateLog(log);
+    if (a && a.toLowerCase() === want) {
+      // Etherscan returns these as hex strings.
+      const blockNumber = Number(log.blockNumber);
+      return {
+        blockNumber: Number.isSafeInteger(blockNumber) && blockNumber >= 0 ? blockNumber : null,
+        transactionHash: typeof log.transactionHash === "string" ? log.transactionHash : null,
+      };
+    }
+  }
+  return j.result.length >= MAX_LOGS ? { truncated: true } : null;
+}
+
 export async function handleLaunchCohort(req, res) {
   setCors(req, res);
   if (req.method === "OPTIONS") return res.status(200).end();
@@ -96,8 +144,24 @@ export async function handleLaunchCohort(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // ENFORCE the origin — `setCors` only sets a header. Dispatched before runProxy, so
+  // this branch does not inherit aggregator-proxy.js's 403 and must apply it itself.
+  if (!isOriginAllowed(req.headers?.origin || "")) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
+
   const allowed = await checkRateLimit(req, res, { limit: 30, windowSec: 60, identifier: "launch-cohort" });
   if (!allowed) return;
+
+  // Spends the keyed Etherscan budget, which is shared with /api/etherscan and the
+  // deployer graph — bound the fleet, not just the visitor. Own identifier so the two
+  // surfaces cannot shed each other.
+  const underCap = await checkGlobalLimit(res, {
+    limit: Number(process.env.LAUNCH_COHORT_GLOBAL_RPM) || 90,
+    windowSec: 60,
+    identifier: "launch-cohort",
+  });
+  if (!underCap) return;
 
   const key = process.env.ETHERSCAN_API_KEY;
   // FAIL LOUD, NOT EMPTY. An empty `assets` array is indistinguishable from "nothing has

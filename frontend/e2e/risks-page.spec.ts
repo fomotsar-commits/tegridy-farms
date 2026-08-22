@@ -9,6 +9,20 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { gotoRoute } from './fixtures/routes';
+
+/**
+ * ⚠ ROUTES ARE ENTERED THROUGH `gotoRoute`, NOT `page.goto`.
+ *
+ * Every page is a `lazy()` chunk behind Suspense, so `goto` resolves while the
+ * route is still a skeleton. Playwright's default 5s expect budget absorbs that
+ * on Chromium and on WebKit at --workers=1 (the CI setting), and does not
+ * absorb it on WebKit at the local default worker count — measured on this
+ * machine: green at --workers=1, red at 9 with `element(s) not found`, same
+ * build, pages fine. `gotoRoute` waits for the fallback to be gone before any
+ * assertion runs, so the result stops depending on the host's core count.
+ * See e2e/fixtures/routes.ts.
+ */
 
 const PROTOCOL_RISK_TITLES = [
   'Single-operator admin key (no multisig yet)',
@@ -22,7 +36,7 @@ const PROTOCOL_RISK_TITLES = [
 
 test.describe('RisksPage — protocol-specific risks', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/risks');
+    await gotoRoute(page, '/risks');
   });
 
   test('hero banner + page title render', async ({ page }) => {

@@ -2,7 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // R002: only same-origin localhost dev servers may POST to the save handler.
@@ -133,10 +133,18 @@ ${entries}
 };
 `;
             const out = resolve(process.cwd(), 'src/lib/artOverrides.ts');
-            writeFileSync(out, file, 'utf8');
+            // Only write when the content actually changed. A no-op rewrite
+            // still trips the watcher → HMR remounts ArtStudioPage → its state
+            // (fullscreen, selection, scroll) resets and the mount re-saves,
+            // which loops. Comparing first keeps the studio stable.
+            let unchanged = false;
+            try {
+              unchanged = readFileSync(out, 'utf8') === file;
+            } catch { /* first write — file may not exist */ }
+            if (!unchanged) writeFileSync(out, file, 'utf8');
             res.statusCode = 200;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: true, count: keys.length }));
+            res.end(JSON.stringify({ ok: true, count: keys.length, written: !unchanged }));
           } catch (err) {
             // Write failure (ENOENT/EACCES) is a server fault, not a client one.
             res.statusCode = 500;

@@ -201,18 +201,33 @@ describe('wizardReducer — CSV parse + validation', () => {
 describe('wizardReducer — upload artifact actions', () => {
   it('QUOTE_RECEIVED stores the bigint wei amount', () => {
     const wei = 123_456_789_000_000_000n;
-    const s = wizardReducer(initialState, { type: 'QUOTE_RECEIVED', wei });
+    const s = wizardReducer(initialState, { type: 'QUOTE_RECEIVED', wei, bytes: 4096 });
     expect(s.quoteWei).toBe(wei);
     // sanity: it really is a bigint, not coerced to number
     expect(typeof s.quoteWei).toBe('bigint');
+  });
+
+  it('QUOTE_RECEIVED records the byte total the price was taken against', () => {
+    // A price with no payload attached cannot be checked for staleness later,
+    // which is how a funded-but-short upload happens.
+    const s = wizardReducer(initialState, { type: 'QUOTE_RECEIVED', wei: 1n, bytes: 8_192 });
+    expect(s.quotedBytes).toBe(8_192);
   });
 
   it('FUND_SUCCESS records the txId', () => {
     const s = wizardReducer(initialState, {
       type: 'FUND_SUCCESS',
       txId: '0xfund',
+      bytes: 4096,
     });
     expect(s.fundTxId).toBe('0xfund');
+  });
+
+  it('FUND_SUCCESS records the byte total the funding was sized for', () => {
+    // Retries skip funding. Without the size the skip is blind, so a folder
+    // that grew after funding uploads against a balance that cannot cover it.
+    const s = wizardReducer(initialState, { type: 'FUND_SUCCESS', txId: '0xfund', bytes: 1_048_576 });
+    expect(s.fundedBytes).toBe(1_048_576);
   });
 
   it('IMAGES_UPLOADED records the manifest id', () => {

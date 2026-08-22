@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Eth } from "./Icons";
-import { fetchTokenOffers, fetchBestOffer, acceptOffer } from "../api-offers";
+import { fetchTokenOfferBook, acceptOffer } from "../api-offers";
 import { getFriendlyError } from "../lib/errorMessages";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import NetProceeds from "./NetProceeds";
@@ -11,6 +11,9 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
   const [bestOffer, setBestOffer] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(null);
+  // True when the last poll couldn't reach the offer book at all. Separate from
+  // "the book is empty" — see the render branch below.
+  const [unavailable, setUnavailable] = useState(false);
   // F646 (T5): only the FIRST load shows skeletons. The 30s interval refetch +
   // the post-accept refetch keep the previous offers on screen while refreshing
   // (no skeleton flash over real data). A finally guard always settles loading.
@@ -21,13 +24,16 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
   const load = useCallback(() => {
     if (!tokenId) return;
     if (!loadedOnceRef.current) setLoading(true);
-    Promise.all([
-      fetchTokenOffers(tokenId, collection.contract),
-      fetchBestOffer(tokenId, collection.openseaSlug || collection.slug),
-    ]).then(([allOffers, best]) => {
-      setOffers(allOffers);
-      setBestOffer(best);
-    }).catch(() => { /* keep previous data on a transient fetch error */ })
+    fetchTokenOfferBook(tokenId, {
+      contract: collection.contract,
+      slug: collection.slug,
+      openseaSlug: collection.openseaSlug,
+    }).then(({ offers: allOffers, bestOffer: best, unavailable: down }) => {
+      setUnavailable(down);
+      // A failed leg yields empty — don't let it wipe offers already on screen.
+      if (!down || allOffers.length) setOffers(allOffers);
+      if (!down || best) setBestOffer(best);
+    }).catch(() => { setUnavailable(true); })
       .finally(() => {
         loadedOnceRef.current = true;
         setLoading(false);
@@ -39,8 +45,14 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
     // Reset the first-load flag when the token/collection changes so the new
     // token's offers show a skeleton rather than the previous token's list.
     loadedOnceRef.current = false;
+    setOffers([]);
+    setBestOffer(null);
+    setUnavailable(false);
     load();
-    const interval = setInterval(load, 30000);
+    // Matches every other poller in the app (F533/F726): a backgrounded tab with
+    // a modal left open must not keep spending the venue's rate limit, which is
+    // what makes the offer feed unreachable in the first place.
+    const interval = setInterval(() => { if (!document.hidden) load(); }, 30000);
     return () => clearInterval(interval);
   }, [tokenId, load]);
 
@@ -154,13 +166,37 @@ export default function OfferPanel({ tokenId, wallet, addToast, onMakeOffer, own
           ))}
         </div>
       ) : offers.length === 0 && !bestOffer ? (
-        <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
-          <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83E\uDD1D"}</div>
-          <div className="empty-state-title" style={{ fontSize: 13 }}>No Offers Yet</div>
-          <div className="empty-state-text" style={{ fontSize: 10 }}>Be the first to make an offer on this NFT.</div>
-        </div>
+        // The offer feed is the venue's rate-limited proxy, so a 429/502 here is
+        // routine. "No Offers Yet" is a claim about the book; only make it when
+        // the book actually answered. Otherwise name the outage \u2014 a bidder who
+        // reads an outage as an empty book bids against nothing.
+        unavailable ? (
+          <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
+            <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\u26A0"}</div>
+            <div className="empty-state-title" style={{ fontSize: 13 }}>Offers Unavailable</div>
+            <div className="empty-state-text" style={{ fontSize: 10 }}>
+              The offer feed didn&apos;t respond, so this is not a count of zero. Retrying every 30s.
+            </div>
+          </div>
+        ) : (
+          <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
+            <div className="empty-state-icon" style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83E\uDD1D"}</div>
+            <div className="empty-state-title" style={{ fontSize: 13 }}>No Offers Yet</div>
+            <div className="empty-state-text" style={{ fontSize: 10 }}>Be the first to make an offer on this NFT.</div>
+          </div>
+        )
       ) : (
         <div style={{ maxHeight: 200, overflowY: "auto" }}>
+          {/* Partial outage: one leg answered, so the list below is real but
+              cannot be claimed complete. */}
+          {unavailable && (
+            <div style={{
+              fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)",
+              padding: "4px 10px",
+            }}>
+              Partial data: the offer feed didn&apos;t fully respond.
+            </div>
+          )}
           {offers.filter(o => {
             // Drop cancelled/finalized (not just expired) so the owner's Accept button
             // never fires setApprovalForAll into a dead-order fulfillment_data error —

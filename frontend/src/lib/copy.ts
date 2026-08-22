@@ -99,11 +99,18 @@ export const GOVERNANCE_COPY = {
 // connecting unlocks), instead of one generic "connect to participate".
 // ═══════════════════════════════════════════════════════════════
 
+// ⚠ These four render logged-out, DIRECTLY ABOVE the "deployed — not yet enabled
+// here" notice on /community. "Connect to vote" told a visitor that connecting was
+// the missing step; it is not — all four contracts are live and unpaused on
+// mainnet, but their constants.ts addresses are still 0x0, so no wallet can reach
+// them from this app. Promising an action a connected wallet still cannot perform
+// is the same defect class as the "isn't live yet" claim two lines below it.
+// Say what connecting will do WHEN the address is wired, not what it does today.
 export const COMMUNITY_TAB_INTRO = {
-  grants: 'On-chain governance: propose and vote on how the community treasury funds builders. Connect to vote and submit proposals.',
-  bounties: 'Meme bounties: fund a task, builders ship, the best work gets paid on-chain. Connect to post or claim a bounty.',
-  bribes: "Cartman's Market: incentivize voters to back your pool with token rewards. Connect to deposit or claim incentives.",
-  gauges: 'Gauge voting: direct TOWELI emissions toward the pools you want deepened. Connect to cast your gauge weights.',
+  grants: 'On-chain governance: propose and vote on how the community treasury funds builders. Connecting will not unlock it yet — voting and proposals open here once the contract is wired into this app.',
+  bounties: 'Meme bounties: fund a task, builders ship, the best work gets paid on-chain. Connecting will not unlock it yet — posting and claiming open here once the contract is wired into this app.',
+  bribes: "Cartman's Market: incentivize voters to back your pool with token rewards. Connecting will not unlock it yet — deposits and claims open here once the contract is wired into this app.",
+  gauges: 'Gauge voting: direct TOWELI emissions toward the pools you want deepened. Connecting will not unlock it yet — gauge weights open here once the contract is wired into this app.',
 } as const;
 
 // ═══════════════════════════════════════════════════════════════

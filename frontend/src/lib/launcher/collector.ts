@@ -17,7 +17,7 @@
 // guessed here — keeping every line in this file grounded and unit-testable.
 
 import type { Address, Hex } from 'viem';
-import type { FeeConstitutionLine, VestingSchedule } from './factSheet';
+import type { FeeConstitutionLine, LaunchPricingDisclosure, VestingSchedule } from './factSheet';
 import type { RawTokenFacts } from './gate';
 import { DOPPLER_MAINNET } from './doppler.constants';
 
@@ -30,7 +30,7 @@ export interface ChainReader {
 /** Resolves the LP lock for a graduated token (StreamableFeesLocker lookup). Injected + mockable. */
 export type LockResolver = (
   token: Address,
-) => Promise<{ locked: boolean; locker: Address | null; unlockAt: number | null }>;
+) => Promise<{ locked: boolean; locker: Address | null; unlockAt: number | null; readable?: boolean }>;
 
 export interface CollectOptions {
   chainId?: number;
@@ -40,31 +40,17 @@ export interface CollectOptions {
   lockResolver?: LockResolver;
   /** Fee constitution is a launch-config input (what WE set), not read from the token. */
   feeConstitution?: FeeConstitutionLine[];
+  /** Same: how the venue's line was priced is config, and unreadable from the token. */
+  pricing?: LaunchPricingDisclosure;
 }
 
-// Two minimal-proxy layouts we must recognise:
-//  - Canonical OZ / EIP-1167: 363d3d373d3d3d363d73 <impl> 5af43d82803e903d91602b57fd5bf3
-//  - Solady LibClone (what Doppler's token factories DEPLOY — VERIFIED on a mainnet
-//    fork 2026-07-17): 3d3d3d3d363d3d37363d73 <impl> 5af43d3d93803e602a57fd5bf3
-// A launched Doppler token uses the Solady layout, so parsing ONLY EIP-1167 would
-// make the gate fail to recognise every real Doppler launch (default-closed for all).
-const CLONE_LAYOUTS: { prefix: string; suffix: string }[] = [
-  { prefix: '363d3d373d3d3d363d73', suffix: '5af43d82803e903d91602b57fd5bf3' }, // EIP-1167
-  { prefix: '3d3d3d3d363d3d37363d73', suffix: '5af43d3d93803e602a57fd5bf3' }, // Solady LibClone
-];
-
-/** Extract the implementation address from a known minimal-proxy runtime, or null. */
-export function cloneImplTarget(code: Hex | undefined): Address | null {
-  if (!code) return null;
-  const c = code.slice(2).toLowerCase();
-  for (const { prefix, suffix } of CLONE_LAYOUTS) {
-    if (c.startsWith(prefix) && c.endsWith(suffix)) {
-      const middle = c.slice(prefix.length, c.length - suffix.length);
-      if (middle.length === 40) return (`0x${middle}`) as Address;
-    }
-  }
-  return null;
-}
+// `cloneImplTarget` and its CLONE_LAYOUTS moved to api/_lib/record-core.js so the
+// browser collector and the serverless birth-record route agree on what a Doppler clone
+// is. Two copies would drift, and the drift would be silent on one rail — the Solady
+// layout is the one Doppler actually deploys, and missing it makes every real launch
+// look unverified. Re-exported here so every existing caller is untouched.
+import { cloneImplTarget } from '../../../api/_lib/record-core.js';
+export { cloneImplTarget };
 
 /** @deprecated use cloneImplTarget — kept for existing callers. EIP-1167 only. */
 export function eip1167Target(code: Hex | undefined): Address | null {
@@ -73,10 +59,14 @@ export function eip1167Target(code: Hex | undefined): Address | null {
   return cloneImplTarget(code);
 }
 
+// Reads NOTHING. `readable: false` says so, so callers that publish prose (and the
+// on-chain disclosures digest) render "not read" instead of "not locked" — the latter
+// being an assertion this resolver is in no position to make.
 const DEFAULT_LOCK_RESOLVER: LockResolver = async () => ({
   locked: false,
   locker: null,
   unlockAt: null,
+  readable: false,
 });
 
 /**
@@ -122,16 +112,26 @@ export async function collectTokenFacts(
   // Powers. Known Doppler template => proven-false by construction (verified source).
   // Unknown template => conservative: report the dangerous powers as present so the
   // gate cannot grant a tier to something we haven't verified.
-  const powers = isDopplerTemplate
-    ? {
-        mint: false,
-        pause: false,
-        blacklist: false,
-        feeOnTransfer: false,
-        upgrade: false,
-        balanceLimit: await safeRead<boolean>(reader, token, 'isBalanceLimitActive', false),
-      }
-    : { mint: true, pause: true, blacklist: true, feeOnTransfer: true, upgrade: true, balanceLimit: false };
+  //
+  // `isBalanceLimitActive` MUST carry the unread Set. Without it a 429 degrades to
+  // `false`, the sheet publishes "No maximum wallet balance is enforced.", and that
+  // sentence goes into the on-chain disclosures digest — an unknown published as a
+  // value. On the non-Doppler branch the call is never even attempted, which is the
+  // same absence and is recorded the same way.
+  let powers: RawTokenFacts['powers'];
+  if (isDopplerTemplate) {
+    powers = {
+      mint: false,
+      pause: false,
+      blacklist: false,
+      feeOnTransfer: false,
+      upgrade: false,
+      balanceLimit: await safeRead<boolean>(reader, token, 'isBalanceLimitActive', false, unread),
+    };
+  } else {
+    unread.add('isBalanceLimitActive');
+    powers = { mint: true, pause: true, blacklist: true, feeOnTransfer: true, upgrade: true, balanceLimit: false };
+  }
 
   // Ownership neutralisation.
   const ownerRenounced = owner == null || owner.toLowerCase() === '0x0000000000000000000000000000000000000000';
@@ -140,16 +140,45 @@ export async function collectTokenFacts(
 
   // Team/insider allocation: DopplerERC20V1 tracks the total vested (insider) amount on-chain.
   // Everything vested is, by definition, under an on-chain schedule.
+  //
+  // `vestedTotalAmount` MUST carry the unread Set too. A failed read degrades to 0n,
+  // which becomes 0 bps, which the gate reads as "no team/insider allocation" AND as
+  // passing the flagship insider-float cap — a clean bill of health computed from a
+  // call that never returned. When the branch is skipped entirely (unknown template,
+  // or a supply we could not read) the read did not happen either, and that absence
+  // is recorded the same way rather than left to look like a zero.
   let teamAllocationBps = 0;
   let teamAllocationVestedBps = 0;
-  const vesting: VestingSchedule[] = [];
   if (isDopplerTemplate && totalSupply > 0n) {
-    const vestedTotal = await safeRead<bigint>(reader, token, 'vestedTotalAmount', 0n);
+    const vestedTotal = await safeRead<bigint>(reader, token, 'vestedTotalAmount', 0n, unread);
     teamAllocationBps = Number((vestedTotal * 10_000n) / totalSupply);
     teamAllocationVestedBps = teamAllocationBps; // vestedTotalAmount is BY DEFINITION on-chain-vested
+  } else {
+    unread.add('vestedTotalAmount');
   }
 
-  const liquidity = await lockResolver(token).catch(() => ({ locked: false, locker: null, unlockAt: null }));
+  // THE VESTING SCHEDULES ARE NOT ENUMERABLE HERE, so none are claimed.
+  //
+  // This array used to be declared, never pushed to, and shipped as `vesting: []` into
+  // `canonicalDisclosuresJson` — i.e. "this token has no vesting schedules", attested
+  // permanently, about schedules nobody looked for. There is nothing to look them up
+  // WITH: TOKEN_READER_ABI is the whole read surface, DopplerERC20V1 exposes only the
+  // aggregate `vestedTotalAmount()` plus `vestingStart()`, and there is no
+  // per-beneficiary index to walk. The aggregate is already reported above as
+  // teamAllocationVestedBps, so nothing is lost by declining to invent the breakdown.
+  // `vestingReadable: false` is what stops the empty list reading as a finding.
+  const vesting: VestingSchedule[] = [];
+
+  // A THROWN resolver read nothing either — `readable: false`, same as the default.
+  // Without it a failed locker read would be indistinguishable from a successful read
+  // that found no lock, and the sheet would publish "not locked" on the strength of an
+  // exception.
+  const liquidity = await lockResolver(token).catch(() => ({
+    locked: false,
+    locker: null,
+    unlockAt: null,
+    readable: false,
+  }));
 
   return {
     token,
@@ -166,7 +195,9 @@ export async function collectTokenFacts(
     ownerIsTimelock,
     liquidity,
     feeConstitution: opts.feeConstitution ?? [],
+    ...(opts.pricing ? { pricing: opts.pricing } : {}),
     vesting,
+    vestingReadable: false,
     teamAllocationBps,
     teamAllocationVestedBps,
     observedAt: now,

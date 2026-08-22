@@ -9,10 +9,16 @@ import { CopyButton } from '../ui/CopyButton';
  * Every route demoted from the top nav must be reachable here so the
  * reduced TopNav doesn't strand any page.
  *
- * CREDIBILITY GATING (2026-06-09): undeployed feature surfaces (NFT Finance,
- * Governance, Gold Card — all relaunch-zeroed in constants.ts) are dropped
- * from the promoted link lists until their contracts are live. Routes stay
- * reachable by URL; entries reappear automatically on redeploy.
+ * CREDIBILITY GATING (2026-06-09): feature surfaces with no reachable contract are
+ * dropped from the promoted link lists. Routes stay reachable by URL; entries reappear
+ * automatically once an address lands in constants.ts.
+ *
+ * ⚠ The parenthetical here used to read "NFT Finance, Governance, Gold Card — all
+ * relaunch-zeroed", and two thirds of that is now false. Gold Card (PremiumAccess) and
+ * three of the four NFT-Finance contracts carry real addresses and are un-gated; only
+ * Governance is still 0x0 in constants.ts — and even those four contracts are deployed
+ * and unpaused on mainnet, they are simply not wired here. See ContractsPage's
+ * `unwired` status for the distinction.
  */
 const PRODUCT_LINKS: { to: string; label: string }[] = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -64,6 +70,7 @@ const TRUST_LINKS: { to: string; label: string }[] = [
   { to: '/scan', label: 'Token Scanner' },
   { to: '/deployer', label: 'Deployer Graph' },
   { to: '/exposure', label: 'Wallet Exposure' },
+  { to: '/developers', label: 'Developer API' },
 ];
 
 export function Footer() {
@@ -102,8 +109,12 @@ export function Footer() {
                 <span>FARMS</span>
               </span>
             </div>
+            {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
+                there for the reasoning. This blurb renders on EVERY page, so it was the
+                widest-reach copy of both the single-chain framing and the "100% of
+                protocol swap fees" claim that AUDIT R073 contradicts. */}
             <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-              Art-first yield farming on Ethereum. Stake TOWELI & LP tokens to earn rewards. 100% of protocol swap fees go to stakers.
+              Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
             </p>
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Contract</p>

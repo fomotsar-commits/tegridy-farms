@@ -31,13 +31,38 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
   useEffect(() => {
     if (!wallet) return;
     const currentItems = loadWatchlist(collection.slug);
-    getUserdata().then(({ syncWatchlist }) =>
-      syncWatchlist(wallet, currentItems, collection.slug).then((merged) => {
+    getUserdata().then(({ syncWatchlist, syncFailureToast, SYNC_STATUS }) =>
+      // The merge also PUSHES local-only items — a write. Signed-out is the
+      // ordinary state and stays quiet; an authenticated push the server
+      // REFUSES (RLS 42501 after migration 015 §1) is reported.
+      syncWatchlist(wallet, currentItems, collection.slug, (result) => {
+        if (result.status !== SYNC_STATUS.DENIED) return;
+        const failure = syncFailureToast(result, "watchlist");
+        if (failure) addToast?.(failure.message, failure.type);
+      }).then((merged) => {
         setWatchlist(merged);
         saveWatchlist(merged, collection.slug);
       })
-    );
-  }, [wallet, collection.slug]);
+    ).catch((err) => {
+      console.warn("Watchlist sync failed:", err?.message);
+    });
+  }, [wallet, collection.slug, addToast]);
+
+  // F-015: every watchlist edit has a cloud half that goes through the SIWE
+  // proxy and CAN be refused — RLS 42501 once migration 015 §1 DROPs the
+  // permissive `true` write policies, or a 401 when the user never signed in.
+  // Those rejections used to be swallowed (`catch { /* silent */ }`), so the
+  // row moved on screen and never left the device. One helper so every edit
+  // reports the same way.
+  const syncRemote = useCallback((run) => {
+    getUserdata().then(async (mod) => {
+      const result = await run(mod);
+      const failure = mod.syncFailureToast(result, "watchlist");
+      if (failure) addToast?.(failure.message, failure.type);
+    }).catch((err) => {
+      console.warn("Watchlist sync failed:", err?.message);
+    });
+  }, [addToast]);
 
   // Build a set of already-watched IDs for fast lookup
   const watchedIds = useMemo(() => new Set(watchlist.map((w) => w.id)), [watchlist]);
@@ -60,7 +85,7 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
       saveWatchlist(next, collection.slug);
       addToast?.(`Added ${nft.name} to watchlist`, "success");
       if (wallet) {
-        getUserdata().then(({ addWatchlistRemote }) =>
+        syncRemote(({ addWatchlistRemote }) =>
           addWatchlistRemote(wallet, nft.id, {}, collection.slug)
         );
       }
@@ -68,20 +93,20 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
     });
     setSearch("");
     setShowSearch(false);
-  }, [addToast, collection.slug, wallet]);
+  }, [addToast, collection.slug, wallet, syncRemote]);
 
   const removeFromWatchlist = useCallback((id) => {
     setWatchlist((prev) => {
       const next = prev.filter((w) => w.id !== id);
       saveWatchlist(next, collection.slug);
       if (wallet) {
-        getUserdata().then(({ removeWatchlistRemote }) =>
+        syncRemote(({ removeWatchlistRemote }) =>
           removeWatchlistRemote(wallet, id, collection.slug)
         );
       }
       return next;
     });
-  }, [collection.slug, wallet]);
+  }, [collection.slug, wallet, syncRemote]);
 
   const updateNote = useCallback((id, note) => {
     setWatchlist((prev) => {
@@ -89,13 +114,13 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
       saveWatchlist(next, collection.slug);
       if (wallet) {
         const item = next.find((w) => w.id === id);
-        getUserdata().then(({ addWatchlistRemote }) =>
+        syncRemote(({ addWatchlistRemote }) =>
           addWatchlistRemote(wallet, id, { targetPrice: item?.targetPrice, note }, collection.slug)
         );
       }
       return next;
     });
-  }, [collection.slug, wallet]);
+  }, [collection.slug, wallet, syncRemote]);
 
   const updateTarget = useCallback((id, targetPrice) => {
     setWatchlist((prev) => {
@@ -103,13 +128,13 @@ export default function Watchlist({ tokens, onPick, addToast, setTab, wallet }) 
       saveWatchlist(next, collection.slug);
       if (wallet) {
         const item = next.find((w) => w.id === id);
-        getUserdata().then(({ addWatchlistRemote }) =>
+        syncRemote(({ addWatchlistRemote }) =>
           addWatchlistRemote(wallet, id, { targetPrice: targetPrice || null, note: item?.note }, collection.slug)
         );
       }
       return next;
     });
-  }, [collection.slug, wallet]);
+  }, [collection.slug, wallet, syncRemote]);
 
   const watchedNfts = useMemo(() => tokens.filter((t) => watchedIds.has(t.id)), [tokens, watchedIds]);
   const watchDataMap = useMemo(() => {

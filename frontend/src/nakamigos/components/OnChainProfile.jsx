@@ -94,6 +94,7 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
   const collection = useActiveCollection();
   const [tokens, setTokens] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
+  const [inventoryComplete, setInventoryComplete] = useState(true);
   const [floorPrice, setFloorPrice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [ensName, setEnsName] = useState(null);
@@ -145,6 +146,9 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
       }
       setTokens(data.tokens || []);
       setTotalCount(data.totalCount || 0);
+      // "View all N" and the grid below both promise the whole wallet; if the
+      // paged walk stopped short they can only show part of it, and must say so.
+      setInventoryComplete(data?.complete !== false);
       setLoading(false);
     });
   }, [address, collection.contract, collection.metadataBase]);
@@ -567,6 +571,11 @@ export default function OnChainProfile({ address, onClose, onPick, wallet, onEdi
               >
                 View all {totalCount} &rarr;
               </button>
+            )}
+            {!loading && !inventoryComplete && (
+              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--yellow, #fbbf24)" }}>
+                {tokens.length} of {totalCount} loaded
+              </span>
             )}
           </div>
 

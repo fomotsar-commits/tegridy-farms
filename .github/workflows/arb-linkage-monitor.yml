@@ -1,0 +1,179 @@
+name: Arb Linkage Watch
+
+# WHY THIS FILE WAS WRITTEN
+# `contracts/monitoring/arbLinkageMonitor.mjs` is the observable form of the one
+# load-bearing assumption behind the whole oracle unlock (docs/GOLIVE_CORELOOP.md
+# condition 3 / B4): "the native pool is NOT the only liquid venue." The TWAP
+# reads the native TOWELI/WETH pool, and that pool is only safe to price against
+# while a deeper arb-linked venue makes a sustained dislocation EV-negative.
+#
+# Both that document and contracts/monitoring/README.md prescribe a 5-minute
+# cron. There was no cron. The monitor had been run exactly once, by hand, and
+# returned WARN. A safety condition that is checked once and then assumed is not
+# a safety condition, and the specific way this one fails is silent: the ratio
+# decays as the Uniswap side is sold off, and nothing announces the crossing.
+#
+# CADENCE, HONESTLY
+# The prescribed 5 minutes is not achievable here and pretending otherwise would
+# be worse than picking a slower number on purpose. GitHub's scheduler accepts
+# */5 but delays or drops runs under load, and it disables schedules entirely in
+# a repository with no activity for 60 days. 15 minutes is what this runner can
+# actually be held to. It sits inside the window the attack needs — `consult()`
+# reads observations spaced by at least 15 minutes and the adversarial review
+# models a 30-minute grind — but it is not comfortably inside it. If a
+# TWAP-dependent feature ever carries real value, this belongs on a scheduler
+# that can be held to its interval, not on shared CI.
+#
+# IT OPENS AN ISSUE, AND FOR TWO CASES IT ALSO GOES RED
+#   HALT  -> issue + red. The condition that gates NFT lending, the TegridyLending
+#            deploy and POL accumulation is no longer met.
+#   ERROR -> issue + red. The watch could not read. Indistinguishable from health
+#            if reported quietly, which is the failure this file exists to
+#            prevent, so it is never reported quietly.
+#   WARN  -> annotation only. WARN is the STANDING state today (the native pool
+#            sits below the 1.0-WETH live floor until B1 deepens it) and an issue
+#            that is permanently true is an issue that gets muted, taking the
+#            HALT case with it.
+#
+# The pause itself is NOT automated and no key is present in this workflow. The
+# probe renders the exact privileged call instead — see the header of
+# scripts/monitoring/arbPauseConsumer.mjs for why that trade was taken.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: arb-linkage-monitor
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      - name: Read the arb linkage and prepare the pause
+        id: probe
+        shell: bash
+        env:
+          # Optional. The keyless public roster is the default and is enough; this
+          # only exists so a rate-limited public endpoint cannot blind the watch.
+          # It is tried FIRST and the public roster remains behind it.
+          RPC: ${{ secrets.ETH_RPC_URL }}
+          # Set once TegridyLending is deployed (B4). Until then the consumer
+          # reports it as absent rather than inventing an address for it.
+          TEGRIDY_LENDING: ${{ vars.TEGRIDY_LENDING }}
+        # `--probe` owns the guarantee that a failed read is recorded as data and
+        # the step still exits 0, so no `|| true` is needed here — and none is
+        # wanted, since that would also swallow a genuinely broken script and skip
+        # every downstream step, which is how a real HALT goes unreported.
+        run: node scripts/monitoring/arbPauseConsumer.mjs --probe
+
+      - name: Open or update the arb-linkage incident
+        if: steps.probe.outputs.arb_status == 'HALT' || steps.probe.outputs.arb_status == 'ERROR'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # BOUND AS ENV VARS, NEVER SPLICED. A `${{ }}` inside a `run:` block is
+          # substituted into the script TEXT before bash parses it, and this report
+          # embeds error strings from public RPC endpoints — attacker-influenceable
+          # by anyone controlling or MITM-ing one. This job holds `issues: write`.
+          REPORT: ${{ steps.probe.outputs.arb_report }}
+          SUMMARY: ${{ steps.probe.outputs.arb_summary }}
+          FINGERPRINT: ${{ steps.probe.outputs.arb_fingerprint }}
+          STATUS: ${{ steps.probe.outputs.arb_status }}
+        shell: bash
+        run: |
+          set -u
+          # %s throughout, never %b: every value here is untrusted text, not a
+          # format string. `\c` in particular makes printf DISCARD the rest of its
+          # output, which would let a hostile endpoint truncate the alert.
+          # A five-backtick fence, because the report can carry RPC-supplied text
+          # and a three-backtick run inside it would otherwise close the block and
+          # let the rest render as markdown.
+          BODY="$(printf 'Arb-linkage watch at %s UTC — **%s**\n\n%s\n\n`````\n%s\n`````\n\nThe pause is NOT automated: no signing key exists in this workflow. The calls above are prepared, not sent. Re-run `node scripts/monitoring/arbPauseConsumer.mjs` locally before broadcasting — the guardian and owner addresses are read live and may have moved since this comment.\n\n<!-- arb-linkage-fingerprint:%s -->\n' \
+            "$(date -u '+%Y-%m-%d %H:%M')" "$STATUS" "$SUMMARY" "$REPORT" "$FINGERPRINT")"
+
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label arb-linkage --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$EXISTING" ]; then
+            # Fails OPEN on purpose: if this read errors or returns nothing, SEEN
+            # stays empty and we post. A missed duplicate is noise; a suppressed
+            # alert is the failure this workflow exists to prevent.
+            SEEN="$(gh issue view "$EXISTING" --repo "$GITHUB_REPOSITORY" --json body,comments \
+              --jq '[.body] + [.comments[].body] | join("\n")' 2>/dev/null || printf '')"
+            case "$SEEN" in
+              *"arb-linkage-fingerprint:$FINGERPRINT"*)
+                printf '::notice::Unchanged since the last report (%s) — not re-posting.\n' "$FINGERPRINT"
+                exit 0
+                ;;
+            esac
+            printf '%s\n' "$BODY" | gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file -
+          else
+            gh label create arb-linkage --repo "$GITHUB_REPOSITORY" --color B60205 \
+              --description "The arb-linkage safety condition gating the TWAP is broken or unreadable" 2>/dev/null || true
+            printf '%s\n' "$BODY" | gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Arb linkage: the oracle safety condition is not met" \
+              --label arb-linkage --body-file -
+          fi
+
+      - name: Record recovery on an open incident
+        # Only ever a comment. Closing is a judgement about whether the cause was
+        # understood, and a watcher that closes its own incidents on one clean
+        # read would erase exactly the intermittent case worth investigating.
+        if: steps.probe.outputs.arb_status == 'GO' || steps.probe.outputs.arb_status == 'WARN'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.probe.outputs.arb_summary }}
+          FINGERPRINT: ${{ steps.probe.outputs.arb_fingerprint }}
+          STATUS: ${{ steps.probe.outputs.arb_status }}
+        shell: bash
+        run: |
+          set -u
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label arb-linkage --state open --json number --jq '.[0].number // empty')"
+          [ -z "$EXISTING" ] && exit 0
+          SEEN="$(gh issue view "$EXISTING" --repo "$GITHUB_REPOSITORY" --json body,comments \
+            --jq '[.body] + [.comments[].body] | join("\n")' 2>/dev/null || printf '')"
+          case "$SEEN" in
+            *"arb-linkage-fingerprint:$FINGERPRINT"*) exit 0 ;;
+          esac
+          printf '%s\n' "$(printf 'Reading at %s UTC is **%s** — %s\n\nThe condition reads met again. This is one observation, not a resolution; close this only once the cause of the original reading is understood.\n\n<!-- arb-linkage-fingerprint:%s -->\n' \
+            "$(date -u '+%Y-%m-%d %H:%M')" "$STATUS" "$SUMMARY" "$FINGERPRINT")" \
+            | gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file -
+
+      # The decision rule and the pause plan are asserted on every scheduled run,
+      # not only on pull requests: this is the one place the thresholds are
+      # exercised against live money with nobody watching, and a verdict from an
+      # unverified rule is worth less than no verdict.
+      #
+      # It runs AFTER the reporting steps deliberately. Placed before them, a
+      # regressed assertion would fail the job and skip the alert — turning a
+      # broken test into a suppressed incident, which is a strictly worse failure
+      # than the one it is guarding against.
+      - name: Verify the rule that produced the verdict
+        shell: bash
+        run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
+
+      - name: Fail on a broken or unreadable linkage
+        if: steps.probe.outputs.arb_status == 'HALT' || steps.probe.outputs.arb_status == 'ERROR'
+        env:
+          STATUS: ${{ steps.probe.outputs.arb_status }}
+          SUMMARY: ${{ steps.probe.outputs.arb_summary }}
+        shell: bash
+        run: |
+          set -u
+          if [ "$STATUS" = "ERROR" ]; then
+            printf 'The linkage could not be read. This run does NOT establish that the arb linkage holds.\n'
+          else
+            printf 'The arb linkage is broken. Every TWAP-dependent feature is gated on this condition.\n'
+          fi
+          printf '%s\n' "$SUMMARY"
+          exit 1

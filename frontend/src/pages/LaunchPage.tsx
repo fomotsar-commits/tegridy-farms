@@ -6,8 +6,11 @@ import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { LaunchExplorer } from '../components/launcher/LaunchExplorer';
+import { GardenLane } from '../components/launcher/GardenLane';
 import { LaunchAfterlife } from '../components/launcher/LaunchAfterlife';
 import { LaunchRadar } from '../components/launcher/LaunchRadar';
+import { GraduationVenuePanel } from '../components/launcher/GraduationVenuePanel';
+import { LaunchBuyPanel } from '../components/launcher/LaunchBuyPanel';
 import {
   DEFAULT_FEE_CONSTITUTION,
   LAUNCH_TIERS,
@@ -43,6 +46,14 @@ import {
   type AttentionSplit,
 } from '../lib/launcher/launchService';
 import {
+  isCreatorFeeShareEnabled,
+  isHeatTierPricingEnabled,
+  readLaunchPricing,
+  standardLaunchPricing,
+  toPricingDisclosure,
+  type ResolvedLaunchPricing,
+} from '../lib/launcher/launchPricing';
+import {
   attestFactSheet,
   factSheetSchemaUid,
   factSheetSchemaRegistered,
@@ -68,6 +79,8 @@ import {
 } from '../lib/lpEmissions';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { LaunchGate } from '../components/LaunchGate';
+import { notifyBirth } from '../lib/launcher/notifyBirth';
 
 const DAY = 86_400;
 // 365/12 days per month, so a 12-month lock is exactly 365 days and meets the
@@ -143,8 +156,18 @@ export function parseAttentionSplits(rows: WizardState['attentionSplits']): Atte
  * the SAME gate the live collector uses. This is the buyer's-eye preview: it
  * ties the UI directly to gate.ts so what the wizard promises is exactly what
  * gets attested. Doppler-template powers are known-false by construction.
+ *
+ * `pricing` is the SAME resolved object `onLaunch` hands to
+ * `wizardConfigToLaunchConfig`, so the split previewed here is the split signed. With
+ * both dials off it is `standardLaunchPricing()`, `toPricingDisclosure` returns
+ * undefined, and this projection is byte-identical to the one that existed before
+ * pricing was threaded — which is what keeps `disclosuresDigest` stable.
  */
-function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
+function projectFactSheet(
+  w: WizardState,
+  nowSeconds: number,
+  pricing: ResolvedLaunchPricing,
+): LaunchFactSheet {
   // Show the RESOLVED split this config produces (creator remainder + directed
   // carve-outs + fixed lines), not the static 70/10 template — otherwise the
   // preview advertises a split the deployed StreamableFeesLocker never pays (by
@@ -161,6 +184,7 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
       // Preview the numeraire-aware protocol sink so a TOWELI launch's Fact Sheet shows the
       // real "Tegridy treasury" line, not the ETH-pair "Tegridy stakers" it can't pay.
       w.numeraire === 'toweli' ? TOWELI_NUMERAIRE : ETH_NUMERAIRE,
+      pricing,
     );
   } catch {
     feeConstitution = [...DEFAULT_FEE_CONSTITUTION];
@@ -186,6 +210,13 @@ function projectFactSheet(w: WizardState, nowSeconds: number): LaunchFactSheet {
     teamAllocationBps: w.premineBps,
     teamAllocationVestedBps: w.premineBps, // wizard only offers on-chain-vested premine
     observedAt: nowSeconds,
+    // Spread, not `pricing: toPricingDisclosure(...)`: an explicit `undefined` would be a
+    // present key, and gate.ts only forwards the field when it is there. Absent is the
+    // state that means "neither dial is in force", which is today.
+    ...(() => {
+      const disclosure = toPricingDisclosure(pricing);
+      return disclosure ? { pricing: disclosure } : {};
+    })(),
   };
   return buildFactSheet(facts);
 }
@@ -249,7 +280,6 @@ export default function LaunchPage() {
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(INITIAL);
   const now = useMemo(() => Math.floor(Date.now() / 1000), []);
-  const sheet = useMemo(() => projectFactSheet(w, now), [w, now]);
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -266,6 +296,56 @@ export default function LaunchPage() {
   // registry when a launch succeeds and only offer the button once the schema is
   // live; otherwise say so plainly. null = still checking / unknown.
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
+  // THE LAUNCH'S PRICE. Resolved ONCE per wallet and handed to BOTH the projected Fact
+  // Sheet and the launch config, because the split shown must be the split signed —
+  // `readLaunchPricing`'s own contract, since calling it twice can legitimately return two
+  // different prices.
+  //
+  // TODAY'S RATE IS THE FALLBACK, NOT A LAST RESORT. `standardLaunchPricing()` is the
+  // venue's standard line with both dials off, no tier claimed and no discount; every state
+  // except "a fresh reading came back, for THIS wallet, while a dial was on" resolves to
+  // exactly it. So an oracle outage prices at the standard rate instead of at a guessed
+  // tier, which is the same rule the door itself uses.
+  //
+  // The reading is STORED WITH THE ADDRESS IT WAS TAKEN FOR, and only used while the two
+  // still match. Keying it that way is what stops the other wallet's price from being the
+  // one on screen for the moment between switching accounts and the next read landing —
+  // it falls back to standard, which can only ever be the more expensive answer.
+  const standardPricing = useMemo(() => standardLaunchPricing(), []);
+  const [pricingRead, setPricingRead] = useState<{ address: string; pricing: ResolvedLaunchPricing } | null>(null);
+
+  // The dials are the only consumer of a Heat reading TAKEN FOR PRICING. With both off —
+  // which is the shipped state — this effect makes no request at all: the resolver would
+  // return the standard line from any reading, so a read whose answer cannot change the
+  // price would be quota spent on nothing. Flip either flag and the read starts happening
+  // with no other change. (The door's OWN read, for the launch gate, is unaffected: it
+  // lives in <LaunchGate /> and in launchToken, and still happens either way.)
+  const pricingDialsOn = isHeatTierPricingEnabled() || isCreatorFeeShareEnabled();
+  // Narrowed with an explicit null test rather than an optional chain:
+  // `pricingRead?.address === address` is false when pricingRead is null, so the
+  // guard was correct at runtime, but it does not narrow the later property
+  // access — and with no wallet connected `address` is undefined, so an
+  // undefined === undefined comparison would have reached into a null read.
+  const pricing =
+    pricingDialsOn && pricingRead !== null && address !== undefined && pricingRead.address === address
+      ? pricingRead.pricing
+      : standardPricing;
+
+  useEffect(() => {
+    if (!pricingDialsOn || !address) return;
+    const ac = new AbortController();
+    void (async () => {
+      // `readLaunchPricing` never throws — an unreachable island returns the STALE
+      // decision, which prices at the standard rate through the same path as every other
+      // unreadable state. So there is no catch here by design.
+      const next = await readLaunchPricing(address, { signal: ac.signal });
+      if (!ac.signal.aborted) setPricingRead({ address, pricing: next });
+    })();
+    return () => ac.abort();
+  }, [address, pricingDialsOn]);
+
+  const sheet = useMemo(() => projectFactSheet(w, now, pricing), [w, now, pricing]);
+
   // "we could not read the launch history" must be visibly DIFFERENT from "nothing has
   // launched yet". Collapsing the two is how an outage renders as a track record.
   const [cohortUnavailable, setCohortUnavailable] = useState(false);
@@ -366,9 +446,26 @@ export default function LaunchPage() {
         numerairePriceUsd,
         numeraire: numeraireAddr,
         attentionSplits: parseAttentionSplits(w.attentionSplits),
+        // The SAME object the Fact Sheet above was projected from. `launchToken` re-checks
+        // it against a live reading before broadcasting and refuses a config claiming a
+        // deeper discount than the island currently supports; with both dials off, live
+        // and deployed are both the standard line, so that check is a no-op today.
+        pricing,
       });
       const result = await launchToken(walletClient, publicClient, cfg);
       setLaunch({ phase: 'success', result });
+      // THE BIRTH NOTIFY. After the success state is set, and deliberately not awaited:
+      // "the notify NEVER blocks a launch". The token exists on-chain either way, and a
+      // launcher must not watch a spinner for a third party's uptime. Failures stay in
+      // the queue with their error and surface on the ops panel — never swallowed.
+      void notifyBirth({
+        chain: 'ethereum',
+        ca: result.tokenAddress,
+        creator: address,
+        txHash: result.transactionHash,
+        gateDecisionId: result.gateDecisionId,
+        publicClient,
+      });
     } catch (e) {
       // A broadcast-stage failure (classically an RPC receipt-wait timeout) may mean the
       // tx is already on-chain. Surface a distinct "may be confirming" state and BLOCK a
@@ -447,6 +544,12 @@ export default function LaunchPage() {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
         <LaunchHeader lpPhase={lpPhase} />
+        {/* ⚠ UNREACHABLE TODAY. LAUNCHER_ENABLED is true (lib/launcher/config.ts), so
+            isLauncherEnabled() short-circuits this whole branch and the live wizard
+            renders instead. Kept as the fail-closed path if the flag is ever turned
+            off — but do not read the copy below as a description of the current
+            state, and do not "update" it to match today's app: its whole job is to
+            describe the OFF state. */}
         <FeatureNotDeployed
           pageId="community"
           idx={5}
@@ -473,6 +576,15 @@ export default function LaunchPage() {
       <PageArtBackdrop pageId="launch" />
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
       <LaunchHeader lpPhase={lpPhase} />
+
+      {/* THE DOOR, above the wizard. It reads held time live and explains itself, so a
+          cold builder learns what warmth is here rather than at the submit button.
+          The wizard stays usable either way — the gate is read again, live, inside
+          launchToken(), which is the only place it decides anything. */}
+      <div className="mt-4 mb-2">
+        <LaunchGate rail="ethereum" />
+      </div>
+
       <Stepper step={step} />
 
       <m.div
@@ -524,7 +636,7 @@ export default function LaunchPage() {
       </div>
 
       {step === STEPS.length - 1 && launch.phase !== 'idle' && (
-        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} lpPhase={lpPhase} />
+        <LaunchStatusBanner status={launch} attest={attest} onAttest={onAttest} schemaReady={schemaReady} onResetLaunch={() => setLaunch({ phase: 'idle' })} lpPhase={lpPhase} symbol={w.symbol} />
       )}
 
       {/* Rail explainer, restored into the LIVE path 2026-07-31 — it had been stranded in
@@ -533,6 +645,14 @@ export default function LaunchPage() {
           the fee split, the afterlife) was reaching nobody. Below the wizard so the
           four steps still lead the page. */}
       <LauncherExplainer />
+
+      {/* Graduation destination. Above the re-attestation panel because it answers the
+          question that panel presupposes — which venue the liquidity went to, on what
+          lock terms, and who collects that pool's fee. States plainly that graduation
+          runs through the external migrator today. */}
+      <div className="mt-12">
+        <GraduationVenuePanel />
+      </div>
 
       {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
           from the graduated pool's StreamableFeesLocker. Distinct from the pre-launch
@@ -574,7 +694,7 @@ export default function LaunchPage() {
   );
 }
 
-function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch, lpPhase }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void; lpPhase: LpEmissionsPhase }) {
+function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaunch, lpPhase, symbol }: { status: LaunchStatus; attest: AttestStatus; onAttest: () => void; schemaReady: boolean | null; onResetLaunch: () => void; lpPhase: LpEmissionsPhase; symbol: string }) {
   if (status.phase === 'idle') return null;
   if (status.phase === 'pending') {
     return (
@@ -625,6 +745,22 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
   return (
     <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
       <div className="font-semibold mb-1">Launched.</div>
+
+      {/* THE HAND-OFF. The permalink at /launch/:token is the only artifact here that
+          is ours and is worth sharing — it renders the Fact Sheet, provenance and
+          graduation state from live on-chain reads. Until this link existed the flow
+          ended at Etherscan at the exact moment a creator most wants something to post,
+          and the page they had just earned was reachable only from the Explorer. */}
+      <Link
+        to={`/launch/${result.tokenAddress}`}
+        className="mt-2 mb-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/90 px-3 py-1.5 text-xs font-semibold text-black transition hover:bg-emerald-400"
+      >
+        View your token’s page →
+      </Link>
+      <p className="text-emerald-200/60 text-xs mb-3 -mt-1">
+        Permanent, shareable, and generated from on-chain reads — not from what you typed here.
+      </p>
+
       <div className="text-emerald-200/90 space-y-0.5 break-all">
         <div>
           Token:{' '}
@@ -639,6 +775,17 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           </a>
         </div>
       </div>
+
+      {/* The creator's own first buy, atomic and from the launching address. Placed here
+          because this is the only moment the auction hook is known without a second read,
+          and because a creator buying their own launch openly is the honest form of the
+          thing "bundlers" do covertly. Self-gates on every input it cannot read. */}
+      <LaunchBuyPanel
+        hookAddress={result.hookAddress}
+        tokenAddress={result.tokenAddress}
+        tokenSymbol={symbol}
+        numeraire={result.numeraire}
+      />
 
       {/* Attest the Fact Sheet on-chain — makes the disclosure verifiable + composable. */}
       <div className="mt-3 pt-3 border-t border-emerald-500/20">
@@ -1048,7 +1195,7 @@ function LauncherExplainer() {
           action. Fee capture only — no TOWELI on Solana. */}
       <p className="text-white/40 text-xs leading-relaxed">
         There is also a Solana leg — a separate fee-capture sub-brand over Meteora&rsquo;s Dynamic Bonding Curve, with no
-        TOWELI on Solana and no AMM of our own there. That page previews a launch config; it does not submit one.{' '}
+        TOWELI on Solana and no AMM of our own there. You sign and submit that launch yourself.{' '}
         <Link to="/solana-launch" className="text-white/60 hover:text-white underline transition-colors">
           See the Solana rail
         </Link>
@@ -1233,6 +1380,10 @@ function StepTier({ w, set }: { w: WizardState; set: <K extends keyof WizardStat
             <p className="text-white/60 text-xs mt-1.5 leading-relaxed">{t.blurb}</p>
           </button>
         ))}
+        {/* The Garden lane sits WITH the tiers but is not one of them: it is shown as a
+            promise, not offered as a choice. Selecting it would be the venue declaring
+            its own certification, which the launch-gate spec forbids outright. */}
+        <GardenLane community={w.symbol || w.name || 'this community'} />
       </div>
       <div className="grid grid-cols-3 gap-3 mt-5">
         <Field label="Start mcap ($k)">

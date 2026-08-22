@@ -1,3 +1,6 @@
 User-agent: *
 Allow: /
-Sitemap: https://tegridyfarms.vercel.app/sitemap.xml
+
+# 2026-08-07: was https://tegridyfarms.vercel.app/sitemap.xml — the alias origin, not
+# the canonical one (memetic.fun, per index.html's <link rel="canonical"> and SITE_URL).
+Sitemap: https://memetic.fun/sitemap.xml

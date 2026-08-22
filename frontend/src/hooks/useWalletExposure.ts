@@ -22,12 +22,14 @@ import {
 //   exact wallet data — no indexer, no API key, no fabricated numbers.
 //
 // SCORING (honest-gated):
-//   The detection core needs each token's HOLDER DISTRIBUTION, which is not
-//   fetchable for arbitrary ERC-20s with the data sources wired today. A token
-//   `scanToken` adapter is the injection seam (see ScanTokenFn). Until one is
-//   provided, every holding's exposure self-gates to `unmeasured` — the position
-//   size is still exact, the distribution read is honestly "pending". The moment
-//   a scanner is injected, cards light up with real bands; no UI change needed.
+//   The detection core needs each token's HOLDER DISTRIBUTION. A `scanToken`
+//   adapter is the injection seam (see ScanTokenFn), and WalletExposurePage
+//   supplies one: the live `scanTokenLive` path, which reads a token's TOP-N
+//   holders through the deployed erc20scan route. The seam stays optional — when
+//   no scanner is passed, or when a scan comes back empty (route unconfigured,
+//   rate-limited, token not covered), that holding self-gates to `unmeasured`
+//   instead of showing a fabricated band. The position size is exact either way.
+//   A scan that fails is NOT retried; see the scan effect below.
 //
 // SELF-GATING: no wallet ⇒ empty; wrong network ⇒ flagged + empty; a wallet with
 // no tracked balances ⇒ empty holdings (the page shows an honest empty state, not
@@ -41,9 +43,9 @@ export interface UseWalletExposureOptions {
   extraTokens?: string[];
   /**
    * Token-distribution scanner. When supplied, each held token is scanned and
-   * scored via the detection core. Omitted by default (no holder-list source is
-   * deployed) ⇒ all holdings read as `unmeasured`. This is the wiring point for a
-   * future scanner adapter — inject it here and the page needs no other change.
+   * scored via the detection core — WalletExposurePage injects the live
+   * `scanTokenLive` adapter here. Optional: when omitted, or when a scan resolves
+   * to `null`, those holdings read as `unmeasured` — never as a passing band.
    */
   scanToken?: ScanTokenFn;
   /** Poll interval for balance refreshes (ms). Default 30s. */
@@ -58,6 +60,14 @@ export interface WalletExposureState {
   error: boolean;
   address?: `0x${string}`;
   holdings: WalletHolding[];
+  /**
+   * Tokens whose `balanceOf` could not be READ this pass — distinct from tokens you
+   * hold none of, and distinct from `unmeasured` (a position we DO show whose holder
+   * distribution could not be read). These have no size to show, so they are absent
+   * from `holdings`; the page must surface the count, because an omitted position
+   * silently understates the concentration it reports.
+   */
+  unreadableBalances: `0x${string}`[];
   /** Exposure per holding, keyed by lowercased token address. */
   exposures: Record<string, HoldingExposure>;
   /** True while any per-token scan is still resolving. */
@@ -123,9 +133,13 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
     },
   });
 
-  const holdings = useMemo<WalletHolding[]>(() => {
-    if (!data || !address || !onRightChain) return [];
+  const { holdings, unreadableBalances } = useMemo<{
+    holdings: WalletHolding[];
+    unreadableBalances: `0x${string}`[];
+  }>(() => {
+    if (!data || !address || !onRightChain) return { holdings: [], unreadableBalances: [] };
     const out: WalletHolding[] = [];
+    const unreadable: `0x${string}`[] = [];
     for (let i = 0; i < targets.length; i++) {
       const t = targets[i];
       if (!t) continue;
@@ -135,7 +149,22 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
       const symRes = data[base + 2];
       const decRes = data[base + 3];
 
-      const balance = balRes?.status === 'success' ? (balRes.result as bigint) : 0n;
+      // A FAILED balanceOf is not a zero balance.
+      //
+      // `status !== 'success' ? 0n` plus the `<= 0n` skip below deleted the position
+      // outright: an RPC hiccup on one leg of the multicall and that token silently
+      // vanished from your exposure, taking its weight out of the headline
+      // concentration with it — the flattering direction, and invisible. The page's
+      // own footer promises "the position size stays exact and nothing is inferred",
+      // which a dropped position falsifies.
+      //
+      // Read it and it is zero → skip, as before: you do not hold it, and that IS an
+      // answer. Could not read it → count it and disclose it.
+      if (balRes?.status !== 'success') {
+        unreadable.push(t.address);
+        continue;
+      }
+      const balance = balRes.result as bigint;
       if (balance <= 0n) continue; // only surface positions the wallet actually holds
 
       const totalSupply = supRes?.status === 'success' ? (supRes.result as bigint) : null;
@@ -163,7 +192,8 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
       });
     }
     // Largest position-share first; unknown-supply positions sink to the bottom.
-    return out.sort((a, b) => (b.positionShareOfTotal ?? -1) - (a.positionShareOfTotal ?? -1));
+    out.sort((a, b) => (b.positionShareOfTotal ?? -1) - (a.positionShareOfTotal ?? -1));
+    return { holdings: out, unreadableBalances: unreadable };
   }, [data, address, onRightChain, targets]);
 
   // Per-token exposure. Without a scanner every holding is synchronously
@@ -228,6 +258,14 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
     error: isError,
     address,
     holdings,
+    /**
+     * Tokens whose `balanceOf` could not be READ this pass — not tokens you hold
+     * none of. They are absent from `holdings` (there is no size to show), so the
+     * page must disclose them: silently omitting a position understates the
+     * headline concentration, and the footer's "the position size stays exact"
+     * promise is only true if the omissions are visible.
+     */
+    unreadableBalances,
     exposures,
     scanning,
   };

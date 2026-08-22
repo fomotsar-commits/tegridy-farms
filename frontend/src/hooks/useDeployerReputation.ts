@@ -59,13 +59,68 @@ interface EtherscanEnvelope {
   result?: unknown;
 }
 
-async function fetchTxList(address: string, signal: AbortSignal): Promise<EtherscanEnvelope> {
-  // NOTE: startblock/endblock are deliberately OMITTED. The /api/etherscan proxy
-  // rejects a block range wider than 10k, and Etherscan defaults to the full
-  // history (0..latest) when they are absent — which is exactly what we want.
-  const url = `${ETHERSCAN_PATH}?module=account&action=txlist&address=${encodeURIComponent(
+/**
+ * PURE: does this 200-body envelope represent a FAILED READ? Returns the message to
+ * show, or null when the envelope is a real answer.
+ *
+ * Etherscan signals errors inside a 200 body, and it does NOT put the reason in
+ * `message`. A failed call is
+ * `{"status":"0","message":"NOTOK","result":"Missing/Invalid API Key"}` — this repo
+ * documents that exact body at api/etherscan.js:14, and it reproduces live today.
+ * A rate-limit is the same envelope with "Max rate limit reached" in `result`.
+ *
+ * So the previous `message.includes('rate limit')` test caught NEITHER: "notok"
+ * contains no "rate limit", so the string `result` fell through to
+ * `parseCreatedContracts`, which returns `[]` for a non-array, and the page rendered
+ * "No direct contract-creation transactions were found for this address" — a claim
+ * about somebody's address manufactured from our own missing or throttled API key.
+ *
+ * The SHAPE is the reliable test, not the prose. Etherscan's genuine empty answer is
+ * `{status:'0', message:'No transactions found', result:[]}` — an ARRAY — so that
+ * stays the real answer it is regardless of wording. Extracted and exported so the
+ * distinction is unit-testable rather than pinned only inside an effect.
+ */
+export function explorerEnvelopeFailure(envelope: EtherscanEnvelope): string | null {
+  if (envelope.status !== '0' || Array.isArray(envelope.result)) return null;
+  const msg = typeof envelope.message === 'string' ? envelope.message.toLowerCase() : '';
+  const reason = typeof envelope.result === 'string' ? envelope.result.toLowerCase() : '';
+  return msg.includes('rate limit') || reason.includes('rate limit')
+    ? 'The explorer is rate-limiting right now — try again in a moment.'
+    : 'The transaction explorer could not complete this read, so nothing was concluded about this address. Try again in a moment.';
+}
+
+/**
+ * Rows to ask the explorer for. 500 == MAX_OFFSET in api/etherscan.js, so the proxy's
+ * clamp is a no-op, and it is well above MAX_CREATIONS (50) — all this read consumes.
+ */
+export const TXLIST_OFFSET = 500;
+
+/**
+ * The explorer URL for one address's transaction list.
+ *
+ * Exported so a test can assert the bound without a live fetch. The invariant is "this
+ * read never asks the explorer for an unbounded page", and it needs pinning because
+ * violating it fails in a way that looks like an outage rather than a bug.
+ *
+ * startblock/endblock are deliberately OMITTED: the proxy rejects a block range wider
+ * than 10k, and Etherscan defaults to full history (0..latest) when absent.
+ *
+ * page/offset ARE sent, and they are load-bearing. Without them Etherscan returns its
+ * 10,000-row default; at ~700 B/row that is ~7 MB, over MAX_RESPONSE_BYTES in
+ * api/_lib/bodycap.js, so /api/etherscan answers 502 "Upstream response too large" —
+ * deterministically, on every retry, for any busy address, and /deployer renders its
+ * error state forever. The 2026-08-06 amplifier fix stopped the proxy DROPPING
+ * pagination but could not supply what the caller never sent; HistoryPage.tsx was
+ * already correct, this read was not.
+ */
+export function txListUrl(address: string): string {
+  return `${ETHERSCAN_PATH}?module=account&action=txlist&address=${encodeURIComponent(
     address.toLowerCase(),
-  )}&sort=desc`;
+  )}&page=1&offset=${TXLIST_OFFSET}&sort=desc`;
+}
+
+async function fetchTxList(address: string, signal: AbortSignal): Promise<EtherscanEnvelope> {
+  const url = txListUrl(address);
   const res = await fetch(url, { headers: { accept: 'application/json' }, signal });
   if (res.status === 429) {
     throw new Error('rate-limited');
@@ -77,9 +132,16 @@ async function fetchTxList(address: string, signal: AbortSignal): Promise<Ethers
 }
 
 /** Build a per-token market read from the enrichment outcomes map (null when absent). */
-function marketFor(token: string, outcomes: Record<string, OutcomeRecord>): MarketRead | null {
+export function marketFor(token: string, outcomes: Record<string, OutcomeRecord>): MarketRead | null {
   const rec = outcomes[token.toLowerCase()];
   if (!rec) return null;
+  // The upstream could not be read (429 / error / unparseable — see
+  // OutcomeRecord.marketReadFailed). Returning null lands classifyLaunch on
+  // `unobserved` — "State unknown — this is not a signal about the token" — which is
+  // the status the core ships for exactly this and which was unreachable while the
+  // server had no way to say it. Anything else renders our own throttling as a
+  // finding about somebody's token.
+  if (rec.marketReadFailed === true) return null;
   return {
     // `marketObserved` undefined means "observed" for back-compat records; here every
     // record is freshly built so it is always a real boolean, but default to false so
@@ -184,14 +246,9 @@ export function useDeployerReputation(address: string): DeployerReputationState 
         return;
       }
 
-      // Etherscan signals rate-limit / errors inside a 200 body too.
-      const msg = typeof envelope.message === 'string' ? envelope.message.toLowerCase() : '';
-      if (envelope.status === '0' && msg.includes('rate limit')) {
-        setState({
-          status: 'error',
-          reputation: null,
-          errorMessage: 'The explorer is rate-limiting right now — try again in a moment.',
-        });
+      const failure = explorerEnvelopeFailure(envelope);
+      if (failure) {
+        setState({ status: 'error', reputation: null, errorMessage: failure });
         return;
       }
 

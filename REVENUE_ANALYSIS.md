@@ -40,7 +40,7 @@ hard-cap `constant`. "Cap" = the max the contract will let the owner set, even v
 - Vote-incentive fee (#11)
 
 **Revenue out (to users):**
-- 100 % of swap fees → stakers via `RevenueDistributor`  (#13)
+- After the 20 % referral carve, every remaining basis point of the swap fee is earmarked for stakers via `RevenueDistributor` (#13). `stakerShareBps` is 10000, but that is 100 % of what *arrives*: `ReferralSplitter.referralFeeBps` is 2000 and cannot be set to zero (`FEE_CANNOT_BE_ZERO`), so the end-to-end ceiling is ~80 %. Nothing has been distributed to date.
 - Referrers keep 10–20 % of the swap fee (#4)
 - LP farmers get TOWELI emissions (#14)
 - Gauge voters claim bribes (#11)
@@ -62,7 +62,7 @@ hard-cap `constant`. "Cap" = the max the contract will let the owner set, even v
 
 | Lever | Why | Suggested range |
 |-------|-----|-----------------|
-| **Swap fee → stakers = 100 %** | Uniswap V3 charges 0.30 %/0.05 %/0.01 % and sends **0 %** to holders (LPs + protocol only). We send **100 % to stakers**, zero to treasury. Treasury cannot self-fund dev, bug-bounty, or POL buys — everything has to come from TOWELI emissions (#12) or the 5 %-ish fee surfaces. | Send **80–90 % to stakers, 10–20 % to treasury**. Stakers still win vs. Uni, and treasury gets runway. Change via `proposeFeeChange` on `SwapFeeRouter` is already a 24 h timelock (no contract patch). |
+| **Swap fee → stakers = ~80 % end-to-end** | Uniswap V3 charges 0.30 %/0.05 %/0.01 % and sends **0 %** to holders (LPs + protocol only). We send **every basis point that reaches the distributor** to stakers (`stakerShareBps = 10000`), zero to treasury — but ~20 % never reaches it, because `ReferralSplitter` carves it off the top first, so the end-to-end staker share is ~80 %. Treasury cannot self-fund dev, bug-bounty, or POL buys — everything has to come from TOWELI emissions (#12) or the 5 %-ish fee surfaces. | Send **80–90 % to stakers, 10–20 % to treasury**. Stakers still win vs. Uni, and treasury gets runway. Change via `proposeFeeChange` on `SwapFeeRouter` is already a 24 h timelock (no contract patch). |
 | **LENDING_FEE_BPS = 5 %** | NFTfi charges **5 % of interest** — we match. Gondi charges **0 %**, Arcade charges **2 %**. But our lending is P2P with no order book, so we need the volume — 5 % on top of 0 liquidity is why nobody lends. | Drop to **2–3 % of interest** until we have ≥ $1M TVL. `proposeProtocolFeeChange` timelock covers it. |
 | **POOL_FEE_BPS = 0.50 %** (NFT AMM) | Sudoswap charges 0.50 % protocol + 0–100 % creator → we match Sudo's protocol fee. But Sudo has liquidity, we don't. Consider temporary promotional 0.25 % to seed pools. | **0.25 %** launch → 0.50 % once TVL > $500k |
 | **Premium discount = 50 %** | Halving the fee for Gold Card holders is **massive generosity** — every Gold Card in circulation is a perpetual 50 % discount forever. If Gold Cards ever trade at ≥ ~6 months of avg swap fee / holder, buying one pays for itself. | Either (a) cap the discount to **first N swaps/month**, (b) time-box it ("first year only"), or (c) reduce to **25–35 %**. |

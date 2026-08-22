@@ -38,6 +38,8 @@ function mockFetcher(opts: {
   chain?: TokenChainStats | null;
   throwMarket?: boolean;
   throwChain?: boolean;
+  /** The upstream could not be READ — distinct from it answering "no pool". */
+  unreadableMarket?: boolean;
 }): LauncherDataFetcher & { marketCalls: Address[]; chainCalls: Array<[Address, Address | null]> } {
   const marketCalls: Address[] = [];
   const chainCalls: Array<[Address, Address | null]> = [];
@@ -47,7 +49,10 @@ function mockFetcher(opts: {
     async fetchMarket(token) {
       marketCalls.push(token);
       if (opts.throwMarket) throw new Error('gecko down');
-      return opts.market === undefined ? null : opts.market;
+      // `unreadableMarket` is the THIRD state: the upstream could not be read at all,
+      // as distinct from `market: null`, which is the upstream answering "no pool".
+      if (opts.unreadableMarket) return { read: false };
+      return { read: true, market: opts.market === undefined ? null : opts.market };
     },
     async fetchChainStats(token, creator) {
       chainCalls.push([token, creator]);
@@ -320,5 +325,50 @@ describe('batch builders', () => {
     // each degrades to unobserved (mirrors baseline price 0.001, not a fabricated 0)
     expect(recs.every((r) => r.marketObserved === false)).toBe(true);
     expect(recs.every((r) => r.priceEth === 0.001)).toBe(true);
+  });
+});
+
+// ── the third state: could not read it ───────────────────────────────────────
+//
+// `fetchMarket` returned `TokenMarket | null`, so "GeckoTerminal answered and there
+// is no pool" and "GeckoTerminal never answered" were the same value. Downstream that
+// renders as a "No live market" pill plus a note speculating the pool "may have been
+// withdrawn" — rug-adjacent language about somebody's token, produced by our own
+// throttling. `classifyLaunch` already ships `unobserved` for exactly this.
+//
+// The shipping adapter (api/_lib/launcher-outcomes.js) carries this shape; this file
+// is the source of truth it is ported from, so the two must agree.
+describe('buildOutcomeRecord — a market we could not read is not an absent market', () => {
+  it('flags an unreadable read, and does NOT flag a genuine absence', async () => {
+    const unreadable = await buildOutcomeRecord(baseline(), mockFetcher({ unreadableMarket: true }), NOW);
+    expect(unreadable.marketReadFailed).toBe(true);
+    expect(unreadable.marketObserved).toBe(false);
+
+    // Read it, and there is no pool. THAT is the case "no live market" was written
+    // for, and it must stay distinguishable.
+    const absent = await buildOutcomeRecord(baseline(), mockFetcher({ market: null }), NOW);
+    expect(absent.marketReadFailed).toBe(false);
+    expect(absent.marketObserved).toBe(false);
+  });
+
+  it('treats a fetcher that THREW as a failed read too', async () => {
+    const rec = await buildOutcomeRecord(baseline(), mockFetcher({ throwMarket: true }), NOW);
+    expect(rec.marketReadFailed).toBe(true);
+  });
+
+  it('leaves a healthy observed read unflagged', async () => {
+    const rec = await buildOutcomeRecord(
+      baseline(),
+      mockFetcher({ market: { priceEth: 0.002, liquidityEth: 9, uniqueBuyers24h: 5, feeRevenueEth24h: 0 } }),
+      NOW,
+    );
+    expect(rec.marketReadFailed).toBe(false);
+    expect(rec.marketObserved).toBe(true);
+  });
+
+  it('never ranks a launch on a market it could not read', async () => {
+    // buildLaunchSummary returning a summary here would let an outage-hit launch be
+    // ordered against real ones on fabricated zeros.
+    expect(await buildLaunchSummary(baseline(), mockFetcher({ unreadableMarket: true }))).toBeNull();
   });
 });

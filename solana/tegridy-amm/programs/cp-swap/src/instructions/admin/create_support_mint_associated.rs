@@ -11,10 +11,22 @@ use std::ops::DerefMut;
 // ⚠️ OPERATOR: replace the mainnet value with the Squads multisig before mainnet.
 pub mod create_support_mint_associated_owner {
     use super::{pubkey, Pubkey};
+    // A SECOND, lower-privilege owner accepted by `CreateSupportMintAssociated` in
+    // addition to `admin::ID` (see the `||` constraint below).
+    //
+    // This is the Squads MULTISIG account, which can never sign — the same mistake
+    // that made `admin::ID` unusable and blocked graduation (see the long note in
+    // lib.rs:46). Left as-is ON PURPOSE rather than repointed: this path is a pure
+    // OR-fallback, so with `admin::ID` fixed the instruction is fully reachable, and
+    // changing a constant we do not need widens the delta the fork's diff-guard has
+    // to justify for no capability gained. It grants nobody anything today.
+    //
+    // If this alternate owner is ever actually wanted, it must be a SYSTEM-OWNED
+    // account — a vault PDA or a plain wallet — never the multisig account.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set Squads multisig
+    pub const ID: Pubkey = pubkey!("EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK");
 }
 
 #[derive(Accounts)]

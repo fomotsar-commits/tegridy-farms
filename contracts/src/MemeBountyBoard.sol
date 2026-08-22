@@ -70,6 +70,18 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     uint256 public constant MIN_COMPLETION_VOTES = 3000e18; // AUDIT FIX H-07: Minimum stake-weighted votes for quorum (3000 TOWELI equivalent)
     uint256 public constant MIN_UNIQUE_VOTERS = 3; // SECURITY FIX H3: Prevent whale single-handedly completing bounties (Nouns DAO pattern)
     mapping(uint256 => uint256) public uniqueVoterCount; // bountyId => number of unique voters
+    /// @notice AUDIT FIX (governance-gates 2026-08) MBB-GATE-01: unique voters per
+    ///         SUBMISSION, not per bounty.
+    /// @dev    `uniqueVoterCount` above is bounty-scoped, so three voters spread
+    ///         across three DIFFERENT submissions satisfied the "voter diversity"
+    ///         gate while the WINNING submission had been chosen by exactly one
+    ///         wallet — and the same bounty-scoped count simultaneously tripped the
+    ///         `WinnerExists` guard on `refundStaleBounty` / `emergencyForceCancel`,
+    ///         so the bounty could be neither paid nor refunded. Diversity is a
+    ///         property of the submission that gets PAID, so it is now measured
+    ///         there. `uniqueVoterCount` is retained (ABI / indexer compatibility)
+    ///         but is no longer the completion gate.
+    mapping(uint256 => mapping(uint256 => uint256)) public submissionVoterCount; // bountyId => submissionId => unique voters
     uint256 public constant DISPUTE_PERIOD = 2 days; // SECURITY FIX #15: dispute window after deadline
     /// @notice AUDIT FIX: DEEP-GOV-04 — final-window freeze on the top submission.
     ///         In the final 24h before deadline, votes STILL count toward each
@@ -223,6 +235,14 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error AlreadySubmitted(); // AUDIT FIX v3: custom error for duplicate submissions
     /// @dev AUDIT FIX (pass-8): GOV-ECON-01 / C10 — restakingContract is one-shot.
     error RestakingAlreadySet();
+    /// @dev AUDIT FIX (governance-gates 2026-08) MBB-WIRE-01: `setRestakingContract`
+    ///      is a ONE-SHOT wire that carried no code-length guard, unlike the sibling
+    ///      one-shot setters in the repo (GaugeController.propose/executeRestakingContract,
+    ///      VoteIncentives.setVoteIncentivesAdmin / setGaugeController). A typo'd or
+    ///      wrong-chain address permanently disenfranchises every restaker.
+    ///      Length-23 is the EIP-7702 delegation-pointer carve-out used by
+    ///      `OwnableNoRenounce._transferOwnership` and `TegridyFactory.createPair`.
+    error NotAContract();
     error WinnerExists(); // AUDIT FIX: valid winner exists, use completeBounty instead
     error DeadlineTooFar(); // AUDIT FIX: prevent indefinite ETH locking
     error CreatorCannotVote(); // SECURITY FIX M-11: prevent creator from influencing outcome
@@ -347,6 +367,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function setRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
         if (restakingContract != address(0)) revert RestakingAlreadySet();
+        // AUDIT FIX (governance-gates 2026-08) MBB-WIRE-01: align with the sibling
+        // one-shot setters — refuse an EOA / 7702-delegated EOA.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         restakingContract = _restaking;
         emit RestakingContractSet(_restaking);
     }
@@ -507,6 +531,10 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         hasVotedOnBounty[_bountyId][msg.sender] = true;
         // SECURITY FIX H3: Track unique voters for diversity requirement (Nouns DAO pattern)
         uniqueVoterCount[_bountyId]++;
+        // AUDIT FIX (governance-gates 2026-08) MBB-GATE-01: also track diversity on
+        // the submission itself — `hasVotedOnBounty` above already guarantees one
+        // vote per address per bounty, so this counter can never double-count.
+        submissionVoterCount[_bountyId][_submissionId]++;
         hasVotedOnSubmission[_bountyId][_submissionId][msg.sender] = true;
         // AUDIT FIX H-07: Use stake-weighted voting to prevent Sybil attacks
         submissions[_bountyId][_submissionId].votes += voterPower;
@@ -598,7 +626,13 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // SECURITY FIX #15: Require minimum vote threshold for completion (quorum)
         if (topVotes < MIN_COMPLETION_VOTES) revert QuorumNotMet();
         // SECURITY FIX H3: Require minimum voter diversity — prevents whale solo-completing bounties
-        require(uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS, "INSUFFICIENT_VOTER_DIVERSITY");
+        // AUDIT FIX (governance-gates 2026-08) MBB-GATE-01: measured on the WINNING
+        // submission, not on the bounty. Voters scattered across losing submissions
+        // no longer launder a single-voter winner through the diversity gate.
+        require(
+            submissionVoterCount[_bountyId][topSubmissionId[_bountyId]] >= MIN_UNIQUE_VOTERS,
+            "INSUFFICIENT_VOTER_DIVERSITY"
+        );
 
         address winner = submissions[_bountyId][topSubmissionId[_bountyId]].submitter;
         bounty.winner = winner;
@@ -738,6 +772,23 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         WETHFallbackLib.safeTransferETHOrWrap(weth, msg.sender, amount);
     }
 
+    /// @notice AUDIT FIX (governance-gates 2026-08) MBB-GATE-01: true iff
+    ///         `completeBounty` would be able to pay the current top submission —
+    ///         i.e. it clears BOTH the stake quorum and the per-submission voter
+    ///         diversity floor.
+    /// @dev    INVARIANT: this MUST stay the exact complement of the two payout
+    ///         gates in `completeBounty` (`QuorumNotMet` +
+    ///         `INSUFFICIENT_VOTER_DIVERSITY`). If a bounty can be completed the
+    ///         refund paths must be closed; if it can never be completed the refund
+    ///         paths must be open. Pre-fix the refund side used the BOUNTY-scoped
+    ///         `uniqueVoterCount`, which is satisfiable by voters on LOSING
+    ///         submissions — so a single voter could both pick the winner and slam
+    ///         the refund path shut on a bounty `completeBounty` could never pay.
+    function _topSubmissionQualified(uint256 _bountyId) internal view returns (bool) {
+        return topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES
+            && submissionVoterCount[_bountyId][topSubmissionId[_bountyId]] >= MIN_UNIQUE_VOTERS;
+    }
+
     /// @notice Refund a stale bounty where no submission met the vote quorum after the full
     ///         grace period (deadline + dispute period + grace period). Anyone can call this.
     ///         Refunds ETH to the bounty creator since no valid winner exists.
@@ -752,7 +803,9 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // who tried to participate during an outage isn't punished by a
         // refund window that elapsed entirely while the chain was offline.
         if (block.timestamp < bounty.deadline + DISPUTE_PERIOD + GRACE_PERIOD + _sequencerBuffer()) revert GracePeriodNotExpired();
-        if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
+        // AUDIT FIX (governance-gates 2026-08) MBB-GATE-01: exact complement of the
+        // `completeBounty` payout gates — see `_topSubmissionQualified`.
+        if (_topSubmissionQualified(_bountyId)) revert WinnerExists();
 
         // No submission met quorum — refund creator
         bounty.status = BountyStatus.Cancelled;
@@ -805,7 +858,17 @@ contract MemeBountyBoard is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // >= 2x quorum could block force-cancel without satisfying completeBounty's
         // diversity requirement, deadlocking the bounty in an unfinishable state.
         // Now the bounty is only "winner exists" if there is real voter consensus.
-        if (topSubmissionVotes[_bountyId] >= MIN_COMPLETION_VOTES && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
+        // AUDIT FIX (governance-gates 2026-08) MBB-GATE-01: first branch is now the
+        // exact complement of the `completeBounty` payout gates.
+        if (_topSubmissionQualified(_bountyId)) revert WinnerExists();
+        // NOTE (governance-gates 2026-08, KNOWN RESIDUAL): the aggregate branch below
+        // is a heuristic, not the completion condition — it can still block the
+        // OWNER's 7-day force-cancel on a bounty that `completeBounty` can never pay.
+        // It is deliberately left intact: removing it would WIDEN owner force-cancel
+        // power, which is a control change, not a fix. The creator is NOT trapped —
+        // permissionless `refundStaleBounty` above is gated only by the complement
+        // condition and still refunds them after deadline + DISPUTE_PERIOD +
+        // GRACE_PERIOD.
         if (totalBountyVotes[_bountyId] >= MIN_COMPLETION_VOTES * 2 && uniqueVoterCount[_bountyId] >= MIN_UNIQUE_VOTERS) revert WinnerExists();
 
         bounty.status = BountyStatus.Cancelled;

@@ -268,6 +268,105 @@ export default async function handler(req, res) {
     return handleLaunchCohort(req, res);
   }
 
+  // `?resource=heat` proxies Jungle Bay Island's held-time oracle at memetics.wtf.
+  // This one is not an optimisation: the upstream answers with
+  // `Access-Control-Allow-Origin: https://junglebayisland.lat`, so a browser fetch
+  // from our origin is CORS-blocked and there is no client-side workaround. Going
+  // through here also keeps the browser talking only to `'self'`, so vercel.json's
+  // connect-src needs no new host. Lazy import: the swap hot path never pays for it.
+  // See _lib/heat.js header.
+  //
+  // MUST stay above the `const provider` line below — a ?resource= call carries no
+  // provider, so a branch placed after it never runs and falls into the 404.
+  if (req.query.resource === "heat") {
+    const { handleHeat } = await import("./_lib/heat.js");
+    return handleHeat(req, res);
+  }
+
+  // `?resource=births` signs a birth notify with the venue's shared secret and relays it
+  // to the island's enrollment socket. Server-side because the SECRET is the whole
+  // guarantee — a signature the browser could produce is one anybody could produce.
+  // Lazy import, same as the branches above; also above `const provider`.
+  if (req.query.resource === "births") {
+    const { handleBirths } = await import("./_lib/births.js");
+    return handleBirths(req, res);
+  }
+
+  // `?resource=alerts` is the per-wallet alert-rule store: CRUD only, forwarded to
+  // PostgREST under the caller's own SIWE JWT so RLS decides visibility. Nothing here
+  // evaluates a rule — a serverless function runs only when called, so it cannot watch
+  // anything while the user's tab is shut, and every response says so in its `delivery`
+  // block. Lazy import, same as the branches above; also above `const provider`.
+  if (req.query.resource === "alerts") {
+    const { handleAlerts } = await import("./_lib/alerts.js");
+    return handleAlerts(req, res);
+  }
+
+  // `?resource=record` serves a token's birth certificate as JSON, derived from chain on
+  // read. The pretty, stable route is `/record/:chain/:ca.json` (a vercel.json rewrite) —
+  // that URL is what `record_url` carries to the island, so it must not move.
+  //
+  // ⚠️ The rewrite is LOAD-BEARING, not cosmetic. vercel.json's SPA fallback is
+  // `/((?!api/).*)`, whose negative lookahead only excludes `api/…`, so without the
+  // rewrite `/record/…` is rewritten to index.html and answers 200 with HTML forever —
+  // a health check on `res.ok` would call that route healthy. See _lib/record.js.
+  if (req.query.resource === "record") {
+    const { handleRecord } = await import("./_lib/record.js");
+    return handleRecord(req, res);
+  }
+
+  // `?resource=airdrop` is the hosted airdrop manifest store: a claimant fetches THEIR
+  // OWN leaf and proof, and a creator publishes the list before funding. There is
+  // deliberately no branch that returns the recipient list — an airdrop recipient list
+  // is a wallet-targeting database, so the capability does not exist rather than being
+  // permission-checked. Lazy import, same as the branches above; also above
+  // `const provider`. See _lib/airdrop.js.
+  if (req.query.resource === "airdrop") {
+    const { handleAirdrop } = await import("./_lib/airdrop.js");
+    return handleAirdrop(req, res);
+  }
+
+  // `?resource=referrals` is the short-code store behind `/?r=code` referral links:
+  // one code in, at most one wallet out. It is NOT the referral ledger — earnings,
+  // referee counts and claimable balances are ReferralSplitter's state and are read
+  // from chain, never mirrored here. It is also not a referrer directory: the single
+  // public read is service-role with a pinned one-row filter, for the same reason
+  // airdrop above has no recipient-list endpoint. The whole store being absent
+  // degrades to a working feature — `/?ref=0x…` links need no server at all. Lazy
+  // import, same as the branches above; also above `const provider`. See
+  // _lib/referrals.js.
+  if (req.query.resource === "referrals") {
+    const { handleReferrals } = await import("./_lib/referrals.js");
+    return handleReferrals(req, res);
+  }
+
+  // `?resource=commerce` is the merchant invoice store and the settlement record
+  // behind /checkout: one id in, one invoice out, plus a claimed-payment row.
+  // It is NOT custodial and cannot become so — no key is held or accepted
+  // anywhere on that path; the buyer signs both legs in their own wallet. It is
+  // also not an oracle: a settlement row is written `client-reported` because
+  // nothing there reads a receipt, and the webhook is ONE inline attempt with no
+  // retry, because this venue runs no keeper to make a second one. Lazy import,
+  // same as the branches above; also above `const provider`. See
+  // _lib/commerce.js.
+  if (req.query.resource === "commerce") {
+    const { handleCommerce } = await import("./_lib/commerce.js");
+    return handleCommerce(req, res);
+  }
+
+  // `?resource=bot-link` is the Telegram chat ↔ wallet binding, and the only server
+  // surface the bot has. It is what lets the bot answer read-only questions without
+  // holding anything: a chat is bound by the user SIGNING in the web app, and the
+  // bot's own credential can mint a pending code, read one chat's state, and destroy
+  // a binding — never create one. There is no field here, in either direction, that
+  // carries key material, and api/__tests__/bot-noncustodial.test.js fails the build
+  // if one appears. Lazy import, same as the branches above; also above
+  // `const provider`. See _lib/botLink.js.
+  if (req.query.resource === "bot-link") {
+    const { handleBotLink } = await import("./_lib/botLink.js");
+    return handleBotLink(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with

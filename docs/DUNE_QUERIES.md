@@ -112,7 +112,7 @@ at `1 + i*32`. `bytearray_to_uint256(...)` turns a 32-byte word into a number.
 
 ---
 
-## Q1 — Real yield: cumulative ETH fees generated (→ 100% to stakers)
+## Q1 — Cumulative ETH fees *generated* (not delivered — see Q2)
 `SwapExecuted.fee` is word index 3 (bytes 97..128), denominated in ETH wei.
 ```sql
 WITH swaps AS (
@@ -135,8 +135,18 @@ GROUP BY 1 ORDER BY 1;
 **Approx volume:** fees ÷ fee rate (50 bps = 0.005) → `sum(fees_eth) / 0.005` ETH. For exact
 per-token volume, decode `tokenIn` (word 0) / `tokenOut` (word 1) and join a price source.
 
+⚠️ **Do not label this "real yield" on a dashboard.** It is fee ETH *taken*, which is not fee ETH
+*received by a staker*: the whole amount goes to `ReferralSplitter`, ~20% is the referral share and
+never returns, and the rest only comes back on a permissionless `recoverCallerCredit()` call that has
+never been made. Q1 is therefore an upper bound roughly 25% above the best case, and the amount
+actually delivered is Q2 — which is still zero. Chart both or neither.
+
 ## Q2 — ETH distributed to stakers (the headline "real yield paid")
 `EpochDistributed.ethAmount` is word index 0 (epochId is indexed).
+
+**This returns no rows today, and that is the correct answer, not a broken query.** `EpochDistributed`
+has never fired: `RevenueDistributor.totalDistributed()` reads `0`. An empty Q2 next to a non-empty Q1
+is precisely the gap worth publishing — don't hide the panel because it looks broken.
 ```sql
 SELECT
   date_trunc('day', block_time) AS day,

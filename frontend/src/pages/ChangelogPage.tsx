@@ -16,6 +16,17 @@ const CARD_ART = Array.from({ length: 16 }, (_, i) => pageArt('changelog-cards',
 
 const CHANGELOG: ChangelogEntry[] = [
   {
+    date: 'August 18, 2026',
+    title: 'Code That Was Written and Never Switched On',
+    items: [
+      'The LP farm recalculates your NFT boost only when you stake, withdraw or exit. So anyone who staked LP first and bought a Jungle Bay Ape second kept earning at the unboosted rate — indefinitely, silently, with the Dashboard\'s "pending" figure quietly accruing low. The detection for exactly this was written in April, listed in this changelog on April 26, and was never called from anywhere in the app. It is now: the Farm page detects the mismatch and offers a one-transaction fix, and the Dashboard says the pending figure is understated and points at it. Nobody was ever going to notice this on their own',
+      'The NFT AMM printed a flat "0.5%" protocol fee because the code could not read the real one at that spot. That figure is changeable on-chain through a timelock, so the label was one operator action away from being wrong on a screen people size trades against. It now reads the fee from the same factory that charges it, and when that read fails it says the fee is unavailable rather than repeating a number it cannot stand behind',
+      'On wallets that support it, approving TOWELI and staking it are now one confirmation instead of two. Wallets that do not advertise support are never assumed to have it — they keep the existing two-step flow, and a batch that fails for any reason other than you declining it drops that wallet back to the sequential path for the rest of the session',
+      'Three external price responses were being read field-by-field without ever checking their shape. They are now validated against the schemas that were written for them months ago and applied to nothing: a malformed response now fails into the visible "price unavailable" state instead of flowing into a chart',
+      'Not wired, stated plainly: the matching one-click path for buying a launch is written and still mounted nowhere. It needs the swap call that only the Doppler SDK can encode, and there is no launch-buy screen in the app to put it on, because the launch rail itself is still gated off',
+    ],
+  },
+  {
     date: 'August 1, 2026',
     title: 'The Solana Rail Is Armed — and the Lock On It Was Weaker Than Advertised',
     items: [

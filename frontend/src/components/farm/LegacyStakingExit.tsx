@@ -5,6 +5,7 @@ import type { Address } from 'viem';
 import { formatEther } from 'viem';
 import { LEGACY_STAKING_ADDRESSES } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
+import { ArtImg } from '../ArtImg';
 
 // The legacy deployments are the same TegridyStaking family as the live one, so
 // TEGRIDY_STAKING_ABI covers userTokenId/getPosition/withdraw/earlyWithdraw
@@ -107,9 +108,15 @@ export function LegacyStakingExit() {
     <m.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 md:p-5"
+      className="relative overflow-hidden mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 md:p-5"
       data-testid="legacy-staking-exit"
     >
+      {/* Art behind the notice. The amber wash stays on top so this still reads
+          as a warning, not a decorative card. Pickable as `legacy-exit:0`. */}
+      <div className="absolute inset-0 -z-10" aria-hidden="true">
+        <ArtImg pageId="legacy-exit" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.16), rgba(6,12,26,0.88))' }} />
+      </div>
       <div className="text-amber-300 text-[13px] font-semibold uppercase tracking-wider mb-1">
         Legacy staking position found
       </div>

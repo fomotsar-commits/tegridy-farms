@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { fetchWalletNfts, fetchCollectionStats } from "../api";
 import { calculatePnL, saveSnapshot, loadSnapshots } from "../lib/portfolio";
-import { formatPrice } from "../lib/formatPrice";
+import { formatPrice, formatUsd } from "../lib/formatPrice";
 import { Eth } from "./Icons";
 import Skeleton from "./Skeleton";
 import { useActiveCollection } from "../contexts/CollectionContext";
-import { useTOWELIPriceOptional } from "../../contexts/PriceContext";
+import { useEthUsd } from "../hooks/useEthUsd";
 
 // ── Helpers ────────────────────────────────────────────────────
 function pnlColor(value) {
@@ -119,17 +119,24 @@ function ValueChart({ snapshots }) {
 }
 
 // ── Main Component ─────────────────────────────────────────────
-export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }) {
+export default function PortfolioTracker({ wallet, onConnect, onPick }) {
   const collection = useActiveCollection();
-  // Optional: this tab renders outside the main app's PriceProvider (and the
-  // standalone gallery build has none) — the ?? path keeps USD math on the
-  // existing 3200 fallback instead of crashing the tab (prod bug 2026-06-11).
-  const { ethUsd } = useTOWELIPriceOptional() ?? {};
+  // This tab mounts outside AppLayout's PriceProvider (App.tsx routes
+  // nakamigos/* as a sibling of the AppLayout route), so the context rate is
+  // never present here. useEthUsd prefers that context when it IS available
+  // and otherwise uses the shared clamped CoinGecko feed; it returns 0 when no
+  // real rate is reachable. At 0 we render NO dollar line rather than a
+  // fabricated one. (It consumes the non-throwing useTOWELIPriceOptional, so
+  // the tab still can't crash outside a provider — prod bug 2026-06-11.)
+  const ethUsd = useEthUsd();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pnlData, setPnlData] = useState(null);
   const [tokens, setTokens] = useState([]);
-  const [stats, setStats] = useState(null);
+  // Set when the wallet walk did not reach the end. Every number below is a sum
+  // over `tokens`, so a partial inventory means a portfolio value that is
+  // understated by an unknown amount — it has to say so on the same screen.
+  const [partialInventory, setPartialInventory] = useState(null);
   const [expandedCollection, setExpandedCollection] = useState(false);
   const [snapshots, setSnapshots] = useState(() => wallet ? loadSnapshots(wallet, collection.contract) : []);
   const genRef = useRef(0);
@@ -166,8 +173,12 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
         return;
       }
 
+      setPartialInventory(
+        nftData.complete === false
+          ? { loaded: nftData.tokens.length, total: nftData.totalCount, capped: !!nftData.truncated }
+          : null,
+      );
       setTokens(nftData.tokens);
-      setStats(statsData);
 
       if (nftData.tokens.length === 0) {
         setPnlData(null);
@@ -296,8 +307,10 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
   }
 
   const totalPnL = pnlData.unrealizedPnL + pnlData.realizedPnL;
-  const totalPnLUsd = totalPnL * (ethUsd || 3200);
-  const currentValueUsd = pnlData.currentValue * (ethUsd || 3200);
+  // formatUsd returns "" for a non-positive rate AND for a negative amount, so
+  // pass the magnitude and carry the sign ourselves.
+  const currentValueUsd = formatUsd(pnlData.currentValue, ethUsd, { prefix: "~ " });
+  const totalPnLUsdMag = formatUsd(Math.abs(totalPnL), ethUsd, { prefix: "" });
 
   return (
     <section className="my-collection-section portfolio-section">
@@ -319,6 +332,17 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
         </button>
       </div>
 
+      {partialInventory && (
+        <div className="error-banner" style={{ marginBottom: 16 }} role="status">
+          <span>
+            Partial inventory: {partialInventory.loaded} of {partialInventory.total} NFTs loaded
+            {partialInventory.capped ? " (page limit reached)" : ""}. Every figure below covers only
+            the loaded NFTs and understates this wallet.
+          </span>
+          <button onClick={() => loadPortfolio(true)}>Retry</button>
+        </div>
+      )}
+
       {/* ═══ HERO STATS BAR ═══ */}
       <div style={{
         display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10,
@@ -329,18 +353,22 @@ export default function PortfolioTracker({ wallet, onConnect, onPick, addToast }
           <div className="analytics-stat-value" style={{ color: "var(--gold)" }}>
             <Eth size={14} /> {formatPrice(pnlData.currentValue)}
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", marginTop: 2 }}>
-            ~${Math.round(currentValueUsd).toLocaleString()}
-          </div>
+          {currentValueUsd && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-dim)", marginTop: 2 }}>
+              {currentValueUsd}
+            </div>
+          )}
         </div>
         <div className="analytics-stat-card">
           <div className="analytics-stat-label">TOTAL P&L</div>
           <div className="analytics-stat-value" style={{ color: pnlColor(totalPnL) }}>
             {pnlSign(totalPnL)}<Eth size={14} /> {formatPrice(Math.abs(totalPnL))}
           </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: pnlColor(totalPnLUsd), marginTop: 2 }}>
-            {pnlSign(totalPnLUsd)}${Math.round(Math.abs(totalPnLUsd)).toLocaleString()}
-          </div>
+          {totalPnLUsdMag && (
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: pnlColor(totalPnL), marginTop: 2 }}>
+              {pnlSign(totalPnL)}{totalPnLUsdMag}
+            </div>
+          )}
         </div>
         <div className="analytics-stat-card" title="Estimated gas: ~0.003 ETH per purchased token (excludes mints/airdrops)">
           <div className="analytics-stat-label">GAS (EST.)</div>

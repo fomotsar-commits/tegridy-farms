@@ -4,19 +4,21 @@ import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, 
 import { formatEther } from 'viem';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
+import { TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, POL_ACCUMULATOR_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, isDeployed, TEGRIDY_RESTAKING_ADDRESS } from '../lib/constants';
 import { ERC20_ABI, REVENUE_DISTRIBUTOR_ABI } from '../lib/contracts';
+import { getAddressUrl } from '../lib/explorer';
 import { useUserPosition } from '../hooks/useUserPosition';
 import { useLpPosition } from '../hooks/useLpPosition';
 import { usePoolData } from '../hooks/usePoolData';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 import { useFarmActions } from '../hooks/useFarmActions';
 import { useNFTBoost } from '../hooks/useNFTBoost';
+import { useAutoRefreshBoost } from '../hooks/useAutoRefreshBoost';
 import { useDCA } from '../hooks/useDCA';
 import { useLimitOrders } from '../hooks/useLimitOrders';
 import { useMyLoans } from '../hooks/useMyLoans';
 import { pageArt, artStyle } from '../lib/artConfig';
-import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei, formatTimeAgo } from '../lib/formatting';
+import { formatTokenAmount, formatCurrency, formatWholeNumber, formatWei } from '../lib/formatting';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AnimatedCounter } from '../components/AnimatedCounter';
 import { Sparkline } from '../components/Sparkline';
@@ -36,6 +38,8 @@ import { PriceAlertWidget } from '../components/PriceAlertWidget';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
+import { usePortfolio } from '../hooks/usePortfolio';
+import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -80,6 +84,10 @@ export default function DashboardPage() {
   const myLoans = useMyLoans();
   const pos = useUserPosition();
   const lpPos = useLpPosition(address);
+  // AUDIT F-7, detection only: the pending-rewards figure below accrues on the
+  // farm's EFFECTIVE balance, so a stale boost makes it read low. No callback is
+  // passed — refreshBoost is a transaction and the Farm page owns that write.
+  const lpBoost = useAutoRefreshBoost({});
   const pool = usePoolData();
   const { history: priceHistory } = usePriceHistory();
   const revenueStats = useRevenueStats();
@@ -103,29 +111,17 @@ export default function DashboardPage() {
   const lpUsd = useMemo(() => price.isLoaded
     ? (lpPos.toweliAmount * price.priceInUsd) + (price.oracleStale ? 0 : lpPos.wethAmount * price.ethUsd)
     : 0, [lpPos.toweliAmount, lpPos.wethAmount, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
-  // F153: claimable legs shown elsewhere on this same page but previously omitted
-  // from Portfolio Value — pending ETH revenue + referral ETH (ETH-denominated,
-  // zeroed when the oracle is stale like the other ETH legs) and unsettled TOWELI.
-  const unsettledTotal = useMemo(() => Number(pos.unsettledFormatted) || 0, [pos.unsettledFormatted]);
-  const claimableUsd = useMemo(() => price.isLoaded ? (
-    (price.oracleStale ? 0 : (revenueStats.pendingRevenue + revenueStats.referralPending) * price.ethUsd) +
-    (unsettledTotal * price.priceInUsd)
-  ) : 0, [revenueStats.pendingRevenue, revenueStats.referralPending, unsettledTotal, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
-  const portfolioUsd = useMemo(() => price.isLoaded ? (
-    (walletToweli * price.priceInUsd) +
-    (stakedTotal * price.priceInUsd) +
-    (pendingTotal * price.priceInUsd) +
-    (price.oracleStale ? 0 : ethBal * price.ethUsd) +
-    lpUsd +
-    (lpPos.pendingRewards * price.priceInUsd) +
-    claimableUsd
-  ) : 0, [walletToweli, stakedTotal, pendingTotal, ethBal, lpUsd, lpPos.pendingRewards, claimableUsd, price.isLoaded, price.priceInUsd, price.ethUsd, price.oracleStale]);
+  // The headline figure is no longer assembled here. It was a single sum over seven
+  // legs in which an unread leg and an empty leg were both `0`, and a stale ETH
+  // oracle silently marked the ETH-denominated legs to nothing — a portfolio that FELL
+  // by the user's ETH balance with only a chip beside it to explain the drop. The sum,
+  // the per-source availability, and the freshness model now live in usePortfolio, which
+  // withholds the total rather than shrinking it. See lib/portfolio/aggregate.ts.
+  const portfolio = usePortfolio();
 
-  // F155: manual refresh affordance + "updated Xs ago" stamp. The page already
-  // polls in the background; this gives the user an explicit re-read and a sense
-  // of data freshness. `nowTick` re-renders the relative label ~every 10s so the
-  // stamp doesn't sit stale between background polls.
-  const [lastRefreshed, setLastRefreshed] = useState(() => Math.floor(Date.now() / 1000));
+  // F155: manual refresh affordance + relative age stamp. The page already polls in the
+  // background; this gives the user an explicit re-read. `nowTick` re-renders the
+  // relative label ~every 10s so the stamp doesn't sit stale between background polls.
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [, setNowTick] = useState(0);
   useEffect(() => {
@@ -136,9 +132,8 @@ export default function DashboardPage() {
     if (isRefreshing) return;
     setIsRefreshing(true);
     try {
-      await Promise.all([pos.refetchAll(), revenueStats.refetch()]);
+      await Promise.all([pos.refetchAll(), revenueStats.refetch(), portfolio.refetch()]);
     } finally {
-      setLastRefreshed(Math.floor(Date.now() / 1000));
       setIsRefreshing(false);
     }
   };
@@ -276,7 +271,9 @@ export default function DashboardPage() {
             Wrong network detected. Please switch to Ethereum Mainnet.
           </div>
         )}
-        {/* Header with Portfolio Value */}
+        {/* Page header. The portfolio figure lives in <UnifiedPortfolio/> below, which
+            owns both the number and the disclosure that qualifies it — they must not be
+            separable, so nothing here may render a total. */}
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-3">
@@ -294,50 +291,17 @@ export default function DashboardPage() {
               </Link>
             </div>
           </div>
-          <div className="flex items-center gap-3 mt-2">
-            {price.isLoaded ? (
-              <AnimatedCounter value={portfolioUsd} prefix="$" decimals={2} className="stat-value text-2xl md:text-3xl text-white" />
-            ) : (
-              <Skeleton width={120} height={32} />
-            )}
-            <span className="text-white text-[13px]">Portfolio Value</span>
-            {/* F135: when the oracle is stale the ETH/WETH legs are zeroed out of
-                the total — flag it so the user doesn't read the drop as a real
-                portfolio loss. Reuses the "Stale" chip from the price card. */}
-            {price.isLoaded && price.oracleStale && (
-              <span
-                className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}
-                title="ETH price oracle is stale — ETH-denominated value is temporarily excluded"
-              >
-                Stale · excl. ETH
-              </span>
-            )}
-            {/* F155: manual refresh + last-updated stamp. */}
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              aria-label="Refresh portfolio data"
-              title="Refresh"
-              className="text-white/55 hover:text-white transition-colors disabled:opacity-50"
-            >
-              <svg
-                className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
-                viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-              >
-                <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                <polyline points="21 3 21 9 15 9" />
-              </svg>
-            </button>
-            <span className="text-white/45 text-[10px]" aria-live="polite">updated {formatTimeAgo(lastRefreshed)}</span>
-          </div>
-          {/* F153: surface the claimable legs now folded into Portfolio Value. */}
-          {price.isLoaded && claimableUsd > 0.005 && (
-            <p className="text-white/50 text-[11px] mt-1">incl. {formatCurrency(claimableUsd)} claimable</p>
-          )}
         </m.div>
+
+        {/* One view over every tracked source, each reporting its own availability, and a
+            total that withholds itself rather than under-report. */}
+        <UnifiedPortfolio
+          sources={portfolio.sources}
+          total={portfolio.total}
+          summary={portfolio.summary}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
+        />
 
         {/* Summary Stats */}
         <m.div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
@@ -519,23 +483,7 @@ export default function DashboardPage() {
             )}
 
             {/* POL Accumulator */}
-            {!isDeployed(POL_ACCUMULATOR_ADDRESS) && (
-              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <div className="absolute inset-0">
-                  <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
-                </div>
-                <div className="relative z-10 p-5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-white text-[15px] font-medium">POL Accumulator</span>
-                    <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={{ background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' }}>Coming Soon</span>
-                  </div>
-                  <p className="text-white text-[12px] leading-relaxed max-w-lg">
-                    Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
-                  </p>
-                </div>
-              </m.div>
-            )}
+            <POLAccumulatorCard />
 
             {/* Position */}
             <h2 className="heading-luxury text-[16px] text-white mb-4">Your Position</h2>
@@ -637,6 +585,16 @@ export default function DashboardPage() {
                         <p className="stat-value text-[16px] text-white">{formatCurrency(lpUsd)}</p>
                       </div>
                     </div>
+                    {lpBoost.needsRefresh && (
+                      <div className="mt-4 px-3 py-2 rounded-lg flex items-start gap-2" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                        <span className="text-amber-300 text-[13px] leading-none" aria-hidden="true">⚠</span>
+                        <p className="text-amber-200 text-[11px] leading-snug">
+                          Your JBAC boost is not applied to this staked LP, so the pending figure is
+                          accruing at the unboosted rate. Refresh it on the{' '}
+                          <Link to="/farm" className="underline hover:text-amber-100">Farm page</Link>.
+                        </p>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-4 flex-wrap">
                       <span className="text-white/50 text-[11px]">
                         {lpPos.farmingDeployed && (lpPos.stakedLp > 0n || lpPos.pendingRewards > 0)
@@ -799,6 +757,137 @@ export default function DashboardPage() {
       </div>
       </ErrorBoundary>
     </div>
+  );
+}
+
+/**
+ * POL Accumulator card.
+ *
+ * 🔄 2026-08-12 — DEAD BRANCH REPAIR. This card was `{!isDeployed(POL_ACCUMULATOR_ADDRESS) && …}`:
+ * a "Coming Soon" promise that rendered ONLY while the accumulator address was
+ * the zero address. The contract deployed (0x2A5f…D11D2 went into constants.ts),
+ * `isDeployed()` flipped true, the negation went false, and the card silently
+ * vanished. Nothing replaced it. The promise was neither kept nor withdrawn —
+ * it just stopped being visible, which is the worst of the three outcomes,
+ * because the dashboard now says nothing at all about a feature it once
+ * advertised and that still has not delivered a wei.
+ *
+ * Verified against mainnet 2026-08-12 before writing this copy:
+ *   POLAccumulator 0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2 — unpaused,
+ *     totalETHReceived() = 0, totalLPCreated() = 0, balance 0. Never funded.
+ *   SwapFeeRouter  0x6d5791A660e79175F74C6D639584C98422d5956E —
+ *     polShareBps() = 0 and polAccumulator() = address(0).
+ *
+ * A note on the framing: it is NOT true that this contract "cannot receive a
+ * wei" — `POLAccumulator.receive()` (POLAccumulator.sol:282) is unguarded, so
+ * anyone can send it ETH. What is true, and what this card says, is that it
+ * cannot be funded from PROTOCOL FEES as currently wired: SwapFeeRouter's POL
+ * share is 0 bps, and its `polAccumulator` slot is unset, so the POL leg of
+ * `distributeFeesToStakers` (SwapFeeRouter.sol:1392-1404) is dead code and its
+ * slice would fold into treasury even if the share were raised first.
+ *
+ * The state is READ, not hardcoded, so this card cannot rot the same way twice:
+ * wire the router to the accumulator and it starts reporting real LP.
+ */
+const POL_WIRING_ABI = [
+  { type: 'function', name: 'polShareBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'polAccumulator', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;
+const POL_ACCUMULATOR_STATS_ABI = [
+  { type: 'function', name: 'totalETHReceived', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalLPCreated', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
+export function POLAccumulatorCard() {
+  const deployed = isDeployed(POL_ACCUMULATOR_ADDRESS);
+
+  const { data: polShareBps } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS, abi: POL_WIRING_ABI, functionName: 'polShareBps', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: routerPolTarget } = useReadContract({
+    address: SWAP_FEE_ROUTER_ADDRESS, abi: POL_WIRING_ABI, functionName: 'polAccumulator', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: totalETHReceived } = useReadContract({
+    address: POL_ACCUMULATOR_ADDRESS, abi: POL_ACCUMULATOR_STATS_ABI, functionName: 'totalETHReceived', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+  const { data: totalLPCreated } = useReadContract({
+    address: POL_ACCUMULATOR_ADDRESS, abi: POL_ACCUMULATOR_STATS_ABI, functionName: 'totalLPCreated', chainId: CHAIN_ID,
+    query: { enabled: deployed, refetchInterval: 300_000, staleTime: 60_000 },
+  });
+
+  // "Wired" means the router would actually send it something: a non-zero POL
+  // share AND the router's polAccumulator slot pointing at this contract. Both
+  // are required — DEEP-R-M04 lets governance set one without the other, and a
+  // non-zero share with an unset target folds straight into treasury.
+  const targetMatches =
+    typeof routerPolTarget === 'string' &&
+    routerPolTarget.toLowerCase() === POL_ACCUMULATOR_ADDRESS.toLowerCase();
+  const shareBps = polShareBps !== undefined ? Number(polShareBps as bigint) : undefined;
+  const wired = deployed && targetMatches && shareBps !== undefined && shareBps > 0;
+  const wiringKnown = deployed && shareBps !== undefined && routerPolTarget !== undefined;
+  const everFunded = totalETHReceived !== undefined && (totalETHReceived as bigint) > 0n;
+
+  const badge = !deployed ? 'Coming Soon' : wired ? 'Live' : 'Deployed · Unfunded';
+  const badgeStyle = wired
+    ? { background: 'rgba(52,211,153,0.22)', color: '#6ee7b7', border: '1px solid rgba(52,211,153,0.45)' }
+    : { background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' };
+
+  return (
+    <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <div className="absolute inset-0">
+        <ArtImg pageId="dashboard" idx={8} alt="" loading="lazy" className="w-full h-full object-cover" />
+      </div>
+      <div className="relative z-10 p-5">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="text-white text-[15px] font-medium">POL Accumulator</span>
+          <span className="px-2 py-0.5 rounded text-[9px] font-semibold tracking-wider uppercase" style={badgeStyle}>{badge}</span>
+        </div>
+
+        {/* The original promise. Kept verbatim — it is still the design intent,
+            and it is what the rest of the copy is measured against. */}
+        <p className="text-white text-[12px] leading-relaxed max-w-lg">
+          Protocol-Owned Liquidity will automatically accumulate LP positions from a share of swap fees, deepening TOWELI liquidity permanently and reducing reliance on external LPs.
+        </p>
+
+        {deployed && (
+          <div className="mt-3 pt-3 border-t border-white/10 max-w-lg">
+            {wired ? (
+              <p className="text-white/70 text-[11px] leading-relaxed">
+                Wired and earning: SwapFeeRouter routes {((shareBps ?? 0) / 100).toFixed(2)}% of each
+                distributed fee here.{' '}
+                {totalLPCreated !== undefined && (
+                  <>Lifetime LP minted to the protocol: <span className="font-mono text-white/85">{formatWei(totalLPCreated as bigint, 18, 6)}</span> LP.</>
+                )}
+              </p>
+            ) : (
+              <p className="text-white/70 text-[11px] leading-relaxed">
+                <span className="text-amber-300/90 font-medium">Status:</span> the contract is deployed
+                and unpaused on mainnet, but it has never received a wei
+                {totalETHReceived !== undefined && !everFunded ? ' (totalETHReceived is 0)' : ''} and
+                cannot be funded from swap fees as wired today. SwapFeeRouter&apos;s POL share is{' '}
+                <span className="font-mono text-white/85">{wiringKnown ? `${((shareBps ?? 0) / 100).toFixed(2)}%` : '—'}</span>
+                {wiringKnown && !targetMatches ? ' and its accumulator target is not set to this contract' : ''}
+                , so every fee that reaches the distributable pool goes to stakers and treasury instead.
+                Turning it on takes two timelocked governance calls, not a deploy — until then, treat
+                the paragraph above as a plan, not a running feature.
+              </p>
+            )}
+            <a
+              href={getAddressUrl(CHAIN_ID, POL_ACCUMULATOR_ADDRESS)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-white/55 hover:text-white text-[10px] underline underline-offset-2 transition-colors break-all"
+            >
+              Verify on the block explorer: {POL_ACCUMULATOR_ADDRESS} ↗
+            </a>
+          </div>
+        )}
+      </div>
+    </m.div>
   );
 }
 

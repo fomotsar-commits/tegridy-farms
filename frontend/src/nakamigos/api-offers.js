@@ -1,6 +1,6 @@
 import { parseEther, formatEther } from "viem";
 import { CONTRACT, COLLECTION_SLUG, WETH, SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, OPENSEA_FEE_RECIPIENT, OPENSEA_FEE_BPS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
-import { getProvider, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
+import { getActiveWalletProvider, assertSameWallet, SEAPORT_FULFILLMENT_FUNCTIONS } from "./api";
 import { getWethBalance, getWethAllowance, wrapEth, approveWeth } from "./lib/weth";
 import { openseaGet as rawOpenseaGet, openseaPost as rawOpenseaPost, ApiError } from "./lib/proxy";
 import { cancelSeaportOrder } from "./lib/seaportCancel";
@@ -72,55 +72,139 @@ const GAS_BUFFER_WEI = parseEther("0.005");
 
 // ═══ FETCH OFFERS (all via proxy — no API keys in browser) ═══
 
+async function fetchTokenOffersOrThrow(tokenId, contract = CONTRACT) {
+  const data = await openseaGet("orders/ethereum/seaport/offers", {
+    asset_contract_address: contract,
+    token_ids: tokenId,
+    order_by: "eth_price",
+    order_direction: "desc",
+  });
+  return (data.orders || []).map(normalizeOffer);
+}
+
 export async function fetchTokenOffers(tokenId, contract = CONTRACT) {
   try {
-    const data = await openseaGet("orders/ethereum/seaport/offers", {
-      asset_contract_address: contract,
-      token_ids: tokenId,
-      order_by: "eth_price",
-      order_direction: "desc",
-    });
-    return (data.orders || []).map(normalizeOffer);
+    return await fetchTokenOffersOrThrow(tokenId, contract);
   } catch (err) {
     console.warn("Fetch token offers failed:", err.message);
     return [];
   }
 }
 
-export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaSlug } = {}) {
+async function fetchBestOfferOrThrow(tokenId, slug = COLLECTION_SLUG, { openseaSlug } = {}) {
   const osSlug = openseaSlug || slug;
+  const data = await openseaGet(`offers/collection/${osSlug}/nfts/${tokenId}/best`);
+  if (!data.price) return null;
+  const endSec = parseInt(data.protocol_data?.parameters?.endTime);
+  const nftItem = (data.protocol_data?.parameters?.consideration || []).find(c => Number(c.itemType) >= 2);
+  return {
+    price: safePriceFromWei(data.price.value),
+    currency: data.price.currency,
+    maker: data.protocol_data?.parameters?.offerer,
+    orderHash: data.order_hash,
+    protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
+    tokenContract: nftItem?.token || null,
+    expiry: Number.isFinite(endSec) ? new Date(endSec * 1000) : null,
+  };
+}
+
+export async function fetchBestOffer(tokenId, slug = COLLECTION_SLUG, { openseaSlug } = {}) {
   try {
-    const data = await openseaGet(`offers/collection/${osSlug}/nfts/${tokenId}/best`);
-    if (!data.price) return null;
-    const endSec = parseInt(data.protocol_data?.parameters?.endTime);
-    const nftItem = (data.protocol_data?.parameters?.consideration || []).find(c => Number(c.itemType) >= 2);
-    return {
-      price: safePriceFromWei(data.price.value),
-      currency: data.price.currency,
-      maker: data.protocol_data?.parameters?.offerer,
-      orderHash: data.order_hash,
-      protocolAddress: data.protocol_address || SEAPORT_ADDRESS,
-      tokenContract: nftItem?.token || null,
-      expiry: Number.isFinite(endSec) ? new Date(endSec * 1000) : null,
-    };
+    return await fetchBestOfferOrThrow(tokenId, slug, { openseaSlug });
   } catch (err) {
     console.warn("Fetch best offer failed:", err.message);
     return null;
   }
 }
 
+/**
+ * Both offer lookups for one token, with the outage kept distinguishable from
+ * an empty book.
+ *
+ * The swallowing wrappers above turn a 429/502 from the OpenSea proxy into `[]`
+ * and `null` — indistinguishable from a token nobody has bid on. A surface that
+ * paints "No Offers Yet" off that is telling the user a fact it does not have,
+ * and the venue's own proxy rate-limits under normal browsing, so this is the
+ * common case rather than the rare one. `unavailable` is true when either leg
+ * failed; a caller with nothing to show must say so instead of claiming zero.
+ * Partial success still returns its data — a failed best-offer highlight is no
+ * reason to hide offers that did load.
+ */
+export async function fetchTokenOfferBook(tokenId, { contract = CONTRACT, slug = COLLECTION_SLUG, openseaSlug } = {}) {
+  const [offersRes, bestRes] = await Promise.allSettled([
+    fetchTokenOffersOrThrow(tokenId, contract),
+    fetchBestOfferOrThrow(tokenId, slug, { openseaSlug }),
+  ]);
+  if (offersRes.status === "rejected") console.warn("Fetch token offers failed:", offersRes.reason?.message);
+  if (bestRes.status === "rejected") console.warn("Fetch best offer failed:", bestRes.reason?.message);
+  return {
+    offers: offersRes.status === "fulfilled" ? offersRes.value : [],
+    bestOffer: bestRes.status === "fulfilled" ? bestRes.value : null,
+    unavailable: offersRes.status === "rejected" || bestRes.status === "rejected",
+  };
+}
+
+// Seaport item types that can carry the NFT leg of a criteria offer:
+// 2/3 = ERC721/ERC1155, 4/5 = the *_WITH_CRITERIA variants a collection or
+// trait offer actually uses.
+const NFT_ITEM_TYPES = new Set([2, 3, 4, 5]);
+
+/**
+ * How many NFTs a criteria offer is bidding for.
+ *
+ * A collection/trait offer for N items is a PARTIAL_OPEN order: the WETH offer
+ * item holds N x price-per-item, and the NFT criteria consideration item holds
+ * N, so each 1/N fill hands over one token for one unit price. Absent that
+ * item the order is a single-item bid.
+ */
+export function collectionOfferQuantity(parameters) {
+  for (const c of parameters?.consideration || []) {
+    if (!NFT_ITEM_TYPES.has(Number(c?.itemType))) continue;
+    const n = Number(c?.startAmount);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }
+  return 1;
+}
+
+/**
+ * Normalize one `offers/collection/{slug}/all` entry to a PRICE PER ITEM.
+ *
+ * OpenSea's `price.value` is the whole-order total, so an N-item bid read
+ * straight off it reports a bid N times higher than any single token could
+ * actually be sold into. Every consumer — depth chart, best-bid tile, derived
+ * trait bids — compares these against per-token ask prices, which is how a
+ * 50-item bid ended up rendering above the floor and inverting the spread
+ * (see DepthChart.computeSpread's "invalid" branch). Dividing at the source is
+ * the fix; the panels then need no compensating filter of their own.
+ *
+ * The quantity is only knowable from `protocol_data.parameters`. When OpenSea
+ * omits it there is nothing to divide by and the total is the best available
+ * reading — `quantityKnown: false` marks that so a consumer can decline to
+ * treat it as a verified unit price.
+ */
+export function normalizeCollectionOffer(o) {
+  const params = o?.protocol_data?.parameters;
+  const quantityKnown = !!params;
+  const quantity = quantityKnown ? collectionOfferQuantity(params) : 1;
+  const totalWei = params?.offer?.[0]?.startAmount || o?.price?.value || null;
+  const totalEth = totalWei ? safePriceFromWei(totalWei) : null;
+  return {
+    price: totalEth != null ? totalEth / quantity : null,
+    priceTotal: totalEth,
+    quantity,
+    quantityKnown,
+    currency: o?.price?.currency,
+    maker: params?.offerer,
+    orderHash: o?.order_hash,
+    criteria: o?.criteria,
+  };
+}
+
 export async function fetchCollectionOffers(slug = COLLECTION_SLUG, { openseaSlug, signal } = {}) {
   const osSlug = openseaSlug || slug;
   try {
     const data = await openseaGet(`offers/collection/${osSlug}/all`, {}, { signal });
-    return (data.offers || []).map(o => ({
-      price: o.price?.value ? safePriceFromWei(o.price.value) : null,
-      currency: o.price?.currency,
-      maker: o.protocol_data?.parameters?.offerer,
-      orderHash: o.order_hash,
-      quantity: o.protocol_data?.parameters?.offer?.[0]?.startAmount || "1",
-      criteria: o.criteria,
-    }));
+    return (data.offers || []).map(normalizeCollectionOffer);
   } catch (err) {
     console.warn("Fetch collection offers failed:", err.message);
     return [];
@@ -196,8 +280,10 @@ function normalizeOffer(order) {
 // ═══ CREATE OFFERS ═══
 
 export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: resolve the provider from the ACTIVE
+  // wagmi connector, not the fixed rdns priority walk — see getActiveWalletProvider().
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -209,6 +295,10 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
+    // The offerer signs the order AND funds it (wrap + approve + WETH). Refuse
+    // before any of that if the signing wallet is not the connected account.
+    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
 
     const priceWei = parseEther(String(priceEth));
 
@@ -340,8 +430,9 @@ export async function createItemOffer({ tokenId, priceEth, expirationHours = 168
 
 export async function createCollectionOffer({ priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
   const osSlug = openseaSlug || slug;
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -353,6 +444,8 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
+    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
     // Step 1: WETH balance & approval (reserve gas buffer)
@@ -455,8 +548,9 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
 
 export async function createTraitOffer({ traitType, traitValue, priceEth, expirationHours = 168, slug = COLLECTION_SLUG, openseaSlug }) {
   const osSlug = openseaSlug || slug;
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -468,6 +562,8 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const buyerAddress = await signer.getAddress();
+    const _walletErr = assertSameWallet(buyerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
     const priceWei = parseEther(String(priceEth));
 
     // Step 1: WETH balance & approval (reserve gas buffer)
@@ -611,7 +707,17 @@ export async function fetchMyOffers(wallet, contract = CONTRACT) {
 
 // ═══ FETCH MY LISTINGS ═══
 // Paginates through all pages using cursor to avoid truncation at 20 results.
-
+//
+// Returns `{ listings, fallback }`, NOT a bare array. This used to `return []`
+// on failure, which made an OpenSea outage indistinguishable from "this wallet
+// has nothing listed" — the caller rendered both as no listings at all, so a
+// seller whose listings were merely unreachable was told they had none. That is
+// the same conflation `fetchTopHolders` carries `fallback: true` to prevent
+// (api.js:638, "'zero sales' and 'we couldn't ask' must not render as the same
+// claim"), applied here to the seller's own listings.
+//
+// `fallback: true` means WE COULD NOT ASK. `listings: []` with `fallback: false`
+// means genuinely nothing listed. Callers must branch on the two separately.
 export async function fetchMyListings(wallet, contract = CONTRACT) {
   try {
     const allOrders = [];
@@ -636,7 +742,7 @@ export async function fetchMyListings(wallet, contract = CONTRACT) {
     }
 
     const now = Math.floor(Date.now() / 1000);
-    return allOrders
+    const listings = allOrders
       .filter(o => !o.cancelled && !o.finalized)
       .filter(o => {
         const endSec = parseInt(o.protocol_data?.parameters?.endTime);
@@ -660,17 +766,19 @@ export async function fetchMyListings(wallet, contract = CONTRACT) {
           rawOrder: o,
         };
       });
+    return { listings, fallback: false };
   } catch (err) {
     console.warn("Fetch my listings failed:", err.message);
-    return [];
+    return { listings: [], fallback: true };
   }
 }
 
 // ═══ CANCEL ORDER (listings or bids) ═══
 
 export async function cancelOrder(order) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -679,6 +787,10 @@ export async function cancelOrder(order) {
     const _chainErr = await assertOnExpectedChain(browserProvider);
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
+    // Only the offerer can cancel. Signing from a different wallet burns gas on
+    // a cancel that marks nothing and reports success.
+    const _walletErr = assertSameWallet(await signer.getAddress(), connectedAddress);
+    if (_walletErr) return _walletErr;
 
     const params = order.rawOrder?.protocol_data?.parameters || order.protocol_data?.parameters;
     if (!params) return { error: "failed", message: "Missing order parameters" };
@@ -687,7 +799,23 @@ export async function cancelOrder(order) {
     // rebuilds OrderComponents so cancel() targets the REAL order hash (the old
     // inline ABI put totalOriginalConsiderationItems in the counter slot and
     // cancelled a phantom order while the real one stayed fillable).
-    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: SEAPORT_ADDRESS });
+    // Cancel on the Seaport the order was actually SIGNED against, not on whichever
+    // version this constant happens to name.
+    //
+    // `cancelSeaportOrder` documents that "every caller passes a server-supplied
+    // protocol_address" and pins it at the sink — but this call site handed it the
+    // hardcoded default, and the pin cannot catch that, because the default IS an
+    // allowlisted address. So an order created on a different Seaport version had its
+    // cancel sent to this one, where that order hash does not exist: `cancel()` marks
+    // an unknown hash without reverting, the tx succeeds, this returns
+    // `{ success: true }` — and the real order stays fillable. The user is told their
+    // listing is cancelled while it can still be bought.
+    //
+    // Passing null keeps the documented default for an order that genuinely carries no
+    // protocol address; an address outside the allowlist still fails closed at the sink.
+    const orderProtocolAddress =
+      order.rawOrder?.protocol_address || order.protocol_address || order.protocolAddress || null;
+    const tx = await cancelSeaportOrder({ ethers, signer, params, seaportAddress: orderProtocolAddress });
     await tx.wait();
     return { success: true, hash: tx.hash };
   } catch (err) {
@@ -702,8 +830,9 @@ export async function cancelOrder(order) {
 // ═══ ACCEPT OFFER (for token owners) ═══
 
 export async function acceptOffer(offer) {
-  const provider = getProvider();
-  if (!provider) return { error: "no-wallet" };
+  // AUDIT FIX 2026-08-06 [wallet-provider]: active connector, not the rdns walk.
+  const { provider, address: connectedAddress } = await getActiveWalletProvider();
+  if (!provider) return { error: "no-wallet", message: "No wallet connected" };
 
   try {
     const { ethers } = await import("ethers");
@@ -718,6 +847,11 @@ export async function acceptOffer(offer) {
     if (_chainErr) return _chainErr;
     const signer = await browserProvider.getSigner();
     const sellerAddress = await signer.getAddress();
+    // The seller signs setApprovalForAll AND delivers the NFT. If the signing
+    // wallet is not the connected account, the approval lands on the wrong
+    // wallet and the fill reverts (or hands the NFT over from the wrong one).
+    const _walletErr = assertSameWallet(sellerAddress, connectedAddress);
+    if (_walletErr) return _walletErr;
 
     // Check NFT approval for conduit (required to transfer the NFT to the buyer)
     const nftContract = offer.tokenContract || CONTRACT;

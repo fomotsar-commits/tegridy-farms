@@ -6,6 +6,8 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
+import { isSolanaSubmitReady } from '../lib/launcher/solana/dbc';
+import { isSolanaConfigured } from '../lib/solana';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -50,7 +52,13 @@ const CORE_LOOP_STEPS = [
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
   // rather than hardcode a number that can drift.
   { label: 'Every swap skims a fee',  sub: 'taken at the router, in ETH' },
-  { label: 'Fees flow to stakers',    sub: 'on-chain, paid in ETH' },
+  // 2026-08-04: was 'on-chain, paid in ETH'. Verified on-chain the same day:
+  // RevenueDistributor holds 0 wei and SwapFeeRouter.totalETHFees() is 0, so nothing
+  // has ever been PAID. The route is real; the payment is not. This diagram explains
+  // the DESIGN, so it now describes the route — true today and still true after the
+  // first distribution, which is why it is a literal and not a conditional. The
+  // history claim belongs on /premium, where it IS conditioned on the live read.
+  { label: 'Fees route to stakers',   sub: 'on-chain, in ETH' },
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
@@ -76,7 +84,15 @@ const HOW_IT_WORKS_STEPS = [
 ];
 
 export default function HomePage() {
-  usePageTitle('Home', 'Stake TOWELI on Ethereum. Protocol swap fees flow on-chain to stakers — verifiable on Etherscan.');
+  // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
+  // so every search result, every link preview, and every share of the front door
+  // described a single-chain product. Both halves below are separately checkable:
+  // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
+  // staking"), and the Solana swap really is live and routed through Jupiter.
+  usePageTitle(
+    'Home',
+    'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.',
+  );
   const { address } = useAccount();
   const stats = useFarmStats();
   const pool = usePoolData();
@@ -126,8 +142,17 @@ export default function HomePage() {
   // disconnected visitors get a share affordance. Mirrors ReferralWidget's
   // tweet-URL construction with the SITE_URL origin (F64 single source).
   const shareUrl = SITE_URL;
+  // 2026-08-04: was 'Real yield, paid in ETH, on @TegridyFarms'. Verified on-chain the
+  // same day — RevenueDistributor holds 0 wei, SwapFeeRouter.totalETHFees() is 0, so no
+  // yield has ever been paid to anyone.
+  //
+  // This one is worse than an overclaim on a page: it is a PREWRITTEN tweet the visitor
+  // posts under THEIR OWN name. An on-page claim embarrasses us; this one makes a
+  // stranger vouch for something untrue to their own followers, and it survives any
+  // later correction we make to the site. So it describes what the protocol IS rather
+  // than what it has paid.
   const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    'Real yield, paid in ETH, on @TegridyFarms \u{1F33F}',
+    'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
@@ -167,7 +192,47 @@ export default function HomePage() {
                 left). Additive only: fades to transparent, so the art elsewhere is untouched. */}
             <div aria-hidden="true" className="absolute -left-6 -right-10 -top-8 -bottom-8 -z-10 pointer-events-none"
               style={{ background: 'radial-gradient(115% 115% at 12% 42%, rgba(6,12,26,0.88) 0%, rgba(6,12,26,0.6) 42%, rgba(6,12,26,0.2) 68%, transparent 84%)' }} />
-            <div className="badge badge-primary mb-5 text-[10px]">LIVE ON ETHEREUM</div>
+            {/* CHAIN RAIL 2026-08-07: this was a single "LIVE ON ETHEREUM" badge, and
+                it was the first thing every visitor read. It made a two-chain product
+                look like a one-chain product: the Jupiter-routed Solana swap at /solana
+                is fully live and fee-earning, /scan reads both chains, and the Solana
+                launch rail is real — yet none of that existed above the fold, and the
+                Solana entries sat two clicks deep in the More menu.
+
+                Each pill states what is LIVE on that chain and links to it, so the claim
+                is one click from being checked. Deliberately NOT a generic "multichain"
+                badge: the two chains carry different surfaces and the pills say which.
+                The Solana pill names swap + scan only — the Solana LAUNCH rail gets its
+                own self-gating card in Launch & Verify below, which reads "Preview"
+                until isSolanaSubmitReady() is true, so this rail can never advertise a
+                launch surface that cannot launch. */}
+            <div className="flex flex-wrap items-center gap-2 mb-5">
+              <Link
+                to="/farm"
+                aria-label="Live on Ethereum: farm and stake TOWELI"
+                className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
+              >
+                ETHEREUM &middot; FARM &amp; LAUNCH
+              </Link>
+              {/* FAIL-CLOSED. The Solana swap surface is gated behind
+                  VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
+                  "Solana swap isn't live yet" wall and navConfig drops /solana from the
+                  nav entirely. A hardcoded pill would then be a front-door claim
+                  pointing at a SOON wall — the precise failure this page's other gated
+                  claims (isLauncherEnabled, isSolanaSubmitReady) already avoid.
+                  So the pill degrades instead of lying: it drops the swap claim and
+                  points at /scan, which is the one Solana surface with NO gate at all
+                  (scanner/index.ts dispatches to the Solana adapter unconditionally, so
+                  it cannot be dark in any deployment). Mirrors navConfig's SOLANA_LIVE. */}
+              <Link
+                to={isSolanaConfigured() ? '/solana' : '/scan'}
+                aria-label={isSolanaConfigured() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
+                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
+                style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
+              >
+                {isSolanaConfigured() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
+              </Link>
+            </div>
 
             {/* H1 2026-07-19: "Yield with Tegridy Farms" was generic — it could have
                 headlined any farm. It deliberately does NOT lead with the ETH
@@ -183,10 +248,16 @@ export default function HomePage() {
               Farm TOWELI.<br /><span className="text-white">Check our work.</span>
             </h1>
 
+            {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
+                sentence rather than a rewrite of the staking claim — TOWELI staking is
+                Ethereum-only and must keep saying so. The Solana clause names only what
+                is live today (the Jupiter-routed swap and the two-chain scanner); the
+                launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI. Every protocol fee flows on-chain &mdash; to stakers, the liquidity
-              engine, and operations. Every core contract is source-verified on Etherscan, so you
-              can read the code that holds your stake. Real farm. Earned with tegridy.
+              Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
+              liquidity engine, and operations. Every core contract is source-verified on Etherscan,
+              so you can read the code that holds your stake. On Solana we swap through Jupiter and
+              scan any token &mdash; same tegridy, second chain.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -417,7 +488,14 @@ export default function HomePage() {
             <div className="relative p-5 md:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-weed)' }} />
-                <span className="text-[10px] uppercase tracking-[0.18em] text-white/90" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>The Core Loop</span>
+                {/* 2026-08-07: scoped to Ethereum. The four steps below describe the
+                    Ethereum-mainnet fee economy (SwapFeeRouter -> RevenueDistributor ->
+                    stakers) and their wording is deliberately audit-corrected. Solana
+                    has no part in it. Now that the page reads dual-chain, an unqualified
+                    "The Core Loop" would be read as covering both chains — so the
+                    diagram's honesty is protected by naming its chain, not by editing
+                    a single one of its steps. */}
+                <span className="text-[10px] uppercase tracking-[0.18em] text-white/90" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>The Core Loop &middot; Ethereum</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-stretch gap-3 md:gap-2">
                 {CORE_LOOP_STEPS.flatMap((step, i) => {
@@ -484,13 +562,28 @@ export default function HomePage() {
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Farm, swap, and track your positions &mdash; on Ethereum and on Solana.</p>
           </m.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* 2026-08-07: 3 -> 4 cards. The Solana swap has been fully live (Jupiter
+              routing, limit orders, SOL liquid-staking discovery, and a platform fee we
+              actually collect) while being reachable ONLY from the More menu, so the
+              product's second chain was invisible on its own front page. Nothing was
+              removed; each card now carries an explicit CHAIN label so a visitor can
+              tell at a glance which surface runs where.
+              Grid goes 1 -> 2 -> 4 rather than straight to 4: at md (iPad portrait) four
+              220px-min cards in a row are unreadably narrow, so tablets get a 2x2. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Router', art: pageArt('home', 6) },
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2', label: 'Active Pools', art: pageArt('home', 7) },
+              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Ethereum', art: pageArt('home', 6) },
+              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
+              // Spread-gated on the SAME predicate navConfig uses to decide whether
+              // /solana appears in the nav at all. Unset fee account => the page is a
+              // SOON wall, so the card is simply absent and the grid falls back to
+              // three. A card advertising a wall is worse than no card.
+              ...(isSolanaConfigured()
+                ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens routed through Jupiter, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Jupiter', label: 'Solana', art: pageArt('home', 15) }]
+                : []),
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
@@ -523,24 +616,49 @@ export default function HomePage() {
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Launch &amp; Verify</h2>
-            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Ship a token with its disclosure attached — or check someone else&apos;s before you ape.</p>
+            <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Ship a token with its disclosure attached, on Ethereum or Solana &mdash; or check someone else&apos;s before you ape.</p>
           </m.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* 2026-08-07: 3 -> 4 cards, adding the Solana rail. Same 1 -> 2 -> 4 grid as
+              Protocol Overview for the same tablet-width reason. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               // The launch card follows the SAME gate the nav uses, so the front door
               // can never advertise a rail that is switched off (it reads "Soon" and
               // /launch renders its explainer instead of a wizard).
               {
                 to: '/launch',
-                title: 'Launch a token',
+                title: 'Launch on Ethereum',
                 desc: 'A Doppler dynamic auction with an automated hygiene gate and a published Fact Sheet: fee split, LP lock, and vesting, disclosed at launch.',
                 stat: isLauncherEnabled() ? 'Doppler V4' : 'Soon',
-                label: isLauncherEnabled() ? 'Auction' : 'Not yet live',
+                label: isLauncherEnabled() ? 'Ethereum' : 'Not yet live',
                 art: pageArt('home', 12),
               },
+              // Gated on isSolanaSubmitReady() — the SAME predicate the nav's "Soon" pill
+              // uses — not on SOLANA_LAUNCHER_ENABLED, which is a hardcoded `true` and is
+              // therefore not evidence that anything can actually launch. Submit-ready
+              // additionally requires VITE_SOLANA_DBC_CONFIG, i.e. a published partner
+              // config to launch against. While that is unset the card reads "Preview"
+              // and /solana-launch renders its configuration preview, which is exactly
+              // what the page does today. The label self-clears the moment the config
+              // is published and the build is redeployed.
+              {
+                to: '/solana-launch',
+                title: 'Launch on Solana',
+                desc: 'Meteora’s Dynamic Bonding Curve, with the anti-snipe schedule, the LP lock, and the fee split written into the Fact Sheet before you sign. No custom program of ours in the path.',
+                stat: isSolanaSubmitReady() ? 'Meteora DBC' : 'Preview',
+                label: isSolanaSubmitReady() ? 'Solana' : 'Config pending',
+                art: pageArt('home', 16),
+              },
               { to: '/scan', title: 'Scan a token', desc: 'Holder concentration and distribution for any Ethereum or Solana token — with every exclusion listed and a timestamp. No wallet needed.', stat: 'ETH + SOL', label: 'Any token', art: pageArt('home', 13) },
-              { to: '/deployer', title: 'Check a deployer', desc: 'See what a wallet has shipped before and where each token stands today. Gaps in the data are stated plainly, never papered over.', stat: 'On-chain', label: 'Track record', art: pageArt('home', 14) },
+              // 2026-08-07: stat was 'On-chain', which named no chain. That was harmless
+              // while the page was ETH-only; it is not now. /deployer accepts EVM
+              // addresses ONLY (DeployerPage rejects anything else with "Not a valid
+              // Ethereum address yet"), and this card sits directly beside one whose
+              // badge reads "ETH + SOL" — so a reader carries the chain scope across and
+              // pastes a Solana address into an Ethereum-only tool. Naming the chain is
+              // the fix; the copy is otherwise untouched.
+              { to: '/deployer', title: 'Check a deployer', desc: 'See what a wallet has shipped before and where each token stands today. Gaps in the data are stated plainly, never papered over.', stat: 'ETH', label: 'Track record', art: pageArt('home', 14) },
             ].map((f, i) => (
               <m.div key={f.title} initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }}
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
@@ -565,8 +683,14 @@ export default function HomePage() {
         {/* How It Works */}
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
-            <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How It Works</h2>
-            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Three steps. No bullshit. Real tegridy.</p>
+            {/* 2026-08-07: "How It Works" -> "How the Farm Works". All three steps are
+                Ethereum-only and audit-corrected, and they stay verbatim — but titled
+                "How It Works" on a dual-chain front page they claimed to explain the
+                WHOLE product, so a visitor who came for the launcher or the scanner was
+                told the product is a three-step TOWELI farm. Scoping the title, not the
+                steps. */}
+            <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How the Farm Works</h2>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Three steps, on Ethereum. No bullshit. Real tegridy.</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {HOW_IT_WORKS_STEPS.map((s, i) => (

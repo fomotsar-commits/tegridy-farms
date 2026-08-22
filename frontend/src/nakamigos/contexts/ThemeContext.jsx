@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback, useMemo } from "react";
 
 const STORAGE_KEY = "nakamigos_theme";
 
@@ -83,6 +83,64 @@ function getInitialTheme() {
 
 const THEME_BG = { default: "#09090b", midnight: "#070810", sovereign: "#0a0e1a" };
 
+// Every custom property any theme writes. Used to snapshot/restore the fallback
+// target (document.body) — applyTheme falls back to it when `.nakamigos-app`
+// isn't mounted yet, and body outlives this sub-app.
+const ALL_THEME_VARS = [...new Set(themes.flatMap((t) => Object.keys(t.vars)))];
+
+// The nodes below are shared with the MAIN app, which owns them: it writes
+// documentElement[data-theme] = "dark"|"light" and a matching meta theme-color
+// once, on ITS theme change. This sub-app's theme ids ("midnight", …) match
+// none of the main app's `[data-theme="light"]` rules, so leaving Tradermigos
+// used to strand the whole site on a value nothing styles — the main provider
+// never re-runs to correct it, and the user's light mode silently died (F531).
+// The snapshot is taken before the first applyTheme and handed back on unmount.
+function snapshotGlobalTheme() {
+  try {
+    const root = document.documentElement;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    return {
+      rootTheme: root.getAttribute("data-theme"),
+      bodyTheme: document.body.getAttribute("data-theme"),
+      bodyThemeClasses: themeIds.filter((id) => document.body.classList.contains(`theme-${id}`)),
+      bodyVars: ALL_THEME_VARS.map((prop) => [prop, document.body.style.getPropertyValue(prop)]),
+      meta,
+      metaColor: meta ? meta.getAttribute("content") : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function restoreGlobalTheme(snapshot) {
+  if (!snapshot) return;
+  try {
+    const root = document.documentElement;
+    if (snapshot.rootTheme == null) root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", snapshot.rootTheme);
+
+    if (snapshot.bodyTheme == null) document.body.removeAttribute("data-theme");
+    else document.body.setAttribute("data-theme", snapshot.bodyTheme);
+
+    // Only theme-* classes are ours; anything else on body belongs to another
+    // owner and must survive.
+    themeIds.forEach((id) => document.body.classList.remove(`theme-${id}`));
+    snapshot.bodyThemeClasses.forEach((id) => document.body.classList.add(`theme-${id}`));
+
+    for (const [prop, value] of snapshot.bodyVars) {
+      if (value) document.body.style.setProperty(prop, value);
+      else document.body.style.removeProperty(prop);
+    }
+
+    if (snapshot.meta) {
+      if (snapshot.metaColor == null) snapshot.meta.removeAttribute("content");
+      else snapshot.meta.setAttribute("content", snapshot.metaColor);
+    }
+  } catch {
+    // SecurityError on some mobile browsers (private mode, sandboxed iframe)
+  }
+}
+
 function applyTheme(themeId) {
   const themeDef = themes.find((t) => t.id === themeId);
   if (!themeDef) return;
@@ -131,9 +189,20 @@ export function ThemeProvider({ children }) {
     });
   }, []);
 
+  // Declared BEFORE the apply effect so it snapshots the untouched values, and
+  // as a layout effect so the handback lands in the unmount commit — before the
+  // browser paints the main app again, which is what keeps it flash-free.
+  useLayoutEffect(() => {
+    const snapshot = snapshotGlobalTheme();
+    return () => restoreGlobalTheme(snapshot);
+  }, []);
+
   // Apply CSS variables and body class whenever theme changes
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {

@@ -8,8 +8,20 @@ fallback for pairs we don't host well.
 - **Strategy:** copy the audited program **verbatim**; change the absolute minimum. Small diff = small re-audit = small new attack surface. (Consistent with the protocol's minimal-attack-surface mandate.)
 - **Decision:** operator chose to build our own venue (Model B) on 2026-07-10, over being just an LP (Model A), knowing the cost (Rust + audit + ~$11.7M/mo break-even + Jupiter-invisible-until-integrated).
 
-> **Status: Phase 0 (devnet groundwork). NOT AUDITED. NOT ON MAINNET. Holds no real funds.**
-> Fund-holding mainnet deploy is gated behind a professional audit (see §Audit).
+> **Status as of 2026-08-19: NOT AUDITED. Nothing from this tree is executable on any
+> cluster. Holds no real funds.**
+>
+> This line used to say the fork had never been on mainnet, and that stopped being true
+> on 2026-08-08, when it was deployed at `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y`
+> ahead of the audit this document gates on. It was **closed on 2026-08-13**: the
+> ProgramData account is deleted, so the program cannot execute and that id can never be
+> redeployed. Its `AmmConfig` never existed, so no pool was ever created and no user funds
+> were ever at risk — see `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md` for the verified
+> account reads and the ~8.2M lamports left stranded.
+>
+> A restart is therefore a fresh deploy at a fresh id, with every PDA this fork owns
+> re-derived, not a redeploy. Fund-holding deploy is still gated behind a professional
+> audit (see §Audit) — a gate this project has already walked past once.
 
 ---
 
@@ -28,7 +40,9 @@ authority on this program**; every authority is the Tegridy admin/treasury.
 | `create_support_mint_associated_owner::ID` — `create_support_mint_associated.rs` | `Rayv2…RKYZy` | `GgE6AfEH…Wq5a` (devnet) | alt authority for the Token-2022 support-mint allowlist (was Raydium's key; now ours) |
 
 The devnet values (`BvBkt84Z…`, `GgE6AfEH…`) are throwaway keypairs in `keys/` (gitignored).
-The mainnet values are set to the Squads multisig / treasury by the operator before mainnet.
+The mainnet values are set by the operator before mainnet, per the checklist below — and
+note that `admin::ID` must be a signer that can also pay, which the multisig *account* is
+not. That distinction is the whole subject of the 2026-08 post-mortem.
 
 Verify the minimality of the diff at any time (also enforced automatically by `solana-ci.yml`):
 ```bash
@@ -63,7 +77,7 @@ economics the operator wanted. `protocol_fee_rate` is a fraction of the trade fe
 ## Operator checklist — before MAINNET (each step is yours; keys never touch the assistant)
 
 1. **Regenerate a dedicated mainnet program keypair** (`solana-keygen new`) → put its pubkey in the two mainnet `declare_id!` lines.
-2. Set `admin::ID` (mainnet) → your **Squads multisig**.
+2. Set `admin::ID` (mainnet) → a **plain system-owned wallet that can both sign and pay**, and back it up. **NOT the Squads multisig account.** This step used to say "your Squads multisig", and following it is what bricked graduation on the 2026-08-08 deploy: `CreateAmmConfig` has `payer = owner`, the multisig account is a program-owned Squads account that the System Program cannot debit and that does not itself sign (a Squads v4 transaction signs as its *vault* PDA, which is a different address again), so `create_amm_config` became uncallable with no upgrade path — and closing the program was the only way out. Whatever you choose here must be provably able to sign *and* hold SOL **before** the build, because this constant is baked into the binary. See `docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md` and the `squads-vault` correction in `frontend/scripts/addresses.json`.
 3. Set `create_pool_fee_reveiver::ID` (mainnet) → your **treasury**.
 4. Build for mainnet (`anchor build` / `cargo build-sbf`, no `devnet` feature) + **verifiable build** so anyone can confirm on-chain bytecode == this source.
 5. **Professional audit of the diff** (see below) — do not deploy fund-holding code before this.

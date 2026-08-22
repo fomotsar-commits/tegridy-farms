@@ -51,10 +51,16 @@
  *     OPERATOR_KEYPAIR=/abs/path/payer.json \
  *     SQUADS_MULTISIG=<multisig-base58> SQUADS_VAULT_INDEX=0 \
  *     node scripts/solana-dbc-operator.mjs create-config \
- *       --initial-market-cap 5000 --migration-market-cap 50000
+ *       --initial-market-cap 5000 --migration-market-cap 50000 \
+ *       --opening-fee-bps 2000 --resting-fee-bps 100 --decay-seconds 21600
  *
  *   Commands: create-config | launch | claim | derive-vault | help
  *   Global flags: --send (opt-in broadcast), --quote sol|usdc
+ *
+ *   ⚠ The anti-snipe fee flags are NOT optional in spirit. A DBC config is
+ *   IMMUTABLE, and omitting them inherits DEFAULT_ANTI_SNIPE — a 99% opening fee.
+ *   `create-config` prints the resolved schedule and refuses an opening fee above
+ *   the guardrail unless --i-understand-anti-snipe is passed.
  *   See `printHelp()` (or `node scripts/solana-dbc-operator.mjs help`) for the full
  *   per-command flag list, and solana/README.md for the end-to-end operator flow.
  */
@@ -112,6 +118,7 @@ const SOLANA_DIR = pathToFileURL(path.join(HERE, '..', 'src', 'lib', 'launcher',
 const web3 = await import('@solana/web3.js');
 const { Connection, Keypair } = web3;
 const dbc = await import(SOLANA_DIR + 'dbc.ts');
+const feeSchedule = await import(SOLANA_DIR + 'feeSchedule.ts');
 const squads = await import(SOLANA_DIR + 'squads.ts');
 const dbcClient = await import(SOLANA_DIR + 'dbcClient.ts');
 const meteora = await import('@meteora-ag/dynamic-bonding-curve-sdk');
@@ -127,7 +134,32 @@ const meteora = await import('@meteora-ag/dynamic-bonding-curve-sdk');
 // SELF-CHECK: `node scripts/solana-dbc-operator.mjs --send derive-vault …` must run
 // derive-vault (not help), i.e. parseArgs(['--send','derive-vault']).positional[0]
 // === 'derive-vault' and flags.send === true.
-const BOOLEAN_FLAGS = new Set(['send']);
+const BOOLEAN_FLAGS = new Set(['send', feeSchedule.ACKNOWLEDGE_FLAG]);
+
+// Every flag that MUST be followed by a value. A value-taking flag whose value is
+// missing — omitted, or shadowed by the next `--flag` — parses to `true` above,
+// and `true` is indistinguishable from "not supplied" downstream, so it silently
+// becomes the default. For the fee flags that default is a 99% opening fee on an
+// immutable config, i.e. exactly the outcome this whole command exists to prevent.
+// A one-shot signing ceremony cannot afford a typo that reads as a choice.
+const VALUE_FLAGS = new Set([
+  'quote',
+  'initial-market-cap',
+  'migration-market-cap',
+  'creator-fee-pct',
+  'total-supply',
+  'base-decimals',
+  'leftover',
+  'opening-fee-bps',
+  'resting-fee-bps',
+  'decay-seconds',
+  'config',
+  'name',
+  'symbol',
+  'uri',
+  'pool-creator',
+  'pool',
+]);
 
 function parseArgs(argv) {
   const positional = [];
@@ -138,6 +170,7 @@ function parseArgs(argv) {
       const key = a.slice(2);
       const next = argv[i + 1];
       if (BOOLEAN_FLAGS.has(key) || next === undefined || next.startsWith('--')) {
+        if (VALUE_FLAGS.has(key)) fail(`--${key} requires a value; none followed it`);
         flags[key] = true; // boolean flag — never consumes the next token
       } else {
         flags[key] = next;
@@ -300,6 +333,25 @@ async function maybeSend(connection, tx, flags, _signerKp) {
 // ─── Commands ───────────────────────────────────────────────────────────────────
 
 async function cmdCreateConfig(flags) {
+  // The fee schedule is resolved and GATED FIRST — before the RPC, before the
+  // keypair, before anything that needs a secret — so an operator can check what a
+  // command would bake in without unlocking anything. It used to be absent from
+  // this command entirely, so every config inherited the 99% opening fee from
+  // dbc.ts's default, and a DBC config is immutable: the only correction is a new
+  // config and a new Squads ceremony.
+  const creatorFeePct = optionalNumberFlag(flags, 'creator-fee-pct', 60);
+  let antiSnipe;
+  try {
+    antiSnipe = feeSchedule.resolveAntiSnipeSchedule({
+      openingFeeBps: optionalNumberFlag(flags, 'opening-fee-bps', undefined),
+      restingFeeBps: optionalNumberFlag(flags, 'resting-fee-bps', undefined),
+      decaySeconds: optionalNumberFlag(flags, 'decay-seconds', undefined),
+    });
+    feeSchedule.assertOpeningFeeAcknowledged(antiSnipe, flags[feeSchedule.ACKNOWLEDGE_FLAG] === true);
+  } catch (e) {
+    fail(e?.message ?? String(e));
+  }
+
   const connection = new Connection(requireEnv('SOLANA_RPC_URL'), 'confirmed');
   const client = meteora.DynamicBondingCurveClient.create(connection, 'confirmed');
   const payer = await loadKeypair('OPERATOR_KEYPAIR');
@@ -316,9 +368,10 @@ async function cmdCreateConfig(flags) {
     config: configKp.publicKey.toBase58(),
     payer: payer.publicKey.toBase58(),
     quoteMint,
+    antiSnipe,
     initialMarketCap: requireNumberFlag(flags, 'initial-market-cap'),
     migrationMarketCap: requireNumberFlag(flags, 'migration-market-cap'),
-    creatorTradingFeePercentage: optionalNumberFlag(flags, 'creator-fee-pct', undefined),
+    creatorTradingFeePercentage: creatorFeePct,
     totalTokenSupply: optionalNumberFlag(flags, 'total-supply', undefined),
     tokenBaseDecimal: optionalNumberFlag(flags, 'base-decimals', undefined),
     leftover: optionalNumberFlag(flags, 'leftover', undefined),
@@ -330,6 +383,17 @@ async function cmdCreateConfig(flags) {
   console.log(`  vault (PDA)   : ${address}`);
   console.log(`  quoteMint     : ${quoteMint}`);
   console.log(`  feeSplit(bps) : meteora=${partnerConfig.feeSplit.meteoraBps} partner=${partnerConfig.feeSplit.partnerBps} creator=${partnerConfig.feeSplit.creatorBps}`);
+  console.log('');
+  console.log('  ── FEE SCHEDULE BAKED INTO THIS CONFIG (IMMUTABLE ONCE SIGNED) ──');
+  for (const line of feeSchedule.describeAntiSnipeSchedule(antiSnipe, creatorFeePct)) {
+    console.log(line);
+  }
+  if (feeSchedule.exceedsOpeningFeeCeiling(antiSnipe)) {
+    console.log(`  ⚠️  OPENING FEE IS ABOVE THE ${feeSchedule.MAX_UNACKNOWLEDGED_OPENING_FEE_BPS} bps GUARDRAIL —`);
+    console.log(`      proceeding only because --${feeSchedule.ACKNOWLEDGE_FLAG} was passed.`);
+    console.log('      Trades in the opening window pay more in fee than they keep.');
+  }
+  console.log('');
 
   const signer = flags.send ? keypairSigner(payer) : undefined;
   const tx = await dbcClient.createPartnerConfig(client, partnerConfig, signer, configKp, provenance);
@@ -462,6 +526,17 @@ create-config FLAGS
   --total-supply <n>           total base supply (default 1e9).
   --base-decimals <6|7|8|9>    base-token decimals (default 6).
   --leftover <n>               undistributed base tokens (default 0).
+
+  ANTI-SNIPE FEE SCHEDULE — baked in and IMMUTABLE once the config is signed.
+  Omitting these inherits dbc.ts's DEFAULT_ANTI_SNIPE: 9900 bps opening (99%),
+  100 bps resting (1%), 6h. That default makes a launch effectively untradeable
+  for hours, so the resolved schedule is printed before every dry run and an
+  opening fee above ${feeSchedule.MAX_UNACKNOWLEDGED_OPENING_FEE_BPS} bps is REFUSED without the acknowledgement flag.
+  --opening-fee-bps <n>        fee at activation (default 9900).
+  --resting-fee-bps <n>        fee after the decay window (default 100).
+  --decay-seconds <n>          window length (default 21600 = 6h; <= 43200).
+                               Must divide evenly into the fixed period count.
+  --${feeSchedule.ACKNOWLEDGE_FLAG}   acknowledge an opening fee above the guardrail.
 
 launch FLAGS
   --config <base58>            (required) config key from create-config.

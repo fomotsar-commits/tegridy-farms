@@ -54,10 +54,10 @@ function isProdLikeEnv() {
 // in one place so security policy doesn't drift between proxies.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.ALLOWED_ORIGIN) set.add(process.env.ALLOWED_ORIGIN);
@@ -84,7 +84,11 @@ function buildAllowedOrigins() {
 //         explicit allowlists, NOT regex wildcards. Preview deploys must
 //         add their origin via the `ALLOWED_ORIGINS` env var (already
 //         supported by `buildAllowedOrigins`).
-function isOriginAllowed(origin) {
+// Exported so the `?resource=` branches can enforce the SAME gate. Those branches are
+// dispatched from aggregator.js before `runProxy` ever runs, so they do not inherit the
+// 403 below and each one has to apply it itself — importing this keeps the prod-like
+// fail-closed rule and the ALLOWED_ORIGIN env override in exactly one place.
+export function isOriginAllowed(origin) {
   const allowed = buildAllowedOrigins();
   // AUDIT FIX F1: fail-closed on prod-like (production + Vercel preview), not
   // just NODE_ENV==="production". See isProdLikeEnv() above.

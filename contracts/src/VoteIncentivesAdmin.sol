@@ -14,6 +14,10 @@ interface IVoteIncentivesApply {
     function applyWhitelistChange(address token, bool add) external;
     function applyMinBribeAmountChange(address token, uint256 amount) external;
     function applyEnableCommitReveal() external;
+    /// @dev AUDIT FIX (governance-gates 2026-08) VI-GC-02 — timelocked rotation of a
+    ///      mis-wired GaugeController. `onlyAdmin` on the VoteIncentives side; the
+    ///      candidate is functionally probed there before it is stored.
+    function applyGaugeControllerChange(address newGaugeController) external;
 
     // ─── view-side reads required for validation ──────────────────────
     function MAX_FEE_BPS() external view returns (uint256);
@@ -52,6 +56,9 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     ///         have unwittingly executed the second proposal because the
     ///         value-binding alone matched.
     error ExecuteAfterMismatch();
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-02 — value-binding mismatch
+    ///         on the gauge-controller rotation, mirroring FeeMismatch / TreasuryMismatch.
+    error GaugeControllerMismatch();
 
     // ─── Timelock keys (mirror what VoteIncentives previously held) ────
     bytes32 public constant FEE_CHANGE = keccak256("BRIBE_FEE_CHANGE");
@@ -59,6 +66,8 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     bytes32 public constant WHITELIST_CHANGE = keccak256("BRIBE_WHITELIST_CHANGE");
     bytes32 public constant MIN_BRIBE_CHANGE = keccak256("BRIBE_MIN_AMOUNT_CHANGE");
     bytes32 public constant COMMIT_REVEAL_ENABLE = keccak256("COMMIT_REVEAL_ENABLE");
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-02.
+    bytes32 public constant GAUGE_CONTROLLER_CHANGE = keccak256("BRIBE_GAUGE_CONTROLLER_CHANGE");
 
     // ─── Delays (mirror what VoteIncentives previously enforced) ───────
     uint256 public constant FEE_CHANGE_DELAY = 24 hours;
@@ -66,6 +75,9 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     uint256 public constant WHITELIST_CHANGE_DELAY = 24 hours;
     uint256 public constant MIN_BRIBE_CHANGE_DELAY = 24 hours;
     uint256 public constant COMMIT_REVEAL_ENABLE_DELAY = 24 hours;
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-02 — treasury-class 48h delay:
+    ///         retargeting the gauge registry redirects which pairs may be bribed.
+    uint256 public constant GAUGE_CONTROLLER_CHANGE_DELAY = 48 hours;
 
     // ─── Pending storage ──────────────────────────────────────────────
     uint256 public pendingFeeBps;
@@ -74,6 +86,8 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     bool public pendingWhitelistAction; // true = add, false = remove
     address public pendingMinBribeToken;
     uint256 public pendingMinBribeAmount;
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-02.
+    address public pendingGaugeController;
 
     // ─── Wired VoteIncentives contract ────────────────────────────────
     IVoteIncentivesApply public immutable voteIncentives;
@@ -89,6 +103,10 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
     event MinBribeAmountChangeCancelled(address indexed token, uint256 amount);
     event EnableCommitRevealProposed(uint256 executeAfter);
     event EnableCommitRevealCancelled();
+    /// @notice AUDIT FIX (governance-gates 2026-08) VI-GC-02. The "happened" event
+    ///         (`GaugeControllerSet`) stays on VoteIncentives, matching the split.
+    event GaugeControllerChangeProposed(address indexed newGaugeController, uint256 executeAfter);
+    event GaugeControllerChangeCancelled(address indexed cancelledGaugeController);
 
     constructor(address _voteIncentives) OwnableNoRenounce(msg.sender) {
         if (_voteIncentives == address(0)) revert ZeroAddress();
@@ -248,6 +266,45 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         return _executeAfter[COMMIT_REVEAL_ENABLE];
     }
 
+    // ─── Gauge controller rotation (48h timelock) ─────────────────────
+    // AUDIT FIX (governance-gates 2026-08) VI-GC-02: `VoteIncentives.setGaugeController`
+    // is one-shot and, pre-fix, accepted any contract with no functional probe — a
+    // single typo permanently bricked every bribe deposit. The bare setter stays
+    // one-shot; this is the ONLY rotate path, and it sits behind the same 48h
+    // propose/execute timelock (with value + ETA binding) as the treasury rotation.
+    // The candidate is functionally probed on the VoteIncentives side before it is
+    // stored, so a bricked address cannot survive this path either.
+
+    function proposeGaugeControllerChange(address _newGaugeController) external onlyOwner {
+        if (_newGaugeController == address(0)) revert ZeroAddress();
+        pendingGaugeController = _newGaugeController;
+        _propose(GAUGE_CONTROLLER_CHANGE, GAUGE_CONTROLLER_CHANGE_DELAY);
+        emit GaugeControllerChangeProposed(_newGaugeController, _executeAfter[GAUGE_CONTROLLER_CHANGE]);
+    }
+
+    function executeGaugeControllerChange(address expectedGaugeController, uint256 expectedExecuteAfter)
+        external
+        onlyOwner
+    {
+        if (pendingGaugeController != expectedGaugeController) revert GaugeControllerMismatch();
+        if (_executeAfter[GAUGE_CONTROLLER_CHANGE] != expectedExecuteAfter) revert ExecuteAfterMismatch();
+        _execute(GAUGE_CONTROLLER_CHANGE);
+        address v = pendingGaugeController;
+        pendingGaugeController = address(0);
+        voteIncentives.applyGaugeControllerChange(v);
+    }
+
+    function cancelGaugeControllerChange() external onlyOwner {
+        _cancel(GAUGE_CONTROLLER_CHANGE);
+        address cancelled = pendingGaugeController;
+        pendingGaugeController = address(0);
+        emit GaugeControllerChangeCancelled(cancelled);
+    }
+
+    function gaugeControllerChangeTime() external view returns (uint256) {
+        return _executeAfter[GAUGE_CONTROLLER_CHANGE];
+    }
+
     // ─── Ownership handoff ────────────────────────────────────────────
     /// @notice 2026-06-11 audit (acceptOwnership pending-proposal-flush): flush every
     ///         in-flight timelock proposal on ownership handoff so the incoming owner
@@ -289,6 +346,15 @@ contract VoteIncentivesAdmin is OwnableNoRenounce, TimelockAdmin {
         if (_executeAfter[COMMIT_REVEAL_ENABLE] != 0) {
             _cancel(COMMIT_REVEAL_ENABLE);
             emit EnableCommitRevealCancelled();
+        }
+        // AUDIT FIX (governance-gates 2026-08) VI-GC-02: the new rotation key joins the
+        // 2026-06-11 pending-proposal flush, so a pre-handoff gauge rotation cannot
+        // fire under the incoming owner.
+        if (_executeAfter[GAUGE_CONTROLLER_CHANGE] != 0) {
+            address cancelledGc = pendingGaugeController;
+            _cancel(GAUGE_CONTROLLER_CHANGE);
+            pendingGaugeController = address(0);
+            emit GaugeControllerChangeCancelled(cancelledGc);
         }
     }
 }

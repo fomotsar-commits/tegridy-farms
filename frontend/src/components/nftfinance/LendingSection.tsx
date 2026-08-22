@@ -335,7 +335,7 @@ function FilterPill({
       onClick={onClick}
       className={`px-3 py-1 rounded-full text-[11px] font-medium transition-all duration-200 ${
         active
-          ? 'bg-purple-500/50 text-black border border-purple-500/40'
+          ? 'bg-purple-500/50 text-white border border-purple-500/40'
           : 'bg-black/60 text-white border border-white/25 hover:border-white/20 hover:text-white'
       }`}
       style={{ transitionTimingFunction: `cubic-bezier(${EASE.join(',')})` }}
@@ -386,7 +386,7 @@ export function ComingSoonState() {
           {['Lend', 'Borrow', 'My Loans'].map((t, i) => (
             <div
               key={t}
-              className={`pb-3 text-sm font-medium ${i === 1 ? 'text-black' : 'text-white'}`}
+              className={`pb-3 text-sm font-medium ${i === 1 ? 'text-white' : 'text-white/50'}`}
             >
               {t}
             </div>
@@ -410,7 +410,7 @@ export function ComingSoonState() {
                 <tr key={o.id} style={{ borderTop: `1px solid ${ROW_BORDER}` }}>
                   <td className="py-3 pr-4 font-mono text-white">#{o.id}</td>
                   <td className="py-3 pr-4 font-mono text-white">{o.principal} ETH</td>
-                  <td className="py-3 pr-4 font-mono text-black/60">{o.apr}%</td>
+                  <td className="py-3 pr-4 font-mono text-white/60">{o.apr}%</td>
                   <td className="py-3 pr-4 text-white">{o.duration}</td>
                   <td className="py-3 pr-4 font-mono text-white">{o.min} ETH</td>
                   <td className="py-3 pr-4 font-mono text-white">{o.lender}</td>
@@ -423,7 +423,7 @@ export function ComingSoonState() {
 
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <div className="text-center">
-          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-purple-500/50 text-black border border-purple-500/30 mb-4">
+          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-purple-500/50 text-white border border-purple-500/30 mb-4">
             Coming Soon
           </span>
           <h3 className="text-2xl font-bold text-white mb-2">NFT-Backed P2P Lending</h3>
@@ -433,7 +433,7 @@ export function ComingSoonState() {
           <ul className="space-y-2 text-left inline-block">
             {features.map((f) => (
               <li key={f} className="flex items-center gap-2 text-sm text-white">
-                <svg className="w-4 h-4 text-black flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 {f}
@@ -487,7 +487,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
       tooltip: 'Number of active loan offers available for borrowers to accept',
       art: pageArt('lending-section', 1),
       icon: (
-        <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
         </svg>
       ),
@@ -498,7 +498,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
       tooltip: 'Loans currently outstanding — borrowers have received ETH and must repay before their deadline',
       art: pageArt('lending-section', 2),
       icon: (
-        <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
         </svg>
       ),
@@ -547,7 +547,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
                 <InfoTooltip text={s.tooltip} />
               </div>
               <div
-                className="font-mono text-xl text-white group-hover:text-black transition-colors duration-300"
+                className="font-mono text-xl text-white group-hover:text-emerald-300 transition-colors duration-300"
                 style={{ fontVariantNumeric: 'tabular-nums' }}
               >
                 {s.value}
@@ -888,7 +888,7 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
                 onClick={() => setDurationDays(p.days)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
                   durationDays === p.days
-                    ? 'bg-emerald-500/40 text-black border border-emerald-500/40'
+                    ? 'bg-emerald-500/40 text-white border border-emerald-500/40'
                     : 'bg-black/60 text-white border border-white/25 hover:border-white/20 hover:text-white'
                 }`}
               >
@@ -1322,12 +1322,12 @@ function OfferRow({
                             <button
                               onClick={(e) => { e.stopPropagation(); handleApprove(); }}
                               disabled={approvePending || approveConfirming || !deployed || !userAddress}
-                              className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/50 text-black border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-70"
+                              className="px-4 py-2 rounded-lg text-sm font-medium bg-purple-500/50 text-white border border-purple-500/30 hover:bg-purple-500/30 transition-colors duration-200 disabled:opacity-70"
                             >
                               {approvePending || approveConfirming ? 'Approving...' : 'Approve NFT'}
                             </button>
                           ) : (
-                            <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/30 text-black border border-emerald-500/40">
+                            <span className="px-4 py-2 rounded-lg text-sm font-medium bg-emerald-500/30 text-white border border-emerald-500/40">
                               Approved
                             </span>
                           )}
@@ -1722,7 +1722,7 @@ function LoanRow({
             <button
               onClick={handleRepay}
               disabled={repayLoading || !deployed || !isConnected}
-              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/40 text-black border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-70"
+              className="px-4 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/40 text-white border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors disabled:opacity-70"
             >
               {repayLoading ? 'Repaying...' : 'Repay'}
             </button>
@@ -1971,7 +1971,7 @@ export function LendingSection({ address: _propAddress }: { address?: string }) 
       {!deployed && (
         <ArtPanel art={pageArt('lending-section', 14)} opacity={1} overlay="none">
           <div className="px-4 py-3 text-center text-[13px] text-amber-400/80">
-            Lending contracts are in final internal review and will be deployed soon. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
+            Token Lending is not deployed. It is gated on the TWAP price oracle, which cannot start while the native TOWELI/WETH pool sits below its reserve floor — not on review time. Explore the interface below. <Link to="/security" className="underline hover:text-amber-300 transition-colors">View security details</Link>
           </div>
         </ArtPanel>
       )}

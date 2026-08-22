@@ -6,12 +6,65 @@ import { useActiveCollection } from "../contexts/CollectionContext";
 // Re-export from lib so existing lazy-import consumers still work
 export { recordTransaction } from "../lib/transactions";
 
+// ─── WHAT THIS SURFACE ACTUALLY IS ───
+// The only store behind this page is `localStorage[<slug>_tx_history]`, written
+// by lib/transactions.recordTransaction() as the user trades IN THIS BROWSER.
+// There is no server read anywhere in this file. That means:
+//   · a second device, a second browser, or a private window shows NOTHING;
+//   · clearing site data erases it permanently;
+//   · anything transacted outside this app never appears at all;
+//   · the ring buffer is capped at 50 entries per collection (transactions.js:32).
+// Presented as "your transaction history" that reads as data loss or as proof a
+// trade never happened. Backing it with the real record needs an indexer/DB the
+// front end does not own, so until that exists the page states its own scope
+// instead of implying one it cannot honour. Every honesty string below is
+// exercised by localHistoryHonesty.test.jsx — keep them and the source in sync.
+
 function loadHistory(slug = "nakamigos") {
   try {
     return JSON.parse(localStorage.getItem(`${slug}_tx_history`) || "[]");
   } catch {
     return [];
   }
+}
+
+/** Shared scope disclosure. Rendered on every state of this page — an empty list
+ *  is exactly the state a user most needs it on, because that is when a
+ *  device-local log is indistinguishable from "you never traded". */
+function DeviceLocalNote({ wallet, compact = false }) {
+  return (
+    <div
+      data-testid="history-scope-note"
+      style={{
+        fontFamily: "var(--mono)", fontSize: 10, lineHeight: 1.6,
+        color: "var(--text-muted)", textAlign: compact ? "center" : "left",
+        maxWidth: compact ? 340 : "none", margin: compact ? "14px auto 0" : "0 0 18px",
+        padding: "10px 14px", borderRadius: 8,
+        background: "rgba(111,168,220,0.04)",
+        border: "1px solid rgba(111,168,220,0.12)",
+      }}
+    >
+      <strong style={{ color: "var(--text-dim)", fontWeight: 700 }}>
+        Saved on this device only.
+      </strong>{" "}
+      This log is written by your browser as you trade here — it is not synced to an
+      account. It will look empty on another device or browser, clearing your site
+      data erases it, and trades made outside this app never appear.
+      {wallet && /^0x[a-fA-F0-9]{40}$/.test(wallet) && (
+        <>
+          {" "}For the complete, authoritative record,{" "}
+          <a
+            href={`https://etherscan.io/address/${wallet}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--naka-blue)", textDecoration: "underline" }}
+          >
+            view this wallet on Etherscan
+          </a>.
+        </>
+      )}
+    </div>
+  );
 }
 
 function formatTime(ts) {
@@ -74,13 +127,15 @@ export default function TransactionHistory({ wallet, onConnect }) {
           </div>
           <h3 className="wallet-connect-title">Connect Your Wallet</h3>
           <p className="wallet-connect-desc">
-            Connect your wallet to view your {collectionName} transaction history.
+            Connect your wallet to view the {collectionName} activity this browser has
+            recorded for it.
           </p>
           {onConnect && (
             <button className="btn-primary wallet-connect-btn" onClick={onConnect}>
               Connect Wallet
             </button>
           )}
+          <DeviceLocalNote compact />
         </div>
       </section>
     );
@@ -97,29 +152,49 @@ export default function TransactionHistory({ wallet, onConnect }) {
           </svg>
         </div>
         <div style={{ fontFamily: "var(--display)", fontSize: 14, fontWeight: 600, color: "var(--text-dim)", marginBottom: 6 }}>
-          No {collectionName} transactions yet
+          Nothing recorded on this device yet
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)", maxWidth: 280, margin: "0 auto", lineHeight: 1.5 }}>
-          Purchases, offers, and bids you make for this collection will appear here.
+          Purchases, offers, and bids you make for this collection{" "}
+          <em style={{ fontStyle: "normal", color: "var(--text-dim)" }}>in this browser</em> will
+          appear here.
         </div>
+        <DeviceLocalNote wallet={wallet} compact />
       </div>
     );
   }
 
   return (
     <section style={{ maxWidth: 800, margin: "0 auto", padding: "20px 16px" }}>
-      <h2 style={{
-        fontFamily: "var(--display)", fontSize: 18, fontWeight: 700,
-        color: "var(--text)", letterSpacing: "-0.01em", marginBottom: 4,
-      }}>
-        Transaction History
-      </h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
+        <h2 style={{
+          fontFamily: "var(--display)", fontSize: 18, fontWeight: 700,
+          color: "var(--text)", letterSpacing: "-0.01em", margin: 0,
+        }}>
+          Transaction History
+        </h2>
+        {/* The qualifier sits IN the heading line, not buried below it: the title
+            alone is the claim a user acts on when a second device looks empty. */}
+        <span
+          data-testid="history-scope-pill"
+          title="Recorded by this browser only — not synced to your account"
+          style={{
+            fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.06em",
+            padding: "3px 9px", borderRadius: 999,
+            color: "var(--text-dim)", border: "1px solid var(--border)",
+            background: "rgba(255,255,255,0.03)", whiteSpace: "nowrap",
+          }}
+        >
+          THIS DEVICE ONLY
+        </span>
+      </div>
       <p style={{
         fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)",
-        marginBottom: 20,
+        marginBottom: 14,
       }}>
-        {collectionName} &middot; {walletHistory.length} transaction{walletHistory.length !== 1 ? "s" : ""}
+        {collectionName} &middot; {walletHistory.length} transaction{walletHistory.length !== 1 ? "s" : ""} recorded here
       </p>
+      <DeviceLocalNote wallet={wallet} />
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {walletHistory.map(tx => (
           <div key={tx.id} style={{

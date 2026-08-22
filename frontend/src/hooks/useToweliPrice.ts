@@ -3,6 +3,7 @@ import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
 import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
+import { geckoTerminalTokenPriceSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
 
 // R075: every cache key carries its own schema version. A stale entry from
 // a different commit, a tampered `signedAt`, or a future-signed payload is
@@ -47,6 +48,44 @@ const TWAP_DIVERGENCE_THRESHOLD = 0.02;
 
 // Maximum staleness for Chainlink data (5 minutes)
 const MAX_STALENESS_SECONDS = 300;
+
+/**
+ * The WETH-side reserve below which the native pair is NOT a price source.
+ *
+ * Mirrors `TegridyTWAP.DEFAULT_MIN_RESERVE_FLOOR_WEI` — read on-chain 2026-08-01 as
+ * `1e19` (10 WETH), with `minReserveFloor1(pair) == 0` so the default is what
+ * applies. That is the protocol's OWN definition of "deep enough to price against",
+ * and its oracle already enforces it: `consult()` reverts `ReservesBelowFloor` on
+ * this pair today. The displayed price should not be more credulous than the oracle
+ * that refuses to quote it.
+ *
+ * Why this matters right now: the native pair holds **0.00383 WETH** (read on-chain
+ * 2026-08-01, ~2,600x below the floor) against a Uniswap pair ~1,950x deeper. The
+ * spot price it produces happens to sit near the real one, so this is not a
+ * currently-wrong number — it is a number ANYONE CAN MOVE for about ten dollars,
+ * feeding `priceInUsd` site-wide with its only manipulation guard (the TWAP leg
+ * below) already failing closed. Reserves this thin are not evidence of a price.
+ *
+ * Self-healing: deepening the pool past the floor is the same action that restores
+ * `consult()`, so spot pricing resumes on its own with no code change.
+ */
+export const MIN_PRICEABLE_WETH_RESERVE = 10n ** 19n;
+
+/**
+ * PURE: are these reserves deep enough for a spot price to mean anything?
+ *
+ * Both sides must be non-zero (no division by zero, no empty pool) and the WETH side
+ * must clear the floor. Extracted so the threshold is unit-testable rather than
+ * pinned only by a React hook nobody can exercise — the same reason
+ * `evaluateEthUsdFeed` is pulled out above.
+ */
+export function reservesSupportPricing(
+  toweliReserve: bigint,
+  wethReserve: bigint,
+  floor: bigint = MIN_PRICEABLE_WETH_RESERVE,
+): boolean {
+  return toweliReserve > 0n && wethReserve >= floor;
+}
 
 /**
  * Launch-path staleness tolerance for ETH/USD — deliberately looser than the swap one.
@@ -188,9 +227,18 @@ export function useToweliPrice() {
         { signal: controller.signal },
       )
         .then(r => r.json())
-        .then(d => {
+        .then((d: unknown) => {
           if (cancelled) return;
-          const p = parseFloat(d?.data?.attributes?.token_prices?.[TOWELI_ADDRESS.toLowerCase()] ?? '0');
+          // R080: this response feeds the site-wide display price, so it is
+          // validated before it is read. A shape outside the schema is a fetch
+          // that did not happen — leave the previous price and the on-chain leg
+          // in place rather than letting a malformed payload set a number.
+          const parsed = parseOrNull(geckoTerminalTokenPriceSchema, d);
+          if (!parsed) {
+            console.warn('[useToweliPrice] GeckoTerminal price response failed schema validation — ignored');
+            return;
+          }
+          const p = parseFloat(parsed.data.attributes.token_prices[TOWELI_ADDRESS.toLowerCase()] ?? '0');
           if (p > 0) {
             setApiFallbackPrice(p);
             setApiPriceStale(false);
@@ -224,6 +272,9 @@ export function useToweliPrice() {
   let priceInEth = 0;
   let priceInUsd = 0;
   let isLoaded = false;
+  // True when the native pair exists but its reserves are below the floor above, so
+  // nothing on this frame was priced from it. Surfaced so the UI can say so.
+  let pairTooThinToPrice = false;
 
   // TWAP: WETH per 1 TOWELI, raw bigint scaled by 10^18.
   const twapRaw = twapAmountOut as bigint | undefined;
@@ -234,8 +285,14 @@ export function useToweliPrice() {
     const toweliReserve = isToken0Toweli ? reserves[0] : reserves[1];
     const wethReserve = isToken0Toweli ? reserves[1] : reserves[0];
 
+    // A pool too thin to price against is not a cheaper price source — it is no
+    // price source. Below the floor we publish nothing from it and let the API leg
+    // (which indexes the deep Uniswap pool) answer instead; if that is gone too, the
+    // hook reports unavailable rather than a figure ten dollars can move.
+    pairTooThinToPrice = !reservesSupportPricing(toweliReserve, wethReserve);
+
     let spotPriceInEth = 0;
-    if (toweliReserve > 0n && wethReserve > 0n) {
+    if (!pairTooThinToPrice) {
       const scaledPrice = (wethReserve * 10n ** 18n) / toweliReserve;
       spotPriceInEth = Number(scaledPrice) / 1e18;
     }
@@ -267,7 +324,9 @@ export function useToweliPrice() {
       const isToken0Toweli = token0.toLowerCase() === TOWELI_ADDRESS.toLowerCase();
       const toweliReserve = isToken0Toweli ? reserves[0] : reserves[1];
       const wethReserve = isToken0Toweli ? reserves[1] : reserves[0];
-      if (toweliReserve <= 0n || wethReserve <= 0n) return false;
+      // Same floor as the pricing path above: a spot reconstructed from reserves we
+      // refused to price with is not evidence that TWAP is overriding anything.
+      if (!reservesSupportPricing(toweliReserve, wethReserve)) return false;
       const spot = Number((wethReserve * 10n ** 18n) / toweliReserve) / 1e18;
       return Math.abs(spot - twapPriceInEth) / twapPriceInEth > TWAP_DIVERGENCE_THRESHOLD;
     })();
@@ -290,6 +349,15 @@ export function useToweliPrice() {
       priceInUsd = apiFallbackPrice;
       isLoaded = true;
     }
+  }
+
+  // The ETH leg, when the pair could not supply one. `LendingSection` multiplies a
+  // TOWELI amount by `priceInEth` and only self-gates on `priceUnavailable`, which is
+  // false while the API leg is answering — so leaving this at 0 would render a
+  // collateral value of "0 ETH" rather than an honest gap. USD price divided by
+  // ETH/USD is a cross-rate of two reads we actually made, not a substituted number.
+  if (priceInEth <= 0 && priceInUsd > 0 && ethUsd > 0) {
+    priceInEth = priceInUsd / ethUsd;
   }
 
   // Track price change vs stored baseline (session-only, not 24h)
@@ -336,6 +404,12 @@ export function useToweliPrice() {
     // Third-oracle TWAP signals for UI consumption.
     twapPriceInEth,
     twapOverrideActive,
+    /**
+     * The native pair is below `MIN_PRICEABLE_WETH_RESERVE`, so nothing here was
+     * priced from it. Any price returned came from the API leg (the deep Uniswap
+     * pool) — true today, and it is the honest thing for the UI to be able to say.
+     */
+    pairTooThinToPrice,
     priceSafeForSwaps: priceInUsd > 0 && !displayPriceStale && !oracleStale,
   };
 }

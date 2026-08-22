@@ -53,6 +53,25 @@ jobs:
           # 4. Trades endpoint (graceful pre-migration shape counts as healthy)
           probe "trades" "$BASE/api/orderbook?action=trade-query&wallet=0x0000000000000000000000000000000000000001" "trades"
 
+          # 5. THE REAL PRODUCTION DOMAINS.
+          # Everything above probes the vercel alias, which is NOT where users go.
+          # A domain can break independently of the deployment behind it — expired
+          # TLS, a DNS edit, a lapsed registration — and the alias would stay green
+          # through all of it. memetics.finance was registered 2026-08-02 for one
+          # year, so its expiry lands inside the plan window.
+          for host in "memetic.fun" "memetics.finance"; do
+            probe "$host app shell" "https://$host/" "/assets/"
+
+            # www -> apex must be a redirect, not a 200 and not a dead host. This
+            # rule lived ONLY in prod for a while, in no commit on any branch, so
+            # it is exactly the kind of thing that vanishes on the next deploy.
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://www.$host/" 2>/dev/null)" || code="curl-failed"
+            case "$code" in
+              30[0-9]) : ;;
+              *) FAILS="$FAILS\n- www.$host: expected a 3xx redirect to the apex, got $code" ;;
+            esac
+          done
+
           if [ -n "$FAILS" ]; then
             printf 'failed=true\n' >> "$GITHUB_OUTPUT"
             {

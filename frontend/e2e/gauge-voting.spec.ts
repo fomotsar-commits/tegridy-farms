@@ -25,13 +25,27 @@
  */
 
 import { test, expect } from './fixtures/wallet';
+import { gotoRoute } from './fixtures/routes';
+
+/**
+ * ⚠ ROUTES ARE ENTERED THROUGH `gotoRoute`, NOT `page.goto`.
+ *
+ * Every page is a `lazy()` chunk behind Suspense, so `goto` resolves while the
+ * route is still a skeleton. Playwright's default 5s expect budget absorbs that
+ * on Chromium and on WebKit at --workers=1 (the CI setting), and does not
+ * absorb it on WebKit at the local default worker count — measured on this
+ * machine: green at --workers=1, red at 9 with `element(s) not found`, same
+ * build, pages fine. `gotoRoute` waits for the fallback to be gone before any
+ * assertion runs, so the result stops depending on the host's core count.
+ * See e2e/fixtures/routes.ts.
+ */
 
 test.describe('Gauge voting UI (commit-reveal)', () => {
   test('community page loads with mock wallet connected', async ({ page, walletMock }) => {
     // Navigate FIRST — `__walletMock` is installed via addInitScript and only
     // exists after the page document has loaded. Calling `connect()` against
     // about:blank throws "Cannot read properties of undefined (reading 'connect')".
-    await page.goto('/community');
+    await gotoRoute(page, '/community');
     await walletMock.connect();
     await expect(page.locator('h1')).toContainText(/community/i);
   });
@@ -40,7 +54,7 @@ test.describe('Gauge voting UI (commit-reveal)', () => {
     // Canned contract reads: mock returns 0x0 for any eth_call we don't
     // explicitly override, so the page's useReadContract hooks resolve to
     // empty/zero state. We assert no fatal error bubbled up.
-    await page.goto('/community');
+    await gotoRoute(page, '/community');
     await walletMock.connect();
     // Look for the top-level role="tablist" to prove CommunityPage rendered.
     const tablist = page.locator('[role="tablist"]').first();
@@ -56,7 +70,7 @@ test.describe('Launchpad cancelled-sale refund surface', () => {
     // We don't have a deterministic cancelled drop to point at in a mock
     // environment, so this test just confirms the launchpad index renders
     // and the lending tab containing the launchpad section is reachable.
-    await page.goto('/lending');
+    await gotoRoute(page, '/lending');
     await walletMock.connect();
     await expect(page.locator('h1')).toContainText(/NFT Finance/i);
   });
@@ -65,7 +79,7 @@ test.describe('Launchpad cancelled-sale refund surface', () => {
 test.describe('Connect prompt surfaces', () => {
   test('Farm page shows ConnectPrompt when disconnected', async ({ page }) => {
     // Intentionally skip walletMock.connect().
-    await page.goto('/farm');
+    await gotoRoute(page, '/farm');
     // ConnectPrompt renders an h2 with the farm-specific Randy voice.
     const heading = page.getByRole('heading', { name: /Connect to farm with tegridy/i });
     await expect(heading).toBeVisible();
@@ -78,7 +92,7 @@ test.describe('Connect prompt surfaces', () => {
     // with a slim per-section banner instead of hitting a connect wall.
     // `/lending` is also just a redirect to /nft-finance (App.tsx:236).
     // Copy comes from SECTION_PROMPTS in src/pages/LendingPage.tsx:48.
-    await page.goto('/nft-finance');
+    await gotoRoute(page, '/nft-finance');
     const banner = page.getByText(/Connect to (lend ETH against|borrow against your NFTs|trade NFTs on)/i);
     await expect(banner.first()).toBeVisible();
   });
@@ -86,14 +100,14 @@ test.describe('Connect prompt surfaces', () => {
 
 test.describe('HomePage yield calculator (wallet-less)', () => {
   test('YieldCalculator renders for disconnected visitors', async ({ page }) => {
-    await page.goto('/');
+    await gotoRoute(page, '/');
     // Calculator is rendered only when `address` is undefined.
     // Look for the baseline APR chip text.
     await expect(page.locator('body')).toContainText(/See what you'd earn/i);
   });
 
   test('audit badge links to /security', async ({ page }) => {
-    await page.goto('/');
+    await gotoRoute(page, '/');
     // aria-label is now "View security details: internal audit waves, Slither CI,
     // and the test suite" (HomePage.tsx:264). The link and its href are unchanged.
     const badge = page.getByRole('link', { name: /View security details/i });

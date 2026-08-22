@@ -18,6 +18,7 @@ import {
   pauseEvent,
   timelockProposal,
   polEvent,
+  sweepEvent,
 } from "ponder:schema";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -414,6 +415,47 @@ ponder.on("SwapFeeRouter:SwapExecuted", async ({ event, context }) => {
     .onConflictDoNothing();
 });
 
+// The 48h-timelocked ETH sweep, all three lifecycle events. Registered late
+// (see the `sweep_event` note in ponder.schema.ts): the ABI declared them from
+// the Wave-2 timelock change onward, but with no handler Ponder never fetched
+// the logs, so "the router has never swept" and "we never asked" were the same
+// empty table.
+ponder.on("SwapFeeRouter:SweepETHProposed", async ({ event, context }) => {
+  await context.db.insert(sweepEvent).values({
+    id: event.log.id,
+    contract: "SwapFeeRouter",
+    type: "proposed",
+    amount: event.args.amount,
+    readyAt: event.args.readyAt,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  })
+    .onConflictDoNothing();
+});
+ponder.on("SwapFeeRouter:SweepETHExecuted", async ({ event, context }) => {
+  await context.db.insert(sweepEvent).values({
+    id: event.log.id,
+    contract: "SwapFeeRouter",
+    type: "executed",
+    amount: event.args.amount,
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  })
+    .onConflictDoNothing();
+});
+ponder.on("SwapFeeRouter:SweepETHCancelled", async ({ event, context }) => {
+  // No arguments on this one. `amount` stays null rather than 0n — a cancelled
+  // proposal did not sweep nothing, it reported nothing.
+  await context.db.insert(sweepEvent).values({
+    id: event.log.id,
+    contract: "SwapFeeRouter",
+    type: "cancelled",
+    timestamp: event.block.timestamp,
+    txHash: event.transaction.hash,
+  })
+    .onConflictDoNothing();
+});
+
 ponder.on("SwapFeeRouter:Paused", async ({ event, context }) => {
   await recordPauseState(context, event, "SwapFeeRouter", true);
 });
@@ -786,6 +828,22 @@ ponder.on("TegridyFactory_Governance:PairEmergencyDisabled", async ({ event, con
       txHash: event.transaction.hash,
     })
     .onConflictDoNothing();
+});
+
+// F1 2026-08-18: TegridyFactory inherits TimelockAdmin, so every timelocked
+// factory change (pair disable/enable, token block, feeTo change, guardian
+// rotation) also emits the keyed triplet. Routing it through the existing
+// writer puts the factory's pending queue alongside the two Admin sisters
+// under contract = "TegridyFactory"; see the ABI comment in ponder.config.ts
+// for what the keyed rows can and cannot answer.
+ponder.on("TegridyFactory_Governance:ProposalCreated", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyFactory", "created");
+});
+ponder.on("TegridyFactory_Governance:ProposalExecuted", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyFactory", "executed");
+});
+ponder.on("TegridyFactory_Governance:ProposalCancelled", async ({ event, context }) => {
+  await recordTimelockEvent(context, event, "TegridyFactory", "cancelled");
 });
 
 // ─── TegridyTWAP rebootstrap (post-Batch-J sweep) ────────────────────────────

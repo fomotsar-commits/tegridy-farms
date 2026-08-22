@@ -20,6 +20,7 @@ import {
   type AfterlifeLedgerSummary,
 } from '../../lib/launcher/afterlifeLedger';
 import type { OutcomeRecord } from '../../lib/launcher/outcomes';
+import { ArtCard } from '../ui/ArtCard';
 
 export interface LaunchAfterlifeProps {
   /** Tracked-launch outcome records (parent-supplied; this component never fetches). */
@@ -68,22 +69,16 @@ export function LaunchAfterlife({ outcomes }: LaunchAfterlifeProps) {
       </header>
 
       {summary.tracked === 0 ? (
-        <div
-          className="rounded-2xl p-8"
-          style={{ border: '1px dashed rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
-        >
-          <p className="text-white/70 text-sm font-medium">No launches have graduated through this rail yet</p>
-          <p className="text-white/40 text-xs mt-1 max-w-md leading-relaxed">
+        <ArtCard pageId="launch" idx={40} padding="p-8">
+          <p className="text-white/80 text-sm font-medium">No launches have graduated through this rail yet</p>
+          <p className="text-white/50 text-xs mt-1 max-w-md leading-relaxed">
             When they do, every one is recorded here permanently — price and liquidity versus
             graduation, holder count, and whether the team stayed active — including the launches
             that don&rsquo;t work out. Nothing is seeded and no number is invented.
           </p>
-        </div>
+        </ArtCard>
       ) : (
-        <div
-          className="rounded-2xl p-4 sm:p-5"
-          style={{ border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' }}
-        >
+        <ArtCard pageId="launch" idx={41} padding="p-4 sm:p-5">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Stat label="Launches tracked" value={summary.tracked.toLocaleString()} />
             <Stat
@@ -118,9 +113,9 @@ export function LaunchAfterlife({ outcomes }: LaunchAfterlifeProps) {
             </p>
           )}
 
-          <p className="text-white/35 text-[11px] mt-3 leading-relaxed">{METHOD_NOTE}</p>
-          {asOf && <p className="text-white/30 text-[11px] mt-1">As of {asOf}.</p>}
-        </div>
+          <p className="text-white/40 text-[11px] mt-3 leading-relaxed">{METHOD_NOTE}</p>
+          {asOf && <p className="text-white/35 text-[11px] mt-1">As of {asOf}.</p>}
+        </ArtCard>
       )}
     </section>
   );

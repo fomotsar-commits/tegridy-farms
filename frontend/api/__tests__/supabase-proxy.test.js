@@ -19,6 +19,16 @@ vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
 }));
 
+// Chat holder gate is stubbed so these cases stay about the proxy's own
+// ordering and forwarding. Its real behaviour (fail-closed on RPC outage,
+// unknown slug, zero balance) is pinned in holder-gate.test.js. Default is
+// "allow" so every pre-existing case keeps its exact upstream-fetch count;
+// individual cases below override it.
+const assertChatHolderMock = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+vi.mock("../_lib/holder-gate.js", () => ({
+  assertChatHolder: assertChatHolderMock,
+}));
+
 // Global fetch stub — each test asserts whether it was called.
 const fetchMock = vi.fn(async () => ({
   status: 200,
@@ -56,6 +66,8 @@ describe("supabase-proxy — validation integration", () => {
 
   beforeEach(async () => {
     fetchMock.mockClear();
+    assertChatHolderMock.mockClear();
+    assertChatHolderMock.mockResolvedValue({ ok: true });
     // Fresh import each test so module state can't leak across tests.
     vi.resetModules();
     handler = (await import("../supabase-proxy.js")).default;
@@ -202,6 +214,90 @@ describe("supabase-proxy — validation integration", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(statusSpy).toHaveBeenCalledWith(400);
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Invalid function" });
+  });
+
+  // --- Holder gate: the server-side half of the "HOLDER EXCLUSIVE" claim the
+  // chat UI renders (CommunityChat.jsx:925-932). Pre-fix the proxy authenticated
+  // (which wallet) but never authorized (does it hold the collection), so any
+  // free SIWE signature could post into a holder-only room. ---
+
+  it("a denied holder check blocks the INSERT BEFORE upstream fetch", async () => {
+    assertChatHolderMock.mockResolvedValue({
+      ok: false, status: 403, error: "Holders only — this room requires an NFT from this collection",
+    });
+    const { req, res, statusSpy, jsonSpy } = makeReqRes({
+      table: "messages",
+      method: "INSERT",
+      body: { author: WALLET_A, text: "gm", slug: "nakamigos" },
+    });
+    await handler(req, res);
+    // The assertion that proves the row never reached PostgREST.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(403);
+    expect(jsonSpy).toHaveBeenCalledWith({
+      error: "Holders only — this room requires an NFT from this collection",
+    });
+  });
+
+  it("propagates the gate's 503 (RPC outage) instead of writing the row", async () => {
+    assertChatHolderMock.mockResolvedValue({
+      ok: false, status: 503, error: "Holder check temporarily unavailable",
+    });
+    const { req, res, statusSpy } = makeReqRes({
+      table: "messages",
+      method: "INSERT",
+      body: { author: WALLET_A, text: "gm", slug: "nakamigos" },
+    });
+    await handler(req, res);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(503);
+  });
+
+  it("an allowed holder check still reaches upstream, with the verified wallet", async () => {
+    const { req, res, statusSpy } = makeReqRes({
+      table: "messages",
+      method: "INSERT",
+      body: { author: WALLET_A, text: "gm", slug: "nakamigos" },
+    });
+    await handler(req, res);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    // The gate is handed the JWT-verified wallet, never a client-supplied one.
+    expect(assertChatHolderMock).toHaveBeenCalledWith(WALLET_A, expect.anything());
+  });
+
+  it("does NOT holder-gate DMs, profiles or the like/reaction RPCs", async () => {
+    // Gating these would silently break working features that never claimed
+    // holder-exclusivity. A denial here would be visible as a blocked fetch.
+    assertChatHolderMock.mockResolvedValue({ ok: false, status: 403, error: "nope" });
+
+    const dm = makeReqRes({
+      table: "dm_messages",
+      method: "INSERT",
+      body: {
+        sender: WALLET_A, recipient: WALLET_B,
+        channel_key: `${WALLET_A}_${WALLET_B}`, text: "hey",
+      },
+    });
+    await handler(dm.req, dm.res);
+    expect(dm.statusSpy).toHaveBeenCalledWith(200);
+
+    const profile = makeReqRes({
+      table: "user_profiles", method: "UPSERT",
+      body: { wallet: WALLET_A, display_name: "me" },
+    });
+    await handler(profile.req, profile.res);
+    expect(profile.statusSpy).toHaveBeenCalledWith(200);
+
+    const rpc = makeReqRes({
+      method: "RPC", fn: "toggle_like",
+      args: { msg_id: "11111111-1111-1111-1111-111111111111" },
+    });
+    await handler(rpc.req, rpc.res);
+    expect(rpc.statusSpy).toHaveBeenCalledWith(200);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(assertChatHolderMock).not.toHaveBeenCalled();
   });
 
   it("401 on an RPC call with no cookie (auth gate still applies)", async () => {

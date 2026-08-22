@@ -207,20 +207,11 @@ function validateOrderShape(params, label) {
  * half of the guard was made fail-closed first; this is the write half, and the guard is
  * only as good as whichever half is weaker.
  */
-async function cancelOrderHashes(supabase, orderHashes) {
-  for (const hash of orderHashes) {
-    const { error } = await supabase
-      .from("native_orders")
-      .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
-      .eq("order_hash", hash)
-      .eq("status", "active");
-    if (error) {
-      const err = new Error(`cancel-failed: ${error.message}`);
-      err.code = "CANCEL_FAILED";
-      throw err;
-    }
-  }
-}
+// `cancelOrderHashes` LIVED HERE AND IS DELETED ON PURPOSE — 2026-08-12. It marked
+// native_orders rows 'cancelled' in the database while the Seaport order stayed
+// fillable on-chain; both callers now refuse with 409 instead. Deleted rather than left
+// unused: a helper named `cancelOrderHashes` that cancels nothing is exactly what gets
+// re-wired in six months. A supersede flow must do the on-chain leg FIRST.
 
 // SECURITY: the only fulfillment contracts a stored order may name. Every other
 // field on this write path is validated (currency, price cap, signature recovery,
@@ -305,7 +296,7 @@ const supabase = SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPAB
  *   CREATE INDEX idx_orders_price ON native_orders(price_eth ASC) WHERE status = 'active';
  */
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://nakamigos.gallery";
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 
 // ── Shared validation helpers ──
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -315,12 +306,38 @@ const MAX_BODY_SIZE = 10 * 1024; // 10 KB
 function isValidAddress(addr) { return typeof addr === "string" && ETH_ADDRESS_RE.test(addr); }
 function isValidTokenId(id) { return typeof id === "string" && NUMERIC_ID_RE.test(id); }
 
+// SECURITY: `parameters` + `signature` together are a BEARER CAPABILITY — they are
+// the complete input to Seaport.fulfillOrder/fulfillAdvancedOrder. Flipping a row's
+// status to cancelled/declined/countered here is a SOFT cancel: it removes the row
+// from our UI but does nothing on-chain, and the app never auto-revokes (see the
+// note above cancelTradeOnChain in src/nakamigos/lib/trades.js). The signature stays
+// fillable until endTime.
+//
+// Both read paths are public — GET takes no cookie — and both used `.select("*")`
+// with cancelled/filled/declined/countered in their allowed status filters. So a
+// stranger could enumerate a seller's superseded listings, lift the old signature,
+// and fill at the OLD (pre-relist) price. That is a direct, unrecoverable loss for
+// the seller, and the only place it can be stopped is here.
+//
+// Project the response: a row we report as anything other than "active" ships
+// without those two fields. Active rows keep them — buy, accept and the on-chain
+// hard-cancel all need them, and every UI control that consumes them is already
+// gated on status === "active". Nothing about what the WRITE/fill paths read
+// server-side changes; this is purely what leaves the process.
+function redactInactiveOrder(row) {
+  if (!row || typeof row !== "object" || row.status === "active") return row;
+  const { signature: _signature, parameters: _parameters, ...safe } = row;
+  return safe;
+}
+
 function setCors(req, res) {
   const origin = req.headers.origin || "";
   const ALLOWED_ORIGINS = new Set([
-    "https://nakamigos.gallery", "https://www.nakamigos.gallery",
+    
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ]);
   // AUDIT API-SEC: fail-closed — only admit localhost when NODE_ENV === "development".
@@ -405,11 +422,14 @@ export default async function handler(req, res) {
         // Surface expiry without a write: callers treat expired-but-active
         // rows as dead; the row itself sunsets via expires_at.
         const nowIso = new Date().toISOString();
-        const trades = (data || []).map(t =>
+        // Redact AFTER the expiry relabel so the projection keys off the status the
+        // caller actually sees — an expired-but-stored-active row must not ship a
+        // fill capability either.
+        const trades = (data || []).map(t => redactInactiveOrder(
           t.status === "active" && t.expires_at && t.expires_at < nowIso
             ? { ...t, status: "expired" }
             : t
-        );
+        ));
         res.setHeader("Cache-Control", "no-store");
         return res.json({ trades, count: trades.length });
       } catch (err) {
@@ -537,7 +557,8 @@ export default async function handler(req, res) {
     } else {
       res.setHeader("Cache-Control", "s-maxage=20, stale-while-revalidate=60");
     }
-    return res.json({ orders: data || [], count: (data || []).length });
+    const orders = (data || []).map(redactInactiveOrder);
+    return res.json({ orders, count: orders.length });
   }
 
   // ── POST: Create or cancel orders ──
@@ -954,12 +975,39 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unsupported protocol address" });
       }
 
-      // Every rejection path is now behind us — safe to supersede the prior listing.
-      try {
-        await cancelOrderHashes(supabase, supersededOrderHashes);
-      } catch (e) {
-        console.error("[orderbook] superseding cancel failed:", e.message);
-        return res.status(503).json({ error: "Could not replace your existing listing — please retry" });
+      // REFUSE, DO NOT SUPERSEDE — 2026-08-12.
+      //
+      // `cancelOrderHashes` was a DATABASE write and nothing more. The server holds no
+      // maker signer so it cannot cancel on Seaport, and no client path compensated:
+      // createNativeListing calls neither cancelSeaportOrder nor incrementCounter. So a
+      // relist flipped the old row to 'cancelled', the UI stopped showing it, and
+      // on-chain it stayed perfectly fillable — same owner, same conduit approval, same
+      // signature. Seller lists at 1 ETH, relists at 2, believes they are at 2, and
+      // anyone holding the old signature buys at 1.
+      //
+      // Refusing is the trade the bundle-vs-bundle branch already makes. It costs the
+      // seller one explicit step and it is the step that actually works: MyListings'
+      // Cancel button sends a real on-chain cancelSeaportOrder before POSTing
+      // action:"cancel".
+      //
+      // Kept in the exact slot the cancel occupied — structurally the last thing before
+      // the insert. Refusing earlier, at the overlap check, reorders the error
+      // precedence so a request that is both overlapping AND malformed answers 409
+      // where it used to answer 400/503.
+      //
+      // Considered and rejected for now: 409-with-parameters so the client cancels
+      // on-chain and retries. That puts a wallet prompt inside BulkListingWizard's
+      // per-item loop and opens a new partial-failure window, for a flow with zero live
+      // orders today. Do not add it without handling both.
+      //
+      // Latent until migration 005 — native_orders.seaport_order_hash does not exist in
+      // prod, so the create path 42703s and never reaches here. Fixed BEFORE 005, not
+      // after.
+      if (supersededOrderHashes.length > 0) {
+        return res.status(409).json({
+          error: `#${tokenId} is already listed by you. Cancel that listing first — that cancels it on-chain — then list it again.`,
+          conflictingOrders: supersededOrderHashes,
+        });
       }
 
       const { error } = await supabase.from("native_orders").insert({
@@ -1276,12 +1324,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unsupported protocol address" });
       }
 
-      // Every rejection path is behind us — safe to supersede.
-      try {
-        await cancelOrderHashes(supabase, bundleSuperseded);
-      } catch (e) {
-        console.error("[orderbook] bundle superseding cancel failed:", e.message);
-        return res.status(503).json({ error: "Could not replace your existing listings — please retry" });
+      // Same defect, same fix, same slot as the single-listing branch — see the note
+      // there. A bundle superseding the seller's own singles would DB-cancel them while
+      // leaving every one fillable on-chain at its old price.
+      if (bundleSuperseded.length > 0) {
+        return res.status(409).json({
+          error:
+            'Some of these NFTs are already listed individually by you. Cancel those listings first — that cancels them on-chain — then create the bundle.',
+          conflictingOrders: bundleSuperseded,
+        });
       }
 
       const { error: insertErr } = await supabase.from("native_orders").insert({

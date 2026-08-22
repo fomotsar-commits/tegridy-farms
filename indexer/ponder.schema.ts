@@ -28,7 +28,11 @@ export const stakingAction = onchainTable(
     id: t.text().primaryKey(),
     user: t.hex().notNull(),
     tokenId: t.bigint().notNull(),
-    type: t.text().notNull(), // stake | withdraw | earlyWithdraw | claim | extend | increase
+    // stake | withdraw | earlyWithdraw | transfer | claim | extend | increase
+    // `transfer` (H-24, position NFT moving wallets) writes amount = 0n — it is
+    // a custody change, not a flow. Consumers summing `amount` must exclude it
+    // or they double-count nothing and mis-label a wallet rotation as activity.
+    type: t.text().notNull(),
     amount: t.bigint().notNull(),
     penalty: t.bigint(), // nullable — only set for earlyWithdraw rows
     timestamp: t.bigint().notNull(),
@@ -257,6 +261,46 @@ export const twapRebootstrap = onchainTable(
   }),
   (table) => ({
     pairIdx: index().on(table.pair),
+  }),
+);
+
+// ─── SwapFeeRouter timelocked ETH sweep ──────────────────────────────────────
+//
+// `SwapFeeRouterAbi` has carried SweepETHProposed/Executed/Cancelled since the
+// Wave-2 (2026-05-20) 48h-timelock change, with the stated intent in
+// ponder.config.ts of mirroring "the sister POLAccumulator SweepETH*
+// observability surface so off-chain monitors see the full propose/execute/
+// cancel lifecycle". No handler was ever registered, so Ponder requested logs
+// for none of the three and nothing reached a table.
+//
+// That is the worst shape for a gap of this kind: the ABI reads as though the
+// surface is covered, and the absence of rows reads as an absence of sweeps —
+// of a treasury withdrawal, on the contract that holds routed swap fees. The
+// POLAccumulator half of the same lifecycle has been queryable in `pol_event`
+// the whole time, so a monitor comparing the two would conclude the router
+// never sweeps.
+//
+// Kept as its own table rather than folded into `pol_event`: these are a
+// different contract's events and the router's `SweepETHExecuted` carries no
+// recipient (only `amount`), so the shared columns would be nullable in a way
+// that hides which contract can tell you where the ETH went.
+export const sweepEvent = onchainTable(
+  "sweep_event",
+  (t) => ({
+    id: t.text().primaryKey(), // event.log.id (txHash + logIndex)
+    contract: t.text().notNull(), // "SwapFeeRouter"
+    type: t.text().notNull(), // proposed | executed | cancelled
+    // Cancelled carries no arguments at all — null here means the event does
+    // not report an amount, NOT a sweep of zero.
+    amount: t.bigint(),
+    readyAt: t.bigint(), // proposed only: end of the 48h timelock
+    timestamp: t.bigint().notNull(),
+    txHash: t.hex().notNull(),
+  }),
+  (table) => ({
+    contractIdx: index().on(table.contract),
+    typeIdx: index().on(table.type),
+    timeIdx: index().on(table.timestamp),
   }),
 );
 

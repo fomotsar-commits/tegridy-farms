@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { PRIMARY_NAV, POINTS_NAV, ALL_NAV, MORE_NAV, MORE_NAV_SECTIONS, NFT_FINANCE_LIVE, COMMUNITY_LIVE } from './navConfig';
+import {
+  PRIMARY_NAV,
+  POINTS_NAV,
+  ALL_NAV,
+  MORE_NAV,
+  MORE_NAV_SECTIONS,
+  // NOTE: `NFT_FINANCE_LIVE` is deliberately NOT imported. Referencing the combined
+  // gate is what made the old assertions tautological — they compared the nav array
+  // against the constant that built it. The tests below pin the address-derived signal
+  // instead, so flipping PROMOTE_PENDING can actually break them.
+  NFT_FINANCE_ADDRESSES_LIVE,
+  COMMUNITY_LIVE,
+  COMMUNITY_ADDRESSES_LIVE,
+} from './navConfig';
+import { isSolanaSubmitReady } from './launcher/solana/dbc';
+import { isIndexerConfigured } from './indexer/client';
+// The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
+// Used here as the already-verified answer to "is this path reachable by URL at all",
+// so the assertions below can tell "routed but not promoted" apart from "not routed".
+import { ROUTES } from '../../e2e/fixtures/routes';
 
 // Session 1 consolidated the navigation from 21 routes to a tight primary set.
 // MORE_PATHS was removed; MORE_NAV is the flattened "More" destinations and
@@ -28,17 +47,51 @@ describe('navConfig', () => {
     expect(paths).toContain('/swap');
   });
 
-  it('NFT Finance is promoted in primary nav ONLY when a contract is live', () => {
-    // CREDIBILITY GATING (2026-06-09): a top-nav item whose every tab ends
-    // in "Contract Not Deployed" leaks trust. The entry returns automatically
-    // when any nft-finance relaunch address lands in constants.ts.
-    const paths = PRIMARY_NAV.map((n) => n.to);
-    expect(paths.includes('/nft-finance')).toBe(NFT_FINANCE_LIVE);
+  // ⚠️ 2026-08-12 — BOTH of these were TAUTOLOGIES. They read
+  //   `expect(paths.includes('/nft-finance')).toBe(NFT_FINANCE_LIVE)`
+  // i.e. they compared the nav array against the very constant that BUILT the
+  // nav array (navConfig.ts spreads `NFT_FINANCE_LIVE ? [entry] : []`). Both
+  // sides move together for ANY value of PROMOTE_PENDING, so the assertions
+  // passed unconditionally and pinned nothing at all — including the fact that
+  // /community is in the menu purely because of the override.
+  //
+  // Rewritten in the shape the /solana-launch test below already uses: pin the
+  // PRECONDITION as a concrete fact read out of constants.ts, then pin the
+  // concrete value that must follow from it. Neither assertion mentions the
+  // combined gate, so flipping PROMOTE_PENDING can (and for Community, does)
+  // break them.
+
+  it('NFT Finance is in the primary nav on the strength of its OWN addresses', () => {
+    // CREDIBILITY GATING (2026-06-09): a top-nav item whose every tab ends in
+    // "Contract Not Deployed" leaks trust. NFT finance has since earned its
+    // slot honestly — three of its four relaunch addresses are real in
+    // constants.ts, so the address-derived signal alone is already true and
+    // PROMOTE_PENDING is redundant here. Pin that, so zeroing those addresses
+    // (a real regression) fails loudly instead of hiding behind the override.
+    expect(
+      NFT_FINANCE_ADDRESSES_LIVE,
+      'an nft-finance address must be deployed in constants.ts for this entry to be honest',
+    ).toBe(true);
+    expect(PRIMARY_NAV.map((n) => n.to)).toContain('/nft-finance');
   });
 
-  it('Community appears in the More menu ONLY when a governance contract is live', () => {
-    const morePaths = MORE_NAV.map((n) => n.to);
-    expect(morePaths.includes('/community')).toBe(COMMUNITY_LIVE);
+  it('Community is in the More menu ONLY because PROMOTE_PENDING forces it', () => {
+    // The governance contracts ARE deployed and unpaused on mainnet, but their
+    // constants.ts entries are still 0x0 — a UI wiring gate. So the
+    // address-derived signal is false and the override is the sole reason
+    // /community is promoted. Pin BOTH halves: the precondition (nothing wired)
+    // and the outcome (entry present anyway). Turn PROMOTE_PENDING off and
+    // COMMUNITY_LIVE collapses to false, the entry disappears, and the last two
+    // assertions fail — which is the whole point.
+    expect(
+      COMMUNITY_ADDRESSES_LIVE,
+      'no governance address is wired in constants.ts yet',
+    ).toBe(false);
+    expect(
+      COMMUNITY_LIVE,
+      'Community is promoted, so something other than the addresses is carrying it',
+    ).toBe(true);
+    expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
   it('POINTS_NAV is the right-aligned promoted action (Tradermigos)', () => {
@@ -78,5 +131,99 @@ describe('navConfig', () => {
     const paths = ALL_NAV.map((n) => n.to);
     const unique = new Set(paths);
     expect(unique.size).toBe(paths.length);
+  });
+
+  // The "Soon" pill answers one question for a visitor: can I do the thing this
+  // entry names? /solana-launch was `soon: !isSolanaLauncherEnabled()` — with the
+  // flag on and no signer, the pill cleared and the nav advertised a launch surface
+  // that could not launch. It was then pilled unconditionally, with the standing
+  // instruction to unpill it only when a submit path actually shipped.
+  //
+  // 🔄 2026-08-04 — it shipped. The pill now tracks `isSolanaSubmitReady()`, which is
+  // the feature flag AND a published live config, so the nav and the submit button
+  // read the SAME condition and cannot disagree.
+  it('pills /solana-launch exactly when it cannot actually launch', () => {
+    // Asserted as a CONCRETE value, not as `!isSolanaSubmitReady()`. Comparing the
+    // pill to the same function navConfig calls is a tautology — it passes for any
+    // implementation, including a hardcoded `soon: true`. So pin the precondition
+    // (no VITE_SOLANA_DBC_CONFIG in this environment, so the rail cannot launch)
+    // and then pin the value that must follow from it. If someone ever publishes a
+    // config into the test environment, the first assertion fails loudly and forces
+    // this test to be re-read rather than silently inverting.
+    expect(isSolanaSubmitReady(), 'no live config should be published in tests').toBe(false);
+    const entry = ALL_NAV.find((n) => n.to === '/solana-launch');
+    expect(entry, '/solana-launch missing from nav').toBeTruthy();
+    expect(entry?.soon, 'unlaunchable rail must stay pilled Soon').toBe(true);
+  });
+
+  // /curve-launch is the OWN-curve page and stays pilled unconditionally: its program
+  // is not deployed on any cluster, so no flag or config can make it launchable.
+  it('keeps /curve-launch pilled — its program is not deployed anywhere', () => {
+    const entry = ALL_NAV.find((n) => n.to === '/curve-launch');
+    expect(entry, '/curve-launch missing from nav').toBeTruthy();
+    expect(entry?.soon).toBe(true);
+  });
+
+  // Alerts sits with the detection tools because four of its five rule kinds watch
+  // exactly what those tools read on demand, on any token or wallet.
+  it('promotes /alerts under Trust & Safety, pilled because nothing can be saved yet', () => {
+    const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
+    expect(trust?.items.map((i) => i.to)).toContain('/alerts');
+
+    const entry = ALL_NAV.find((n) => n.to === '/alerts');
+    expect(entry?.label).toBe('Alerts');
+    // Hardcoded `true`, and asserted as a concrete value for the same reason the
+    // /solana-launch pill is: there is no client-readable signal to compare against.
+    // Whether `alert_rules` exists is a SERVER fact — the store answers 503
+    // `schema-missing` until `016_alert_rules.sql` is applied by hand — so the pill
+    // cannot self-clear and this assertion is the thing that has to be re-read (and
+    // deleted) when the migration lands. See docs/WHAT_I_NEED_FROM_YOU.md §2.2.
+    expect(entry?.soon, 'a store that cannot save a rule must not read as live').toBe(true);
+  });
+
+  // Checkout is pilled for exactly the /alerts reason, and the two must not drift apart:
+  // both are gated on a migration an operator applies BY HAND, and both therefore have no
+  // client-readable signal that could clear the pill on its own.
+  it('promotes /checkout under Engage, pilled because no invoice can exist yet', () => {
+    const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
+    expect(engage?.items.map((i) => i.to)).toContain('/checkout');
+
+    const entry = ALL_NAV.find((n) => n.to === '/checkout');
+    expect(entry?.label).toBe('Checkout');
+    // Hardcoded `true`. Whether `commerce_invoices` exists is a SERVER fact — the store
+    // answers 503 `schema-missing` until `021_commerce.sql` is applied — so nothing in the
+    // browser can decide this. Delete this assertion when the migration lands, and not
+    // before: a payment link that cannot resolve must not read as live.
+    expect(entry?.soon, 'a store that cannot publish an invoice must not read as live').toBe(true);
+  });
+
+  // Tax Reports reads the F1 indexer and nothing else, so its pill is keyed to the same
+  // single input as /terminal, /chart, /copy-trading and /competitions. Asserted as a
+  // CONCRETE value rather than as `!isIndexerConfigured()`, which would compare the entry
+  // against itself.
+  it('pills /tax exactly while no indexer is configured to read a history from', () => {
+    expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
+    const entry = ALL_NAV.find((n) => n.to === '/tax');
+    expect(entry?.label).toBe('Tax Reports');
+    expect(entry?.soon, 'a report over history nobody can read must not advertise itself').toBe(true);
+    // It lives under Stats, not Trust & Safety: it is a personal accounting surface over
+    // the caller's own history, not one of the detection tools that work on any address.
+    const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');
+    expect(stats?.items.map((i) => i.to)).toContain('/tax');
+  });
+
+  // ⚠️ THE DELIBERATE OMISSION. /airdrop and /vesting are routed and fully rendered, and
+  // they are NOT promoted: every rail behind them (AirdropFactory, VestingFactory,
+  // LaunchLockView) is undeployed, and pages/airdropVestingHonesty.test.ts pins that as a
+  // fact read out of constants.ts. Reachable-by-URL-only is the state a surface earns while
+  // 100% dark — the same CREDIBILITY GATING rule at the top of navConfig.ts — so promoting
+  // either one is a deliberate act that has to delete this test first.
+  it('leaves /airdrop and /vesting reachable by URL but out of the nav', () => {
+    const routed = ROUTES.map((r) => r.path);
+    const promoted = ALL_NAV.map((n) => n.to);
+    for (const path of ['/airdrop', '/vesting']) {
+      expect(routed, `${path} must stay reachable by URL`).toContain(path);
+      expect(promoted, `${path}'s rails are undeployed — it must not be promoted`).not.toContain(path);
+    }
   });
 });

@@ -11,9 +11,9 @@ pub use states::CreatorFeeOn;
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
     name: "tegridy-cp-amm",
-    project_url: "https://tegridyfarms.vercel.app",
-    contacts: "link:https://tegridyfarms.vercel.app",
-    policy: "https://tegridyfarms.vercel.app",
+    project_url: "https://memetic.fun",
+    contacts: "link:https://memetic.fun/trust",
+    policy: "https://github.com/fomotsar-commits/tegridy-farms/blob/main/SECURITY.md",
     source_code: "https://github.com/fomotsar-commits/tegridy-farms/tree/main/solana/tegridy-amm",
     preferred_languages: "en"
     // AUDITORS line intentionally REMOVED (was upstream's Raydium/MadShield audit):
@@ -41,17 +41,38 @@ solana_security_txt::security_txt! {
 #[cfg(feature = "devnet")]
 declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
 #[cfg(not(feature = "devnet"))]
-declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL"); // OPERATOR: replace with mainnet program ID
+declare_id!("3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y");
 
 pub mod admin {
     use super::{pubkey, Pubkey};
     // Admin authority: create_config / update_config / update_pool_status AND a
     // fallback collector on collect_protocol_fee / collect_fund_fee (can sweep accrued
     // protocol+fund fees to any recipient) — a fund-touching, top-tier key.
+    //
+    // ─── THIS MUST BE A SIGNABLE, RENT-PAYING ACCOUNT ──────────────────────────
+    // It was the Squads MULTISIG account (EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK),
+    // which is neither. That shipped to mainnet on 2026-08-08 and made
+    // `create_amm_config` UNCALLABLE, which in turn left tegridy-launch's
+    // `migrate_to_amm` permanently on AmmNotConfigured (6015) — tokens could trade
+    // but never graduate.
+    //
+    // The multisig ACCOUNT and the vault PDA are different things:
+    //   EVGSnRZ… multisig  owner = Squads program, 495 bytes of data
+    //   GRMtSxgs… vault    owner = System Program, 0 bytes
+    // Squads v4 signs CPIs as the VAULT, so nothing can ever sign as the multisig.
+    // And `CreateAmmConfig` has `payer = owner`, so even a signature would not be
+    // enough: the System Program can only debit an account it owns with no data.
+    //
+    // So whatever goes here must be system-owned and fundable. Currently the deploy
+    // authority, a single operator-held key — chosen deliberately to unblock
+    // graduation and prove migration end-to-end before locking AMM admin behind a
+    // 2-of-N ceremony. Moving `protocol_owner`/`fund_owner` to the vault later is a
+    // plain `update_config` (params 3 and 4); moving THIS constant needs another
+    // program upgrade, because it is resolved at compile time.
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("GgE6AfEH2AVSrKGckyKMzC6mhtXWiAn39EzAikAsWq5a");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set Squads multisig
+    pub const ID: Pubkey = pubkey!("Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7");
 }
 
 pub mod create_pool_fee_reveiver {
@@ -64,7 +85,7 @@ pub mod create_pool_fee_reveiver {
     #[cfg(feature = "devnet")]
     pub const ID: Pubkey = pubkey!("27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9");
     #[cfg(not(feature = "devnet"))]
-    pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed) — OPERATOR: set treasury's WSOL ATA
+    pub const ID: Pubkey = pubkey!("2sa31zceMSTAAbSu5wfSnNA6sBYzS7r97nvZYaQouEXa");
 }
 
 pub const AUTH_SEED: &str = "vault_and_lp_mint_auth_seed";

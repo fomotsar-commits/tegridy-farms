@@ -18,7 +18,13 @@ vi.mock('../lib/storage', () => ({
   safeJsonParse: <T,>(_str: unknown, fallback: T) => fallback,
 }));
 
-import { useToweliPrice, evaluateEthUsdFeed, type ChainlinkRound } from './useToweliPrice';
+import {
+  useToweliPrice,
+  evaluateEthUsdFeed,
+  reservesSupportPricing,
+  MIN_PRICEABLE_WETH_RESERVE,
+  type ChainlinkRound,
+} from './useToweliPrice';
 import { TOWELI_ADDRESS, ETH_USD_FEED } from '../lib/constants';
 
 // ───────────────────────── Helpers ─────────────────────────
@@ -96,7 +102,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -112,6 +118,63 @@ describe('useToweliPrice', () => {
     expect(result.current.oracleStale).toBe(false);
     expect(result.current.priceUnavailable).toBe(false);
     expect(result.current.priceSafeForSwaps).toBe(true);
+  });
+
+  // 2b. The drained pool must not price the site ────────────────────────
+  it('does not price from a pool too thin to price against, and says so', () => {
+    // The LIVE reserves, read on-chain 2026-08-01: 146,258 TOWELI + 0.00383 WETH.
+    // Before the floor, this fed `priceInUsd` site-wide with its only manipulation
+    // guard (TWAP `consult()`) already reverting `ReservesBelowFloor`.
+    stubGeckoTerminalFetch(0);
+    wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
+    wagmiMock.setReadResult({
+      functionName: 'getReserves',
+      result: reserves(3_830_891_242_585_222n, 146_258_413_709_023_551_111_936n),
+    });
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      address: ETH_USD_FEED,
+      result: validChainlinkRound(2000),
+    });
+
+    const { result } = renderHook(() => useToweliPrice());
+    // Nothing was priced from the pair, and the hook admits it rather than
+    // publishing a figure ten dollars can move.
+    expect(result.current.pairTooThinToPrice).toBe(true);
+    expect(result.current.priceInEth).toBe(0);
+    expect(result.current.priceInUsd).toBe(0);
+    expect(result.current.priceUnavailable).toBe(true);
+    expect(result.current.priceSafeForSwaps).toBe(false);
+    // A spot reconstructed from refused reserves is not evidence of a TWAP override.
+    expect(result.current.twapOverrideActive).toBe(false);
+  });
+
+  it('lets the API leg answer for a thin pair, and derives the ETH leg from it', async () => {
+    // `LendingSection` multiplies a TOWELI amount by `priceInEth` and self-gates only
+    // on `priceUnavailable` — false here, because the API is answering. A zero
+    // `priceInEth` would render collateral worth "0 ETH", so the cross-rate is
+    // derived from two reads we actually made rather than left at zero.
+    stubGeckoTerminalFetch(0.2);
+    wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
+    wagmiMock.setReadResult({
+      functionName: 'getReserves',
+      result: reserves(3_830_891_242_585_222n, 146_258_413_709_023_551_111_936n),
+    });
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      address: ETH_USD_FEED,
+      result: validChainlinkRound(2000),
+    });
+
+    const { result, rerender } = renderHook(() => useToweliPrice());
+    // Let the fetch promise settle and re-render to pick up state.
+    await new Promise((r) => setTimeout(r, 0));
+    rerender();
+
+    expect(result.current.pairTooThinToPrice).toBe(true);
+    expect(result.current.priceInUsd).toBeCloseTo(0.2, 6);
+    expect(result.current.priceInEth).toBeCloseTo(0.0001, 10); // 0.2 USD / 2000 USD-per-ETH
+    expect(result.current.priceUnavailable).toBe(false);
   });
 
   // 3. oracleStale when updatedAt is too old ─────────────────────────────
@@ -163,7 +226,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     // TWAP: 1 TOWELI = 0.0002 WETH (100% divergence → well beyond 2%)
     wagmiMock.setReadResult({
@@ -188,7 +251,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     // Spot = 0.0001, TWAP = 0.0001005 → 0.5% divergence < 2%
     wagmiMock.setReadResult({
@@ -211,7 +274,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     wagmiMock.setReadResult({ functionName: 'consult', result: 0n });
     wagmiMock.setReadResult({
@@ -231,7 +294,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n), // 1 WETH : 10000 TOWELI
+      result: reserves(10n ** 20n, 10n ** 24n), // 100 WETH : 1,000,000 TOWELI — same ratio, above the pricing floor
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -247,7 +310,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: TOWELI_ADDRESS });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 22n, 10n ** 18n),
+      result: reserves(10n ** 24n, 10n ** 20n),
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -264,7 +327,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -291,7 +354,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -315,7 +378,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -335,7 +398,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n),
+      result: reserves(10n ** 20n, 10n ** 24n),
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -349,7 +412,7 @@ describe('useToweliPrice', () => {
     wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(10n ** 18n, 10n ** 22n), // spot = 0.0001 WETH
+      result: reserves(10n ** 20n, 10n ** 24n), // spot = 0.0001 WETH
     });
     wagmiMock.setReadResult({
       functionName: 'latestRoundData',
@@ -364,7 +427,7 @@ describe('useToweliPrice', () => {
     // → 1.1e-4 WETH per TOWELI → $0.22 USD → +10% vs baseline.
     wagmiMock.setReadResult({
       functionName: 'getReserves',
-      result: reserves(11n * 10n ** 17n, 10n ** 22n),
+      result: reserves(11n * 10n ** 19n, 10n ** 24n),
     });
     rerender();
     expect(result.current.priceInUsd).toBeCloseTo(0.22, 6);
@@ -376,6 +439,79 @@ describe('useToweliPrice', () => {
     // No reads, default fetch stub returns no price.
     const { result } = renderHook(() => useToweliPrice());
     expect(result.current.priceUnavailable).toBe(true);
+  });
+
+  // R080: the API leg is untrusted input to the site-wide display price ───
+  //
+  // This hook is the API leg's ONLY consumer, and with the native pair below
+  // its pricing floor the API leg is frequently the only source answering — so
+  // whatever survives this fetch is what the whole site shows. Until the schema
+  // was applied here, the value was read with optional chaining and handed to
+  // parseFloat: a number, a scientific-notation string, or a nested object all
+  // walked straight through. These cases pin refusal.
+
+  /** Stub GeckoTerminal with a literal body, valid or not. */
+  function stubRawFetch(body: unknown): void {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(body),
+    }) as unknown as typeof fetch;
+  }
+
+  const KEY = TOWELI_ADDRESS.toLowerCase();
+
+  it('accepts the documented shape — the control for the refusals below', async () => {
+    stubRawFetch({ data: { attributes: { token_prices: { [KEY]: '0.2' } } } });
+    const { result, rerender } = renderHook(() => useToweliPrice());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender();
+    expect(result.current.priceInUsd).toBeCloseTo(0.2, 6);
+    expect(result.current.priceUnavailable).toBe(false);
+  });
+
+  it('refuses a malformed price payload instead of pricing the site from it', async () => {
+    const hostile: unknown[] = [
+      // Number where the API documents a string — parseFloat would have taken it.
+      { data: { attributes: { token_prices: { [KEY]: 0.2 } } } },
+      // Scientific notation: Number() loses precision on the tail.
+      { data: { attributes: { token_prices: { [KEY]: '2e-7' } } } },
+      // Envelope drift / a proxy returning someone else's JSON.
+      { token_prices: { [KEY]: '0.2' } },
+      { data: { attributes: { token_prices: [['0.2']] } } },
+      { data: null },
+      'not json at all',
+    ];
+    for (const body of hostile) {
+      stubRawFetch(body);
+      const { result, rerender } = renderHook(() => useToweliPrice());
+      await new Promise((r) => setTimeout(r, 0));
+      rerender();
+      // No on-chain reads are stubbed either, so the honest answer is "no price".
+      expect(result.current.priceInUsd).toBe(0);
+      expect(result.current.priceUnavailable).toBe(true);
+    }
+  });
+
+  it('a refused payload never overwrites the on-chain price with a zero', async () => {
+    // The failure that matters: an outage reading as a legitimate low value.
+    stubRawFetch({ data: { attributes: { token_prices: { [KEY]: 'free' } } } });
+    wagmiMock.setReadResult({ functionName: 'token0', result: NON_TOWELI_ADDR });
+    wagmiMock.setReadResult({
+      functionName: 'getReserves',
+      result: reserves(10n ** 20n, 10n ** 24n),
+    });
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      address: ETH_USD_FEED,
+      result: validChainlinkRound(2000),
+    });
+
+    const { result, rerender } = renderHook(() => useToweliPrice());
+    await new Promise((r) => setTimeout(r, 0));
+    rerender();
+
+    expect(result.current.priceInUsd).toBeCloseTo(0.2, 6);
+    expect(result.current.apiPriceDiscrepant).toBe(false);
   });
 });
 
@@ -443,5 +579,55 @@ describe('evaluateEthUsdFeed — swap vs launch freshness windows', () => {
     expect(evaluateEthUsdFeed(round(AT, 0n), AT + 10).ethUsdForLaunch).toBe(0); // zero answer
     expect(evaluateEthUsdFeed(round(0), AT + 10).ethUsdForLaunch).toBe(0); // never updated
     expect(evaluateEthUsdFeed(undefined, AT + 10).ethUsdForLaunch).toBe(0); // not loaded yet
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Reserves this thin are not evidence of a price.
+//
+// Read on-chain 2026-08-01: the native pair 0x5587…a481 holds 146,258 TOWELI +
+// **0.00383 WETH** (~$14), its LP totalSupply fell 138.03 → 23.67, and LP Farming's
+// balance went 125.0 → 0. The Uniswap pair is ~1,950x deeper in WETH.
+//
+// `useToweliPrice` fed that pool's spot straight into the site-wide `priceInUsd`.
+// The only manipulation guard is the TWAP leg, and `consult()` reverts
+// `ReservesBelowFloor` on this pair — so the guard fails closed and spot passes
+// through unchecked. The spot it produced was not far off the real price, which is
+// exactly why this was easy to miss: the defect is not a wrong number, it is a
+// number anyone can move for about ten dollars.
+//
+// The floor is not invented — it mirrors TegridyTWAP.DEFAULT_MIN_RESERVE_FLOOR_WEI
+// (read on-chain as 1e19, with minReserveFloor1(pair) == 0 so the default applies).
+describe('reservesSupportPricing — the protocol\'s own floor, applied to display', () => {
+  const TOWELI = 146_258_413_709_023_551_111_936n; // live, 2026-08-01
+  const WETH_LIVE = 3_830_891_242_585_222n; // live, 2026-08-01 — 0.00383 WETH
+
+  it('refuses the pool as it actually stands today', () => {
+    expect(reservesSupportPricing(TOWELI, WETH_LIVE)).toBe(false);
+  });
+
+  it('refuses anything below the floor and accepts at exactly the floor', () => {
+    // Pinned as a boundary, not a literal: the point is that the threshold is the
+    // oracle's, and that "just under" is refused rather than rounded through.
+    expect(reservesSupportPricing(TOWELI, MIN_PRICEABLE_WETH_RESERVE - 1n)).toBe(false);
+    expect(reservesSupportPricing(TOWELI, MIN_PRICEABLE_WETH_RESERVE)).toBe(true);
+    expect(reservesSupportPricing(TOWELI, MIN_PRICEABLE_WETH_RESERVE * 100n)).toBe(true);
+  });
+
+  it('agrees with the on-chain oracle that refuses to quote this pair', () => {
+    // TegridyTWAP.DEFAULT_MIN_RESERVE_FLOOR_WEI, read from mainnet 2026-08-01.
+    expect(MIN_PRICEABLE_WETH_RESERVE).toBe(10_000_000_000_000_000_000n);
+  });
+
+  it('still refuses an empty TOWELI side even above the WETH floor', () => {
+    // Guards the division, and a one-sided pool is not a price either.
+    expect(reservesSupportPricing(0n, MIN_PRICEABLE_WETH_RESERVE * 10n)).toBe(false);
+  });
+
+  it('self-heals: the deepen that restores consult() also restores spot pricing', () => {
+    // The floor is the SAME number the oracle enforces, so there is no second
+    // operator action to remember — no code change is needed once the pool is deep.
+    expect(reservesSupportPricing(TOWELI, WETH_LIVE)).toBe(false);
+    expect(reservesSupportPricing(TOWELI, 11n * 10n ** 18n)).toBe(true);
   });
 });

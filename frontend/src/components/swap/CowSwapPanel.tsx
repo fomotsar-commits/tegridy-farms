@@ -6,6 +6,8 @@ import { CHAIN_ID, WETH_ADDRESS } from '../../lib/constants';
 import { type ParsedCowSwapQuote } from '../../lib/cowSwap';
 import { type TokenInfo } from '../../lib/tokenList';
 import { formatTokenAmountGrouped } from '../../lib/formatting';
+import { providerFeeAttachment } from '../../lib/fees/swapFee';
+import { VenueFeeLine } from './VenueFeeLine';
 
 interface Props {
   fromToken: TokenInfo | null;
@@ -162,6 +164,15 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
                 </div>
               )}
               <p className="mt-1 text-white/50">Guaranteed minimum applies your {slippage}% slippage; solvers keep any surplus.</p>
+              {/* This panel signs, so the venue fee belongs here rather than on the
+                  comparison panel. Reading `providerFeeAttachment` keeps it on the same
+                  policy the request would carry — CoW's own leg is withheld (its fee
+                  rides the appData document in cowProtocol.ts), so this reads 0 today
+                  and cannot start reading otherwise without that module changing too. */}
+              <VenueFeeLine
+                quote={{ source: 'cowswap', venueFeeBps: providerFeeAttachment('cowswap')?.bps ?? 0 }}
+                executes
+              />
             </div>
           ) : !quoteLoading ? (
             <p className="mt-2 text-[10px] text-white/50">No CoW quote for this pair/size right now.</p>

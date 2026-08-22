@@ -8,6 +8,9 @@ export default function ComparableSales({ nft, allTokens }) {
   const collection = useActiveCollection();
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
+  // The activity feed answers an outage with a sample fixture rather than an
+  // error, so "no sales" and "no data" have to be tracked apart.
+  const [unavailable, setUnavailable] = useState(false);
 
   // Find tokens with similar traits
   const similarTokenIds = useMemo(() => {
@@ -34,13 +37,21 @@ export default function ComparableSales({ nft, allTokens }) {
     fetchActivity({ contract: collection.contract, limit: 50, daysBack: 90 })
       .then((data) => {
         if (cancelled) return;
+        // `fetchActivity` degrades to a hand-written sample fixture when every
+        // activity source is down (api.js), and those rows carry real-looking
+        // token ids and prices. Comping a purchase against invented sales is
+        // worse than showing nothing, so the fixture is refused outright and
+        // the per-row `sample` flag is a second gate in case the shape of the
+        // outage response changes.
+        if (data.fallback) { setUnavailable(true); setSales([]); return; }
+        setUnavailable(false);
         const idSet = new Set(similarTokenIds.map((t) => t.id));
         const matching = (data.activities || []).filter(
-          (a) => a.type === "sale" && a.price && idSet.has(a.token?.id)
+          (a) => a.type === "sale" && a.price && !a.sample && idSet.has(a.token?.id)
         );
         setSales(matching.slice(0, 8));
       })
-      .catch(() => { if (!cancelled) setSales([]); })
+      .catch(() => { if (!cancelled) { setUnavailable(true); setSales([]); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [similarTokenIds, collection.contract]);
@@ -77,7 +88,9 @@ export default function ComparableSales({ nft, allTokens }) {
           COMPARABLE SALES
         </div>
         <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-muted)" }}>
-          No comparable sales in the last 90 days.
+          {unavailable
+            ? "Sales history unavailable right now, so no comparison can be drawn."
+            : "No comparable sales in the last 90 days."}
         </div>
       </div>
     );

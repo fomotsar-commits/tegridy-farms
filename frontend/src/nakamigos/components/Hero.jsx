@@ -191,7 +191,9 @@ export default function Hero({ stats, tokens, onPick }) {
                   {formatVolume(stats.volume)}
                   <span className="stat-suffix"> ETH</span>
                 </div>
-                <div className="stat-label">ALL-TIME VOL{isFallback && <CachedTag />}</div>
+                {/* Volume alone can be the cached constant while floor/owners
+                    are live, so it carries its own tag. */}
+                <div className="stat-label">ALL-TIME VOL{(isFallback || stats.volumeFallback) && <CachedTag />}</div>
               </div>
             )}
 

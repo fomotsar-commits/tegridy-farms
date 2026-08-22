@@ -41,7 +41,10 @@ export default function NetProceeds({ price, feeWei, compact = false }) {
   const result = computeNetProceeds(price, { feeEth, feeBps: MARKETPLACE_FEE_BPS });
   if (!result) return null;
 
-  const { net, fee, exact, royaltyIncluded } = result;
+  // `royaltyIncluded` is intentionally not destructured: it is exactly equal to
+  // `exact` (see computeNetProceeds), and both the fee label and the estimate
+  // disclosure below already branch on `exact`.
+  const { net, fee, exact } = result;
 
   const labelStyle = {
     fontFamily: "var(--mono)",

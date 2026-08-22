@@ -33,6 +33,7 @@ import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { PageTransition } from '../motion';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { ConsentBanner } from '../ui/ConsentBanner';
+import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 
 const NAV_ORDER = [
@@ -184,6 +185,11 @@ export function AppLayout() {
           (consent === 'pending'); analytics + error reporting are blocked
           until the user clicks Accept or Decline. */}
       <ConsentBanner />
+      {/* WALLET-02: advisory notice when a wallet connection stalls. Not a
+          <Toaster> toast on purpose — RainbowKit pins its modal at
+          z-index 2147483646, so anything lower renders behind the very
+          spinner it is trying to explain. */}
+      <WalletConnectWatchdog />
 
       {/* F28: clear the fixed 56px header (+ notch inset) so top-right toasts
           don't render behind/flush with the header on small screens. */}

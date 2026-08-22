@@ -22,7 +22,22 @@ export function useLPFarming() {
   // the underlying viem call listens on the wallet's CURRENT chain — if the user
   // switched mid-flight (or clicked "switch network" right after submitting),
   // confirmation listens on the wrong chain and silently never fires.
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const {
+    data: receipt,
+    isLoading: isConfirming,
+    isSuccess: isReceiptFetched,
+    isError: isReceiptError,
+  } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
+  // FETCHED". A transaction that REVERTED on-chain still produces a receipt,
+  // so this flag latched true and the section showed "Transaction confirmed!",
+  // cleared the typed amount and refetched — for a stake/withdraw/claim that
+  // never happened. `receipt.status === 'success'` is the only real success.
+  // The `!!receipt` guard is defensive: at runtime wagmi always has the receipt
+  // once isSuccess is true, so it can never mask a genuine revert.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
+  const isTxError = isReceiptError || isReverted;
 
   // R034 H2: address-snapshot + last-handled-hash refs to drop receipt-effect
   // for a wallet that swapped between submit and confirm.
@@ -126,9 +141,15 @@ export function useLPFarming() {
       return;
     }
     lastHandledHashRef.current = hash;
-    toast.error('Transaction failed', { id: `err-${hash}` });
+    toast.error(isReverted ? 'Transaction reverted on-chain' : 'Transaction failed', {
+      id: `err-${hash}`,
+      description: isReverted
+        ? 'The network rejected it — no LP was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then check your allowance and balance and try again.'
+        : undefined,
+      action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
+    });
     setTimeout(() => reset(), 4000);
-  }, [isTxError, hash, address, reset]);
+  }, [isTxError, isReverted, hash, address, chainId, reset]);
 
   useEffect(() => {
     if (writeError) {

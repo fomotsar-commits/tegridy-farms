@@ -55,13 +55,31 @@ describe('Terms of Service — launcher coverage', () => {
     expect(section(2)?.body).toMatch(/paired against either native ETH or TOWELI/);
   });
 
-  it('§2 describes the Solana rail as preview-only, which is what it is today', () => {
+  // The Solana rail STOPPED being preview-only when the browser submit path shipped.
+  // §2 previously stated, as a binding term, that the interface "does not submit any
+  // Solana transaction on your behalf" — shipping the signer without amending that
+  // sentence would have falsified the live Terms on the exact action that moves a
+  // user's funds. These assertions moved in the SAME commit as the signer, which is
+  // the whole point of this file.
+  it('§2 describes the Solana rail as user-submitted and non-custodial', () => {
     expect(isSolanaLauncherEnabled()).toBe(true);
     const s2 = section(2)?.body ?? '';
     expect(s2).toMatch(/Meteora/);
-    expect(s2).toMatch(/PREVIEW only/);
-    // The Solana page has no signer; claiming otherwise would overstate the rail.
-    expect(s2).toMatch(/does not submit any Solana transaction/i);
+    expect(s2).toMatch(/sign the launch transaction yourself/i);
+    expect(s2).toMatch(/never takes custody/i);
+    expect(s2).toMatch(/cannot submit a launch without your signature/i);
+    // The stale preview language must be GONE, not merely supplemented.
+    expect(s2).not.toMatch(/PREVIEW only/);
+    expect(s2).not.toMatch(/does not submit any Solana transaction/i);
+  });
+
+  it('§2 discloses the two things a Solana launcher cannot undo', () => {
+    const s2 = section(2)?.body ?? '';
+    // The config is immutable, so the curve/fees/split are fixed before launch —
+    // a launcher who believes they can retune later has been misled.
+    expect(s2).toMatch(/IMMUTABLE/);
+    expect(s2).toMatch(/anti-snipe/i);
+    expect(s2).toMatch(/irreversible/i);
   });
 
   it('§7 Fees renders the launch fee tier and the full constitution from the constants', () => {
@@ -147,5 +165,28 @@ describe('the launch flow surfaces the Terms', () => {
     const review = src.slice(src.indexOf('function StepReview'));
     expect(review).toMatch(/to="\/terms"/);
     expect(review).toMatch(/issuer/i);
+  });
+
+  // The success panel is the one moment a creator is guaranteed to be looking, and the
+  // permalink is the only artifact in it that belongs to us. It shipped linking ONLY to
+  // Etherscan, which handed the most engaged moment in the funnel to a block explorer and
+  // left /launch/:token reachable from a single Explorer row. Pin the hand-off.
+  it('the launch success panel links to the token permalink, not just Etherscan', () => {
+    const src = readFileSync(join(process.cwd(), 'src', 'pages', 'LaunchPage.tsx'), 'utf8');
+    // Slice from the banner COMPONENT, not from the "Launched." string: `txUrl` is
+    // built above that literal, so a narrower slice silently drops the Etherscan
+    // assertion below and passes for the wrong reason.
+    const panel = src.slice(src.indexOf('function LaunchStatusBanner'));
+    expect(panel).toContain('to={`/launch/${result.tokenAddress}`}');
+    // And it must still surface the on-chain records — the permalink replaces neither.
+    //
+    // `toContain` on the exact URL PREFIX, deliberately not a regex: CodeQL's
+    // js/regex/missing-regexp-anchor flags an unanchored URL-shaped pattern as a
+    // high-severity finding, because that shape is a real bypass primitive WHEN it
+    // guards a trust decision. It does not here — this greps source text — but an
+    // exact substring is both immune to the class and a stricter assertion, so
+    // there is nothing to trade off. Do not "simplify" these back into regexes.
+    expect(panel).toContain('https://etherscan.io/tx/');
+    expect(panel).toContain('https://etherscan.io/token/');
   });
 });

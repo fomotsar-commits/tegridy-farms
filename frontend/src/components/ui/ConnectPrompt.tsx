@@ -36,7 +36,9 @@ const DEFAULTS: Record<Surface, { title: string; description: string; cta: strin
   trade: {
     title: 'Connect to swap on the native DEX',
     description:
-      'Every basis point of fees routes to stakers. Trade here to support the yield flywheel — or use Uniswap if you want Uniswap to keep the fees instead.',
+      // Was "Every basis point of fees routes to stakers" — false. ReferralSplitter
+      // carves 20% off the top before anything is credited to the staker rail.
+      'After the 20% referral carve, every remaining basis point is earmarked for stakers. Trade here to support the yield flywheel — or use Uniswap if you want Uniswap to keep the fees instead.',
     cta: 'Swap TOWELI',
   },
   lending: {

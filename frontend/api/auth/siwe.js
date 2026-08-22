@@ -53,15 +53,20 @@ const TOKEN_EXPIRY_HOURS = 24;
 // nonce already expires in 5 min so anything longer has no use.
 const MAX_MESSAGE_TTL_MS = 15 * 60 * 1000;
 
-// AUDIT R050 MED + R052 M-076-2: env-driven allowlist; no hardcoded
-// `nakamigos.gallery` fallback. Production hosts are in the default set;
-// `ALLOWED_ORIGINS=foo,bar` extends without redeploy.
+// AUDIT R050 MED + R052 M-076-2: env-driven allowlist. Production hosts are in
+// the default set; `ALLOWED_ORIGINS=foo,bar` extends without redeploy.
+//
+// 2026-08-02: `nakamigos.gallery` removed. The R050 fix dropped it as the
+// *fallback* but left it as an *allowlist entry*, which this comment then
+// wrongly described as absent. The project does not control that domain, so it
+// has no place in a credentialed origin set. Do NOT re-add it —
+// `canonical-origin.test.js` fails the build if you do.
 function buildAllowedOrigins() {
   const set = new Set([
-    "https://nakamigos.gallery",
-    "https://www.nakamigos.gallery",
     "https://memetic.fun",
     "https://www.memetic.fun",
+    "https://memetics.finance",
+    "https://www.memetics.finance",
     "https://tegridyfarms.vercel.app",
   ]);
   if (process.env.NODE_ENV === "development") {
@@ -134,8 +139,20 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Failed to generate nonce" });
     }
 
-    // Clean up expired nonces opportunistically
-    await supabase.from("siwe_nonces").delete().lt("expires_at", new Date().toISOString()).catch(() => {});
+    // Clean up expired nonces opportunistically.
+    // AUDIT SIWE-RESTORE: this used to end in `.catch(() => {})`. A postgrest-js
+    // builder is PromiseLike — it has `then` and no `catch` — so that call threw
+    // `TypeError: ....catch is not a function` and rejected the handler, 500ing
+    // EVERY nonce request (i.e. every login) even once siwe_nonces existed.
+    // PostgREST surfaces failures in the resolved `{ error }`, never as a
+    // rejection, so best-effort cleanup just inspects and logs.
+    const { error: cleanupErr } = await supabase
+      .from("siwe_nonces")
+      .delete()
+      .lt("expires_at", new Date().toISOString());
+    if (cleanupErr) {
+      console.warn("Nonce cleanup error:", cleanupErr.message);
+    }
 
     return res.json({ nonce, expiresAt });
   }
@@ -348,7 +365,13 @@ export default async function handler(req, res) {
           });
         }
         // Opportunistic cleanup; ignore errors.
-        void supabase.rpc("prune_revoked_jwts").catch(() => {});
+        // AUDIT SIWE-RESTORE: same latent TypeError as the nonce sweep above —
+        // postgrest builders have no `.catch`. Here the outer try/catch
+        // swallowed it, so prune_revoked_jwts silently never ran. Note the
+        // builder is lazy: dropping the call entirely would ALSO never fire it,
+        // so wrap in a real Promise (which invokes `then`) to keep this a
+        // genuine fire-and-forget.
+        void Promise.resolve(supabase.rpc("prune_revoked_jwts")).catch(() => {});
       } catch {
         // Invalid signature / expired token — silently drop. Cookie still
         // cleared below; no DB write for forged cookies (R052 L-076-4).

@@ -29,7 +29,17 @@ import {
   isAllowedNumeraire,
 } from './config';
 import type { FeeConstitutionLine } from './factSheet';
+import {
+  pricingRefusal,
+  resolveLaunchPricing,
+  standardLaunchPricing,
+  tierReadingFromAudit,
+  venueLineBps,
+  type ResolvedLaunchPricing,
+} from './launchPricing';
 import { LOCKER_CLAIMER_ADDRESS } from '../constants';
+import { assertMayLaunch, HeatGateDenied } from '../heat/launchGate';
+import type { GateAuditRow } from '../heat/gateAudit';
 
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
@@ -91,12 +101,22 @@ export interface LaunchResult {
    * the UI show "token/ETH" vs "token/TOWELI".
    */
   numeraire: Address;
+  /**
+   * `gate_decision_id` — the id of the Heat gate audit row that permitted this launch.
+   *
+   * Carried on the birth notify so the island can replay the decision against the
+   * instrument that produced it. Null only when the local audit store was unavailable
+   * (private-mode browser); a missing id degrades the record, and is never allowed to
+   * block a launch the door already passed.
+   */
+  gateDecisionId: string | null;
 }
 
 /** Discriminated failure reasons, so the UI can render a specific message. */
 export type LaunchErrorCode =
   | 'launcher-disabled' // gate is shut (isLauncherEnabled() === false)
   | 'invalid-integrator' // integrator is the zero address (defense in depth)
+  | 'heat-denied' // the island's launch floor was not cleared (see lib/heat/launchGate.ts)
   | 'invalid-config' // params could not be built from the config (bad tier/fee/tick input)
   | 'simulation-failed' // simulateCreateDynamicAuction reverted (bad config / on-chain preconditions)
   | 'submit-failed'; // createDynamicAuction failed (user rejected / tx reverted)
@@ -199,6 +219,16 @@ export interface LaunchMapOptions {
   /** Override the default proceeds band (numeraire wei). */
   minProceeds?: bigint;
   maxProceeds?: bigint;
+  /**
+   * The launch's resolved price (Heat tier + creator revenue share). Resolve it ONCE from
+   * the Heat gate's own decision and pass the SAME object into the projected Fact Sheet
+   * and into this mapper, so the split shown before the signature is the split deployed by
+   * it. Omitted => today's standard rate, which is what every existing caller gets.
+   *
+   * `launchToken` re-checks this against a live reading before broadcasting, so a price
+   * that has since gone stale cannot be minted permanently.
+   */
+  pricing?: ResolvedLaunchPricing;
 }
 
 type ResolvedLine = FeeConstitutionLine & { address: Address };
@@ -272,7 +302,14 @@ export function resolveFeeConstitution(
   userAddress: Address,
   attentionSplits: readonly AttentionSplit[] = [],
   numeraire: Address = ETH_NUMERAIRE,
+  pricing: ResolvedLaunchPricing = standardLaunchPricing(),
 ): ResolvedLine[] {
+  // The venue's line is the ONLY thing pricing moves; whatever it gives up crosses to the
+  // creator-directed pool, so the 10000 total and the Doppler floor are identities rather
+  // than checks. Defaulting to `standardLaunchPricing()` makes every pre-existing caller
+  // (and every already-computed disclosure) byte-identical to before pricing existed.
+  const creatorPoolBps = CREATOR_ATTENTION_POOL_BPS + pricing.creatorBonusBps;
+
   // Validate the creator's carve-out: non-negative whole bps that don't over-allocate.
   let splitSum = 0;
   for (const s of attentionSplits) {
@@ -281,9 +318,9 @@ export function resolveFeeConstitution(
     }
     splitSum += s.shareBps;
   }
-  if (splitSum > CREATOR_ATTENTION_POOL_BPS) {
+  if (splitSum > creatorPoolBps) {
     throw new Error(
-      `Attention splits over-allocate the creator pool: ${splitSum} bps directed of ${CREATOR_ATTENTION_POOL_BPS} bps available.`,
+      `Attention splits over-allocate the creator pool: ${splitSum} bps directed of ${creatorPoolBps} bps available.`,
     );
   }
 
@@ -293,7 +330,11 @@ export function resolveFeeConstitution(
     if (line.role === 'protocol-stakers') {
       // Numeraire-aware sink + honest label (RevenueDistributor/ETH-yield vs Treasury/exotic).
       const sink = protocolFeeSink(numeraire);
-      fixedLines.push({ ...line, recipient: sink.recipient, address: sink.address });
+      // `pricing.venueBps` replaces the template's share rather than adjusting it, so the
+      // deployed line is the priced line and there is no second place it could be read
+      // from. At zero the line is dropped below with the other empty lines — a venue that
+      // keeps nothing must not appear in the locker as a beneficiary of nothing.
+      fixedLines.push({ ...line, shareBps: pricing.venueBps, recipient: sink.recipient, address: sink.address });
     }
     // Carries the Airlock owner + enforces the >=5% floor.
     else if (line.role === 'doppler') fixedLines.push(dopplerBeneficiaryLine(line.shareBps));
@@ -316,7 +357,7 @@ export function resolveFeeConstitution(
   resolved.push({
     recipient: 'Creator',
     role: 'creator',
-    shareBps: CREATOR_ATTENTION_POOL_BPS - splitSum,
+    shareBps: creatorPoolBps - splitSum,
     address: userAddress,
   });
   // Each creator-directed KOL/community beneficiary.
@@ -489,7 +530,7 @@ export function wizardConfigToLaunchConfig(w: LaunchWizardInput, opts: LaunchMap
     numeraire,
     minProceeds: opts.minProceeds ?? defaultMinProceeds,
     maxProceeds: opts.maxProceeds ?? defaultMaxProceeds,
-    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits, numeraire),
+    feeConstitution: resolveFeeConstitution(opts.userAddress, opts.attentionSplits, numeraire, opts.pricing),
     integrator: LAUNCHER_INTEGRATOR_ADDRESS,
     lockDurationSeconds: Math.round(w.lpLockMonths * MONTH_SECONDS),
     userAddress: opts.userAddress,
@@ -525,6 +566,43 @@ export async function launchToken(
     throw new LaunchError('invalid-integrator', 'No integrator address is configured; refusing to launch.');
   }
 
+  // THE SEEDLING GATE. Read live, here, at the moment of launching — not trusted from
+  // whatever the door rendered minutes ago on a page that has since been left open.
+  //
+  // Position matters: after the cheap local guards and BEFORE any SDK work, any
+  // signature request, and any chain access. A denial at this point is provably
+  // pre-broadcast, which is why `broadcast: false` below is a fact and not a hope.
+  //
+  // `assertMayLaunch` fails closed: an unreachable oracle throws exactly as a cold
+  // wallet does. It returns the audit row, whose id becomes `gate_decision_id` on the
+  // birth notify — that is how a token is tied back to the decision that permitted it.
+  let gateRow: GateAuditRow | null = null;
+  try {
+    gateRow = await assertMayLaunch(cfg.userAddress);
+  } catch (e) {
+    if (e instanceof HeatGateDenied) {
+      throw new LaunchError('heat-denied', e.message, { cause: e, broadcast: false });
+    }
+    throw e;
+  }
+
+  // THE PRICE MUST STILL BE EARNED AT THE MOMENT IT IS MINTED.
+  //
+  // The constitution in `cfg` was priced when the wizard read the door, and the locker
+  // makes it permanent the instant this transaction mines. So the discount is re-checked
+  // against the reading that JUST came back — not the one on a screen that has been open
+  // for ten minutes. `pricingRefusal` refuses in one direction only: a config claiming a
+  // deeper discount than the live reading supports. A config that keeps the venue's line
+  // at or above the live price deploys exactly what the creator was shown and is allowed
+  // through. A null gate row is the same as an unreadable instrument (fail-closed), and
+  // with both pricing dials off live and deployed are both the standard line, so this is
+  // inert on today's path.
+  const livePricing = resolveLaunchPricing(gateRow ? tierReadingFromAudit(gateRow) : null);
+  const refusal = pricingRefusal(venueLineBps(cfg.feeConstitution), livePricing);
+  if (refusal) {
+    throw new LaunchError('invalid-config', refusal, { broadcast: false });
+  }
+
   const { DopplerSDK } = await import('@whetstone-research/doppler-sdk/evm');
   const sdk = new DopplerSDK({ publicClient, walletClient, chainId: DOPPLER_MAINNET.chainId });
 
@@ -555,6 +633,10 @@ export async function launchToken(
       feeConstitution: cfg.feeConstitution,
       // The base pair actually used (ETH default, or TOWELI for an exotic launch).
       numeraire: cfg.numeraire ?? ETH_NUMERAIRE,
+      // The gate row that permitted this launch. Rides the birth notify so the island
+      // can replay the decision against the instrument. Null only when the audit could
+      // not be stored locally (private-mode browser) — never a reason to block a launch.
+      gateDecisionId: gateRow?.id ?? null,
     };
   } catch (e) {
     // create() broadcasts AND waits for the receipt in one step, so a throw here may

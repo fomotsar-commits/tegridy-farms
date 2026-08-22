@@ -88,9 +88,29 @@ export interface TokenChainStats {
   lastTeamActivityAt: number | null;
 }
 
+/**
+ * One market read's outcome. THREE states, and only two are answers:
+ *   `{read:false}`                 — could not read it (429, non-2xx, unparseable)
+ *   `{read:true, market:null}`     — read it, and there is no pool
+ *   `{read:true, market:{…}}`      — read it, and here is the pool
+ *
+ * A single `TokenMarket | null` cannot tell the first two apart, and collapsing them
+ * is not a cosmetic loss: `marketObserved:false` renders on /deployer as a "No live
+ * market" pill plus a note speculating the pool "may have been withdrawn" —
+ * rug-adjacent language about somebody's token, produced by our own throttling.
+ * `classifyLaunch` already ships `unobserved` ("State unknown — this is not a signal
+ * about the token") for exactly this; it was unreachable while the boundary could not
+ * express it.
+ *
+ * Matches the shape the shipping adapter (api/_lib/launcher-outcomes.js) uses. That
+ * port is the one that actually runs; this is the source of truth it is ported FROM,
+ * so the two must agree.
+ */
+export type MarketRead = { read: false } | { read: true; market: TokenMarket | null };
+
 /** The injected async boundary. A real adapter fulfills these via HTTP behind the catchall. */
 export interface LauncherDataFetcher {
-  fetchMarket(token: Address): Promise<TokenMarket | null>;
+  fetchMarket(token: Address): Promise<MarketRead>;
   fetchChainStats(token: Address, creator: Address | null): Promise<TokenChainStats | null>;
 }
 
@@ -200,11 +220,14 @@ export async function buildOutcomeRecord(
   // for a perfectly healthy launch — a defamatory false signal. So when the market
   // is UNOBSERVED we mirror the baseline (→ 0% change, no drain flag) and flag
   // marketObserved:false so the UI renders "unavailable" instead of "no adverse signals".
-  const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  // `safeCall` yields null when the fetcher THREW, which is also a failed read.
+  const res = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  const marketReadFailed = !res || res.read !== true;
+  const rawMarket = marketReadFailed ? null : res.market;
   // Observed only when the fields the disclosures depend on are actually present.
   // A partial object (e.g. price but no liquidity) would otherwise coerce liquidity
   // to 0 and fabricate a 100% drain — treat it as unobserved instead.
-  const marketObserved = marketIsObserved(rawMarket);
+  const marketObserved = !marketReadFailed && marketIsObserved(rawMarket);
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(
     await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)),
@@ -227,6 +250,11 @@ export async function buildOutcomeRecord(
     unlocks: baseline.unlocks ?? [],
     lastTeamActivityAt: chain.lastTeamActivityAt,
     marketObserved,
+    /**
+     * The third state, carried so consumers can reach `unobserved` instead of
+     * `no-market`. See {@link MarketRead}.
+     */
+    marketReadFailed,
   };
 }
 
@@ -242,7 +270,13 @@ export async function buildLaunchSummary(
   // If the market is unobserved (outage/rate-limit) we return null rather than a
   // zero-activity summary — an outage-hit launch keeps its PRIOR rank instead of
   // being unfairly deranked to the bottom. buildLaunchSummaries filters nulls.
-  const rawMarket = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  const res = await safeCall(() => fetcher.fetchMarket(baseline.token));
+  // An unreadable read and a read-but-absent pool both land on `null` here, and both
+  // must return null — unlike buildOutcomeRecord, this builder has no third state to
+  // carry, because an unranked launch is the right answer either way. No separate
+  // `read === false` branch: `marketIsObserved(null)` already covers it, and a guard
+  // no mutation can kill is a guard that is not doing work.
+  const rawMarket = res && res.read === true ? res.market : null;
   if (!marketIsObserved(rawMarket)) return null;
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(

@@ -12,6 +12,7 @@ import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/Page
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
+import { PwaRuntime } from './components/pwa/PwaRuntime';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -46,12 +47,37 @@ const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 const DeployerPage = lazy(() => import('./pages/DeployerPage'));
 // Thin hub that frames the three detection surfaces above as one anti-rug suite.
 const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
+// The same detection stack pointed at a discovery feed: pairs from the F1 indexer,
+// each row carrying its safety read or an explicit statement that it has none.
+const TerminalPage = lazy(() => import('./pages/TerminalPage'));
+// Alert rules over the same subjects (token / wallet / deployer), pushed instead of
+// pulled. NOT flag-gated: the rule store lives behind a migration an operator applies
+// by hand, so until `016_alert_rules.sql` lands every alerts call answers 503
+// `schema-missing` and the panels print that with the operator step attached. Routing it
+// while it says so is the point — a flag here would hide the one honest state it has.
+const AlertsPage = lazy(() => import('./pages/AlertsPage'));
+// Referral links, the staking threshold that decides whether sharing one earns
+// anything at all, and the on-chain claim. NOT flag-gated and not pilled: the
+// splitter is deployed and the long-form `/?ref=0x…` link resolves in the browser
+// with no server, so the surface is live. Only the optional short `/?r=code` form
+// needs `019_referral_codes.sql`, and the share card prints that store's own answer
+// rather than gating the page on it.
+const ReferralsPage = lazy(() => import('./pages/ReferralsPage'));
+// Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
+// from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
+// so neither the price list nor the signup can claim what is not configured.
+const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
 // Solana launch sub-brand (Meteora DBC). Gated in-page (isSolanaLauncherEnabled)
 // — renders the SOON placeholder until an operator enables it + a verified vault.
 const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
+// Our OWN Solana bonding curve (tegridy-launch), which graduates into our cp-swap
+// fork — as opposed to the Meteora rail above. NOT gated by a flag: the page
+// probes the chain for the program on mount and renders "not deployed" from that
+// live read, so it needs no redeploy to start working once the program ships.
+const CurveLaunchPage = lazy(() => import('./pages/CurveLaunchPage'));
 // Token launch rail (Doppler V4 integration). LIVE since 2026-07-22
 // (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
 // isLauncherEnabled() so it can be re-gated by flipping the flag + redeploying.
@@ -63,6 +89,63 @@ const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
 // Launch simulator — preview a token's distribution band + Fact-Sheet tier before
 // launching. Pure client-side, always usable (deliberately live before the launch rail).
 const LaunchSimulatorPage = lazy(() => import('./pages/LaunchSimulatorPage'));
+// Merkle airdrop campaigns (#65). AirdropFactory is undeployed, so the funding and
+// claim transactions are isDeployed()-gated in-page; the client-side tree builder is
+// not, because a root computed from a CSV needs no chain.
+const AirdropPage = lazy(() => import('./pages/AirdropPage'));
+// Vesting streams + lock viewer (#28). Each tab gates on its own contract address, so
+// a deployment that ships one rail before the other shows the live one and keeps
+// reporting "no data" for the other.
+const VestingPage = lazy(() => import('./pages/VestingPage'));
+// Guided first-run flow (#43). Wallet-free and never gated itself — its step list is built
+// from the same gates the destination pages read, so a re-gated surface disappears from it
+// rather than being promised. Lives under components/onboarding/ with the on-ramp panel it
+// mounts, not in pages/, because the flow and that panel are one feature.
+const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'));
+// Zap engine (#67). Client-orchestrated only — no zap contract exists or is planned, per
+// docs/USER_VALUE_ROADMAP.md line 101. Never gated: with no wallet it renders the composer
+// and its refusal states, and each venue reports its own availability from constants.ts.
+// Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
+const ZapPage = lazy(() => import('./components/zap/ZapPage'));
+// Copy trading (#7) and trading competitions (#50). Both are read-only views over
+// the F1 indexer, so with VITE_INDEXER_URL unset every panel renders its own
+// "could not be read" state and no table is drawn. NOT flag-gated, and routing them
+// while they say that is the point: the copy page's honesty (no wallet is ranked by
+// profit, nothing executes for you) and the competition page's (no prize, no
+// settlement, self-reversals struck) are the product, and a flag would hide the
+// only states they can currently be in.
+const CopyTradingPage = lazy(() => import('./pages/CopyTradingPage'));
+const CompetitionsPage = lazy(() => import('./pages/CompetitionsPage'));
+// Pro charting (#47). Candles built in-browser from indexed TegridyPair swaps by a
+// dependency-free SVG renderer — no charting library, no price oracle. NOT gated by a
+// flag: the whole page hangs off the F1 indexer, so with VITE_INDEXER_URL unset it
+// renders the unavailable banner and NO PLOT. A blank plot area with an axis on it
+// reads as a pool that did not trade, which is the one thing it must never say.
+// Lives under components/chart/ with the renderer it mounts, as ZapPage does.
+const ChartPage = lazy(() => import('./components/chart/ChartPage'));
+// Yield routing (#32 / #21 / #34) — a comparison of THIRD-PARTY liquid staking and
+// stablecoin lending venues. Tegridy issues nothing here and there is no contract:
+// every deposit address in lib/yield/venues.ts is unwired, so the page compares and
+// its route controls are disabled with the reason attached. Not flag-gated, because
+// the comparison and the counterparty disclosures are the product while the routing
+// is dark, and a flag would hide the one honest state it has.
+const YieldPage = lazy(() => import('./pages/YieldPage'));
+// Merchant checkout + recurring billing (#68 / #69). NOT flag-gated, because the
+// states it can be in are the product: the buyer is shown the exact amount and the
+// exact settlement asset before signing, and no signature is offered at all when the
+// route cannot guarantee the merchant's exact amount. Non-custodial by construction —
+// both legs are signed in the buyer's own wallet with the merchant as the direct
+// recipient, and api/_lib/commerce.js holds no key. The invoice store sits behind
+// `021_commerce.sql`, applied by hand, so until then every lookup answers 503
+// `schema-missing` and the widget prints that rather than "no such invoice".
+const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
+// Capital-gains and income reports (#71). Read-only over the F1 indexer, so with
+// VITE_INDEXER_URL unset the whole requested period is a declared GAP on the export
+// itself — not an omission and not an empty year. The cost-basis method is selected by
+// the filer and stamped on every file, because FIFO and specific identification are
+// different numbers and an unlabelled report cannot be reproduced. Every surface states
+// it is not tax advice.
+const TaxPage = lazy(() => import('./pages/TaxPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -218,10 +301,18 @@ function AnimatedRoutes() {
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
         <Route path="solana-launch" element={<Suspense fallback={<PageSkeleton />}><SolanaLaunchPage /></Suspense>} />
+        <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
+        <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
+        <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
+        <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
+        <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><ZapPage /></Suspense>} />
+        <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><YieldPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
+        <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><CopyTradingPage /></Suspense>} />
+        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><CompetitionsPage /></Suspense>} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
@@ -254,6 +345,13 @@ function AnimatedRoutes() {
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
+        <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TerminalPage /></Suspense>} />
+        <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><ChartPage /></Suspense>} />
+        <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
+        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><ReferralsPage /></Suspense>} />
+        <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><CheckoutPage /></Suspense>} />
+        <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><TaxPage /></Suspense>} />
+        <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
@@ -286,6 +384,13 @@ function AppInner() {
           <AnimatedRoutes />
         </Suspense>
       </RouteErrorBoundary>
+      {/* #46 — the install offer and the app-shell worker's registration. Mounted
+          here rather than inside AppLayout because /nakamigos is routed OUTSIDE that
+          layout and the worker's scope covers it either way; the banner suppresses
+          itself on that route so the sub-app's own banner is the only one shown.
+          Both halves render nothing at all unless the browser actually offers an
+          install, and neither ever claims the app works offline. */}
+      <PwaRuntime />
     </RainbowKitProvider>
   );
 }

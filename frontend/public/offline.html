@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Offline | Tegridy Farms</title>
+    <!--
+      THE OFFLINE SHELL. Served by /sw.js only when a navigation could not reach
+      the network at all.
+
+      It contains NO price, NO balance, NO pool figure and NO placeholder shaped
+      like one, and it never will. The whole reason this page exists instead of a
+      cached copy of the app is that a cached app shell renders chrome, headings
+      and persisted local state around data that was never read — a reader has to
+      work out for themselves that none of it is current, and on a DeFi surface
+      the cost of getting that wrong is a trade.
+
+      It also carries NO SCRIPT. vercel.json's CSP allows only 'self' and one
+      hashed inline script, and a page whose entire job is to be honest when
+      nothing works should not depend on anything working. The retry is a plain
+      link.
+    -->
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: #060c1a;
+        color: #ede9fe;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        line-height: 1.55;
+      }
+      main { max-width: 34rem; }
+      h1 { font-size: 22px; margin: 0 0 12px; font-weight: 600; }
+      p { font-size: 14px; margin: 0 0 12px; color: #b9aede; }
+      ul { font-size: 14px; margin: 0 0 16px; padding-left: 20px; color: #b9aede; }
+      li { margin-bottom: 6px; }
+      .rule {
+        border: 1px solid rgba(255, 178, 55, 0.4);
+        background: rgba(255, 178, 55, 0.07);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin: 0 0 18px;
+      }
+      .rule p { margin: 0; color: #f3e6c8; }
+      a.retry {
+        display: inline-block;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-radius: 10px;
+        padding: 9px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        color: #ffffff;
+        text-decoration: none;
+      }
+      a.retry:hover { background: rgba(255, 255, 255, 0.1); }
+      .fine { font-size: 12px; color: #8f83b8; margin-top: 20px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>You are offline</h1>
+
+      <div class="rule">
+        <p>
+          No price, balance, pool or transaction on this app could be read, so none is shown.
+          Nothing here is a zero, and nothing here is out of date — there is simply no answer
+          to show you yet.
+        </p>
+      </div>
+
+      <p>Tegridy Farms reads everything it displays live from the chain and from its indexer. Offline, that means:</p>
+      <ul>
+        <li>no prices, balances, APRs or pool reserves — not stale ones, none at all;</li>
+        <li>no transaction can be signed, sent or confirmed;</li>
+        <li>anything you started before losing connection has not been submitted.</li>
+      </ul>
+
+      <p>Reconnect and try again. Your wallet and your positions are on-chain and are unaffected by this app being unreachable.</p>
+
+      <p><a class="retry" href="/">Reload Tegridy Farms</a></p>
+
+      <p class="fine">
+        This page is the only thing this app stores for offline use, alongside its own build files.
+        No chain data is ever cached.
+      </p>
+    </main>
+  </body>
+</html>

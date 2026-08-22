@@ -45,6 +45,8 @@ pub enum LaunchError {
     LpNotBurned,
     #[msg("Curve is fully funded and awaiting migration — it has NOT graduated yet")]
     AwaitingMigration,
+    #[msg("Creator account does not match the creator recorded on this curve")]
+    CreatorMismatch,
 }
 
 /// Lift a pure-curve error into the program's error space.
@@ -58,6 +60,29 @@ impl From<CurveError> for LaunchError {
             CurveError::InsufficientLiquidity => LaunchError::InsufficientLiquidity,
             CurveError::ZeroAmount => LaunchError::ZeroAmount,
             CurveError::FeeTooHigh => LaunchError::FeeTooHigh,
+            // A share above 100% is a config-shaped mistake, and config
+            // validation is where it should have been caught.
+            CurveError::ShareTooHigh => LaunchError::InvalidParameter,
+        }
+    }
+}
+
+/// Map the segmented curve's pure errors onto the program's error space, so the
+/// trade path handles both curve modes identically. Deliberately explicit rather
+/// than a blanket catch-all: a new `SegmentError` variant must be classified here
+/// by whoever adds it, not silently absorbed into `InvalidParameter`.
+impl From<crate::segmented::SegmentError> for LaunchError {
+    fn from(e: crate::segmented::SegmentError) -> Self {
+        use crate::segmented::SegmentError as S;
+        match e {
+            S::Overflow => LaunchError::Overflow,
+            S::ZeroAmount => LaunchError::ZeroAmount,
+            S::InsufficientLiquidity => LaunchError::InsufficientLiquidity,
+            // A malformed or out-of-range segment table can only come from config,
+            // never from trade input — surface it as a parameter fault.
+            S::BadSegmentCount | S::BadSegments | S::SqrtPriceOutOfRange => {
+                LaunchError::InvalidParameter
+            }
         }
     }
 }

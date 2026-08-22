@@ -8,6 +8,7 @@ import { getAddressUrl } from '../../../lib/explorer';
 import { arweaveUri } from '../../../lib/irysClient';
 import type { WizardState, WizardAction } from './wizardReducer';
 import { BTN_EMERALD, LABEL } from '../launchpadConstants';
+import { ArtCard } from '../../ui/ArtCard';
 
 export function Step5_Deploy({
   state,
@@ -136,7 +137,7 @@ export function Step5_Deploy({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl p-4 bg-black/40 border border-white/10">
+      <ArtCard pageId="wizard" idx={2} padding="p-4">
         <label className={LABEL}>Review before deploy</label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-[12px]">
           <RowSummary k="Name" v={state.collectionName} />
@@ -159,7 +160,7 @@ export function Step5_Deploy({
           />
           <RowSummary k="Initial phase" v="Closed (you'll open after review)" />
         </div>
-      </div>
+      </ArtCard>
 
       {!factoryDeployed && (
         <div className="rounded-lg p-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[12px]">

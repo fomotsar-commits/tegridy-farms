@@ -60,6 +60,8 @@ pub enum CurveError {
     ZeroAmount,
     /// Fee configured above `MAX_FEE_BPS`.
     FeeTooHigh,
+    /// Creator fee share configured above 100%.
+    ShareTooHigh,
 }
 
 /// The result of quoting a buy.
@@ -89,7 +91,7 @@ pub struct SellQuote {
 /// Rounding up is the correct direction here: rounding down would let a trader
 /// split one order into many sub-fee-sized orders and pay nothing at all.
 #[inline]
-fn fee_up(amount: u64, fee_bps: u64) -> Result<u64, CurveError> {
+pub fn fee_up(amount: u64, fee_bps: u64) -> Result<u64, CurveError> {
     if fee_bps > MAX_FEE_BPS {
         return Err(CurveError::FeeTooHigh);
     }
@@ -103,6 +105,42 @@ fn fee_up(amount: u64, fee_bps: u64) -> Result<u64, CurveError> {
     // ceil(num / d) without a second division.
     let fee = num.div_ceil(d);
     u64::try_from(fee).map_err(|_| CurveError::Overflow)
+}
+
+/// How one trade's fee divides between the launch creator and the protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeeSplit {
+    /// The creator's cut, paid to `BondingCurve.creator` in the same trade.
+    pub creator_lamports: u64,
+    /// The protocol's cut, paid to `GlobalConfig.fee_recipient`.
+    pub protocol_lamports: u64,
+}
+
+/// Split a trade fee between the launch creator and the protocol.
+///
+/// The creator's cut rounds DOWN and the protocol keeps the remainder, so the
+/// two halves always sum to EXACTLY `fee` — the split can never mint or lose a
+/// lamport relative to what the trade charged. Rounding toward the protocol
+/// follows the module rule that truncation favours the house, never a party who
+/// chooses their own trade size.
+///
+/// `creator_share_bps` is a share OF THE FEE (not of the trade): 5_000 sends
+/// half the fee to the creator. Zero is legal and reproduces the pre-split
+/// behaviour exactly; 10_000 sends the whole fee to the creator.
+#[inline]
+pub fn split_fee(fee: u64, creator_share_bps: u64) -> Result<FeeSplit, CurveError> {
+    if creator_share_bps > BPS_DENOMINATOR {
+        return Err(CurveError::ShareTooHigh);
+    }
+    // fee * share fits u128 trivially; the quotient is <= fee, so u64 holds it.
+    let creator_lamports =
+        ((fee as u128) * (creator_share_bps as u128) / (BPS_DENOMINATOR as u128)) as u64;
+    // creator <= fee by construction, so plain subtraction cannot underflow.
+    let protocol_lamports = fee - creator_lamports;
+    Ok(FeeSplit {
+        creator_lamports,
+        protocol_lamports,
+    })
 }
 
 /// Quote a buy: lamports in, tokens out.
@@ -493,6 +531,53 @@ mod tests {
         assert_eq!(fee_up(10_000, 100).unwrap(), 100);
         // Exactly divisible must NOT be pushed to the next lamport.
         assert_eq!(fee_up(20_000, 100).unwrap(), 200);
+    }
+
+    /// The split invariant: creator + protocol == fee, for every share, always.
+    /// A split that loses or mints even one lamport would silently desync the
+    /// curve's balance from its accounting.
+    #[test]
+    fn split_fee_conserves_every_lamport() {
+        for fee in [0u64, 1, 7, 99, 10_000, 123_457, u64::MAX / BPS_DENOMINATOR] {
+            for share in [0u64, 1, 2_500, 5_000, 7_499, 9_999, 10_000] {
+                let s = split_fee(fee, share).unwrap();
+                assert_eq!(
+                    s.creator_lamports + s.protocol_lamports,
+                    fee,
+                    "split lost/minted lamports at fee={fee} share={share}"
+                );
+            }
+        }
+    }
+
+    /// Creator rounds DOWN; the protocol keeps the remainder.
+    #[test]
+    fn split_fee_rounds_toward_the_protocol() {
+        // 3 lamports at 50%: creator gets 1 (1.5 floored), protocol gets 2.
+        let s = split_fee(3, 5_000).unwrap();
+        assert_eq!(s.creator_lamports, 1);
+        assert_eq!(s.protocol_lamports, 2);
+        // 1 lamport at 99.99%: still floors to 0 — dust never leaks to the creator.
+        let s = split_fee(1, 9_999).unwrap();
+        assert_eq!(s.creator_lamports, 0);
+        assert_eq!(s.protocol_lamports, 1);
+    }
+
+    /// Zero share reproduces pre-split behaviour; full share hands the fee over.
+    #[test]
+    fn split_fee_endpoints() {
+        let s = split_fee(10_000, 0).unwrap();
+        assert_eq!((s.creator_lamports, s.protocol_lamports), (0, 10_000));
+        let s = split_fee(10_000, 10_000).unwrap();
+        assert_eq!((s.creator_lamports, s.protocol_lamports), (10_000, 0));
+    }
+
+    #[test]
+    fn split_fee_share_above_100pct_is_rejected() {
+        assert_eq!(
+            split_fee(10_000, BPS_DENOMINATOR + 1),
+            Err(CurveError::ShareTooHigh)
+        );
     }
 
     #[test]

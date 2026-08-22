@@ -71,8 +71,31 @@ export default defineConfig([
     languageOptions: { globals: globals.browser },
   },
 
+  // `.jsx` added 2026-08-02 — the SAME blind spot the header note above
+  // documents fixing for .js/.mjs/.cjs on 07-28, missed on the first pass. The
+  // two globs were `**/*.{js,mjs,cjs}` and `**/*.{ts,tsx}`; neither matches
+  // `.jsx`, so all 98 `.jsx` files — the ENTIRE `src/nakamigos/` Tradermigos
+  // marketplace UI — were silently unlinted. `npm run lint` was green over them
+  // by construction, and `npx eslint <file>.jsx` said "File ignored because no
+  // matching configuration was supplied".
+  //
+  // Folded into THIS block rather than given its own, so `.jsx` is held to the
+  // same standard as `.tsx` (react-hooks, react-refresh, and the strict
+  // underscore-prefix unused-vars rule) without duplicating the ~20 rule
+  // demotions below, which would drift.
+  //
+  // Two consequences worth knowing:
+  //  - It puts the TS PARSER on `.jsx`. That is fine — typescript-estree maps
+  //    the `.jsx` extension to ScriptKind.JSX, so JSX parses with no
+  //    `ecmaFeatures.jsx` flag needed. Verified: 0 parse errors over all 98.
+  //  - typescript-eslint's `eslint-recommended` (which turns OFF the base rules
+  //    tsc already covers: no-undef, no-const-assign, no-redeclare, …) is
+  //    self-scoped to `**/*.{ts,tsx,mts,cts}`, so it does NOT apply here. Those
+  //    base rules therefore stay ON for `.jsx` — which is CORRECT, since no
+  //    tsc pass covers these files. Same reasoning as the .js block's
+  //    "so `no-undef` still catches a browser global used server-side".
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ['**/*.{ts,tsx,jsx}'],
     extends: [
       js.configs.recommended,
       tseslint.configs.recommended,
@@ -110,12 +133,34 @@ export default defineConfig([
       //
       // Demoting the React Compiler-enforcement rules to `warn` keeps
       // them in the lint signal (devs see them) without blocking CI.
-      // The two CLASSIC react-hooks rules (`rules-of-hooks` for
-      // conditional hook calls, `exhaustive-deps` for stale-closure
-      // dep arrays) remain ERRORS — those ARE correctness bugs.
+      //
+      // CORRECTED 2026-08-02 — this block used to claim: "The two CLASSIC
+      // react-hooks rules (`rules-of-hooks`, `exhaustive-deps`) remain ERRORS
+      // — those ARE correctness bugs." NEITHER IS AN ERROR, and one never was:
+      //   - `exhaustive-deps`: the preset ships it as "warn" and nothing here
+      //     raises it, so it has been a warning the whole time.
+      //   - `rules-of-hooks`: the preset ships it as "error", but it is
+      //     explicitly demoted to 'warn' ~30 lines below this comment.
+      // Read literally, the old text told a reader that stale-closure dep
+      // arrays fail CI. They do not. Verify severity with
+      // `npx eslint --print-config <file>`, not with this comment.
       //
       // Follow-up task tracked: refactor each warning to the React
-      // Compiler-friendly pattern, then flip these back to `error`.
+      // Compiler-friendly pattern, then flip these to `error` — note that
+      // would be a RAISE for all of them, not a restore.
+      //
+      // 2026-08-02: all 164 `.jsx` warnings were triaged once the `.jsx` glob
+      // above started linting them. NO live correctness bug was found, which
+      // holds up the 05-18 "none are CORRECTNESS bugs" call. Specifically, the
+      // 11 `exhaustive-deps` are 6 over-invalidations (perf), 3 where the
+      // "missing" dep co-varies with one already listed (e.g.
+      // `collection.metadataBase` always changes with `collection.contract`),
+      // 1 false positive (OnChainProfile's cleanup increments a generation ref
+      // rather than reading a captured one), and 1 same-length-different-content
+      // window in ShoppingCart that gates a pre-flight check only — the actual
+      // purchase path re-derives from full `purchasableItems` and re-validates
+      // against live listings. Do not mass-refactor these to clear the report;
+      // that trades real robustness in a marketplace UI for a green count.
       // ─────────────────────────────────────────────────────────────────
       'react-hooks/preserve-manual-memoization': 'warn',
       'react-hooks/purity': 'warn',
@@ -202,5 +247,23 @@ export default defineConfig([
       // visible in the report rather than silenced outright.
       'no-useless-assignment': 'warn',
     },
+  },
+
+  // Vitest specs execute under Node, so Node globals are genuinely in scope
+  // there even though the files sit under `src/` and are otherwise browser code.
+  // Added 2026-08-02 with the `.jsx` glob above: `navRouting.test.jsx` reads
+  // `process.cwd()` to assert against App.jsx as SOURCE TEXT, and surfaced as
+  // two `no-undef` errors the moment `.jsx` started being linted at all.
+  //
+  // `.ts`/`.tsx` specs never hit this because typescript-eslint's
+  // `eslint-recommended` turns `no-undef` OFF for them (tsc covers it). `.jsx`
+  // has no tsc pass and so keeps the rule — which is the point of linting these
+  // files, so the globals are declared here rather than the rule disabled.
+  {
+    files: [
+      '**/*.{test,spec}.{js,mjs,cjs,jsx,ts,tsx}',
+      '**/__tests__/**/*.{js,mjs,cjs,jsx,ts,tsx}',
+    ],
+    languageOptions: { globals: globals.node },
   },
 ])

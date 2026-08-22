@@ -146,14 +146,26 @@ const TABLE_SCHEMAS = {
  * @returns {{ ok: true, data: unknown } | { ok: false, error: string }}
  */
 export function validateBody(table, method, body, jwtClaims) {
+  // AUDIT SIWE-RESTORE: FAIL CLOSED. Both branches below used to return
+  // `{ ok: true, data: body }`, forwarding an unvalidated body upstream.
+  //
+  // The old rationale — "the proxy allowlist already checked the table" —
+  // only covered half the key: nothing anywhere gates the (table, method)
+  // PAIR. `messages` is allowlisted and maps INSERT only, so `messages`
+  // UPDATE/UPSERT skipped the strict schema, the length bounds AND the
+  // JWT wallet/author/sender ownership refinement further down — the
+  // caller could forge a row as another wallet. Restoring SIWE login arms
+  // authorization paths that have never run in production, so the schema
+  // map is now itself the allowlist: no entry, no write.
+  //
+  // Consequence for maintainers: adding a table to ALLOWED_TABLES in
+  // supabase-proxy.js is no longer enough. Add its (method → schema) entry
+  // here too, or the write 400s.
   const tableSchema = TABLE_SCHEMAS[table];
-  // Unknown table — upstream will reject via the allowlist already checked
-  // in the proxy. Don't double-fail here.
-  if (!tableSchema) return { ok: true, data: body };
+  if (!tableSchema) return { ok: false, error: "Invalid payload shape" };
 
   const methodSchema = tableSchema[method];
-  // Method not in schema map (e.g., DELETE which has no body). Pass through.
-  if (!methodSchema) return { ok: true, data: body };
+  if (!methodSchema) return { ok: false, error: "Invalid payload shape" };
 
   const parsed = methodSchema.safeParse(body);
   if (!parsed.success) {

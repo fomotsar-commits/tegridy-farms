@@ -74,7 +74,7 @@ const tradeButtonStyle = {
   transition: "opacity 0.2s, transform 0.15s",
 };
 
-function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSelect, onClear, placeholder }) {
+function NftSlot({ nft, searchValue, onSearchChange, searchResults, onSelect, onClear, placeholder }) {
   if (nft) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
@@ -160,7 +160,7 @@ function NftSlot({ nft, label, searchValue, onSearchChange, searchResults, onSel
   );
 }
 
-export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast, setTab }) {
+export default function NftCompare({ tokens, wallet, onConnect, addToast, setTab }) {
   const collection = useActiveCollection();
   const { isWrongNetwork } = useWalletState();
   const { switchChain } = useWalletActions();
@@ -401,7 +401,9 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
             searchResults={theirResults}
             onSelect={(n) => { setTheirNft(n); setTheirSearch(""); }}
             onClear={() => setTheirNft(null)}
-            placeholder={`Search any ${collection.name}...`}
+            placeholder={tokens.length
+              ? `Search ${tokens.length.toLocaleString()} loaded ${collection.name}...`
+              : `Loading ${collection.name}...`}
           />
 
           {/* ETH request */}
@@ -443,7 +445,7 @@ export default function NftCompare({ tokens, onPick, wallet, onConnect, addToast
             INCOMING &amp; SENT TRADES
           </div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-dim)", maxWidth: 460, lineHeight: 1.5 }}>
-            Review, accept, counter, or cancel your trade offers in the Trades tab \u2014 the same on-chain order book your sent offers post to.
+            Review, accept, counter, or cancel offers in the Trades tab &mdash; the same book your sent offers post to. Offers are wallet-signed Seaport orders, held off-chain until someone fills them; the swap itself settles atomically on-chain.
           </div>
         </div>
         <button

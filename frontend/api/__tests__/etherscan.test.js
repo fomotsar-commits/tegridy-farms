@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
+  checkGlobalLimit: vi.fn(async () => true),
 }));
 
 function makeReq({ query = {}, headers = {} } = {}) {

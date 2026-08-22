@@ -59,8 +59,22 @@ interface ContractEntry {
   // 'redeploy' marks live addresses whose source has been patched and is
   // queued for a redeploy; 'multisig' marks live addresses whose
   // ownership transfer hasn't been accepted yet.
-  status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig';
-  note?: string; // shown under the label when status is redeploy/multisig
+  // 'unwired' is the state this page was missing: DEPLOYED ON MAINNET, but its
+  // constants.ts address is still 0x0 so the app cannot reach it. Without it, a
+  // zero address collapsed to "awaiting deployment", and /community linked the
+  // very same contracts to Etherscan as live — two opposite answers on one site.
+  status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig' | 'unwired';
+  note?: string; // shown under the label when status is redeploy/multisig/unwired
+  /**
+   * The real mainnet address, for `unwired` entries only.
+   *
+   * Deliberately a SEPARATE field from `address`: `address` stays pointed at the
+   * constants.ts value, because that is what the app actually uses and what every
+   * gate reads. Overwriting it here would make the row render as fully live and
+   * tell the opposite lie — that you can use the feature today. This field says
+   * "the contract exists, go and check it", nothing more.
+   */
+  onChainAddress?: string;
 }
 
 interface ContractGroup {
@@ -115,7 +129,11 @@ const GROUPS: ContractGroup[] = [
   },
   {
     title: 'Revenue',
-    description: 'Protocol swap fees route to stakers, POL, and treasury per the on-chain split (currently 100% to stakers).',
+    // "currently 100% to stakers" was the same overclaim corrected across the app on
+    // 2026-08-12 and missed here. stakerShareBps IS 10000 — but that is 100% of what
+    // REACHES the distributor, and ReferralSplitter carves 2000 bps off the top first
+    // and cannot be set to zero, so the end-to-end ceiling is ~80%.
+    description: 'Protocol swap fees route to stakers, POL, and treasury per the on-chain split. After the 20% referral carve, every remaining basis point is earmarked for stakers — none has been distributed yet.',
     entries: [
       { label: 'Revenue Distributor', address: REVENUE_DISTRIBUTOR_ADDRESS, source: 'contracts/src/RevenueDistributor.sol' },
       { label: 'Swap Fee Router', address: SWAP_FEE_ROUTER_ADDRESS, source: 'contracts/src/SwapFeeRouter.sol' },
@@ -126,10 +144,31 @@ const GROUPS: ContractGroup[] = [
     title: 'Governance',
     description: 'Gauge voting, incentives, and community programs.',
     entries: [
-      { label: 'Gauge Controller', address: GAUGE_CONTROLLER_ADDRESS, source: 'contracts/src/GaugeController.sol' },
-      { label: 'Vote Incentives', address: VOTE_INCENTIVES_ADDRESS, source: 'contracts/src/VoteIncentives.sol' },
-      { label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'contracts/src/CommunityGrants.sol' },
-      { label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'contracts/src/MemeBountyBoard.sol' },
+      // All four are DEPLOYED AND UNPAUSED on mainnet (2026-07-16 batch, verified
+      // on-chain 2026-08-12 by eth_getCode + paused()). Their constants.ts entries
+      // are still 0x0, which gates the UI — it is not a statement that they do not
+      // exist. Full checksummed addresses live here and in CommunityPage's
+      // DEPLOYED_NOT_WIRED; keep the two in step.
+      {
+        label: 'Gauge Controller', address: GAUGE_CONTROLLER_ADDRESS, source: 'contracts/src/GaugeController.sol',
+        status: 'unwired', onChainAddress: '0x6c79522d47cf6d1051cb474e81d9b6f3996c1054',
+        note: 'Deployed and unpaused on mainnet; not yet wired into this app.',
+      },
+      {
+        label: 'Vote Incentives', address: VOTE_INCENTIVES_ADDRESS, source: 'contracts/src/VoteIncentives.sol',
+        status: 'unwired', onChainAddress: '0x6e1dcb7ebd16e09edb574f414adc664b2a5e21af',
+        note: 'Deployed and unpaused on mainnet; not yet wired into this app. Its gauge controller is unset, so bribes are not accepted yet.',
+      },
+      {
+        label: 'Community Grants', address: COMMUNITY_GRANTS_ADDRESS, source: 'contracts/src/CommunityGrants.sol',
+        status: 'unwired', onChainAddress: '0xebc3aaf48297b8ccfa8272d9e68c1545eb9cd471',
+        note: 'Deployed and unpaused on mainnet; not yet wired into this app.',
+      },
+      {
+        label: 'Meme Bounty Board', address: MEME_BOUNTY_BOARD_ADDRESS, source: 'contracts/src/MemeBountyBoard.sol',
+        status: 'unwired', onChainAddress: '0x6d2c6ec29d97fe8b6d1471091deee36baf69d890',
+        note: 'Deployed and unpaused on mainnet; not yet wired into this app.',
+      },
       { label: 'Referral Splitter', address: REFERRAL_SPLITTER_ADDRESS, source: 'contracts/src/ReferralSplitter.sol' },
       { label: 'Premium Access (Gold Card)', address: PREMIUM_ACCESS_ADDRESS, source: 'contracts/src/PremiumAccess.sol' },
     ],
@@ -181,7 +220,11 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
   // note. (The relaunch zeroed all Wave-0 addresses in constants.ts.)
   const undeployed = !isExternal && !isDeployed(entry.address);
-  const isPending = entry.status === 'pending' || undeployed;
+  // `unwired` outranks the zero-address inference. The address IS 0x0 here, but
+  // "no address in constants.ts" and "no contract on mainnet" are different facts,
+  // and only the second one justifies the pending treatment.
+  const isUnwired = entry.status === 'unwired' && !!entry.onChainAddress;
+  const isPending = !isUnwired && (entry.status === 'pending' || undeployed);
   const isDeprecated = entry.status === 'deprecated';
   const isRedeploy = entry.status === 'redeploy' && !undeployed;
   const isMultisig = entry.status === 'multisig' && !undeployed;
@@ -238,9 +281,9 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             {entry.source} <span className="text-white/15">↗</span>
           </a>
         )}
-        {entry.note && (isRedeploy || isMultisig) && (
+        {entry.note && (isRedeploy || isMultisig || isUnwired) && (
           <div
-            className={`text-[11px] mt-1 leading-relaxed ${isRedeploy ? 'text-orange-200/75' : 'text-sky-200/75'}`}
+            className={`text-[11px] mt-1 leading-relaxed ${isRedeploy ? 'text-orange-200/75' : isUnwired ? 'text-emerald-200/75' : 'text-sky-200/75'}`}
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
           >
             {entry.note}
@@ -250,7 +293,16 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
       {/* Mobile: explicit "Address:" label + ≥44px tap target on the copy control. */}
       <div className="flex items-center justify-between md:justify-end gap-3 md:contents">
         <span className="md:hidden text-white/50 text-[11px] uppercase tracking-wider">Address:</span>
-        {isPending ? (
+        {isUnwired ? (
+          // Show the REAL mainnet address, copyable, so the claim in the note is
+          // checkable rather than asserted. Previously this row rendered 0x0000…0000
+          // under "awaiting deployment" for a contract that has been live since July.
+          <CopyButton
+            text={entry.onChainAddress!}
+            display={shortenAddress(entry.onChainAddress!, 6)}
+            className="font-mono text-[12px] text-white/80 min-h-[44px] min-w-[44px] inline-flex items-center justify-end md:min-h-0 md:min-w-0 px-2 md:px-0"
+          />
+        ) : isPending ? (
           <span
             className="font-mono text-[12px] text-white/40 inline-flex items-center justify-end px-2 md:px-0"
             title="Address not yet assigned — contract awaiting deployment"

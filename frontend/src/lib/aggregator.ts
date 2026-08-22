@@ -2,6 +2,8 @@
 // Pattern: DefiLlama-style "aggregator of aggregators"
 // All APIs are free with no API key required.
 
+import { providerFeeAttachment } from './fees/swapFee';
+
 // AUDIT R045 H1: aggregator was hard-coded to chainId 1 (Ethereum mainnet). On
 // any other chain the wallet would still display "best route" results from
 // mainnet token addresses, biasing UI to fictional liquidity. Renamed the
@@ -61,6 +63,15 @@ export interface AggregatorQuote {
    *            `amountOut` is unaffected, so ranking stays apples-to-apples.
    */
   maxSlippagePct: number | null;
+  /**
+   * F3: the venue fee, in bps, that was ACTUALLY attached to this provider's request.
+   *
+   * 0 both when the fee is disabled and when this provider's leg is withheld (see
+   * PROVIDER_FEE_LEGS), which are different reasons for the same true statement: this
+   * quote carries no venue fee. A surface must display THIS number rather than the
+   * policy's, or it will advertise a fee the provider never saw.
+   */
+  venueFeeBps: number;
 }
 
 interface QuoteCallOpts {
@@ -85,6 +96,10 @@ async function getSwapApiQuote(
       tokenIn: sellToken, tokenOut: buyToken,
       amount, sender, maxSlippage: String(opts.slippagePct / 100),
     });
+    // F3: no fee leg. `swapFeeBps` names a rate but nothing in this repo names the
+    // recipient parameter it must travel with — see PROVIDER_FEE_LEGS.swapapi.
+    const fee = providerFeeAttachment('swapapi');
+    if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     // AUDIT FIX FE-HIGH-3: SwapAPI was the only aggregator in this file fetched
     // directly cross-origin. That leaked the user wallet (`sender`) + IP +
     // referer to a third party every quote. Route through the same-origin
@@ -104,6 +119,7 @@ async function getSwapApiQuote(
       estimatedGas: data.tx?.gas,
       chainId: opts.chainId,
       maxSlippagePct: opts.slippagePct,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -117,6 +133,9 @@ async function getOdosQuote(
   try {
     const inAddr = normalizeTokenAddress(tokenIn, 'zero');
     const outAddr = normalizeTokenAddress(tokenOut, 'zero');
+    // F3: no fee leg. Odos rates a referral code registered on its own side, so the
+    // rate is not ours to send — see PROVIDER_FEE_LEGS.odos.
+    const fee = providerFeeAttachment('odos');
     const body = {
       chainId: opts.chainId,
       inputTokens: [{ tokenAddress: inAddr, amount }],
@@ -126,6 +145,7 @@ async function getOdosQuote(
       slippageLimitPercent: opts.slippagePct,
       disableRFQs: true,
       compact: true,
+      ...(fee?.params ?? {}),
     };
     const res = await fetch('/api/odos/sor/quote/v2', {
       method: 'POST',
@@ -145,6 +165,7 @@ async function getOdosQuote(
       estimatedGas: data.gasEstimate ? String(data.gasEstimate) : undefined,
       chainId: opts.chainId,
       maxSlippagePct: opts.slippagePct,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -159,6 +180,9 @@ async function getCowSwapQuote(
     // CowSwap uses WETH address, not native ETH
     const sellToken = normalizeTokenAddress(tokenIn, 'weth');
     const buyToken = normalizeTokenAddress(tokenOut, 'weth');
+    // F3: no fee leg. CoW's partner fee rides the appData document, whose JSON and
+    // pinned hash live in cowProtocol.ts — see PROVIDER_FEE_LEGS.cowswap.
+    const fee = providerFeeAttachment('cowswap');
     const body = {
       sellToken, buyToken,
       from: sender,
@@ -168,6 +192,7 @@ async function getCowSwapQuote(
       signingScheme: 'eip712',
       onchainOrder: false,
       priceQuality: 'fast',
+      ...(fee?.params ?? {}),
     };
     const res = await fetch('/api/cow/mainnet/api/v1/quote', {
       method: 'POST',
@@ -185,6 +210,7 @@ async function getCowSwapQuote(
       priceImpact: 0, // CowSwap doesn't report price impact in quotes
       chainId: opts.chainId,
       maxSlippagePct: null,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -208,6 +234,10 @@ async function getLiFiQuote(
       // are ranked apples-to-apples vs the other aggregators.
       slippage: String(opts.slippagePct / 100),
     });
+    // F3: no fee leg. `fee` is documented by name but not by unit, and the recipient
+    // is bound to a registered `integrator` — see PROVIDER_FEE_LEGS.lifi.
+    const fee = providerFeeAttachment('lifi');
+    if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/lifi/v1/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
@@ -220,6 +250,7 @@ async function getLiFiQuote(
       estimatedGas: data?.estimate?.gasCosts?.[0]?.estimate,
       chainId: opts.chainId,
       maxSlippagePct: opts.slippagePct,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -236,6 +267,10 @@ async function getKyberSwapQuote(
     const params = new URLSearchParams({
       tokenIn: inAddr, tokenOut: outAddr, amountIn: amount,
     });
+    // F3: no fee leg. `feeAmount` is an absolute token amount unless a flag this repo
+    // cannot name marks it as bps — see PROVIDER_FEE_LEGS.kyberswap.
+    const fee = providerFeeAttachment('kyberswap');
+    if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/kyber/ethereum/api/v1/routes?${params}`, {
       headers: { 'X-Client-Id': 'tegridy-farms' },
       signal: opts.signal,
@@ -251,6 +286,7 @@ async function getKyberSwapQuote(
       estimatedGas: data?.data?.routeSummary?.gas ? String(data.data.routeSummary.gas) : undefined,
       chainId: opts.chainId,
       maxSlippagePct: null,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -276,6 +312,10 @@ async function getOpenOceanQuote(
       inTokenAddress: inAddr, outTokenAddress: outAddr,
       amount: humanAmount, gasPrice: '5',
     });
+    // F3: no fee leg. `referrerFee`'s unit is unconfirmed and a bps count read as a
+    // percent is a 100× overcharge — see PROVIDER_FEE_LEGS.openocean.
+    const fee = providerFeeAttachment('openocean');
+    if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/openocean/v4/eth/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
@@ -288,6 +328,7 @@ async function getOpenOceanQuote(
       estimatedGas: data?.data?.estimatedGas ? String(data.data.estimatedGas) : undefined,
       chainId: opts.chainId,
       maxSlippagePct: null,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -305,6 +346,11 @@ async function getParaSwapQuote(
       srcToken, destToken, amount,
       side: 'SELL', network: String(opts.chainId),
     });
+    // F3: the one confirmed leg — `partnerFeeBps` carries its unit in its name and
+    // `partnerAddress` names the recipient in the request. Inert until an operator
+    // sets both dials AND api/aggregator.js admits these two names.
+    const fee = providerFeeAttachment('paraswap');
+    if (fee) for (const [k, v] of Object.entries(fee.params)) params.set(k, v);
     const res = await fetch(`/api/paraswap/prices?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
@@ -317,6 +363,7 @@ async function getParaSwapQuote(
       estimatedGas: data?.priceRoute?.gasCost ? String(data.priceRoute.gasCost) : undefined,
       chainId: opts.chainId,
       maxSlippagePct: null,
+      venueFeeBps: fee?.bps ?? 0,
     };
   } catch { return null; }
 }
@@ -376,7 +423,12 @@ export async function getMetaAggregatorQuotes(
     }
   }
 
-  // Sort by amountOut descending (best first)
+  // Sort by amountOut descending (best first).
+  //
+  // F3 constraint: this ranks raw `amountOut`, so a fee-carrying quote may only enter
+  // the list if its provider already reports the amount NET of that fee. A leg whose
+  // provider quotes gross would let a worse route outrank a better one by the size of
+  // our own fee — see PROVIDER_FEE_LEGS before marking any leg ready.
   quotes.sort((a, b) => {
     const aOut = BigInt(a.amountOut);
     const bOut = BigInt(b.amountOut);
@@ -404,13 +456,16 @@ export async function getAggregatorPrice(
   maxSlippagePct: number = DEFAULT_MAX_SLIPPAGE_PCT,
   fromDecimals: number = 18,
   signal?: AbortSignal,
-): Promise<{ amountOut: string; priceImpact: number; source: AggregatorSource; allQuotes: AggregatorQuote[] } | null> {
+): Promise<{ amountOut: string; priceImpact: number; source: AggregatorSource; venueFeeBps: number; allQuotes: AggregatorQuote[] } | null> {
   const result = await getMetaAggregatorQuotes(tokenIn, tokenOut, amount, sender, chainId, maxSlippagePct, fromDecimals, signal);
   if (!result.best) return null;
   return {
     amountOut: result.best.amountOut,
     priceImpact: result.best.priceImpact,
     source: result.best.source,
+    // Carried alongside the winning quote so the disclosure the user reads and the
+    // parameters the request carried come from one object, not two computations.
+    venueFeeBps: result.best.venueFeeBps,
     allQuotes: result.allQuotes,
   };
 }

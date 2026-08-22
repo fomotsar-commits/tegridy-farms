@@ -56,7 +56,12 @@ export function ProtocolStats() {
     // F-2026-07-24: "82+ findings resolved" is unverifiable by a visitor and the
     // Security page deliberately declines to publish a finding count. Claim only
     // what one click can check.
-    { l: 'Security', v: 'Verified', sub: 'source-verified on Etherscan · responsible disclosure', icon: '🛡️' },
+    // This card asserts a verdict without doing the read that produces it — the
+    // live per-address check lives on /contracts (useSourceVerification, three
+    // states, never optimistic). Repeating that check here would fire ~20
+    // sequential Etherscan requests on the landing page, so the card names where
+    // the verdict is actually computed rather than pretending it computed one.
+    { l: 'Security', v: 'Verified', sub: 'per-contract Etherscan check at /contracts · responsible disclosure', icon: '🛡️' },
   ];
 
   const items = [...live, ...evergreen].slice(0, 6);

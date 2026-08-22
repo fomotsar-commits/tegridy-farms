@@ -1,0 +1,307 @@
+name: Revenue Watch
+
+# WHY THIS FILE WAS WRITTEN
+# The protocol had earned nothing, ever. Every fee rail read zero:
+# SwapFeeRouter.totalETHFees(), RevenueDistributor.totalDistributed(), the
+# launcher integrator EOA, and both Solana fee accounts. Verified repeatedly,
+# most recently 2026-08-04.
+#
+# So the single most important event in this protocol's life is the FIRST
+# TRANSITION FROM ZERO — and nothing would have noticed it. It would be found
+# whenever someone next happened to run a `cast call`, which in practice has
+# meant weeks.
+#
+# WHAT CHANGED, 2026-08-12 (mainnet, block 25739699)
+# That transition has happened, and it exposed a second blind spot:
+#
+#   SwapFeeRouter.totalETHFees()             3000000000000 wei  <- non-zero. It earned.
+#   SwapFeeRouter.accumulatedETHFees()       0                  <- none of it came back
+#   ReferralSplitter.callerCredit(router)    2400000000000 wei  <- exactly 80%, STRANDED
+#   RevenueDistributor.totalDistributed()    0                  <- stakers: nothing, ever
+#
+# EARNED IS NOT RECEIVED. `ReferralSplitter.recordFee` credits the non-referral
+# remainder — 80% at the live `referralFeeBps` of 2000 — to a mapping keyed by the
+# SwapFeeRouter, and the only thing that moves it back is somebody calling the
+# permissionless `SwapFeeRouter.recoverCallerCredit()`. Nothing in this repository ever
+# called it. This watcher could not see the money either, because it read each rail's
+# own counter and the credit is held on the OTHER side of the split. It reads the
+# credit now, via the same module the operator tool uses so the two cannot disagree:
+# `node scripts/pull-caller-credit.mjs`.
+#
+# This is deliberately NOT part of synthetic-monitor.yml, for two reasons:
+#   1. That workflow's contract is "prod is broken" -> `prod-incident` issue.
+#      First revenue is the opposite of an incident, and mixing them would put
+#      good news behind a red X and into an incident dedup bucket.
+#   2. A probe failure here (RPC hiccup) must never look like "still no
+#      revenue". This job reports UNKNOWN separately from ZERO.
+#
+# It does not fail the run when it finds revenue. A red check is the wrong
+# signal for the thing we are trying to cause; it opens an issue instead.
+
+on:
+  schedule:
+    # Hourly. The event is once-in-a-protocol-lifetime, not time-critical to the
+    # minute, and this keeps the RPC load trivial.
+    - cron: "17 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  contents: read
+
+concurrency:
+  group: revenue-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      # The stranded-credit leg is the one rail that is not a counter on the contract
+      # that earned it, so it needs an ABI-encoded address argument and a gas simulation
+      # rather than another bare selector. That lives in a repo module instead of inline
+      # bash for one reason: the operator tool that PULLS the credit and the watcher that
+      # REPORTS it must share a definition of "stranded". Two implementations would
+      # eventually alert on a pull that cannot happen, or stay quiet about one that can.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      - name: Read the stranded caller credit
+        id: credit
+        shell: bash
+        # Same probe contract as the step below: a read that fails is recorded as
+        # UNKNOWN and the step still exits 0, because a crash here would skip every
+        # downstream step and a real strand would go unreported. The script owns that
+        # guarantee (`--probe` never throws), so no `|| true` is needed — and none is
+        # wanted, since that would also swallow a genuinely broken script.
+        run: node scripts/pull-caller-credit.mjs --probe
+
+      - name: Read every fee rail
+        id: read
+        shell: bash
+        env:
+          # Not in the repo by choice — the Solana swap-fee wallet is the one
+          # fee address that has never been published, so it comes from a repo
+          # variable. Unset simply skips that leg, loudly.
+          SOLANA_FEE_ACCOUNT: ${{ vars.SOLANA_FEE_ACCOUNT }}
+        run: |
+          # GitHub runs `run:` under `bash -e -o pipefail`. This script is a PROBE:
+          # a non-zero from any single read is DATA (record it as UNKNOWN), not a
+          # reason to abort. Under -e the first empty `[ -n ... ] &&` guard returned
+          # 1 and killed the step BEFORE GITHUB_OUTPUT was written, so both
+          # downstream steps skipped — a real first-revenue event would have been
+          # silently missed. Caught by dispatching the workflow for real; `bash -n`
+          # checks syntax, not runtime semantics under errexit.
+          set +e
+          set -uo pipefail
+          ETH_RPC="${ETH_RPC:-https://ethereum-rpc.publicnode.com}"
+          SOL_RPC="${SOL_RPC:-https://api.mainnet-beta.solana.com}"
+
+          EARNED=""   # rails that are non-zero
+          UNKNOWN=""       # rails we TRIED to read and could not — never silently "zero"
+          # Distinct from UNKNOWN on purpose. "We have not configured this rail yet"
+          # is a decision; "we looked and could not see" is a fault. Conflating them
+          # made this workflow red on every run for an unset repo variable — and a
+          # permanently-red check is one this repo has already learned to ignore
+          # (see the chronically-red Slither workflow). Reported, never fatal.
+          UNCONFIGURED=""
+
+          # --- EVM: eth_call returning a uint256 ---------------------------------
+          eth_call() { # name to selector
+            local name="$1" to="$2" sel="$3" out hex
+            out="$(curl -sS --max-time 20 -X POST "$ETH_RPC" \
+              -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_call\",\"params\":[{\"to\":\"$to\",\"data\":\"$sel\"},\"latest\"]}" 2>/dev/null)" \
+              || { UNKNOWN="$UNKNOWN\n- $name: RPC request failed"; return; }
+            hex="$(jq -r '.result // empty' <<<"$out")"
+            if [ -z "$hex" ] || [ "$hex" = "0x" ]; then
+              UNKNOWN="$UNKNOWN\n- $name: no result ($(jq -c '.error // "empty"' <<<"$out"))"
+              return
+            fi
+            # Strip 0x, drop leading zeros; anything left means non-zero.
+            local stripped="${hex#0x}"
+            stripped="$(sed 's/^0*//' <<<"$stripped")"
+            if [ -n "$stripped" ]; then
+              EARNED="$EARNED\n- **$name**: \`$hex\`"
+            fi
+            return 0
+          }
+
+          eth_balance() { # name address
+            local name="$1" addr="$2" out hex stripped
+            out="$(curl -sS --max-time 20 -X POST "$ETH_RPC" \
+              -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBalance\",\"params\":[\"$addr\",\"latest\"]}" 2>/dev/null)" \
+              || { UNKNOWN="$UNKNOWN\n- $name: RPC request failed"; return; }
+            hex="$(jq -r '.result // empty' <<<"$out")"
+            [ -z "$hex" ] && { UNKNOWN="$UNKNOWN\n- $name: no result"; return; }
+            stripped="$(sed 's/^0*//' <<<"${hex#0x}")"
+            if [ -n "$stripped" ]; then EARNED="$EARNED\n- **$name**: \`$hex\` wei"; fi
+            return 0
+          }
+
+          # Selectors derived with `cast sig`, not recalled:
+          #   totalETHFees()      0x6b3128c2
+          #   totalDistributed()  0xefca2eed
+          eth_call "SwapFeeRouter.totalETHFees()"          0x6d5791A660e79175F74C6D639584C98422d5956E 0x6b3128c2
+          eth_call "RevenueDistributor.totalDistributed()" 0xF993316E2fC079de4358c489A935E01e03E23E17 0xefca2eed
+          eth_balance "RevenueDistributor ETH balance"     0xF993316E2fC079de4358c489A935E01e03E23E17
+          eth_balance "Launcher integrator EOA"            0xD355A072d6bBbA275DBD83A3149f6347b06d1051
+
+          # --- Solana ------------------------------------------------------------
+          # Token accounts hold the fees; SOL balance alone would miss them, so we
+          # read parsed SPL balances as well as lamports.
+          sol_tokens() { # name owner
+            local name="$1" owner="$2" out n
+            out="$(curl -sS --max-time 20 -X POST "$SOL_RPC" \
+              -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTokenAccountsByOwner\",\"params\":[\"$owner\",{\"programId\":\"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA\"},{\"encoding\":\"jsonParsed\"}]}" 2>/dev/null)" \
+              || { UNKNOWN="$UNKNOWN\n- $name: RPC request failed"; return; }
+            if ! jq -e '.result' >/dev/null 2>&1 <<<"$out"; then
+              UNKNOWN="$UNKNOWN\n- $name: $(jq -c '.error // "no result"' <<<"$out")"
+              return
+            fi
+            n="$(jq -r '[.result.value[]
+                 | select((.account.data.parsed.info.tokenAmount.amount // "0") != "0")
+                 | "\(.account.data.parsed.info.mint):\(.account.data.parsed.info.tokenAmount.uiAmountString)"]
+                 | join(", ")' <<<"$out")"
+            if [ -n "$n" ]; then EARNED="$EARNED\n- **$name** (SPL): $n"; fi
+            return 0
+          }
+
+          # Already public in solana/tegridy-amm/MAINNET_RUNBOOK.md.
+          sol_tokens "Squads partner vault" "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd"
+
+          if [ -n "${SOLANA_FEE_ACCOUNT:-}" ]; then
+            sol_tokens "Solana swap-fee wallet" "$SOLANA_FEE_ACCOUNT"
+          else
+            UNCONFIGURED="$UNCONFIGURED\n- Solana swap-fee wallet: set the SOLANA_FEE_ACCOUNT repo variable to watch this rail"
+          fi
+
+          {
+            printf 'earned<<EOF\n%b\nEOF\n' "$EARNED"
+            printf 'unknown<<EOF\n%b\nEOF\n' "$UNKNOWN"
+            printf 'unconfigured<<EOF\n%b\nEOF\n' "$UNCONFIGURED"
+          } >> "$GITHUB_OUTPUT"
+
+          # Surfaced on every run so it cannot be forgotten, but never fatal —
+          # an unwatched rail is a decision, not a fault.
+          if [ -n "$UNCONFIGURED" ]; then
+            printf '::warning::Rails not configured, and therefore NOT watched:%b\n' "$UNCONFIGURED"
+          fi
+
+          if [ -n "$EARNED" ]; then
+            printf 'state=earned\n' >> "$GITHUB_OUTPUT"
+            printf '::notice::REVENUE DETECTED — a fee rail is no longer zero.\n'
+          elif [ -n "$UNKNOWN" ]; then
+            printf 'state=partial\n' >> "$GITHUB_OUTPUT"
+            printf '::warning::Some rails could not be read; "no revenue" is NOT proven this run.\n'
+          else
+            printf 'state=zero\n' >> "$GITHUB_OUTPUT"
+            printf '::notice::All rails read zero.\n'
+          fi
+
+      - name: Raise the first-revenue issue
+        # Stranded credit is its own trigger, not a sub-case of `earned`. The two answer
+        # different questions — "did anything arrive" vs "can what arrived be reached" —
+        # and a rail could in principle read zero while credit sits on the splitter.
+        if: steps.read.outputs.state == 'earned' || steps.credit.outputs.stranded_state == 'stranded'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EARNED: ${{ steps.read.outputs.earned }}
+          UNKNOWN: ${{ steps.read.outputs.unknown }}
+          STRANDED: ${{ steps.credit.outputs.stranded }}
+          # Fact-derived, gas-price-free. See the FINGERPRINT line below for why the
+          # rendered body cannot be used for this.
+          STRANDED_FINGERPRINT: ${{ steps.credit.outputs.stranded_fingerprint }}
+        shell: bash
+        run: |
+          set -u
+          # Deduplicated: this fires hourly and the condition is permanent once
+          # true, so without this it would open an issue every hour forever.
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label first-revenue --state open --json number --jq '.[0].number // empty')"
+          # %s, not %b, for STRANDED. The neighbours use %b because bash built their
+          # value out of literal `\n` two-character sequences. This one arrives with real
+          # newlines already and carries RPC error text, so %b would interpret escapes
+          # chosen by a public endpoint — including `\c`, which makes printf DISCARD
+          # everything after it. That would let a hostile RPC truncate the alert.
+          BODY="$(printf 'A fee rail is no longer zero, as of %s UTC.\n\n%b\n\nReachability:\n%s\n\nUnreadable this run:%b\n\nThis is the first-revenue trigger from the six-month plan. Next: confirm it is a real external payment (not our own test), record the SOURCE, and check it against the September gate.\n' \
+            "$(date -u '+%Y-%m-%d %H:%M')" "$EARNED" "${STRANDED:-- callerCredit not probed this run}" "${UNKNOWN:-\n- none}")"
+          # Fingerprint of the DATA, so an unchanged picture stops re-posting. A
+          # permanently-true condition otherwise means an identical comment every hour
+          # forever, which is how a real change — a strand appearing, or growing — ends
+          # up buried in a thread nobody opens any more.
+          #
+          # ⚠ It hashes STRANDED_FINGERPRINT, a field the classifier derives from the
+          # FACTS (state, credit, pullable, sorted blockers, sorted unreadable guards,
+          # opensEpoch). It must NOT hash the rendered report: that body embeds the live
+          # gas price, which moves every block, so hashing it made every run unique and
+          # the dedupe could never fire once. The alert this was added to suppress
+          # posted hourly anyway.
+          #
+          # `${VAR:-}` throughout, not `"$VAR"`. The `env:` bindings always define these,
+          # so it is unreachable today. NOTE the failure mode is NOT "the step aborts and
+          # nothing is posted" — an earlier version of this comment claimed that and it
+          # is backwards. Every read here sits inside `$( … )`, so `set -u` kills only
+          # the substitution subshell; the parent continues and files an issue with an
+          # EMPTY body. A content-free alert is worse than a noisy one, because it
+          # trains the reader to ignore the label.
+          FINGERPRINT="${STRANDED_FINGERPRINT:-$(printf '%s\n%s' "${EARNED:-}" "${UNKNOWN:-}" | sha256sum | cut -c1-16)}"
+          # Appended via printf, not a literal multi-line assignment: the indentation of
+          # a continued string inside a YAML block scalar ends up IN the value, and ten
+          # leading spaces turns an HTML comment into a rendered markdown code block.
+          BODY="$(printf '%s\n\n<!-- revenue-watch-fingerprint:%s -->' "$BODY" "$FINGERPRINT")"
+          if [ -n "$EXISTING" ]; then
+            # Fails OPEN on purpose: if this read errors or returns nothing, SEEN stays
+            # empty and we post. A missed duplicate is noise; a suppressed alert is the
+            # failure this whole workflow exists to prevent.
+            SEEN="$(gh issue view "$EXISTING" --repo "$GITHUB_REPOSITORY" --json body,comments \
+              --jq '[.body] + [.comments[].body] | join("\n")' 2>/dev/null || printf '')"
+            case "$SEEN" in
+              *"revenue-watch-fingerprint:$FINGERPRINT"*)
+                printf '::notice::Unchanged since the last report (%s) — not re-posting.\n' "$FINGERPRINT"
+                exit 0
+                ;;
+            esac
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh label create first-revenue --repo "$GITHUB_REPOSITORY" --color 0E8A16 \
+              --description "A protocol fee rail became non-zero" 2>/dev/null || true
+            printf '%s\n' "$BODY" | gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "First revenue: a fee rail is non-zero" \
+              --label first-revenue --body-file -
+          fi
+
+      - name: Fail only when the watch itself is blind
+        # An unreadable callerCredit is the same class of failure as an unreadable rail:
+        # indistinguishable from "nothing stranded", and therefore worth the red check.
+        if: steps.read.outputs.state == 'partial' || steps.credit.outputs.stranded_state == 'unknown'
+        shell: bash
+        # BOUND AS AN ENV VAR, NEVER SPLICED. A `${{ }}` inside a `run:` block is
+        # substituted into the script TEXT before bash ever parses it, so any shell
+        # metacharacter in the value executes. This value is built from
+        # `jq -c '.error'` on a PUBLIC RPC's response body — attacker-influenceable
+        # by anyone controlling or MITM-ing that endpoint — and this job holds
+        # `issues: write` plus GITHUB_TOKEN. An `env:` binding is passed through the
+        # environment and is never parsed as script.
+        #
+        # Note the two steps below/above already did this correctly; this one step
+        # did not, which is exactly how it survived review.
+        env:
+          UNREADABLE: ${{ steps.read.outputs.unknown }}
+          CREDIT: ${{ steps.credit.outputs.stranded }}
+          CREDIT_STATE: ${{ steps.credit.outputs.stranded_state }}
+        run: |
+          # A rail we cannot READ is the one failure mode worth a red check: it is
+          # indistinguishable from zero, and a watch that cannot see is worse than
+          # no watch because it looks green.
+          printf 'Some rails were unreadable — this run does NOT prove revenue is still zero.\n'
+          # %s not %b: the value is untrusted text, not a format string.
+          printf '%s\n' "$UNREADABLE"
+          if [ "${CREDIT_STATE:-}" = "unknown" ]; then
+            printf '%s\n' "$CREDIT"
+          fi
+          exit 1

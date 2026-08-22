@@ -5,7 +5,9 @@ import { createItemOffer, createTraitOffer, createCollectionOffer, fetchMyOffers
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
 import { lockScroll, unlockScroll } from "../lib/scrollLock";
+import { getFriendlyError } from "../lib/errorMessages";
 import { sanitizeDecimalInput } from "../../lib/formatting";
+import { pageArt } from "../../lib/artConfig";
 
 const EXPIRATION_OPTIONS = [
   { label: "1 hour", hours: 1 },
@@ -113,7 +115,19 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
       }
     } catch (err) {
       setStep("input");
-      addToast?.("Offer failed. Please try again or check your wallet connection.", "error");
+      // The create* helpers convert their own failures into typed results, so a
+      // THROW here is something they did not anticipate. Swallowing it entirely
+      // left the user with retry advice and us with nothing in the console.
+      console.error("[MakeOfferModal] offer submission threw:", err);
+      addToast?.(getFriendlyError(err), "error");
+      return;
+    }
+
+    // Defensive: a helper that returns nothing would otherwise TypeError on
+    // `result.success` OUTSIDE the try above, blanking the modal with no toast.
+    if (!result) {
+      setStep("input");
+      addToast?.("Offer failed — the wallet returned no result. Reconnect and try again.", "error");
       return;
     }
 
@@ -139,9 +153,44 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
     } else if (result.error === "post-failed") {
       setStep("input");
       addToast?.("Offer was rejected. It may be below the minimum or the collection is not eligible.", "error");
+    } else if (result.error === "wallet-mismatch" || result.error === "no-wallet") {
+      setStep("input");
+      // "Please try again" is advice that CANNOT work here: retrying re-signs from
+      // the same wrong identity, or with no wallet at all. `assertSameWallet`
+      // (api.js) already produced a message naming both addresses — show it
+      // verbatim rather than collapsing it into the generic bucket.
+      //
+      // ⚠ An earlier version of this comment justified the direct call by claiming
+      // getFriendlyError "strips long hex and truncates over 120 chars". Measured:
+      // it returns this message BYTE-IDENTICAL. shortenAddress (api.js:1172) emits
+      // `0x1111...1111` — 4 hex digits after the prefix, while the strip regex needs
+      // {8,} — and the message is 104 chars. api.js:1126-1128 says outright that it
+      // is kept under 120 BECAUSE callers render it through getFriendlyError.
+      //
+      // The bypass is harmless; the false rationale was not. Six other sites render
+      // this same message THROUGH getFriendlyError (Listings, OfferPanel,
+      // OrderBookPanel, ShoppingCart, SweepCalculator, TransactionProgress), so an
+      // editor who believed the old comment and lengthened the message to full
+      // addresses would silently collapse all six to "Transaction failed".
+      addToast?.(
+        result.message || "No wallet connected. Reconnect your wallet and try again.",
+        "error",
+      );
+    } else if (result.error === "wrong-chain" || result.error === "no-network") {
+      setStep("input");
+      // Same class: retrying on the wrong chain fails identically every time. Name
+      // the reason and offer the one action that fixes it.
+      addToast?.(result.message || "Wrong network — please switch to Ethereum Mainnet", "error");
+      switchChain?.();
     } else {
       setStep("input");
-      addToast?.("Offer failed. Please try again.", "error");
+      // Everything still typed (wrap-failed, approve-failed, failed, …) carries a
+      // specific message from the helper. Prefer it; the generic retry line is the
+      // last resort for a result that named no reason at all.
+      addToast?.(
+        result.message ? getFriendlyError(result.message) : "Offer failed. Please try again.",
+        "error",
+      );
     }
   }, [wallet, onConnect, price, expiration, nft, trait, isTraitOffer, isCollectionOffer, collectionSlug, collectionContract, collectionName, addToast, onSuccess, isWrongNetwork, switchChain]);
 
@@ -196,13 +245,23 @@ export default function MakeOfferModal({ nft, trait, collection, onClose, wallet
         className="offer-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--card)", border: "1px solid var(--border)",
+          // Art-backed panel. `--card` stays the final layer so a 404 on the art
+          // degrades to the old flat panel rather than transparent. Scrim is the
+          // heaviest of the three popups (0.86->0.9): this form shows BALANCES and
+          // an irreversible-offer warning, so legibility outranks how much of the
+          // piece reads through. `backgroundAttachment: local` keeps the art pinned
+          // to the panel while the form scrolls inside `overflowY: auto` — without
+          // it the image slides against the content on short viewports.
+          background: `linear-gradient(180deg, rgba(10,16,32,0.86) 0%, rgba(10,16,32,0.90) 100%), url(${pageArt("make-offer", 0).src}) center / cover no-repeat, var(--card)`,
+          backgroundAttachment: "local",
+          border: "1px solid var(--border)",
           borderRadius: 14, maxWidth: 420, width: "90%", margin: "auto",
           padding: "28px 24px", position: "relative",
           // Match TradeWindow / BulkListingWizard so a tall offer form (balances,
           // warnings, expiry buttons) scrolls instead of clipping the close button
           // off the top of short viewports.
           maxHeight: "90vh", overflowY: "auto",
+          textShadow: "0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)",
         }}
       >
         <button

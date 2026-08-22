@@ -18,15 +18,17 @@ import { formatBalance, formatPercent, shortenAddress } from '../lib/formatting'
 import { Link } from 'react-router-dom';
 import { validateAddress } from '../lib/tokenList';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { HeatCard } from '../components/HeatCard';
 
 // WalletExposurePage — connect a wallet, see every ERC-20 position, and read each
 // one's concentration / bundle / rug exposure from the shared detection core.
 //
 // HONEST-FRAMING: this is a descriptive measurement with a disclosed method and a
 // timestamp, never a fraud verdict. Position sizes are exact on-chain reads.
-// Distribution scoring self-gates to "pending" for tokens whose holder
-// distribution we can't fetch yet — never a fabricated band. See
-// lib/detection/walletExposure.ts for the scanner seam that lights these up.
+// Distribution scoring self-gates to "not measured" for tokens whose holder
+// distribution could not be read — never a fabricated band, and never retried
+// behind the user's back. See lib/detection/walletExposure.ts for the scanner
+// seam, which this page fills with the live `scanTokenLive` adapter below.
 
 const CARD_BG = 'rgba(6, 12, 26, 0.82)';
 const CARD_BORDER = '1px solid rgba(245, 228, 184, 0.12)';
@@ -196,7 +198,7 @@ export default function WalletExposurePage() {
   // scoring never rendered — even though /scan already had the wired holder
   // source. Each held token now runs through the same scanTokenLive path the
   // Scanner page uses; a failed scan falls back to null (still `unmeasured`).
-  const { isWrongNetwork, isLoading, error, holdings, exposures, scanning } = useWalletExposure({
+  const { isWrongNetwork, isLoading, error, holdings, unreadableBalances, exposures, scanning } = useWalletExposure({
     extraTokens,
     scanToken: (t, signal) =>
       scanTokenLive(t.address, { signal, chainOverride: t.chain })
@@ -255,6 +257,14 @@ export default function WalletExposurePage() {
             </div>
           )}
 
+          {/* THE RULER, on a connected-wallet surface. This page already reads what you
+              hold; Heat reads how LONG you have held it, which is the one dimension
+              concentration metrics cannot see. Same card, same tier words, same
+              reckoning date as everywhere else. */}
+          <div className="mb-6">
+            <HeatCard />
+          </div>
+
           {/* Add-a-token */}
           <div className="rounded-2xl p-4 mb-6" style={{ background: CARD_BG, border: CARD_BORDER }}>
             <label htmlFor="paste-token" className="block text-white/70 text-[12px] mb-2">
@@ -295,7 +305,16 @@ export default function WalletExposurePage() {
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mb-5 text-[12px] text-white/60">
               <span>{holdings.length} position{holdings.length === 1 ? '' : 's'}</span>
               <span>{summary.measured} measured</span>
-              {summary.unmeasured > 0 && <span>{summary.unmeasured} pending holder data</span>}
+              {summary.unmeasured > 0 && <span>{summary.unmeasured} not measured</span>}
+              {/* Distinct from "not measured": those are positions we DO show whose
+                  distribution could not be read. These are positions missing from the
+                  list entirely because their balance read failed — so the count below
+                  is what keeps their absence from being silent. */}
+              {unreadableBalances.length > 0 && (
+                <span className="text-amber-300/80">
+                  {unreadableBalances.length} balance{unreadableBalances.length === 1 ? '' : 's'} unreadable
+                </span>
+              )}
               {summary.worstBand && (
                 <span className="inline-flex items-center gap-1.5">
                   Worst read: <BandPill band={summary.worstBand} />
@@ -340,8 +359,17 @@ export default function WalletExposurePage() {
               is kept but lowers confidence, never assumed hostile.
             </p>
             <p>
-              Distribution scoring is shown only for tokens whose holder distribution is available. Where it isn’t,
-              the read is marked pending — the position size stays exact and nothing is inferred.
+              Distribution comes from the same read the scanner uses, which enumerates the largest holders — the
+              top ~100 on Ethereum, the top 20 on Solana. Where a token has more holders than that, the
+              un-enumerated tail can only dilute concentration, so a concentrated band is an upper bound rather
+              than an exact figure.
+            </p>
+            <p>
+              Distribution scoring is shown only for tokens whose holder distribution could be read. Where it
+              couldn’t, the read is marked not measured — the position size stays exact and nothing is inferred.
+              A token whose <em>balance</em> read fails has no size to show, so it is left out of the list and
+              counted as unreadable above rather than dropped silently: an omitted position would understate the
+              concentration on this page.
             </p>
           </footer>
         </>

@@ -43,8 +43,98 @@ const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
 // to before: canned reads, no network.
 const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 
+/** Live TOWELI. Mirrors src/lib/constants.ts; the specs gate CTAs on this balance. */
+const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
+
+type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
+
+/**
+ * Assert a transaction receipt link appeared — one that could not have been on the page
+ * before the action.
+ *
+ * ⚠ EVERY money-path spec used to do this instead:
+ *     page.locator('a[href*="etherscan"], a[href*="explorer"]').first()
+ * and that is a FALSE GREEN. Measured on /swap with no wallet and no transaction: one
+ * such link is already present and visible — the static TOWELI token link
+ * (`etherscan.io/token/0x420698…`, "Etherscan ↗"). Several surfaces carry similar
+ * standing links.
+ *
+ * The consequence was worse than a weak assertion. In liquidity.spec.ts it let the spec
+ * sail past a supply that never landed and fail four lines later on a missing remove
+ * button — pointing the reader at the wrong step entirely. A receipt link points at
+ * `/tx/0x<64 hex>`, and nothing static does.
+ *
+ * Lives here, not copy-pasted per spec, because the original was fixed in swap.spec.ts
+ * alone and survived in five other places.
+ */
+export async function expectTxReceipt(page: Page, what: string): Promise<void> {
+  const link = page.locator('a[href*="/tx/0x"]');
+  await expect(
+    link.first(),
+    `${what}: no explorer link to a transaction hash appeared. A receipt link points at ` +
+      `/tx/0x…; the static token link on these pages is NOT a receipt and must not satisfy this.`,
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(link.first()).toHaveAttribute('href', /\/tx\/0x[0-9a-fA-F]{64}/);
+}
+
+/**
+ * Give `holder` an ERC-20 balance on the fork by writing the balance slot directly.
+ *
+ * THE SLOT IS DISCOVERED, NOT HARDCODED, and that is the whole point. `balanceOf` is
+ * `_balances[holder]` at `keccak256(abi.encode(holder, N))` for some mapping slot N —
+ * and N depends on the contract's storage layout. The live TOWELI is NOT this repo's
+ * Toweli.sol: it is a generator template ("Towelie", ERC20 + ERC20Burnable +
+ * Ownable2Step + Initializable), so N is not the 0 you would get from a textbook
+ * OpenZeppelin ERC20, and nothing in this repo pins its layout.
+ *
+ * A hardcoded slot would not throw. It would write to an unrelated slot, leave
+ * balanceOf at 0, and hand the spec back the exact "CTA never enabled" timeout this
+ * function exists to remove — a fixture that looks like it ran and did nothing. So we
+ * probe: write a sentinel, read balanceOf back through the contract's OWN getter, and
+ * keep the slot only if the getter agrees. Self-verifying by construction.
+ *
+ * Every probe is undone before moving on, so a wrong guess leaves no residue.
+ */
+async function seedErc20Balance(rpc: Rpc, token: string, holder: string, amount: bigint): Promise<void> {
+  const { keccak256, encodeAbiParameters, parseAbiParameters, toHex, pad } = await import('viem');
+  const balanceOfCall = `0x70a08231${pad(holder as `0x${string}`, { size: 32 }).slice(2)}`;
+
+  const readBalance = async (): Promise<bigint> => {
+    const hex = (await rpc('eth_call', [{ to: token, data: balanceOfCall }, 'latest'])) as string;
+    return hex && hex !== '0x' ? BigInt(hex) : 0n;
+  };
+
+  const before = await readBalance();
+  if (before >= amount) return; // already rich enough — nothing to do
+
+  const sentinel = pad(toHex(amount), { size: 32 });
+  for (let slot = 0; slot < 64; slot++) {
+    const key = keccak256(
+      encodeAbiParameters(parseAbiParameters('address, uint256'), [holder as `0x${string}`, BigInt(slot)]),
+    );
+    const prior = (await rpc('eth_getStorageAt', [token, key, 'latest'])) as string;
+    await rpc('anvil_setStorageAt', [token, key, sentinel]);
+    if ((await readBalance()) === amount) return; // the getter agrees — this is the slot
+    await rpc('anvil_setStorageAt', [token, key, prior]); // wrong guess, leave no trace
+  }
+
+  // FAIL LOUD. Silently continuing hands the spec a timeout whose message blames the
+  // product ("CTA never enabled") for a fixture that could not find the slot.
+  throw new Error(
+    `seedErc20Balance: could not locate the balance slot for ${token} in slots 0-63. ` +
+      `The token's storage layout changed, or it proxies balanceOf. Do NOT hardcode a slot ` +
+      `to work around this — find out why the probe failed.`,
+  );
+}
+
 export interface WalletMock {
-  /** Mark the mock as connected; eth_accounts now returns [account]. */
+  /**
+   * Mark the mock as connected; eth_accounts now returns [account].
+   *
+   * Safe to call BEFORE the first `page.goto`, and that is the form you want
+   * for anything that asserts a CONNECTED surface — see the note on
+   * `__walletMockConnected` in installWalletMock.
+   */
   connect: (account?: string) => Promise<void>;
   /** Mark the mock as disconnected. */
   disconnect: () => Promise<void>;
@@ -58,10 +148,16 @@ export interface WalletMock {
 
 type Fixtures = { walletMock: WalletMock };
 
+// ⚠ ORDER-DEPENDENCE IS A KNOWN, OPEN ISSUE HERE — and an `evm_snapshot`/`evm_revert`
+// auto-fixture is NOT the drop-in fix it looks like. Tried 2026-08-12 and reverted: the
+// rollback also rewinds `anvil_setBalance` and the seeded ERC-20 balance, and it races
+// the per-test bridge install, which turned two passing render tests red. If you pick
+// this up, snapshot AFTER the bridge has finished seeding, not before, and prove the
+// basic render tests still pass before trusting the money paths.
+//
+// The symptom to watch for: a spec that passes alone and fails in a batch. stake.spec
+// does exactly that today — it spends, leaving a position and an allowance behind.
 export const test = base.extend<Fixtures>({
-  // Playwright fixture callback takes a "use" function as its second arg. We
-  // rename it (anything not starting with `use*` or uppercase) so the React
-  // hooks lint rule doesn't mistake the call for a React hook.
   walletMock: async ({ page }, provide) => {
     // Suppress full-viewport overlays that block clicks in test runs:
     //   - AppLoader splash canvas (zIndex 9999)
@@ -77,15 +173,39 @@ export const test = base.extend<Fixtures>({
     await installWalletMock(page);
     const mock: WalletMock = {
       connect: async (account = DEFAULT_ACCOUNT) => {
-        await page.evaluate(
-          ([addr]) => (window as unknown as { __walletMock: { connect: (a: string) => void } }).__walletMock.connect(addr!),
+        // TWO writes, and both are load-bearing.
+        //
+        // 1. An init script, so the account survives navigation AND is already
+        //    there when wagmi's reconnect() runs on mount. That is the only
+        //    window in which the app can end up genuinely connected: reconnect
+        //    calls injected.isAuthorized(), which is just `eth_accounts` being
+        //    non-empty. Before this existed, every "connected" spec ran against
+        //    a wallet the app had never authorized — the surfaces they asserted
+        //    on were the DISCONNECTED ones, and the assertions were vacuous.
+        // 2. A live evaluate for the already-loaded case, best-effort because
+        //    connect() is legitimately called before the first navigation.
+        await page.addInitScript(
+          ([addr]) => {
+            (window as unknown as { __walletMockConnected?: string }).__walletMockConnected = addr;
+          },
           [account]
         );
+        await page
+          .evaluate(
+            ([addr]) => (window as unknown as { __walletMock?: { connect: (a: string) => void } }).__walletMock?.connect(addr!),
+            [account]
+          )
+          .catch(() => { /* no document yet — the init script covers the next load */ });
       },
       disconnect: async () => {
-        await page.evaluate(() =>
-          (window as unknown as { __walletMock: { disconnect: () => void } }).__walletMock.disconnect()
-        );
+        await page.addInitScript(() => {
+          (window as unknown as { __walletMockConnected?: string }).__walletMockConnected = undefined;
+        });
+        await page
+          .evaluate(() =>
+            (window as unknown as { __walletMock?: { disconnect: () => void } }).__walletMock?.disconnect()
+          )
+          .catch(() => { /* nothing loaded */ });
       },
       switchChain: async (chainId) => {
         await page.evaluate(
@@ -133,6 +253,18 @@ async function installWalletMock(page: Page): Promise<void> {
         listeners[event]?.forEach((cb) => cb(...args));
       }
 
+      // Read LAZILY, never at install time. `connect()` seeds
+      // `__walletMockConnected` with its own addInitScript, which necessarily
+      // runs AFTER this one on every document; by the time the app asks for
+      // accounts both have run, so the ordering resolves itself. Reading it
+      // eagerly here would always see undefined.
+      function accountsNow(): string[] {
+        if (connectedAccounts.length) return connectedAccounts;
+        const seeded = (window as unknown as { __walletMockConnected?: string }).__walletMockConnected;
+        if (seeded) connectedAccounts = [seeded];
+        return connectedAccounts;
+      }
+
       const provider = {
         isMetaMask: false,
         isTegridyTestMock: true,
@@ -142,12 +274,17 @@ async function installWalletMock(page: Page): Promise<void> {
             case 'eth_chainId':
               return `0x${currentChainId.toString(16)}`;
             case 'eth_accounts':
-              return connectedAccounts;
+              return accountsNow();
             case 'eth_requestAccounts': {
               connectedAccounts = [account as string];
               emit('accountsChanged', connectedAccounts);
               return connectedAccounts;
             }
+            case 'wallet_requestPermissions':
+              // RainbowKit / wagmi's injected connector asks for this before
+              // eth_requestAccounts on some paths; returning null makes it fall
+              // through to eth_requestAccounts rather than throwing.
+              return null;
             case 'personal_sign':
               return '0x' + '00'.repeat(64) + '1b';
             case 'wallet_switchEthereumChain': {
@@ -186,6 +323,31 @@ async function installWalletMock(page: Page): Promise<void> {
       };
 
       (window as unknown as { ethereum: typeof provider }).ethereum = provider;
+
+      // EIP-6963 announcement. Setting window.ethereum alone is NOT enough for
+      // this app: it builds its wagmi config through RainbowKit's
+      // getDefaultConfig, and wagmi's `multiInjectedProviderDiscovery` is what
+      // turns a browser wallet into a connector there. Without an announcement
+      // the app never so much as calls `eth_accounts` on the mock — verified:
+      // `__walletMock.getCalls()` came back EMPTY after a full page load, which
+      // is what made every "connected" assertion in the money-path specs an
+      // assertion about the DISCONNECTED surface.
+      const providerInfo = {
+        uuid: '11111111-2222-3333-4444-555555555555',
+        name: 'Tegridy E2E Mock',
+        // 1x1 transparent PNG — RainbowKit requires a data URI here.
+        icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+        rdns: 'farms.tegridy.e2emock',
+      };
+      const announce = () => {
+        window.dispatchEvent(
+          new CustomEvent('eip6963:announceProvider', {
+            detail: Object.freeze({ info: providerInfo, provider }),
+          }),
+        );
+      };
+      window.addEventListener('eip6963:requestProvider', announce);
+      announce();
       (window as unknown as { __walletMock: Record<string, unknown> }).__walletMock = {
         connect: (addr: string) => {
           connectedAccounts = [addr];
@@ -193,6 +355,10 @@ async function installWalletMock(page: Page): Promise<void> {
         },
         disconnect: () => {
           connectedAccounts = [];
+          // Clear the seed too, or `accountsNow()` re-authorizes the account on
+          // the very next `eth_accounts` and the disconnect silently undoes
+          // itself. The fixture's addInitScript only affects the NEXT document.
+          (window as unknown as { __walletMockConnected?: string }).__walletMockConnected = undefined;
           emit('accountsChanged', []);
         },
         switchChain: (id: number) => {
@@ -218,8 +384,65 @@ async function installWalletMock(page: Page): Promise<void> {
  *   * anvil's `anvil_*` cheatcodes are reachable, which is what lets us send
  *     transactions with NO PRIVATE KEY anywhere in the test suite
  */
+/**
+ * The app's READ path never touches the wallet.
+ *
+ * wagmi answers useBalance / useReadContract through the `transports` in
+ * src/lib/wagmi.ts — three public mainnet RPCs — and only sends WRITES through
+ * the connector. So pointing the wallet at a fork moves the transactions and
+ * leaves every balance, allowance and quote reading real mainnet, where the
+ * test account holds nothing. `anvil_setBalance` funds an account the app then
+ * never asks about, and every CTA stays disabled behind "insufficient balance".
+ *
+ * Redirecting those hosts at the browser is the whole fix, and it keeps the fix
+ * in the test: no VITE_ override to add to src/, nothing that can leak into a
+ * production build. Unset ANVIL_RPC_URL and not a single route is installed.
+ */
+const APP_RPC_HOSTS = [
+  'https://ethereum-rpc.publicnode.com/**',
+  'https://eth.drpc.org/**',
+  'https://eth.merkle.io/**',
+];
+
+async function routeAppReadsToAnvil(page: Page, rpcUrl: string): Promise<void> {
+  const cors = {
+    'access-control-allow-origin': '*',
+    'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST,OPTIONS',
+  };
+  for (const pattern of APP_RPC_HOSTS) {
+    await page.route(pattern, async (route) => {
+      const request = route.request();
+      if (request.method() === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: cors, body: '' });
+        return;
+      }
+      try {
+        const upstream = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: request.postData() ?? '',
+        });
+        await route.fulfill({
+          status: upstream.status,
+          headers: { ...cors, 'content-type': 'application/json' },
+          body: await upstream.text(),
+        });
+      } catch (e) {
+        // Fail the request rather than letting it fall through to real
+        // mainnet — a silent fallback would make the fork invisible and the
+        // assertions meaningless again.
+        await route.abort('failed');
+        throw e;
+      }
+    });
+  }
+}
+
 async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
   let nextId = 1;
+
+  await routeAppReadsToAnvil(page, rpcUrl);
 
   async function rpc(method: string, params: unknown[]): Promise<unknown> {
     const res = await fetch(rpcUrl, {
@@ -239,6 +462,16 @@ async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
   // 0 ETH on mainnet. Verified — eth_getBalance returned 0x0 on a live fork.
   // So fund it explicitly. anvil_setBalance needs no key and no faucet.
   await rpc('anvil_setBalance', [DEFAULT_ACCOUNT, '0x21e19e0c9bab2400000']); // 10,000 ETH
+
+  // ANVIL_BACKEND step 5 — ERC-20 balance. ETH alone is not enough.
+  //
+  // Four money-path specs failed on a live fork with their own named messages —
+  // "stake CTA never enabled — the fork account holds no TOWELI", and the same for
+  // liquidity's paired side. A mainnet fork inherits mainnet state, and the test
+  // account holds no TOWELI there, so every CTA that gates on a token balance stays
+  // disabled and the leg times out. That is a MISSING FIXTURE, not a product defect,
+  // and it is what kept these specs skipped for months.
+  await seedErc20Balance(rpc, TOWELI, DEFAULT_ACCOUNT, 1_000_000n * 10n ** 18n);
 
   await page.exposeFunction(
     '__tegridyAnvilRpc',

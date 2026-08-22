@@ -7,6 +7,7 @@ import {StakingMonitorView} from "../src/StakingMonitorView.sol";
 import {RestakingMonitorView} from "../src/RestakingMonitorView.sol";
 import "../src/TegridyStakingAdmin.sol";
 import "../src/TegridyRestaking.sol";
+import {TegridyRestakingAdmin} from "../src/TegridyRestakingAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
@@ -47,6 +48,7 @@ contract DeepRestakingTest is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin public stakingAdmin;
     TegridyRestaking public restaking;
+    TegridyRestakingAdmin public restakingAdmin; // EIP-170 split: timelocked param governance
     RestakingMonitorView public rMonitorView; // EIP-170 sister: pendingBonus/pendingBase/etc.
 
     address alice = makeAddr("alice");
@@ -83,6 +85,11 @@ contract DeepRestakingTest is Test {
             address(weth),
             BONUS_RATE
         );
+
+        // EIP-170 split: the timelocked admin surface lives on the sister;
+        // the host only exposes the onlyAdmin applyXxx hooks it calls.
+        restakingAdmin = new TegridyRestakingAdmin(address(restaking));
+        restaking.setRestakingAdmin(address(restakingAdmin));
         rMonitorView = new RestakingMonitorView(address(restaking));
 
         // Fund staking with rewards
@@ -314,15 +321,15 @@ contract DeepRestakingTest is Test {
     function test_proposeBonusRate_enforcesCooldown() public {
         // First call works because `lastBonusRateActionAt == 0` (deploy default).
         uint256 t0 = block.timestamp;
-        restaking.proposeBonusRate(0.5 ether);
+        restakingAdmin.proposeBonusRate(0.5 ether);
         // DR2-05: Cancel must succeed IMMEDIATELY (no cooldown gate on cancel).
         // This was previously expected to revert.
-        restaking.cancelBonusRateProposal();
+        restakingAdmin.cancelBonusRateProposal();
         // Re-propose immediately reverts (cooldown reset on cancel)
-        vm.expectRevert(TegridyRestaking.BonusRateActionCooldown.selector);
-        restaking.proposeBonusRate(0.6 ether);
+        vm.expectRevert(TegridyRestakingAdmin.BonusRateActionCooldown.selector);
+        restakingAdmin.proposeBonusRate(0.6 ether);
         // After 24h, propose succeeds
         vm.warp(t0 + 24 hours + 1);
-        restaking.proposeBonusRate(0.7 ether);
+        restakingAdmin.proposeBonusRate(0.7 ether);
     }
 }

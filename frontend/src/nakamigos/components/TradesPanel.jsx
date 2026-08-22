@@ -60,6 +60,9 @@ const COLLECTION_BY_CONTRACT = Object.values(COLLECTIONS).reduce((m, c) => {
  */
 function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
   const [inventory, setInventory] = useState({}); // contract -> tokens[]
+  // contract -> true when that wallet walk stopped short. An empty-because-
+  // unreachable slot must never render as the flat claim "you hold none".
+  const [inventoryPartial, setInventoryPartial] = useState({});
   const [loading, setLoading] = useState(true);
   const [selections, setSelections] = useState({}); // considerationIndex -> tokenId
   const [busy, setBusy] = useState(false);
@@ -77,14 +80,16 @@ function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
     (async () => {
       const contracts = [...new Set(slots.map(s => s.contract))];
       const out = {};
+      const partial = {};
       await Promise.all(contracts.map(async (contract) => {
         const c = COLLECTION_BY_CONTRACT[contract];
         try {
           const res = await fetchWalletNfts(wallet, c?.contract || contract, c?.metadataBase);
           out[contract] = res?.tokens || [];
-        } catch { out[contract] = []; }
+          partial[contract] = res?.complete === false;
+        } catch { out[contract] = []; partial[contract] = true; }
       }));
-      if (!cancelled) { setInventory(out); setLoading(false); }
+      if (!cancelled) { setInventory(out); setInventoryPartial(partial); setLoading(false); }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -116,10 +121,17 @@ function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
             <div key={slot.index} style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginBottom: 6 }}>
                 Slot {slotPos + 1}: any {c?.name || "NFT"}
+                {tokens.length > 0 && inventoryPartial[slot.contract] && (
+                  <span style={{ color: "var(--yellow, #fbbf24)", marginLeft: 6 }}>
+                    (partial inventory — not all your holdings loaded)
+                  </span>
+                )}
               </div>
               {tokens.length === 0 ? (
-                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--red)", padding: "8px 0" }}>
-                  You don't hold any {c?.name || "tokens from this collection"} — you can't fill this slot.
+                <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: inventoryPartial[slot.contract] ? "var(--yellow, #fbbf24)" : "var(--red)", padding: "8px 0" }}>
+                  {inventoryPartial[slot.contract]
+                    ? `Couldn't load your ${c?.name || "tokens from this collection"} — whether you can fill this slot is unknown.`
+                    : `You don't hold any ${c?.name || "tokens from this collection"} — you can't fill this slot.`}
                 </div>
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(64px, 1fr))", gap: 6, maxHeight: 150, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
@@ -198,7 +210,7 @@ const STATUS_COLOR = {
   cancelled: "var(--text-muted)", expired: "var(--text-muted)", countered: "var(--gold)",
 };
 
-function TradeCard({ trade, direction, wallet, addToast, onChanged, onCounter, onPickProfile, onMessage }) {
+function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickProfile, onMessage }) {
   const [busy, setBusy] = useState(null); // "accept" | "decline" | "cancel" | "revoke"
   const [confirming, setConfirming] = useState(false);
   const isIncoming = direction === "incoming";
@@ -446,8 +458,11 @@ export default function TradesPanel({ wallet, onConnect, addToast, onViewProfile
     (async () => {
       const entries = await Promise.all(Object.values(COLLECTIONS).map(async (col) => {
         try {
-          const { tokens } = await fetchWalletNfts(wallet, col.contract, col.metadataBase);
-          return [col.contract.toLowerCase(), tokens?.length || 0];
+          // totalCount is the wallet's real holding count and is reported on
+          // every page, so the fillable badge stays right even when the token
+          // walk is still running or was capped.
+          const { tokens, totalCount } = await fetchWalletNfts(wallet, col.contract, col.metadataBase);
+          return [col.contract.toLowerCase(), totalCount || tokens?.length || 0];
         } catch { return [col.contract.toLowerCase(), 0]; }
       }));
       if (!cancelled) setHoldings(Object.fromEntries(entries));

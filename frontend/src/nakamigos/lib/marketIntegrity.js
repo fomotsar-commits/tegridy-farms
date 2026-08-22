@@ -526,9 +526,9 @@ export function computeMarketIntegrity({
  * Fetch the full owner→count list for a contract via the existing Alchemy proxy
  * (`getOwnersForContract` with token balances), following `pageKey` pagination.
  *
- * Returns REAL data only — on failure it throws. It never substitutes the
- * fabricated FALLBACK_WHALES that the display-oriented `fetchTopHolders` uses,
- * because an integrity measurement on invented owners would be a lie.
+ * Returns REAL data only — on failure it throws. No synthetic owner list is ever
+ * substituted, here or in the display-oriented `fetchTopHolders`, because a
+ * measurement over invented owners would be a lie.
  *
  * @returns {Promise<{owners:{address:string,count:number}[], totalOwners:number, truncated:boolean}>}
  */
