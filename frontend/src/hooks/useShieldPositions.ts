@@ -37,7 +37,7 @@ const REFRESH_MS = 60_000;
 export function useShieldPositions(): ShieldPositionsSnapshot {
   const { address } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const { loans, isLoading: loansLoading, isError: loansError } = useMyLoans();
 
   const onExpectedChain = chainId === CHAIN_ID;

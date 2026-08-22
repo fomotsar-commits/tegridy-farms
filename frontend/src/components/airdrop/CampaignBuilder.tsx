@@ -59,8 +59,8 @@ export function CampaignBuilder() {
 
   const { data: tokenData } = useReadContracts({
     contracts: [
-      { address: token ?? undefined, abi: ERC20_ABI, functionName: 'symbol' },
-      { address: token ?? undefined, abi: ERC20_ABI, functionName: 'decimals' },
+      { address: token ?? undefined, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'symbol' },
+      { address: token ?? undefined, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'decimals' },
     ],
     query: { enabled: token !== null },
   });

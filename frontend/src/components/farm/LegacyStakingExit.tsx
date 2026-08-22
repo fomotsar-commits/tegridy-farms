@@ -3,7 +3,7 @@ import { m } from 'framer-motion';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import type { Address } from 'viem';
 import { formatEther } from 'viem';
-import { LEGACY_STAKING_ADDRESSES } from '../../lib/constants';
+import { LEGACY_STAKING_ADDRESSES, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { ArtImg } from '../ArtImg';
 
@@ -41,6 +41,7 @@ export function LegacyStakingExit() {
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'userTokenId' as const,
       args: address ? ([address] as const) : undefined,
+      chainId: CHAIN_ID,
     })),
     query: { enabled: isConnected && !!address },
   });
@@ -52,8 +53,8 @@ export function LegacyStakingExit() {
 
   const posReads = useReadContracts({
     contracts: LEGACY_STAKING_ADDRESSES.flatMap((c, i) => [
-      { address: c as Address, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition' as const, args: [ids[i]] as const },
-      { address: c as Address, abi: PENALTY_ABI, functionName: 'EARLY_WITHDRAWAL_PENALTY_BPS' as const },
+      { address: c as Address, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition' as const, args: [ids[i]] as const, chainId: CHAIN_ID },
+      { address: c as Address, abi: PENALTY_ABI, functionName: 'EARLY_WITHDRAWAL_PENALTY_BPS' as const, chainId: CHAIN_ID },
     ]),
     query: { enabled: ids.some((id) => id > 0n) },
   });

@@ -50,7 +50,7 @@ export function useMyLoans() {
   const { address } = useAccount();
   const chainId = useChainId();
   const onMainnet = chainId === CHAIN_ID;
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const tokenDeployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
   const nftDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
 

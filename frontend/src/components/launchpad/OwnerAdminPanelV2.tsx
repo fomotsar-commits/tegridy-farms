@@ -77,28 +77,33 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
     address: contractAddr,
     abi: TEGRIDY_DROP_V2_ABI,
     functionName: 'mintPhase',
+    chainId: CHAIN_ID,
     query: { enabled: deployed, refetchInterval: 30_000 },
   });
   const { data: currentContractURI, refetch: refetchContractURI } = useReadContract({
     address: contractAddr,
     abi: TEGRIDY_DROP_V2_ABI,
     functionName: 'contractURI',
+    chainId: CHAIN_ID,
     query: { enabled: deployed },
   });
   const { data: isPaused, refetch: refetchPaused } = useReadContract({
     address: contractAddr,
     abi: TEGRIDY_DROP_V2_ABI,
     functionName: 'paused',
+    chainId: CHAIN_ID,
     query: { enabled: deployed, refetchInterval: 30_000 },
   });
   // AUDIT NEW-L1: read totalSupply + maxSupply to gate the Withdraw button —
   // contract now rejects withdraw() unless mintPhase == CLOSED or sold out.
   const { data: totalSupplyData } = useReadContract({
     address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'totalSupply',
+    chainId: CHAIN_ID,
     query: { enabled: deployed, refetchInterval: 30_000 },
   });
   const { data: maxSupplyData } = useReadContract({
     address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'maxSupply',
+    chainId: CHAIN_ID,
     query: { enabled: deployed },
   });
 

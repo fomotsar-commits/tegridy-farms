@@ -45,15 +45,15 @@ export function BountiesSection() {
   const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash: txHash });
 
-  const { data: bountyCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' });
-  const { data: totalPosted, refetch: refetchPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalBountiesPosted' });
-  const { data: totalPaidOut, refetch: refetchPaidOut } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalPaidOut' });
+  const { data: bountyCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'bountyCount' });
+  const { data: totalPosted, refetch: refetchPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'totalBountiesPosted' });
+  const { data: totalPaidOut, refetch: refetchPaidOut } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'totalPaidOut' });
   const { data: pendingPayout, refetch: refetchPayout } = useReadContract({
-    address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'pendingPayouts', args: address ? [address] : undefined,
+    address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'pendingPayouts', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
   const { data: pendingRefund, refetch: refetchRefund } = useReadContract({
-    address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'pendingRefund', args: address ? [address] : undefined,
+    address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'pendingRefund', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
 
@@ -61,9 +61,9 @@ export function BountiesSection() {
   const pageSize = Math.min(count, 10);
 
   const bountyContracts = useMemo(() => {
-    const contracts: { address: Address; abi: typeof MEME_BOUNTY_BOARD_ABI; functionName: 'getBounty'; args: [bigint] }[] = [];
+    const contracts: { address: Address; abi: typeof MEME_BOUNTY_BOARD_ABI; chainId: typeof CHAIN_ID; functionName: 'getBounty'; args: [bigint] }[] = [];
     for (let i = count - 1; i >= Math.max(0, count - pageSize); i--) {
-      contracts.push({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'getBounty', args: [BigInt(i)] });
+      contracts.push({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'getBounty', args: [BigInt(i)] });
     }
     return contracts;
   }, [count, bbAddr, pageSize]);

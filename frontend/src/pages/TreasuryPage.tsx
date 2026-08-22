@@ -174,6 +174,7 @@ export default function TreasuryPage() {
   // Treasury ETH balance
   const { data: treasuryBal } = useBalance({
     address: TREASURY_ADDRESS,
+    chainId: CHAIN_ID,
     query: { refetchInterval: 60_000 },
   });
 
@@ -183,6 +184,7 @@ export default function TreasuryPage() {
     abi: ERC20_BAL_ABI,
     functionName: 'balanceOf',
     args: [POL_ACCUMULATOR_ADDRESS],
+    chainId: CHAIN_ID,
     query: { refetchInterval: 60_000 },
   });
 
@@ -191,6 +193,7 @@ export default function TreasuryPage() {
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SWAP_FEE_ROUTER_ABI,
     functionName: 'totalETHFees',
+    chainId: CHAIN_ID,
     query: { refetchInterval: 60_000 },
   });
 
@@ -201,12 +204,14 @@ export default function TreasuryPage() {
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SHARE_ABI,
     functionName: 'stakerShareBps',
+    chainId: CHAIN_ID,
     query: { refetchInterval: 300_000, staleTime: 60_000 },
   });
   const { data: polShareData } = useReadContract({
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SHARE_ABI,
     functionName: 'polShareBps',
+    chainId: CHAIN_ID,
     query: { refetchInterval: 300_000, staleTime: 60_000 },
   });
 
@@ -271,12 +276,14 @@ export default function TreasuryPage() {
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SWAP_FEE_ROUTER_ABI,
     functionName: 'paused',
+    chainId: CHAIN_ID,
     query: { refetchInterval: 60_000 },
   });
   const { data: routerTreasury } = useReadContract({
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SWAP_FEE_ROUTER_ABI,
     functionName: 'treasury',
+    chainId: CHAIN_ID,
     query: { refetchInterval: 300_000, staleTime: 60_000 },
   });
   const treasuryRotationPending = useMemo(() => {

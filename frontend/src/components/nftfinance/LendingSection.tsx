@@ -462,6 +462,7 @@ function StatsBar({ allOffers, allLoans }: { allOffers: Offer[]; allLoans: Loan[
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'protocolFeeBps',
+    chainId: CHAIN_ID,
     // F255: TEGRIDY_LENDING_ADDRESS is zeroed pre-deploy — without this gate the
     // eth_call to 0x0 returns '0x', decode fails, and react-query retries on loop.
     query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
@@ -737,6 +738,7 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'protocolFeeBps',
+    chainId: CHAIN_ID,
     query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
   });
 
@@ -1019,6 +1021,7 @@ function OfferRow({
     abi: TEGRIDY_STAKING_ABI,
     functionName: 'userTokenId',
     args: userAddress ? [userAddress as Address] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!userAddress },
   });
 
@@ -1029,6 +1032,7 @@ function OfferRow({
     abi: TEGRIDY_STAKING_ABI,
     functionName: 'getPosition',
     args: tokenId > 0 ? [BigInt(tokenId)] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: tokenId > 0 },
   });
 
@@ -1038,6 +1042,7 @@ function OfferRow({
     abi: TEGRIDY_STAKING_ABI,
     functionName: 'getApproved',
     args: tokenId > 0 ? [BigInt(tokenId)] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: tokenId > 0 },
   });
 
@@ -1598,6 +1603,7 @@ function LoanRow({
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'getRepaymentAmount',
     args: [BigInt(loan.id)],
+    chainId: CHAIN_ID,
     query: {
       enabled: status === 'active' || status === 'overdue',
       refetchInterval: 12_000,
@@ -1610,6 +1616,7 @@ function LoanRow({
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'isDefaulted',
     args: [BigInt(loan.id)],
+    chainId: CHAIN_ID,
     query: { enabled: status === 'overdue' },
   });
 
@@ -1844,6 +1851,7 @@ function useAllOffers() {
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'offerCount',
+    chainId: CHAIN_ID,
     // F255: gate the read while the lending contract is zeroed (pre-deploy).
     query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
   });
@@ -1857,6 +1865,7 @@ function useAllOffers() {
       abi: TEGRIDY_LENDING_ABI,
       functionName: 'getOffer' as const,
       args: [BigInt(i)] as const,
+      chainId: CHAIN_ID,
     }));
   }, [count]);
 
@@ -1903,6 +1912,7 @@ function useAllLoans() {
     address: TEGRIDY_LENDING_ADDRESS as Address,
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'loanCount',
+    chainId: CHAIN_ID,
     // F255: gate the read while the lending contract is zeroed (pre-deploy).
     query: { enabled: isDeployed(TEGRIDY_LENDING_ADDRESS) },
   });
@@ -1916,6 +1926,7 @@ function useAllLoans() {
       abi: TEGRIDY_LENDING_ABI,
       functionName: 'getLoan' as const,
       args: [BigInt(i)] as const,
+      chainId: CHAIN_ID,
     }));
   }, [count]);
 

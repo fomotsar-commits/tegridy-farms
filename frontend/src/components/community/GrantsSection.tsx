@@ -43,10 +43,10 @@ export function GrantsSection() {
   const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash: txHash });
 
   const { data: proposalCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({
-    address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'proposalCount',
+    address: gcAddr, abi: COMMUNITY_GRANTS_ABI, chainId: CHAIN_ID, functionName: 'proposalCount',
   });
   const { data: totalGranted, refetch: refetchGranted } = useReadContract({
-    address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'totalGranted',
+    address: gcAddr, abi: COMMUNITY_GRANTS_ABI, chainId: CHAIN_ID, functionName: 'totalGranted',
   });
 
   const count = proposalCount !== undefined ? Number(proposalCount) : 0;
@@ -55,9 +55,9 @@ export function GrantsSection() {
 
   // Read most recent proposals (up to 10)
   const proposalContracts = useMemo(() => {
-    const contracts: { address: Address; abi: typeof COMMUNITY_GRANTS_ABI; functionName: 'getProposal'; args: [bigint] }[] = [];
+    const contracts: { address: Address; abi: typeof COMMUNITY_GRANTS_ABI; chainId: typeof CHAIN_ID; functionName: 'getProposal'; args: [bigint] }[] = [];
     for (let i = count - 1; i >= startIdx; i--) {
-      contracts.push({ address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'getProposal', args: [BigInt(i)] });
+      contracts.push({ address: gcAddr, abi: COMMUNITY_GRANTS_ABI, chainId: CHAIN_ID, functionName: 'getProposal', args: [BigInt(i)] });
     }
     return contracts;
   }, [count, gcAddr, startIdx]);
@@ -74,7 +74,7 @@ export function GrantsSection() {
   const voteCheckContracts = useMemo(() => {
     if (!address || count === 0) return [];
     return Array.from({ length: pageSize }, (_, i) => ({
-      address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'hasVotedOnProposal' as const,
+      address: gcAddr, abi: COMMUNITY_GRANTS_ABI, chainId: CHAIN_ID, functionName: 'hasVotedOnProposal' as const,
       args: [BigInt(count - 1 - i), address],
     }));
   }, [address, count, pageSize, gcAddr]);

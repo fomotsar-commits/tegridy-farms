@@ -1,5 +1,5 @@
 /**
- * The chains this venue serves. Today: one.
+ * The chains this venue serves. Today: three — Ethereum, Base, Robinhood Chain.
  *
  * Mainnet's addresses are IMPORTED from `../constants.ts` rather than repeated
  * here. A registry that carried its own copy of the address book would be a second
@@ -7,11 +7,16 @@
  * `constants.ts` stays the single source; this file only says which chain those
  * addresses belong to and what that chain is capable of.
  *
- * ADDING A CHAIN is one `ChainConfig` literal and one line in `CHAINS`. It is
- * deliberately that cheap, and deliberately not done: the Base scripts exist
- * (contracts/script/base/) and the decision does not. Until an operator takes it
- * and a deployment is verified on-chain, every lookup for any other chain answers
- * `chain-unconfigured`, which is the correct resting state.
+ * THE GO/NO-GO WAS TAKEN. Base (8453) and Robinhood Chain (4663) were configured
+ * 2026-08-20 on the operator's direct instruction ("fully compatible with base and
+ * robinhood chain, including the launchpads and lp system"). Configured is not
+ * live: both entries ship with every protocol contract ZEROED, so `contractOn()`
+ * answers `not-deployed` — we serve the chain, the piece is not on it yet. The
+ * addresses fill in from the broadcast artifacts of contracts/script/base/ and
+ * contracts/script/robinhood/ once the Safes ceremony and Verify scripts are green
+ * (docs/BASE_L2_GO_NO_GO.md, docs/ROBINHOOD_L2_LEG.md). The only non-zero facts
+ * here are CHAIN facts, each verified against the chain itself: canonical WETH and
+ * (on Base) the Chainlink sequencer uptime feed.
  */
 
 import {
@@ -80,13 +85,100 @@ const MAINNET: ChainConfig = {
 };
 
 /**
+ * Base (8453). OP-stack L2; ETH gas. Contracts land from the broadcast artifacts
+ * of contracts/script/base/{DeployBaseMVP,DeployBaseLaunchRail,DeployBaseLPFarming}
+ * — until then every protocol slot is ZERO and reads answer `not-deployed`.
+ *
+ * The two non-zero facts are chain facts, not deployments:
+ *   weth — the OP-stack predeploy, mirrored from BaseChainConfig.sol.
+ *   sequencerUptimeFeed — Chainlink's canonical Base feed, mirrored from
+ *     BaseChainConfig.sol / SequencerCheck.sol (re-verified against Chainlink's
+ *     L2 sequencer feeds directory 2026-08-20).
+ */
+const BASE: ChainConfig = {
+  id: 8453,
+  name: 'Base',
+  nativeCurrencySymbol: 'ETH',
+  sequencerUptimeFeed: '0xBCF85224fc0756B9Fa45aA7892530B47e10b6433',
+  // No veTOWELI here, ever — the sink is a remittance Safe and a fee captured on
+  // Base is "queued for the bridge", not staker yield. Surfaces must say so.
+  feeSink: 'remittance',
+  capabilities: {
+    staking: false,
+    stakerYield: false,
+    referrals: false,
+    protocolOwnedLiquidity: false,
+    indexed: false,
+  },
+  contracts: {
+    weth: '0x4200000000000000000000000000000000000006',
+    factory: ZERO,
+    router: ZERO,
+    twap: ZERO,
+    swapFeeRouter: ZERO,
+    swapFeeRouterAdmin: ZERO,
+    feeSink: ZERO,
+    treasury: ZERO,
+    toweli: null, // never — fixed supply, one chain
+    staking: null,
+    referralSplitter: null,
+    polAccumulator: null,
+  },
+};
+
+/**
+ * Robinhood Chain (4663). Arbitrum Orbit L2; ETH gas; explorer is Blockscout.
+ * Chain facts verified directly against https://rpc.mainnet.chain.robinhood.com
+ * 2026-08-20 (chain id, WETH symbol/decimals, Safe factories present) — see
+ * docs/ROBINHOOD_L2_LEG.md.
+ *
+ * sequencerUptimeFeed is null here NOT because the chain lacks a sequencer (it
+ * has one) but because Chainlink publishes no uptime feed for 4663 yet. The leg
+ * deploys src/AttestedSequencerUptimeFeed.sol and THAT address must land in this
+ * field in the same change-set that fills the contract slots below — an L2 entry
+ * going live with a null feed is a deploy-stopping bug (SequencerCheck reverts
+ * off-mainnet on a zero feed), and the deploy scripts structurally prevent the
+ * contracts from shipping without one.
+ */
+const ROBINHOOD: ChainConfig = {
+  id: 4663,
+  name: 'Robinhood Chain',
+  nativeCurrencySymbol: 'ETH',
+  sequencerUptimeFeed: null, // ← AttestedSequencerUptimeFeed address at go-live; see above
+  feeSink: 'remittance',
+  capabilities: {
+    staking: false,
+    stakerYield: false,
+    referrals: false,
+    protocolOwnedLiquidity: false,
+    indexed: false,
+  },
+  contracts: {
+    weth: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73',
+    factory: ZERO,
+    router: ZERO,
+    twap: ZERO,
+    swapFeeRouter: ZERO,
+    swapFeeRouterAdmin: ZERO,
+    feeSink: ZERO,
+    treasury: ZERO,
+    toweli: null,
+    staking: null,
+    referralSplitter: null,
+    polAccumulator: null,
+  },
+};
+
+/**
  * Every chain the venue is configured for, keyed by chain id.
  *
- * One entry. A second one is a decision, and the memo that takes it names what has
- * to be true first.
+ * Three entries since 2026-08-20. Growing this list is a decision, and the memo
+ * that takes it names what has to be true first.
  */
 export const CHAINS: Readonly<Record<number, ChainConfig>> = Object.freeze({
   [MAINNET.id]: MAINNET,
+  [BASE.id]: BASE,
+  [ROBINHOOD.id]: ROBINHOOD,
 });
 
 /** Sorted so anything rendering a chain list is deterministic. */
@@ -156,4 +248,27 @@ export function feesBecomeStakerYieldOn(chainId: number | undefined | null): boo
   const config = getChainConfig(chainId);
   if (!config) return false;
   return config.feeSink === 'distributor' && config.capabilities.stakerYield;
+}
+
+/**
+ * The wrong-chain message for a mainnet-only rail, said honestly per chain.
+ *
+ * Three different sentences, because three different things are true:
+ *   - a SERVED chain whose rail is not deployed yet ("Base is supported, the
+ *     launch rail isn't there yet") — a roadmap fact, not a user error;
+ *   - an UNSERVED chain ("we don't serve this chain");
+ *   - no chain at all.
+ * Collapsing them into "switch to Ethereum Mainnet" was fine when Ethereum was
+ * the only entry; with three chains it would tell a Base user their supported
+ * chain is wrong, which is false.
+ */
+export function launchWrongChainMessage(chainId: number | undefined | null): string {
+  const config = getChainConfig(chainId);
+  if (config && config.id !== DEFAULT_CHAIN_ID) {
+    return `Token launches run on Ethereum today — ${config.name} is supported by the app, but its launch rail isn't deployed there yet. Switch to Ethereum to launch.`;
+  }
+  if (!config && chainId != null) {
+    return `This app doesn't serve ${unconfiguredChainLabel(chainId)}. Switch to Ethereum to launch.`;
+  }
+  return 'Switch your wallet to Ethereum mainnet to launch.';
 }

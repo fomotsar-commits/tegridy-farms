@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAccount, useChains, usePublicClient, useWatchContractEvent } from 'wagmi';
 import { formatEther, parseAbiItem, type Address } from 'viem';
 import { pageArt } from '../../lib/artConfig';
+import { CHAIN_ID } from '../../lib/constants';
 import { PHASE_LABELS, LABEL } from './launchpadConstants';
 import { shortenAddress } from '../../lib/formatting';
 
@@ -187,7 +188,7 @@ interface DropMints {
 
 // Reads a drop's recent mint history once on mount, then tails new mints live.
 function useDropMints(dropAddress?: string): DropMints {
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const deployed = !!dropAddress && dropAddress !== ZERO_ADDR;
   const [mints, setMints] = useState<MintRow[] | null>(null);
   const [tipBlock, setTipBlock] = useState<bigint | null>(null);
@@ -240,6 +241,7 @@ function useDropMints(dropAddress?: string): DropMints {
     abi: [TRANSFER_EVENT],
     eventName: 'Transfer',
     args: { from: ZERO_ADDR as Address },
+    chainId: CHAIN_ID,
     enabled: deployed,
     onLogs: (logs) => {
       const fresh = groupMints(logs as unknown as RawTransferLog[]);

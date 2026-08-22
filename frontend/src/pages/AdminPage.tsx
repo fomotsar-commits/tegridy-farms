@@ -245,22 +245,22 @@ export default function AdminPage() {
     contracts: [
       // SwapFeeRouter — no totalSwaps read: the deployed router dropped that
       // counter (gas fix G-23), so the call can only revert.
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' },
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees' },
+      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps', chainId: CHAIN_ID },
+      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'totalETHFees', chainId: CHAIN_ID },
       // M2 fix: pending fee/treasury timelock state lives on SwapFeeRouterAdmin, not the main router.
-      { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingFeeBps' },
-      { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingTreasury' },
+      { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingFeeBps', chainId: CHAIN_ID },
+      { address: SWAP_FEE_ROUTER_ADMIN_ADDRESS, abi: PENDING_FEE_ABI, functionName: 'pendingTreasury', chainId: CHAIN_ID },
       // PremiumAccess
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'monthlyFeeToweli' },
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalSubscribers' },
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalRevenue' },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'monthlyFeeToweli', chainId: CHAIN_ID },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalSubscribers', chainId: CHAIN_ID },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalRevenue', chainId: CHAIN_ID },
       // TegridyStaking
-      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate' },
-      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked' },
-      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'paused' },
+      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
+      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
+      { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'paused', chainId: CHAIN_ID },
       // LP Farming
-      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate' },
-      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply' },
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply', chainId: CHAIN_ID },
     ],
     query: { enabled: isOwner && onCorrectChain },
   });

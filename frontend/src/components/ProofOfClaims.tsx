@@ -1,7 +1,7 @@
 import { useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TOWELI_DECIMALS, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, TOWELI_DECIMALS, CHAIN_ID, isDeployed } from '../lib/constants';
 
 /**
  * "Prove It" — every headline claim rendered FROM a live on-chain read, not from
@@ -51,9 +51,9 @@ export function ProofOfClaims() {
   // guard below discards it.
   const { data } = useReadContracts({
     contracts: [
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply' },
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [DEAD] },
-      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'feeBps' },
+      { address: TOWELI_ADDRESS, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'totalSupply' },
+      { address: TOWELI_ADDRESS, abi: ERC20_ABI, chainId: CHAIN_ID, functionName: 'balanceOf', args: [DEAD] },
+      { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, chainId: CHAIN_ID, functionName: 'feeBps' },
     ],
     query: { refetchInterval: 300_000, staleTime: 120_000 },
   });

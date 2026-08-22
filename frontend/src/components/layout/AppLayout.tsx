@@ -10,7 +10,7 @@ import { Toaster } from 'sonner';
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 
-import { CHAIN_ID } from '../../lib/constants';
+import { isChainConfigured } from '../../lib/chains';
 import { AppLoader } from '../loader';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
@@ -84,7 +84,13 @@ export function AppLayout() {
   const { chain, isConnected, connector } = useAccount();
   const { switchChain } = useSwitchChain();
   const { isDark } = useTheme();
-  const wrongNetwork = isConnected && chain && chain.id !== CHAIN_ID;
+  // MULTICHAIN (2026-08-20): the GLOBAL banner fires only for chains the venue
+  // does not serve at all. A wallet on Base or Robinhood Chain is a served user,
+  // not a wrong one; surfaces whose contracts live on one chain carry their own
+  // per-surface guards (WrongChainGuard requiredChainId / chainId-pinned writes)
+  // and keep saying "switch to Ethereum Mainnet" where that is the real
+  // requirement.
+  const wrongNetwork = isConnected && chain && !isChainConfigured(chain.id);
 
   useEffect(() => {
     if (isConnected && connector?.name) trackWalletConnect(connector.name);
@@ -138,8 +144,8 @@ export function AppLayout() {
             paddingRight: 'max(1rem, env(safe-area-inset-right))',
           }}
         >
-          You are connected to <strong>{chain.name ?? `chain ${chain.id}`}</strong>.
-          Please switch to Ethereum Mainnet.
+          You are connected to <strong>{chain.name ?? `chain ${chain.id}`}</strong>,
+          which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
           {switchChain && (
             <button
               onClick={() => switchChain({ chainId: mainnet.id })}

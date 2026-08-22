@@ -574,6 +574,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getBestBuyPool',
     args: [collection as Address, BigInt(buyQty)],
+    chainId: CHAIN_ID,
     query: { enabled: validCollection && mode === 'buy' && buyQty > 0 && deployed },
   });
 
@@ -588,6 +589,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getBestSellPool',
     args: [collection as Address, BigInt(parsedSellIds.length)],
+    chainId: CHAIN_ID,
     query: { enabled: validCollection && mode === 'sell' && parsedSellIds.length > 0 && deployed },
   });
 
@@ -608,6 +610,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getBuyQuote',
     args: [BigInt(buyQty)],
+    chainId: CHAIN_ID,
     query: { enabled: !!hasPool && mode === 'buy' },
   });
 
@@ -616,6 +619,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getSellQuote',
     args: [BigInt(parsedSellIds.length)],
+    chainId: CHAIN_ID,
     query: { enabled: !!hasPool && mode === 'sell' && parsedSellIds.length > 0 },
   });
 
@@ -628,6 +632,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     address: bestPool as Address,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getHeldTokenIds',
+    chainId: CHAIN_ID,
     query: { enabled: !!hasPool && mode === 'buy' },
   });
 
@@ -638,6 +643,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     address: bestPool as Address,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'spotPrice',
+    chainId: CHAIN_ID,
     query: { enabled: !!hasPool },
   });
 
@@ -645,6 +651,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     address: bestPool as Address,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'delta',
+    chainId: CHAIN_ID,
     query: { enabled: !!hasPool },
   });
 
@@ -654,6 +661,7 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
     abi: ERC721_APPROVAL_ABI,
     functionName: 'isApprovedForAll',
     args: [address as Address, bestPool as Address],
+    chainId: CHAIN_ID,
     query: { enabled: !!address && !!hasPool && validCollection && mode === 'sell' },
   });
 
@@ -1123,11 +1131,11 @@ function PoolAdminPanel({
   // Read the paused + pending-change state for this pool.
   const { data: state, refetch: refetchState } = useReadContracts({
     contracts: [
-      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'paused' },
-      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingSpotPrice' },
-      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingSpotPriceExecuteAfter' },
-      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingDelta' },
-      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingDeltaExecuteAfter' },
+      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'paused', chainId: CHAIN_ID },
+      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingSpotPrice', chainId: CHAIN_ID },
+      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingSpotPriceExecuteAfter', chainId: CHAIN_ID },
+      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingDelta', chainId: CHAIN_ID },
+      { address: poolAddress, abi: TEGRIDY_NFT_POOL_ABI, functionName: 'pendingDeltaExecuteAfter', chainId: CHAIN_ID },
     ],
     query: { refetchInterval: 15_000 },
   });
@@ -1377,7 +1385,7 @@ interface TradeRow {
 }
 
 function PoolTradeHistory({ poolAddress }: { poolAddress: Address }) {
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const chainId = useChainId();
   const { data: blockNumber } = useBlockNumber({ watch: true, query: { refetchInterval: 30_000 } });
   const [trades, setTrades] = useState<TradeRow[] | null>(null);
@@ -1533,12 +1541,14 @@ function PoolCard({
     address: poolAddress,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getPoolInfo',
+    chainId: CHAIN_ID,
   });
 
   const { data: heldTokenIds, refetch: refetchPoolHeldIds } = useReadContract({
     address: poolAddress,
     abi: TEGRIDY_NFT_POOL_ABI,
     functionName: 'getHeldTokenIds',
+    chainId: CHAIN_ID,
   });
 
   const chainId = useChainId();
@@ -1924,6 +1934,7 @@ function PoolExplorer({ deployed }: { deployed: boolean }) {
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getPoolsForCollection',
     args: [searchAddr as Address],
+    chainId: CHAIN_ID,
     query: { enabled: validSearch && deployed },
   });
 
@@ -2046,6 +2057,7 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
     abi: ERC721_APPROVAL_ABI,
     functionName: 'isApprovedForAll',
     args: address && validCollection ? [address as Address, TEGRIDY_NFT_POOL_FACTORY_ADDRESS as Address] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && validCollection && needsNFTs, refetchInterval: 10_000 },
   });
 
@@ -2573,7 +2585,7 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
   const { pools: trackedPools, addPool, removePool } = useTrackedPools();
   const [newPoolAddr, setNewPoolAddr] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
 
   // A tracked address becomes a live money sink: PoolCard's deposit leg sends
   // ETH to it. The factory has no isPool getter, so membership is proven the
@@ -2799,6 +2811,7 @@ export function AMMSection() {
     address: TEGRIDY_NFT_POOL_FACTORY_ADDRESS,
     abi: TEGRIDY_NFT_POOL_FACTORY_ABI,
     functionName: 'getPoolCount',
+    chainId: CHAIN_ID,
     query: { enabled: deployed, refetchInterval: 30_000 },
   });
 

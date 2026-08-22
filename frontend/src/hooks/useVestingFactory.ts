@@ -1,7 +1,7 @@
 import { useAccount, useReadContracts } from 'wagmi';
 import type { Address } from 'viem';
 import { VESTING_FACTORY_ABI } from '../lib/contracts';
-import { VESTING_FACTORY_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { VESTING_FACTORY_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 
 /**
  * The two registry lists a wallet appears in: streams it RECEIVES (beneficiary) and
@@ -38,14 +38,16 @@ export function useVestingFactory(): VestingRegistryState & { refetch: () => voi
         abi: VESTING_FACTORY_ABI,
         functionName: 'vestingsForBeneficiary',
         args: [(address ?? '0x0000000000000000000000000000000000000000') as Address],
+        chainId: CHAIN_ID,
       },
       {
         address: VESTING_FACTORY_ADDRESS,
         abi: VESTING_FACTORY_ABI,
         functionName: 'vestingsForCreator',
         args: [(address ?? '0x0000000000000000000000000000000000000000') as Address],
+        chainId: CHAIN_ID,
       },
-      { address: VESTING_FACTORY_ADDRESS, abi: VESTING_FACTORY_ABI, functionName: 'vestingCount' },
+      { address: VESTING_FACTORY_ADDRESS, abi: VESTING_FACTORY_ABI, functionName: 'vestingCount', chainId: CHAIN_ID },
     ],
     query: { enabled, refetchInterval: 60_000 },
   });

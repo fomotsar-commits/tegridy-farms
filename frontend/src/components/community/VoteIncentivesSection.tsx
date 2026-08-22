@@ -1029,6 +1029,7 @@ export function VoteIncentivesSection() {
   // ── Vote deadline (from contract constant) ──────────────────
   const { data: voteDeadlineData } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'VOTE_DEADLINE',
+    chainId: CHAIN_ID,
     query: { enabled: bribes.isDeployed, staleTime: Infinity },
   });
   const voteDeadlineSec = voteDeadlineData ? Number(voteDeadlineData as bigint) : DEFAULT_VOTE_DEADLINE_SEC;
@@ -1046,6 +1047,7 @@ export function VoteIncentivesSection() {
     address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI,
     functionName: 'votingPowerAtTimestamp',
     args: address && bribes.latestEpoch ? [address, BigInt(bribes.latestEpoch.timestamp)] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && !!bribes.latestEpoch, refetchInterval: 60_000 },
   });
   const userPower = (userPowerData as bigint | undefined) ?? 0n;
@@ -1053,6 +1055,7 @@ export function VoteIncentivesSection() {
   const { data: userUsedData } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'userTotalVotes',
     args: address ? [address, BigInt(prevEpoch)] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && hasEpochs, refetchInterval: 30_000 },
   });
   const userUsed = (userUsedData as bigint | undefined) ?? 0n;
@@ -1067,14 +1070,16 @@ export function VoteIncentivesSection() {
           abi: typeof VOTE_INCENTIVES_ABI;
           functionName: 'totalGaugeVotes' | 'gaugeVotes';
           args: readonly (bigint | Address)[];
+          chainId: number;
         };
         const base: VoteReadCfg[] = [
-          { address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'totalGaugeVotes' as const, args: [BigInt(prevEpoch), g.pair] as const },
+          { address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'totalGaugeVotes' as const, args: [BigInt(prevEpoch), g.pair] as const, chainId: CHAIN_ID },
         ];
         if (address) {
           base.push({
             address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'gaugeVotes' as const,
             args: [address, BigInt(prevEpoch), g.pair] as const,
+            chainId: CHAIN_ID,
           });
         }
         return base;
@@ -1103,6 +1108,7 @@ export function VoteIncentivesSection() {
     () => gauges.map((g) => ({
       address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'getEpochBribeTokens' as const,
       args: [BigInt(depositEpoch), g.pair] as const,
+      chainId: CHAIN_ID,
     })),
     [gauges, depositEpoch, viAddr],
   );
@@ -1132,6 +1138,7 @@ export function VoteIncentivesSection() {
     contracts: amountReads.map(({ pair, token }) => ({
       address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'epochBribes' as const,
       args: [BigInt(depositEpoch), pair, token] as const,
+      chainId: CHAIN_ID,
     })),
     query: { enabled: amountReads.length > 0, refetchInterval: 60_000 },
   });
@@ -1149,6 +1156,7 @@ export function VoteIncentivesSection() {
     () => gauges.flatMap((g) => historyEpochs.map((e) => ({
       address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'epochBribes' as const,
       args: [BigInt(e), g.pair, ZERO_ADDRESS] as const,
+      chainId: CHAIN_ID,
     }))),
     [gauges, historyEpochs, viAddr],
   );
@@ -1202,6 +1210,7 @@ export function VoteIncentivesSection() {
       ? gauges.flatMap((g) => epochsToCheck.map((e) => ({
           address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'claimable' as const,
           args: [address, BigInt(e), g.pair] as const,
+          chainId: CHAIN_ID,
         })))
       : [],
     [address, gauges, currentEpoch, epochsToCheck, viAddr],
@@ -1262,7 +1271,7 @@ export function VoteIncentivesSection() {
   // ── Pending ETH withdrawal ─────────────────────────────────
   const { data: pendingETHData } = useReadContracts({
     contracts: address
-      ? [{ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingETHWithdrawals' as const, args: [address] as const }]
+      ? [{ address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingETHWithdrawals' as const, args: [address] as const, chainId: CHAIN_ID }]
       : [],
     query: { enabled: !!address && bribes.isDeployed, refetchInterval: 30_000 },
   });
@@ -1272,11 +1281,13 @@ export function VoteIncentivesSection() {
   const { data: firstDepositData } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'epochBribeFirstDeposit',
     args: [BigInt(depositEpoch)],
+    chainId: CHAIN_ID,
     query: { enabled: bribes.isDeployed && hasEpochs, refetchInterval: 120_000 },
   });
   const firstDepositAt = firstDepositData ? Number(firstDepositData as bigint) : 0;
   const { data: rescueDelayData } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'BRIBE_RESCUE_DELAY',
+    chainId: CHAIN_ID,
     query: { enabled: bribes.isDeployed, staleTime: Infinity },
   });
   const rescueDelaySec = rescueDelayData ? Number(rescueDelayData as bigint) : 30 * 24 * 60 * 60;

@@ -28,6 +28,7 @@ export function usePremiumAccess() {
   const { data: jbacBalance } = useReadContract({
     address: JBAC_NFT_ADDRESS,
     abi: ERC20_ABI,
+    chainId: CHAIN_ID,
     functionName: 'balanceOf',
     args: [userAddr],
     query: { enabled: !!address },
@@ -37,15 +38,15 @@ export function usePremiumAccess() {
   const { data, refetch, isLoading: isDataLoading, isError: isDataError, error: dataError } = useReadContracts({
     contracts: [
       // User subscription
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'hasPremium', args: [userAddr] },
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'getSubscription', args: [userAddr] },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'hasPremium', args: [userAddr], chainId: CHAIN_ID },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'getSubscription', args: [userAddr], chainId: CHAIN_ID },
       // Global stats
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'monthlyFeeToweli' },
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalSubscribers' },
-      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalRevenue' },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'monthlyFeeToweli', chainId: CHAIN_ID },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalSubscribers', chainId: CHAIN_ID },
+      { address: PREMIUM_ACCESS_ADDRESS, abi: PREMIUM_ACCESS_ABI, functionName: 'totalRevenue', chainId: CHAIN_ID },
       // User TOWELI balance + allowance
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr] },
-      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, PREMIUM_ACCESS_ADDRESS] },
+      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
+      { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, PREMIUM_ACCESS_ADDRESS], chainId: CHAIN_ID },
     ],
     // Gate on deployment too: PremiumAccess was zeroed for the relaunch, so
     // without this the reads fire against 0x0 and trip the page error banner.

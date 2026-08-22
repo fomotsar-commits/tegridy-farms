@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useReadContract, useReadContracts, useWatchContractEvent } from 'wagmi';
 import { type Address } from 'viem';
-import { GAUGE_CONTROLLER_ADDRESS, VOTE_INCENTIVES_ADDRESS, isDeployed } from '../lib/constants';
+import { CHAIN_ID, GAUGE_CONTROLLER_ADDRESS, VOTE_INCENTIVES_ADDRESS, isDeployed } from '../lib/constants';
 import { GAUGE_CONTROLLER_ABI, UNISWAP_V2_PAIR_ABI, ERC20_ABI, VOTE_INCENTIVES_ABI } from '../lib/contracts';
 
 export interface GaugeInfo {
@@ -33,6 +33,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     address: GAUGE_CONTROLLER_ADDRESS,
     abi: GAUGE_CONTROLLER_ABI,
     functionName: 'getGauges',
+    chainId: CHAIN_ID,
     query: { enabled, refetchInterval: 60_000 },
   });
 
@@ -45,11 +46,11 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
   const pairReads = useMemo(
     () =>
       pairs.flatMap((pair) => [
-        { address: pair, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0' as const },
-        { address: pair, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token1' as const },
-        { address: GAUGE_CONTROLLER_ADDRESS, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGaugeWeight' as const, args: [pair] as const },
-        { address: GAUGE_CONTROLLER_ADDRESS, abi: GAUGE_CONTROLLER_ABI, functionName: 'getRelativeWeight' as const, args: [pair] as const },
-        { address: GAUGE_CONTROLLER_ADDRESS, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGaugeEmission' as const, args: [pair] as const },
+        { address: pair, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0' as const, chainId: CHAIN_ID },
+        { address: pair, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token1' as const, chainId: CHAIN_ID },
+        { address: GAUGE_CONTROLLER_ADDRESS, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGaugeWeight' as const, args: [pair] as const, chainId: CHAIN_ID },
+        { address: GAUGE_CONTROLLER_ADDRESS, abi: GAUGE_CONTROLLER_ABI, functionName: 'getRelativeWeight' as const, args: [pair] as const, chainId: CHAIN_ID },
+        { address: GAUGE_CONTROLLER_ADDRESS, abi: GAUGE_CONTROLLER_ABI, functionName: 'getGaugeEmission' as const, args: [pair] as const, chainId: CHAIN_ID },
       ]),
     [pairs],
   );
@@ -72,6 +73,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     address: GAUGE_CONTROLLER_ADDRESS,
     abi: GAUGE_CONTROLLER_ABI,
     eventName: 'GaugeAdded',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled,
   });
@@ -79,6 +81,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     address: GAUGE_CONTROLLER_ADDRESS,
     abi: GAUGE_CONTROLLER_ABI,
     eventName: 'GaugeRemoved',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled,
   });
@@ -86,6 +89,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     address: GAUGE_CONTROLLER_ADDRESS,
     abi: GAUGE_CONTROLLER_ABI,
     eventName: 'Voted',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled,
   });
@@ -93,6 +97,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     address: GAUGE_CONTROLLER_ADDRESS,
     abi: GAUGE_CONTROLLER_ABI,
     eventName: 'VoteRevealed',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled,
   });
@@ -101,6 +106,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
     eventName: 'EpochAdvanced',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled,
   });
@@ -124,6 +130,7 @@ export function useGaugeList(): { gauges: GaugeInfo[]; isLoading: boolean } {
         address: token,
         abi: ERC20_ABI,
         functionName: 'symbol' as const,
+        chainId: CHAIN_ID,
       })),
     [uniqueTokens],
   );

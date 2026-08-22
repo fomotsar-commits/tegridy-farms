@@ -16,5 +16,8 @@ export {
   feesBecomeStakerYieldOn,
   getChainConfig,
   isChainConfigured,
+  launchWrongChainMessage,
   unconfiguredChainLabel,
 } from './registry';
+
+export { robinhoodChain, WAGMI_CHAINS, WAGMI_TRANSPORTS } from './viemChains';

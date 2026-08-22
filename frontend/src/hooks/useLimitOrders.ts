@@ -169,7 +169,7 @@ const EXECUTION_TTL_MS = 5 * 60_000;
 export function useLimitOrders() {
   const chainId = useChainId();
   const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const [orders, setOrders] = useState<LimitOrder[]>([]);
   const ordersRef = useRef<LimitOrder[]>([]);
   const executingRef = useRef<Map<string, ExecutionRecord>>(new Map());

@@ -17,13 +17,15 @@ import {
 } from '../constants';
 
 const BASE = 8453;
+const ROBINHOOD = 4663;
 
-describe('the registry serves exactly one chain', () => {
-  it('has mainnet and nothing else', () => {
-    // The slice that wrote the Base deploy scripts deliberately did NOT configure
-    // Base. If this list ever grows, someone took the go/no-go decision — that is
-    // allowed, but it is not allowed to happen as a side effect of a refactor.
-    expect(CONFIGURED_CHAIN_IDS).toEqual([1]);
+describe('the registry serves the three decided chains', () => {
+  it('has mainnet, Robinhood Chain and Base — the 2026-08-20 go/no-go', () => {
+    // The one-chain era ended by OPERATOR DIRECTIVE ("fully compatible with base
+    // and robinhood chain, including the launchpads and lp system"), not by
+    // refactor drift. If this list grows again, the same rule applies: a new
+    // entry is a decision with a memo, never a side effect.
+    expect(CONFIGURED_CHAIN_IDS).toEqual([1, ROBINHOOD, BASE]);
     expect(CHAIN_ID).toBe(1);
     expect(DEFAULT_CHAIN_ID).toBe(1);
   });
@@ -37,18 +39,83 @@ describe('the registry serves exactly one chain', () => {
 
   it('mainnet declares no sequencer feed, which is the fact and not a gap', () => {
     // SequencerCheck.sol no-ops on chainid 1 alone. A non-null feed here would be
-    // wrong; a null feed on an L2 entry would be a deploy-stopping bug.
+    // wrong; a null feed on a LIVE L2 entry would be a deploy-stopping bug (the
+    // structural test below pins that).
     expect(getChainConfig(1)?.sequencerUptimeFeed).toBeNull();
   });
 });
 
-describe('an unconfigured chain never reads as an empty deployment', () => {
-  it('returns null for Base rather than falling back to mainnet', () => {
-    expect(getChainConfig(BASE)).toBeNull();
-    expect(isChainConfigured(BASE)).toBe(false);
+describe('the L2 entries are configured, honest, and not yet live', () => {
+  it.each([BASE, ROBINHOOD])('chain %i is served', (chainId) => {
+    expect(isChainConfigured(chainId)).toBe(true);
+    expect(getChainConfig(chainId)).not.toBeNull();
   });
 
-  it.each([BASE, 10, 42161, 56, 999999])('chain %i is unconfigured, not empty', (chainId) => {
+  it.each([BASE, ROBINHOOD])(
+    'chain %i answers not-deployed for the protocol, never chain-unconfigured',
+    (chainId) => {
+      // "We serve this chain and this piece is not on it yet" — the exact state
+      // the three-way ContractAvailability exists to express.
+      for (const key of ['factory', 'router', 'twap', 'swapFeeRouter', 'feeSink', 'treasury'] as const) {
+        expect(contractOn(chainId, key)).toEqual({ status: 'not-deployed' });
+      }
+    },
+  );
+
+  it.each([BASE, ROBINHOOD])('chain %i knows its canonical WETH — a chain fact, not a deployment', (chainId) => {
+    const weth = contractOn(chainId, 'weth');
+    expect(weth.status).toBe('deployed');
+  });
+
+  it('the WETH facts match the chain config libraries on the contracts side', () => {
+    expect(contractOn(BASE, 'weth')).toEqual({
+      status: 'deployed',
+      address: '0x4200000000000000000000000000000000000006', // BaseChainConfig.WETH
+    });
+    expect(contractOn(ROBINHOOD, 'weth')).toEqual({
+      status: 'deployed',
+      address: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73', // RobinhoodChainConfig.WETH
+    });
+  });
+
+  it.each([BASE, ROBINHOOD])('chain %i never claims TOWELI, staking, referrals or POL', (chainId) => {
+    const config = getChainConfig(chainId)!;
+    expect(config.contracts.toweli).toBeNull();
+    expect(config.contracts.staking).toBeNull();
+    expect(config.capabilities.staking).toBe(false);
+    expect(config.capabilities.referrals).toBe(false);
+    expect(config.capabilities.protocolOwnedLiquidity).toBe(false);
+    expect(config.feeSink).toBe('remittance');
+  });
+
+  it('Base carries the canonical Chainlink sequencer uptime feed', () => {
+    expect(getChainConfig(BASE)?.sequencerUptimeFeed).toBe(
+      '0xBCF85224fc0756B9Fa45aA7892530B47e10b6433',
+    );
+  });
+
+  it('no L2 entry may go live with a null sequencer feed — structural, not per-entry', () => {
+    // SequencerCheck reverts off-mainnet on a zero feed, so an L2 whose core
+    // contracts are deployed while its feed is null is a configuration that
+    // bricks in production. Robinhood's feed is null TODAY precisely because its
+    // contracts are all still not-deployed; the AttestedSequencerUptimeFeed
+    // address must land in the same change-set that fills them, and this test is
+    // the tripwire that makes forgetting it a red build instead of a live incident.
+    for (const chainId of CONFIGURED_CHAIN_IDS) {
+      if (chainId === 1) continue;
+      const config = getChainConfig(chainId)!;
+      const anyCoreLive = (['factory', 'router', 'twap', 'swapFeeRouter'] as const).some(
+        (key) => contractOn(chainId, key).status === 'deployed',
+      );
+      if (anyCoreLive) {
+        expect(config.sequencerUptimeFeed, `chain ${chainId} is live with a null feed`).not.toBeNull();
+      }
+    }
+  });
+});
+
+describe('an unconfigured chain never reads as an empty deployment', () => {
+  it.each([10, 42161, 56, 999999])('chain %i is unconfigured, not empty', (chainId) => {
     // 'chain-unconfigured' and 'not-deployed' are different facts. If an
     // unconfigured chain answered 'not-deployed', every surface would render the
     // "not live yet" state for a chain nobody has decided to launch on.
@@ -66,7 +133,7 @@ describe('an unconfigured chain never reads as an empty deployment', () => {
   });
 
   it('names an unconfigured chain honestly', () => {
-    expect(unconfiguredChainLabel(BASE)).toBe('Base');
+    expect(unconfiguredChainLabel(42161)).toBe('Arbitrum');
     expect(unconfiguredChainLabel(999999)).toBe('Chain 999999');
     expect(unconfiguredChainLabel(undefined)).toBe('Unknown Network');
   });
@@ -140,8 +207,13 @@ describe('the registry is not mutable at runtime', () => {
   it('cannot be extended by assignment', () => {
     expect(Object.isFrozen(CHAINS)).toBe(true);
     expect(() => {
+      (CHAINS as Record<number, unknown>)[999999] = {};
+    }).toThrow();
+    expect(CHAINS[999999]).toBeUndefined();
+    // And an existing entry cannot be swapped out from under its consumers.
+    expect(() => {
       (CHAINS as Record<number, unknown>)[BASE] = {};
     }).toThrow();
-    expect(CHAINS[BASE]).toBeUndefined();
+    expect(CHAINS[BASE]?.name).toBe('Base');
   });
 });
