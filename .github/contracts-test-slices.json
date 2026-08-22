@@ -84,7 +84,7 @@
     },
     {
       "slice": "l2-markets-vaults",
-      "pattern": "test/{base,markets,robinhood,v2,vaults}/*.t.sol"
+      "pattern": "test/{base,curve,markets,robinhood,v2,vaults}/*.t.sol"
     },
     {
       "slice": "airdrop-launch-vesting",

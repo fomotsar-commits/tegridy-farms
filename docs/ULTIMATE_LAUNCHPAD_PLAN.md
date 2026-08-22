@@ -177,3 +177,35 @@ live preview, the double-launch broadcast guard, the EIP-5792 one-confirmation f
 | M.10 | Send the mainnet petition + multichain rider to Whetstone | One conversation, three chains. Pre-send checklist in the main petition governs. |
 | M.11 | ~~Custody decision~~ **DECIDED**: multisig receives → per-launch LockVault earmark; burn-on-failure policy; Merkle-epoch LP campaigns + VestingFactory grants interim; Phase-2 audited staker factory | Decision rationale in §2. Operator executes, does not re-decide. |
 | M.12 | Reserve go-live change-set (recipient + wizard math + Fact Sheet line) | One PR, order above. |
+
+## 4. The own EVM curve — the zero-toll endgame (added 2026-08-22)
+
+§1 makes third-party rails graduate to us; this section removes the third party. Doppler's
+carve (`max(5% of fees, 0.1% of proceeds)` cap 20%, plus the bytecode-enforced ≥5% locker
+line) is a toll we pay for their auction infrastructure. **`src/curve/TegridyCurveLauncher.sol`**
+is the in-house alternative: the pump.fun-shape virtual-reserve curve, our fee, our pair,
+our reserve — nobody else in any split.
+
+What it is, in one pass: `create(name, symbol)` deploys a fixed-supply 1B ERC20
+(`TegridyCurveToken` — no owner, no mint, no hooks) and opens a constant-product curve over
+virtual ETH reserves; attached ETH executes the creator's first buy atomically (nothing can
+front-run a token that doesn't exist yet). Every buy/sell pays the snapshotted fee
+(default 1%, creator's share default 50% OF the fee, creator rounds down — Solana-parity
+exact-sum split), accrued pull-payment so a reverting creator address can only hurt itself
+(the rent-band lesson's EVM analog). The buy that reaches `graduationEth` **graduates in
+the same transaction**: all raised ETH (overshoot included — it deepens the pool) is
+wrapped and paired with the unsold tokens on OUR `TegridyFactory`, LP minted straight to
+`0xdead` (burned, not custodied — the credibility story requires no trust in our keys),
+and the 5% reserve tranche transfers to custody. A launch that never graduates leaves its
+reserve + unsold supply inert in the launcher forever — §2's burn-on-failure with zero
+extra code. Config changes touch future launches only (snapshot at create), and the
+config setter enforces the price-continuity band ported from the audited Solana curve
+(`graduationEth ≥ 19×virtualEth` ⇒ listing within 5% of the final curve price — the
+"gapped 7x at listing" misconfiguration is unrepresentable). No oracle, no sequencer
+feed, no chain-specific code — `script/curve/DeployCurveLauncher.s.sol` serves
+mainnet/Base/4663 alike (M.16).
+
+Positioning vs the Doppler rail: keep both. Doppler stays the "serious auction" rail
+(Whetstone's dutch-auction discovery, V4 hooks, the petition path); the own curve is the
+frictionless rail where we keep 100% of the fee flow. The wizard can offer both with the
+fee difference printed honestly — the heat gate curates either way.

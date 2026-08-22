@@ -427,3 +427,21 @@ The 5%-reserve architecture is DECIDED (research-backed) in [ULTIMATE_LAUNCHPAD_
 | M.13 | **CoW partner-fee flip decision** (pricing): set `COW_PARTNER_FEE_BPS` per the fee-table policy | Capability wired dark; flip re-derives doc+hash atomically. Verify CoW's `metadata.partnerFee` schema + one canary order first. Applies to market swaps, limit, TWAP, DCA — the largest uncollected line found. |
 | M.14 | **Jupiter referral accounts** (Solana) — create, then attach integrator-fee params to Trigger createOrder | Until then our limit-order fee stays OFF (code comment documents it). |
 | M.15 | **Criteria-offer fee canary**: place one live collection offer with `CRITERIA_OFFER_PLATFORM_FEE_ENABLED=true` on a test wallet; if OpenSea accepts, flip for real | If rejected, the missing 1% reverts to a documented toll of the criteria-offer feature. |
+
+### Addendum 2026-08-22 (last) — the zero-toll program (M.16–M.18)
+
+Owner directive: "not a satoshi from splits to anyone but our consumers and us." The one
+rail that pays a third-party toll by construction (Doppler's 5–20%) now has an in-house
+alternative: **`src/curve/TegridyCurveLauncher.sol`** — our own virtual-reserve launch
+curve. 1% trade fee split with the creator (snapshot at create, pull-payment), graduation
+adds ALL raised ETH + unsold tokens to OUR `TegridyFactory` pair with **LP minted to
+0xdead**, 5% ecosystem reserve carved at create with burn-on-failure semantics, and a
+price-continuity band ported from the audited Solana curve (naive params list ~7x under
+the final curve price — the band makes that misconfiguration unrepresentable). No oracle,
+no sequencer feed, no chain-specific code: one deploy script serves 1 / 8453 / 4663.
+
+| # | Operator step | Notes |
+|---|---|---|
+| M.16 | **Own-curve go-live per chain**: `forge script script/curve/DeployCurveLauncher.s.sol` with FACTORY + MULTISIG + PAUSE_GUARDIAN + GRADUATION_ETH_WEI (+ RESERVE_RECIPIENT once M.11 decides custody) | Owner = multisig AT BIRTH (no rotation step). Defaults: fee 1%, creator 50% of the fee, reserve 5%, `virtualEth = graduationEth/19` (continuity-exact). GRADUATION_ETH_WEI is a pricing decision the script refuses to default. Needs the chain's TegridyFactory (M.2) first. |
+| M.17 | **Solana own-curve RESTART** — follow `solana/tegridy-amm/MAINNET_RUNBOOK.md` § "THE RESTART, IN ORDER" (R1–R9) | Kills Meteora's 20% for good. ~13.4 SOL total float (8.4 measured deploy rent + seed + buffer). Operator generates + OFFLINE-backs-up the fresh program keypairs — the old ids are spent and the prior keys were never backed up. |
+| M.18 | **Un-strand the fee rail BEFORE deepening the pool**: one permissionless tx — `SwapFeeRouter.recoverCallerCredit()` (src/SwapFeeRouter.sol:1829) — pulls the parked 2.4e12 wei (80% of everything the rail ever earned) out of `ReferralSplitter.callerCredit` into `accumulatedETHFees` | Re-verified against source 2026-08-22: permissionless, 30s global cooldown, router must be unpaused, splitter `setupComplete` must be true. Every deepen-pool dollar routed before this call parks 80% the same way. |

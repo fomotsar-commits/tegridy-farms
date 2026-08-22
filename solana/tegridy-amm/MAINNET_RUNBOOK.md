@@ -16,6 +16,34 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 
 ---
 
+## THE RESTART, IN ORDER (added 2026-08-22 — the zero-toll directive)
+
+The owner's standing decision: relaunch on our own curve and keep **100% of the 1% trade
+fee in-house** (split with the launch creator per §5b — recommended 48/52), instead of
+Meteora DBC's 20% carve. This is a RESTART, not a top-up: both prior program ids are spent
+(§4/§5b banners), so everything program-shaped regenerates while the Squads-side
+identities survive. The sequence, threading the sections below:
+
+| step | what | where | survives / regenerates |
+|---|---|---|---|
+| R1 | Confirm float on hand: **~8.4 SOL deploy rent (MEASURED, §0) + pool seed + fee buffer ≈ 13.4 SOL total**. Rent is lamport-denominated — a SOL price move changes the dollar cost, never the SOL needed | §0 | — |
+| R2 | 🔑 Generate **two fresh program keypairs** + the tegridy-launch deploy authority. Back all three up OFFLINE before the first build — the 08-01 identities were gitignored and UNBACKED-UP, which is one machine failure away from a re-restart | §1 | REGENERATES (old ids spent) |
+| R3 | Re-derive (never trust the table) the Squads multisig / **vault PDA** / fee-receiver WSOL ATA. All three exist and survive the restart | §0 identities | SURVIVES |
+| R4 | 🔑 Patch the 4 authority constants — cp-swap `admin::ID` = an address **proven to sign AND pay on mainnet first** (the §0 post-mortem; the multisig account address bricked the last deploy), fee receiver = the vault's WSOL **token account**, both `declare_id!`s, tegridy-launch `deployer::ID` (fail-closed sentinel otherwise) | §2, §5b step 1 | — |
+| R5 | Build verifiably, **read the linker output**: an SBF stack-frame overflow is a linker WARNING that `cargo check` never surfaces — a warned build ships and then faults at runtime | §3 | — |
+| R6 | 🔑💰 Deploy both programs; move upgrade authority to the vault PDA | §4 | — |
+| R7 | 🔑 `create_amm_config` (cp-swap) and `initialize_global` (tegridy-launch). The three non-free parameters in §5b — creator share, migration reserve, **computed** graduation target — decide whether every launch lists at its curve price or gaps | §5, §5b | — |
+| R8 | 🔑💰 Seed the flagship pool; graduation flows land in **our** `[b"launchpool", mint]` PDA (the canonical-PDA squat is why graduation never targets the stock cp-swap pool address) | §6 | — |
+| R9 | 🌐 Jupiter DEX-integration submission + frontend wiring (assistant task once addresses exist) | §8, §9 | — |
+
+Two program-behavior notes an operator reading logs will want: creator fee legs FOLD into
+the trade instead of crediting a drained wallet (crediting into the 1..890,879-lamport
+rent band would revert the whole tx — the fold is the fix, not a bug), and lamport
+mutations reconcile per-CPI, so the first CPI in an instruction names every account it
+will touch. Both are inside the audited program; neither needs operator action.
+
+---
+
 ## 0. Prereqs
 
 ### DEPLOY FLOAT — **~8.4 SOL**, MEASURED
