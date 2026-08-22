@@ -57,10 +57,24 @@ section immediately below.
 **Status of the five above, as of 2026-08-21:** ① is being worked in a separate session — check
 whether `tsc -b` is green before starting it, rather than assuming either way. ②–⑤ are untouched.
 
-**Two lanes have been re-verified item-by-item and now carry their own next steps: Frontend**
-(4 of 5 named items CLOSED, R080 narrowed to 1-of-3 applied) and **Repo hygiene** (receipts
-CLOSED; worktrees/branches/stashes re-measured and growing). Read those blocks before picking
-anything up from either — roughly a third of what the prose says is open is not.
+**Four lanes have now been re-verified item-by-item and carry their own next steps: Frontend**
+(4 of 5 named CLOSED; R080 narrowed to 1-of-3) · **Repo hygiene** (receipts CLOSED; every other
+number grew) · **Contracts** (restaking DEAD; `canUpdate()` and `additionalContracts` CONFIRMED
+with mechanisms) · **the completeness-critic eight** (CSP and the advisory gate CLOSED; vendored
+libs, zero-test router and `release.yml` CONFIRMED; nakamigos WORSE). Read those blocks before
+picking anything up — **about a third of what the prose calls open is already closed, and a few
+things are worse than written.**
+
+**Still not re-verified, and they are the ones with money and credentials in them:** backend,
+env docs, Solana docs, security docs, external prep, plus the migration/DB items that need a
+live read. Treat every claim in those as an 08-15 hypothesis.
+
+🔴 **Two findings from the 08-21 sweep deserve to be read as a pair, because together they say
+something neither says alone:** the advisory gate exists and the debt has not moved (40, ten
+high, unchanged in six days), and the contracts size gate emits `::warning` where the ceiling now
+actually binds (TegridyStaking, 22 B). **Gates got built; nothing downstream reads them.** That is
+the same defect this repo has rediscovered nine times now — a gate is not a control until
+something fails when it fires.
 
 ---
 
@@ -505,6 +519,43 @@ prep (5).** Registry gaps, the `additionalContracts` blind spot, TegridyRestakin
 bytes over EIP-170 on this branch, `canUpdate()` returning true while `update()` reverts, and
 the doc corrections that must precede every TIER 5 send.
 
+> **Contracts lane re-verified 2026-08-21. One is dead, two are confirmed real with the exact
+> mechanism, and a CI comment has drifted from the thing it describes.**
+>
+> - ❌ **DEAD — "TegridyRestaking still 2,208 bytes over EIP-170."** Landed 2026-08-19 in
+>   `c749c933`: the admin-sister split puts the host at **22,114 B, 2,462 B UNDER**. Do not
+>   re-open, and do not chase the 36-selector diff the repo used to point at — its own artifact
+>   measured **24,743 B, 167 B OVER**. See correction 6 above.
+> - 🔴 **CONFIRMED — `canUpdate()` returns true while `update()` reverts, three separate ways.**
+>   `TegridyTWAP.sol:1110`'s `canUpdate()` evaluates **only the time condition** (`count == 0`, or
+>   wrap-safe `elapsed >= MIN_UPDATE_INTERVAL`). `update()` at `:489` reverts *before* ever
+>   reaching that check on `UnknownPair` (`!factory.isPair(pair)`) and `PairDisabled`
+>   (`factory.disabledPairs(pair)`), then later on `InsufficientFee` when
+>   `msg.value < effectiveFee` — and `effectiveFee` falls back to `MIN_UPDATE_FEE` whenever
+>   `updateFeeConfigured` is false, so a caller sending 0 with no fee configured still reverts.
+>   **Any keeper, script or UI gating on `canUpdate() == true` will burn gas on a revert.**
+>   → **Next step:** decide which contract the name is making. Either widen `canUpdate()` to
+>   evaluate all four preconditions and return the fee it requires, or rename it to something
+>   that cannot be read as "this call will succeed" (`isPeriodElapsed`). Widening is the better
+>   fix — the callers that exist want the question the name asks. Do not just document it.
+> - 🔴 **CONFIRMED — the `additionalContracts` blind spot is real and unhandled.** Zero matches
+>   for `additionalContracts` across `scripts/`, `frontend/scripts/` and `.github/`. Any contract
+>   a Forge script deploys via CREATE from inside another contract lands in that array of the
+>   broadcast JSON and is invisible to the registry verifier, which only reads top-level
+>   `transactions[].contractAddress`.
+>   → **Next step:** teach `frontend/scripts/verify-addresses.mjs` to walk
+>   `transactions[].additionalContracts[]` too, then re-run it — expect it to surface addresses
+>   nobody has classified. ⚠️ Land that **separately** from flipping registry check 6; the doc's
+>   own hazard table warns that combining them turns CI red against 36 unclassified addresses.
+> - ⚠️ **A CI comment has drifted.** `contracts-ci.yml:117` records `TegridyStaking — 24,337 B
+>   (measured 2026-07-24): 239 B under EIP-170`. The 2026-08-21 re-measure puts the real headroom
+>   at **22 B**. The number in the comment is a year-old-style stale constant that reads as
+>   reassurance; the ceiling now binds on TegridyStaking, and for an allowlisted contract that is
+>   under EIP-170 but over the floor, `contracts-ci.yml:151` emits **`::warning`, not `::error`** —
+>   so the last 22 bytes will be spent by a PR that goes green.
+>
+> **Not re-verified:** backend, env docs, Solana docs, security docs, external prep.
+
 ---
 
 # What the sweep itself missed
@@ -549,6 +600,48 @@ verified, none of which any lane owned:
 8. **`frontend/src/nakamigos/` is the largest unswept surface** — 177 files, 52,530 LOC, ~26% of
    `frontend/src`, a live marketplace handling **signed Seaport orders**, and it appears in the
    211 items exactly once. Named as unswept, not as buggy — nobody looked.
+
+> ## Re-verified 2026-08-21 — three closed, three confirmed, one worse, one unreachable
+>
+> These eight were the completeness critic's findings, so they had never been re-read. Checked at
+> file:line except where noted.
+>
+> 1. ✅ **CLOSED — the CSP does NOT block the Irys rail.** `frontend/vercel.json`'s `connect-src`
+>    now ends with `https://uploader.irys.xyz https://arweave.net`. And the reason this is safe to
+>    call closed rather than half-closed: **`index.html` ships no CSP at all** (zero matches for
+>    `Content-Security-Policy`), so there is no second policy to intersect with. Two CSPs both
+>    apply and the browser enforces the *intersection*, which is how this class of fix usually
+>    fails — not the case here. LaunchpadV2 collection creation is unblocked.
+> 2. ⚠️ **HALF CLOSED — the gate exists, the debt does not move.** `.github/workflows/npm-advisories.yml`
+>    now exists and fires on `push`, `pull_request`, `schedule` and dispatch, so "no advisory gate
+>    in any workflow" is dead. **The advisories are unchanged: `npm audit` reports 40 — 0 critical,
+>    10 high, 12 moderate, 18 low**, exactly the 08-15 figures. A gate that has been green over 40
+>    advisories for six days is either not failing on them or nobody is reading it.
+>    → **Next step:** read what severity that workflow actually fails at before trusting it. The
+>    bigint-buffer overflow via `@solana/spl-token` is a **high in a signing app** — triage that
+>    one by hand regardless of what the gate says.
+> 3. 🔴 **CONFIRMED — the three big vendored trees still cannot be bumped.** `.gitmodules` declares
+>    only `v4-core`, `v4-periphery`, `solmate`, `solady`. **`openzeppelin-contracts` (833 tracked
+>    files), `forge-std` (68) and `uniswap-hooks` (60) are tracked file copies with no submodule
+>    entry** — `git submodule update --remote` cannot reach them, so they are frozen at whatever
+>    was pasted in. OZ is the one that matters: it is the security-critical dependency.
+> 4. ⏸️ **Not re-verifiable from the repo** — "migrations create 7 tables and never create 5 that
+>    are live" needs a read against the live DB. Carried forward unchanged; the applied-state
+>    ledger is the authority, not the migration files.
+> 5. 🔴 **CONFIRMED — `TegridyNativeBuyRouter` still has zero tests.** `git ls-files | grep -i
+>    nativebuy` returns exactly one path: `contracts/src/TegridyNativeBuyRouter.sol`. It remains
+>    absent from all 211 items, which is how it stayed invisible.
+> 6. 🔴 **CONFIRMED, with the mechanism — `release.yml` has never run and cannot have.** It
+>    triggers on `push: tags: - "v*.*.*"`. The three tags in the repo are `audit-pass-6`,
+>    `audit-remediation` and `backup/crazy-nobel-pre-rebase` — **none match the glob**. So nothing
+>    marks which commit is production, and adding the workflow did not change that.
+>    → **Next step:** this is one `git tag v0.1.0 && git push --tags` away from being real, but do
+>    not fire it before deciding what a release *means* here, since prod deploys via Vercel on two
+>    separate paths and a tag would claim to mark something it does not control.
+> 7. ✅ Half-closed 2026-08-19 — see the PWA note under item 7 above.
+> 8. 📈 **WORSE — `frontend/src/nakamigos/` grew from 177 to 191 tracked files** and is still the
+>    largest unswept surface in the repo, still handling signed Seaport orders. Six days, +14
+>    files, still nobody has looked.
 
 ---
 
