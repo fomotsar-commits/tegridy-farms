@@ -31,7 +31,7 @@ import { DOPPLER_MAINNET, AIRLOCK_ABI, DopplerModuleState } from '../doppler.con
 import { TEGRIDY_V4_MIGRATOR_ADDRESS } from '../constants';
 import { MIGRATION_POOL, NATIVE_ETH } from '../airlock';
 import { migrationPoolKey, migrationPoolId, type V4PoolKey } from '../lockerStream';
-import { isDeployed, TEGRIDY_FACTORY_ADDRESS } from '../../constants';
+import { isDeployed } from '../../constants';
 import { DEFAULT_FEE_CONSTITUTION } from '../config';
 import {
   MIGRATE_TO_DAMM_V2_LABEL,
@@ -161,7 +161,11 @@ export function plannedVenueMigrator(): {
   return {
     address: TEGRIDY_V4_MIGRATOR_ADDRESS,
     configured: isDeployed(TEGRIDY_V4_MIGRATOR_ADDRESS),
-    venue: `Tegridy DEX (TegridyFactory ${TEGRIDY_FACTORY_ADDRESS})`,
+    // Shape A per docs/GRADUATION_VENUE_DECISION.md: the canonical Uniswap V4
+    // PoolManager with OUR TegridyV4Hook attached — not the Tegridy V2-fork DEX.
+    // This string previously named the rejected Shape B ("Tegridy DEX
+    // (TegridyFactory …)"), the loose end the decision doc flagged.
+    venue: 'a hooked canonical Uniswap V4 pool (TegridyV4Hook — Tegridy fee economics on Uniswap liquidity)',
     preconditions: [
       'Deploy the venue graduation migrator and verify it on Etherscan.',
       'Whetstone whitelists it on the Airlock: setModuleState(migrator, 4). Airlock.create rejects a non-whitelisted module, so launches fail at CREATE time without this.',

@@ -60,13 +60,19 @@ farming only after a pair exists and a reward token is chosen.
 
 - **Staking / RevenueDistributor / ReferralSplitter / POLAccumulator** — Base memo reasons,
   unchanged. `FeesDistributed` on 4663 means "queued for the bridge", not "paid to stakers".
-- **The Doppler token-launcher rail on 4663** — the SDK has a 4663 address book, but the
-  chain has **no UniswapV4Migrator and no V1 StreamableFeesLocker** (V2-only, different key
-  shape). Our current migration policy (`uniswapV4` + V1 locker) structurally cannot run
-  there; picking a replacement (UniswapV2MigratorSplit into OUR factory pair would match the
-  own-venue directive) is a product decision with its own verification pass — tracked as
-  follow-up, not smuggled into this leg. Doppler-on-Base has full module parity and needs
-  only the per-chain address book on the frontend side.
+- ~~The Doppler token-launcher rail on 4663~~ — **RESOLVED 2026-08-22, owner directive
+  "graduate to us."** The stock modules can't do it (`UniswapV2MigratorSplit` hardwires
+  Whetstone's own V2 factory — `factory()` read on-chain — and the chain has no
+  `UniswapV4Migrator`/V1 locker), so graduation-to-us is OUR whitelisted module: **Shape A
+  extended to 4663** — the existing `TegridyLiquidityMigrator` stack (77 tests) deployed
+  against the canonical V4 substrate verified live on this chain (PoolManager cross-bound
+  by Doppler's own initializer AND by PositionManager). Ships via
+  `script/robinhood/DeployRobinhoodGraduationStack.s.sol`; gated on the same Whetstone
+  whitelist as mainnet (`docs/WHETSTONE_MIGRATOR_PETITION_4663.md` — a rider, one
+  conversation, the same 3-of-6 Safe owns all three Airlocks). Until it lands, 4663
+  launches would use stock modules and the venue probe says so honestly. Full reasoning:
+  the 4663 addendum in `docs/GRADUATION_VENUE_DECISION.md`. Doppler-on-Base still has full
+  module parity and needs only the per-chain address book on the frontend side.
 - **Dutch-auction grace constants review** — DropV2's 4h `SEQUENCER_GRACE_PERIOD` is
   compile-time and was tuned on Arbitrum/Base history; 4663 inherits it. Revisit only with
   outage data.

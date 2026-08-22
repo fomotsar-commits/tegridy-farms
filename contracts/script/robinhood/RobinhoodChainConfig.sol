@@ -59,6 +59,33 @@ library RobinhoodChainConfig {
     ///         decision, and this leg deploys the same economics or none.
     uint256 internal constant SWAP_FEE_BPS = 50;
 
+    // ─── Canonical Uniswap V4 stack on 4663 (graduation venue substrate) ─
+    //
+    // Provenance: Uniswap's own v4 deployments directory (developers.uniswap.org)
+    // lists Robinhood Chain, and every address below was re-read on-chain
+    // 2026-08-22: PoolManager carries 48,021 bytes of code and is the SAME
+    // address Doppler's UniswapV4Initializer reports via poolManager();
+    // PositionManager carries 47,757 bytes and its poolManager() returns the
+    // PoolManager below (cross-bound, not just co-listed); Permit2 is the
+    // canonical CREATE2 singleton. These are constants, not env vars, for the
+    // same reason WETH is: an address that gets baked into an immutable
+    // deserves better than an operator paste.
+
+    /// @notice Uniswap V4 PoolManager (singleton) on Robinhood Chain.
+    address internal constant UNISWAP_V4_POOL_MANAGER = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
+
+    /// @notice Uniswap V4 PositionManager on Robinhood Chain.
+    address internal constant UNISWAP_V4_POSITION_MANAGER = 0x58daec3116aae6D93017bAAea7749052E8a04fA7;
+
+    /// @notice Canonical Permit2.
+    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    /// @notice Doppler's Airlock on Robinhood Chain (owner: the same 3-of-6
+    ///         Whetstone Safe as mainnet/Base — verified 2026-08-22). The
+    ///         graduation migrator is an Airlock MODULE; launches cannot select
+    ///         it until that Safe whitelists it via setModuleState(module, 4).
+    address internal constant DOPPLER_AIRLOCK = 0xeb7C034704eF8Dcd2D32324c1545f62fB4aD0862;
+
     /// @notice Runtime size of an EIP-7702 delegation designator (0xef0100 + 20 bytes).
     /// @dev    Such an account has code and is still one key. TegridyFactory rejects it
     ///         explicitly in `proposeGuardianChange` (`codeLen != 23`); the role checks

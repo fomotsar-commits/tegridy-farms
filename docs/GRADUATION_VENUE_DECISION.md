@@ -269,3 +269,49 @@ Recorded, not fixed here.
   burn-strength claim** without burning. Nothing depends on it today. If a future launch
   tier wants "irreversible", that is the mechanism, and it needs its own decision about who
   may choose it.
+
+---
+
+# Addendum 2026-08-22 — the decision extends to Robinhood Chain (4663), unchanged
+
+The owner directed that Doppler launches on Robinhood Chain "graduate to us." That
+directive is SATISFIED BY SHAPE A and does not reopen this decision: the venue that is
+"us" remains the hooked canonical V4 pool, and every argument in the table above carries
+over to 4663 — same written-and-tested module, same zero AMM-layer surface, same external
+gate. Shape B stays rejected on 4663 for the same reasons it was rejected here, plus one
+this chain adds: the 4663 leg's TegridyFactory is not even deployed yet, so B would be an
+unwritten migrator into an undeployed venue.
+
+What made the extension possible had to be verified first, and was (2026-08-22, each read
+against the chain itself — provenance in `contracts/script/robinhood/RobinhoodChainConfig.sol`):
+
+- The **full canonical V4 substrate is live on 4663**: PoolManager
+  `0x8366…0951` (48,021 B — and the SAME address Doppler's UniswapV4Initializer reports),
+  PositionManager `0x58da…4fA7` (whose `poolManager()` returns that PoolManager —
+  cross-bound, not co-listed), Permit2, Universal Router; listed by Uniswap's own
+  deployments directory.
+- Whetstone's stock migrators on 4663 CANNOT graduate to us: `UniswapV2MigratorSplit`
+  hardwires Whetstone's own V2 factory (`factory()` = `0x8bcE…937f`, read on-chain), and
+  there is no `UniswapV4Migrator` / no V1 locker on the chain — so "graduate to us" via
+  stock modules is impossible by config, on any shape.
+- The **4663 Airlock owner is the same 3-of-6 Safe as mainnet and Base** (byte-identical
+  owner set; no guard, no timelock — verified). One petition relationship covers every
+  chain; the ask is one `setModuleState([migrator],[4])` Safe tx per chain.
+
+The execution artifact is `contracts/script/robinhood/DeployRobinhoodGraduationStack.s.sol`
+(+ its test suite): the SAME five contracts as mainnet's `DeployV4.s.sol` — hook admin,
+mined `TegridyV4Hook`, `TegridyV4SwapRouter`, `TegridyFeeLocker`, `TegridyLiquidityMigrator`
+— against the verified 4663 substrate constants, minus `TegridyBoostedLPStaker` (TOWELI
+rewards + veTOWELI boost are mainnet-only; afterlife farming on 4663 is a separate decision
+with its own reward token). Policy constants are byte-identical to mainnet: same economics
+or none.
+
+Sequencing note the mainnet path does not have: the petition for 4663 (see
+`docs/WHETSTONE_MIGRATOR_PETITION_4663.md`) should ride WITH the mainnet petition, not
+ahead of it — one conversation, two chains, the same Safe. And the whitelist-precedent
+reality found while verifying this addendum applies to both: **no third-party module has
+ever been whitelisted on any of the three Airlocks** — every state-4 migrator is
+Whetstone-authored. The realistic petition outcome may be Whetstone blessing or co-owning
+the module (their `src/extensions/CustomUniswapV3Migrator` shows they build custom
+migrators for partner venue shapes). The fallback remains the fallback: stock modules run
+until the whitelist lands, and nothing above changes what launches do today.
