@@ -146,7 +146,13 @@ describe('LOCKER_V1_ABI — pinned to the mainnet-probed surface', () => {
     expect(LOCKER_V1_ABI.find((f) => f.name === 'beneficiariesClaims')?.inputs.map((i) => i.type))
       .toEqual(['address', 'address']);
     // V1 has no streams(); re-adding it is the original bug.
-    expect(LOCKER_V1_ABI.some((f) => f.name === 'streams')).toBe(false);
+    //
+    // Compared as `string`, not against the ABI's literal name union: today that
+    // union is exactly `'positions' | 'beneficiariesClaims'`, so `=== 'streams'`
+    // is a comparison the compiler settles statically (TS2367). The runtime check
+    // is the point and is unchanged — it is what goes red the moment someone puts
+    // `streams` back.
+    expect(LOCKER_V1_ABI.map((f): string => f.name)).not.toContain('streams');
   });
 });
 

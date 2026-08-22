@@ -384,7 +384,13 @@ export default function DashboardPage() {
               role="tab"
               id={`dash-tab-${key}`}
               aria-selected={tab === key}
-              aria-controls={`dash-panel-${key}`}
+              // Only the SELECTED panel is mounted — the panels live inside an
+              // AnimatePresence keyed on the active tab. Emitting aria-controls
+              // unconditionally pointed the three inactive tabs at element ids
+              // that do not exist in the DOM, which is an invalid reference: a
+              // screen reader is told the control targets a region and then
+              // cannot find it. Set it only when the target is really there.
+              aria-controls={tab === key ? `dash-panel-${key}` : undefined}
               tabIndex={tabKeys.tabIndex(key)}
               ref={tabKeys.ref(key)}
               onClick={() => handleTabChange(key)}

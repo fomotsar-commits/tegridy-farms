@@ -362,11 +362,28 @@ describe('adapters from the upstream cores', () => {
     expect(read.state === 'read' && read.value.firedGateIds).toEqual(['mint-authority-live']);
   });
 
+  /**
+   * A COMPLETE `DeployerReputation`. This used to be a two-field object with
+   * `as DeployerReputation` welded on: nine required fields were missing, so the
+   * fixture claimed a shape the production type never produces. It happened to
+   * work only because `deployerReadFrom` reads `counts` and `confidence` and
+   * nothing else today — the first time it reads `observedAt` or `trajectories`
+   * the fixture hands it `undefined` and the test still goes green.
+   */
   function reputation(counts: Partial<DeployerReputation['counts']>): DeployerReputation {
     return {
+      method: { version: 'test', description: 'fixture' },
+      deployer: '0x00000000000000000000000000000000000000de',
+      observedAt: 1_800_000_000,
       counts: { created: 0, activeMarket: 0, thinMarket: 0, noMarket: 0, unobserved: 0, ...counts },
+      latestCreationAt: null,
+      lastActivityAt: null,
+      trajectories: [],
       confidence: { level: 'medium', reasons: [] },
-    } as DeployerReputation;
+      headline: '',
+      disclosures: [],
+      correctionPath: '',
+    };
   }
 
   it('maps "no direct creations found" to UNREAD, never to a spotless record', () => {

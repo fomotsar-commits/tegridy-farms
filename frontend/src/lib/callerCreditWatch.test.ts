@@ -65,7 +65,19 @@ const LIVE = {
   errors: [] as string[],
 };
 
-const reading = (over: Partial<typeof LIVE> = {}) => ({ ...LIVE, ...over });
+/**
+ * What an override may say. `Partial<typeof LIVE>` was wrong: LIVE is a
+ * HAPPY-PATH reading, so every field infers as non-nullable, while the module
+ * documents and handles every field as `… | null` ("we tried and could not read
+ * it") — and Rule 1, the thing most of this file exists to pin, is expressed by
+ * passing exactly those nulls. `errors` stays non-nullable because
+ * `classifyCallerCredit` spreads it unconditionally; `null` there would throw.
+ */
+type ReadingOverride = { [K in keyof Omit<typeof LIVE, 'errors'>]?: (typeof LIVE)[K] | null } & {
+  errors?: string[];
+};
+
+const reading = (over: ReadingOverride = {}) => ({ ...LIVE, ...over });
 
 describe('a non-zero callerCredit is surfaced, never silently ignored', () => {
   it('classifies money sitting in the mapping as stranded', () => {
@@ -181,7 +193,13 @@ describe('the economics are reported, because they argue against automating this
 
   it('break-even gas price is the price at which the pull exactly pays for itself', () => {
     const c = classifyCallerCredit(reading());
-    const atBreakEven = classifyCallerCredit(reading({ gasPriceWei: c.economics!.breakEvenGasPriceWei }));
+    // `caller-credit.mjs` is an un-annotated .mjs, so `breakEvenGasPriceWei`
+    // (`creditWei / gasEstimate` over two implicitly-`any` locals) INFERS as
+    // `number` while being a bigint at run time. Assert the run-time type rather
+    // than assume it — a float here would silently truncate a wei figure — then
+    // convert, which is a no-op for a bigint.
+    expect(c.economics!.breakEvenGasPriceWei, 'break-even gas price is not a wei bigint').toBeTypeOf('bigint');
+    const atBreakEven = classifyCallerCredit(reading({ gasPriceWei: BigInt(c.economics!.breakEvenGasPriceWei) }));
     expect(atBreakEven.economics!.gasCostWei).toBeLessThanOrEqual(LIVE.creditWei);
   });
 });

@@ -317,7 +317,16 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/DashboardPage.tsx',
     gate: null,
     knownViolations: [],
-    connectedViolations: ['aria-valid-attr-value', 'heading-order'],
+    // Emptied 2026-08-22 — both declared violations are gone, and the list may
+    // only shrink without a reason written here.
+    // `aria-valid-attr-value`: the three inactive tabs carried aria-controls
+    // pointing at panel ids that do not exist, because the panels live in an
+    // AnimatePresence keyed on the active tab so only one is ever mounted. The
+    // attribute is now emitted only for the selected tab, where its target is
+    // real. `heading-order` had already been fixed upstream of this change and
+    // the entry was simply stale, which is the failure mode this table exists
+    // to prevent in the other direction.
+    connectedViolations: [],
   },
   { path: '/gallery', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },
   {

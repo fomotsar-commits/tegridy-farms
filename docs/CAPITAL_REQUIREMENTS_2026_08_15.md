@@ -1,8 +1,38 @@
-# What actually needs money — 2026-08-15
+# What actually needs money — 2026-08-15, re-priced 2026-08-22
+
+> ## ⚠️ RE-PRICED 2026-08-22 — READ THIS BEFORE QUOTING ANY DOLLAR FIGURE BELOW
+>
+> **Quote the token amount. Derive the dollars at the moment you quote them.** Every `$` in this
+> file is a *derived* number with a shelf life; the ETH/SOL/TOWELI amounts are the real ones and
+> they do not drift with the market.
+>
+> | | 2026-08-15 | 2026-08-22 | |
+> |---|---|---|---|
+> | ETH | $1,878.50 | **$2,510.71** | +33.7% |
+> | SOL | $75.17 | **$96.94** | +29.0% |
+> | TOWELI | $0.0000544 | **$0.0000717** | +31.8% (implied by the Uniswap pair) |
+>
+> *Sources: CoinGecko spot, 2026-08-22. Reserves re-read on chain the same run.*
+>
+> **The pool-deepen headline moved in BOTH directions at once, which is the whole point of this
+> banner.** In ETH terms it got *cheaper* — 2.07 → **1.98 ETH** — because the native pair grew from
+> 0.0230 to **0.0794 WETH** on its own. In dollars it got *more expensive* — $3,886 → **$4,964** —
+> because ETH rose faster. Restamping a new ETH price onto the old derivation would have produced
+> ~$5,197: wrong, and wrong in the confident direction. The derivation was re-run against live
+> reserves, not re-multiplied. **Anything below quoted in dollars and not re-derived here should be
+> treated as ±30%, not as a figure.**
+>
+> Re-priced figures: pool deepen **1.98 ETH ≈ $4,964** · Solana restart settled **8.46 SOL ≈ $820**
+> · Solana restart peak float **13.4 SOL ≈ $1,299** · DBC config v2 **0.0082 SOL ≈ $0.79**.
+>
+> ⓘ Solana rent is denominated in lamports, so **a SOL price move changes what the restart costs in
+> dollars, never how much SOL it needs.** And note the restart total is within 0.01 SOL of the
+> 8.467 SOL that closing the two programs released — see `TODO_OPERATOR.md` §0.4, which is still
+> unreconciled. If that SOL is in a wallet you hold, the Solana line is a transfer, not a funding ask.
 
 Every dollar figure here is derived from a live on-chain read taken today, not from a doc.
-Prices at time of writing: **ETH $1,878.50** (Coinbase spot; Chainlink ETH/USD control reads
-$1,879.94), **SOL $75.17**, **TOWELI $0.0000544** (implied by the Uniswap pair).
+Prices at original time of writing: **ETH $1,878.50** (Coinbase spot; Chainlink ETH/USD control
+reads $1,879.94), **SOL $75.17**, **TOWELI $0.0000544** (implied by the Uniswap pair).
 
 Two corrections come first, because both change what the list can even ask for.
 
@@ -14,15 +44,18 @@ Both Solana programs are closed. The rent was reclaimed, and on Solana **a close
 address is not reusable**. There is nothing to top up. Restarting the rail means fresh
 deploys at **new program IDs**, paying rent from zero:
 
-| | SOL | USD |
-|---|---|---|
-| tegridy-launch programdata + stub | 3.582 | $269 |
-| cp-swap fork programdata + stub | 4.887 | $367 |
-| global PDA + AmmConfig + fee ATA + fee-recipient floor | 0.018 | $1 |
-| deploy tx fees | ~0.010 | $1 |
-| **settled total** | **8.487** | **$638** |
-| write-buffer retry headroom (recoverable) | +4.89 | +$368 |
-| **peak float to ask for** | **13.4** | **$1,007** |
+USD re-priced 2026-08-22 at SOL $96.94. **The SOL column is the one that matters — rent is
+denominated in lamports and does not move with the price.**
+
+| | SOL | USD (2026-08-22) | was (SOL $75.17) |
+|---|---|---|---|
+| tegridy-launch programdata + stub | 3.582 | $347 | $269 |
+| cp-swap fork programdata + stub | 4.887 | $474 | $367 |
+| global PDA + AmmConfig + fee ATA + fee-recipient floor | 0.018 | $2 | $1 |
+| deploy tx fees | ~0.010 | $1 | $1 |
+| **settled total** | **8.487** | **$823** | $638 |
+| write-buffer retry headroom (recoverable) | +4.89 | +$474 | +$368 |
+| **peak float to ask for** | **13.4** | **$1,299** | $1,007 |
 
 Ask for the peak, not the settled number. A deploy that dies mid-write strands a buffer, and
 the retry needs its own rent before `--buffers` gives the first one back. That is how the
@@ -58,7 +91,8 @@ be *bought*, and buying it out of a 266M-token pool moves the price against us.
 
 `TegridyTWAP.sol:201` sets `DEFAULT_MIN_RESERVE_FLOOR_WEI = 10 ether`, and
 `minReserveFloor1(native pair)` reads **0** on chain, so the default applies. The native pair
-holds **0.0230 WETH**. Below the floor, `consult()` reverts and every consumer fails closed.
+holds **0.0794 WETH** (re-read 2026-08-22; it was 0.0230 on 08-15, so it has deepened ~3.4× on its
+own without anyone funding it). Below the floor, `consult()` reverts and every consumer fails closed.
 
 To fill the native pool to 10 WETH at the current market ratio you would need **344,562,363
 TOWELI — 1.29× the entire Uniswap pool.** Constant-product means you can never extract all of
@@ -76,14 +110,34 @@ adversarial review in `GOLIVE_CORELOOP.md` fixed **1.0 WETH** as the safe stoppi
 
 So the real ask, priced from what we actually hold:
 
+**Re-derived 2026-08-22** against live reserves — native pair **0.0794 WETH / 2,795,068 TOWELI**,
+Uniswap pair **7.6697 WETH / 268,553,703 TOWELI**:
+
 | step | cost |
 |---|---|
 | lower floor 10 → 1.0 WETH (propose, wait 24h, execute) | ~$0.02 of gas |
-| buy 32,928,971 TOWELI (14.4% slippage against the Uniswap pool) | 1.092 WETH = **$2,051** |
-| add 0.977 WETH + 33.74M TOWELI proportionally to the native pair | 0.977 WETH = **$1,835** |
-| **all-in** | **≈ 2.07 ETH = $3,886** |
+| buy **32.43M TOWELI** (14.1% slippage against the Uniswap pool) | 1.0565 WETH = **$2,653** |
+| add **0.9206 WETH + 32.43M TOWELI** proportionally to the native pair | 0.9206 WETH = **$2,311** |
+| **all-in** | **≈ 1.98 ETH = $4,964** |
 
-That is the number: **$3,886, not $36,600.** Re-quote at execution — the buy moves the ratio.
+<details><summary>Superseded 2026-08-15 derivation (native pair held 0.0230 WETH, ETH $1,878.50)</summary>
+
+| step | cost |
+|---|---|
+| buy 32,928,971 TOWELI (14.4% slippage) | 1.092 WETH = $2,051 |
+| add 0.977 WETH + 33.74M TOWELI proportionally | 0.977 WETH = $1,835 |
+| **all-in** | ≈ 2.07 ETH = $3,886 |
+
+</details>
+
+That is the number: **$4,964, not $36,600** — and it is **1.98 ETH**, which is the half that will
+still be true next week. Re-quote at execution: the buy moves the ratio, and both legs are priced
+off reserves that trade.
+
+Worth noticing *how* it moved. The ETH cost fell (2.07 → 1.98) because the native pair deepened on
+its own, while the dollar cost rose 28% because ETH outran it. Multiplying the old 2.07 by the new
+ETH price would have said $5,197 — a number that is wrong, and wrong in the direction that makes
+you over-ask. Re-derive; do not re-multiply.
 
 **What it unblocks:** a protocol-owned TOWELI price (the site currently prices off the free
 GeckoTerminal API), `POLAccumulator.accumulate()`, the TegridyLending oracle path, and native
@@ -137,7 +191,7 @@ Do all of these before spending a dollar.
 
 | item | cost | unblocks |
 |---|---:|---|
-| **Meteora DBC config v2** — retires the 99% opening fee | 0.0082 SOL ($0.62) | `/solana-launch` becomes tradeable at launch instead of ~4h later. **The payer wallet already holds 0.496 SOL** — no new money needed. Independent of the program restart; cheapest revenue-relevant action anywhere on this list |
+| **Meteora DBC config v2** — retires the 99% opening fee | 0.0082 SOL ($0.79 at SOL $96.94) | `/solana-launch` becomes tradeable at launch instead of ~4h later. **The payer wallet already holds 0.496 SOL** — no new money needed. Independent of the program restart; cheapest revenue-relevant action anywhere on this list |
 | **Create the Tegridy Pro Pass collection** — one `createCollection()` on live LaunchpadV2 | ~$0.11–6.50 of gas, no protocol fee | Stands up a priced membership surface that currently renders "not deployed" behind a disabled button. Best dollar-per-effort item in the repo |
 | **USB stick** for the keys and recovery material that exist in exactly one copy | $5–15 | The one-copy problem. `OPERATOR_PACKET` says back up *before* funding, and OneDrive has already eaten working state twice |
 | **Deploy TegridyLending + LendingAdmin** | 9.67M gas — $1.44 at 0.08 gwei, $90 at 5 gwei | LendingPage. **Signable today** — this corrects `GATED_DEPLOY_RUNBOOK.md:104`, which claims it is blocked on the oracle |
@@ -147,17 +201,17 @@ Do all of these before spending a dollar.
 | item | cost | note |
 |---|---:|---|
 | **Hardware wallet** to retire the hot deployer EOA from disk | $60–150 | Prerequisite for the Safe rebuild, the 18-contract re-home, and destroying the on-disk key. Free substitute (`cast wallet import --interactive`) is real but strictly weaker |
-| **Top up the deployer** for the remaining gated deploys | ~0.07 ETH ($130) at 5 gwei; $2 at current gas | At today's gas the existing balance covers everything. This is gas-price insurance, not a blocker |
-| **Solana rail restart, settled** | 8.487 SOL ($638) | Gated on the two segmented-mode highs being fixed first |
-| **Safe deployment + ownership re-home gas** | 0.01–0.15 ETH ($20–280), realistically the low end | `SAFE_REHOME_RUNBOOK.md:171` forbids un-gating any fund-touching feature before its owner is a multisig |
-| **Working ETH inside the rebuilt Safes** | 0.02 ETH ($38) clears the documented need; 0.1 ETH is the recommendation | Not spent — recoverable. Do not size at 0.1 ETH on a $61 treasury. A Safe that cannot pay its own gas is one of the named ways ownership gets stranded |
+| **Top up the deployer** for the remaining gated deploys | ~0.07 ETH ($176 at ETH $2,510.71) at 5 gwei; $2 at current gas | At today's gas the existing balance covers everything. This is gas-price insurance, not a blocker |
+| **Solana rail restart, settled** | 8.487 SOL ($823 at SOL $96.94) | Gated on the two segmented-mode highs being fixed first |
+| **Safe deployment + ownership re-home gas** | 0.01–0.15 ETH ($25–377 at ETH $2,510.71), realistically the low end | `SAFE_REHOME_RUNBOOK.md:171` forbids un-gating any fund-touching feature before its owner is a multisig |
+| **Working ETH inside the rebuilt Safes** | 0.02 ETH ($50 at ETH $2,510.71) clears the documented need; 0.1 ETH is the recommendation | Not spent — recoverable. Do not size at 0.1 ETH on a $61 treasury. A Safe that cannot pay its own gas is one of the named ways ownership gets stranded |
 
 ## Tier 3 — $1,000 to $5,000
 
 | item | cost | note |
 |---|---:|---|
-| **Native pool deepen to a 1.0 WETH floor** | **$3,886** | The full derivation is above. This is the single highest-leverage spend on the page |
-| **Solana restart, peak float** | 13.4 SOL ($1,007) | Ask for this, not the $638 |
+| **Native pool deepen to a 1.0 WETH floor** | **1.98 ETH ≈ $4,964** | The full derivation is above. This is the single highest-leverage spend on the page |
+| **Solana restart, peak float** | 13.4 SOL ($1,299 at SOL $96.94) | Ask for this, not the $823 |
 
 ## Tier 4 — deferred, and honestly so
 
@@ -219,11 +273,14 @@ Do all of these before spending a dollar.
 2. **$20** — USB stick, DBC config v2, Pro Pass collection. Three live surfaces for pocket change.
 3. **$150** — hardware wallet. Gets the protocol's root key off a OneDrive-synced disk.
 4. **$700** — Safe rebuild and ownership re-home, funded to sign.
-5. **$3,900** — native pool to a 1.0 WETH floor. The first spend that makes the protocol's own
+5. **$4,950** (1.98 ETH) — native pool to a 1.0 WETH floor. The first spend that makes the protocol's own
    oracle real.
-6. **$1,000** — Solana restart at new IDs, *after* the two segmented-mode highs are closed.
+6. **$1,300** (13.4 SOL peak float) — Solana restart at new IDs, *after* the two segmented-mode highs are closed.
 
-Total to clear everything through step 6: **about $5,800.**
+Total to clear everything through step 6: **about $7,100** at 2026-08-22 prices — up from $5,800 on
+08-15, entirely because ETH and SOL rose. In token terms the ask barely moved: **1.98 ETH + 13.4 SOL**
+plus ~$870 of fiat items (USB stick, hardware wallet, Safe gas). Quote it that way and it stops
+needing a revision every week.
 
 Everything above that number is deferred on purpose, and the standing rule still holds: the
 protocol may not spend capital it has not earned.

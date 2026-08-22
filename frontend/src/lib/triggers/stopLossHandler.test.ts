@@ -73,18 +73,21 @@ describe('the StopLoss Data struct round-trips through its exact layout', () => 
         },
       ],
       encodeStopLossStaticInput(DATA),
-    ) as [Record<string, unknown>];
+    );
 
-    expect((decoded.sellToken as string).toLowerCase()).toBe(TOWELI.toLowerCase());
-    expect((decoded.buyToken as string).toLowerCase()).toBe(WETH.toLowerCase());
+    // No `as [Record<string, unknown>]`: viem already infers the exact struct
+    // from the components above, so the field reads below are checked against the
+    // layout this test is asserting rather than against a bag of `unknown`.
+    expect(decoded.sellToken.toLowerCase()).toBe(TOWELI.toLowerCase());
+    expect(decoded.buyToken.toLowerCase()).toBe(WETH.toLowerCase());
     expect(decoded.sellAmount).toBe(DATA.sellAmount);
     expect(decoded.buyAmount).toBe(DATA.buyAmount);
     expect(decoded.appData).toBe(COW_APP_DATA_HASH);
     expect(decoded.isSellOrder).toBe(true);
     expect(decoded.isPartiallyFillable).toBe(false);
     expect(decoded.validityBucketSeconds).toBe(900n);
-    expect((decoded.sellTokenPriceOracle as string).toLowerCase()).toBe(FEED_A.toLowerCase());
-    expect((decoded.buyTokenPriceOracle as string).toLowerCase()).toBe(FEED_B.toLowerCase());
+    expect(decoded.sellTokenPriceOracle.toLowerCase()).toBe(FEED_A.toLowerCase());
+    expect(decoded.buyTokenPriceOracle.toLowerCase()).toBe(FEED_B.toLowerCase());
     expect(decoded.strike).toBe(DATA.strike);
     expect(decoded.maxTimeSinceLastOracleUpdate).toBe(3600n);
   });

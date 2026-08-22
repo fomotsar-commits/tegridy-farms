@@ -108,18 +108,28 @@ export function OnboardingModal() {
         </AnimatePresence>
       </div>
 
-      {/* Dots */}
+      {/* Dots.
+          A PROGRESS INDICATOR, not tabs. These were role="tablist" / role="tab"
+          on plain spans: not focusable, no click handler, no aria-controls, no
+          tabpanel anywhere. That announces selectable tabs to a screen-reader
+          user and then does nothing when they try to select one — worse than
+          leaving the dots undescribed, because it invites an interaction the
+          component cannot honour.
+          It also put a second tablist on every page the modal renders over,
+          which is how this was found: a page-level [role="tablist"] locator
+          started matching two elements. */}
       <div
         className="flex justify-center gap-2 mt-4 mb-5"
-        role="tablist"
-        aria-label={`Onboarding step ${step + 1} of ${steps.length}`}
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={steps.length}
+        aria-valuenow={step + 1}
+        aria-valuetext={`Step ${step + 1} of ${steps.length}`}
       >
         {steps.map((_, i) => (
           <span
             key={i}
-            role="tab"
-            aria-selected={i === step}
-            aria-label={`Step ${i + 1} of ${steps.length}`}
+            aria-hidden="true"
             className={`w-2 h-2 rounded-full transition-colors ${
               i === step ? 'bg-purple-500' : 'bg-gray-600'
             }`}

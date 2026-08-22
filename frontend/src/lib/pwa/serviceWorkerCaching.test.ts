@@ -58,7 +58,13 @@ class StubRequest {
 
 class StubCache {
   readonly entries = new Map<string, StubResponse>();
-  constructor(private readonly doFetch: (req: StubRequest) => Promise<StubResponse>) {}
+  // A declared field assigned in the constructor, not a parameter property:
+  // parameter properties are the one class feature `erasableSyntaxOnly` forbids
+  // (they emit an assignment, so they are not type-erasable).
+  private readonly doFetch: (req: StubRequest) => Promise<StubResponse>;
+  constructor(doFetch: (req: StubRequest) => Promise<StubResponse>) {
+    this.doFetch = doFetch;
+  }
   async add(request: StubRequest) {
     this.entries.set(request.url, await this.doFetch(request));
   }

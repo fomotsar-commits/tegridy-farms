@@ -98,6 +98,32 @@ jobs:
             echo "::error title=No chain read happened::verify-addresses.mjs --onchain produced no chain section. A green run here would mean 'nothing was checked', not 'nothing is wrong'."
             exit 1
           }
+
+          # Second belt, for the case the first one cannot see. The script now
+          # SKIPS addresses the RPC did not answer for — the right call, because a
+          # rate-limited endpoint must not turn a correct registry red — but a run
+          # where EVERY address was skipped still prints the section header and
+          # still exits 0. That is the same "green means nothing was checked" hole
+          # the grep above exists to close, one level down.
+          #
+          # Partial skips are tolerated and reported. A total skip is not: it means
+          # this job verified nothing at all, and it should say so rather than pass.
+          # Deliberately not `read < <(...)`: under `set -e` a failing read exits
+          # the step before the error message below can explain why.
+          coverage=$(sed -n 's/.*chain read: \([0-9]\{1,\}\) considered, \([0-9]\{1,\}\) NOT CHECKED.*/\1 \2/p' /tmp/onchain.txt | tail -1 || true)
+          considered=${coverage%% *}
+          skipped=${coverage##* }
+          if [ -z "${coverage:-}" ]; then
+            echo "::error title=No coverage line::the chain section printed no 'chain read: N considered, M NOT CHECKED' line, so this run cannot say what it verified."
+            exit 1
+          fi
+          if [ "$considered" -gt 0 ] && [ "$skipped" -ge "$considered" ]; then
+            echo "::error title=Nothing was actually checked::all $considered addresses were skipped because the RPC did not answer. This run verified NOTHING; it is not evidence the registry is correct. Re-run, or set the SOLANA_RPC / ETH_RPC repo variables to keyed endpoints."
+            exit 1
+          fi
+          if [ "$skipped" -gt 0 ]; then
+            echo "::warning title=Partial chain read::$skipped of $considered addresses were NOT CHECKED (the RPC did not answer). Those addresses are unverified by this run."
+          fi
           {
             echo "### Address registry — chain read"
             echo ""

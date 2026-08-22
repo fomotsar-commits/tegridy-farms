@@ -38,7 +38,10 @@ function doc(overrides: Record<string, unknown> = {}) {
 }
 
 function jsonRes(body: unknown, status = 200) {
-  return vi.fn(async () => new Response(JSON.stringify(body), { status }));
+  // Typed as `typeof fetch`, not inferred from the zero-argument impl: inferred,
+  // `mock.calls[0]` is a zero-length tuple and the URL asserted on below is not
+  // reachable from the type system.
+  return vi.fn<typeof fetch>(async () => new Response(JSON.stringify(body), { status }));
 }
 
 async function expectUnavailable(p: Promise<unknown>, reason: string) {
@@ -211,6 +214,6 @@ describe('null and zero are different answers and both survive the boundary', ()
     const parsed = await fetchYieldFeed({ fetchImpl });
     expect(parsed.asOf).toBe(1_780_000_000);
     expect(venueReading(parsed, 'lido-steth')!.pegRatio!.value).toBeCloseTo(0.9994);
-    expect(fetchImpl.mock.calls[0]![0]).toBe(`${ORIGIN}/yields`);
+    expect(fetchImpl.mock.calls[0][0]).toBe(`${ORIGIN}/yields`);
   });
 });

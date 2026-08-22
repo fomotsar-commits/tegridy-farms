@@ -272,7 +272,9 @@ describe('collectTokenFacts — unreadFields records which reads did not land', 
   const TOKEN = '0xabc0000000000000000000000000000000000abc' as Address;
 
   /** A reader whose named methods throw, mimicking one 429 inside the Promise.all. */
-  function flakyReader(failing: string[], code: string): ChainReader {
+  // `code` is `Hex`, not `string`: `ChainReader.getCode` returns `Hex | undefined`,
+  // so a plain `string` here made the stub something the interface never accepts.
+  function flakyReader(failing: string[], code: Hex): ChainReader {
     return {
       async getCode() {
         return code;

@@ -328,9 +328,11 @@ describe('birthRecordFailure — refuse to render a malformed twin', () => {
   });
 
   it('rejects a record that does not say what it could not read', () => {
-    const r = good() as Record<string, unknown>;
-    delete r.unread;
-    expect(birthRecordFailure(r)).toMatch(/could not read/);
+    // Omitted by destructuring rather than `delete`-d off a `Record` cast:
+    // `BirthRecord` has no index signature, so the cast was never sound, and the
+    // rest object is exactly the same value — a record with no `unread` key.
+    const { unread: _unread, ...withoutUnread } = good();
+    expect(birthRecordFailure(withoutUnread)).toMatch(/could not read/);
   });
 
   it('rejects non-objects and nulls', () => {

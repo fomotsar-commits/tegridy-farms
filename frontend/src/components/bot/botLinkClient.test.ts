@@ -72,8 +72,12 @@ describe('listLinks', () => {
   });
 
   it('sends the SIWE cookie — bindings are per-wallet and unreadable without it', async () => {
-    const fetchImpl = vi.fn(async () => response(200, { links: [] }));
-    await listLinks({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    // Typed as `typeof fetch` rather than inferred from the zero-arg impl: an
+    // untyped `vi.fn(async () => …)` records a zero-length argument tuple, so
+    // `mock.calls[0][1]` is not even expressible and the init object this test
+    // exists to inspect is invisible to the checker.
+    const fetchImpl = vi.fn<typeof fetch>(async () => response(200, { links: [] }));
+    await listLinks({ fetchImpl });
     expect(fetchImpl.mock.calls[0][1]).toMatchObject({ credentials: 'include' });
   });
 });
@@ -101,9 +105,15 @@ describe('claimLinkCode', () => {
   });
 
   it('normalises case before sending, because a code is read off a phone', async () => {
-    const fetchImpl = vi.fn(async () => response(201, { linked: true }));
-    await claimLinkCode('abcdefghjk', { fetchImpl: fetchImpl as unknown as typeof fetch });
-    expect(JSON.parse(String(fetchImpl.mock.calls[0][1].body))).toEqual({
+    const fetchImpl = vi.fn<typeof fetch>(async () => response(201, { linked: true }));
+    await claimLinkCode('abcdefghjk', { fetchImpl });
+    const init = fetchImpl.mock.calls[0][1];
+    // `RequestInit.body` is optional, so assert it is actually there before
+    // parsing — otherwise a claim that sent no body at all would reach
+    // `JSON.parse('undefined')` and fail with a parser error instead of
+    // reporting that the request carried nothing.
+    expect(init?.body, 'claimLinkCode sent no request body').toBeTypeOf('string');
+    expect(JSON.parse(String(init?.body))).toEqual({
       action: 'claim',
       code: 'ABCDEFGHJK',
     });
@@ -124,16 +134,17 @@ describe('claimLinkCode', () => {
         throw new Error('offline');
       }) as unknown as typeof fetch,
     });
-    expect(result.status).toBe('failed');
-    expect(result.detail).toMatch(/NOT linked/);
+    // Asserted as one object: `detail` only exists on the non-`linked` variants
+    // of the ClaimOutcome union, so reading `result.detail` after a separate
+    // `expect(result.status)` is not something the checker can follow.
+    expect(result).toMatchObject({ status: 'failed', detail: expect.stringMatching(/NOT linked/) });
   });
 
   it('explains the signed-out case in terms of the signature that is missing', async () => {
     const result = await claimLinkCode('ABCDEFGHJK', {
       fetchImpl: (async () => response(401, { error: 'Not authenticated' })) as unknown as typeof fetch,
     });
-    expect(result.status).toBe('failed');
-    expect(result.detail).toMatch(/your signature/i);
+    expect(result).toMatchObject({ status: 'failed', detail: expect.stringMatching(/your signature/i) });
   });
 });
 
