@@ -76,6 +76,29 @@ actually binds (TegridyStaking, 22 B). **Gates got built; nothing downstream rea
 the same defect this repo has rediscovered nine times now — a gate is not a control until
 something fails when it fires.
 
+🔴🔴 **AND THE THIRD INSTANCE OF THAT CLASS, FOUND THE SAME DAY, IS THE WORST: contract tests
+have not run on trunk since ~2026-08-20.** `contracts-ci`'s `build` job is red on `mvp-launch`,
+and the structure guarantees the blackout — verified at file:line in
+`.github/workflows/contracts-ci.yml`: the nine-slice matrix is `needs: [build, slices]` (`:337`),
+`fuzz-invariant` is `needs: [build]` (`:511`), and `all-tests-pass` is
+`needs: [build, slices, test, fuzz-invariant]` (`:590`). **A red `build` skips every one of
+them**, so merges in that window landed with zero contract test coverage and nothing said so.
+
+⚠️ **The job name actively misleads.** It is called "forge build + size budget", but the size
+budget only warns. The step that actually fails is **`Interface + frontend ABI selector guard`**:
+`AIRDROP_DISTRIBUTOR_ABI` and `VESTING_WALLET_ABI` resolve to no artifact. **Fix is open as #306**
+(two `FRONTEND_ABI_TARGET_OVERRIDES` entries mapping them to `TegridyAirdropDistributor` /
+`TegridyVestingWallet` — the exports drop the `Tegridy` prefix, exactly as `LP_FARMING_ABI`
+already does). Expect #306 to surface a *different, real* selector error next: that is the guard
+finally inspecting a surface it could never reach, not a regression. **Do not silence it by
+moving those ABIs to `EXTERNAL_FRONTEND_ABIS`** — they have in-repo `*_ADDRESS` and the guard
+rejects that. **Verify by confirming the nine slices RUN, not merely that trunk went green.**
+
+So the same shape now has three live instances: a red step blacking out later *steps* (tsc, in
+the CI lane below), a red job blacking out later *jobs* (here), and gates that fire into nothing
+(above). **When something in this repo goes red, the next question is always "and what stopped
+running because of it?"**
+
 ---
 
 ## Read these five corrections first
@@ -639,9 +662,34 @@ verified, none of which any lane owned:
 >    not fire it before deciding what a release *means* here, since prod deploys via Vercel on two
 >    separate paths and a tag would claim to mark something it does not control.
 > 7. ✅ Half-closed 2026-08-19 — see the PWA note under item 7 above.
-> 8. 📈 **WORSE — `frontend/src/nakamigos/` grew from 177 to 191 tracked files** and is still the
->    largest unswept surface in the repo, still handling signed Seaport orders. Six days, +14
->    files, still nobody has looked.
+> 8. 🔴 **CORRECTED, and it is worse than the finding said — `frontend/src/nakamigos/` is NOT
+>    unswept. It was swept on 2026-08-02 and the findings were never fixed.** A 133-agent pass
+>    over 30 surfaces returned **91 findings that survived adversarial verification: 9 high, 38
+>    medium, 42 low**, verdicts 22 material-issues / 5 minor / **3 clean**. Exactly **one** is
+>    fixed (#224, the Seaport cancel money path). The 08-15 completeness critic called this
+>    surface unswept because it appears in the 211 items once — but the sweep predates the critic
+>    by two weeks, so "nobody looked" was wrong in both directions: someone did look, and what
+>    they found is still sitting there. The tree also grew 177 → **191 tracked files** since 08-15.
+>
+>    **I re-verified the worst one at file:line today.** `frontend/src/nakamigos/lib/portfolio.js:145`
+>    catches a failed Alchemy `getNFTSales` call and, because the only reporting is
+>    `if (import.meta.env.DEV) console.warn(...)`, **logs nothing whatsoever in production** while
+>    leaving `allSales = []`. Zero buy-sales means zero cost basis, which means **the entire
+>    portfolio renders as pure profit**. It is a silent wrong-number bug on a surface users make
+>    money decisions from, and it fails in the direction that flatters.
+>
+>    The other named highs, from the 08-02 record and NOT re-verified today:
+>    `api.js:780` (a total listings outage renders as a success-styled "No active listings right
+>    now") · `components/MarketIntegrity.jsx:203` ("in the last 30 days" can silently be the
+>    collection's entire history) · `components/RaritySniper.jsx:505/286` (ranks computed over a
+>    40-token page; listings for unloaded tokens dropped) · `components/NftCompare.jsx:248`
+>    (SEND TRADE is a dead control — target owner always null).
+>    ⚠️ **Re-check RaritySniper before acting** — the 08-02 record flags it as possibly overstated
+>    because a `~` disclosure marker already exists.
+>
+>    → **Next step:** these are ~1 PR each and they are independent. Take `portfolio.js` first:
+>    it is verified, it is the one that misstates money, and the fix is to surface the failure
+>    rather than return a confident zero.
 
 ---
 
