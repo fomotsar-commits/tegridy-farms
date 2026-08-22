@@ -118,6 +118,33 @@ export const DEFAULT_FEE_CONSTITUTION: readonly FeeConstitutionLine[] = [
 /** Total trade-fee tier passed to Doppler withMarketCapRange (hundredths of a bip). 10000 = 1%. */
 export const LAUNCH_FEE_TIER = 10_000;
 
+/**
+ * ECOSYSTEM RESERVE (owner directive 2026-08-22): the launchpad reserves this
+ * share of every launch's supply to fund that pool's survival — LP incentives on
+ * the graduated pool, bribes, community bounties — with the heat score curating
+ * which launches get through the door in the first place.
+ *
+ * Mechanism (verified against the deployed factories on mainnet AND 4663): a
+ * DopplerERC20V1 pre-mint vesting allocation to `ECOSYSTEM_RESERVE_RECIPIENT`,
+ * enforced on-chain by the token factory itself — the same rail the creator
+ * premine rides, so the reserve is factory-locked, not promised. See
+ * `TegridyLaunchConfig.ecosystemReserve` in airlock.ts (tested; refuses a zero
+ * recipient and over-allocation) and docs/ULTIMATE_LAUNCHPAD_PLAN.md for the
+ * full design incl. why oversupplying the sale CANNOT work (excess supply is
+ * transferred to the launch's timelock at create() — 0xdead under noOp
+ * governance — so an uncontrolled "reserve" would be a burn).
+ *
+ * DARK UNTIL CUSTODY EXISTS. The recipient below is the ZERO ADDRESS until the
+ * per-launch custody is deployed and decided (Phase 2 of the plan), and the
+ * airlock facade hard-refuses to build a reserve pointed at zero. Enabling is
+ * ONE change-set: custody address here + wizard supply math (sale = supply −
+ * premine − reserve) + a dedicated Fact Sheet disclosure line (NEVER lumped
+ * into teamAllocationVestedBps — that field means CREATOR allocation and the
+ * disclosure tests pin it).
+ */
+export const ECOSYSTEM_RESERVE_BPS = 500; // 5% of supply
+export const ECOSYSTEM_RESERVE_RECIPIENT = '0x0000000000000000000000000000000000000000' as const;
+
 /** Launch tiers offered in the wizard (maps to gate.ts tiers). */
 export const LAUNCH_TIERS = [
   {

@@ -403,3 +403,16 @@ Full context: [ROBINHOOD_L2_LEG.md](./ROBINHOOD_L2_LEG.md) + [BASE_L2_GO_NO_GO.m
 | M.6 | Vercel env on BOTH deploy paths + CSP already carries the new RPC hosts | `base.drpc.org`, `mainnet.base.org`, `rpc.mainnet.chain.robinhood.com` allowlisted in `connect-src` (script-src hash untouched). |
 | M.7 | ~~Doppler-on-Robinhood migration policy~~ **DECIDED 2026-08-22 ("graduate to us") = Shape A on 4663.** Remaining operator steps: after M.2, broadcast `DeployRobinhoodGraduationStack` (needs only the 3 Safes) → verify on Blockscout → propose the hook admin's 48h initializer allowance → send `WHETSTONE_MIGRATOR_PETITION_4663.md` as a RIDER with the mainnet petition (same 3-of-6 Safe owns all three Airlocks; §15 checklist governs both). | ⚠️ Precedent reality, verified: **no third-party module has ever been whitelisted on any Airlock** — plan for Whetstone possibly wanting to bless/co-own the module instead; that outcome also satisfies the directive. Stock modules keep running until the whitelist lands. Doppler-on-Base parity work unchanged. |
 | M.8 | Monitoring legs per chain (revenue-watch reads the FEE_REMITTANCE balance, arb-linkage via its CHAIN_ID/RPC env seams) | The fee-rail-invisible-for-weeks incident repeats on Base day one otherwise. |
+
+### Addendum 2026-08-22 (later) — the ultimate-launchpad phase (M.9–M.12)
+
+Owner directive: every rail graduates to us · 5% per-launch survival reserve · full-tool
+zero-knowledge wizard. Code landed same day; full plan in
+[ULTIMATE_LAUNCHPAD_PLAN.md](./ULTIMATE_LAUNCHPAD_PLAN.md).
+
+| # | Operator step | Notes |
+|---|---|---|
+| M.9 | Base graduation stack: broadcast `DeployBaseGraduationStack` → 48h initializer allowance → acceptOwnership | After Base Safes (M.1). Substrate triple-verified; script tested. |
+| M.10 | Send the mainnet Whetstone petition + the **multichain rider** (now covers Base AND 4663) | One conversation, three chains, same 3-of-6 Safe. ⚠️ no third-party module has ever been whitelisted — a Whetstone-blessed module is an acceptable outcome. |
+| M.11 | **Custody decision for the 5% reserve** — interim `TegridyLockVault` 6-month lock vs waiting for the Phase-2 distributor | The ONLY blocker: the facade + config are coded, tested, and refuse to run until `ECOSYSTEM_RESERVE_RECIPIENT` is a real address. |
+| M.12 | Reserve go-live change-set: recipient constant + wizard supply math + a DEDICATED Fact Sheet line | One PR, order matters (plan §2). The reserve must never be lumped into `teamAllocationVestedBps` — the truth suite pins that field as creator-only. |

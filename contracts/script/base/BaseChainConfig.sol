@@ -33,6 +33,31 @@ library BaseChainConfig {
     ///         decision, and this slice deploys the same economics or none.
     uint256 internal constant SWAP_FEE_BPS = 50;
 
+    // ─── Canonical Uniswap V4 stack on Base (graduation venue substrate) ─
+    //
+    // Provenance: Uniswap's own v4 deployments directory lists Base, and every
+    // address below was re-read on-chain 2026-08-22 via https://mainnet.base.org:
+    // PoolManager carries ~24,009 bytes of runtime code; PositionManager carries ~23,877
+    // bytes of runtime code and its poolManager() returns the PoolManager below (cross-bound,
+    // not just co-listed); Permit2 is the canonical CREATE2 singleton. Constants,
+    // not env vars — an address baked into an immutable deserves better than an
+    // operator paste.
+
+    /// @notice Uniswap V4 PoolManager (singleton) on Base.
+    address internal constant UNISWAP_V4_POOL_MANAGER = 0x498581fF718922c3f8e6A244956aF099B2652b2b;
+
+    /// @notice Uniswap V4 PositionManager on Base.
+    address internal constant UNISWAP_V4_POSITION_MANAGER = 0x7C5f5A4bBd8fD63184577525326123B519429bDc;
+
+    /// @notice Canonical Permit2.
+    address internal constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    /// @notice Doppler's Airlock on Base (owner: the same 3-of-6 Whetstone Safe
+    ///         as mainnet and 4663 — verified 2026-08-22). The graduation
+    ///         migrator is an Airlock MODULE; launches cannot select it until
+    ///         that Safe whitelists it via setModuleState(module, 4).
+    address internal constant DOPPLER_AIRLOCK = 0x660eAaEdEBc968f8f3694354FA8EC0b4c5Ba8D12;
+
     /// @notice Runtime size of an EIP-7702 delegation designator (0xef0100 + 20 bytes).
     /// @dev    Such an account has code and is still one key. TegridyFactory rejects it
     ///         explicitly in `proposeGuardianChange` (`codeLen != 23`); the role checks

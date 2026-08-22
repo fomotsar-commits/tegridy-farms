@@ -1,17 +1,33 @@
-# Whetstone petition — Robinhood Chain (4663) rider
+# Whetstone petition — multichain rider (Base 8453 + Robinhood Chain 4663)
 
 **Status: DRAFT for the operator to send. Nothing here has been sent to Whetstone.**
 
 This is a RIDER to [WHETSTONE_MIGRATOR_PETITION.md](./WHETSTONE_MIGRATOR_PETITION.md) — the
-mainnet petition remains the primary document, its §15 pre-send checklist governs both, and
-the two should travel in ONE conversation: same module family, same asking party, same
-receiving Safe. Do not send this alone, and do not send either without re-running every
-on-chain read the day of (§0 rule of the main petition: a stale `owner()` invalidates the
-document).
+mainnet petition remains the primary document, its §15 pre-send checklist governs all of it,
+and everything should travel in ONE conversation: same module family, same asking party, and
+the SAME receiving Safe on all three chains (owner-set byte-identical — verified). Do not
+send this alone, and do not send any of it without re-running every on-chain read the day of
+(§0 rule of the main petition: a stale `owner()` invalidates the document).
 
-## The ask
+Owner directive 2026-08-22: launches from EVERY rail graduate into the protocol's hooked V4
+pools. That makes this rider two additional `setModuleState` Safe transactions, one per chain.
 
-One additional `setModuleState` Safe transaction, on one additional chain:
+## The ask — Base (8453)
+
+| | Base |
+|---|---|
+| Airlock | `0x660eAaEdEBc968f8f3694354FA8EC0b4c5Ba8D12` |
+| Airlock owner | `0x21E2ce70511e4FE542a97708e89520471DAa7A66` — the same 3-of-6 Safe (this Safe already lands `setModuleState` txs on Base roughly monthly) |
+| Call | `setModuleState([<TegridyLiquidityMigrator on Base>], [4])` |
+| Module address | filled in after `contracts/script/base/DeployBaseGraduationStack.s.sol` broadcasts + verifies |
+| Substrate | canonical Base V4: PoolManager `0x498581fF718922c3f8e6A244956aF099B2652b2b`, PositionManager `0x7C5f5A4bBd8fD63184577525326123B519429bDc` (cross-bound via `poolManager()`, verified 2026-08-22) |
+
+Note the difference from 4663: Base HAS a stock `UniswapV4Migrator`. The honest pitch is not
+"fills a gap" but "a venue-shape option": launches choosing the Tegridy venue get the hook's
+declared fee economics + the fee-constitution locker, and the whole shape is opt-in per
+launch. Stock modules remain the default until a launch selects ours.
+
+## The ask — Robinhood Chain (4663)
 
 | | Robinhood Chain (4663) |
 |---|---|
@@ -26,7 +42,7 @@ immutables (Airlock, PoolManager, PositionManager, Permit2, our hook, our Safe).
 behavioral claim, invariant count, and security argument in the main petition applies
 unchanged; this rider only adds the chain-specific facts.
 
-## Chain-specific facts Whetstone will check (all verified 2026-08-22)
+## 4663-specific facts Whetstone will check (all verified 2026-08-22)
 
 - The canonical Uniswap V4 stack the module mints into is live on 4663 and is the SAME
   PoolManager Doppler's own `UniswapV4Initializer` uses: `0x8366a39CC670B4001A1121B8F6A443A643e40951`.

@@ -63,9 +63,9 @@ library RobinhoodChainConfig {
     //
     // Provenance: Uniswap's own v4 deployments directory (developers.uniswap.org)
     // lists Robinhood Chain, and every address below was re-read on-chain
-    // 2026-08-22: PoolManager carries 48,021 bytes of code and is the SAME
+    // 2026-08-22: PoolManager carries ~24,010 bytes of runtime code and is the SAME
     // address Doppler's UniswapV4Initializer reports via poolManager();
-    // PositionManager carries 47,757 bytes and its poolManager() returns the
+    // PositionManager carries ~23,878 bytes of runtime code and its poolManager() returns the
     // PoolManager below (cross-bound, not just co-listed); Permit2 is the
     // canonical CREATE2 singleton. These are constants, not env vars, for the
     // same reason WETH is: an address that gets baked into an immutable

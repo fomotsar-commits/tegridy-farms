@@ -186,6 +186,85 @@ describe('buildTegridyLaunchParams — policy encoding', () => {
   });
 });
 
+describe('buildTegridyLaunchParams — ecosystem reserve (5% survival allocation)', () => {
+  const CUSTODY = '0x00000000000000000000000000000000000C0FEE' as Address;
+
+  it('switches to the allocations variant carrying creator + reserve lines', () => {
+    const { sdk, calls } = recordingSdk();
+    const cfg = config('flagship');
+    const unsold = cfg.initialSupply - cfg.numTokensToSell;
+    const reserveAmt = unsold / 4n;
+    const premine = unsold - reserveAmt;
+    cfg.vesting = { amount: premine, durationSeconds: 180 * 24 * 60 * 60, cliffSeconds: 30 * 24 * 60 * 60 };
+    cfg.ecosystemReserve = { recipient: CUSTODY, amount: reserveAmt, durationSeconds: 0 };
+    buildTegridyLaunchParams(sdk, cfg);
+    const v = calls.vesting as {
+      allocations: { recipient: Address; amount: bigint; schedule: { duration: bigint; cliffDuration: number } }[];
+      recipients?: Address[];
+    };
+    expect(v.recipients).toBeUndefined();
+    expect(v.allocations).toHaveLength(2);
+    expect(v.allocations[0]).toEqual({
+      recipient: cfg.userAddress,
+      amount: premine,
+      schedule: { duration: BigInt(180 * 24 * 60 * 60), cliffDuration: 30 * 24 * 60 * 60 },
+    });
+    expect(v.allocations[1]).toEqual({
+      recipient: CUSTODY,
+      amount: reserveAmt,
+      schedule: { duration: 0n, cliffDuration: 0 },
+    });
+  });
+
+  it('a reserve with no creator premine is a single allocation to custody', () => {
+    const { sdk, calls } = recordingSdk();
+    const cfg = config('flagship');
+    const unsold = cfg.initialSupply - cfg.numTokensToSell;
+    cfg.ecosystemReserve = { recipient: CUSTODY, amount: unsold, durationSeconds: 365 * 24 * 60 * 60 };
+    buildTegridyLaunchParams(sdk, cfg);
+    const v = calls.vesting as { allocations: { recipient: Address; amount: bigint }[] };
+    expect(v.allocations).toHaveLength(1);
+    expect(v.allocations[0].recipient).toBe(CUSTODY);
+    expect(v.allocations[0].amount).toBe(unsold);
+  });
+
+  it('REFUSES a zero-address custody — a reserve routed to 0x0 is a mislabeled burn', () => {
+    const { sdk } = recordingSdk();
+    const cfg = config('flagship');
+    cfg.ecosystemReserve = {
+      recipient: '0x0000000000000000000000000000000000000000' as Address,
+      amount: 1n,
+      durationSeconds: 0,
+    };
+    expect(() => buildTegridyLaunchParams(sdk, cfg)).toThrow(/refusing to burn/i);
+  });
+
+  it('REFUSES allocations exceeding the unsold remainder before the SDK sees them', () => {
+    const { sdk } = recordingSdk();
+    const cfg = config('flagship');
+    const unsold = cfg.initialSupply - cfg.numTokensToSell;
+    cfg.vesting = { amount: unsold, durationSeconds: 365 * 24 * 60 * 60 };
+    cfg.ecosystemReserve = { recipient: CUSTODY, amount: 1n, durationSeconds: 0 };
+    expect(() => buildTegridyLaunchParams(sdk, cfg)).toThrow(/exceed the unsold remainder/i);
+  });
+
+  it('a zero-amount reserve leaves the legacy single-recipient path byte-identical', () => {
+    const withReserveOff = recordingSdk();
+    const cfg = config('flagship');
+    cfg.vesting = { amount: 100_000_000n, durationSeconds: 365 * 24 * 60 * 60 };
+    cfg.ecosystemReserve = { recipient: CUSTODY, amount: 0n, durationSeconds: 0 };
+    buildTegridyLaunchParams(withReserveOff.sdk, cfg);
+
+    const legacy = recordingSdk();
+    const cfg2 = config('flagship');
+    cfg2.vesting = { amount: 100_000_000n, durationSeconds: 365 * 24 * 60 * 60 };
+    buildTegridyLaunchParams(legacy.sdk, cfg2);
+
+    expect(withReserveOff.calls.vesting).toEqual(legacy.calls.vesting);
+    expect((withReserveOff.calls.vesting as { recipients?: Address[] }).recipients).toBeDefined();
+  });
+});
+
 describe('buildTegridyLaunchParams — on-chain vesting (premine)', () => {
   it('does NOT call withVesting on a fair launch (no vesting config)', () => {
     const { sdk, calls } = recordingSdk();
