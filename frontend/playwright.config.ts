@@ -42,6 +42,36 @@ export const WEBKIT_EXCLUDED_TEST_TITLES = [
 const escapeForRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const WEBKIT_GREP_INVERT = new RegExp(WEBKIT_EXCLUDED_TEST_TITLES.map(escapeForRegExp).join('|'));
 
+// ── THE SUITE MUST TEST *THIS* CHECKOUT'S BUILD, AND IT DID NOT ─────────────
+//
+// `reuseExistingServer: !process.env.CI` means a local run adopts whatever is
+// already listening on the preview port — INCLUDING a `vite preview` left
+// running by a different clone, worktree or branch. Nothing checks that the
+// bytes on that port came from this working tree, so the suite runs, reports a
+// number, and the number is about somebody else's `dist/`.
+//
+// MEASURED, not hypothesised: while diagnosing the heat-door failures on
+// 2026-08-22, port 4173 was held by a four-day-old
+//   node …\tegriddy farms\frontend\…\vite.js preview --port 4173
+// belonging to the MAIN checkout, which carried unrelated uncommitted edits.
+// A fresh `vite preview` in the worktree logged "Port 4173 is in use, trying
+// another one…" and bound 4175, while Playwright reused 4173 — so every spec,
+// and every hand-written probe, exercised the other checkout's `dist/`. That is
+// a suite whose result is unrelated to the code under test: it cannot fail for
+// the right reason and it cannot pass for the right reason.
+//
+// E2E_PORT gives each worktree its own port so runs cannot collide. Default and
+// CI behaviour are byte-identical to before (CI sets no E2E_PORT, and
+// `reuseExistingServer` is already false there).
+//
+// IF A RUN LOOKS IMPOSSIBLE — a fix that cannot matter changes the result, or a
+// change that must matter does not — check this FIRST:
+//   Get-NetTCPConnection -LocalPort 4173 -State Listen |
+//     %{ (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.OwningProcess)").CommandLine }
+// and re-run with E2E_PORT set to something free.
+const E2E_PORT = Number(process.env.E2E_PORT ?? 4173);
+const E2E_ORIGIN = `http://localhost:${E2E_PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -66,7 +96,7 @@ export default defineConfig({
   // per-assertion timeout in e2e/ — grep for `timeout:` there before lowering it.
   timeout: 60_000,
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: E2E_ORIGIN,
     trace: 'on-first-retry',
     // AppLoader auto-skips when the browser advertises `prefers-reduced-motion:
     // reduce` — without this, every test sits behind a fullscreen canvas intro
@@ -85,6 +115,38 @@ export default defineConfig({
     contextOptions: {
       reducedMotion: 'reduce',
     },
+    // ── WITHOUT THIS, EVERY `page.route` IN e2e/ IS A NO-OP ON WEBKIT ──────
+    //
+    // `vite preview` serves a PRODUCTION build, so registerAppServiceWorker
+    // (src/lib/pwa/serviceWorker.ts — `opts.enabled ?? import.meta.env.PROD`)
+    // registers /sw.js on every e2e run, and sw.js's `activate` calls
+    // `self.clients.claim()` (public/sw.js:70), so the already-open page
+    // becomes CONTROLLED mid-test. On WebKit a controlled document's requests
+    // leave Playwright's page-scoped interception entirely.
+    //
+    // MEASURED against this build, same stub as heat-gate.spec.ts:67:
+    //   webkit   + allow -> controller=/sw.js, heat route hits 0, door STALE
+    //   webkit   + block -> controller=null,   heat route hits 2, door WARM
+    //   chromium + allow -> controller=/sw.js, heat route hits 2, door WARM
+    // So the worker controls the page in BOTH engines; only WebKit loses the
+    // route. That is why heat-gate is the spec that caught it — it is the only
+    // one stubbing a same-origin app API (the Anvil stubs in
+    // e2e/fixtures/wallet.ts target cross-origin RPC hosts, chromium-only).
+    //
+    // The failure mode is this repo's cardinal sin wearing a fixture's clothes:
+    // the stub still "installs", the test still runs, and every assertion below
+    // it silently becomes an assertion about an outage. `vite preview` has no
+    // /api, so the unrouted call falls through to the SPA fallback and returns
+    // 200 text/html; heatClient.ts:120 `res.json()` throws, and the door
+    // fail-closes to STALE — a state with no verdict word and no degrees.
+    //
+    // NO COVERAGE IS LOST: nothing in e2e/ asserts service-worker behaviour
+    // (grep sw.js/serviceWorker/offline across e2e/ finds only prose), and the
+    // worker is exercised directly by src/lib/pwa/serviceWorker.test.ts and
+    // serviceWorkerCaching.test.ts. If a PWA spec is ever written, opt that ONE
+    // file back in with `test.use({ serviceWorkers: 'allow' })` rather than
+    // re-enabling it suite-wide.
+    serviceWorkers: 'block',
   },
   // ───────────────────────────────────────────────────────────────────────
   // THE THREE-DEVICE MATRIX.
@@ -116,8 +178,11 @@ export default defineConfig({
     { name: 'ipad-safari', use: { ...devices['iPad (gen 7)'] }, grepInvert: WEBKIT_GREP_INVERT },
   ],
   webServer: {
-    command: 'npx vite preview --port 4173',
-    port: 4173,
+    command: `npx vite preview --port ${E2E_PORT} --strictPort`,
+    port: E2E_PORT,
+    // --strictPort so a busy port is a hard, loud failure. Without it vite
+    // shrugs, binds the next free port, and Playwright waits on — then reuses —
+    // whatever the ORIGINAL occupant is serving. See the E2E_PORT note above.
     reuseExistingServer: !process.env.CI,
   },
 });

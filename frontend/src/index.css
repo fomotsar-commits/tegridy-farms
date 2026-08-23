@@ -160,6 +160,47 @@
   }
 }
 
+/* ─── Reserve the fixed chrome on the SCROLLPORT, not just in the layout ───
+   WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum), AA.
+
+   The rules above reserve room for the fixed header and BottomNav in the static
+   layout, so nothing is *rendered* underneath them. That says nothing about
+   where the browser parks an element it SCROLLS to. `scrollIntoView()`, an
+   in-page `#anchor`, `:target`, find-in-page, and — the one that matters for
+   accessibility — moving focus to a control that is currently off-screen all
+   align the element to the edge of the scrollport, and the scrollport's edges
+   sit *behind* two `position: fixed` bars. The element arrives fully covered.
+
+   MEASURED on a 412x763 Pixel 5, /launch, the audit toggle inside the door
+   (`Why did the door answer this way?`), doing nothing but `focus()` +
+   `scrollIntoView()` — i.e. what pressing Tab does:
+     before: rect top 35.7 / bottom 53.7, header bottom 56
+             -> elementFromPoint at the control's own centre returns
+                DIV.max-w-[1200px] (the HEADER's inner row), not the button
+     after : rect top 91.7 / bottom 109.7
+             -> elementFromPoint returns the BUTTON itself
+   So a keyboard user tabbing to that control was landing on a control they
+   cannot see and a pointer user cannot hit. That is the defect; the e2e click
+   timeout on mobile-chrome was only the messenger.
+
+   The two lengths are not magic numbers — they restate the bars' own heights,
+   so they cannot drift apart from them:
+     3.5rem + safe-area-inset-top  = TopNav.tsx's own `height` calc()
+     4rem   + safe-area-inset-bottom = BottomNav.tsx's inner `h-16` + its
+                                       paddingBottom
+   The 639px breakpoint matches BottomNav's `sm:hidden`, exactly as the
+   `.safe-area-content-bottom` block above does — above 640px there is no bottom
+   bar to clear, so nothing is reserved. */
+html {
+  scroll-padding-top: calc(3.5rem + env(safe-area-inset-top, 0px));
+}
+
+@media (max-width: 639px) {
+  html {
+    scroll-padding-bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 /* Prevent iOS zoom on input focus (inputs must be >= 16px) */
 @media (max-width: 767px) {
   input, select, textarea {

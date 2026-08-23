@@ -12,8 +12,28 @@
  * THE ISLAND IS NEVER CONTACTED. Every reading here is stubbed at the network layer
  * (`/api/aggregator?resource=heat`), so these run offline, deterministically, and
  * without spending a third party's quota. `vite preview` serves a static build and has
- * no `/api` at all, so an unrouted request would 404 into STALE and quietly turn every
- * assertion below into an assertion about an outage.
+ * no `/api` at all, so an unrouted request quietly turns every assertion below into an
+ * assertion about an outage.
+ *
+ * CORRECTED 2026-08-22 — the mechanism, because the old wording sent two separate
+ * investigations after the wrong thing. An unrouted call does NOT 404. `vite preview`
+ * answers unknown paths with the SPA fallback, so it returns **200 text/html**:
+ *   curl -o /dev/null -w '%{http_code} %{content_type}' \
+ *     'http://localhost:4173/api/aggregator?resource=heat&address=0x71be…'
+ *   -> 200 text/html
+ * heatClient.ts survives it anyway — `res.ok` passes, then `res.json()` throws on the
+ * HTML and it raises HeatUnavailableError('The instrument returned something
+ * unreadable.') — so the door still fail-closes to STALE. Same destination, different
+ * road, and the difference matters when you are reading a trace wondering why there is
+ * no 404 in it.
+ *
+ * IF THESE START FAILING WITH `element(s) not found` FOR A VERDICT WORD, suspect the
+ * STUB, not the door. The failure signature is the whole spec collapsing onto STALE
+ * while STALE's own test keeps passing. Historically that was the PWA service worker:
+ * `vite preview` is a PROD build, so /sw.js registers and `clients.claim()`s the open
+ * page, and on WebKit a controlled document's requests bypass `page.route` entirely —
+ * the stub installs, reports no error, and does nothing. playwright.config.ts now sets
+ * `serviceWorkers: 'block'`; read the note there before relaxing it.
  */
 
 import type { Page } from '@playwright/test';
@@ -192,6 +212,11 @@ test.describe('the audit panel', () => {
     await stubHeat(page, { status: 200, body: heatPayload(COLD_READING) });
     await walletMock.connect();
     const door = await openLaunch(page);
+    // Wait for the embedded card to land before touching the control beneath it — same
+    // 316px settle measured for the live-denial test below, same reason, and the same
+    // real content asserted to detect it. This test survived the race only by accident:
+    // its `toHaveAttribute` below polls, which happened to buy enough time.
+    await expect(door.getByText(/Where the 62\.40° comes from/)).toBeVisible();
     // Collapsed by default: the reading is the answer, the ledger is the working.
     await expect(door.getByText('Floor at the time')).toHaveCount(0);
     const toggle = door.getByRole('button', { name: /why did the door answer this way\?/i });
@@ -214,6 +239,29 @@ test.describe('the audit panel', () => {
     await stubHeat(page, { status: 200, body: heatPayload(COLD_READING) });
     await walletMock.connect();
     const door = await openLaunch(page);
+
+    // THE COLD DOOR IS NOT FINISHED WHEN THE VERDICT WORD APPEARS, and the control this
+    // test clicks is the last thing on it. `openLaunch` waits for the verdict, but the
+    // COLD branch then mounts <HeatCard variant="embedded">, which reads the island on
+    // its own and grows when it answers — so the audit toggle below it is still moving.
+    //
+    // MEASURED on a 412×763 Pixel 5, sampling the toggle's document position every 250ms
+    // from the instant the verdict word rendered:
+    //   t=0ms     docTop 629, docHeight 9109
+    //   t=267ms   docTop 945, docHeight 9429   <- the card landed; the toggle fell 316px
+    //   t=2562ms  docTop 945, docHeight 9858   <- still growing below it
+    // Clicking at t≈0 aims at a point the card is about to occupy, and the retry loop
+    // then alternates between the paragraph above the toggle and the phone's fixed
+    // chrome. Alone it usually wins the race; inside the 556-test batch it loses it.
+    //
+    // So wait for the card to have ARRIVED — and do it by asserting the card's own
+    // content, which the COLD state is required to render anyway (the COLD test at the
+    // top of this file asserts the identical heading for its own sake). This ADDS a
+    // check, it does not relax one: if the embedded card ever stopped rendering, this
+    // line fails and says so, where before the test would have died on an unrelated
+    // click timeout that named the wrong component.
+    await expect(door.getByText(/Where the 62\.40° comes from/)).toBeVisible();
+
     await door.getByRole('button', { name: /why did the door answer this way\?/i }).click();
 
     // Written by the door on read, read back by the panel — the whole round trip, in a

@@ -162,12 +162,45 @@ export const test = base.extend<Fixtures>({
     // Suppress full-viewport overlays that block clicks in test runs:
     //   - AppLoader splash canvas (zIndex 9999)
     //   - OnboardingModal welcome dialog (zIndex 100)
-    // Both self-dismiss on repeat visits by checking storage flags; pre-seed
-    // the flags before nav so they short-circuit on mount.
+    //   - ConsentBanner privacy dialog (zIndex 120)
+    // All three self-dismiss on repeat visits by checking storage flags;
+    // pre-seed the flags before nav so they short-circuit on mount.
+    //
+    // THE CONSENT SEED IS NOT COSMETIC — it is the third overlay of the same
+    // kind, and it was the one nobody had listed. ConsentBanner renders whenever
+    // `getConsent() === 'pending'` (src/lib/consent.ts — deny-by-default, so
+    // EVERY fresh e2e context is 'pending'), as `position: fixed; bottom: 0`
+    // spanning the full width at z-120. MEASURED on a 412×763 Pixel 5: it
+    // stacks `flex-col` and its rect is top 545.3 / bottom 763 — 217.8px tall,
+    // the bottom 28% of the viewport. Desktop (1280) and iPad (810) are past
+    // the `md:` breakpoint, where the same banner is `md:flex-row` — one row
+    // instead of a stack — which is why only mobile-chrome ever noticed.
+    //
+    // IT IS HALF OF A TWO-PART CAUSE, and neither half is sufficient. The other
+    // half is the missing `scroll-padding` on the scrollport (src/index.css —
+    // WCAG 2.4.11). heat-gate.spec.ts:199/217 click the audit toggle; measured
+    // on mobile-chrome, all four combinations:
+    //   no seed, no scroll-padding -> 2 failed   (the CI state)
+    //   seed only                  -> 2 failed
+    //   scroll-padding only        -> 2 failed
+    //   both                       -> 5 passed
+    // With the banner up, Playwright's retry loop alternates between three
+    // resting scroll positions and the interceptor is the banner; with the
+    // banner seeded away it alternates between the fixed header and the fixed
+    // BottomNav. Fixing either one alone just hands the click to the other.
+    // Do NOT paper over the remaining half with `force: true`, a longer timeout
+    // or a retry — on a 393-412px phone the control really is unreachable, and
+    // that is the product bug index.css now fixes.
+    //
+    // 'denied', not 'granted': it dismisses the banner WITHOUT switching on
+    // analytics or error reporting for the run. Seeding 'granted' would arm
+    // telemetry sinks in every e2e test, which is a behaviour change disguised
+    // as a fixture.
     await page.addInitScript(() => {
       try {
         sessionStorage.setItem('tf_loaded', '1');
         localStorage.setItem('tegridy-onboarding-seen', '1');
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
       } catch { /* ignore */ }
     });
     await installWalletMock(page);
