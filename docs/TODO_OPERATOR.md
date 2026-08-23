@@ -438,7 +438,7 @@ chain on every re-index, which would have destroyed every manifest).
 
 | When | What | If missed |
 |---|---|---|
-| **~2026-10-11** | Staking reserve runway ends | Claims silently pay **partial with IOUs** — quieter than a revert and worse for trust |
+| **~2026-10-11** | Staking reserve runway ends | **Not an honesty problem — corrected 2026-08-23, see below.** Refill when convenient. |
 | **~Aug 2027** | `memetics.finance` renewal (1-year, registered 2026-08-02) | A second production domain lapses while monitoring stays green |
 | Standing | `TegridyStaking` has **22 bytes** of EIP-170 headroom; `VoteIncentives` has **99** | The next one-line edit to either makes its redeploy artifact undeployable. The extraction is unbuilt. Do not casually edit those two files. |
 
@@ -949,12 +949,28 @@ Ordered by *what unblocks the most*, not by effort.
 
 | When | What | Days left as of 2026-08-22 |
 |---|---|---|
-| **~2026-10-11** | Staking reserve runway ends → claims silently pay **partial with IOUs** | **~50** |
+| ~2026-10-11 | Staking reserve runway ends. **Downgraded** — the app already shows this honestly; refill when convenient | ~49 |
 | ~Aug 2027 | `memetics.finance` renewal | ~345 |
 | Standing | `TegridyStaking` has **22 bytes** of EIP-170 headroom, `VoteIncentives` **99** | — |
 
-The October date is the only one that can hurt you soon, and its failure mode is the quiet kind:
-not a revert, a partial payment with an IOU. Decide **top-up or rate cut** well before it.
+**The October date was over-stated here and is now downgraded** (operator decision, 2026-08-23:
+*"we always show what is real — if there are no rewards it shows zero, and we will refill; with
+volume that becomes a flywheel"*). Verified against the code, and the claim holds at every layer:
+
+- `TegridyStaking` credits what it can and routes the shortfall to `unsettledRewards[holder]` — a
+  **real claimable balance**, not a promise — and emits `KickRewardPoolShortfall` when
+  `pending > rewardPool`, plus a loud `RewardsForfeitedDuringKick` if even that bucket saturates.
+- The UI reads it per user (`useUserPosition.ts:35`) and renders it as a named line with its own
+  button: *"Unsettled: … TOWELI"* / **Claim Unsettled** (`StakingCard.tsx:232-237`).
+- `usePoolData.ts:44` computes the remaining pool as
+  `balanceOf(staking) − totalStaked − totalUnsettledRewards`, so **owed rewards are never counted as
+  available**, and clamps to zero rather than showing a negative.
+- The runway itself is already on the page — `IncentivesStrip.tsx` surfaces seconds-of-emission-left
+  as a humanised countdown, `0` when dry.
+
+So there is **no silent partial payment and no fabricated number** — a dry pool reads as a real zero,
+which is the correct behaviour. Refill is a business decision on its own timetable, not a
+correctness deadline.
 
 ## The plan documents, and which to open when
 
