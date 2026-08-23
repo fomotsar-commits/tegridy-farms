@@ -497,41 +497,57 @@ and independently the fixture pre-seeds `sessionStorage.tf_loaded` to skip the s
 (`wallet.ts:167-171`). **16 of 20 tests finish in 0.9–2.7s.** A 15-19s prologue cannot fit inside a
 962 ms test.
 
-**What is actually wrong: the fixture seeds two things, and these four tests need more.**
-`e2e/fixtures/wallet.ts` seeds native ETH (`anvil_setBalance`, :464) and one ERC-20 balance
-(`seedErc20Balance`, :474). Swap needs only those two — and swap is the one money path that passes.
-**The four failing specs say what they need, verbatim, in their own assertion messages:**
+## ⚠️ CORRECTED AGAIN 2026-08-22 (late). "Seed the preconditions" was wrong for three of four.
 
-| Spec | What its own error says is missing |
-|---|---|
-| `claim-rewards.spec.ts:64` | "no accrued rewards on the fork — pre-fund reward storage in the fixture" |
-| `lending.spec.ts:75` | "no borrowable offer on the fork — the fixture must mint a collateral NFT to the test account and create a lender offer" |
-| `liquidity.spec.ts:79` | "supply CTA never enabled … check the seeded TOWELI balance" — one side is seeded, an add needs both |
-| `stake.spec.ts:90` | got PAST the CTA, clicked, submitted a tx, then died waiting for the receipt. **First cold write to the fork.** Retry #1 hit the warm cache: 3.6 s |
+The recipe that stood here — *"the fixture seeds two things and these four tests need more; each
+spec's own error message says what to seed"* — was derived from the specs' assertion messages and is
+**wrong for three of the four**. An agent then reproduced all four against a live Anvil mainnet fork,
+leg by leg. They are **four different bugs**, and missing fork state is the answer to exactly one.
 
-▶ **HOW TO FINISH IT.** Extend `e2e/fixtures/wallet.ts` beside the existing seed calls (~:463-474),
-reusing the self-verifying probe pattern `seedErc20Balance` already establishes — write, read back
-through the contract's own getter, keep the slot only if the getter agrees, throw loudly otherwise:
-1. **claim-rewards** — seed a staked LP position, then `evm_increaseTime` + `evm_mine` so the farm's
-   own `pendingRewards` getter returns non-zero. **Warp, do not write the accumulator directly** —
-   warping exercises the real accrual maths instead of forging its output.
-2. **lending** — cannot be seeded by storage pokes. `anvil_impersonateAccount` an existing NFT holder
-   on the fork, transfer a collateral NFT to `DEFAULT_ACCOUNT`, then impersonate a lender and create
-   the offer **through the protocol's real entrypoint**.
-3. **liquidity** — seed the ETH-paired side too, not just TOWELI.
-4. **stake** — likely already fixed by `50ee7a92` (below). Re-run before touching it. If attempt 1
-   now passes, the cold-cache read was the whole story, and that is a finding, not a fix.
+**Three of the four were FALSE GREENS or dead locators on trunk today:**
 
-✅ **Landed 2026-08-22 (`50ee7a92`), and it is a prerequisite for all four:** `playwright.config.ts`
-declared no `timeout`, so the default 30_000 exactly equalled `expectTxReceipt`'s own
-`toBeVisible({ timeout: 30_000 })` (`wallet.ts:76`). Two equal budgets race, the test-level one
-wins, and **the assertion could never print its own reason** — every receipt failure has been
-reporting the generic "Test timeout of 30000ms exceeded". Now 60_000. No assertion's budget moved.
-Also corrected `liquidity.spec.ts`, whose comment claimed "the fork precondition is handled now"
-while its own test proved otherwise.
+1. **`liquidity` never added liquidity, and the fork was never short of anything.** Its CTA regex is
+   `/(supply|add liquidity|deposit|approve)/i`; this app labels the add submit **"Grow the Crop"**.
+   Cold, the only match is *"Approve TOWELI"* — so the spec clicked the **approval**, and
+   `expectTxReceipt` was satisfied by the approval's receipt. The remove side then correctly rendered
+   nothing, because the account held no LP. **One cause explains all three CI durations**: cold it
+   fails at ~6.5 s (CI's unexplained attempt 0), warm the CTA reads "Grow the Crop", the regex
+   matches nothing, and the 20 s guard fires — CI's 22.4 s and 21.9 s retries.
+2. **`stake` clicks once in a two-step cascade.** `StakingCard` renders ONE self-relabelling button;
+   cold, that click is the **approve**, which shows no receipt by design. Its retry-#1 pass was
+   attempt 0's allowance surviving on the fork — not a warm cache, as previously recorded here.
+3. **`claim-rewards` waits on `/^claim\s+\d/i`, which matches no CTA `/farm` can draw in any state.**
+   The only "Claim &lt;n&gt; TOWELI" is the restaking panel's, gated at `FarmPage.tsx:452` on
+   `TEGRIDY_RESTAKING_ADDRESS = 0x0`; LP farming says "Claim Rewards" — no digit.
+   **Pre-funding reward storage, which both earlier diagnoses recommended and which this document
+   told you to do, would not have turned it green.**
+4. **`lending` is the one with genuinely missing state** — `offerCount()` is 0 on mainnet, read with
+   `cast`. Plus two blockers nobody saw: the spec never expands the offer card (it is a `div`, not a
+   button), and it demands a `/tx/0x` receipt from `NFTLendingSection`, which renders **no explorer
+   link anywhere** (`grep getTxUrl` → zero hits).
 
-⛔ **DO NOT** fix any of these by loosening the assertion, widening a per-assertion timeout, or
-adding a retry. Each assertion is correct and is telling the truth. The fixture is what is missing.
+**A completed implementation exists and is NOT merged, deliberately.** Worktree
+`.claude/worktrees/wf_2d4792a8-b87-6`. It adds `advancePastApproval` (walks a self-relabelling
+approve→act CTA to its ACT state and **refuses to accept the approval as the action**),
+`expectTxReceipt` returning its hash plus a `notHash` argument (these surfaces overwrite one receipt
+line, so leg two was being satisfied by leg one's link), `seedNftLendingOffer`,
+`useIsolatedForkAccount()`, and `advanceForkTime`.
+
+🔴 **It was adversarially verified and came back REFUTED on one leg — do not merge it as-is.**
+`lending.spec.ts:134` asserts `repay.toHaveCount(0)` on a button located by accessible name
+`/^Repay Loan$/`. `NFTLendingSection.tsx:1138` renders
+`{repaying ? 'Confirm in Wallet...' : repayConfirming ? 'Repaying...' : 'Repay Loan'}` — so the name
+changes the instant the click sets `repaying`, and the count reaches 0 **whether or not the
+repayment ever confirmed**. That is a fresh false green in the fix for a false green.
+▶ **Watch contract state, not the button's label.** Then the track is genuinely done; the verifier
+found everything else in it sound.
+
+⚠️ Also flagged there: `liquidity.spec.ts:75`'s `panel.locator('button:not([aria-pressed])').last()`
+resolves correctly **today but positionally** — appending any button to `LiquidityTab` silently
+retargets the spec's submit. Give the cascade button a `data-testid`.
+
+⛔ **DO NOT** fix any of these by loosening an assertion, widening a per-assertion timeout, or adding
+a retry. Two of the four were *already* passing on something that was not the thing under test.
 
 ## 1b. The heat-door failures — ✅ DIAGNOSED AND FIXED (`d2d43bdb`)
 
