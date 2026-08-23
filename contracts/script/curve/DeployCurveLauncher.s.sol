@@ -51,6 +51,7 @@ contract DeployCurveLauncherScript is Script {
         address weth;
         address multisig;
         address pauseGuardian;
+        address treasury;
         TegridyCurveLauncher.LaunchConfig launch;
     }
 
@@ -60,7 +61,7 @@ contract DeployCurveLauncherScript is Script {
 
         vm.startBroadcast();
         TegridyCurveLauncher launcher = new TegridyCurveLauncher(
-            cfg.factory, cfg.weth, cfg.multisig, cfg.pauseGuardian, cfg.launch
+            cfg.factory, cfg.weth, cfg.multisig, cfg.pauseGuardian, cfg.treasury, cfg.launch
         );
         vm.stopBroadcast();
 
@@ -72,7 +73,7 @@ contract DeployCurveLauncherScript is Script {
     function runForTest(Config memory cfg) external returns (TegridyCurveLauncher launcher) {
         _validate(cfg);
         launcher = new TegridyCurveLauncher(
-            cfg.factory, cfg.weth, cfg.multisig, cfg.pauseGuardian, cfg.launch
+            cfg.factory, cfg.weth, cfg.multisig, cfg.pauseGuardian, cfg.treasury, cfg.launch
         );
         _assertDeployInvariants(cfg, launcher);
     }
@@ -81,9 +82,15 @@ contract DeployCurveLauncherScript is Script {
         cfg.factory = vm.envAddress("FACTORY");
         cfg.multisig = vm.envAddress("MULTISIG");
         cfg.pauseGuardian = vm.envAddress("PAUSE_GUARDIAN");
+        cfg.treasury = vm.envAddress("TREASURY");
         cfg.weth = _canonicalWeth();
 
-        uint256 graduationEth = vm.envUint("GRADUATION_ETH_WEI");
+        // Per-chain graduation default — the research-backed raise target that
+        // balances "achievable so projects actually graduate" against "deep
+        // enough to survive", with the 3.69% reserve backstopping depth
+        // (docs/CURVE_ECONOMICS.md): mainnet 4 ETH, Base 2 ETH, Robinhood
+        // 1.5 ETH. Operators override with GRADUATION_ETH_WEI.
+        uint256 graduationEth = vm.envOr("GRADUATION_ETH_WEI", _defaultGraduationEth());
         // Continuity-exact default: T = 19·Vs lists at exactly 95% of the
         // final curve price. Operators overriding VIRTUAL_ETH_WEI still hit
         // the contract's own band check.
@@ -94,7 +101,13 @@ contract DeployCurveLauncherScript is Script {
             virtualEth: uint128(virtualEth),
             graduationEth: uint128(graduationEth),
             feeBps: uint16(vm.envOr("CURVE_FEE_BPS", uint256(100))),
-            creatorFeeShareBps: uint16(vm.envOr("CREATOR_FEE_SHARE_BPS", uint256(5_000))),
+            // Fee split (docs/CURVE_ECONOMICS.md): 40% creator / 25% treasury /
+            // 35% protocol (protocol = the remainder). Creator 40% matches the
+            // Clanker benchmark and stays competitive because we ALSO give
+            // graduate-to-us LP + the 3.69% reserve; treasury 25% seeds Jungle
+            // Bay ecosystem funding; protocol 35% funds the launchpad itself.
+            creatorFeeShareBps: uint16(vm.envOr("CREATOR_FEE_SHARE_BPS", uint256(4_000))),
+            treasuryFeeShareBps: uint16(vm.envOr("TREASURY_FEE_SHARE_BPS", uint256(2_500))),
             reserveBps: uint16(reserveBps),
             reserveRecipient: reserveBps > 0
                 ? vm.envAddress("RESERVE_RECIPIENT")
@@ -106,6 +119,13 @@ contract DeployCurveLauncherScript is Script {
         if (block.chainid == 1) return WETH_MAINNET;
         if (block.chainid == 8453) return WETH_BASE;
         if (block.chainid == 4663) return WETH_ROBINHOOD;
+        revert("CV-0: unsupported chain - serve a new chain deliberately, not by fork default");
+    }
+
+    function _defaultGraduationEth() internal view returns (uint256) {
+        if (block.chainid == 1) return 4 ether; // mainnet: fewer, more serious launches
+        if (block.chainid == 8453) return 2 ether; // Base: cheap gas, higher throughput
+        if (block.chainid == 4663) return 1.5 ether; // Robinhood: nascent chain, lower bar
         revert("CV-0: unsupported chain - serve a new chain deliberately, not by fork default");
     }
 
@@ -151,6 +171,16 @@ contract DeployCurveLauncherScript is Script {
             }
         }
 
+        // CV-3d: the treasury receives the treasury fee share on every sweep —
+        // never zero (the launcher enforces the same). A Safe/vault is preferred
+        // but an owner-chosen EOA is accepted with a warning, same policy as the
+        // reserve recipient.
+        require(cfg.treasury != address(0), "CV-3d: TREASURY is the zero address");
+        if (cfg.treasury.code.length == 0) {
+            console2.log("!! CV-3d WARNING: TREASURY is an EOA, not a Safe/vault:");
+            console2.log("   ", cfg.treasury);
+        }
+
         // CV-4: economics sanity — a graduation target this small produces an
         // untradeable dust pool. Mirrors the launcher's on-chain
         // MIN_GRADUATION_ETH (the constructor enforces the same floor now, so
@@ -166,12 +196,14 @@ contract DeployCurveLauncherScript is Script {
         require(address(launcher.WETH()) == cfg.weth, "CV-6: weth mismatch");
         require(launcher.owner() == cfg.multisig, "CV-7: owner not multisig at birth");
         require(launcher.pauseGuardian() == cfg.pauseGuardian, "CV-8: guardian mismatch");
+        require(launcher.treasury() == cfg.treasury, "CV-8b: treasury mismatch");
 
         (
             uint128 virtualEth,
             uint128 graduationEth,
             uint16 feeBps,
             uint16 creatorShare,
+            uint16 treasuryShare,
             uint16 reserveBps,
             address reserveRecipient
         ) = launcher.launchConfig();
@@ -179,6 +211,9 @@ contract DeployCurveLauncherScript is Script {
         require(graduationEth == cfg.launch.graduationEth, "CV-9b: graduationEth mismatch");
         require(feeBps == cfg.launch.feeBps, "CV-9c: feeBps mismatch");
         require(creatorShare == cfg.launch.creatorFeeShareBps, "CV-9d: creatorShare mismatch");
+        require(
+            treasuryShare == cfg.launch.treasuryFeeShareBps, "CV-9d2: treasuryShare mismatch"
+        );
         require(reserveBps == cfg.launch.reserveBps, "CV-9e: reserveBps mismatch");
         require(
             reserveRecipient == cfg.launch.reserveRecipient, "CV-9f: reserveRecipient mismatch"
@@ -194,10 +229,16 @@ contract DeployCurveLauncherScript is Script {
         console2.log("weth:               ", cfg.weth);
         console2.log("owner (multisig):   ", cfg.multisig);
         console2.log("pause guardian:     ", cfg.pauseGuardian);
+        console2.log("treasury:           ", cfg.treasury);
         console2.log("virtualEth (wei):   ", uint256(cfg.launch.virtualEth));
         console2.log("graduationEth (wei):", uint256(cfg.launch.graduationEth));
         console2.log("feeBps:             ", uint256(cfg.launch.feeBps));
         console2.log("creatorFeeShareBps: ", uint256(cfg.launch.creatorFeeShareBps));
+        console2.log("treasuryFeeShareBps:", uint256(cfg.launch.treasuryFeeShareBps));
+        console2.log(
+            "protocolShareBps:   ",
+            uint256(10_000) - cfg.launch.creatorFeeShareBps - cfg.launch.treasuryFeeShareBps
+        );
         console2.log("reserveBps:         ", uint256(cfg.launch.reserveBps));
         console2.log("reserveRecipient:   ", cfg.launch.reserveRecipient);
         console2.log("");

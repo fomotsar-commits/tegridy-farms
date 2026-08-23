@@ -209,3 +209,16 @@ Positioning vs the Doppler rail: keep both. Doppler stays the "serious auction" 
 (Whetstone's dutch-auction discovery, V4 hooks, the petition path); the own curve is the
 frictionless rail where we keep 100% of the fee flow. The wizard can offer both with the
 fee difference printed honestly — the heat gate curates either way.
+
+### Economics (owner-decided 2026-08-23, research-backed — `docs/CURVE_ECONOMICS.md`)
+
+The 1% trade fee splits THREE ways so every stakeholder is funded on-chain: **40% creator /
+25% Jungle Bay treasury / 35% protocol** (creator + treasury take exact shares, protocol
+keeps the remainder). 40% creator matches Clanker and stays competitive because we also give
+graduate-to-us LP + the 3.69% reserve; 25% treasury seeds ecosystem survival (buybacks /
+bid-wall / grants — the fee-recycling lever survivors converged on); 35% keeps the launchpad
+itself funded. Graduation targets are chain-tuned for a high graduation RATE backstopped by
+the reserve: mainnet 4 ETH, Base 2 ETH, Robinhood 1.5 ETH, Solana ~75 SOL (all slightly at
+or below pump.fun's ~$12–15k bar, where <2% of tokens graduate). The reserve recipient and
+treasury are the operator address for now (repointable to a Safe/LockVault later). Solana
+keeps its 2-way 48/52 split at Meteora-parity (a Rust treasury bucket is a separate change).

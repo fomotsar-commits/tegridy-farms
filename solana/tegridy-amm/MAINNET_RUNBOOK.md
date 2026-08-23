@@ -355,6 +355,17 @@ That argument only exists while the share is held AT parity rather than bid abov
 it; raising it to 5,000 buys 2 bps of creator goodwill and forfeits the
 like-for-like comparison.
 
+> **Deliberate divergence from the EVM curve (2026-08-23, `docs/CURVE_ECONOMICS.md`).**
+> The EVM `TegridyCurveLauncher` runs a THREE-way split — 40% creator / 25% Jungle
+> Bay treasury / 35% protocol — because the owner wanted an explicit on-chain
+> treasury stream and the EVM contract has the surface for it. Solana STAYS 2-way
+> at 48/52 on purpose: the Rust program has one house bucket, and 48% is held at
+> Meteora parity for the checkable claim above (a Rust treasury bucket is a
+> program change + re-audit, out of scope for the restart). On Solana the treasury
+> funding therefore comes OUT OF the 52% protocol share off-chain — same three
+> stakeholders funded, one fewer on-chain bucket. If you later add a Solana
+> treasury bucket, align it to the EVM 40/25/35 and drop the parity claim.
+
 Snapshotted per launch like the fee itself; `update_global` moves future launches
 only. Bounded at 10_000 (100% of the fee).
 
@@ -389,6 +400,14 @@ headroom.
 Too small and migration fails *after* the pool exists — the worst possible moment.
 
 ### ⚠️ `graduation_target_lamports` — computed, NOT chosen
+
+**Recommended raise ≈ 75 SOL** (`docs/CURVE_ECONOMICS.md`, 2026-08-23 research). pump.fun
+graduates at ~85 SOL (~$12–15k) and under 2% of tokens ever graduate; sitting slightly
+BELOW that lifts the graduation rate — more up-and-coming projects actually reach a real
+pool — while ~75 SOL still clears Jupiter's routing-liquidity threshold. This is the raise
+target the price-continuity math below is solved AROUND; it is not a free knob (see the gap
+warning). Scale `initial_virtual_sol` with it. The EVM curve's chain-tuned equivalents are
+mainnet 4 ETH / Base 2 ETH / Robinhood 1.5 ETH.
 
 The curve prices on virtual+real reserves; the pool is seeded with real reserves
 only. They coincide at exactly one target, and away from it the token **gaps at

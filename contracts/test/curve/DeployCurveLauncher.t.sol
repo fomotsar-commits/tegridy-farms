@@ -29,6 +29,7 @@ contract DeployCurveLauncherScriptTest is Test {
     address internal constant MULTISIG = address(0xA11CE);
     address internal constant GUARDIAN = address(0x6A2D);
     address internal constant CUSTODY = address(0xEC0);
+    address internal constant TREASURY = address(0x51ED);
 
     function setUp() public {
         script = new DeployCurveLauncherScript();
@@ -38,6 +39,7 @@ contract DeployCurveLauncherScriptTest is Test {
         vm.etch(MULTISIG, hex"60006000fd");
         vm.etch(GUARDIAN, hex"60006000fd");
         vm.etch(CUSTODY, hex"60006000fd");
+        vm.etch(TREASURY, hex"60006000fd");
     }
 
     function _config() internal view returns (DeployCurveLauncherScript.Config memory cfg) {
@@ -45,11 +47,13 @@ contract DeployCurveLauncherScriptTest is Test {
         cfg.weth = address(weth);
         cfg.multisig = MULTISIG;
         cfg.pauseGuardian = GUARDIAN;
+        cfg.treasury = TREASURY;
         cfg.launch = TegridyCurveLauncher.LaunchConfig({
             virtualEth: 0.2 ether,
             graduationEth: 3.8 ether,
             feeBps: 100,
-            creatorFeeShareBps: 5_000,
+            creatorFeeShareBps: 4_000,
+            treasuryFeeShareBps: 2_500,
             reserveBps: 500,
             reserveRecipient: CUSTODY
         });
@@ -100,7 +104,7 @@ contract DeployCurveLauncherScriptTest is Test {
         cfg = _config();
         cfg.launch.reserveRecipient = address(0xEA00); // an EOA (no code)
         TegridyCurveLauncher launcher = script.runForTest(cfg);
-        (,,,,, address reserveRecipient) = launcher.launchConfig();
+        (,,,,,, address reserveRecipient) = launcher.launchConfig();
         assertEq(reserveRecipient, address(0xEA00));
     }
 
@@ -110,5 +114,22 @@ contract DeployCurveLauncherScriptTest is Test {
         cfg.launch.virtualEth = uint128(uint256(0.09 ether) / 19);
         vm.expectRevert(bytes("CV-4: GRADUATION_ETH_WEI < 0.1 ether"));
         script.runForTest(cfg);
+    }
+
+    function test_RejectsZeroTreasuryButWarnsOnEOA() public {
+        DeployCurveLauncherScript.Config memory cfg = _config();
+        cfg.treasury = address(0);
+        vm.expectRevert(bytes("CV-3d: TREASURY is the zero address"));
+        script.runForTest(cfg);
+
+        // An EOA treasury is accepted (with a warning), like the reserve recipient.
+        cfg = _config();
+        cfg.treasury = address(0xEA55); // EOA (no code)
+        TegridyCurveLauncher launcher = script.runForTest(cfg);
+        assertEq(launcher.treasury(), address(0xEA55));
+        // The fee-split defaults resolve to 40/25/35 (protocol = remainder).
+        (,,, uint16 creatorShare, uint16 treasuryShare,,) = launcher.launchConfig();
+        assertEq(creatorShare, 4_000);
+        assertEq(treasuryShare, 2_500);
     }
 }

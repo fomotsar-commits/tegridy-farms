@@ -124,12 +124,16 @@ contract TegridyCurveLauncherTest is Test {
     address internal constant BUYER = address(0xB0B);
     address internal constant BUYER2 = address(0xB0B2);
 
+    address internal constant JUNGLE_TREASURY = address(0x51ED);
+
     // Continuity-exact economics: T = 19 * Vs puts listing at exactly 95% of
     // the final curve price — the band's edge.
     uint128 internal constant VIRTUAL_ETH = 0.2 ether;
     uint128 internal constant GRADUATION_ETH = 3.8 ether;
     uint16 internal constant FEE_BPS = 100; // 1%
-    uint16 internal constant CREATOR_SHARE_BPS = 5_000; // 50% of the fee
+    uint16 internal constant CREATOR_SHARE_BPS = 4_000; // 40% of the fee
+    uint16 internal constant TREASURY_SHARE_BPS = 2_500; // 25% of the fee
+    // protocol keeps the remainder = 35% of the fee
     uint16 internal constant RESERVE_BPS = 500; // 5% of supply
 
     function _config() internal pure returns (TegridyCurveLauncher.LaunchConfig memory) {
@@ -138,6 +142,7 @@ contract TegridyCurveLauncherTest is Test {
             graduationEth: GRADUATION_ETH,
             feeBps: FEE_BPS,
             creatorFeeShareBps: CREATOR_SHARE_BPS,
+            treasuryFeeShareBps: TREASURY_SHARE_BPS,
             reserveBps: RESERVE_BPS,
             reserveRecipient: RESERVE_CUSTODY
         });
@@ -146,8 +151,9 @@ contract TegridyCurveLauncherTest is Test {
     function setUp() public {
         weth = new MockWETH();
         factory = new TegridyFactory(MULTISIG, TREASURY, GUARDIAN);
-        launcher =
-            new TegridyCurveLauncher(address(factory), address(weth), MULTISIG, GUARDIAN, _config());
+        launcher = new TegridyCurveLauncher(
+            address(factory), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, _config()
+        );
         vm.deal(CREATOR, 100 ether);
         vm.deal(BUYER, 100 ether);
         vm.deal(BUYER2, 100 ether);
@@ -291,7 +297,7 @@ contract TegridyCurveLauncherTest is Test {
         // The curve is fully unwound: every real wei the buy deposited is
         // either returned, or retained as fees/rounding — never created.
         TegridyCurveLauncher.Launch memory l = launcher.getLaunch(token);
-        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees();
+        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees() + launcher.treasuryFees();
         assertEq(l.ethReserve + fees + ethOut, 1 ether);
     }
 
@@ -321,7 +327,7 @@ contract TegridyCurveLauncherTest is Test {
 
         // Reserve never went negative (implicit: no revert) and the launcher
         // still holds every accrued fee.
-        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees();
+        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees() + launcher.treasuryFees();
         assertGe(address(launcher).balance, fees);
         // Token side fully restored.
         TegridyCurveLauncher.Launch memory l = launcher.getLaunch(token);
@@ -364,24 +370,26 @@ contract TegridyCurveLauncherTest is Test {
 
     // ─────────────────────────────── fees ────────────────────────────────
 
-    function test_FeeSplitSumsExactlyAndCreatorRoundsDown() public {
+    function test_FeeSplitSumsExactlyThreeWayAndProtocolKeepsRemainder() public {
         address token = _create();
-        // A gross value chosen so the fee is ODD → the 50/50 split cannot be
-        // symmetric and the rounding direction becomes observable.
+        // A gross value chosen so the fee is NOT cleanly divisible by the share
+        // grid, so the rounding (creator + treasury DOWN, protocol remainder)
+        // becomes observable.
         uint256 gross = 3_000_100;
-        uint256 fee = (gross * uint256(FEE_BPS)) / 10_000; // 30_001 — odd
-        assertEq(fee % 2, 1);
+        uint256 fee = (gross * uint256(FEE_BPS)) / 10_000; // 30_001
 
         vm.prank(BUYER);
         launcher.buy{value: gross}(token, 0);
 
         uint256 creatorCut = launcher.creatorFeeOf(token);
+        uint256 treasuryCut = launcher.treasuryFees();
         uint256 protocolCut = launcher.protocolFees();
-        // Creator rounds DOWN; protocol keeps the odd wei; sum is exact.
-        assertEq(creatorCut, fee / 2);
-        assertEq(protocolCut, fee - fee / 2);
-        assertEq(creatorCut + protocolCut, fee);
-        assertLt(creatorCut, protocolCut);
+        // Creator + treasury round DOWN at their exact shares; protocol keeps
+        // the remainder; the three always sum to exactly the fee.
+        assertEq(creatorCut, (fee * CREATOR_SHARE_BPS) / 10_000);
+        assertEq(treasuryCut, (fee * TREASURY_SHARE_BPS) / 10_000);
+        assertEq(protocolCut, fee - creatorCut - treasuryCut);
+        assertEq(creatorCut + treasuryCut + protocolCut, fee);
     }
 
     function test_CreatorClaimIsPullOnlyAndCreatorGated() public {
@@ -452,12 +460,59 @@ contract TegridyCurveLauncherTest is Test {
         assertEq(launcher.protocolFees(), 0);
     }
 
+    function test_TreasuryFeesSweepPermissionlessToTreasury() public {
+        address token = _create();
+        vm.prank(BUYER);
+        launcher.buy{value: 1 ether}(token, 0);
+
+        uint256 fee = (1 ether * uint256(FEE_BPS)) / 10_000;
+        uint256 accrued = launcher.treasuryFees();
+        assertEq(accrued, (fee * TREASURY_SHARE_BPS) / 10_000);
+        assertGt(accrued, 0);
+
+        // Anyone can sweep, but it can only ever pay the treasury address.
+        uint256 before = JUNGLE_TREASURY.balance;
+        vm.prank(BUYER2); // a stranger keeper
+        uint256 swept = launcher.sweepTreasuryFees();
+        assertEq(swept, accrued);
+        assertEq(JUNGLE_TREASURY.balance, before + accrued);
+        assertEq(launcher.treasuryFees(), 0);
+
+        // Nothing left to sweep.
+        vm.expectRevert(TegridyCurveLauncher.NothingToClaim.selector);
+        launcher.sweepTreasuryFees();
+    }
+
+    function test_SetTreasuryOwnerOnlyAndRedirectsSweep() public {
+        address token = _create();
+        vm.prank(BUYER);
+        launcher.buy{value: 1 ether}(token, 0);
+
+        address newTreasury = address(0x515E2);
+        // Stranger can't move it; zero is rejected.
+        vm.prank(BUYER);
+        vm.expectRevert();
+        launcher.setTreasury(newTreasury);
+        vm.prank(MULTISIG);
+        vm.expectRevert(TegridyCurveLauncher.ZeroAddress.selector);
+        launcher.setTreasury(address(0));
+
+        // Owner repoints; accrued fees follow the new address on the next sweep.
+        vm.prank(MULTISIG);
+        launcher.setTreasury(newTreasury);
+        assertEq(launcher.treasury(), newTreasury);
+        uint256 accrued = launcher.treasuryFees();
+        launcher.sweepTreasuryFees();
+        assertEq(newTreasury.balance, accrued);
+        assertEq(JUNGLE_TREASURY.balance, 0);
+    }
+
     function test_DonationImmune_StrayEthNeverEntersAccounting() public {
         address token = _create();
         vm.prank(BUYER);
         launcher.buy{value: 1 ether}(token, 0);
         TegridyCurveLauncher.Launch memory before = launcher.getLaunch(token);
-        uint256 feesBefore = launcher.protocolFees() + launcher.creatorFeeOf(token);
+        uint256 feesBefore = launcher.protocolFees() + launcher.creatorFeeOf(token) + launcher.treasuryFees();
         (uint256 quoteBefore,,) = launcher.previewBuy(token, 1 ether);
 
         // Plain sends revert (no receive function)…
@@ -471,7 +526,7 @@ contract TegridyCurveLauncherTest is Test {
         vm.deal(address(launcher), address(launcher).balance + 5 ether);
         TegridyCurveLauncher.Launch memory l = launcher.getLaunch(token);
         assertEq(l.ethReserve, before.ethReserve);
-        assertEq(launcher.protocolFees() + launcher.creatorFeeOf(token), feesBefore);
+        assertEq(launcher.protocolFees() + launcher.creatorFeeOf(token) + launcher.treasuryFees(), feesBefore);
         (uint256 quoteAfter,,) = launcher.previewBuy(token, 1 ether);
         assertEq(quoteAfter, quoteBefore);
     }
@@ -514,7 +569,7 @@ contract TegridyCurveLauncherTest is Test {
         assertEq(IERC20(token).balanceOf(RESERVE_CUSTODY), l0.reserveAmount);
 
         // The launcher retains ONLY fee-backing ETH.
-        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees();
+        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees() + launcher.treasuryFees();
         assertEq(address(launcher).balance, fees);
     }
 
@@ -575,8 +630,10 @@ contract TegridyCurveLauncherTest is Test {
 
         vm.prank(MULTISIG);
         launcher.withdrawProtocolFees(TREASURY);
-        // After both pulls the launcher's ETH ledger is fully drained: no
-        // stranded value, no over-payout (exact balance conservation).
+        launcher.sweepTreasuryFees();
+        // After ALL THREE pulls (creator claim + protocol withdraw + treasury
+        // sweep) the launcher's ETH ledger is fully drained: no stranded value,
+        // no over-payout (exact balance conservation across the 3-way split).
         assertEq(address(launcher).balance, 0);
     }
 
@@ -652,8 +709,9 @@ contract TegridyCurveLauncherTest is Test {
     function test_GraduationDefersWhenFactoryFull_ThenFinalizes() public {
         // Launcher wired to a factory we can force to "full".
         BlockableFactory bf = new BlockableFactory(address(factory));
-        TegridyCurveLauncher l2 =
-            new TegridyCurveLauncher(address(bf), address(weth), MULTISIG, GUARDIAN, _config());
+        TegridyCurveLauncher l2 = new TegridyCurveLauncher(
+            address(bf), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, _config()
+        );
         vm.prank(CREATOR);
         address token = l2.create("Deferred", "DEF");
 
@@ -791,10 +849,26 @@ contract TegridyCurveLauncherTest is Test {
         vm.expectRevert(TegridyCurveLauncher.ConfigOutOfBounds.selector);
         launcher.setLaunchConfig(cfg);
 
+        // creator + treasury shares must not exceed the whole fee.
         cfg = _config();
         cfg.creatorFeeShareBps = 10_001;
         vm.prank(MULTISIG);
-        vm.expectRevert(TegridyCurveLauncher.ConfigOutOfBounds.selector);
+        vm.expectRevert(TegridyCurveLauncher.FeeSharesExceedFee.selector);
+        launcher.setLaunchConfig(cfg);
+
+        // creator + treasury summing above 10000 also reverts (each alone is fine).
+        cfg = _config();
+        cfg.creatorFeeShareBps = 7_000;
+        cfg.treasuryFeeShareBps = 3_001; // 10_001 total
+        vm.prank(MULTISIG);
+        vm.expectRevert(TegridyCurveLauncher.FeeSharesExceedFee.selector);
+        launcher.setLaunchConfig(cfg);
+
+        // The exact-100% boundary (creator + treasury == 10000, protocol 0) is allowed.
+        cfg = _config();
+        cfg.creatorFeeShareBps = 6_000;
+        cfg.treasuryFeeShareBps = 4_000;
+        vm.prank(MULTISIG);
         launcher.setLaunchConfig(cfg);
 
         cfg = _config();
@@ -886,14 +960,17 @@ contract TegridyCurveLauncherTest is Test {
     function test_ConstructorValidation() public {
         TegridyCurveLauncher.LaunchConfig memory cfg = _config();
         vm.expectRevert(TegridyCurveLauncher.ZeroAddress.selector);
-        new TegridyCurveLauncher(address(0), address(weth), MULTISIG, GUARDIAN, cfg);
+        new TegridyCurveLauncher(address(0), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, cfg);
         vm.expectRevert(TegridyCurveLauncher.ZeroAddress.selector);
-        new TegridyCurveLauncher(address(factory), address(0), MULTISIG, GUARDIAN, cfg);
+        new TegridyCurveLauncher(address(factory), address(0), MULTISIG, GUARDIAN, JUNGLE_TREASURY, cfg);
+        // Zero treasury rejected.
+        vm.expectRevert(TegridyCurveLauncher.ZeroAddress.selector);
+        new TegridyCurveLauncher(address(factory), address(weth), MULTISIG, GUARDIAN, address(0), cfg);
         // Non-contract factory/weth rejected (fat-finger protection).
         vm.expectRevert(TegridyCurveLauncher.ZeroAddress.selector);
-        new TegridyCurveLauncher(address(0xEA01), address(weth), MULTISIG, GUARDIAN, cfg);
+        new TegridyCurveLauncher(address(0xEA01), address(weth), MULTISIG, GUARDIAN, JUNGLE_TREASURY, cfg);
         vm.expectRevert(TegridyCurveLauncher.ZeroAddress.selector);
-        new TegridyCurveLauncher(address(factory), address(0xEA02), MULTISIG, GUARDIAN, cfg);
+        new TegridyCurveLauncher(address(factory), address(0xEA02), MULTISIG, GUARDIAN, JUNGLE_TREASURY, cfg);
     }
 
     // ─────────────────────────────── fuzz ────────────────────────────────
@@ -912,17 +989,22 @@ contract TegridyCurveLauncherTest is Test {
         assertLt(back, amount);
         // Conservation: reserve + fees + payout == deposit, to the wei.
         TegridyCurveLauncher.Launch memory l = launcher.getLaunch(token);
-        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees();
+        uint256 fees = launcher.creatorFeeOf(token) + launcher.protocolFees() + launcher.treasuryFees();
         assertEq(l.ethReserve + fees + back, amount);
     }
 
     /// forge-config: default.fuzz.runs = 512
-    function testFuzz_FeeSplitAlwaysSumsToFee(uint96 buyWei, uint16 shareBps) public {
+    function testFuzz_FeeSplitAlwaysSumsToFeeThreeWay(uint96 buyWei, uint16 cShare, uint16 tShare)
+        public
+    {
         uint256 amount = bound(uint256(buyWei), 10_000, 3 ether);
-        uint16 share = uint16(bound(uint256(shareBps), 0, 10_000));
+        // creator + treasury must be <= 10000 (protocol takes the rest).
+        uint16 creatorShare = uint16(bound(uint256(cShare), 0, 10_000));
+        uint16 treasuryShare = uint16(bound(uint256(tShare), 0, 10_000 - creatorShare));
 
         TegridyCurveLauncher.LaunchConfig memory cfg = _config();
-        cfg.creatorFeeShareBps = share;
+        cfg.creatorFeeShareBps = creatorShare;
+        cfg.treasuryFeeShareBps = treasuryShare;
         vm.prank(MULTISIG);
         launcher.setLaunchConfig(cfg);
 
@@ -933,8 +1015,12 @@ contract TegridyCurveLauncherTest is Test {
 
         uint256 fee = (amount * uint256(FEE_BPS)) / 10_000;
         uint256 creatorCut = launcher.creatorFeeOf(token);
-        assertEq(creatorCut + launcher.protocolFees(), fee);
-        assertEq(creatorCut, (fee * uint256(share)) / 10_000); // rounds down
+        uint256 treasuryCut = launcher.treasuryFees();
+        // The three cuts always sum to exactly the fee, and creator + treasury
+        // round DOWN to their exact shares (protocol keeps the remainder).
+        assertEq(creatorCut + treasuryCut + launcher.protocolFees(), fee);
+        assertEq(creatorCut, (fee * uint256(creatorShare)) / 10_000);
+        assertEq(treasuryCut, (fee * uint256(treasuryShare)) / 10_000);
     }
 
     /// forge-config: default.fuzz.runs = 256
@@ -983,7 +1069,7 @@ contract TegridyCurveLauncherTest is Test {
 
         // The contract's real balance always covers the internal ledger.
         TegridyCurveLauncher.Launch memory fin = launcher.getLaunch(token);
-        uint256 owed = fin.ethReserve + launcher.creatorFeeOf(token) + launcher.protocolFees();
+        uint256 owed = fin.ethReserve + launcher.creatorFeeOf(token) + launcher.protocolFees() + launcher.treasuryFees();
         assertGe(address(launcher).balance, owed);
     }
 }

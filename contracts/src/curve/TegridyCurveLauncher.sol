@@ -106,8 +106,18 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         uint128 graduationEth;
         // Trade fee in bps of ETH-in (buys) / ETH-out (sells). Capped 3%.
         uint16 feeBps;
-        // Creator's share OF THE FEE, in bps of the fee. 10000 = the whole fee.
+        // The trade fee is split THREE ways (creator / treasury / protocol),
+        // each a share OF THE FEE in bps. Creator + treasury are set here;
+        // protocol takes the remainder (fee - creator - treasury), so the three
+        // always sum to exactly the fee. creator + treasury must be <= 10000.
+        //   - creatorFeeShareBps: the volume magnet — the creator's cut, which
+        //     is what brings order flow (the binding launcher constraint).
+        //   - treasuryFeeShareBps: the Jungle Bay treasury — ecosystem survival
+        //     funding (buybacks / bid-wall / community grants), a SECOND
+        //     ecosystem stream alongside the supply reserve.
+        //   - protocol (remainder): keeps the launchpad's own lights on.
         uint16 creatorFeeShareBps;
+        uint16 treasuryFeeShareBps;
         // Ecosystem reserve carved off total supply at create, in bps. Cap 10%.
         uint16 reserveBps;
         // Custody the reserve tranche transfers to at graduation. Must be
@@ -123,6 +133,7 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         uint128 graduationEth;
         uint16 feeBps;
         uint16 creatorFeeShareBps;
+        uint16 treasuryFeeShareBps;
         address reserveRecipient;
         uint256 saleSupply; // tokens placed on the curve at create
         uint256 reserveAmount; // tokens earmarked for the ecosystem reserve
@@ -150,6 +161,7 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
     error CurveComplete(address token);
     error NotComplete(address token);
     error GraduationBlocked(address token);
+    error FeeSharesExceedFee();
 
     // ────────────────────────────── Events ───────────────────────────────
 
@@ -163,7 +175,8 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         uint128 virtualEth,
         uint128 graduationEth,
         uint16 feeBps,
-        uint16 creatorFeeShareBps
+        uint16 creatorFeeShareBps,
+        uint16 treasuryFeeShareBps
     );
     event CurveBuy(
         address indexed token,
@@ -198,6 +211,8 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
     event GraduationDeferred(address indexed token, uint256 ethReserve);
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount);
     event ProtocolFeesWithdrawn(address indexed to, uint256 amount);
+    event TreasuryFeesSwept(address indexed treasury, uint256 amount);
+    event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
     event LaunchConfigUpdated(LaunchConfig config);
     event PauseGuardianUpdated(address indexed previousGuardian, address indexed newGuardian);
 
@@ -250,6 +265,11 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
     /// @notice Guardian that can pause create/buy (owner can too). Sells and
     ///         claims are never pausable.
     address public pauseGuardian;
+    /// @notice The Jungle Bay treasury — destination of the treasury fee share.
+    ///         Owner-settable, always non-zero. `sweepTreasuryFees` is
+    ///         permissionless but can only ever pay THIS address, so a keeper
+    ///         (or anyone) can flush the treasury with no custody risk.
+    address public treasury;
 
     mapping(address token => Launch) internal _launches;
     address[] public allLaunches;
@@ -258,6 +278,8 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
     mapping(address token => uint256) public creatorFeeOf;
     /// @notice Accrued, unclaimed protocol fees across all launches.
     uint256 public protocolFees;
+    /// @notice Accrued, unswept Jungle Bay treasury fees across all launches.
+    uint256 public treasuryFees;
 
     // ──────────────────────────── Construction ───────────────────────────
 
@@ -266,9 +288,13 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         address weth_,
         address owner_,
         address pauseGuardian_,
+        address treasury_,
         LaunchConfig memory config_
     ) OwnableNoRenounce(owner_) {
-        if (factory_ == address(0) || weth_ == address(0) || pauseGuardian_ == address(0)) {
+        if (
+            factory_ == address(0) || weth_ == address(0) || pauseGuardian_ == address(0)
+                || treasury_ == address(0)
+        ) {
             revert ZeroAddress();
         }
         // Both integration points must already be real contracts — a fat-
@@ -277,6 +303,7 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         FACTORY = ITegridyFactoryMinimal(factory_);
         WETH = IWETHMinimal(weth_);
         pauseGuardian = pauseGuardian_;
+        treasury = treasury_;
         _setLaunchConfig(config_);
     }
 
@@ -311,6 +338,7 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         l.graduationEth = cfg.graduationEth;
         l.feeBps = cfg.feeBps;
         l.creatorFeeShareBps = cfg.creatorFeeShareBps;
+        l.treasuryFeeShareBps = cfg.treasuryFeeShareBps;
         l.reserveRecipient = cfg.reserveRecipient;
         l.saleSupply = saleSupply;
         l.reserveAmount = reserveAmount;
@@ -327,7 +355,8 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
             cfg.virtualEth,
             cfg.graduationEth,
             cfg.feeBps,
-            cfg.creatorFeeShareBps
+            cfg.creatorFeeShareBps,
+            cfg.treasuryFeeShareBps
         );
 
         if (msg.value > 0) {
@@ -429,12 +458,16 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
 
     // ─────────────────────────────── Fees ────────────────────────────────
 
-    /// @dev Solana-parity split: creator rounds DOWN, protocol keeps the
-    ///      remainder — the two cuts always sum to exactly `fee`.
+    /// @dev Three-way split (Solana-parity rounding): creator and treasury each
+    ///      round DOWN, protocol keeps the remainder — the three cuts always sum
+    ///      to exactly `fee`, and the remainder can never underflow because
+    ///      creatorShare + treasuryShare <= BPS is enforced at config time.
     function _accrueFee(address token, Launch storage l, uint256 fee) internal {
         uint256 creatorCut = (fee * l.creatorFeeShareBps) / BPS;
+        uint256 treasuryCut = (fee * l.treasuryFeeShareBps) / BPS;
         creatorFeeOf[token] += creatorCut;
-        protocolFees += fee - creatorCut;
+        treasuryFees += treasuryCut;
+        protocolFees += fee - creatorCut - treasuryCut;
     }
 
     /// @notice Claim the accrued creator fees for `token`. Pull-payment — a
@@ -458,6 +491,20 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         if (amount == 0) revert NothingToClaim();
         protocolFees = 0;
         emit ProtocolFeesWithdrawn(to, amount);
+        _sendEth(to, amount);
+    }
+
+    /// @notice Flush accrued Jungle Bay treasury fees to the treasury address.
+    ///         Permissionless — a keeper (or anyone) can call it — but it can
+    ///         only ever pay `treasury`, so there is no custody risk in leaving
+    ///         it open. Never pausable (an ecosystem stream shouldn't be
+    ///         freezable by a compromised guardian).
+    function sweepTreasuryFees() external nonReentrant returns (uint256 amount) {
+        amount = treasuryFees;
+        if (amount == 0) revert NothingToClaim();
+        treasuryFees = 0;
+        address to = treasury; // always non-zero (constructor + setter enforce)
+        emit TreasuryFeesSwept(to, amount);
         _sendEth(to, amount);
     }
 
@@ -621,7 +668,12 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
                 < BPS - PRICE_CONTINUITY_BAND_BPS
         ) revert ConfigOutOfBounds();
         if (config_.feeBps > MAX_FEE_BPS) revert ConfigOutOfBounds();
-        if (config_.creatorFeeShareBps > BPS) revert ConfigOutOfBounds();
+        // The three fee shares must sum to <= the whole fee: creator + treasury
+        // <= BPS, so protocol's remainder (fee - creator - treasury) can never
+        // underflow in _accrueFee. Each individually is therefore also <= BPS.
+        if (uint256(config_.creatorFeeShareBps) + config_.treasuryFeeShareBps > BPS) {
+            revert FeeSharesExceedFee();
+        }
         if (config_.reserveBps > MAX_RESERVE_BPS) revert ConfigOutOfBounds();
         if (config_.reserveBps > 0 && config_.reserveRecipient == address(0)) {
             revert ReserveNeedsRecipient();
@@ -649,6 +701,16 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         if (newGuardian == address(0)) revert ZeroAddress();
         emit PauseGuardianUpdated(pauseGuardian, newGuardian);
         pauseGuardian = newGuardian;
+    }
+
+    /// @notice Repoint the Jungle Bay treasury. Owner-only, never zero. Only
+    ///         affects where FUTURE `sweepTreasuryFees` calls send — already-
+    ///         accrued `treasuryFees` follow the new address on the next sweep,
+    ///         which is the intended behavior for a treasury rotation.
+    function setTreasury(address newTreasury) external onlyOwner {
+        if (newTreasury == address(0)) revert ZeroAddress();
+        emit TreasuryUpdated(treasury, newTreasury);
+        treasury = newTreasury;
     }
 
     // ────────────────────────────── Internal ─────────────────────────────
