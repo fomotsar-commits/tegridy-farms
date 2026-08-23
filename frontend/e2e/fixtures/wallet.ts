@@ -168,6 +168,17 @@ export const test = base.extend<Fixtures>({
       try {
         sessionStorage.setItem('tf_loaded', '1');
         localStorage.setItem('tegridy-onboarding-seen', '1');
+        // ConsentBanner is a THIRD full-width fixed overlay that this list
+        // missed (role=dialog, z-[120], bottom-0 — AppLayout.tsx:187). On short
+        // viewports it and the fixed header sandwich the page, so Playwright
+        // cannot land a click on the launch door's audit toggle, which is the
+        // `locator.click: Test timeout of 30000ms exceeded` in CI.
+        //
+        // `getConsent()` returns 'pending' — and the banner shows — for anything
+        // that is not exactly 'granted' or 'denied' (src/lib/consent.ts:18-24),
+        // so the key has to hold one of those two. 'denied' is chosen so the
+        // suite never opts a synthetic visitor into telemetry.
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
       } catch { /* ignore */ }
     });
     await installWalletMock(page);

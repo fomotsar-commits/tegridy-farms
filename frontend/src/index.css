@@ -729,6 +729,35 @@ body,
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
+/* ─── Accessibility: keep fixed chrome from swallowing whatever we scroll to ───
+ *
+ * Found while diagnosing an E2E click timeout; it is an app defect, not a test
+ * one, and it is the reason the launch door's audit toggle was unclickable.
+ *
+ * Two bars overlay the scrollport and neither is in flow:
+ *   header  .fixed top-0 … z-50            56px tall, every width
+ *   nav[aria-label="Main navigation"]      65px tall, below sm: only (sm:hidden)
+ *
+ * Nothing reserved room for them on the scroll container, so every scroll-into-view
+ * the browser performs — an in-page anchor, a `:target` jump, focus moving to an
+ * off-screen control, find-in-page, `element.scrollIntoView()` — aligns the element
+ * flush to a viewport edge and parks it UNDERNEATH one of the bars. Measured on a
+ * 412×763 viewport: the launch door's audit toggle sits at document y=945; top
+ * alignment puts it at y=36 (under the 0–56 header) and bottom alignment at y=709
+ * (under the 698–763 nav). It is only reachable by the one alignment nothing picks.
+ *
+ * WCAG 2.4.11 Focus Not Obscured (Minimum) is the standard this violates.
+ * `scroll-padding` is the scrollport's own answer and costs no layout.
+ */
+html {
+  scroll-padding-top: 64px;
+}
+@media (max-width: 639px) {
+  html {
+    scroll-padding-bottom: 80px;
+  }
+}
+
 /* ─── Accessibility: disable animations for users who prefer reduced motion (#97) ─── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -68,6 +68,27 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
+    // ── THE SERVICE WORKER WAS EATING EVERY NETWORK STUB ────────────────────
+    //
+    // `webServer` below runs `vite preview`, which serves a PRODUCTION build, and
+    // `registerAppServiceWorker` enables itself on `import.meta.env.PROD`
+    // (src/lib/pwa/serviceWorker.ts:125). So public/sw.js takes control of the
+    // page mid-test — and once it does, `page.route()` no longer intercepts,
+    // because the fetch is answered by the worker before it reaches Playwright.
+    //
+    // Every `page.route` stub in e2e/ was therefore silently a no-op from the
+    // moment the worker activated. heat-gate.spec.ts's
+    // `/api/aggregator?resource=heat` stub never applied, the door's read 404'd
+    // against `vite preview`, and LaunchGate fell to its fail-closed STALE state
+    // with no verdict word and no degrees — which is the honesty gate working
+    // CORRECTLY against a fixture that was never delivered. The test was
+    // asserting on data it never actually stubbed.
+    //
+    // This is not a loosening: blocking the worker is what makes the stubs real.
+    // The service worker has its own unit coverage in
+    // src/lib/pwa/serviceWorker.test.ts; it is the network layer under test here
+    // that must not be bypassed.
+    serviceWorkers: 'block',
     // AppLoader auto-skips when the browser advertises `prefers-reduced-motion:
     // reduce` — without this, every test sits behind a fullscreen canvas intro
     // for the entire duration. See frontend/src/components/loader/AppLoader.tsx
