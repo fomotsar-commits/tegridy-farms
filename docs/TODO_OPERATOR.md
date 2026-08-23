@@ -532,19 +532,41 @@ while its own test proved otherwise.
 ⛔ **DO NOT** fix any of these by loosening the assertion, widening a per-assertion timeout, or
 adding a retry. Each assertion is correct and is telling the truth. The fixture is what is missing.
 
-## 1b. The chromium heat-door failures — NOT yet diagnosed
+## 1b. The heat-door failures — ✅ DIAGNOSED AND FIXED (`d2d43bdb`)
 
-`E2E Tests` fails on a heat "door" surface: `element(s) not found` for `door.getByText('WARM')` and
-the degree strings `41.20°` / `195.54° — Builder`, plus `locator.click` timeouts on an
-`aria-expanded` toggle. **"element(s) not found" for text a fixture is supposed to render is a
-data/route problem, not a race.**
+**And they were never chromium.** Desktop chromium passes heat-gate **5/5 in isolation and 142/142
+in a full serial run**. The failures were on the other three projects, from **two independent
+causes, neither of them a race and neither order-dependent** — the third hypothesis from item 1 to
+fall to measurement today.
 
-▶ The diagnostic agents assigned to this were killed by a session limit before reporting, so this is
-genuinely open. Start here: `grep` for `195.54` and `41.20` under `frontend/e2e/` to find the owning
-spec, then read its route fixtures. The candidate worth checking first, because this repo does it
-deliberately: **the door component self-gates to "unavailable" when the oracle payload fails its
-schema** — so a fixture that has drifted out of schema renders *nothing* rather than wrong numbers,
-and "element not found" is the honesty gate working correctly against a stale fixture.
+**1. The network stubs were never applying.** `webServer` runs `vite preview`, which serves a
+**production** build, and `registerAppServiceWorker` enables itself on `import.meta.env.PROD`
+(`src/lib/pwa/serviceWorker.ts:125`). So `public/sw.js` takes control of the page mid-test, and once
+it does **`page.route()` stops intercepting** — the worker answers the fetch before Playwright sees
+it. `heat-gate.spec.ts`'s `/api/aggregator?resource=heat` stub was a no-op, the door's read 404'd,
+and LaunchGate fell to its **fail-closed STALE** state.
+
+> That means `element(s) not found` for `WARM` and `41.20°` was **the honesty gate working
+> correctly** — the app refusing to render numbers it did not have, against a fixture that was never
+> delivered. The suspicion recorded here yesterday ("the door self-gates when the payload fails its
+> schema") was the right instinct pointed at the wrong layer: the payload never arrived at all.
+
+Fixed with `serviceWorkers: 'block'` in `playwright.config.ts`. Not a loosening — it is what makes
+the stub real, and the worker keeps its own unit coverage in `src/lib/pwa/serviceWorker.test.ts`.
+
+**2. The `locator.click` timeout is an app defect, and a WCAG 2.4.11 violation.** Two bars overlay
+the scrollport and neither is in flow: `TopNav` is `fixed top-0 z-50` (56 px, every width) and
+`BottomNav` is `fixed bottom-0 z-50 sm:hidden` (65 px). Nothing reserved room for them, so every
+scroll-into-view the browser performs parks the element **underneath** one of them. Measured at
+412 × 763: the audit toggle lands at y=36 under the header on top alignment and y=709 under the nav
+on bottom alignment — reachable only by the one alignment nothing picks. Fixed with `scroll-padding`
+on the scrollport, which costs no layout. `ConsentBanner` was a third fixed overlay the fixture's
+skip list missed; it is seeded `denied`, never `granted`.
+
+▶ **Still to verify:** these landed after the last CI run. Confirm on the next one. If the WebKit
+projects go green, `WEBKIT_EXCLUDED_TEST_TITLES` in `playwright.config.ts` should be re-derived —
+six titles are excluded there for cross-origin `pageerror` noise, and **some of that noise may have
+been the service worker too**.
 
 **2. ✅ The five non-Dependabot PRs are decided AND resolved — nothing is left open.** Every verdict re-derived against trunk rather
 than taken from the PR's own claims.
