@@ -312,9 +312,18 @@ const PLACEHOLDER_PROGRAM_ID = L.PLACEHOLDER_PROGRAM_ID.toBase58();
  * ⚠ MAY ONLY GROW BY A REAL CLOSURE. Removing an entry asserts that a spent program id
  * became reusable, which Solana does not permit.
  */
+// ⚠ HARDCODED BASE58, NOT DERIVED — and this is the whole point of the list.
+//
+// These were `L.PROGRAM_ID.toBase58()` and `L.CP_SWAP_PROGRAM_ID.toBase58()`, which
+// made the refusal list track whatever the constants happened to be. The moment those
+// constants are repointed at the fresh ids for a redeploy, that version INVERTS: it
+// starts refusing the brand-new program you just deployed, and stops refusing the two
+// ids that are actually spent. Exactly backwards, silently, on the one day it matters.
+//
+// A spent id is a fact about the chain, not about our source. It is written out.
 const SPENT_PROGRAM_IDS = new Map([
-  [L.PROGRAM_ID.toBase58(), 'tegridy-launch, closed 2026-08-13'],
-  [L.CP_SWAP_PROGRAM_ID.toBase58(), 'the cp-swap fork, closed 2026-08-13'],
+  ['CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED', 'tegridy-launch, closed 2026-08-13'],
+  ['3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y', 'the cp-swap fork, closed 2026-08-13'],
 ]);
 
 /** Refuse before anything is built. A tx for a spent id can only ever fail on submit. */

@@ -293,21 +293,13 @@ A **separate program** from cp-swap, deliberately — folding it in would break
    until you set a real key). Build, deploy, move upgrade authority to the multisig.
 2. Call `initialize_global`. **Three parameters are not free choices — get them
    wrong and the launcher misbehaves in ways nothing will warn you about later.**
-3. *(Only if you intend to offer the Meteora-shaped mode)* publish the segmented curve with
-   `set-curve-segments`. Launches created in the default ConstantProduct mode do not need it,
-   and `global.segment_count` is 0 until it runs.
-
-   ```bash
-   SOLANA_RPC_URL=… OPERATOR_KEYPAIR=/abs/path/authority.json \
-   node scripts/tegridy-launch-operator.mjs set-curve-segments --segments-file curve.json
-   ```
-
-   `curve.json` is `{ "sqrtPriceStartX64": "…", "segments": [{ "sqrtPriceUpperX64": "…",
-   "liquidity": "…" }, …] }`, up to 16 segments, **all values as decimal strings** — a JSON
-   number above 2^53 loses precision silently, and a wrong Q64.64 sqrt price is not a smaller
-   price, it is a different curve. Re-runnable: the program validates the whole table before
-   writing, so a rejected table cannot leave a half-updated config behind. Read it back with
-   `status` afterwards; a successful send is not evidence the table decoded the way you meant.
+3. ~~Publish the segmented curve with `set-curve-segments`.~~ **REMOVED 2026-08-23.**
+   Segmented (Meteora-shaped) mode is gone from the program — `segmented.rs` and the
+   vendored Raydium CLMM math were deleted before the redeploy. The command, the mode
+   flag and the `curve.json` schema no longer exist, and `global` has no `segment_count`
+   field to set. Two HIGH findings lived entirely in that mode and are retired with it.
+   Every launch is ConstantProduct. **Renumber nothing below — the step count changed,
+   the order did not.**
 
 ### `creator_fee_share_bps` — the volume magnet; recommended **4_800** (48% of the fee)
 

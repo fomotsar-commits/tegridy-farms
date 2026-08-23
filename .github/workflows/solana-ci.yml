@@ -199,74 +199,19 @@ jobs:
           echo "✅ Delta from upstream $UPSTREAM_COMMIT matches the pinned hash exactly"
           echo "   ($(grep -c '^[<>]' /tmp/tegridy-delta.txt) changed lines across 3 files)"
 
-  # The SECOND vendored upstream: Raydium CLMM's concentrated-liquidity math, which
-  # prices the segmented (Meteora-shaped) curve. Same reasoning as the cp-swap guard
-  # above — we tell auditors this is a diff-review of audited upstream, so that claim
-  # has to be mechanical rather than a promise in a comment.
+  # The Raydium CLMM vendor guard lived here until 2026-08-23.
   #
-  # Why a separate job: different upstream repo and a different pinned commit, so it
-  # cannot share UPSTREAM_COMMIT. Runs in parallel; adds no wall-clock.
-  clmm-vendor-guard:
-    needs: scope
-    if: >-
-      !cancelled() &&
-      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
-    runs-on: ubuntu-latest
-    env:
-      CLMM_REPO: https://github.com/raydium-io/raydium-clmm
-      # Apache-2.0 — verified by READING LICENSE in the upstream repo, not from GitHub
-      # API metadata or an npm `license` field. See docs/CURVE_FORK_EVALUATION.md for
-      # why that distinction matters (Meteora's SDK says MIT; its program is not).
-      CLMM_COMMIT: bf7c2413ec685d2ce9d5422d44182b770cd37598
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Clone pinned CLMM upstream
-        run: |
-          git clone "$CLMM_REPO" /tmp/clmm
-          git -C /tmp/clmm checkout --quiet "$CLMM_COMMIT"
-      - name: Assert the vendored CLMM math is upstream plus only the pinned delta
-        run: |
-          set -euo pipefail
-          UP=/tmp/clmm/programs/amm/src/libraries
-          OURS=solana/tegridy-amm/programs/tegridy-launch/src/vendor
-
-          # Every .rs here must be a vendored upstream file, except mod.rs which is
-          # ours (provenance header, module wiring, the ErrorCode shim). A new file
-          # appearing in this directory means someone added hand-written math to a
-          # directory whose whole purpose is that it contains none.
-          EXTRA=$(ls "$OURS" | grep -vE '^(big_num|fixed_point_64|full_math|liquidity_math|sqrt_price_math|tick_math|unsafe_math|mod)\.rs$' || true)
-          if [ -n "$EXTRA" ]; then
-            echo "::error::Unexpected file(s) in the vendor directory — it must hold ONLY vendored upstream + mod.rs:"
-            echo "$EXTRA"
-            exit 1
-          fi
-
-          EXPECTED_CLMM_DELTA_SHA256=3572d8d767f5a808a757339d491f6d280f3c3a77c8d75edc08b10c26bdea75ec
-
-          {
-            for f in big_num.rs fixed_point_64.rs full_math.rs liquidity_math.rs sqrt_price_math.rs tick_math.rs unsafe_math.rs; do
-              echo "=== $f ==="
-              diff <(sed 's/\r$//' "$UP/$f") <(sed 's/\r$//' "$OURS/$f") || true
-            done
-          } > /tmp/clmm-delta.txt
-
-          ACTUAL=$(sha256sum /tmp/clmm-delta.txt | cut -d' ' -f1)
-          echo "─── the delta being hashed ───"
-          cat /tmp/clmm-delta.txt
-          echo "──────────────────────────────"
-          if [ "$ACTUAL" != "$EXPECTED_CLMM_DELTA_SHA256" ]; then
-            echo "::error::Vendored CLMM math DIVERGED from pinned upstream."
-            echo "  expected $EXPECTED_CLMM_DELTA_SHA256"
-            echo "  actual   $ACTUAL"
-            echo "The delta must stay import rewrites + the documented U1024/U512 deletions and the fail-closed MulDiv branch."
-            echo "If you changed a FORMULA or a ROUNDING DIRECTION here, stop: that is"
-            echo "novel math wearing a vendored file's name, and it voids the diff-review"
-            echo "scoping we give auditors. Otherwise re-pin the hash IN THE SAME PR."
-            exit 1
-          fi
-          echo "✅ Vendored CLMM math matches pinned upstream $CLMM_COMMIT"
-          echo "   ($(grep -c '^[<>]' /tmp/clmm-delta.txt) changed lines: import rewrites + the U1024 deletion)"
-
+  # It asserted that seven files existed under tegridy-launch/src/vendor/ and matched
+  # a pinned upstream commit. That directory is gone: it priced the segmented
+  # (Meteora-shaped) curve, and segmented mode was removed wholesale before the
+  # redeploy — see the merge of claude/solana-segmented-removal. A guard whose subject
+  # has been deleted cannot pass, and leaving it here would have failed
+  # `all-checks-pass` on every run through its `needs:` edge rather than at the job,
+  # which reads as an infrastructure fault rather than as the deliberate deletion it is.
+  #
+  # The cp-swap diff-guard ABOVE is untouched and still the real one — cp-swap is still
+  # vendored and still the graduation venue. If concentrated-liquidity math is ever
+  # vendored again, restore this job WITH it; do not restore it alone.
   build:
     needs: scope
     if: >-
@@ -833,7 +778,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   all-checks-pass:
     name: all-checks-pass
-    needs: [scope, diff-guard, clmm-vendor-guard, build, launch-curve, launch-constraints, migration-rehearsal]
+    needs: [scope, diff-guard, build, launch-curve, launch-constraints, migration-rehearsal]
     runs-on: ubuntu-latest
     if: always()
     timeout-minutes: 5
@@ -854,7 +799,6 @@ jobs:
           FAILED=0
           for PAIR in \
             "diff-guard=${{ needs['diff-guard'].result }}" \
-            "clmm-vendor-guard=${{ needs['clmm-vendor-guard'].result }}" \
             "build=${{ needs.build.result }}" \
             "launch-curve=${{ needs['launch-curve'].result }}" \
             "launch-constraints=${{ needs['launch-constraints'].result }}" \
