@@ -2,8 +2,8 @@
 
 > ### ▶ [**Jump to START HERE**](#-start-here--everything-left-in-the-order-it-should-happen)
 >
-> The dependency spine, the operator critical path in unblocking order, and the four things an agent
-> can finish alone. Everything below it is the detail behind those. **If you read one section, read
+> The dependency spine, the operator critical path in unblocking order, and the three things an agent
+> can finish alone — each written out step by step. Everything below it is the detail behind those. **If you read one section, read
 > that one.**
 
 **Written 2026-08-21. Revised twice on 2026-08-22.** This is the single canonical to-do list.
@@ -450,10 +450,10 @@ Ordered. Counts re-verified 2026-08-22 against the tree, not carried forward fro
 long tail lives in [`EVERYTHING_LEFT_2026_08_15.md`](EVERYTHING_LEFT_2026_08_15.md) §"87 items",
 which is still broadly right but predates three merges.
 
-**1. 🔴 Get trunk green. Everything else is worth less until this is done.**
+**1. 🟡 Get trunk green — two of five checks left.**
 
-**Updated 2026-08-22 (late).** Two of the four red checks are fixed and one turned out never to
-have run at all. What is left on trunk:
+**Updated 2026-08-23.** Three of the five red checks are fixed, and one of those turned out never
+to have run at all. What is left on trunk:
 
 | Check | State | Where it stands |
 |---|---|---|
@@ -907,45 +907,153 @@ dark. That is the whole shape of this project right now: **over-built and under-
 
 ## Order of operations
 
-### ① Finish getting trunk green — the only thing an agent can complete alone
+### ① Finish getting trunk green — all three are agent work, no keys needed
 
-| # | What | Where | Who |
-|---|---|---|---|
-| 1 | Seed the four Anvil money-path preconditions | item **1a** — has the per-spec recipe | agent |
-| 2 | ~~Diagnose the heat-door failures~~ ✅ **DONE** (`d2d43bdb`) — job green | item **1b** | — |
-| 3 | Re-run the Slither refutation pass, then apply per-line suppressions | item **8** — one command | agent |
-| 4 | Merge the 14 rebased Dependabot PRs once ① lands | item **3** | agent |
+`E2E Tests` went green on 2026-08-22 (`d2d43bdb` + `ef70d013`, **524 passed / 0 failed**, confirmed
+on two runs). Three items remain. Do them in this order; each is self-contained.
 
-✅ **①.2 landed 2026-08-22** — `E2E Tests` is green (524/0). Three items remain in ①.
+---
 
-**Do ① before anything else**, and not because the failures are dangerous — they are not, nothing
-here is deployed. Do it because a permanently-red trunk means the next real regression is
-indistinguishable from the noise, and this repo has already proven it cannot tell the difference.
+#### ①.1 The four Anvil money-path specs — **most of the work is already written**
+
+**A complete implementation exists on branch [`wip/e2e-anvil-money-paths`](https://github.com/fomotsar-commits/tegridy-farms/tree/wip/e2e-anvil-money-paths)** (`53ee94ca`, 689 insertions across 7 files).
+It was adversarially verified and came back **REFUTED on one leg**, which is the only reason it is
+not merged. Everything else in it the verifier found sound.
+
+**Step 1 — fix the one refuted assertion.** `frontend/e2e/lending.spec.ts:134` asserts
+`repay.toHaveCount(0)` on a locator scoped by accessible name `/^Repay Loan$/`.
+`NFTLendingSection.tsx:1138` renders
+`{repaying ? 'Confirm in Wallet...' : repayConfirming ? 'Repaying...' : 'Repay Loan'}` — so the name
+changes the instant the click sets `repaying`, and the count reaches 0 **whether or not the
+repayment ever confirmed**. That is a false green inside the fix for a false green.
+▶ **Assert contract state, not the button's label** — read the loan back and require it closed.
+
+**Step 2 — give the liquidity submit a `data-testid`.** `liquidity.spec.ts:75` uses
+`panel.locator('button:not([aria-pressed])').last()`, which resolves correctly **today but
+positionally**: appending any button to `LiquidityTab` silently retargets the spec's submit.
+
+**Step 3 — rebase onto trunk, run, merge.** The branch predates several trunk commits.
+
+```bash
+git fetch origin && git checkout -b e2e-anvil origin/wip/e2e-anvil-money-paths && git rebase origin/mvp-launch
+```
+
+**Verify with all four gates, from `frontend/`** — the third and fourth are the ones agents skip, and
+skipping lint is how trunk went red on 2026-08-22:
+
+```bash
+npx tsc -b --noEmit && npm run lint && npx vitest run && npx playwright test --project=chromium --retries=0
+```
+
+⚠️ **Read this before you touch those specs.** The four failures were **four different bugs**, and
+missing fork state was the answer to exactly one. Three were false greens or dead locators — full
+account in item **1a**. In particular, *"pre-fund the reward storage"*, which this document told you
+to do for two revisions, **would not have turned `claim-rewards` green**: it waits on
+`/^claim\s+\d/i`, which matches no CTA `/farm` can draw in any state.
+
+⛔ **Do not** loosen an assertion, widen a per-assertion timeout, add a retry, or use `force: true`.
+Two of these four were already *passing* on something that was not the thing under test.
+
+---
+
+#### ①.2 The eight Slither defects — fix, do not suppress
+
+Both triage passes are done. **The answer is NOT to suppress.** The full account, with every verdict
+and both passes verbatim, is [`SLITHER_TRIAGE_2026_08_22.md`](SLITHER_TRIAGE_2026_08_22.md); the
+short version is item **8**.
+
+Fix these eight, **each in its own PR with a test**. Ordered by how much a reader should care:
+
+| # | Where | What |
+|---|---|---|
+| 1 | `RestakingMonitorView` | `_effectivePower` degrades silently to zero **three ways** — including the default post-deploy state (`restakingContract` unset) — so `isSynced` answers **true for every un-registered restaker**. Fabricated data in a view contract. |
+| 2 | `NftfiPooledLendingVault.repay` `:386` | **Not** revert-on-failure: it clamps and under-applies silently, and `NftfiBnpl` has no rescue path. |
+| 3 | `TegridyFeeLocker` | The `amount == 0` short-circuit is where a corrupted fee delta goes silent — **no reentrancy guard**, on a balance pot shared with every other lock, with `currency1` an arbitrary third-party ERC20 from the Airlock. |
+| 4 | staking, `:218-221` | A path blocks the staker's own `getReward()` while crystallising their ETH, contradicting the documented 7-day `CLAIM_GRACE_PERIOD`. **The suite cannot reach it** — `MockVE.userTokenId` never clears and never reverts. Needs a human decision. |
+| 5 | `TegridyHarvestVault:370/:386` | A **one-wei donation** floors `swapAmount` to zero and grieves `harvest` into `NothingToCompound`. |
+| 6 | `TegridyFeeExecutorRouter:253` | `received == 0` computes `0 - 1` and panic-reverts. Safe direction; wants an explicit `if (received == 0) revert ZeroAmount();` and a test. |
+| 7 | `WETHFallbackLib:128-129` | Runs on full gas against a `WETH` address the constructor never code-checks — contrary to that library's own warning at `:87-88`. |
+| 8 | `executePolAccumulator` `:530-538` | Omits the `_assertAllowable` re-assertion its sibling `executeAllowTarget` `:453-454` performs by design. |
+
+**Then re-run Slither** — the finding set will have moved, and the remaining triage belongs against
+the new report, not the old one. For whatever genuinely survives, prefer an **assertion or an
+initializer** over a comment above a silenced detector.
+
+⛔ **Never** add `reentrancy-balance` or `incorrect-equality` to `detectors_to_exclude`; **never**
+lower `fail-on` or add `continue-on-error`. And do not trust the FeeExecutorRouter's existing
+reentrancy test as cover — its `vm.expectRevert()` is bare and **its revert is swallowed by
+`_execSwap` at line 343**.
+
+⚠️ While you are in `contracts/slither.config.json`: its `_scope` note lists 15 in-scope contracts
+and 12 supposedly removed ones, and **every file that actually fires appears on neither list**.
+`_scope` is a comment and enforces nothing. Rewrite or delete it.
+
+---
+
+#### ①.3 Merge the 15 Dependabot PRs
+
+All 14 non-major PRs were sent `@dependabot rebase` onto the fixed trunk on 2026-08-22. **Hold #296**
+(framer-motion 12 → **13**, a major).
+
+▶ Merge **one at a time** — each merge moves trunk and Dependabot rebases the rest, so batching just
+means N rounds of CI either way.
+⚠️ Their earlier red was **not** a verdict on the bumps: `#303` and `#287` were failing on a lint
+regression of mine (fixed in `a0c83c42`) and the CodeQL-action bumps were red on a two-week-stale
+run from before the rebase. Re-read the checks before judging any of them.
 
 ### ② The operator critical path — nothing to the right of it moves until you act
 
-Ordered by *what unblocks the most*, not by effort.
+Ordered by *what unblocks the most*, not by effort. Each row links to the section that has the
+commands, what you should see, and what a mismatch means.
 
-1. **Safe re-home** (Tier 0.1 + §0.3, 7 items). Every contract deploy waits on it.
-   ⚠️ Per your standing instruction the Safe topology decision itself stays untouched by agents —
-   §0.3 records that deferral and nothing in this document reopens it. The keystore backup and the
-   `guardianPause()` correction are explicitly *outside* the deferral and are still worth doing.
-2. **Login change-set** (4 items, Tier 0.1). **Strict order, single session** — the order is a
-   correctness requirement, not a preference: `015 §1 DROPs → 014 whole → verify 42501 on all four
-   tables + nonce 200 → 016 → prune_revoked_jwts → 013 + VITE_ANALYTICS_ENDPOINT → redeploy`.
-   ⛔ Never run 008 after 014. Never run 004 as a unit. Wakes the entire social layer.
-3. **Mint DBC config v2** (Tier 1.3). v1's **99 % opening fee is disqualifying** and a config is
-   **immutable**, so the rail cannot take a public launch until it is replaced — and you get **one
-   cheap attempt**. ⚠️ The maths is proven but **the curve numbers are still an open decision**; §1.3
-   carries six measured constraints, one of which would have permanently mis-set the creator's fee
-   share. Read them before you pick numbers, and do not sign until §1.3 names a verified set.
-4. **Host the indexer** ($5-20/month, Tier 1.1). The GraphQL client is already written and merged
-   (`088ed89e`). This one payment lights Leaderboard, History, per-pool volume/TVL, the treasury
-   feed and the timelock queue.
-5. **`MEMETICS_BIRTH_SECRET`** in Vercel prod (Tier 1.2). Production answers `503 no_secret` today.
-6. **Vercel env session + redeploy** (Tier 0.2). Cheapest unlock per minute in the document.
+| # | Do this | Time | Unlocks | Detail |
+|---|---|---|---|---|
+| 1 | **Vercel env session + redeploy** | ~5 min | The CSP fix currently **browser-blocking Pro Pass creation**, the write-proxy repoint, the analytics endpoint | §0.2 |
+| 2 | **Login change-set** | ~2 min of SQL | Profiles, DMs, watchlists, votes, push, alerts, referral claims, real analytics — the entire social tier | §0.1 |
+| 3 | **Mint DBC config v2** | one session | The Solana rail — it cannot take a public launch until this exists | §1.3 |
+| 4 | **Host the indexer** | $5–20/mo | Leaderboard, History, per-pool volume/TVL, treasury feed, timelock queue — client already merged (`088ed89e`) | §1.1 |
+| 5 | **`MEMETICS_BIRTH_SECRET`** | one paste | Births signed, tokens enrolled from birth. Prod answers `503 no_secret` today | §1.2 |
+| 6 | **Safe re-home** | multi-session | Every contract deploy, and ~2,500 lines of finished community UI behind them | §0.3 / Tier 2.2 |
 
-### ③ Clocks — these run whether or not you act
+**Why 1 comes before 2, and it is not a preference.** `VITE_*` variables are baked in at **build**
+time. `castVote → proxyWrite` is merged (`c66e6064`) but **not deployed**, so production still serves
+the anon-key writer. If you run the 015 §1 DROPs while prod serves the old bundle, writes are refused
+with `42501` and the old code returns a bare boolean — **they vanish silently**, which is the exact
+failure `c66e6064` exists to prevent. Redeploy first.
+
+**On 2 — the order inside it is a correctness requirement:**
+`015 §1 DROPs → 014 whole (same session) → verify 42501 on all four tables + nonce 200 → 016 →
+prune_revoked_jwts → 013 + VITE_ANALYTICS_ENDPOINT → redeploy`.
+⛔ **Never run 008 after 014** — its blanket GRANT undoes 014. ⛔ **Never run 004 as a unit.**
+Expect the permissive-policy count to drop **21 → 13**.
+
+**On 3 — you get one cheap attempt.** A DBC config is **immutable**. The maths is proven
+bit-identical to the vendored SDK across 1,062 configs, but **the curve numbers are still an open
+decision** — the first proposal was rejected in review because it still charges **14.83 % at
+t = 60 s**. §1.3 carries six measured constraints; one of them caught a draft that would have
+permanently cut the creator's take to ~38 % of the trade. **Read all six before you pick numbers,
+and do not sign until §1.3 names a verified set.**
+
+**On 6 — ⏸️ the Safe topology decision itself stays deferred by your instruction** and nothing in
+this document reopens it (§0.3). Two things sit explicitly *outside* that deferral and are still
+worth doing: the **deployer keystore backup** to two offline geographies, and the `guardianPause()`
+correction in `INCIDENT_RESPONSE.md` (the runbook tells the guardian to call `pause()`, which
+reverts — `onlyOwner`; the real entry is `guardianPause()`, selector `0xd4593872`).
+
+### ③ After ① and ② — the standing backlog
+
+**18 `[code]` items are buildable today**, ~2 h to ~20 h each, ordered cheapest-first with a written
+how-to per item — files, approach, trap, verification command — in
+[**`CODE_ITEMS_AUDIT_2026_08_22.md`**](CODE_ITEMS_AUDIT_2026_08_22.md).
+
+Point an agent at that document and the queue, not at this file. The top of it: guided first-run
+onboarding (2 h) · the rest of the honesty-debt sweep (2.5 h) · extending the ghost-code guard to
+components (3 h) · the indexer gaps (3 h) · the keyless scanner API (3 h).
+
+Three of those items sit **behind ②**, and the audit says so per item — most notably the whole
+indexer/GraphQL cluster, which is written and dark until ②.4.
+
+### ④ Clocks — these run whether or not you act
 
 | When | What | Days left as of 2026-08-22 |
 |---|---|---|
