@@ -59,19 +59,26 @@ import { assert } from "chai";
 import * as fs from "fs";
 import * as path from "path";
 
-// create_launch now takes a curve mode: 0 = ConstantProduct (pump.fun shape),
-// 1 = Segmented (Meteora shape). These tests exercise the constant-product path,
-// which is the pre-existing behaviour they were written against.
-const CURVE_MODE_CONSTANT_PRODUCT = 0;
+// `create_launch` takes NO arguments. It once took a curve mode selecting between
+// the constant-product shape and a segmented (Meteora) one; that mode was removed
+// before it ever priced a lamport — see GlobalConfig in state.rs. Every economic
+// term now comes from the global config, which is gated at config time.
 
 type AnyProgram = Program<Idl>;
 
 const GLOBAL_SEED = Buffer.from("global");
 const CURVE_SEED = Buffer.from("curve");
 const VAULT_SEED = Buffer.from("vault");
-/** Data-less PDA that acts as cp-swap's creator — it must be System-owned to
- *  pay rent for the five accounts cp-swap inits. See MIGRATION_AUTH_SEED. */
+/** Data-less PDA that acts as cp-swap's PAYER — it must be System-owned to pay
+ *  rent for the five accounts cp-swap inits. PROGRAM-WIDE: the mint is deliberately
+ *  NOT in these seeds, because cp-swap derives its `permission` account from the
+ *  payer and a per-mint payer would need an admin ceremony per launch. See
+ *  MIGRATION_AUTH_SEED in state.rs. */
 const MIGRATION_AUTH_SEED = Buffer.from("migauth");
+/** cp-swap's Permission PDA seed. `initialize_with_permission` requires an
+ *  already-existing permission account at [PERMISSION_SEED, payer], creatable only
+ *  by cp-swap's admin — so `before()` creates one for the migration authority. */
+const PERMISSION_SEED = Buffer.from("permission");
 /** The pool address is derived from tegridy-launch, NOT from cp-swap's canonical
  *  [POOL_SEED, amm_config, mint0, mint1]. cp-swap's initialize is permissionless,
  *  so the canonical address can be occupied by anyone to brick a graduation; a PDA
@@ -172,6 +179,30 @@ describe("tegridy-launch full migration rehearsal", () => {
       })
       .rpc();
 
+    // The one-time cp-swap ADMIN action `migrate_to_amm` now depends on.
+    //
+    // Migration CPIs `initialize_with_permission` rather than `initialize`, because
+    // that is the ONLY cp-swap entry point that sets `enable_creator_fee = true` and
+    // the only one that lets `pool_creator` be someone other than the signing payer.
+    // Under `initialize`, every pool this program created was permanently
+    // creator-fee-less AND had a `pool_creator` no key can ever sign for.
+    //
+    // The price is this account. Without it graduation fails closed with
+    // MigrationPermissionMissing — a NAMED error precisely so an operator does not
+    // read it as "the launch program is broken".
+    await cpSwap.methods
+      .createPermissionPda()
+      .accountsPartial({
+        owner: wallet.publicKey,
+        permissionAuthority: pda([MIGRATION_AUTH_SEED], launch.programId),
+        permission: pda(
+          [PERMISSION_SEED, pda([MIGRATION_AUTH_SEED], launch.programId).toBuffer()],
+          cpSwap.programId
+        ),
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
     await launch.methods
       .initializeGlobal(
         TRADE_FEE_BPS,
@@ -200,7 +231,7 @@ describe("tegridy-launch full migration rehearsal", () => {
     curveVault = pda([VAULT_SEED, launchMint.toBuffer()], launch.programId);
 
     await launch.methods
-      .createLaunch(CURVE_MODE_CONSTANT_PRODUCT)
+      .createLaunch()
       .accountsPartial({
         creator: wallet.publicKey,
         global: pda([GLOBAL_SEED], launch.programId),
@@ -317,7 +348,7 @@ describe("tegridy-launch full migration rehearsal", () => {
     assert.isFalse(preMigrate.complete, "curve should still be open before migrating");
 
     // ── migrate ──────────────────────────────────────────────────────────────
-    const migAuth = pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId);
+    const migAuth = pda([MIGRATION_AUTH_SEED], launch.programId);
     const poolState = pda([LAUNCH_POOL_SEED, launchMint.toBuffer()], launch.programId);
     const lpMint = pda([POOL_LP_MINT_SEED, poolState.toBuffer()], cpSwap.programId);
     const ammAuthority = pda([AUTH_SEED], cpSwap.programId);
@@ -472,12 +503,16 @@ describe("tegridy-launch full migration rehearsal", () => {
         curve,
         curveVault,
         wsolMint: NATIVE_MINT,
+        // Becomes the pool's `pool_creator` — the only key `collect_creator_fee`
+        // will ever accept. Pinned to `curve.creator` by the account constraint.
+        creator: wallet.publicKey,
         migrationAuthority: migAuth,
         authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, migAuth, true),
         authToken: getAssociatedTokenAddressSync(launchMint, migAuth, true),
         authLp: getAssociatedTokenAddressSync(lpMint, migAuth, true),
         cpSwapProgram: cpSwap.programId,
         ammConfig,
+        cpSwapPermission: pda([PERMISSION_SEED, migAuth.toBuffer()], cpSwap.programId),
         ammAuthority,
         poolState,
         lpMint,
@@ -488,7 +523,6 @@ describe("tegridy-launch full migration rehearsal", () => {
         tokenProgram: TOKEN_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
       })
       .rpc({ skipPreflight: false });
 
@@ -500,6 +534,43 @@ describe("tegridy-launch full migration rehearsal", () => {
 
     const poolAccount = await provider.connection.getAccountInfo(poolState);
     assert.isNotNull(poolAccount, "the pool must exist on-chain");
+
+    // ── the pool must be able to pay its creator, forever ────────────────────
+    //
+    // Regression test for the audit finding that Wave 3 phase 02 ("creators earn
+    // forever") was bricked BY CONSTRUCTION, per pool, at migration. Both of these
+    // are written ONCE, by `pool_state.initialize`, and no cp-swap instruction
+    // rewrites either — so a pool that graduates wrong is wrong permanently, and
+    // only a NEW launch can fix it.
+    //
+    //   - `enableCreatorFee` was false on every pool `initialize` could make. It is
+    //     the flag, not the rate: the rate lives on the AmmConfig and is still zero
+    //     here (`createAmmConfig(..., creator_fee_rate = 0)`), which is the point —
+    //     this asserts the option stayed OPEN, not that a fee was turned on.
+    //   - `poolCreator` was the migration authority, a PDA no instruction can make
+    //     sign, so `collect_creator_fee` — which requires it as a SIGNER — could
+    //     never be called by anyone. It must be the launch creator's own wallet.
+    const pool: any = await (cpSwap.account as any).poolState.fetch(poolState);
+    assert.isTrue(
+      pool.enableCreatorFee,
+      "pool must be creator-fee capable — `initialize` hardcodes this false, so a " +
+        "false here means migration regressed to the wrong cp-swap entry point"
+    );
+    assert.equal(
+      pool.poolCreator.toBase58(),
+      wallet.publicKey.toBase58(),
+      "pool_creator must be the LAUNCH creator's wallet — anything else can never " +
+        "sign collect_creator_fee and the fees are locked in the vaults forever"
+    );
+    // Creator fees accrue in SOL, never in the launch token: OnlyToken0 when WSOL
+    // sorted first, OnlyToken1 otherwise. Paying creators in the illiquid side of
+    // their own pool would force them to sell it back through that pool.
+    const wsolIsToken0 = NATIVE_MINT.toBuffer() < launchMint.toBuffer();
+    assert.equal(
+      pool.creatorFeeOn,
+      wsolIsToken0 ? 1 : 2,
+      "creator fees must be denominated in the WSOL leg"
+    );
 
     // ── the migration reserve must not be MEV ────────────────────────────────
     // Regression test for the audit finding. The unspent reserve belongs to the
@@ -655,12 +726,17 @@ describe("tegridy-launch full migration rehearsal", () => {
           curve,
           curveVault,
           wsolMint: NATIVE_MINT,
-          migrationAuthority: pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId),
-          authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId), true),
-          authToken: getAssociatedTokenAddressSync(launchMint, pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId), true),
-          authLp: getAssociatedTokenAddressSync(lpMint, pda([MIGRATION_AUTH_SEED, launchMint.toBuffer()], launch.programId), true),
+          creator: wallet.publicKey,
+          migrationAuthority: pda([MIGRATION_AUTH_SEED], launch.programId),
+          authWsol: getAssociatedTokenAddressSync(NATIVE_MINT, pda([MIGRATION_AUTH_SEED], launch.programId), true),
+          authToken: getAssociatedTokenAddressSync(launchMint, pda([MIGRATION_AUTH_SEED], launch.programId), true),
+          authLp: getAssociatedTokenAddressSync(lpMint, pda([MIGRATION_AUTH_SEED], launch.programId), true),
           cpSwapProgram: cpSwap.programId,
           ammConfig,
+          cpSwapPermission: pda(
+            [PERMISSION_SEED, pda([MIGRATION_AUTH_SEED], launch.programId).toBuffer()],
+            cpSwap.programId
+          ),
           ammAuthority: pda([AUTH_SEED], cpSwap.programId),
           poolState,
           lpMint,
@@ -671,7 +747,6 @@ describe("tegridy-launch full migration rehearsal", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
         })
         .rpc();
     } catch (e) {

@@ -37,7 +37,14 @@
 //!    cared to call it. That instruction has been REMOVED. Nothing may set
 //!    `complete` until it can move the liquidity in the same breath.
 //!
-//! 6. **LP tokens are BURNED at migration.** Operator decision, 2026-07-29. It is
+//! 6. **There is exactly ONE pricing curve.** A second "segmented" (Meteora-shaped)
+//!    mode was removed before it priced a lamport; `GlobalConfig` no longer carries a
+//!    shape and `create_launch` no longer takes a mode. See the note on
+//!    [`state::GlobalConfig`] for the evidence — two proven failures with no economic
+//!    gate between them and the venue, and a fix that would have meant bespoke core
+//!    math on the money path for a feature nobody used.
+//!
+//! 7. **LP tokens are BURNED at migration.** Operator decision, 2026-07-29. It is
 //!    the only option that makes "liquidity permanently locked" unconditionally
 //!    true: holding the LP in the curve PDA leaves it reachable by a program
 //!    upgrade, and handing it to the creator is a rug vector. Burning forecloses
@@ -51,7 +58,7 @@
 //! no audited upstream to diff against. See MIGRATE_DESIGN.md for every decision
 //! behind it, with the cp-swap facts marked VERIFIED against source.
 //!
-//! It depends on `raydium-cp-swap` with the `cpi` feature so the 20-account call
+//! It depends on `raydium-cp-swap` with the `cpi` feature so the 21-account call
 //! is type-checked rather than a hand-packed `invoke_signed`. That does not touch
 //! the fork's audit story — `diff-guard` compares `programs/cp-swap/src` against
 //! pinned upstream, and depending on a crate does not modify it.
@@ -85,19 +92,6 @@ use anchor_spl::token::spl_token::instruction::AuthorityType;
 
 pub mod curve;
 pub mod errors;
-/// The Meteora-shaped segmented curve. Pure; all arithmetic delegates to `vendor`.
-pub mod segmented;
-use segmented::{Segment, MAX_SEGMENTS};
-/// Vendored Raydium CLMM concentrated-liquidity math (Apache-2.0) — the segmented
-/// curve's arithmetic. See `vendor/mod.rs` for provenance and the exact upstream
-/// commit an auditor should diff against.
-///
-/// `pub(crate)`, not `pub`. This was originally an attempt to let LTO drop U512's
-/// unused `pow` family, which blew SBF's stack frame — it did NOT work (the symbol
-/// was still emitted, and the real fix was deleting U512 outright, see
-/// `vendor/big_num.rs`). Kept anyway: this is vendored third-party math and nothing
-/// outside the crate has any business calling it directly.
-pub(crate) mod vendor;
 pub mod state;
 
 use crate::curve::{
@@ -223,11 +217,9 @@ fn payable_creator_split(
     // account (another program's PDA can sign `create_launch` via CPI) has a
     // proportionally higher floor.
     let floor = Rent::get()?.minimum_balance(creator_ai.data_len());
-    let after = creator_ai
-        .lamports()
-        .checked_add(fs.creator_lamports)
-        .ok_or(LaunchError::Overflow)?;
-    if after < floor {
+    if curve::lands_in_rent_band(creator_ai.lamports(), fs.creator_lamports, floor)
+        .map_err(LaunchError::from)?
+    {
         let protocol = fs
             .protocol_lamports
             .checked_add(fs.creator_lamports)
@@ -237,119 +229,56 @@ fn payable_creator_split(
     Ok((fs.creator_lamports, fs.protocol_lamports))
 }
 
-
-// ── Curve-mode dispatch ───────────────────────────────────────────────────────
-//
-// Both modes return the SAME quote shapes, so everything downstream — the fee
-// split, the creator payout, the lamport moves, the slippage checks — is written
-// once and is identical for both. The only thing that differs is pricing.
-//
-// The segmented adapters take the fee off the top first, exactly as the
-// constant-product path does, so "fee is charged on the gross" holds in both modes
-// and the Fact Sheet's fee statement stays true regardless of which curve a
-// creator picked.
-
-/// Price a buy in whichever mode this curve runs on. `sqrt_after` is the new
-/// segmented price (`None` on constant-product, which has no such state).
-fn quote_buy_for(
-    curve: &BondingCurve,
-    lamports_in: u64,
-    fee_bps: u64,
-) -> Result<(curve::BuyQuote, Option<u128>)> {
-    match CurveMode::from_u8(curve.mode).ok_or(LaunchError::InvalidParameter)? {
-        CurveMode::ConstantProduct => {
-            let q = quote_buy(
-                curve.effective_sol()?,
-                curve.effective_tokens()?,
-                lamports_in,
-                fee_bps,
-            )
-            .map_err(LaunchError::from)?;
-            Ok((q, None))
-        }
-        CurveMode::Segmented => {
-            let fee = curve::fee_up(lamports_in, fee_bps).map_err(LaunchError::from)?;
-            let to_curve = lamports_in
-                .checked_sub(fee)
-                .ok_or(LaunchError::Overflow)?;
-            require!(to_curve > 0, LaunchError::ZeroAmount);
-
-            let n = curve.segment_count as usize;
-            require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
-            let q = segmented::quote_buy(&curve.segments[..n], curve.sqrt_price_x64, to_curve)
-                .map_err(LaunchError::from)?;
-
-            // The segmented curve may consume LESS than offered when it tops out.
-            // Rather than reconcile a partial fill against a fee already computed on
-            // the full amount — which would either overcharge the buyer or under-pay
-            // the protocol — refuse the trade. The buy is already capped at the raise
-            // ceiling upstream, so a well-sized curve never reaches this; an
-            // undersized one fails closed instead of charging for a partial fill.
-            require!(
-                q.lamports_in == to_curve,
-                LaunchError::InsufficientLiquidity
-            );
-
-            Ok((
-                curve::BuyQuote {
-                    fee_lamports: fee,
-                    lamports_to_curve: to_curve,
-                    tokens_out: q.tokens_out,
-                },
-                Some(q.sqrt_price_after_x64),
-            ))
-        }
+/// Decide what the PROTOCOL leg can actually be paid on this trade.
+///
+/// ## Why this exists — the treasury is otherwise a kill switch on SELLS
+///
+/// The exact hazard [`payable_creator_split`] documents for the creator wallet, on
+/// the other leg: `fee_recipient` is a WRITABLE account of every trade, and Solana
+/// rejects an Uninitialized -> RentPaying transition, so a treasury sitting at 0
+/// lamports makes every trade whose protocol leg lands under
+/// `minimum_balance(data_len)` revert with `InsufficientFundsForRent` — a runtime
+/// fault with no error code of ours, which reads as an RPC or wallet problem. At a
+/// 1% fee and a 48% creator share that is every trade below ~0.171 SOL, **including
+/// sells**, which design note 2 promises can never be blocked.
+///
+/// It is reachable by ordinary operations, not just by attack: rotating
+/// `fee_recipient` to a fresh address with `update_global` produces it immediately,
+/// and so does sweeping the treasury to zero.
+///
+/// ## Why this WAIVES rather than folds
+///
+/// The creator leg has somewhere to go — its remainder folds into the protocol leg,
+/// so the trade's total is unchanged. The protocol leg has nowhere. The three
+/// candidates were:
+///
+///   - **revert** — the current behaviour, and the bug.
+///   - **fold into the curve** — desynchronises the quote from the deposit. The buy
+///     cap (`lamports_until_target`) sizes the raise to land exactly on
+///     `target + reserve`; crediting a waived fee to the curve as well overshoots
+///     that ceiling, and `tokens_out` was priced for the un-folded amount.
+///   - **waive** — the trader simply is not charged the undeliverable leg.
+///
+/// Waiving keeps the path total-conserving with no accounting to reconcile, and it
+/// cannot be turned into an extraction: it fires only while the treasury is below
+/// its own rent floor, it pays nobody but the trader who was going to be blocked,
+/// and it self-heals the moment the treasury is funded. Losing a fee is strictly
+/// better than losing the exit.
+///
+/// Returns the deliverable protocol amount; the difference is never collected.
+fn payable_protocol_leg(fee_recipient_ai: &AccountInfo, protocol_lamports: u64) -> Result<u64> {
+    if protocol_lamports == 0 {
+        return Ok(0);
     }
-}
-
-/// Price a sell in whichever mode this curve runs on.
-fn quote_sell_for(
-    curve: &BondingCurve,
-    tokens_in: u64,
-    fee_bps: u64,
-) -> Result<(curve::SellQuote, Option<u128>)> {
-    match CurveMode::from_u8(curve.mode).ok_or(LaunchError::InvalidParameter)? {
-        CurveMode::ConstantProduct => {
-            let q = quote_sell(
-                curve.effective_sol()?,
-                curve.effective_tokens()?,
-                tokens_in,
-                fee_bps,
-            )
-            .map_err(LaunchError::from)?;
-            Ok((q, None))
-        }
-        CurveMode::Segmented => {
-            let n = curve.segment_count as usize;
-            require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
-
-            // Sells price down to the launch's OPENING price and no further.
-            let q = segmented::quote_sell(
-                &curve.segments[..n],
-                curve.sqrt_price_x64,
-                curve.sqrt_price_start_x64,
-                tokens_in,
-            )
-            .map_err(LaunchError::from)?;
-
-            // Same reasoning as the buy side: a partial fill would desynchronise the
-            // tokens debited from the lamports paid, so refuse instead.
-            require!(q.tokens_in == tokens_in, LaunchError::InsufficientLiquidity);
-
-            let fee = curve::fee_up(q.lamports_out, fee_bps).map_err(LaunchError::from)?;
-            let out = q.lamports_out.checked_sub(fee).ok_or(LaunchError::Overflow)?;
-            require!(out > 0, LaunchError::ZeroAmount);
-
-            Ok((
-                curve::SellQuote {
-                    gross_lamports: q.lamports_out,
-                    fee_lamports: fee,
-                    lamports_out: out,
-                },
-                Some(q.sqrt_price_after_x64),
-            ))
-        }
+    // Measured against the recipient account's OWN data length, matching the creator
+    // leg: a treasury that is a data-carrying PDA has a proportionally higher floor.
+    let floor = Rent::get()?.minimum_balance(fee_recipient_ai.data_len());
+    if curve::lands_in_rent_band(fee_recipient_ai.lamports(), protocol_lamports, floor)
+        .map_err(LaunchError::from)?
+    {
+        return Ok(0);
     }
+    Ok(protocol_lamports)
 }
 
 #[program]
@@ -581,48 +510,12 @@ pub mod tegridy_launch {
 
     /// Open a launch: mint the whole supply onto a fresh curve and permanently
     /// revoke the mint authority.
-    /// `mode` selects the pricing curve: 0 = ConstantProduct (pump.fun shape),
-    /// 1 = Segmented (Meteora shape). The creator picks the MODE; the operator owns
-    /// the segmented SHAPE (see `GlobalConfig.segments`), so a creator can never
-    /// hand-craft a curve that defeats the config-time economic gates.
-
-    /// Publish the segmented curve's shape. Authority-only.
     ///
-    /// Separate from `update_global` because it is a different KIND of change: the
-    /// other dials are scalars validated against each other, this is a table with its
-    /// own well-formedness rules. Keeping it apart also means the segment validation
-    /// runs on exactly one path.
-    ///
-    /// Publishing a new shape NEVER touches a live launch — every segmented curve
-    /// snapshots the table at `create_launch`. It only affects launches created after.
-    pub fn set_curve_segments(
-        ctx: Context<SetCurveSegments>,
-        sqrt_price_start_x64: u128,
-        segments: Vec<Segment>,
-    ) -> Result<()> {
-        let n = segments.len();
-        require!(n > 0 && n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
-
-        // Validate BEFORE writing, so a rejected table cannot leave the config in a
-        // half-updated state that `create_launch` would then snapshot.
-        segmented::validate_segments(&segments, sqrt_price_start_x64)
-            .map_err(|e| error!(LaunchError::from(e)))?;
-
-        let g = &mut ctx.accounts.global;
-        let mut table = [Segment::default(); MAX_SEGMENTS];
-        table[..n].copy_from_slice(&segments);
-        g.segments = table;
-        g.segment_count = n as u8;
-        g.sqrt_price_start_x64 = sqrt_price_start_x64;
-
-        emit!(CurveSegmentsSet {
-            segment_count: n as u8,
-            sqrt_price_start_x64,
-        });
-        Ok(())
-    }
-
-    pub fn create_launch(ctx: Context<CreateLaunch>, mode: u8) -> Result<()> {
+    /// Takes no curve parameters. Every economic term — fee, creator share, virtual
+    /// reserves, supply, target, reserve — is copied from [`GlobalConfig`], which has
+    /// already passed [`check_launch_economics`]. A creator chooses WHETHER to launch,
+    /// never on what shape, so no launch can exist whose economics were not gated.
+    pub fn create_launch(ctx: Context<CreateLaunch>) -> Result<()> {
         let g = &ctx.accounts.global;
         require!(!g.paused, LaunchError::Paused);
 
@@ -672,41 +565,6 @@ pub mod tegridy_launch {
         c.complete = false;
         c.bump = ctx.bumps.curve;
 
-        // ── Curve mode ────────────────────────────────────────────────────────
-        let mode = CurveMode::from_u8(mode).ok_or(LaunchError::InvalidParameter)?;
-        c.mode = mode as u8;
-        match mode {
-            CurveMode::ConstantProduct => {
-                // Leave the segment fields zeroed. `segment_count == 0` is what the
-                // trade path keys off, so a stale table could never be read.
-                c.sqrt_price_x64 = 0;
-                c.sqrt_price_start_x64 = 0;
-                c.segment_count = 0;
-                c.segments = [Segment::default(); MAX_SEGMENTS];
-            }
-            CurveMode::Segmented => {
-                // Refuse rather than launch an unpriceable curve: a config with no
-                // published segments would mint a token whose every buy reverts.
-                require!(g.segment_count > 0, LaunchError::InvalidParameter);
-                let n = g.segment_count as usize;
-                require!(n <= MAX_SEGMENTS, LaunchError::InvalidParameter);
-
-                // Re-validate the operator's shape HERE, not just when it was set.
-                // `update_global` could have written it before this program version
-                // added a bound, and the trade path must never meet a shape it has
-                // not checked.
-                segmented::validate_segments(&g.segments[..n], g.sqrt_price_start_x64)
-                    .map_err(|_| error!(LaunchError::InvalidParameter))?;
-
-                // SNAPSHOT. From here the launch prices off its own copy, so a later
-                // `update_global` cannot reprice a curve people have bought into.
-                c.sqrt_price_x64 = g.sqrt_price_start_x64;
-                c.sqrt_price_start_x64 = g.sqrt_price_start_x64;
-                c.segment_count = g.segment_count;
-                c.segments = g.segments;
-            }
-        }
-
         emit!(LaunchCreated {
             mint: c.mint,
             creator: c.creator,
@@ -754,7 +612,13 @@ pub mod tegridy_launch {
             };
         require!(capped_in > 0, LaunchError::ZeroAmount);
 
-        let (q, sqrt_after) = quote_buy_for(curve, capped_in, fee_bps)?;
+        let q = quote_buy(
+            curve.effective_sol()?,
+            curve.effective_tokens()?,
+            capped_in,
+            fee_bps,
+        )
+        .map_err(LaunchError::from)?;
 
         require!(q.tokens_out >= min_tokens_out, LaunchError::SlippageExceeded);
         require!(
@@ -770,8 +634,16 @@ pub mod tegridy_launch {
         // A credit that would strand the creator account in the rent-paying band
         // folds into the protocol leg rather than reverting the trade. See
         // `payable_creator_split`.
-        let (creator_pay, protocol_pay) =
+        let (creator_pay, folded_protocol_pay) =
             payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
+        // ...and a protocol credit that would strand the TREASURY in the same band is
+        // waived rather than reverting the trade. See `payable_protocol_leg`. The
+        // waived amount is never taken from the trader, so `max_lamports_in` remains
+        // an upper bound and the curve's principal leg is untouched.
+        let protocol_pay = payable_protocol_leg(
+            &ctx.accounts.fee_recipient.to_account_info(),
+            folded_protocol_pay,
+        )?;
 
         // Move SOL first: buyer -> curve (principal), buyer -> creator (their
         // fee share), buyer -> treasury (the rest). All plain system transfers
@@ -838,21 +710,18 @@ pub mod tegridy_launch {
             .checked_sub(q.tokens_out)
             .ok_or(LaunchError::Overflow)?;
 
-        // Advance the segmented curve. WITHOUT THIS every trade would price from the
-        // opening sqrt-price forever — the curve would never move, so a buyer could
-        // drain it at the launch price. `None` on constant-product, whose state lives
-        // entirely in the reserves updated above.
-        if let Some(next) = sqrt_after {
-            curve.sqrt_price_x64 = next;
-        }
-
         emit!(Traded {
             mint: curve.mint,
             trader: ctx.accounts.trader.key(),
             is_buy: true,
             sol_amount: q.lamports_to_curve,
             token_amount: q.tokens_out,
-            fee_lamports: q.fee_lamports,
+            // What was ACTUALLY collected, not what the fee schedule implies. A
+            // waived protocol leg must not be reported to indexers as revenue —
+            // an outage of the fee path has to read as an outage, never as income.
+            fee_lamports: creator_pay
+                .checked_add(protocol_pay)
+                .ok_or(LaunchError::Overflow)?,
             // What the creator was ACTUALLY paid, not what the share implies —
             // a folded credit must not be reported to indexers as earnings.
             creator_fee_lamports: creator_pay,
@@ -871,7 +740,13 @@ pub mod tegridy_launch {
         require!(!curve.complete, LaunchError::AlreadyComplete);
         require!(tokens_in > 0, LaunchError::ZeroAmount);
 
-        let (q, sqrt_after) = quote_sell_for(curve, tokens_in, curve.trade_fee_bps)?;
+        let q = quote_sell(
+            curve.effective_sol()?,
+            curve.effective_tokens()?,
+            tokens_in,
+            curve.trade_fee_bps,
+        )
+        .map_err(LaunchError::from)?;
 
         require!(
             q.lamports_out >= min_lamports_out,
@@ -899,35 +774,51 @@ pub mod tegridy_launch {
 
         // Then lamports out. The curve PDA is program-owned, so its balance moves
         // by direct debit rather than a system transfer (a PDA cannot sign one).
+        //
+        // The debit is `lamports_out + creator_pay + protocol_pay`, and the two fee
+        // legs are resolved BEFORE it is computed, because either may be reduced:
+        // the creator's cut folds into the protocol's when it would strand the
+        // creator in the rent-paying band, and the protocol's is waived when it would
+        // strand the treasury there. Both keep the holders' exit open — see
+        // `payable_creator_split` and `payable_protocol_leg`. A waived leg simply
+        // stays on the curve, so the path is total-conserving either way.
+        //
+        // All four touched accounts are instruction accounts and NO CPI follows these
+        // writes, so route (a) — the end-of-instruction flush — reconciles every half
+        // together. Appending any CPI after this block reintroduces the
+        // UnbalancedInstruction defect documented in `migrate_to_amm`.
+        let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
+            .map_err(LaunchError::from)?;
+        let (creator_pay, folded_protocol_pay) =
+            payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
+        let protocol_pay = payable_protocol_leg(
+            &ctx.accounts.fee_recipient.to_account_info(),
+            folded_protocol_pay,
+        )?;
+
+        // What actually leaves the curve. Never more than `q.gross_lamports`, which
+        // the reserve check above already cleared.
+        let debit = q
+            .lamports_out
+            .checked_add(creator_pay)
+            .ok_or(LaunchError::Overflow)?
+            .checked_add(protocol_pay)
+            .ok_or(LaunchError::Overflow)?;
+
         // Rent must survive the debit or the account would be purged mid-launch.
         let curve_ai = ctx.accounts.curve.to_account_info();
         let rent_floor = Rent::get()?.minimum_balance(curve_ai.data_len());
         let balance = curve_ai.lamports();
         require!(
             balance
-                .checked_sub(q.gross_lamports)
+                .checked_sub(debit)
                 .ok_or(LaunchError::Overflow)?
                 >= rent_floor,
             LaunchError::InsufficientRentExemptBalance
         );
 
-        // The debit below is `gross = lamports_out + fee`, and the fee splits
-        // creator/protocol. All four touched accounts are instruction accounts
-        // and NO CPI follows these writes, so route (a) — the end-of-instruction
-        // flush — reconciles every half together. Appending any CPI after this
-        // block reintroduces the UnbalancedInstruction defect documented in
-        // `migrate_to_amm`; the split adds a third credit, not a new hazard.
-        let fs = split_fee(q.fee_lamports, curve.creator_fee_share_bps)
-            .map_err(LaunchError::from)?;
-        // Fold a rent-band-stranding creator credit into the protocol leg. On
-        // THIS path the fold is what keeps design note 2 true: without it a
-        // creator who drains their wallet to zero blocks every small sell, and
-        // sells are the holders' only exit. See `payable_creator_split`.
-        let (creator_pay, protocol_pay) =
-            payable_creator_split(&ctx.accounts.creator.to_account_info(), fs)?;
-
         **curve_ai.try_borrow_mut_lamports()? = balance
-            .checked_sub(q.gross_lamports)
+            .checked_sub(debit)
             .ok_or(LaunchError::Overflow)?;
         **ctx.accounts.trader.to_account_info().try_borrow_mut_lamports()? = ctx
             .accounts
@@ -967,22 +858,17 @@ pub mod tegridy_launch {
         }
 
         let curve = &mut ctx.accounts.curve;
+        // Debited by what LEFT, not by what was quoted. A waived protocol leg stays
+        // on the curve, and the accounting must agree with the balance or the next
+        // sell's reserve check is measuring a number the account does not hold.
         curve.real_sol_reserves = curve
             .real_sol_reserves
-            .checked_sub(q.gross_lamports)
+            .checked_sub(debit)
             .ok_or(LaunchError::Overflow)?;
         curve.real_token_reserves = curve
             .real_token_reserves
             .checked_add(tokens_in)
             .ok_or(LaunchError::Overflow)?;
-
-        // Advance the segmented curve. WITHOUT THIS every trade would price from the
-        // opening sqrt-price forever — the curve would never move, so a buyer could
-        // drain it at the launch price. `None` on constant-product, whose state lives
-        // entirely in the reserves updated above.
-        if let Some(next) = sqrt_after {
-            curve.sqrt_price_x64 = next;
-        }
 
         emit!(Traded {
             mint: curve.mint,
@@ -990,7 +876,10 @@ pub mod tegridy_launch {
             is_buy: false,
             sol_amount: q.lamports_out,
             token_amount: tokens_in,
-            fee_lamports: q.fee_lamports,
+            // Collected, not scheduled — see the buy path.
+            fee_lamports: creator_pay
+                .checked_add(protocol_pay)
+                .ok_or(LaunchError::Overflow)?,
             creator_fee_lamports: creator_pay,
             real_sol_reserves: curve.real_sol_reserves,
             real_token_reserves: curve.real_token_reserves,
@@ -1050,20 +939,47 @@ pub mod tegridy_launch {
 
         let curve = &ctx.accounts.curve;
         require!(!curve.complete, LaunchError::AlreadyComplete);
+
+        // Gate on the ACCOUNTING quantity, because that is what the debit at the end
+        // of this instruction uses.
+        //
+        // This used to read `real_sol_reserves >= graduation_target_lamports`, which
+        // omitted the reserve — while the `spendable` check below measured the PDA's
+        // actual lamports, which anyone can inflate by sending it a donation. One
+        // lamport into the curve address turned a genuinely under-raised launch into
+        // a migration that ran the whole sequence — five account creations, the WSOL
+        // wrap, cp-swap's pool build, the LP burn, ~250k CU — and then underflowed the
+        // subtraction at the very end and returned `Overflow` (6000). Atomic, so
+        // nothing was lost; but a keeper reading 6000 on the highest-stakes
+        // instruction in the system has no way to learn the curve was simply short.
+        //
+        // Checking the sum here makes that subtraction unreachable by construction and
+        // gives one honest error code. It costs nothing: `buy` caps the raise at
+        // exactly `target + reserve`, so no legitimately funded curve is affected.
+        // The `spendable` check stays as the independent rent-survival guard it was
+        // always meant to be, rather than doubling as the funding test.
+        let move_lamports = curve
+            .graduation_target_lamports
+            .checked_add(curve.migration_reserve_lamports)
+            .ok_or(LaunchError::Overflow)?;
         require!(
-            curve.real_sol_reserves >= curve.graduation_target_lamports,
+            curve.real_sol_reserves >= move_lamports,
             LaunchError::NotReadyToGraduate
         );
 
         let deposit_lamports = curve.graduation_target_lamports;
-        let reserve_lamports = curve.migration_reserve_lamports;
         let deposit_tokens = curve.real_token_reserves;
         let mint_key = curve.mint;
         let curve_bump = curve.bump;
+        // The launch creator's own wallet, snapshotted at `create_launch` and pinned
+        // by the `address = curve.creator` constraint on the account. It becomes the
+        // cp-swap pool's `pool_creator`, which is written ONCE and is the only key
+        // `collect_creator_fee` will ever accept — see the CPI comment below.
+        let pool_creator_key = curve.creator;
 
         // The curve PDA must retain enough lamports beyond the deposit to cover
-        // cp-swap's create_pool_fee (charged as a NATIVE SOL transfer from the
-        // creator, initialize.rs:318-325) plus rent on five accounts it creates.
+        // cp-swap's create_pool_fee (charged as a NATIVE SOL transfer from the payer,
+        // in `initialize_with_permission`) plus rent on five accounts it creates.
         // Checked BEFORE anything moves: discovering the shortfall mid-migration
         // would leave the curve half-graduated.
         let curve_ai = ctx.accounts.curve.to_account_info();
@@ -1072,12 +988,28 @@ pub mod tegridy_launch {
             .lamports()
             .checked_sub(rent_floor)
             .ok_or(LaunchError::InsufficientRentExemptBalance)?;
+        require!(spendable >= move_lamports, LaunchError::MigrationReserveTooLow);
+
+        // ── The cp-swap permission account ───────────────────────────────────
+        //
+        // `initialize_with_permission` declares `permission` as an existing
+        // `Account<Permission>` at ["permission", payer] — cp-swap validates the
+        // seeds itself, so this check is not a security control and does not pretend
+        // to be one. It exists so a missing permission account surfaces as a NAMED
+        // error here instead of Anchor's `AccountNotInitialized` from inside a CPI,
+        // 250k CU deep, on the one instruction in this program that moves an entire
+        // launch's raised balance. That is precisely the shape that gets misdiagnosed
+        // as "the launch program is broken".
+        //
+        // Creating it is a one-time cp-swap ADMIN action (`create_permission_pda` is
+        // gated on `admin::ID`), against the program-wide migration authority. Until
+        // it is done, no launch can graduate — fail-closed, loudly, and before
+        // anything moves.
+        let permission_ai = ctx.accounts.cp_swap_permission.to_account_info();
         require!(
-            spendable
-                >= deposit_lamports
-                    .checked_add(curve.migration_reserve_lamports)
-                    .ok_or(LaunchError::Overflow)?,
-            LaunchError::MigrationReserveTooLow
+            !permission_ai.data_is_empty()
+                && permission_ai.owner == &ctx.accounts.cp_swap_program.key(),
+            LaunchError::MigrationPermissionMissing
         );
 
         let seeds: &[&[u8]] = &[CURVE_SEED, mint_key.as_ref(), &[curve_bump]];
@@ -1085,7 +1017,7 @@ pub mod tegridy_launch {
 
         // ── 1. Fund the migration authority and stage both legs on it ────────
         //
-        // cp-swap's `creator` must be BOTH the signer and the rent payer for five
+        // cp-swap's `payer` must be BOTH the signer and the rent payer for five
         // `init` accounts. Rent goes through the System program's `CreateAccount`,
         // which demands a System-owned payer — so it cannot be the curve PDA, which
         // holds this program's data. The data-less `migration_authority` PDA
@@ -1145,11 +1077,11 @@ pub mod tegridy_launch {
             LaunchError::InvalidParameter
         );
 
-        let auth_seeds: &[&[u8]] = &[
-            MIGRATION_AUTH_SEED,
-            mint_key.as_ref(),
-            &[ctx.bumps.migration_authority],
-        ];
+        // Program-wide, NOT per-mint — see [`MIGRATION_AUTH_SEED`]. The mint used to
+        // be in these seeds; cp-swap's permission account is derived from the payer,
+        // so keeping it there would have made every single graduation wait on its own
+        // admin-signed permission PDA.
+        let auth_seeds: &[&[u8]] = &[MIGRATION_AUTH_SEED, &[ctx.bumps.migration_authority]];
         let auth_signer: &[&[&[u8]]] = &[auth_seeds];
 
         // The pool address is ours and we must SIGN for it, because it is not
@@ -1166,10 +1098,6 @@ pub mod tegridy_launch {
             &[ctx.bumps.pool_state],
         ];
         let init_signer: &[&[&[u8]]] = &[auth_seeds, pool_seeds];
-
-        let move_lamports = deposit_lamports
-            .checked_add(reserve_lamports)
-            .ok_or(LaunchError::Overflow)?;
 
         // Top the authority up to the rent-exempt floor for a zero-data account.
         //
@@ -1248,6 +1176,12 @@ pub mod tegridy_launch {
 
         // The authority IS System-owned, so a plain system transfer works here —
         // and is the correct way to fund a WSOL account it owns.
+        //
+        // `auth_wsol` is now a PERMANENT, publicly derivable address (the authority is
+        // program-wide), so anyone may pre-create it and donate to it. Harmless in
+        // both directions: cp-swap pulls exactly `init_amount`, never the balance, and
+        // the account is native, so `close_account` ignores any residue and returns it
+        // to whoever paid for this migration. A donor funds the caller, not the pool.
         let wsol_ai = ctx.accounts.auth_wsol.to_account_info();
         system_program::transfer(
             CpiContext::new_with_signer(
@@ -1271,7 +1205,7 @@ pub mod tegridy_launch {
         ))?;
 
         // Launch tokens: curve vault -> authority, signed by the curve (it owns the
-        // vault). cp-swap requires creator_token_* to be owned by the creator.
+        // vault). cp-swap requires payer_token_* to be owned by the payer.
         token::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.to_account_info(),
@@ -1296,8 +1230,39 @@ pub mod tegridy_launch {
         };
 
         // ── 3. Open + seed the pool ──────────────────────────────────────────
-        let cpi_accounts = raydium_cp_swap::cpi::accounts::Initialize {
-            creator: auth_ai.clone(),
+        //
+        // `initialize_with_permission`, NOT the permissionless `initialize`. Two
+        // things follow from that choice, and both are unfixable per pool once the
+        // pool exists — `pool_state.initialize` writes them once, at creation, and no
+        // cp-swap instruction rewrites either.
+        //
+        //  1. ENABLE_CREATOR_FEE. `initialize` hardcodes `false`
+        //     (initialize.rs, the final `pool_state.initialize(...)` argument);
+        //     `initialize_with_permission` hardcodes `true`. It is the ONLY entry
+        //     point that does. Every pool this program has ever been able to create
+        //     was therefore permanently creator-fee-less, and "creators earn forever"
+        //     could never have been true of any of them.
+        //
+        //  2. POOL_CREATOR. `initialize` sets it to the CPI's signing `creator`, which
+        //     here is `migration_authority` — a PDA of this program that no instruction
+        //     can make sign `collect_creator_fee`. So even a pool that accrued creator
+        //     fees would have locked them in the vaults forever.
+        //     `initialize_with_permission` takes `creator` as a separate non-signing
+        //     account, so `pool_creator` becomes the LAUNCH CREATOR's own wallet, read
+        //     off the curve's snapshot. That is the account `collect_creator_fee`
+        //     requires as a signer, and it is a key that actually exists.
+        //
+        // This does NOT turn a fee on. `enable_creator_fee = true` only makes the
+        // pool ELIGIBLE; the rate lives in `creator_fee_rate` on the AmmConfig, which
+        // is a cp-swap admin decision and is zero until an operator sets it. What the
+        // switch buys is that the decision remains AVAILABLE — under `initialize` it
+        // was foreclosed, silently, at every graduation.
+        //
+        // Cost: it needs a `permission` account that only a cp-swap admin can create,
+        // checked above with a named error.
+        let cpi_accounts = raydium_cp_swap::cpi::accounts::InitializeWithPermission {
+            payer: auth_ai.clone(),
+            creator: ctx.accounts.creator.to_account_info(),
             amm_config: ctx.accounts.amm_config.to_account_info(),
             authority: ctx.accounts.amm_authority.to_account_info(),
             pool_state: ctx.accounts.pool_state.to_account_info(),
@@ -1312,29 +1277,30 @@ pub mod tegridy_launch {
                 ctx.accounts.wsol_mint.to_account_info()
             },
             lp_mint: ctx.accounts.lp_mint.to_account_info(),
-            creator_token_0: if wsol_is_0 {
+            payer_token_0: if wsol_is_0 {
                 ctx.accounts.auth_wsol.to_account_info()
             } else {
                 ctx.accounts.auth_token.to_account_info()
             },
-            creator_token_1: if wsol_is_0 {
+            payer_token_1: if wsol_is_0 {
                 ctx.accounts.auth_token.to_account_info()
             } else {
                 ctx.accounts.auth_wsol.to_account_info()
             },
-            creator_lp_token: ctx.accounts.auth_lp.to_account_info(),
+            payer_lp_token: ctx.accounts.auth_lp.to_account_info(),
             token_0_vault: ctx.accounts.token_0_vault.to_account_info(),
             token_1_vault: ctx.accounts.token_1_vault.to_account_info(),
             create_pool_fee: ctx.accounts.create_pool_fee.to_account_info(),
             observation_state: ctx.accounts.observation_state.to_account_info(),
+            permission: permission_ai.clone(),
             token_program: ctx.accounts.token_program.to_account_info(),
             token_0_program: ctx.accounts.token_program.to_account_info(),
             token_1_program: ctx.accounts.token_program.to_account_info(),
             associated_token_program: ctx.accounts.associated_token_program.to_account_info(),
             system_program: ctx.accounts.system_program.to_account_info(),
-            rent: ctx.accounts.rent.to_account_info(),
         };
-        // Hand-invoked rather than `raydium_cp_swap::cpi::initialize`, for ONE reason.
+        // Hand-invoked rather than `raydium_cp_swap::cpi::initialize_with_permission`,
+        // for ONE reason.
         //
         // Anchor derives a CPI's AccountMetas from the CALLEE's account struct, and
         // cp-swap declares `pool_state` as `#[account(mut)]` — writable, not a signer.
@@ -1345,7 +1311,7 @@ pub mod tegridy_launch {
         // our non-canonical pool address — the very branch that makes the address
         // un-squattable (see LAUNCH_POOL_SEED).
         //
-        // Keep the typed struct, because it is what keeps this 20-account call ordered
+        // Keep the typed struct, because it is what keeps this 21-account call ordered
         // and type-checked against the fork, and flip exactly that ONE flag. The
         // promotion count is asserted: if a cp-swap bump ever renames or reorders the
         // account, this fails loudly instead of quietly reverting to a non-signer and
@@ -1366,7 +1332,7 @@ pub mod tegridy_launch {
             &anchor_lang::solana_program::instruction::Instruction {
                 program_id: ctx.accounts.cp_swap_program.key(),
                 accounts: metas,
-                data: raydium_cp_swap::instruction::Initialize {
+                data: raydium_cp_swap::instruction::InitializeWithPermission {
                     init_amount_0: amount_0,
                     init_amount_1: amount_1,
                     // Open immediately. A future open_time would leave the pool
@@ -1374,6 +1340,24 @@ pub mod tegridy_launch {
                     // with no exit, which is the failure mode this program keeps
                     // guarding.
                     open_time: 0,
+                    // Creator fees accrue in SOL, never in the launch token.
+                    //
+                    // `CreatorFeeOn::OnlyTokenN` means the creator's cut is always
+                    // DENOMINATED in tokenN — taken off the input when the input is
+                    // tokenN, off the output otherwise (cp-swap
+                    // `PoolState::is_creator_fee_on_input`). So this must track the
+                    // same mint sort as the amounts above, or every creator on the
+                    // venue is paid in the illiquid side of their own pool and has to
+                    // sell it back through that pool to realise anything.
+                    //
+                    // `BothToken` was the other option and is what `initialize`
+                    // hardcodes; it would pay creators in whatever a trader happened
+                    // to sell, which is the same problem half the time.
+                    creator_fee_on: if wsol_is_0 {
+                        raydium_cp_swap::CreatorFeeOn::OnlyToken0
+                    } else {
+                        raydium_cp_swap::CreatorFeeOn::OnlyToken1
+                    },
                 }
                 .data(),
             },
@@ -1539,6 +1523,7 @@ pub mod tegridy_launch {
             mint: mint_key,
             sol_reserves: deposit_lamports,
             token_reserves: deposit_tokens,
+            pool_creator: pool_creator_key,
         });
         Ok(())
     }
@@ -1583,6 +1568,13 @@ pub struct InitializeGlobal<'info> {
     pub authority: Signer<'info>,
     /// CHECK: destination for trade fees; validated only as an address. Mainnet
     /// this is the treasury's Squads vault.
+    ///
+    /// The default pubkey is rejected here because `update_global` rejects it there
+    /// (lib.rs, `new_fee_recipient`), and one path validating a field the other does
+    /// not is how this crate got `check_launch_economics`. `Pubkey::default()` is the
+    /// System Program: rent-exempt, executable, and unsignable, so every protocol fee
+    /// would burn until an `update_global` noticed.
+    #[account(constraint = fee_recipient.key() != Pubkey::default() @ LaunchError::InvalidParameter)]
     pub fee_recipient: UncheckedAccount<'info>,
     #[account(
         init,
@@ -1607,19 +1599,6 @@ pub struct UpdateGlobal<'info> {
     pub authority: Signer<'info>,
 }
 
-
-/// Authority-gated. Mirrors `UpdateGlobal`'s shape — same seeds, same `has_one`.
-#[derive(Accounts)]
-pub struct SetCurveSegments<'info> {
-    pub authority: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [GLOBAL_SEED],
-        bump = global.bump,
-        has_one = authority @ LaunchError::Unauthorized
-    )]
-    pub global: Account<'info, GlobalConfig>,
-}
 
 #[derive(Accounts)]
 pub struct CreateLaunch<'info> {
@@ -1666,10 +1645,12 @@ pub struct CreateLaunch<'info> {
         seeds = [CURVE_SEED, mint.key().as_ref()],
         bump
     )]
-    // BOXED, and it has to be. `BondingCurve` carries a 16-entry segment table, and
-    // Anchor's generated `try_accounts` deserializes accounts onto the STACK — which
-    // pushed this struct's frame to 4,288 bytes against SBF's 4,096 limit. Boxing
-    // moves it to the heap. If you add another sizeable account here, box it too.
+    // BOXED. Anchor's generated `try_accounts` deserializes accounts onto the STACK,
+    // and SBF gives each function a hard 4,096-byte frame that the linker only WARNS
+    // about — the program builds and then dies on chain with an access violation. This
+    // struct has been over that line before. Box every sizeable `Account<T>` you add
+    // here, and read solana-ci.yml's "exceeded max offset" gate before assuming a
+    // local `cargo check` proves anything: it does not compile for SBF at all.
     pub curve: Box<Account<'info, BondingCurve>>,
 
     #[account(
@@ -1689,8 +1670,8 @@ pub struct CreateLaunch<'info> {
 
 /// Accounts for [`tegridy_launch::migrate_to_amm`].
 ///
-/// Large because cp-swap's `initialize` takes 20 accounts and we must forward all
-/// of them. The PDAs cp-swap derives itself (pool_state, vaults, lp_mint,
+/// Large because cp-swap's `initialize_with_permission` takes 21 accounts and we must
+/// forward all of them. The PDAs cp-swap derives itself (pool_state, vaults, lp_mint,
 /// observation_state, its authority) are passed as `UncheckedAccount` — cp-swap
 /// validates each against its own seeds, so re-deriving them here would duplicate
 /// its logic with no added safety and a real chance of drifting from it.
@@ -1730,8 +1711,8 @@ pub struct MigrateToAmm<'info> {
     )]
     pub curve: Box<Account<'info, BondingCurve>>,
 
-    /// The curve's token vault — becomes cp-swap's `creator_token_*` for the
-    /// launch-token leg.
+    /// The curve's token vault — drained into `auth_token`, which becomes cp-swap's
+    /// `payer_token_*` for the launch-token leg.
     #[account(
         mut,
         seeds = [VAULT_SEED, launch_mint.key().as_ref()],
@@ -1744,11 +1725,24 @@ pub struct MigrateToAmm<'info> {
     #[account(address = anchor_spl::token::spl_token::native_mint::ID @ LaunchError::InvalidParameter)]
     pub wsol_mint: Box<Account<'info, Mint>>,
 
-    /// CHECK: Per-launch migration authority — a DATA-LESS PDA, and it must stay
-    /// that way.
+    /// CHECK: receives the cp-swap pool's `pool_creator` role, and is the only key
+    /// that will ever be able to call `collect_creator_fee` on the resulting pool.
     ///
-    /// It exists because cp-swap's `initialize` needs one account to be both the
-    /// signing `creator` AND the rent `payer` for five `init` accounts. Rent is
+    /// Pinned to the curve's own snapshot, so neither the caller nor the protocol can
+    /// redirect a creator's post-graduation income — the same reasoning, and the same
+    /// field-ordering requirement, as `Trade::creator`. Declared AFTER `curve`.
+    ///
+    /// Not `mut`: cp-swap only reads its key. Not a `Signer` either — under
+    /// `initialize_with_permission` the pool creator does not sign, which is exactly
+    /// what lets a permissionless migration name someone other than itself.
+    #[account(address = curve.creator @ LaunchError::CreatorMismatch)]
+    pub creator: UncheckedAccount<'info>,
+
+    /// CHECK: The migration authority — a DATA-LESS PDA, PROGRAM-WIDE, and it must
+    /// stay both.
+    ///
+    /// It exists because cp-swap's pool-creating instruction needs one account to be
+    /// both the signing `payer` AND the rent source for five `init` accounts. Rent is
     /// funded through the System program's `CreateAccount`, which requires a
     /// System-owned payer — and the curve PDA holds `BondingCurve` data, so it is
     /// owned by this program and can never serve.
@@ -1759,15 +1753,17 @@ pub struct MigrateToAmm<'info> {
     /// System-transfers FROM this account; the handler asserts `data_is_empty()` so
     /// that change fails loudly rather than silently bricking graduation.
     ///
-    /// The alternative — making the arbitrary `payer` signer cp-swap's creator —
-    /// would have an untrusted caller briefly holding the launch's entire
-    /// liquidity in their own token accounts. Atomic, so not exploitable, but not
-    /// a shape worth shipping.
-    #[account(mut, seeds = [MIGRATION_AUTH_SEED, launch_mint.key().as_ref()], bump)]
+    /// Seeded WITHOUT the mint — see [`MIGRATION_AUTH_SEED`] for why cp-swap's
+    /// permission derivation forces that, and what it costs.
+    ///
+    /// The alternative — making the arbitrary `payer` signer cp-swap's payer — would
+    /// have an untrusted caller briefly holding the launch's entire liquidity in
+    /// their own token accounts, and would need a permission account per caller.
+    #[account(mut, seeds = [MIGRATION_AUTH_SEED], bump)]
     pub migration_authority: UncheckedAccount<'info>,
 
     /// The SOL leg, wrapped and held by the migration authority so cp-swap sees a
-    /// `creator_token_*` its creator actually owns.
+    /// `payer_token_*` its payer actually owns.
     #[account(
         init_if_needed,
         payer = payer,
@@ -1795,8 +1791,8 @@ pub struct MigrateToAmm<'info> {
     ///      instruction body. At that point `lp_mint` does not exist — cp-swap
     ///      creates it inside the CPI — so deriving an ATA for it asks the Token
     ///      program for the data size of a System-owned account.
-    ///   2. cp-swap `init`s `creator_lp_token` itself (initialize.rs:96-104,
-    ///      `payer = creator`), so creating it here would collide anyway.
+    ///   2. cp-swap `init`s `payer_lp_token` itself, so creating it here would
+    ///      collide anyway.
     ///
     /// It is therefore created BY the CPI and read afterwards for the burn. Owned
     /// by the migration authority, since that is cp-swap's creator.
@@ -1808,13 +1804,24 @@ pub struct MigrateToAmm<'info> {
     pub cp_swap_program: UncheckedAccount<'info>,
     /// CHECK: matched against `global.amm_config` in the handler.
     pub amm_config: UncheckedAccount<'info>,
+    /// CHECK: cp-swap's `Permission` PDA at ["permission", migration_authority],
+    /// created once by a cp-swap admin. cp-swap re-derives and validates it; the
+    /// handler only checks that it EXISTS, so the failure mode is a named error
+    /// rather than an `AccountNotInitialized` from inside the CPI.
+    ///
+    /// Deliberately no `seeds =` constraint. Anchor's generated `try_accounts`
+    /// evaluates seeds on the STACK, and this struct has already overflowed SBF's
+    /// 4 KB frame once from exactly that (see `pool_state`, and solana-ci.yml's
+    /// "exceeded max offset" gate). The derivation this program relies on is
+    /// [`CP_SWAP_PERMISSION_SEED`], pinned in a test.
+    pub cp_swap_permission: UncheckedAccount<'info>,
     /// CHECK: cp-swap's vault/LP-mint authority PDA; it validates its own seeds.
     pub amm_authority: UncheckedAccount<'info>,
     /// CHECK: created by cp-swap, but at an address THIS program owns and signs for.
     ///
     /// Deliberately NOT cp-swap's canonical
     /// [POOL_SEED, amm_config, token_0_mint, token_1_mint] derivation. That address
-    /// is reachable by anyone — cp-swap's `initialize` is permissionless and
+    /// is reachable by anyone — cp-swap's pool creation is permissionless and
     /// `create_pool` refuses a `pool_state` that is already owned by cp-swap
     /// (initialize.rs:372-374), so occupying it bricks a launch's graduation
     /// permanently. cp-swap's own second branch accepts a non-canonical
@@ -1845,7 +1852,9 @@ pub struct MigrateToAmm<'info> {
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
+    // No `rent` sysvar. `initialize` took one; `initialize_with_permission` does not,
+    // and nothing else here reads it. Carrying a dead account on the instruction that
+    // already sits near SBF's stack ceiling is cost with no purpose.
 }
 
 #[derive(Accounts)]
@@ -1868,10 +1877,12 @@ pub struct Trade<'info> {
         bump = curve.bump,
         has_one = mint @ LaunchError::InvalidParameter
     )]
-    // BOXED, and it has to be. `BondingCurve` carries a 16-entry segment table, and
-    // Anchor's generated `try_accounts` deserializes accounts onto the STACK — which
-    // pushed this struct's frame to 4,288 bytes against SBF's 4,096 limit. Boxing
-    // moves it to the heap. If you add another sizeable account here, box it too.
+    // BOXED. Anchor's generated `try_accounts` deserializes accounts onto the STACK,
+    // and SBF gives each function a hard 4,096-byte frame that the linker only WARNS
+    // about — the program builds and then dies on chain with an access violation. This
+    // struct has been over that line before. Box every sizeable `Account<T>` you add
+    // here, and read solana-ci.yml's "exceeded max offset" gate before assuming a
+    // local `cargo check` proves anything: it does not compile for SBF at all.
     pub curve: Box<Account<'info, BondingCurve>>,
 
     /// CHECK: must be the creator recorded on the curve at `create_launch`;
@@ -1902,3 +1913,79 @@ pub struct Trade<'info> {
     pub system_program: Program<'info, System>,
 }
 
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    /// ACCOUNT SIZES ARE A CLIENT CONTRACT.
+    ///
+    /// Every off-chain decoder derives its field offsets and its rent floor from these
+    /// numbers, and this repo has already shipped a decoder pinned to a stale one — a
+    /// `BONDING_CURVE_SIZE` of 162 against 716-byte accounts, which made every launch
+    /// on the venue's own rail render as `bad-length` while quietly understating the
+    /// curve PDA's rent floor by 3,855,840 lamports.
+    ///
+    /// Pinned as literals rather than recomputed from the field list, because a test
+    /// that re-derives the size from the struct agrees with the struct by construction
+    /// and cannot notice that the struct moved.
+    ///
+    /// 716 was the size WITH the segmented curve's 16-entry table (546 bytes of mode,
+    /// two sqrt-prices, a count and the table). With that mode removed it is 170.
+    #[test]
+    fn account_sizes_are_pinned() {
+        assert_eq!(
+            8 + BondingCurve::INIT_SPACE,
+            170,
+            "BondingCurve size moved — every off-chain decoder and rent-floor read must \
+             move with it, in the same change"
+        );
+        assert_eq!(
+            8 + GlobalConfig::INIT_SPACE,
+            194,
+            "GlobalConfig size moved — see above"
+        );
+    }
+
+    /// ERROR CODES ARE A CLIENT CONTRACT TOO. Anchor numbers `#[error_code]` variants
+    /// by declaration order from 6000, so inserting one renumbers everything after it
+    /// and every client error table starts naming the wrong failure. New variants go
+    /// LAST; these anchors prove the ones already in circulation did not move.
+    #[test]
+    fn error_codes_are_stable() {
+        assert_eq!(LaunchError::Overflow as u32 + 6000, 6000);
+        assert_eq!(LaunchError::AmmNotConfigured as u32 + 6000, 6015);
+        assert_eq!(LaunchError::CreatorMismatch as u32 + 6000, 6020);
+        assert_eq!(LaunchError::MigrationPermissionMissing as u32 + 6000, 6021);
+    }
+
+    /// The migration authority is derivable WITHOUT the launch mint. That is the
+    /// property cp-swap's permission account depends on: its PDA is seeded on the
+    /// payer, so a per-mint authority would need a per-launch admin ceremony before
+    /// any launch could graduate.
+    #[test]
+    fn the_migration_authority_is_program_wide() {
+        let (a, _) = Pubkey::find_program_address(&[MIGRATION_AUTH_SEED], &crate::ID);
+        let (b, _) = Pubkey::find_program_address(&[MIGRATION_AUTH_SEED], &crate::ID);
+        assert_eq!(a, b);
+        // ...and it is NOT the address a mint-seeded derivation produces, so a client
+        // built against the old shape fails loudly rather than passing a stranger.
+        let mint = Pubkey::new_unique();
+        let (per_mint, _) =
+            Pubkey::find_program_address(&[MIGRATION_AUTH_SEED, mint.as_ref()], &crate::ID);
+        assert_ne!(a, per_mint);
+    }
+
+    /// The permission PDA's seed is cp-swap's, not ours. Restating it locally is what
+    /// lets the derivation be read at the call site; this is what stops the restatement
+    /// from rotting if a fork bump renames it.
+    #[test]
+    fn the_permission_seed_matches_cp_swap() {
+        assert_eq!(
+            CP_SWAP_PERMISSION_SEED,
+            raydium_cp_swap::states::PERMISSION_SEED.as_bytes(),
+            "cp-swap renamed its permission seed — migrate_to_amm would pass an address \
+             cp-swap does not derive, and graduation would fail inside the CPI"
+        );
+    }
+}

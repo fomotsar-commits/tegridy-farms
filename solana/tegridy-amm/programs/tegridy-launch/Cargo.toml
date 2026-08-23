@@ -23,9 +23,9 @@ idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed", "event-cpi"] }
 anchor-spl = { version = "0.32.1", features = ["memo", "metadata"] }
 
-# The AMM we graduate into. Depended on with `cpi` so the 20-account
-# `initialize` call is TYPE-CHECKED against the real program rather than a
-# hand-rolled invoke_signed with hand-packed instruction data — on a call that
+# The AMM we graduate into. Depended on with `cpi` so the 21-account
+# `initialize_with_permission` call is TYPE-CHECKED against the real program rather
+# than a hand-rolled invoke_signed with hand-packed instruction data — on a call that
 # moves an entire launch's raised balance, that difference matters.
 #
 # This does NOT threaten the fork's audit story: solana-ci's diff-guard compares
@@ -33,25 +33,10 @@ anchor-spl = { version = "0.32.1", features = ["memo", "metadata"] }
 # modify it. Verified: diff-guard passes with this dependency in place.
 raydium-cp-swap = { path = "../cp-swap", features = ["cpi"], default-features = false }
 
-# Required by the vendored Raydium CLMM math (`src/vendor/big_num.rs` builds U128/U256
-# with `construct_uint!`). Same version cp-swap already pins in this workspace, so the
-# lockfile resolves to one copy.
-uint = "0.10.0"
-
 # `curve.rs` stays dependency-free so its tests run under a bare `rustc --test`,
 # with no cargo, no build scripts and no validator — which is what lets the
 # constant-product math be verified even when the SBF toolchain is unavailable.
 # Do not add a runtime dependency that breaks that.
-#
-# These dev-dependencies exist for ONE reason: the vendored Raydium CLMM files in
-# src/vendor/ carry upstream's OWN property tests, and these are the crates they
-# need. Keeping them means `cargo test` runs Raydium's audited test-suite against
-# our vendored copy — the strongest cheap assurance available that the vendor is
-# faithful. Versions match upstream's Cargo.toml at the pinned commit.
-[dev-dependencies]
-quickcheck = "0.9"
-proptest = "1.0"
-rand = "0.8.5"
 
 # NO [profile.release] here. Cargo ignores profiles on non-root workspace members
 # and warns about it; the real settings (lto = "fat", codegen-units = 1,

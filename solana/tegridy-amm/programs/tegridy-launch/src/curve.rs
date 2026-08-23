@@ -143,6 +143,36 @@ pub fn split_fee(fee: u64, creator_share_bps: u64) -> Result<FeeSplit, CurveErro
     })
 }
 
+/// Would crediting `amount` to an account currently holding `balance` leave it below
+/// its own rent-exempt floor?
+///
+/// ## Why a fee decision lives in the math module
+///
+/// Because it is the one rule BOTH fee legs must apply identically, and they had
+/// drifted: the creator leg carried the check and the protocol leg did not, so a
+/// treasury at zero lamports reverted every trade under ~0.171 SOL — sells included,
+/// which are the holders' only exit — with `InsufficientFundsForRent`, a runtime
+/// fault that carries none of this program's error codes and reads as an RPC fault.
+///
+/// The band exists because Solana rejects an Uninitialized -> RentPaying transition:
+/// an account at 0 lamports that receives less than `minimum_balance(data_len)` fails
+/// the WHOLE transaction. `rent_floor` is that minimum, measured against the
+/// recipient's own data length by the caller — a data-carrying PDA has a higher one.
+///
+/// What each leg does about a `true` here differs, and must: the creator's cut folds
+/// into the protocol's (the trade's total is unchanged), while the protocol's has
+/// nowhere to fold and is waived. Only the PREDICATE is shared. Keeping it here keeps
+/// it host-testable with no validator, which is the whole reason this module has no
+/// Solana dependency.
+#[inline]
+pub fn lands_in_rent_band(balance: u64, amount: u64, rent_floor: u64) -> Result<bool, CurveError> {
+    if amount == 0 {
+        return Ok(false);
+    }
+    let after = balance.checked_add(amount).ok_or(CurveError::Overflow)?;
+    Ok(after < rent_floor)
+}
+
 /// Quote a buy: lamports in, tokens out.
 ///
 /// `sol_reserves` / `token_reserves` are the *effective* (virtual + real)
@@ -233,6 +263,16 @@ pub fn quote_sell(
     let lamports_out = gross_lamports
         .checked_sub(fee_lamports)
         .ok_or(CurveError::Overflow)?;
+    // A sell whose whole proceeds are eaten by the fee pays the seller NOTHING while
+    // still moving their tokens onto the curve and still splitting a fee. `quote_buy`
+    // rejects its mirror image of this (`lamports_to_curve == 0`); this path used to
+    // return Ok. Reachable at any non-zero fee whenever `gross` rounds to the fee
+    // itself — at 100 bps, whenever `gross == 1`. The loss is the trader's, so it is a
+    // consistency defect rather than an extraction path, but an asymmetry a later
+    // reader would assume was deliberate is worth a lamport of arithmetic to remove.
+    if lamports_out == 0 {
+        return Err(CurveError::ZeroAmount);
+    }
 
     Ok(SellQuote {
         gross_lamports,
@@ -288,9 +328,24 @@ pub fn lamports_until_target(
 ///     V_s · S / V_t
 /// ```
 ///
-/// The true ceiling is strictly BELOW this: `quote_buy` refuses to hand out the
-/// entire token reserve, so the last fraction is unreachable. Treat the returned
-/// value as an exclusive upper bound.
+/// ## What this value IS, and what it is not
+///
+/// It is a **conservative estimate of the reachable maximum**, safe to use on the
+/// strict side of a `required < ceiling` gate and nowhere else.
+///
+/// It was documented, and tested, as an EXCLUSIVE UPPER BOUND on realised real SOL.
+/// That is false. Every buy rounds tokens out DOWN, and the truncated dust stays on
+/// the curve, so a sequence of small buys extracts less token per lamport than the
+/// closed form assumes and real SOL walks straight past this number. `Vs = Vt = S =
+/// 10` returns 10, and buys of 3, 7 then 2 — each one passing `quote_buy` and the
+/// caller's real-token check exactly as the program applies them — land on real SOL
+/// 12, twenty percent above the "bound", with real tokens at 0.
+///
+/// Nothing downstream is unsafe, because understating a ceiling makes a
+/// `required < ceiling` comparison STRICTER, not looser, and `buy` independently caps
+/// the raise at `target + reserve`. But do not weaken that comparison, do not use this
+/// as a solvency bound, and do not re-document it as exclusive: a load-bearing
+/// invariant written backwards with a green test under it is worse than no invariant.
 ///
 /// # Why this is a safety check, not a curiosity
 ///
@@ -665,11 +720,18 @@ mod tests {
         assert_eq!(lamports_until_target(11 * SOL, 10 * SOL, 100).unwrap(), None);
     }
 
-    /// The bound must be real: drive a curve to exhaustion with repeated buys and
-    /// confirm accumulated real SOL never exceeds what `max_reachable_real_sol`
-    /// predicts. This is the property the config check depends on.
+    /// At realistic scale the estimate holds and is tight — which is the only thing
+    /// the config check needs from it.
+    ///
+    /// This test used to be titled `max_reachable_sol_is_a_true_ceiling` and was cited
+    /// as PROOF that the returned value is an exclusive upper bound on realised real
+    /// SOL. It is not proof of that, and cannot be: it walks a book of 30 virtual SOL
+    /// against 1.073e15 virtual tokens in 0.1 SOL steps, where the per-buy truncation
+    /// that actually breaks the bound is far below one lamport. See
+    /// [`rounding_carries_real_sol_above_the_estimate`] for the case that does break
+    /// it, and `max_reachable_real_sol`'s doc comment for what the value really is.
     #[test]
-    fn max_reachable_sol_is_a_true_ceiling() {
+    fn max_reachable_sol_holds_and_is_tight_at_realistic_scale() {
         let supply: u64 = 1_000_000_000_000_000;
         let predicted = max_reachable_real_sol(V_SOL, V_TOK, supply).unwrap();
 
@@ -709,6 +771,53 @@ mod tests {
             "ceiling {} is far above what is actually reachable ({}) — too loose to be a useful check",
             predicted,
             real_sol
+        );
+    }
+
+    /// THE COUNTEREXAMPLE. `max_reachable_real_sol` is documented as a conservative
+    /// ESTIMATE, not an exclusive bound, and this is why: replay the exact loop the
+    /// program applies — `quote_buy`, then the caller's `tokens_out <=
+    /// real_token_reserves` check — at reserves small enough that per-buy truncation
+    /// is visible, and real SOL finishes ABOVE the returned value with real tokens at
+    /// zero.
+    ///
+    /// Pinned as a test rather than left in prose because the previous test's name
+    /// asserted the opposite and nothing contradicted it. Nothing downstream is
+    /// unsafe — understating a ceiling only tightens `required < ceiling` — but if
+    /// this ever starts passing as an inequality the other way, the doc comment on
+    /// `max_reachable_real_sol` needs rewriting, not this test.
+    #[test]
+    fn rounding_carries_real_sol_above_the_estimate() {
+        // Vs = Vt = S = 10: the smallest book where a single lamport of truncation is
+        // a meaningful fraction of the trade.
+        let (v_sol, v_tok, supply) = (10u64, 10u64, 10u64);
+        let estimate = max_reachable_real_sol(v_sol, v_tok, supply).unwrap();
+        assert_eq!(estimate, 10, "fixture drifted; the rest of this test assumes 10");
+
+        let mut eff_sol = v_sol;
+        let mut eff_tok = v_tok + supply;
+        let mut real_sol = 0u64;
+        let mut real_tok = supply;
+
+        for spend in [3u64, 7, 2] {
+            let q = quote_buy(eff_sol, eff_tok, spend, 0).expect("buy must be quotable");
+            assert!(
+                q.tokens_out <= real_tok,
+                "the program's own real-token check would have rejected this buy"
+            );
+            eff_sol += q.lamports_to_curve;
+            eff_tok -= q.tokens_out;
+            real_sol += q.lamports_to_curve;
+            real_tok -= q.tokens_out;
+        }
+
+        assert_eq!(real_tok, 0, "the walk must exhaust the real token reserve");
+        assert!(
+            real_sol > estimate,
+            "expected realised real SOL ({}) to exceed the estimate ({}) — if this now \
+             holds the other way the estimate's doc comment must be re-derived, not relaxed",
+            real_sol,
+            estimate
         );
     }
 
@@ -831,5 +940,134 @@ mod tests {
             let next = r + 1;
             assert!(next.checked_mul(next).map_or(true, |v| v > n), "undershoot at {n}");
         }
+    }
+
+    // ── The rent band ─────────────────────────────────────────────────────────
+    //
+    // `minimum_balance(0)` on mainnet. Written as a literal rather than derived,
+    // because the point of these cases is the exact threshold the SVM enforces.
+    const ZERO_DATA_FLOOR: u64 = 890_880;
+
+    /// A drained treasury (or creator wallet) is the reachable state, and it is what
+    /// used to revert every small trade — sells included.
+    #[test]
+    fn a_credit_into_an_empty_account_below_the_floor_is_in_the_band() {
+        assert_eq!(
+            lands_in_rent_band(0, ZERO_DATA_FLOOR - 1, ZERO_DATA_FLOOR),
+            Ok(true)
+        );
+        // Exactly the floor lands ON rent exemption, which is legal.
+        assert_eq!(
+            lands_in_rent_band(0, ZERO_DATA_FLOOR, ZERO_DATA_FLOOR),
+            Ok(false)
+        );
+    }
+
+    /// The common case: an already-funded recipient is never in the band, so no
+    /// trade on a healthy venue is ever altered by either leg's guard.
+    #[test]
+    fn an_already_rent_exempt_account_is_never_in_the_band() {
+        for credit in [1u64, 7, 1_000, 5_000_000_000] {
+            assert_eq!(
+                lands_in_rent_band(ZERO_DATA_FLOOR, credit, ZERO_DATA_FLOOR),
+                Ok(false),
+                "a funded recipient must not have its fee touched (credit {credit})"
+            );
+        }
+    }
+
+    /// A zero credit is not a transition at all — reporting it as banded would waive
+    /// or fold nothing while suggesting something happened.
+    #[test]
+    fn a_zero_credit_is_not_in_the_band() {
+        assert_eq!(lands_in_rent_band(0, 0, ZERO_DATA_FLOOR), Ok(false));
+    }
+
+    /// A data-carrying recipient has a proportionally higher floor, so the same
+    /// credit can be deliverable to one account and banded for another. The caller
+    /// supplies the floor precisely so this stays true.
+    #[test]
+    fn the_floor_is_the_callers_to_choose() {
+        let big_floor = ZERO_DATA_FLOOR * 5;
+        assert_eq!(lands_in_rent_band(0, ZERO_DATA_FLOOR, big_floor), Ok(true));
+        assert_eq!(lands_in_rent_band(0, big_floor, big_floor), Ok(false));
+    }
+
+    #[test]
+    fn a_credit_that_would_overflow_the_recipient_fails_closed() {
+        assert_eq!(
+            lands_in_rent_band(u64::MAX, 1, ZERO_DATA_FLOOR),
+            Err(CurveError::Overflow)
+        );
+    }
+
+    /// THE FEE-EATS-EVERYTHING SELL. A sell whose gross rounds down to the fee itself
+    /// paid the seller nothing while still moving their tokens onto the curve and
+    /// still splitting a fee to the creator and treasury. `quote_buy` has always
+    /// rejected the mirror case; this path returned Ok.
+    #[test]
+    fn a_sell_whose_whole_proceeds_are_eaten_by_the_fee_is_rejected() {
+        // Reserves at the live graduation point, where a 35,472-unit sell quotes
+        // gross = 1 and, at 100 bps, fee = 1.
+        let eff_sol: u64 = 41_871_942_308;
+        let eff_tok: u64 = 1_485_242_000_000_000;
+
+        let gross_one = (eff_sol as u128 * 35_472u128) / (eff_tok as u128 + 35_472u128);
+        assert_eq!(gross_one, 1, "fixture drifted; this case needs gross == 1");
+
+        assert_eq!(
+            quote_sell(eff_sol, eff_tok, 35_472, 100),
+            Err(CurveError::ZeroAmount)
+        );
+        // With no fee the same sell is fine — the rejection is about the fee eating
+        // the proceeds, not about the size.
+        assert!(quote_sell(eff_sol, eff_tok, 35_472, 0).is_ok());
+    }
+
+    /// `migrate_to_amm` now gates on `real_sol_reserves >= target + reserve` rather
+    /// than on the target alone. That is only safe if the buy path can actually reach
+    /// the sum — otherwise every launch would stall one gate short of graduating.
+    ///
+    /// Replays the cap the handler applies (`lamports_until_target` against
+    /// `target + reserve`) and asserts the raise lands EXACTLY on the ceiling: not
+    /// under it, which would make the new gate unsatisfiable, and not over it, which
+    /// would let the last buyer size the migrated pool.
+    #[test]
+    fn the_buy_cap_lands_exactly_on_target_plus_reserve() {
+        const TARGET: u64 = 11_621_942_308;
+        const RESERVE: u64 = 250_000_000;
+        const FEE_BPS: u64 = 100;
+        let ceiling = TARGET + RESERVE;
+
+        let mut real_sol = 0u64;
+        let mut eff_sol = V_SOL;
+        let mut eff_tok = V_TOK + SUPPLY;
+        let mut real_tok = SUPPLY;
+
+        for _ in 0..10_000 {
+            let limit = match lamports_until_target(real_sol, ceiling, FEE_BPS).unwrap() {
+                Some(l) => l,
+                None => break,
+            };
+            // A whale offering far more than remains is the interesting case: the cap,
+            // not the trader, decides where the raise stops.
+            let capped = core::cmp::min(2 * SOL, limit);
+            let q = quote_buy(eff_sol, eff_tok, capped, FEE_BPS).unwrap();
+            assert!(q.tokens_out <= real_tok, "the real-token guard would reject this");
+            real_sol += q.lamports_to_curve;
+            eff_sol += q.lamports_to_curve;
+            eff_tok -= q.tokens_out;
+            real_tok -= q.tokens_out;
+            assert!(
+                real_sol <= ceiling,
+                "the cap overshot: {real_sol} > {ceiling}"
+            );
+        }
+
+        assert_eq!(
+            real_sol, ceiling,
+            "a funded curve must reach target + reserve exactly, or the migration gate \
+             is unsatisfiable and no launch can ever graduate"
+        );
     }
 }
