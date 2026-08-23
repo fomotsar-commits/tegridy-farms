@@ -292,20 +292,27 @@ are the dangerous part**: re-verify `aggregator.js` keeps the branch's paraswap
 sides. 16 files changed on both sides; diff them all post-merge.
 
 **Then, in rough order:**
-- **E2E, the last 2 red checks.** `reducedMotion` is now actually applied (it was silently
-  ignored — every spec sat through a 15–19 s intro) and the chromium suite greened 08-22.
-  Next: a run on a non-docs commit; if still red, bisect the order-dependent pair with a single
-  worker — seeding is known not to fix it.
+- **E2E, the last 2 red checks — the diagnosis FLIPPED late on 08-22 (`05aff561`), measured
+  not argued.** The standing "order-dependent, do not add more seeding" guidance is
+  **disproven**: Anvil is healthy (positive proof — a real money-path spec passes in 1.6 s with
+  a matched receipt), the ~21 s clustering is a copy-pasted `{ timeout: 20_000 }` in four
+  specs, and the reducedMotion hypothesis is dead (16 of 20 tests finish in 0.9–2.7 s). The
+  four failing specs each **name what they need in their own assertion message** — the fixture
+  seeds two things and they need more. Per-spec recipes are in `TODO_OPERATOR.md` §1a; the trap
+  is named: warp time for reward accrual rather than writing the accumulator.
 - **Dependabot queue:** trunk's `no-fallthrough` fix (`a0c83c42`) post-dates every open PR's
   merge base — one more `@dependabot rebase` should green ~8 of the 14. **Not all inherited:**
   #313 (framer-motion 13, major), #316 (jose), #318 (doppler-sdk) fail typecheck **on their own
   bumps** — per-PR triage, and #313 waits until after the branch merge (it would shift the
-  typecheck surface under ~30 new TS files). #310 (docs) needs decide-or-close against trunk's
-  newer todo edits.
-- **Slither: 362 findings at `fail-on: medium`, real triage.** First confirm
-  `contracts/slither.config.json` actually loads; then group by detector (88 detectors ≈ a
-  handful of noisy classes); `// slither-disable-next-line` with a reason, never a config-wide
-  mute; never lower `fail-on`.
+  typecheck surface under ~30 new TS files). #310 (docs): its six DBC constraints were
+  salvaged into trunk (`4a222be7`) — close it.
+- **Slither — narrowed by measurement on 08-22 (`05aff561`, `a790f954`): only 48 of the 362
+  gate anything, 5 High across two files.** The config question is settled — it loads, and its
+  promoted-detector list has not gutted the set. A 56-verdict triage is persisted at
+  `SLITHER_TRIAGE_2026_08_22.md` but is **recorded as NOT actionable**: the adversarial
+  refutation pass was killed before it ran, and a clean sweep with no independent check is
+  precisely the shape this repo keeps shipping. Remaining work: run the refutation pass over
+  the 56, then suppress line-by-line with reasons. Never lower `fail-on`.
 - **Migration ledger truth:** add the self-recording INSERTs 016–021 are missing (the
   `MIGRATIONS.md` example is fiction today), write the `native_orders`/`trade_offers` REVOKE as
   **022** (or record the explicit decision not to), write the `prune_revoked_jwts` standalone,
