@@ -459,7 +459,8 @@ have run at all. What is left on trunk:
 |---|---|---|
 | `advisories — frontend` / `— indexer` | ✅ **FIXED** (`5565506b`) | Was never an advisory problem. GitHub runs every `run:` block under `bash -e`, and `set -uo pipefail` does not clear errexit, so the unguarded `npm audit --json` ended the step the instant it found anything and **the gate never ran once** since it was armed on 08-18. Running the gate against the real reports: 0 blocking in both projects, every finding already baselined, zero stale suppressions. Nothing was allowlisted to force green. |
 | `Static analysis` (Slither) | 🔴 **STILL RED — and it was masking** | See item 8. |
-| `E2E Tests` / `E2E Tests (Anvil fork)` | 🔴 **still red** | Unchanged. The `reducedMotion` finding below is still the first thing to check. |
+| `E2E Tests` | ✅ **GREEN** (`d2d43bdb`) | **524 passed, 32 skipped, 0 failed** on run 32609788572 — the first green on this job. All four projects, including both WebKit ones. See item **1b**: the service worker was answering every stubbed fetch before `page.route` could, and fixed chrome was parking the click target underneath itself. |
+| `E2E Tests (Anvil fork)` | 🔴 **still red** | Diagnosed, not fixed. Four money paths need on-chain preconditions the fixture never seeds — see item **1a**, which has the per-spec recipe. Anvil itself is healthy and this is **not** an operator item. |
 | `Lint, Type Check & Test` | ✅ green | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
 
 The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
@@ -563,10 +564,15 @@ on bottom alignment — reachable only by the one alignment nothing picks. Fixed
 on the scrollport, which costs no layout. `ConsentBanner` was a third fixed overlay the fixture's
 skip list missed; it is seeded `denied`, never `granted`.
 
-▶ **Still to verify:** these landed after the last CI run. Confirm on the next one. If the WebKit
-projects go green, `WEBKIT_EXCLUDED_TEST_TITLES` in `playwright.config.ts` should be re-derived —
-six titles are excluded there for cross-origin `pageerror` noise, and **some of that noise may have
-been the service worker too**.
+✅ **CONFIRMED on run 32609788572: 524 passed, 32 skipped, 0 failed** — the first green this job has
+had, across all four projects including both WebKit ones.
+
+▶ **One follow-up worth taking:** `WEBKIT_EXCLUDED_TEST_TITLES` in `playwright.config.ts` excludes
+six titles from the WebKit projects for cross-origin `pageerror` noise. **Some of that noise was
+very likely the service worker**, which is now blocked — the 32 skips are those exclusions. Re-derive
+the list by removing entries one at a time and re-running; every title that now passes is coverage
+the matrix gets back for free. `src/test/playwrightDeviceMatrix.test.ts` keeps the list honest, so it
+will tell you if you get it wrong.
 
 **2. ✅ The five non-Dependabot PRs are decided AND resolved — nothing is left open.** Every verdict re-derived against trunk rather
 than taken from the PR's own claims.
@@ -876,9 +882,11 @@ dark. That is the whole shape of this project right now: **over-built and under-
 | # | What | Where | Who |
 |---|---|---|---|
 | 1 | Seed the four Anvil money-path preconditions | item **1a** — has the per-spec recipe | agent |
-| 2 | Diagnose the chromium heat-door failures | item **1b** — start with the schema self-gate | agent |
+| 2 | ~~Diagnose the heat-door failures~~ ✅ **DONE** (`d2d43bdb`) — job green | item **1b** | — |
 | 3 | Re-run the Slither refutation pass, then apply per-line suppressions | item **8** — one command | agent |
 | 4 | Merge the 14 rebased Dependabot PRs once ① lands | item **3** | agent |
+
+✅ **①.2 landed 2026-08-22** — `E2E Tests` is green (524/0). Three items remain in ①.
 
 **Do ① before anything else**, and not because the failures are dangerous — they are not, nothing
 here is deployed. Do it because a permanently-red trunk means the next real regression is
