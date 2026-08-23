@@ -1112,3 +1112,81 @@ line 40 (`castVote → proxyWrite`) is **merged but not deployed**, and the depl
 015 §1 DROPs or writes fail silently — which is the exact failure that commit exists to prevent.
 Line 39 is mislabeled `[code]`: it needs a live database read. Line 71's "companion workflow"
 prescription would **reintroduce** the defect fixed in `cdd58b06`.
+
+---
+
+# 🔴 NEW 2026-08-23 — the v2 distributor can confiscate a staker's ETH, permissionlessly
+
+Found while answering "grace or block?" on the `CLAIM_GRACE_PERIOD` contradiction. The question
+turned out to be malformed, and the answer is much worse than either option.
+
+**None of this is deployed.** `StreamingRevenueDistributor` is v2 and unbuilt. v1 is live at
+`0xF993316E2fC079de4358c489A935E01e03E23E17` but **holds 0** and has never received a distribution.
+So there is no money at risk today — and every item below becomes live the moment the fee rail is
+switched on, which is exactly what §"First revenue" is for.
+
+## What is actually wrong
+
+`_lockEndOf` returns `0` on three conditions that mean different things: no position, `positions()`
+reverted, `userTokenId()` reverted. Two call sites then read that `0` in opposite directions and
+**both hurt the staker** — `:499` forfeits with no grace, `:617` refuses the claim.
+
+But the outage is not the headline. Three findings reorder it:
+
+1. **🔴 CRITICAL — restakers are structurally forfeitable, with no outage at all.**
+   `StakingRewardLib.sol:890` zeroes `userTokenId[from]` on every outbound transfer, and
+   `TegridyStaking.sol:790` force-returns 0 voting power for the restaking contract. So
+   `_lockEndOf(restaker)` is **permanently 0 by construction**. The only thing between a restaker
+   and confiscation is `_isRestaked` — one uncapped external call whose catch arm returns `false`.
+2. **🔴 CRITICAL — `_effectivePower` is the precondition, not a bystander.** It degrades to 0 on
+   three conditions, one of which is **the default shipping state** (`restakingContract` unset,
+   armed only by a 48 h timelock). `_updateReward` then *writes* that 0 into `effectiveBalanceOf`,
+   which is exactly what makes the "fully exited" early-return fall through. One escrow failure
+   cascades through **four** swallowed reads to confiscate an account in perfect standing.
+3. **🟠 HIGH — the forfeit is permissionless and the attacker is paid for it.** `sync(address)` and
+   `syncMany(address[])` (batch of 100) have no access control — the natspec says "Permissionless by
+   design". Forfeited wei goes to `totalForfeitedToPool` and re-streams to **remaining** stakers, so
+   a large staker is paid pro-rata for confiscating everyone else's accrual. One call, gas only.
+
+**v1 has the same conflation but does NOT outrank v2**, and this was checked rather than assumed:
+v1's only forfeit is owner-timelocked (48 h, 1% lifetime cap, 14-day dust grace), so an escrow
+failure there is a **retryable lockout, not confiscation**. Its outage arms are also near
+unreachable — `userTokenId`/`positions` are plain public-mapping auto-getters that cannot revert,
+and `votingEscrow` is immutable. v1's real exposure is the no-outage path: a staker who unstakes
+before claiming has `pendingETH` report **0** on ETH they already earned. Fabricated zero.
+
+**🟡 One more, pointing the other way:** `_isStakingPaused` fails **OPEN** — its catch arm returns
+`false`, so an unreadable escrow silently **disarms the kill switch**. Do not let the fix's
+tolerance for an unreadable escrow extend to `notifyRewardAmount`, or an outage becomes a window for
+scheduling revenue against corrupt data.
+
+## A fix was written and REFUTED — twice, independently
+
+Branch **`wip/lockend-sentinel-REFUTED`** (`fe560b06`). It is good work and worth reading: it copies
+the two-value return from `LaunchRugEscrow._readCovenantBps` (existing in-repo pattern, not
+invented), gives `_isRestaked` the same treatment, and carries 12 mutations with zero survivors.
+
+**It does not ship.** Both adversarial passes found the same defect, and the second reproduced it in
+an isolated sandbox byte-identically. The fix adds `exitedAt[account]` as a grace anchor, stamped
+when this contract first *notices* the mirror zero — and **the account chooses that moment**:
+
+- `TegridyStaking.withdraw` is gated on `block.timestamp >= p.lockEnd`, and it burns the NFT. So
+  **the only permitted exit is the one that erases the anchor the grace is measured from.** Not an
+  edge case — the normal path.
+- The account is normally the first to move the mirror, via the `updateReward(msg.sender)` modifier
+  on `getReward`.
+
+Result: an account already past `lockEnd + 7 days` can withdraw, manufacture a fresh 7-day window,
+and be paid ETH already assigned to `totalForfeitedToPool`. The refutation test is on that branch as
+`contracts/test/v2/RefuteAnchorReset.t.sol` and inverts across the commit boundary.
+
+▶ **What a passing fix needs.** The grace anchor must not be selectable or timeable by the account it
+protects. Record the anchor from a **staking-side durable value observed while the position still
+exists** — store the `lockEnd` *value*, not the observation *time* — so `withdraw` cannot reset it
+and a delayed first observation cannot extend it. The open question that remains is what to do when
+no observation ever happened before the burn; failing toward the staker there means abandoned
+rewards never recycle for un-synced accounts, and that trade-off is a decision, not a detail.
+
+⚠️ **A ninth vacuous-gate instance, found in passing:** every unit slice runs
+`--no-match-test "^(invariant_|testFuzz_)"`, so **any test named `testFuzz_*` under `test/v2/`
+compiles, is reported as part of the slice, and never executes.** Do not name new tests that way.
