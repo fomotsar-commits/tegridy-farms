@@ -125,12 +125,32 @@ test.describe('NFT lending surface', () => {
     await expect(repay, 'the loan is there but offers no repay CTA.').toBeEnabled({ timeout: 20_000 });
     await repay.click();
 
-    // And the loan is settled: the repay CTA is rendered only while the loan is active
-    // or overdue (NFTLendingSection.tsx:1128), so its disappearance is the on-chain
-    // status flipping to repaid.
+    // ⚠ DO NOT ASSERT THE REPAY CTA'S DISAPPEARANCE BY ITS NAME. This block used to be
+    //     await expect(repay).toHaveCount(0)
+    // where `repay` is scoped by the accessible name /^Repay Loan$/. That assertion
+    // CANNOT FAIL for the reason it names. NFTLendingSection.tsx:1138 renders
+    //     {repaying ? 'Confirm in Wallet...' : repayConfirming ? 'Repaying...' : 'Repay Loan'}
+    // so the accessible name changes the INSTANT the click sets `repaying`, and the
+    // count reaches 0 whether or not the repayment ever confirmed. It was a false green
+    // in the fix for a false green, caught in adversarial review 2026-08-22.
+    //
+    // Assert on-chain state instead. `getLoanStatus` (NFTLendingSection.tsx:81-82)
+    // returns 'repaid' from `loan.repaid` — the contract's own flag, read back through
+    // the card — and the badge at :1067 renders it capitalised. Nothing but a confirmed
+    // repayment can produce that word.
     await expect(
-      repay,
-      'the repay was submitted but the loan is still open — the repayment did not confirm.',
-    ).toHaveCount(0, { timeout: 60_000 });
+      page.getByText('Repaid', { exact: true }),
+      'the repay was submitted but the loan never read back as repaid — the repayment did not confirm on chain.',
+    ).toBeVisible({ timeout: 60_000 });
+
+    // Belt and braces, and this one is safe to scope by role because it matches ALL
+    // THREE labels the button can carry: the whole block is gated on
+    // `status === 'active' || status === 'overdue'` (:1128), so it can only unmount
+    // once the status has actually left those states. A pending repay still matches
+    // 'Confirm in Wallet...' and therefore still fails this assertion.
+    await expect(
+      page.getByRole('button', { name: /^(Repay Loan|Confirm in Wallet\.\.\.|Repaying\.\.\.)$/ }),
+      'the loan reads repaid but its action block is still mounted — the card and the chain disagree.',
+    ).toHaveCount(0, { timeout: 30_000 });
   });
 });

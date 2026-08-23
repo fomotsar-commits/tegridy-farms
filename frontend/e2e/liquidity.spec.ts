@@ -65,11 +65,14 @@ test.describe('Liquidity surface', () => {
     // ⚠ THE SUBMIT CTA CANNOT BE FOUND BY NAME ON THIS SURFACE, and that is what broke
     // this test — not the fork. LiquidityTab gives the mode toggles the SAME accessible
     // names as the submit buttons they switch to ("Grow the Crop" / "Pull Crop Out",
-    // LiquidityTab.tsx:250 and :255 vs :453 and :543). The toggles, the %-chips and the
-    // slippage chips all carry `aria-pressed`; the submit is the one button in the
-    // cascade that does not. That is the honest discriminator, so use it — and take the
-    // last one, since the cascade renders at the end of the panel.
-    const cta = panel.locator('button:not([aria-pressed])').last();
+    // LiquidityTab.tsx:250 and :255 vs :453 and :543).
+    //
+    // This used to be `panel.locator('button:not([aria-pressed])').last()`, which
+    // resolved correctly but POSITIONALLY: appending any button to the panel would have
+    // silently retargeted the submit and this spec would have gone on passing against
+    // the wrong control. All five cascade actions now carry `data-testid`, so the
+    // locator names what it means. Exactly one is mounted at a time.
+    const cta = panel.getByTestId('liquidity-submit');
 
     // ── ADD ──────────────────────────────────────────────────────────────────────
     // WAIT FOR THE POOL READ BEFORE TYPING, and this is load-bearing. Token B is
