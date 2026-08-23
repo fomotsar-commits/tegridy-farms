@@ -1,9 +1,15 @@
 # The remaining work — everything left, and exactly how to do it
 
-**Written 2026-08-21. Revised 2026-08-22.** This is the single canonical to-do list. Everything that
-could be built without you has been built, tested, and pushed. What follows needs a key, a
-credential, a payment, a signature, or a decision — plus a short tail of code work that is blocked
-on one of those.
+> ### ▶ [**Jump to START HERE**](#-start-here--everything-left-in-the-order-it-should-happen)
+>
+> The dependency spine, the operator critical path in unblocking order, and the four things an agent
+> can finish alone. Everything below it is the detail behind those. **If you read one section, read
+> that one.**
+
+**Written 2026-08-21. Revised twice on 2026-08-22.** This is the single canonical to-do list.
+Everything that could be built without you has been built, tested, and pushed. What follows needs a
+key, a credential, a payment, a signature, or a decision — plus a short tail of code work that is
+blocked on one of those.
 
 **What changed in the 2026-08-22 revision:** an active address-poisoning warning (read it before you
 paste any Solana address); §0.4, the 8.47 SOL released by the program closes and still unreconciled;
