@@ -544,8 +544,14 @@ fall to measurement today.
 **production** build, and `registerAppServiceWorker` enables itself on `import.meta.env.PROD`
 (`src/lib/pwa/serviceWorker.ts:125`). So `public/sw.js` takes control of the page mid-test, and once
 it does **`page.route()` stops intercepting** — the worker answers the fetch before Playwright sees
-it. `heat-gate.spec.ts`'s `/api/aggregator?resource=heat` stub was a no-op, the door's read 404'd,
-and LaunchGate fell to its **fail-closed STALE** state.
+it. `heat-gate.spec.ts`'s `/api/aggregator?resource=heat` stub was a no-op, and LaunchGate fell to
+its **fail-closed STALE** state.
+
+⚠️ **Correction, because the wrong version of this sent two investigations after a 404 that does not
+exist:** an unrouted `/api` call does **not** 404. `vite preview` answers unknown paths with the SPA
+fallback, so it returns **`200 text/html`** — `res.ok` passes, then `res.json()` throws on the HTML
+and `heatClient.ts` raises `HeatUnavailableError('The instrument returned something unreadable.')`.
+Same destination, different road.
 
 > That means `element(s) not found` for `WARM` and `41.20°` was **the honesty gate working
 > correctly** — the app refusing to render numbers it did not have, against a fixture that was never
@@ -555,7 +561,15 @@ and LaunchGate fell to its **fail-closed STALE** state.
 Fixed with `serviceWorkers: 'block'` in `playwright.config.ts`. Not a loosening — it is what makes
 the stub real, and the worker keeps its own unit coverage in `src/lib/pwa/serviceWorker.test.ts`.
 
-**2. The `locator.click` timeout is an app defect, and a WCAG 2.4.11 violation.** Two bars overlay
+**2. A layout race, measured.** `openLaunch` waits for the verdict word, but the COLD branch then
+mounts `<HeatCard variant="embedded">`, which reads the island itself and **grows when it answers** —
+so the audit toggle beneath it is still moving when the test clicks. Sampled at 250 ms on a 412×763
+Pixel 5, the toggle travels **316 px** after the verdict renders. Both audit tests now wait on the
+card's own content (`/Where the 62\.40° comes from/`) before touching the control. One of them was
+only surviving by accident, because its `toHaveAttribute` happens to poll.
+⚠️ The jank is real and still ships — a genuine CLS on the COLD door, worth its own item.
+
+**3. The `locator.click` timeout is an app defect, and a WCAG 2.4.11 violation.** Two bars overlay
 the scrollport and neither is in flow: `TopNav` is `fixed top-0 z-50` (56 px, every width) and
 `BottomNav` is `fixed bottom-0 z-50 sm:hidden` (65 px). Nothing reserved room for them, so every
 scroll-into-view the browser performs parks the element **underneath** one of them. Measured at
