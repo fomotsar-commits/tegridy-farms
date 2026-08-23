@@ -430,19 +430,27 @@ export function LiquidityTab() {
               </div>
             )}
 
-            {/* Action cascade */}
+            {/* Action cascade.
+                `data-testid="liquidity-submit"` is on all FIVE actions below (approve A,
+                approve B, add, approve LP, remove) because they share one position and
+                swap in and out by state. e2e/liquidity.spec.ts used to find this button
+                as `button:not([aria-pressed])` + `.last()`, which resolved correctly but
+                POSITIONALLY — appending any button here would have silently retargeted
+                the spec's submit onto something else and it would have gone on passing.
+                Keep the attribute on every branch; a branch without it makes the spec
+                skip that state. */}
             {needsApproveA ? (
-              <button onClick={() => liq.approveTokenA(amountA)} disabled={liq.isPending || liq.isConfirming}
+              <button data-testid="liquidity-submit" onClick={() => liq.approveTokenA(amountA)} disabled={liq.isPending || liq.isConfirming}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl">
                 {liq.isPending ? 'Granting permission…' : `Approve ${tokenA.symbol}`}
               </button>
             ) : needsApproveB ? (
-              <button onClick={() => liq.approveTokenB(amountB)} disabled={liq.isPending || liq.isConfirming}
+              <button data-testid="liquidity-submit" onClick={() => liq.approveTokenB(amountB)} disabled={liq.isPending || liq.isConfirming}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl">
                 {liq.isPending ? 'Granting permission…' : `Approve ${tokenB.symbol}`}
               </button>
             ) : (
-              <button onClick={() => liq.addLiquidity(amountA, amountB, slippageBps)}
+              <button data-testid="liquidity-submit" onClick={() => liq.addLiquidity(amountA, amountB, slippageBps)}
                 disabled={liq.isPending || liq.isConfirming || !amountA || !amountB || parseFloat(amountA) <= 0 || parseFloat(amountB) <= 0 || insufficientA || insufficientB}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                 {liq.isPending ? 'Confirm in wallet…'
@@ -529,12 +537,12 @@ export function LiquidityTab() {
 
             {hasLP && (
               needsApproveLP ? (
-                <button onClick={() => liq.approveLP(lpRemoveAmount)} disabled={liq.isPending || liq.isConfirming || removePct === 0}
+                <button data-testid="liquidity-submit" onClick={() => liq.approveLP(lpRemoveAmount)} disabled={liq.isPending || liq.isConfirming || removePct === 0}
                   className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                   {liq.isPending ? 'Granting permission…' : 'Approve LP'}
                 </button>
               ) : (
-                <button onClick={() => liq.removeLiquidity(lpRemoveAmount, slippageBps)}
+                <button data-testid="liquidity-submit" onClick={() => liq.removeLiquidity(lpRemoveAmount, slippageBps)}
                   disabled={liq.isPending || liq.isConfirming || removePct === 0}
                   className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                   {liq.isPending ? 'Confirm in wallet…'

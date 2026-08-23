@@ -11,7 +11,7 @@
  * full state-changing flow. See swap.spec.ts for why the anvil gate lives
  * INSIDE the test rather than in describe scope.
  */
-import { test, expect, expectTxReceipt } from './fixtures/wallet';
+import { test, expect, expectTxReceipt, advancePastApproval } from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -56,8 +56,18 @@ test.describe('Stake surface', () => {
 
   test('stake → claim → unstake (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
+    // Two on-chain transactions on a live fork (approve TOWELI, then the stake), with
+    // an allowance refetch between them. Every assertion below keeps its own tight,
+    // named budget — this only stops the TEST budget from cutting the pair short.
+    test.setTimeout(120_000);
 
-    await walletMock.connect();
+    // ISOLATED WALLET. This leg opens a real staking position on the shared fork, and
+    // a position is exactly what breaks the /farm render specs: StakingCard swaps its
+    // amount input for a "Your Position" panel, so a later `fill()` has nothing to type
+    // into. Measured — batching the money specs, this spend turned three previously
+    // green tests red. Spending from an account only this test uses ends that.
+    const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
     await page.goto('/farm');
 
     // 1. Stake
@@ -82,12 +92,32 @@ test.describe('Stake surface', () => {
     // TOWELI balance via anvil_setStorageAt on the discovered balanceOf slot.
     const stakeCard = amount.locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
     const cta = stakeCard.getByRole('button', { name: /^(approve|stake)/i }).last();
-    await expect(
-      cta,
-      'stake CTA never enabled on the card holding the amount input — check the seeded TOWELI balance (fixture: seedErc20Balance) and that this card still owns its own submit button.',
-    ).toBeEnabled({ timeout: 20_000 });
+
+    // ⚠ THIS TEST NEVER STAKED ON A COLD FORK, and the missing fixture was never the
+    // reason — the card shows "Balance: 1000000", so seedErc20Balance works. What it
+    // did was click ONCE. This is a single self-relabelling button (StakingCard.tsx:
+    // 469-477): "Approve TOWELI" while the allowance is short, "Stake & Lock for …"
+    // after. Cold, that one click was the APPROVAL — and FarmPage deliberately shows
+    // no receipt for an approve (the F95 tag at FarmPage.tsx:183, so a stake receipt is
+    // never fabricated). So `expectTxReceipt` waited out its full budget for a stake
+    // that was never sent: the 30.0s in CI run 32598383834. Retry #1 then passed in
+    // 3.6s because attempt 0's allowance survived on the fork and the CTA already read
+    // "Stake & Lock" — the green retry was the accident, not the red first attempt.
+    //
+    // Walking the cascade is what makes the click below the STAKE, every time, cold or
+    // warm. Do not collapse it back to one click.
+    await advancePastApproval(cta, /^Stake & Lock for /, 'stake');
     await cta.click();
     await expectTxReceipt(page, 'stake');
+
+    // AND THE STAKE LANDED. A receipt proves a transaction confirmed, not which one;
+    // the position row is the on-chain state only a real stake can produce.
+    // The card's own heading flips from "Stake TOWELI" to "Your Position" on
+    // `pos.hasPosition` (StakingCard.tsx:103-104), which is read from the chain.
+    await expect(
+      page.getByRole('heading', { name: /^Your Position$/i }),
+      'the stake confirmed but the staking card still offers to open a position — whatever was sent, it was not a stake.',
+    ).toBeVisible({ timeout: 30_000 });
 
     // 2. Claim — needs accrued rewards; on a fresh fork rewards may be 0,
     // so we just assert the button is wired (not necessarily enabled).
