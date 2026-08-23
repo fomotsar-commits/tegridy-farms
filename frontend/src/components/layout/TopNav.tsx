@@ -17,7 +17,7 @@ export const TopNav = React.memo(function TopNav() {
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark } = useTheme();
 
   // Admin link visibility — only show if flag set in localStorage. Keeps the
   // kebab menu empty (and hidden) for ordinary users.
@@ -286,34 +286,10 @@ export const TopNav = React.memo(function TopNav() {
               }}
             </ConnectButton.Custom>
 
-            {/* Theme toggle — desktop only; mobile has it in the BottomNav. */}
-            {/* F63: in light mode the header is Kenny orange — the secondary-toned
-                glyph reads weakly on it, so the toggle flips to near-black there. */}
-            <button
-              onClick={toggleTheme}
-              aria-label={isDark ? 'Toggle light mode' : 'Toggle dark mode'}
-              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-              className={`hidden sm:flex w-8 h-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors ${isDark ? 'text-text-secondary hover:text-primary' : 'text-[#1a0f00] hover:text-black'}`}
-              style={{ background: 'var(--color-purple-10)', border: '1px solid var(--color-purple-15)' }}
-            >
-              {isDark ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="5" />
-                  <line x1="12" y1="1" x2="12" y2="3" />
-                  <line x1="12" y1="21" x2="12" y2="23" />
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-                  <line x1="1" y1="12" x2="3" y2="12" />
-                  <line x1="21" y1="12" x2="23" y2="12" />
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              )}
-            </button>
+            {/* The theme toggle lived here until 2026-08-23. Light mode was removed
+                (operator decision — it carried an app-wide ~1.5:1 contrast defect), so a
+                toggle would have switched between dark and an unstyled page. The app is
+                dark-only; see src/contexts/ThemeContext.tsx. */}
 
             {/* Admin kebab — only rendered if tegridy_admin flag is set */}
             {showAdmin && (
