@@ -910,22 +910,36 @@ not a revert, a partial payment with an IOU. Decide **top-up or rate cut** well 
 deployed, NOT switched on.** `BATTLE_PLAN` uses the stricter pair (`✅ shipped` vs `🟡 in the tree`).
 A box ticked on a half-done item is a lie the next session inherits.
 
-## What did NOT get finished, stated plainly
+## The `[code]` backlog — audited, and there is a queue
 
-An audit of all 44 unticked `[code]` items against the tree was launched and **every agent in it was
-killed by a session limit before reporting** — zero results. So the `[code]` half of `YEAR_PLAN` has
-**not** been reconciled against the tree since 2026-08-19, and several lines are known to be stale:
+**✅ The audit ran.** Six agents plus a completeness critic checked all 44 unticked `[code]` lines
+against source files, tests and git history, treating the plan as a claim rather than as evidence.
+Full results, one section per item with a written how-to:
+[**`CODE_ITEMS_AUDIT_2026_08_22.md`**](CODE_ITEMS_AUDIT_2026_08_22.md).
 
-- **Line 65** ("Close PR #278") — **done 2026-08-22**. Tick it.
-- **Line 71** ("companion workflow for path-filtered checks") — **the prescription is now wrong.**
-  The four companions were deleted and replaced by a `scope` job; re-writing a companion would
-  reintroduce the defect. Only the `[op]` arming half survives. Rewrite the line.
-- **Line 75** (honesty-debt sweep) — the Solana half is done across 8 files (`514942c5`). The rest
-  of the line (addresses.json, README pool figures, PWA manifest, "Last reviewed" dates) is
-  **unverified** — nobody checked it.
+| | |
+|---|---|
+| Audited | **44** items |
+| Status | 7 DONE · 27 PARTIAL · 10 NOT_STARTED |
+| Buildable **today** | **25** (no keys, no deploy, no third party, no live DB) |
+| Blocked on you | 13 |
+| Blocked on a third party | 6 |
 
-▶ **Re-run the audit when limits reset.** It is saved and its completed agents replay from cache:
-`Workflow({scriptPath: '…/workflows/scripts/year-plan-code-audit-wf_f5bcdad2-7b2.js', resumeFromRunId: 'wf_f5bcdad2-7b2'})`
+**Seven were already done and are now ticked** with the commit that proves each — including three
+nobody had recorded: the arb-linkage monitor is on a real 15-minute cron and **firing** (six
+consecutive successful scheduled runs verified), the EIP-5792 pair and `gateAudit` surface are
+**mounted**, and one-click launch-buy shipped in `436c5aad` with the ratchet exemption gone.
 
-**Do not tick anything in `YEAR_PLAN` on the strength of this section.** It reports what one session
-observed, and the reconciliation it was supposed to rest on did not run.
+**Eighteen more are buildable right now**, ~2 h to ~20 h each, ordered cheapest-first in that
+document. The top of the queue: guided first-run onboarding (2 h) · the rest of the honesty-debt
+sweep (2.5 h) · extending the ghost-code guard to components (3 h) · the indexer gaps (3 h) · the
+keyless scanner API (3 h).
+
+▶ **Point an agent at that document and the queue, not at this file.** Every item there names the
+exact files, the approach, the trap, and the verification command.
+
+⚠️ **Three plan lines are stale in a way ticking cannot fix**, and the audit says so per item:
+line 40 (`castVote → proxyWrite`) is **merged but not deployed**, and the deploy must precede the
+015 §1 DROPs or writes fail silently — which is the exact failure that commit exists to prevent.
+Line 39 is mislabeled `[code]`: it needs a live database read. Line 71's "companion workflow"
+prescription would **reintroduce** the defect fixed in `cdd58b06`.
