@@ -32,6 +32,7 @@ import {
   POL_ACCUMULATOR_ADDRESS,
   TEGRIDY_STAKING_ADDRESS,
   TREASURY_ADDRESS,
+  CURVE_LAUNCHER_ADDRESS,
   CHAIN_ID,
   isDeployed,
 } from '../constants';
@@ -77,6 +78,7 @@ const MAINNET: ChainConfig = {
     swapFeeRouterAdmin: SWAP_FEE_ROUTER_ADMIN_ADDRESS,
     feeSink: REVENUE_DISTRIBUTOR_ADDRESS,
     treasury: TREASURY_ADDRESS,
+    curveLauncher: orNull(CURVE_LAUNCHER_ADDRESS),
     toweli: orNull(TOWELI_ADDRESS),
     staking: orNull(TEGRIDY_STAKING_ADDRESS),
     referralSplitter: orNull(REFERRAL_SPLITTER_ADDRESS),
@@ -119,6 +121,7 @@ const BASE: ChainConfig = {
     swapFeeRouterAdmin: ZERO,
     feeSink: ZERO,
     treasury: ZERO,
+    curveLauncher: null, // until DeployCurveLauncher lands on Base (M.16)
     toweli: null, // never — fixed supply, one chain
     staking: null,
     referralSplitter: null,
@@ -162,6 +165,7 @@ const ROBINHOOD: ChainConfig = {
     swapFeeRouterAdmin: ZERO,
     feeSink: ZERO,
     treasury: ZERO,
+    curveLauncher: null, // until DeployCurveLauncher lands on Robinhood (M.16)
     toweli: null,
     staking: null,
     referralSplitter: null,
