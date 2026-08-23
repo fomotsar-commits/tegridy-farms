@@ -706,33 +706,54 @@ its FP rationale ("verified across RevenueDistributor / ReferralSplitter / POLAc
 TegridyStaking / TegridyRestaking / TegridyTWAP, 2026-05-31") covers almost none of the files that
 actually fire. Rewrite or delete it; do not inherit its conclusions.
 
-🔶 **A first triage pass exists — written up in [`SLITHER_TRIAGE_2026_08_22.md`](SLITHER_TRIAGE_2026_08_22.md), one section per finding — and you must NOT act on it as-is.** Five agents triaged all 48
-against the Solidity on 2026-08-22 and returned **54 FALSE_POSITIVE, 2 REAL_BUT_ACCEPTED, 0
-REAL_BUG**. The reasoning is detailed and cites line numbers — e.g. the fee-router HIGHs are argued
-down on three checked facts: every state-mutating entrypoint carries `nonReentrant` under **one
-shared OZ v5.5.0 slot** (so cross-function re-entry is impossible, not just same-function); the
-caller-supplied `target` must be on a 48 h-timelocked allowlist that excludes WETH / distributor /
-treasury / POL; and slither names `amountOut` as "stale" when it is read *after* the call, with
-`outBefore` as a deliberate pre-call baseline — **the detector flagged the defence as the bug.**
+🔴 **BOTH PASSES ARE DONE, AND THE ANSWER IS: DO NOT SUPPRESS.** Full write-up with every verdict
+and both passes verbatim: [`SLITHER_TRIAGE_2026_08_22.md`](SLITHER_TRIAGE_2026_08_22.md).
 
-**But the adversarial refutation pass never ran** — all three refute agents plus the config auditor
-were killed by a session limit. **A triage that clears 54 of 56 with zero real bugs and no
-independent check is exactly the shape this repo keeps shipping**, and `FALSE_POSITIVE` is the
-verdict that makes work disappear. The verdict count also exceeds the finding count (56 vs 48)
-because the groups overlapped, which is a second reason it is not final.
+Five agents triaged all 48 against the Solidity and returned a clean sweep — **54 FALSE_POSITIVE,
+2 REAL_BUT_ACCEPTED, 0 REAL_BUG** — with confident, heavily line-cited reasoning. Three more agents
+were then told to **refute** every `FALSE_POSITIVE`, because that is the verdict that makes work
+disappear. **They rejected 12 of them**, including *all three* fee-router HIGH reentrancy findings
+the first pass had argued down most forcefully.
 
-▶ **NEXT STEP, and it is one command:** re-run the refutation phase. The workflow is saved and its
-completed agents replay from cache, so only the failed ones cost anything:
-`Workflow({scriptPath: '…/workflows/scripts/slither-48-triage-wf_8b438261-0c5.js', resumeFromRunId: 'wf_8b438261-0c5'})`
-▶ **Then, and only then**, apply per-line `// slither-disable-next-line <detector>` with a reason at
-each site — the convention the codebase already uses (`TegridyFeeExecutorRouter.sol:341`). The two
-REAL_BUT_ACCEPTED findings (`TegridyHarvestVault.sol:364` and `:386`, raw donatable `balanceOf`
-reads in a strict equality) get a reason comment too, and a human eye before deploy.
-▶ ⛔ **Never** add `reentrancy-balance` or `incorrect-equality` to `detectors_to_exclude`. A global
-mute would silence the harvest-vault HIGHs along with the router ones — different file, different
-argument. Per-line, per-reason, or not at all.
-▶ ⛔ **Do NOT lower `fail-on` or add `continue-on-error`.** The workflow's own comment argues this
-and is right: a gate lowered until it stops objecting still reports, and now reports nothing.
+**That gap is the finding.** Careful agents, reading real code and citing real line numbers, were
+still wrong about roughly a fifth of what they cleared. Had the first pass been actioned — and it
+was one command away from being actioned — 18 inline suppressions would have landed and taken
+`uninitialized-local`, `incorrect-equality` and `unused-return` out of the `fail-on: medium` gate
+across **nine contracts**. All three are on `detectors_to_include`, the list the config itself
+labels *"Fund-loss detector class… run loud."*
+
+**Eight real defects were found underneath the dismissals.** None is what the detector claimed; each
+surfaced while checking whether the detector's claim was false. The three worth naming here:
+
+- **`RestakingMonitorView`** — `_effectivePower` silently degrades to zero **three ways**, one of
+  which is *the default post-deploy state* (`restakingContract` unset). So `isSynced` returns **true
+  for every un-registered restaker** — the house's cardinal sin, sitting in a view contract, and
+  exactly what its own natspec says it exists to prevent.
+- **`NftfiPooledLendingVault.repay`** is **not** revert-on-failure: it clamps and under-applies
+  silently at `:386`, and `NftfiBnpl` has no rescue path. A suppression would have made the gate
+  blind to it.
+- **`TegridyHarvestVault:370/:386`** — a **one-wei donation** floors `swapAmount` to zero and grieves
+  `harvest` into `NothingToCompound`. Anyone can do it, for one wei.
+
+**And the tests meant to back the suppressions do not all hold.** The HarvestVault ones rest on
+selector-precise reentrancy tests with a disarmed-hook control; the FeeExecutorRouter ones rest on a
+bare `vm.expectRevert()` **whose revert is swallowed by `_execSwap` at line 343**.
+
+▶ **THE ORDER OF WORK, and it is not "suppress and move on":**
+1. Fix the eight defects, each in its own PR **with a test**. Several are cheap; the
+   `RestakingMonitorView` and `NftfiPooledLendingVault` ones are not, and a `CLAIM_GRACE_PERIOD`
+   contradiction needs a human decision.
+2. **Re-run Slither after the fixes** — the finding set will have moved, and the remaining triage
+   belongs against the new report, not this one.
+3. For whatever genuinely survives, prefer an **assertion or an initializer** over a comment.
+   Reserve `// slither-disable-next-line` (with a reason, at the site) for invariants the code
+   truly cannot express.
+4. ⛔ **Never** add `reentrancy-balance` or `incorrect-equality` to `detectors_to_exclude`, and
+   **never** lower `fail-on` or add `continue-on-error`.
+
+⚠️ Even among the 32 **upheld** verdicts the refutation found reasoning errors — id 38's "no caller
+can zero another account's power" is false, id 7's divergence figure is 3× high, id 40 misses a
+third writer. Do not lean on an upheld proof without re-reading it.
 
 *Standing context that lowers the stakes and should not lower the care:* **none of these contracts
 is deployed.** Nothing here is live risk today; the value is catching a real bug at the cheapest
