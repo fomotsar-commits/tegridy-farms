@@ -215,6 +215,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   { path: '/solana-launch', owner: 'pages/SolanaLaunchPage.tsx', gate: null, knownViolations: [] },
   { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx', gate: null, knownViolations: [] },
+  { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx', gate: null, knownViolations: [] },
   { path: '/launch', owner: 'pages/LaunchPage.tsx', gate: null, knownViolations: ['form-field-label'] },
   {
     path: '/launch/:token',

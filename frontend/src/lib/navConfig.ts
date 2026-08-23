@@ -9,6 +9,7 @@ import {
   VOTE_INCENTIVES_ADDRESS,
   GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
+  CURVE_LAUNCHER_ADDRESS,
 } from './constants';
 import { isSolanaConfigured } from './solana';
 import { isIndexerConfigured } from './indexer/client';
@@ -164,6 +165,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // there is nothing to flip — a deploy is what changes it, and the page
       // picks that up on its own.
       { to: '/curve-launch', label: 'Tegridy Curve', soon: true },
+      // Our OWN EVM curve (TegridyCurveLauncher) — zero-toll, graduate-to-us, no
+      // Airlock/petition. `soon` clears itself the moment CURVE_LAUNCHER_ADDRESS
+      // is filled from the deploy (M.16); no flag, same live-read discipline as
+      // the entries above.
+      { to: '/eth-curve', label: 'Tegridy Curve (ETH)', soon: !isDeployed(CURVE_LAUNCHER_ADDRESS) },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
       { to: '/launch-simulator', label: 'Launch Simulator' },
       // Referrals sits in Engage because it is a recruiting tool, not a stat and not a
