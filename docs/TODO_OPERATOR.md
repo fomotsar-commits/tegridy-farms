@@ -235,71 +235,53 @@ the answer — it is unambiguous:
 | `503 no_secret` | The variable never reached the deployment. Redeploy. |
 | `502` | Their socket is down. Says nothing about your key. Retry later. |
 
-## 1.3 Mint DBC config v2 — the cheapest revenue-relevant act available
+## 1.3 ~~Mint DBC config v2~~ → **RETIRED. Zero Meteora.**
 
-**Both code gates shipped 2026-08-18 (`21835d1d`); nothing blocks you but the numbers.**
+**Operator decision 2026-08-23: "no, I want 0 Meteora — we only want launchers that
+graduate to US; any other ones should be retired."**
 
-Your Solana rail is armed on mainnet and has taken **zero launches**, because config v1 opens at a
-**99% fee**. A DBC config is **immutable**, so this cannot be corrected; it needs a v2.
+Everything this section used to say is void. Do **not** mint a DBC config v2, do not pick
+curve numbers for it, and do not publish `VITE_SOLANA_DBC_CONFIG`. The six measured
+constraints that lived here applied to a rail being removed; they are preserved in git
+history if the decision is ever revisited.
 
-```bash
-node frontend/scripts/solana-dbc-operator.mjs create-config --opening-fee-bps <n> --resting-fee-bps <n> --decay-seconds <n> --creator-fee-pct 60
-```
+The Solana rail going forward is **our own** — `tegridy-launch` graduating into our
+cp-swap fork — and it is being **redeployed at fresh program ids**. That has its own
+document:
 
-**Print it without `--send` first**, read the resolved fee schedule it prints, then sign.
+▶ **[`SOLANA_RESTART_PLAN_2026_08_23.md`](SOLANA_RESTART_PLAN_2026_08_23.md)** — the
+ordered ceremony, the curve recommendation with its arithmetic, and the Meteora delete list.
 
-⛔ **Never publish `VITE_SOLANA_DBC_CONFIG` before v2 exists** — doing so ships public launches into
-the 99% fee. It is **not** currently set in Vercel production (only `VITE_SOLANA_FEE_ACCOUNT` is),
-which is why the rail is dark even though the submit path is built and deployed.
+### ✅ The curve numbers are settled — a flat 100 bps, 50/50 split
 
-### ⚠️ Before you pick numbers — six things established 2026-08-22
+You asked me to study the competition and recommend. The answer is **no decay at all**:
 
-The decay maths was transcribed from the vendored SDK (`@meteora-ag/dynamic-bonding-curve-sdk`
-v1.5.11) and proven **bit-identical to the real SDK across 1,062 configs**, then re-derived
-independently by a second pass. These are measurements, not opinions.
+| Arrival | The rejected decay design | **Recommended flat** |
+|---|---|---|
+| 10 s | 19.03% | **1.00%** |
+| 60 s | **14.82%** | **1.00%** |
+| 5 min | 4.47% | **1.00%** |
+| 1 hr | 1.00% | **1.00%** |
 
-1. ⛔ **Always pass `--creator-fee-pct` explicitly.** It defaults to **60**, and a silent default is
-   exactly what produced v1's 99% fee. `creatorTradingFeePercentage` (byte 245) is the creator's
-   share **of the non-Meteora 80%**, *not* of the trade — so 60 there is ~48% of the trade. A first
-   draft of this plan proposed writing `48` into byte 245 believing it was a trade percentage; that
-   would have permanently cut the creator's take to ~38% of the trade. **60 is correct.**
-2. ⛔ **Mint EXPONENTIAL (`baseFeeMode = 1`).** `liveConfig.ts`'s linear-mode formula is wrong by a
-   factor of 1e5 (it divides `reductionFactor` by 1e4; the program divides by 1e9). It is currently
-   **masked** — a range check rejects linear configs, so the Fact Sheet fails *closed* rather than
-   lying. Do not "fix" that range check without fixing the formula: doing so converts a visible
-   failure into a **silent false fee disclosure on a public page**.
-3. **`--decay-seconds` must be a multiple of 120.** The CLI hardcodes `NUMBER_OF_PERIOD = 120` with
-   no `--periods` flag, and `dbc.ts:toBaseFeeParams` requires `totalDuration % 120 === 0`. So 600 ✓,
-   1200 ✓, 1800 ✓, but **900 ✗ and 300 ✗ throw**. It fails loud, which is correct.
-4. **v1 is worse than "untradeable ~4 h".** Its real curve (`cliff=990000000, periodFrequency=180,
-   reductionFactor=375, numberOfPeriod=120, exponential`) crosses 50% at 54 min, 20% at 2.1 h,
-   **10% at 3.0 h**, 5% at 4.0 h — and **never reaches 1%**; the floor is 100.86 bps, not the 100 it
-   discloses. Flooring always overshoots resting, never undershoots (safe direction).
-5. **The public disclosure breaks under 30 minutes.** `SolanaLaunchPage.tsx:206` renders the window
-   as `over {(cfg.totalDurationSeconds / 3600).toFixed(0)}h`, which prints **"0h"** for any window
-   shorter than half an hour. If v2's window is short, that one-line copy fix ships *with* it.
-6. **`initialMarketCap` / `migrationMarketCap` are also immutable** and are **not** in
-   `CONFIG_OFFSETS`, so `liveConfig.ts` can never read them back to check. Set them deliberately —
-   they cannot be verified after the fact the way the fee curve can.
+`trade_fee_bps = 100`, `creator_fee_share_bps = 5000`. **Creator nets 50 bps, protocol
+nets 50 bps.** No code changes — both fields already exist and are snapshotted per launch.
 
-**Verify before you point production at it.** `scripts/verify-dbc-config.mjs` reads any config
-pubkey back, guards the Anchor discriminator before touching an offset, prints the fee-vs-time
-table, asserts the curve matches declared intent, and **fails closed** if `feeClaimer` is a 1-of-1
-or a non-`Multisig` account — the mistake that strands 100% of partner fees irreversibly.
+**Two source facts killed the decay design before any market argument.** `curve.rs:37` sets
+`MAX_FEE_BPS = 1_000`, so a 2000 bps opening fee would require **raising a deliberate safety
+ceiling in a program holding other people's SOL**. And there is **no time input on the fee
+path at all** — zero matches for `Clock::get` / `unix_timestamp` across the program — so any
+decay is net-new hot-path money code *plus* an account-layout change, on the exact rail
+where a layout change just caused a full client/program desync.
 
-### 🔴 The one open decision: the curve numbers themselves
+The market agrees: **pump.fun charges a flat 1.25%** with no decay (tiering applies only
+after graduation), **LetsBonk a flat 1%**, **flaunch** uses a per-wallet cap instead, and
+**Meteora's own newer tool prices by trade size, not time**. **Clanker v4 is the only major
+venue still shipping decay, capped at 120 seconds — the rejected proposal used 600.**
 
-The maths is settled and proven; the **numbers are not**, and you have **one cheap attempt**.
-A first proposal (2000 → 100 bps over 600 s) was **rejected in review**: at `periodFrequency = 5 s`
-an honest buyer still pays **14.83% at t = 60 s** — a 5× improvement on v1 that is still not
-tradeable.
-
-The open question is narrow: pick a curve against an explicit **"what does a normal buyer pay one
-minute in"** bar, while a sniper at t = 0 still faces a real cost. One candidate needs **no code
-change at all** — v1's own `cliff` and `reductionFactor` with `periodFrequency` 180 → 1, i.e. the
-same shape compressed from 6 hours into 2 minutes.
-
-⛔ **Do not mint until this section names a verified set.**
+At 100 bps our buyer pays **less than pump.fun's 1.25%**, while our creator takes 50 bps
+against their 30. ⚠️ Do **not** hand-pick the graduation target: it is pinned by the virtual
+reserves through the ±5% continuity band, and `continuity_target()` at `curve.rs:414`
+already solves for it.
 
 ---
 
@@ -1010,7 +992,7 @@ commands, what you should see, and what a mismatch means.
 |---|---|---|---|---|
 | 1 | **Vercel env session + redeploy** | ~5 min | The CSP fix currently **browser-blocking Pro Pass creation**, the write-proxy repoint, the analytics endpoint | §0.2 |
 | 2 | **Login change-set** | ~2 min of SQL | Profiles, DMs, watchlists, votes, push, alerts, referral claims, real analytics — the entire social tier | §0.1 |
-| 3 | **Mint DBC config v2** | one session | The Solana rail — it cannot take a public launch until this exists | §1.3 |
+| 3 | **Redeploy the Solana own venue** | one ceremony | The only Solana rail — Meteora is retired | [restart plan](SOLANA_RESTART_PLAN_2026_08_23.md) |
 | 4 | **Host the indexer** | $5–20/mo | Leaderboard, History, per-pool volume/TVL, treasury feed, timelock queue — client already merged (`088ed89e`) | §1.1 |
 | 5 | **`MEMETICS_BIRTH_SECRET`** | one paste | Births signed, tokens enrolled from birth. Prod answers `503 no_secret` today | §1.2 |
 | 6 | **Safe re-home** | multi-session | Every contract deploy, and ~2,500 lines of finished community UI behind them | §0.3 / Tier 2.2 |
@@ -1027,12 +1009,15 @@ prune_revoked_jwts → 013 + VITE_ANALYTICS_ENDPOINT → redeploy`.
 ⛔ **Never run 008 after 014** — its blanket GRANT undoes 014. ⛔ **Never run 004 as a unit.**
 Expect the permissive-policy count to drop **21 → 13**.
 
-**On 3 — you get one cheap attempt.** A DBC config is **immutable**. The maths is proven
-bit-identical to the vendored SDK across 1,062 configs, but **the curve numbers are still an open
-decision** — the first proposal was rejected in review because it still charges **14.83 % at
-t = 60 s**. §1.3 carries six measured constraints; one of them caught a draft that would have
-permanently cut the creator's take to ~38 % of the trade. **Read all six before you pick numbers,
-and do not sign until §1.3 names a verified set.**
+**On 3 — the curve question is closed and the answer is a flat 1.00%.** No decay: the market
+abandoned it (pump.fun flat 1.25%, LetsBonk flat 1%), and our own program cannot express it anyway
+— there is no time input on the fee path, and a 2000 bps opening fee would need `MAX_FEE_BPS` raised
+in a program holding other people's SOL. An honest buyer pays **1.00% at sixty seconds instead of
+14.82%**. ✅ The three CODE blockers are closed (`b90d339f` merged the segmented removal, `f14701a1`
+cleared the CI guard, the self-referential spent-id list and the stale runbook step).
+⚠️ The step that has **never once run** is `create_amm_config` → `update_global`. Its absence is why
+`migrate_to_amm` failed `AmmNotConfigured` for the whole life of the old program, so no launch could
+ever graduate. **Two signatures, not one.**
 
 **On 6 — ⏸️ the Safe topology decision itself stays deferred by your instruction** and nothing in
 this document reopens it (§0.3). Two things sit explicitly *outside* that deferral and are still
