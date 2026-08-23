@@ -459,7 +459,8 @@ have run at all. What is left on trunk:
 |---|---|---|
 | `advisories — frontend` / `— indexer` | ✅ **FIXED** (`5565506b`) | Was never an advisory problem. GitHub runs every `run:` block under `bash -e`, and `set -uo pipefail` does not clear errexit, so the unguarded `npm audit --json` ended the step the instant it found anything and **the gate never ran once** since it was armed on 08-18. Running the gate against the real reports: 0 blocking in both projects, every finding already baselined, zero stale suppressions. Nothing was allowlisted to force green. |
 | `Static analysis` (Slither) | 🔴 **STILL RED — and it was masking** | See item 8. |
-| `E2E Tests` / `E2E Tests (Anvil fork)` | 🔴 **still red** | Unchanged. The `reducedMotion` finding below is still the first thing to check. |
+| `E2E Tests (Anvil fork — money paths)` | ✅ **FIXED** (`b57c4d98`) | All five `(Anvil only)` legs green in one batched fork run at `--workers=1`. It was four separate bugs, not one missing fixture — see item 1a. |
+| `E2E Tests` (chromium heat door) | 🔴 **still red** | Untouched by the above; see item 1b. |
 | `Lint, Type Check & Test` | ✅ green | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
 
 The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
@@ -468,69 +469,71 @@ gates that could not fail — a `tsc --noEmit` over zero files, a chain read beh
 passed, and a CI check satisfied by a two-second echo — so that is a demonstrated failure mode here,
 not a worry.
 
-## 1a. The Anvil money-path job — DIAGNOSED 2026-08-22. The old diagnosis was wrong.
+## 1a. The Anvil money-path job — FIXED 2026-08-22 (`b57c4d98`). Both prior diagnoses were half right.
 
-**Everything this entry used to say has been disproven by measurement. Do not act on it.**
-It said *"order-dependent, not unseeded — seeding landed and did not fix it; bisect the pair that
-collides, do not add more seeding."* The truth is close to the opposite: **more seeding is exactly
-what is needed**, and there is no collision.
+**All five `(Anvil only)` legs now pass in one batched run on one shared fork at `--workers=1`**
+(the CI shape): 19/20, the single red being an unrelated pre-existing flake noted at the end.
 
-**Anvil is healthy. This is NOT an operator item and the RPC needs nothing.** Positive proof, not
-absence of errors:
-- `[e2e] fork ready at block 25813292` prints only after the harness POSTs `eth_blockNumber` and
-  rejects any head below 1,000,000 (`run-e2e-with-anvil.mjs:162-181`) — the guard exists precisely
-  because "anvil listens before the fork handshake completes".
-- **`swap.spec.ts:72 execute ETH → TOWELI swap and confirm receipt (Anvil only)` PASSES in 1.6s.**
-  That is a full write path — `anvil_setBalance`, impersonate, `eth_sendTransaction`, receipt, and a
-  matched `/tx/0x[0-9a-f]{64}` link. A dead or rate-limited fork cannot produce it.
-- `ANVIL_FORK_URL` is `https://ethereum-rpc.publicnode.com`, hardcoded at `ci.yml:400`. **No secret
-  is involved**, and `ANVIL_FORK_BLOCK` is unset, so there is no stale block pin. Both of the usual
-  suspects are ruled out by construction.
+This entry has now been rewritten twice. The first version said *"order-dependent, not unseeded — do
+not add more seeding"*. The second said the opposite — *one* missing protocol fixture behind five
+copies of `{ timeout: 20_000 }`. **Measured against a live fork, neither was right: it was four
+different bugs, and the fixture was the answer for exactly one of them.**
 
-**The ~21-second clustering is not a shared hang.** It is a literal `{ timeout: 20_000 }`
-copy-pasted into the first blocking assertion of each spec (`claim-rewards:64`, `lending:75`,
-`liquidity:79`, `stake:88`). 20s assertion + ~1-2s page load = the observed 20.3 / 21.5 / 22.4s.
+What both versions got right, and what stands: **anvil is healthy, this is not an operator item, the
+RPC needs nothing**, and the `reducedMotion` hypothesis is dead. The ~21s clustering really is the
+literal `{ timeout: 20_000 }` in each spec. Keep all of that.
 
-**The `reducedMotion` hypothesis is also disproven** — it is correctly under `contextOptions` now,
-and independently the fixture pre-seeds `sessionStorage.tf_loaded` to skip the splash
-(`wallet.ts:167-171`). **16 of 20 tests finish in 0.9–2.7s.** A 15-19s prologue cannot fit inside a
-962 ms test.
+### What each leg actually was
 
-**What is actually wrong: the fixture seeds two things, and these four tests need more.**
-`e2e/fixtures/wallet.ts` seeds native ETH (`anvil_setBalance`, :464) and one ERC-20 balance
-(`seedErc20Balance`, :474). Swap needs only those two — and swap is the one money path that passes.
-**The four failing specs say what they need, verbatim, in their own assertion messages:**
-
-| Spec | What its own error says is missing |
+| Spec | The real defect |
 |---|---|
-| `claim-rewards.spec.ts:64` | "no accrued rewards on the fork — pre-fund reward storage in the fixture" |
-| `lending.spec.ts:75` | "no borrowable offer on the fork — the fixture must mint a collateral NFT to the test account and create a lender offer" |
-| `liquidity.spec.ts:79` | "supply CTA never enabled … check the seeded TOWELI balance" — one side is seeded, an add needs both |
-| `stake.spec.ts:90` | got PAST the CTA, clicked, submitted a tx, then died waiting for the receipt. **First cold write to the fork.** Retry #1 hit the warm cache: 3.6 s |
+| `liquidity` | **It never added liquidity.** The CTA regex was `/(supply\|add liquidity\|deposit\|approve)/i`; this app labels its add submit **"Grow the Crop"**. Cold, the only match was "Approve TOWELI" — the spec clicked the *approval*, `expectTxReceipt` was satisfied by the approval's receipt, and the remove side then correctly rendered nothing because the account held no LP. That is the **6.5s attempt 0** nobody could explain. Warm, the CTA reads "Grow the Crop", the regex matches *nothing*, and the 20s guard fires — the **22.4s / 21.9s** retries. One cause, all three durations. |
+| `stake` | **It clicked once in a two-step cascade.** `StakingCard` renders ONE self-relabelling button. Cold, that click was the approve, which shows no receipt *by design* (the F95 tag exists so a stake receipt is never fabricated) — hence 30.0s at `expectTxReceipt`, and hence retry #1 passing in 3.6s on the allowance attempt 0 left behind. The seeded TOWELI was never missing: the card reads `Balance: 1000000`. |
+| `lending` | **Genuinely missing state — plus two more blockers the old entry never saw.** `offerCount()` is 0 on mainnet, so the fixture now plants a collateral NFT and posts a lender offer. But the spec also never expanded the offer card (it is a `div`, not a button), and it demanded a `/tx/0x…` receipt from `NFTLendingSection`, which renders **no explorer link anywhere** — grep it for `getTxUrl`, zero hits. It asserts the loan itself now. |
+| `claim-rewards` | **It waited on a locator no state can satisfy.** `/^claim\s+\d/i` — "claim", space, digit. The only `Claim <n> TOWELI` on `/farm` is the restaking panel’s, gated on `TEGRIDY_RESTAKING_ADDRESS` = `0x0`. LP farming says **"Claim Rewards"**, no digit. *Pre-funding reward storage, which both diagnoses recommended, would not have turned this green.* |
 
-▶ **HOW TO FINISH IT.** Extend `e2e/fixtures/wallet.ts` beside the existing seed calls (~:463-474),
-reusing the self-verifying probe pattern `seedErc20Balance` already establishes — write, read back
-through the contract's own getter, keep the slot only if the getter agrees, throw loudly otherwise:
-1. **claim-rewards** — seed a staked LP position, then `evm_increaseTime` + `evm_mine` so the farm's
-   own `pendingRewards` getter returns non-zero. **Warp, do not write the accumulator directly** —
-   warping exercises the real accrual maths instead of forging its output.
-2. **lending** — cannot be seeded by storage pokes. `anvil_impersonateAccount` an existing NFT holder
-   on the fork, transfer a collateral NFT to `DEFAULT_ACCOUNT`, then impersonate a lender and create
-   the offer **through the protocol's real entrypoint**.
-3. **liquidity** — seed the ETH-paired side too, not just TOWELI.
-4. **stake** — likely already fixed by `50ee7a92` (below). Re-run before touching it. If attempt 1
-   now passes, the cold-cache read was the whole story, and that is a finding, not a fix.
+### The three cross-cutting defects batching exposed
 
-✅ **Landed 2026-08-22 (`50ee7a92`), and it is a prerequisite for all four:** `playwright.config.ts`
-declared no `timeout`, so the default 30_000 exactly equalled `expectTxReceipt`'s own
-`toBeVisible({ timeout: 30_000 })` (`wallet.ts:76`). Two equal budgets race, the test-level one
-wins, and **the assertion could never print its own reason** — every receipt failure has been
-reporting the generic "Test timeout of 30000ms exceeded". Now 60_000. No assertion's budget moved.
-Also corrected `liquidity.spec.ts`, whose comment claimed "the fork precondition is handled now"
-while its own test proved otherwise.
+1. **Fork isolation, by ADDRESS not by snapshot.** Every spending leg now takes its own funded
+   wallet via `walletMock.useIsolatedForkAccount()`. ⛔ **Do not try `evm_snapshot`/`evm_revert`
+   again.** It has now failed twice. On **anvil 1.5.1** against a transacted-on fork, `evm_revert`
+   *wedges the node* — measured twice with the node’s own log ending on the `evm_revert` line: once
+   it stopped listening (`ECONNREFUSED 127.0.0.1:8545` for every later spec) and once it hung past
+   the test timeout. Snapshotting after seeding and unloading the page first changed nothing.
+2. **A permanent clock skew.** `claim-rewards` jumped the fork 7 days to accrue rewards. The routers
+   stamp their deadline from the **browser** clock (`Date.now()/1000 + 1800`,
+   `useAddLiquidity.ts:258`), so every later add, remove and swap reverted `EXPIRED` — one spec
+   silently breaking two others through the clock. It buys its margin with **stake size** now
+   (40,000 TOWELI, under the contract’s `maxStakePerUser` of 50,000) and moves the clock 120s.
+   **Keep any fork time jump well under 1800s.**
+3. **`expectTxReceipt` could be satisfied by the previous leg’s link.** These surfaces render one
+   receipt line and overwrite it, so leg two’s assertion passed on leg one’s transaction. It
+   returns its hash and takes a `notHash` now.
 
-⛔ **DO NOT** fix any of these by loosening the assertion, widening a per-assertion timeout, or
-adding a retry. Each assertion is correct and is telling the truth. The fixture is what is missing.
+### What is still NOT coverable, and needs an operator — not a test change
+
+Both are deploy facts, and `claim-rewards.spec.ts` carries them as an `[op]` block so they cannot be
+lost:
+- **Restaking claims.** `TEGRIDY_RESTAKING_ADDRESS` is `0x000…0` ("DEFERRED to Phase 7",
+  `constants.ts:23`) and the panel is gated off at `FarmPage.tsx:452`. Deploy it and set the
+  constant, and a `Claim <n> TOWELI` leg becomes writable.
+- **LP-farming claims.** Read from chain: `periodFinish()` is `1781493095` (2026-06-15) and the farm
+  is unfunded, so Synthetix accrual clamps at `min(now, periodFinish)` and a staker joining today
+  earns zero forever. Refunding needs `notifyRewardAmount` from the owner Safe. Until then the leg
+  covers the claim path that *is* live and funded — TOWELI staking, `rewardRate()` 0.8243/s against
+  4.51M TOWELI held — driven through real accrual rather than forged storage.
+
+⛔ **DO NOT** fix any of these by loosening an assertion, widening a per-assertion timeout, or adding
+a retry. Two *test* timeouts were raised, on the legs that now drive three and four real
+transactions instead of one; every assertion inside them keeps its own tight, named budget.
+
+⚠️ **One pre-existing red, not from this work and not on this track.**
+`claim-rewards.spec.ts:22 "/farm mounts the reward-bearing sections when connected"` fails **in fork
+mode on a slow-network box** — `LPFarmingSection` returns a skeleton while `isReadLoading`, and the
+default 5s assertion budget can expire before the 11-call batch resolves through the fork. Confirmed
+pre-existing by checking out trunk’s unmodified `frontend/e2e/` and reproducing it there, and it
+passes in mock mode in 2.3s. It passed in CI run 32598383834. **Left alone deliberately** — widening
+that timeout is exactly the move this file forbids.
 
 ## 1b. The chromium heat-door failures — NOT yet diagnosed
 
