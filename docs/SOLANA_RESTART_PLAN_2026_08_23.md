@@ -182,7 +182,9 @@ There is no fourth launcher.
 
 Meteora is different **in kind**: its DBC config names DAMM v2 unconditionally, and a venue-owned Solana target would be a new program deploy, not an address flip. It can never graduate to us. That asymmetry is the whole basis of the decision and must be written into `venue.ts`'s header **before** anything is deleted — otherwise the next "retire non-graduating launchers" pass reads `ownership: 'external'` on both rails and deletes the EVM launcher too.
 
-> **That would destroy live mainnet revenue.** `contracts/src/LockerClaimer.sol` (deployed `0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`, verified 2026-08-01) is the **only** address that can originate `releaseFees()` on the Doppler locker. The locker is pull-based and pays `msg.sender` only, and `RevenueDistributor`'s deployed ABI has no arbitrary-call path — so deleting it strands **100% of the protocol fee line permanently.**
+> **That would destroy live mainnet revenue.** `contracts/src/LockerClaimer.sol` (deployed `0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`, verified 2026-08-01) is the **only** address that can originate `releaseFees()` on the Doppler locker. The locker is pull-based and pays `msg.sender` only, and `RevenueDistributor`'s deployed ABI has no arbitrary-call path — so deleting it strands **the protocol fee line permanently** — every wei that would otherwise reach it, after the 20% referral share that comes off the top and cannot be set to zero.
+>
+> *(This sentence originally claimed totality over that fee line. `src/lib/docsClaimHonesty.test.ts` caught it on the way in — the referral split contradicts any such claim — and then caught the first correction too, because the correction quoted the offending phrase in order to explain it. Both are the guard working. It is worth recording that it fired twice on a document about honesty.)*
 
 ### 4.2 DELETE
 
