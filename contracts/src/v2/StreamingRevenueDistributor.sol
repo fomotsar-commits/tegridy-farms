@@ -218,6 +218,11 @@ contract StreamingRevenueDistributor is
     /// @dev Same 7 days as v1. A lock that has expired stops mirroring in (voting
     ///      power is already 0 for an expired position), but crystallised accrual
     ///      stays claimable for this long before `sync` may recycle it.
+    ///
+    ///      Measured from `lockEnd` while the position still exists, and from `exitedAt`
+    ///      once it does not — see `_claimDeadlineOf`. The second anchor is not a
+    ///      widening of the policy: it is what makes the policy apply AT ALL to the
+    ///      ordinary exit path, where the burnt NFT leaves no `lockEnd` to measure from.
     uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
 
     /// @dev `syncMany` iterates external staking reads (~2 calls each). 100 keeps the
@@ -249,6 +254,17 @@ contract StreamingRevenueDistributor is
     /// @notice Mirrored veTOWELI boosted power per account (delta D2).
     mapping(address => uint256) public effectiveBalanceOf;
     uint256 public totalEffectiveSupply;
+
+    /// @notice The instant this contract last OBSERVED `account`'s mirrored power fall to
+    ///         zero. The durable grace anchor for an account whose position NFT is gone.
+    /// @dev    `lockEnd` is unrecoverable once the NFT burns, so the ordinary exit path
+    ///         (unstake, then claim) reads `lockEnd == 0` and would otherwise get NO
+    ///         grace at all — forfeitable by any permissionless `sync` in the same block
+    ///         it exits. Written by `_updateReward` only, which is the sole place the
+    ///         mirror moves, and read only when the escrow answers "no position".
+    ///         Public because a UI rendering a grace countdown needs it, for the same
+    ///         reason `isSynced` is public: a zero it cannot explain is fabricated data.
+    mapping(address => uint64) public exitedAt;
 
     // ─── Reserve accounting (delta D3) ───────────────────────────────
 
@@ -412,6 +428,14 @@ contract StreamingRevenueDistributor is
             if (oldEff != newEff) {
                 totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
                 effectiveBalanceOf[account] = newEff;
+                // Durable grace anchor. `oldEff != newEff` with `newEff == 0` is exactly
+                // the non-zero -> zero edge, so this fires once per exit and re-arms if
+                // the account ever mirrors back in. Placed here because this is the only
+                // write to the mirror, which makes the anchor and the mirror incapable of
+                // disagreeing, and because `_syncAndMaybeRecycle` runs `_updateReward`
+                // BEFORE its forfeit gate — so the anchor is always written before it is
+                // read, and the 7 days are real rather than retroactively zero.
+                if (newEff == 0) exitedAt[account] = uint64(block.timestamp);
                 emit BalanceSynced(account, oldEff, newEff);
             }
         }
@@ -427,11 +451,27 @@ contract StreamingRevenueDistributor is
     // ═══════════════════════════════════════════════════════════════════
 
     /// @notice Current veTOWELI boosted power for `account`, as this contract will
-    ///         mirror it. Reverting staking reads degrade to 0 rather than bricking
+    ///         mirror it. A REVERTING staking read degrades to 0 rather than bricking
     ///         accrual for everyone else — `votingEscrow` is immutable here, so a
     ///         future staking-side ABI break must not be fatal.
     /// @dev `votingPowerOf` already excludes expired positions, so an expired lock
     ///      mirrors to 0 without any lockEnd arithmetic on this side.
+    ///
+    ///      HONESTY BOUND on the sentence above — measured, not assumed. `try` catches a
+    ///      call that REVERTS. It does NOT catch a call to a CODELESS address: that
+    ///      succeeds with empty returndata and fails in the ABI decode that follows,
+    ///      outside the catch. `test_CodelessEscrowIsLoudAndNeverConfiscates` pins the
+    ///      observed behaviour on this toolchain — `sync` reverts outright. So "must not
+    ///      be fatal" is true for a revert and FALSE for a codeless (or short-returndata)
+    ///      escrow, which bricks sync and claim for everyone.
+    ///
+    ///      That failure is loud rather than silent and confiscates nothing, and it is
+    ///      unreachable while `votingEscrow` is a deployed contract fixed at construction
+    ///      (post-Cancun SELFDESTRUCT cannot clear a deployed contract's code). The one
+    ///      way in is a deploy-time mis-wire, because the constructor checks only for the
+    ///      ZERO address, not for code. A `code.length` check there is the cheap close;
+    ///      deliberately not added in this change, which is scoped to the outage-vs-
+    ///      expiry conflation. Flagged for the operator rather than silently absorbed.
     function _effectivePower(address account) internal view returns (uint256) {
         uint256 power;
         try votingEscrow.votingPowerOf(account) returns (uint256 p) {
@@ -493,10 +533,18 @@ contract StreamingRevenueDistributor is
         if (effectiveBalanceOf[account] != 0) return;
         uint256 owed = rewards[account];
         if (owed == 0) return;
-        if (_isRestaked(account)) return;
 
-        uint256 lockEnd = _lockEndOf(account);
-        if (lockEnd != 0 && block.timestamp < lockEnd + CLAIM_GRACE_PERIOD) return;
+        // AN OUTAGE IS NOT EVIDENCE. Both reads below are three-valued and both resolve
+        // toward the staker, because the asymmetry is total: wrongly deferring a forfeit
+        // costs the pool a delay, wrongly forfeiting destroys a staker's own accrued ETH
+        // permanently and this function is PERMISSIONLESS. Forfeiting on a read we did
+        // not get would let a transient staking outage render as a legitimate expiry.
+        (bool restakingOk, bool restaked) = _isRestaked(account);
+        if (!restakingOk || restaked) return;
+
+        (bool ok, uint256 deadline) = _claimDeadlineOf(account);
+        if (!ok) return;
+        if (block.timestamp < deadline) return;
 
         rewards[account] = 0;
         totalForfeitedToPool += owed;
@@ -610,12 +658,23 @@ contract StreamingRevenueDistributor is
 
         // v1's lock/grace gate, ported: an account with no live position and past its
         // grace window cannot withdraw. `_syncAndMaybeRecycle` is what eventually
-        // recycles such an account's balance back to the pool.
-        bool active = effectiveBalanceOf[msg.sender] > 0 || _isRestaked(msg.sender);
-        if (!active) {
-            uint256 lockEnd = _lockEndOf(msg.sender);
-            bool inGrace = lockEnd > 0 && block.timestamp < lockEnd + CLAIM_GRACE_PERIOD;
-            if (!inGrace) revert NoLockedTokens();
+        // recycles such an account's balance back to the pool, and this gate is its exact
+        // complement by construction — it refuses precisely when that one forfeits, off
+        // the same `_claimDeadlineOf`. An unreadable escrow must therefore fail the SAME
+        // way here as it does there, toward the staker: refusing a claim on evidence we
+        // could not read would leave an account simultaneously unable to withdraw its own
+        // ETH and (before this fix) instantly forfeitable — an outage rendering as a
+        // legitimate negative. Letting `!ok` through is not a surface: it withdraws the
+        // caller's OWN crystallised accrual, `votingEscrow` is immutable, and no staker
+        // can induce the failure.
+        // Structured to mirror `_syncAndMaybeRecycle` gate-for-gate, and to keep the
+        // original short-circuit: a live mirror makes no external call at all.
+        if (effectiveBalanceOf[msg.sender] == 0) {
+            (bool restakingOk, bool restaked) = _isRestaked(msg.sender);
+            if (restakingOk && !restaked) {
+                (bool ok, uint256 deadline) = _claimDeadlineOf(msg.sender);
+                if (ok && block.timestamp >= deadline) revert NoLockedTokens();
+            }
         }
 
         uint256 reward = rewards[msg.sender];
@@ -644,38 +703,88 @@ contract StreamingRevenueDistributor is
         }
     }
 
-    function _isRestaked(address account) internal view returns (bool) {
-        if (address(restakingContract) == address(0)) return false;
+    /// @dev Restaking membership, three-valued. An UNSET restaking contract is a genuine
+    ///      answer — while the zero-address gate is closed nobody is restaked, by
+    ///      construction — but a FAILED read is not, and must never be read as "this
+    ///      account has exited". Restakers reach this helper with `_lockEndOf` already
+    ///      structurally 0 (TegridyStaking custodies their NFT, so `userTokenId` is 0 and
+    ///      `votingPowerOf` force-returns 0 for the restaking address), which makes this
+    ///      the ONLY guard standing between a restaker and a permissionless forfeit.
+    /// @return ok       False iff the restaking read failed. `restaked` is meaningless then.
+    /// @return restaked True iff `account` holds a live restaking position.
+    function _isRestaked(address account) internal view returns (bool ok, bool restaked) {
+        if (address(restakingContract) == address(0)) return (true, false);
         // slither-disable-next-line unused-return
         try restakingContract.restakers(account) returns (
             uint256 tokenId, uint256 positionAmount, uint256, int256, uint256
         ) {
-            return tokenId != 0 && positionAmount > 0;
+            return (true, tokenId != 0 && positionAmount > 0);
         } catch {
-            return false;
+            return (false, false);
         }
     }
 
-    /// @dev Only reached for accounts whose live power is already 0, so the single
+    /// @dev Present-state lock expiry. Returns `(false, 0)` for every read FAILURE, so a
+    ///      caller can distinguish "the escrow says this account has no position" from
+    ///      "the escrow did not answer". Same two-value shape, and the same reason, as
+    ///      `LaunchRugEscrow._readCovenantBps`: collapsing those two into a bare 0 is what
+    ///      let a transient outage read as a legitimate expiry, and the arity change is
+    ///      what makes the distinction impossible for a caller to drop by accident.
+    ///
+    ///      Only reached for accounts whose live power is already 0, so the single
     ///      `userTokenId` pointer is sufficient here — the multi-NFT undercount that
     ///      forced v1's aggregate-first `_getUserLockState` cannot bite, because any
     ///      account with a second live position would have non-zero power and never
     ///      reach this path.
-    function _lockEndOf(address account) internal view returns (uint256) {
+    /// @return ok      False iff a staking read REVERTED. `lockEnd` is meaningless then.
+    ///                 See the honesty bound on `_effectivePower`: a codeless escrow is
+    ///                 not caught here either, but it bricks the whole call rather than
+    ///                 producing a false `ok == true`, so this flag never lies.
+    /// @return lockEnd 0 with `ok == true` is a genuine "no position", NOT an unknown;
+    ///                 >0 is the position's expiry instant.
+    function _lockEndOf(address account) internal view returns (bool ok, uint256 lockEnd) {
         try votingEscrow.userTokenId(account) returns (uint256 tokenId) {
-            if (tokenId == 0) return 0;
+            if (tokenId == 0) return (true, 0);
             // slither-disable-next-line unused-return
             try votingEscrow.positions(tokenId) returns (
-                uint256, uint256, int256, uint256 lockEnd,
+                uint256, uint256, int256, uint256 _lockEnd,
                 uint256, uint256, bool, bool, uint256, uint256, bool
             ) {
-                return lockEnd;
+                return (true, _lockEnd);
             } catch {
-                return 0;
+                return (false, 0);
             }
         } catch {
-            return 0;
+            return (false, 0);
         }
+    }
+
+    /// @dev The instant `account`'s claim window closes. The single place the grace
+    ///      arithmetic lives, so the forfeit gate and the claim gate cannot drift apart.
+    ///
+    ///      Anchor precedence, and why:
+    ///        - `lockEnd != 0` -> the documented `lockEnd + CLAIM_GRACE_PERIOD`. A real
+    ///          expiry always wins; this is v1's semantic and is deliberately not extended.
+    ///        - `lockEnd == 0` from a READABLE escrow is a real answer ("no position"),
+    ///          and it is the ORDINARY exit path, not an edge case: `TegridyStaking`
+    ///          zeroes `userTokenId[from]` on every outbound transfer and its `withdraw`
+    ///          runs `delete positions[tokenId]; _burn(tokenId)`. `lockEnd` is
+    ///          unrecoverable at that point, so grace is measured from `exitedAt` — the
+    ///          instant this contract OBSERVED the account's power fall to zero. Without
+    ///          that anchor a plain unstake-before-claim gets no grace whatsoever.
+    /// @return ok       False iff the escrow was unreadable. `deadline` is meaningless then.
+    /// @return deadline Claim window closes at this instant; 0 means it never opened.
+    function _claimDeadlineOf(address account) internal view returns (bool ok, uint256 deadline) {
+        uint256 lockEnd;
+        (ok, lockEnd) = _lockEndOf(account);
+        if (!ok) return (false, 0);
+
+        uint256 anchor = lockEnd != 0 ? lockEnd : exitedAt[account];
+        // No anchor means the account never mirrored non-zero, and an account that never
+        // mirrored non-zero has no crystallised accrual to protect: `rewards` only grows
+        // through `earned()`, which is identically 0 under a zero mirror.
+        if (anchor == 0) return (true, 0);
+        return (true, anchor + CLAIM_GRACE_PERIOD);
     }
 
     // ═══════════════════════════════════════════════════════════════════

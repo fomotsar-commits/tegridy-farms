@@ -11,24 +11,56 @@ import {StreamingRevenueDistributor} from "../../src/v2/StreamingRevenueDistribu
 contract MockVE {
     mapping(address => uint256) public rawPower;
     mapping(address => uint256) public lockEnds;
-    mapping(address => uint256) public userTokenId;
+    /// @dev PRIVATE, with an explicit getter below. As a `public` mapping the
+    ///      compiler-generated getter is a bare SLOAD that can never revert, which made
+    ///      the OUTER catch arm of `_lockEndOf` unreachable from any test in this file.
+    mapping(address => uint256) private _userTokenId;
     mapping(uint256 => address) public tokenOwner;
     bool public paused;
     bool public reverting;
+    /// @dev Three independent outage toggles, not one. `reverting` keeps its exact
+    ///      original meaning (`votingPowerOf` only) so the pre-existing degradation test
+    ///      stays honest, and the two new ones address SEPARATE `return` sites: a fix
+    ///      that teaches the outer catch to signal "unknown" and forgets the inner one
+    ///      passes a single-flag test and still forfeits stakers.
+    bool public tokenIdReverting;
+    bool public positionsReverting;
     uint256 private _next = 1;
 
     function setPosition(address user, uint256 power, uint256 lockEnd) external {
-        if (userTokenId[user] == 0) {
+        if (_userTokenId[user] == 0) {
             uint256 tid = _next++;
-            userTokenId[user] = tid;
+            _userTokenId[user] = tid;
             tokenOwner[tid] = user;
         }
         rawPower[user] = power;
         lockEnds[user] = lockEnd;
     }
 
+    /// @dev Mirrors the production exit exactly: `TegridyStaking.withdraw` runs
+    ///      `delete positions[tokenId]; _burn(tokenId)`, and `_burn` -> `_update` zeroes
+    ///      `userTokenId[msg.sender]` (re-pointed only if OTHER positions remain).
+    ///      `tokenId == 0` is therefore the steady state of every fully-exited staker —
+    ///      exactly the population `totalForfeitedToPool` exists to reclaim from — and
+    ///      without this the suite cannot reach that state at all.
+    function clearPosition(address user) external {
+        uint256 tid = _userTokenId[user];
+        if (tid != 0) delete tokenOwner[tid];
+        delete _userTokenId[user];
+        delete rawPower[user];
+        delete lockEnds[user];
+    }
+
     function setPaused(bool p) external { paused = p; }
     function setReverting(bool r) external { reverting = r; }
+    function setTokenIdReverting(bool r) external { tokenIdReverting = r; }
+    function setPositionsReverting(bool r) external { positionsReverting = r; }
+
+    /// @dev Same selector the public mapping generated, so `IVotingEscrow` is unchanged.
+    function userTokenId(address user) external view returns (uint256) {
+        if (tokenIdReverting) revert("VE_TOKENID_DOWN");
+        return _userTokenId[user];
+    }
 
     function votingPowerOf(address user) external view returns (uint256) {
         if (reverting) revert("VE_DOWN");
@@ -41,6 +73,7 @@ contract MockVE {
         uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
         uint256 stakeTimestamp, uint256 jbacTokenId, bool jbacDeposited
     ) {
+        if (positionsReverting) revert("VE_POSITIONS_DOWN");
         address u = tokenOwner[tokenId];
         return (rawPower[u], rawPower[u], int256(0), lockEnds[u], 10000, 0, false, false, 0, 0, false);
     }
@@ -49,19 +82,29 @@ contract MockVE {
 contract MockRestaking {
     mapping(address => uint256) public power;
     mapping(address => uint256) public tokenIds;
+    /// @dev A restaker's staking-side `userTokenId` is 0 and `votingPowerOf` force-returns
+    ///      0 (TegridyStaking custodies the NFT), so `_lockEndOf` answers a genuine,
+    ///      readable "no position" for them permanently. `_isRestaked` is therefore the
+    ///      ONLY thing between a restaker and a permissionless forfeit — which makes an
+    ///      outage toggle on this mock load-bearing, not decorative.
+    bool public reverting;
 
     function setRestaker(address user, uint256 tokenId, uint256 p) external {
         tokenIds[user] = tokenId;
         power[user] = p;
     }
 
+    function setReverting(bool r) external { reverting = r; }
+
     function restakers(address user) external view returns (
         uint256 tokenId, uint256 positionAmount, uint256 boostedAmount, int256 bonusDebt, uint256 depositTime
     ) {
+        if (reverting) revert("RESTAKING_DOWN");
         return (tokenIds[user], power[user], power[user], int256(0), 0);
     }
 
     function boostedAmountAt(address user, uint256) external view returns (uint256) {
+        if (reverting) revert("RESTAKING_DOWN");
         return power[user];
     }
 }
@@ -489,8 +532,352 @@ contract StreamingRevenueDistributorTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // ║  UNREADABLE ESCROW — AN OUTAGE IS NOT EVIDENCE                 ║
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // `_lockEndOf` used to return a bare 0 for THREE different conditions: a genuine
+    // "no position", a reverting `positions`, and a reverting `userTokenId`. The two
+    // consumers then read that 0 in OPPOSITE directions and both hurt the staker —
+    // `_syncAndMaybeRecycle` forfeited immediately with no grace, and `getReward`
+    // refused to pay. A transient failure to read the escrow therefore left an account
+    // simultaneously unable to claim its own ETH and instantly forfeitable by any
+    // permissionless `sync` caller.
+    //
+    // Every fixture below leaves the restaking contract UNWIRED and asserts a non-zero
+    // `rewards[alice]` first: `_syncAndMaybeRecycle` has three early returns BEFORE the
+    // gate under test, and any of them would make a "did not forfeit" assertion
+    // trivially true.
+
+    /// @dev Alice with a LIVE far-future lock and real crystallised accrual.
+    function _crystalliseAliceAccrual() internal returns (uint256 owed) {
+        _enableStreaming();
+        _stake(alice, 500e18);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+
+        vm.warp(block.timestamp + DURATION / 2);
+        dist.sync(alice);
+        owed = dist.rewards(alice);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised to forfeit");
+    }
+
+    /// @dev Alice expired, synced, and now PAST `lockEnd + CLAIM_GRACE_PERIOD` — i.e.
+    ///      legitimately forfeitable whenever the escrow is readable. This is the state
+    ///      that makes the outage tests sharp rather than tautological.
+    function _alicePastGrace() internal returns (uint256 owed) {
+        _enableStreaming();
+        uint256 aliceEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, aliceEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+
+        vm.warp(aliceEnd + 1);
+        dist.sync(alice);
+        owed = dist.rewards(alice);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised to forfeit");
+        assertEq(dist.effectiveBalanceOf(alice), 0, "expired lock still mirrored");
+
+        vm.warp(aliceEnd + dist.CLAIM_GRACE_PERIOD() + 1);
+    }
+
+    /// @notice OUTER catch arm. A live 4-year lock, mid-stream, while the whole escrow is
+    ///         dark: neither forfeited nor blocked from claiming.
+    function test_UserTokenIdOutageNeitherForfeitsNorBlocksTheClaim() public {
+        uint256 owed = _crystalliseAliceAccrual();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        ve.setReverting(true);
+        ve.setTokenIdReverting(true);
+        ve.setPositionsReverting(true);
+
+        dist.sync(alice);
+
+        // The mirror zeroing is what carries execution PAST the `effectiveBalanceOf != 0`
+        // early return and INTO the gate under test. Without this line the two assertions
+        // below would pass vacuously.
+        assertEq(dist.effectiveBalanceOf(alice), 0, "forfeit gate was never reached");
+        assertEq(dist.rewards(alice), owed, "an outage forfeited a live staker");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "an outage recycled a live staker");
+
+        uint256 balBefore = alice.balance;
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance - balBefore, owed, "an outage blocked a live staker's claim");
+        assertEq(dist.rewards(alice), 0);
+    }
+
+    /// @notice INNER catch arm in isolation — `userTokenId` still answers, `positions`
+    ///         does not. The sharpest statement of the doctrine: an account that WOULD be
+    ///         forfeitable is not forfeited while the evidence is unreadable.
+    function test_PositionsOutageNeitherForfeitsNorBlocksTheClaim() public {
+        uint256 owed = _alicePastGrace();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        ve.setPositionsReverting(true);
+
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), owed, "forfeited on evidence that could not be read");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "recycled on unreadable evidence");
+
+        uint256 balBefore = alice.balance;
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance - balBefore, owed, "unreadable evidence blocked the claim");
+    }
+
+    /// @notice ANTI-WEAKENING. The fix DEFERS the forfeit, it does not disable it: the
+    ///         same account, unchanged, becomes forfeitable the moment the escrow answers.
+    function test_EscrowRecoveryRestoresForfeitability() public {
+        uint256 owed = _alicePastGrace();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        ve.setPositionsReverting(true);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), owed, "forfeited while unreadable");
+
+        ve.setPositionsReverting(false);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), 0, "recovery did not restore forfeitability");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+
+        vm.prank(alice);
+        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
+        dist.getReward();
+    }
+
+    /// @notice The same anti-weakening proof through the OUTER arm, so neither catch can
+    ///         be left permanently "unknown" without a test noticing.
+    function test_EscrowRecoveryRestoresForfeitabilityViaTheTokenIdArm() public {
+        uint256 owed = _alicePastGrace();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        ve.setTokenIdReverting(true);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), owed, "forfeited while unreadable");
+
+        ve.setTokenIdReverting(false);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), 0, "recovery did not restore forfeitability");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+    }
+
+    /// @notice COMBINATION SWEEP over both toggles. Deliberately a deterministic loop in a
+    ///         `test_` function and NOT a `testFuzz_` name: every unit slice in
+    ///         `.github/contracts-test-slices.json` runs with
+    ///         `--no-match-test "^(invariant_|testFuzz_)"`, so a fuzz-named test here would
+    ///         compile, be counted in the slice, and silently never execute.
+    function test_EveryEscrowOutageCombinationPreservesTheStaker() public {
+        for (uint256 i = 1; i < 4; ++i) {
+            uint256 snap = vm.snapshotState();
+
+            uint256 owed = _alicePastGrace();
+            uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+            ve.setTokenIdReverting((i & 1) != 0);
+            ve.setPositionsReverting((i & 2) != 0);
+
+            dist.sync(alice);
+            assertEq(dist.rewards(alice), owed, "an outage combination forfeited");
+            assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "an outage combination recycled");
+
+            uint256 balBefore = alice.balance;
+            vm.prank(alice);
+            dist.getReward();
+            assertEq(alice.balance - balBefore, owed, "an outage combination blocked the claim");
+
+            vm.revertToState(snap);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ║  THE ORDINARY EXIT — tokenId == 0 IS A REAL ANSWER             ║
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice A fully-exited staker keeps the documented 7 days, measured from the
+    ///         durable `exitedAt` anchor because the burnt NFT leaves no `lockEnd`.
+    ///         Before the anchor existed this account was forfeitable in the SAME BLOCK
+    ///         it exited, with no outage involved at all.
+    function test_ExitedStakerKeepsGraceThenClaims() public {
+        uint256 owed = _crystalliseAliceAccrual();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        ve.clearPosition(alice);
+        dist.sync(alice);
+        assertEq(dist.effectiveBalanceOf(alice), 0, "exit not mirrored");
+        uint256 anchor = dist.exitedAt(alice);
+        assertEq(anchor, block.timestamp, "exit was not anchored");
+
+        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() - 1 hours);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), owed, "grace not honoured for an exited staker");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited inside the grace window");
+
+        uint256 balBefore = alice.balance;
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance - balBefore, owed, "in-grace claim refused after exit");
+    }
+
+    /// @notice THE ANTI-WEAKENING TEST. A fix that treated `lockEnd == 0` as "unknown"
+    ///         would make every fully-exited account permanently unforfeitable — silently
+    ///         killing recycling for the entire real population — while passing every
+    ///         outage test above. This is the only test that kills that over-fix.
+    function test_ExitedStakerForfeitsOnceGraceExpires() public {
+        uint256 owed = _crystalliseAliceAccrual();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        ve.clearPosition(alice);
+        dist.sync(alice);
+        uint256 anchor = dist.exitedAt(alice);
+        assertGt(anchor, 0, "exit was not anchored");
+
+        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() + 1);
+        dist.sync(alice);
+
+        // The anchor must be DURABLE. If a later sync re-stamped it, grace would restart
+        // on every touch and expire never — recycling would be dead by a different route.
+        assertEq(dist.exitedAt(alice), anchor, "anchor slid forward on a later sync");
+
+        assertEq(dist.rewards(alice), 0, "past-grace exited staker was never forfeited");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+        assertGe(dist.distributable(), owed, "recycled wei did not return to the staker pool");
+
+        vm.prank(alice);
+        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
+        dist.getReward();
+    }
+
+    /// @notice The zero anchor is never load-bearing. `rewards` only grows through
+    ///         `earned()`, which is identically 0 under a zero mirror — so an account
+    ///         that never mirrored in has nothing to protect and nothing to forfeit.
+    function test_NeverMirroredAccountIsNeitherForfeitableNorClaimable() public {
+        _enableStreaming();
+        _stake(alice, 1000e18);
+        dist.sync(alice);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        vm.warp(block.timestamp + DURATION);
+
+        assertEq(dist.exitedAt(carol), 0, "anchor written without a mirror transition");
+
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+        dist.sync(carol);
+        assertEq(dist.rewards(carol), 0);
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited a phantom balance");
+
+        // Gate ORDER matters: the lock/grace gate runs before the `reward == 0` check, so
+        // a total stranger is refused with NoLockedTokens, not NothingToClaim.
+        vm.prank(carol);
+        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
+        dist.getReward();
+    }
+
+    /// @notice BOUNDARY OF THE `ok` FLAG. `try/catch` catches a REVERTING call; it does
+    ///         not catch a call to a CODELESS address, which succeeds with empty
+    ///         returndata and fails in the ABI decode that follows. `votingEscrow` is
+    ///         immutable and set at construction and post-Cancun SELFDESTRUCT cannot clear
+    ///         a deployed contract's code, so this is reachable only by a deployment
+    ///         mis-wire — pinned because the header claims reverting staking reads
+    ///         "degrade to 0 rather than bricking", and this is where that claim stops.
+    ///         The property that must hold either way: nothing is fabricated and no
+    ///         staker's crystallised ETH moves.
+    function test_CodelessEscrowIsLoudAndNeverConfiscates() public {
+        uint256 owed = _crystalliseAliceAccrual();
+
+        vm.etch(address(ve), "");
+
+        try dist.sync(alice) {
+            emit log("codeless escrow: sync DEGRADED (did not revert)");
+        } catch {
+            emit log("codeless escrow: sync REVERTED (loud, not silent)");
+        }
+        assertEq(dist.rewards(alice), owed, "a codeless escrow cost a staker their accrual");
+        assertEq(dist.totalForfeitedToPool(), 0, "a codeless escrow triggered a forfeit");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // ║  RESTAKING FALLBACK                                            ║
     // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice RESTAKERS ARE THE MOST EXPOSED POPULATION, and fixing `_lockEndOf` alone
+    ///         does NOT cover them. Their NFT is custodied by TegridyRestaking, so
+    ///         `userTokenId` is 0 and `votingPowerOf` force-returns 0 for the restaking
+    ///         address — `_lockEndOf` answers a genuine, READABLE "no position" for them
+    ///         permanently. With only `_lockEndOf` three-valued they would still be
+    ///         confiscated the moment their anchor expired, having exited nothing.
+    ///         `_isRestaked`'s "unknown" signal is the whole guard here.
+    function test_RestakingOutageDoesNotConfiscateARestaker() public {
+        _enableStreaming();
+        _wireRestaking();
+        restaking.setRestaker(carol, 42, 1000e18);
+        _stake(bob, 1000e18);
+        dist.sync(carol);
+        dist.sync(bob);
+        assertEq(dist.effectiveBalanceOf(carol), 1000e18, "restaker not mirrored");
+
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        vm.warp(block.timestamp + DURATION / 2);
+        dist.sync(carol);
+        uint256 owed = dist.rewards(carol);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised to forfeit");
+
+        // The restaking leg goes dark. Carol has not moved a thing.
+        restaking.setReverting(true);
+        dist.sync(carol);
+        assertEq(dist.effectiveBalanceOf(carol), 0, "forfeit gate was never reached");
+
+        // Warped well past any grace window, so the ONLY thing that can save Carol is
+        // `_isRestaked` refusing to report an outage as "this account exited".
+        vm.warp(block.timestamp + dist.CLAIM_GRACE_PERIOD() + 1);
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+        dist.sync(carol);
+        assertEq(dist.rewards(carol), owed, "a restaking outage confiscated a restaker");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "a restaking outage recycled a restaker");
+
+        uint256 balBefore = carol.balance;
+        vm.prank(carol);
+        dist.getReward();
+        assertEq(carol.balance - balBefore, owed, "a restaking outage blocked a restaker's claim");
+    }
+
+    /// @notice ANTI-WEAKENING for the restaking arm. An account that genuinely LEFT
+    ///         restaking — read cleanly, no outage — still forfeits once its grace
+    ///         expires. An unset restaking contract and a live one that answers "no" are
+    ///         real answers, not unknowns.
+    function test_FormerRestakerStillForfeitsOnceGraceExpires() public {
+        _enableStreaming();
+        _wireRestaking();
+        restaking.setRestaker(carol, 42, 1000e18);
+        _stake(bob, 1000e18);
+        dist.sync(carol);
+        dist.sync(bob);
+
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        vm.warp(block.timestamp + DURATION / 2);
+        dist.sync(carol);
+        uint256 owed = dist.rewards(carol);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised to forfeit");
+
+        // Carol genuinely unwinds her restaking position. The read is clean throughout.
+        restaking.setRestaker(carol, 0, 0);
+        dist.sync(carol);
+        uint256 anchor = dist.exitedAt(carol);
+        assertGt(anchor, 0, "exit was not anchored");
+
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() + 1);
+        dist.sync(carol);
+        assertEq(dist.rewards(carol), 0, "a former restaker never forfeits");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+    }
 
     function test_RestakerMirrorsThroughFallbackOnlyOnceWired() public {
         _enableStreaming();
