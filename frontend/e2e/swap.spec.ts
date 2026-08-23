@@ -72,7 +72,11 @@ test.describe('Swap happy path', () => {
   test('execute ETH → TOWELI swap and confirm receipt (Anvil only)', async ({ page, walletMock }) => {
     test.skip(!onAnvil, 'ANVIL_RPC_URL unset — needs the fork job (npm run e2e)');
 
-    await walletMock.connect();
+    // ISOLATED WALLET — see the note in stake.spec.ts. This leg spends ETH and leaves a
+    // TOWELI balance behind on the shared fork; that residue was enough to turn this
+    // very test red when it ran after the other money specs, while it passed alone.
+    const account = await walletMock.useIsolatedForkAccount();
+    await walletMock.connect(account);
     await page.goto('/swap');
 
     const amountInput = page.getByRole('spinbutton', { name: /amount of .* to pay/i });

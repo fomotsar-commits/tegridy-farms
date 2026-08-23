@@ -31,7 +31,7 @@
  *   });
  */
 
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Locator, type Page } from '@playwright/test';
 
 const DEFAULT_ACCOUNT = '0x71be63f3384f5fb98995898a86b02fb2426c5788'; // Hardhat account #9
 const DEFAULT_CHAIN_ID = 1; // Ethereum mainnet
@@ -45,6 +45,44 @@ const ANVIL_RPC_URL = process.env.ANVIL_RPC_URL;
 
 /** Live TOWELI. Mirrors src/lib/constants.ts; the specs gate CTAs on this balance. */
 const TOWELI = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
+
+// ─── NFT-lending fixture constants ───────────────────────────────────────
+// The deployed NFT lending market (constants.ts TEGRIDY_NFT_LENDING_ADDRESS) and
+// Nakamigos, one of the three collections NFTLendingSection accepts as collateral
+// (NFTLendingSection.tsx:33-37). Measured on a live fork: offerCount() is 0 on
+// mainnet, so the borrow tab has nothing to show until this fixture plants one.
+const NFT_LENDING = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F';
+const NAKAMIGOS = '0xd774557b647330C91Bf44cfEAB205095f7E6c367';
+/** Anvil/hardhat account #1 — plays the lender. No key: the node signs by impersonation. */
+const LENDER_ACCOUNT = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+const OFFER_PRINCIPAL_WEI = 10n ** 17n; // 0.1 ETH
+const OFFER_APR_BPS = 1000n;            // 10%
+const OFFER_DURATION_S = 7n * 24n * 60n * 60n;
+
+// EVERY SEEDED LOAN GETS ITS OWN TOKEN, and that is not tidiness — it is the only thing
+// stopping this fixture from wrecking a loan another test is mid-way through. All the
+// specs share ONE anvil node, so if two of them collateralised the same Nakamigos the
+// second `transferFrom` would be impersonating the lending market itself and would pull
+// the NFT straight back out of a live loan. The pid term keeps the ranges apart when
+// Playwright runs workers in parallel (each worker is its own process); the sequence
+// keeps them apart within a worker. 19,000 keeps every id inside the 20k supply.
+const COLLATERAL_ID_BASE = 1 + ((process.pid * 137) % 19_000);
+let collateralIdSeq = 0;
+
+/**
+ * Mint a wallet address no other test on this fork is using.
+ *
+ * No key exists for it and none is needed: the bridge signs by
+ * `anvil_impersonateAccount`, so an address the node has never heard of transacts
+ * exactly like a funded EOA. The pid keeps parallel workers apart (each is its own
+ * process), the sequence keeps tests within a worker apart, and the 0xe2e prefix makes
+ * these obvious in a trace.
+ */
+let forkAccountSeq = 0;
+function deriveForkAccount(): string {
+  const tail = process.pid.toString(16).padStart(8, '0') + (forkAccountSeq++).toString(16).padStart(8, '0');
+  return `0xe2e${'0'.repeat(40 - 3 - tail.length)}${tail}`;
+}
 
 type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
 
@@ -66,8 +104,16 @@ type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
  *
  * Lives here, not copy-pasted per spec, because the original was fixed in swap.spec.ts
  * alone and survived in five other places.
+ *
+ * ⚠ SECOND FALSE GREEN, closed by `notHash`. A multi-step spec (add → remove, borrow →
+ * repay) asserts a receipt after EACH leg, and these surfaces render ONE receipt line
+ * that they overwrite in place. So leg two's assertion is satisfied by leg ONE's link,
+ * still sitting on the page — the second transaction need never have happened. Pass the
+ * hash the previous leg returned and this waits for a link pointing somewhere else.
+ *
+ * Returns the transaction hash it matched, so the next leg can demand a different one.
  */
-export async function expectTxReceipt(page: Page, what: string): Promise<void> {
+export async function expectTxReceipt(page: Page, what: string, notHash?: string): Promise<string> {
   const link = page.locator('a[href*="/tx/0x"]');
   await expect(
     link.first(),
@@ -75,6 +121,69 @@ export async function expectTxReceipt(page: Page, what: string): Promise<void> {
       `/tx/0x…; the static token link on these pages is NOT a receipt and must not satisfy this.`,
   ).toBeVisible({ timeout: 30_000 });
   await expect(link.first()).toHaveAttribute('href', /\/tx\/0x[0-9a-fA-F]{64}/);
+  if (notHash) {
+    await expect(
+      link.first(),
+      `${what}: the only receipt on the page is still the PREVIOUS step's (${notHash}). ` +
+        `This step's transaction never confirmed — the stale link must not satisfy this leg.`,
+    ).not.toHaveAttribute('href', new RegExp(notHash, 'i'), { timeout: 30_000 });
+  }
+  const href = (await link.first().getAttribute('href')) ?? '';
+  const hash = /0x[0-9a-fA-F]{64}/.exec(href)?.[0];
+  if (!hash) throw new Error(`${what}: receipt href ${href} carried no 0x<64 hex> hash.`);
+  return hash;
+}
+
+/**
+ * Walk a self-relabelling `approve → act` CTA to its ACT state, and prove it got there.
+ *
+ * ⚠ THIS IS THE BUG THAT KEPT THREE ANVIL LEGS RED, and it was never a missing fixture.
+ * Every money surface here renders ONE button that renames itself: "Approve TOWELI" while
+ * the allowance is short, the real verb ("Stake & Lock for 90 Days", "Grow the Crop")
+ * once it is not. A spec that clicks that button ONCE, on a cold fork, spends its click
+ * on the APPROVAL — and an approval deliberately surfaces no `/tx/0x…` receipt
+ * (FarmPage.tsx tags it precisely so no stake receipt is fabricated). The spec then waits
+ * out its receipt budget for a transaction it never sent.
+ *
+ * Measured, not theorised: stake.spec.ts:57 failed at `expectTxReceipt` on attempt 0 and
+ * PASSED on retry #1 in 3.6s, both locally and in CI run 32598383834 — because attempt 0
+ * left the allowance on the fork, so retry #1 found the CTA already reading "Stake &
+ * Lock" and actually staked. The green retry was the accident; the red first attempt was
+ * the honest report.
+ *
+ * What this does NOT do: it does not accept the approve as the action. It requires the
+ * CTA to arrive at `actVerb` and be enabled, so the caller's click is always the real
+ * transaction. An approval that never confirms fails here, loudly, naming the label it
+ * was stuck on.
+ */
+export async function advancePastApproval(cta: Locator, actVerb: RegExp, what: string): Promise<void> {
+  await expect(cta, `${what}: no action CTA rendered on this card at all.`).toBeVisible({ timeout: 20_000 });
+
+  // Bounded, not `while`: the deepest cascade on these surfaces is two approvals (both
+  // sides of a pair). A CTA that never leaves the approve state must fail, not spin.
+  for (let step = 0; step < 2; step++) {
+    const label = ((await cta.textContent()) ?? '').trim();
+    if (!/^approve/i.test(label)) break;
+    await expect(cta, `${what}: "${label}" rendered but is disabled — the approval cannot be sent.`)
+      .toBeEnabled({ timeout: 20_000 });
+    await cta.click();
+    // An approval surfaces no receipt link by design. What proves it landed on the fork
+    // is the allowance refetch relabelling THIS button, so wait that out — through the
+    // transient "Granting permission…" the pending state renders.
+    await expect(
+      cta,
+      `${what}: "${label}" never cleared. The approval did not confirm on the fork, so the ` +
+        `real action below could never be reached.`,
+    ).not.toHaveText(/^(approve|granting permission)/i, { timeout: 30_000 });
+  }
+
+  await expect(
+    cta,
+    `${what}: the CTA never reached ${actVerb} — it is showing a state that is neither an ` +
+      `approval nor the action, so the precondition this leg needs is genuinely absent.`,
+  ).toHaveText(actVerb, { timeout: 20_000 });
+  await expect(cta, `${what}: the CTA reached ${actVerb} but stayed disabled.`)
+    .toBeEnabled({ timeout: 20_000 });
 }
 
 /**
@@ -127,6 +236,168 @@ async function seedErc20Balance(rpc: Rpc, token: string, holder: string, amount:
   );
 }
 
+/**
+ * Talk to the anvil fork directly from Node (cheatcodes included).
+ *
+ * Used by specs whose precondition is TIME rather than balance — reward accrual is the
+ * only one today. Advancing the clock makes the contract's OWN accrual math produce the
+ * rewards, which is the difference between testing the claim path and testing a number
+ * we wrote into storage ourselves. Throws if ANVIL_RPC_URL is unset, so a mock-mode run
+ * can never silently skip the step and leave the assertion below asserting nothing.
+ */
+export async function anvilRpc(method: string, params: unknown[] = []): Promise<unknown> {
+  if (!ANVIL_RPC_URL) {
+    throw new Error(`anvilRpc(${method}) called with ANVIL_RPC_URL unset — this is an Anvil-only path.`);
+  }
+  const res = await fetch(ANVIL_RPC_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params }),
+  });
+  if (!res.ok) throw new Error(`anvil ${method}: HTTP ${res.status}`);
+  const body = (await res.json()) as { result?: unknown; error?: { message?: string } };
+  if (body.error) throw new Error(`anvil ${method}: ${body.error.message ?? JSON.stringify(body.error)}`);
+  return body.result;
+}
+
+/**
+ * Move the fork's clock forward and mine, so time-based accrual actually advances.
+ *
+ * ⚠ KEEP THE JUMP SMALL — WELL UNDER 1800 SECONDS. The skew is PERMANENT: anvil has no
+ * way back, and every later spec on this node inherits it. The routers stamp their
+ * deadline from the BROWSER's clock (`Date.now()/1000 + 1800`, useAddLiquidity.ts:258),
+ * so once the chain runs more than 30 minutes ahead of the runner, every add, remove and
+ * swap reverts EXPIRED. Measured: a seven-day jump in claim-rewards.spec took out the
+ * liquidity and swap anvil legs downstream while passing itself — a spec silently
+ * breaking two others through the clock. Prefer staking more over waiting longer.
+ */
+export async function advanceForkTime(seconds: number): Promise<void> {
+  await anvilRpc('evm_increaseTime', [seconds]);
+  await anvilRpc('evm_mine', []);
+}
+
+/**
+ * Plant the ONE precondition the NFT-lending borrow leg needs and mainnet does not have.
+ *
+ * Measured, not assumed: `offerCount()` at the deployed market is 0 on mainnet at head,
+ * and the test account owns no NFT from any accepted collection. Neither can be conjured
+ * with `anvil_setBalance` — the borrow tab renders offers straight out of the contract,
+ * and the accept reverts unless the borrower owns the exact tokenId the lender pinned.
+ *
+ * NOTHING PRIVILEGED HAPPENS HERE. `createOffer` is payable and permissionless, so the
+ * lender leg is a transaction any address could send; the only cheatcode is
+ * `anvil_impersonateAccount`, used to move one Nakamigos out of its current holder's
+ * wallet and to sign for the lender without a key. No storage is hand-written, no
+ * owner-only function is called, and no protocol invariant is forged — the offer this
+ * creates is one the real contract created, through its own code path.
+ *
+ * Self-verifying, in the same spirit as seedErc20Balance: both halves are read back
+ * through the contracts' own getters and a failure throws with the reason, because a
+ * silent no-op here hands the spec a "no borrowable offer" timeout that blames the
+ * product for a fixture that did nothing.
+ */
+async function seedNftLendingOffer(rpc: Rpc, borrower: string): Promise<void> {
+  const { encodeFunctionData, parseAbi, decodeAbiParameters, parseAbiParameters } = await import('viem');
+  const tokenId = BigInt(COLLATERAL_ID_BASE + collateralIdSeq++);
+
+  const erc721 = parseAbi([
+    'function ownerOf(uint256) view returns (address)',
+    'function transferFrom(address,address,uint256)',
+  ]);
+  const market = parseAbi([
+    'function offerCount() view returns (uint256)',
+    'function createOffer(uint256,uint256,uint256,address,uint256,uint64) payable returns (uint256)',
+  ]);
+
+  const call = async (to: string, data: string): Promise<`0x${string}`> =>
+    (await rpc('eth_call', [{ to, data }, 'latest'])) as `0x${string}`;
+
+  const sendFrom = async (from: string, to: string, data: string, value?: bigint): Promise<void> => {
+    await rpc('anvil_impersonateAccount', [from]);
+    const hash = (await rpc('eth_sendTransaction', [
+      { from, to, data, ...(value !== undefined ? { value: `0x${value.toString(16)}` } : {}) },
+    ])) as string;
+    // Anvil automines, but never assume it: a transaction that reverted still has a
+    // receipt, and a fixture that ignores `status` is a fixture that silently no-ops.
+    for (let i = 0; i < 40; i++) {
+      const receipt = (await rpc('eth_getTransactionReceipt', [hash])) as { status?: string } | null;
+      if (receipt) {
+        if (receipt.status !== '0x1') {
+          throw new Error(`seedNftLendingOffer: tx to ${to} REVERTED on the fork (${hash}).`);
+        }
+        await rpc('anvil_stopImpersonatingAccount', [from]);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`seedNftLendingOffer: tx to ${to} never produced a receipt (${hash}).`);
+  };
+
+  const ownerOfToken = async (): Promise<string> => {
+    const raw = await call(NAKAMIGOS, encodeFunctionData({ abi: erc721, functionName: 'ownerOf', args: [tokenId] }));
+    return (decodeAbiParameters(parseAbiParameters('address'), raw)[0] as string).toLowerCase();
+  };
+
+  // 1. Put the collateral in the test account's hands.
+  const holder = await ownerOfToken();
+  // NEVER PULL COLLATERAL OUT OF A LIVE LOAN. Impersonating the market would let this
+  // transfer succeed and silently break whichever test is holding that loan open, so
+  // stop with the reason instead — the id scheme above is what should prevent it.
+  if (holder === NFT_LENDING.toLowerCase()) {
+    throw new Error(
+      `seedNftLendingOffer: Nakamigos #${tokenId} is locked in the lending market as live collateral. ` +
+        `Two seeds collided on one token; do NOT reclaim it — widen COLLATERAL_ID_BASE instead.`,
+    );
+  }
+  if (holder !== borrower.toLowerCase()) {
+    await rpc('anvil_setBalance', [holder, '0x8ac7230489e80000']); // 10 ETH for gas
+    await sendFrom(
+      holder,
+      NAKAMIGOS,
+      encodeFunctionData({
+        abi: erc721,
+        functionName: 'transferFrom',
+        args: [holder as `0x${string}`, borrower as `0x${string}`, tokenId],
+      }),
+    );
+  }
+
+  // 2. Post a lender offer against that exact token.
+  //
+  // The expiry is read off the FORK's clock, not the runner's. The contract rejects an
+  // out-of-window validity with `InvalidOfferValidity` (measured: a year-2100 expiry
+  // reverts), and a fork pinned to an old block would drift out of that window if this
+  // used Date.now().
+  const block = (await rpc('eth_getBlockByNumber', ['latest', false])) as { timestamp: string };
+  const expiry = BigInt(block.timestamp) + 30n * 24n * 60n * 60n;
+  await rpc('anvil_setBalance', [LENDER_ACCOUNT, '0x21e19e0c9bab2400000']); // 10,000 ETH
+  await sendFrom(
+    LENDER_ACCOUNT,
+    NFT_LENDING,
+    encodeFunctionData({
+      abi: market,
+      functionName: 'createOffer',
+      args: [OFFER_PRINCIPAL_WEI, OFFER_APR_BPS, OFFER_DURATION_S, NAKAMIGOS as `0x${string}`, tokenId, expiry],
+    }),
+    OFFER_PRINCIPAL_WEI,
+  );
+
+  // 3. Read both halves back through the contracts' own getters.
+  const finalHolder = await ownerOfToken();
+  if (finalHolder !== borrower.toLowerCase()) {
+    throw new Error(
+      `seedNftLendingOffer: the collateral transfer did not take — Nakamigos #${tokenId} is still held by ${finalHolder}.`,
+    );
+  }
+  const countRaw = await call(NFT_LENDING, encodeFunctionData({ abi: market, functionName: 'offerCount' }));
+  const count = BigInt(countRaw);
+  if (count === 0n) {
+    throw new Error(
+      'seedNftLendingOffer: createOffer confirmed but offerCount() is still 0 — the market did not record the offer.',
+    );
+  }
+}
+
 export interface WalletMock {
   /**
    * Mark the mock as connected; eth_accounts now returns [account].
@@ -144,21 +415,51 @@ export interface WalletMock {
   setReadResponses: (map: Record<string, string>) => Promise<void>;
   /** Capture all JSON-RPC calls the app has made since mock install. */
   getCalls: () => Promise<Array<{ method: string; params: unknown }>>;
+  /**
+   * Fund a wallet no other test uses, and return it. Anvil-only.
+   *
+   * ANY state-changing leg must call this and connect with the address it returns.
+   * The shared fork keeps every position, allowance, LP balance and loan a spec
+   * creates, so two legs sharing DEFAULT_ACCOUNT contaminate each other — see the
+   * block above `export const test` for the measurement and for why evm_revert is
+   * not the answer.
+   *
+   * Pass `nftCollateral` to also place a Nakamigos in the account and post a lender
+   * offer against it, which is the borrow leg's precondition.
+   */
+  useIsolatedForkAccount: (opts?: { nftCollateral?: boolean }) => Promise<string>;
 }
 
 type Fixtures = { walletMock: WalletMock };
 
-// ⚠ ORDER-DEPENDENCE IS A KNOWN, OPEN ISSUE HERE — and an `evm_snapshot`/`evm_revert`
-// auto-fixture is NOT the drop-in fix it looks like. Tried 2026-08-12 and reverted: the
-// rollback also rewinds `anvil_setBalance` and the seeded ERC-20 balance, and it races
-// the per-test bridge install, which turned two passing render tests red. If you pick
-// this up, snapshot AFTER the bridge has finished seeding, not before, and prove the
-// basic render tests still pass before trusting the money paths.
+// ─── FORK ISOLATION — CLOSED 2026-08-22, but NOT with evm_snapshot ───────────────
 //
-// The symptom to watch for: a spec that passes alone and fails in a batch. stake.spec
-// does exactly that today — it spends, leaving a position and an allowance behind.
+// The problem is real and was measured here, batching the five money specs at
+// --workers=1: swap's anvil leg and BOTH of stake.spec's connected tests went red
+// purely because an earlier spec had already opened a staking position on the shared
+// chain. /farm then renders "Your Position" instead of the amount input, so `fill()`
+// had nothing to type into. Alone, every one of them passed.
+//
+// ⚠ DO NOT REACH FOR evm_snapshot/evm_revert. It was tried in 2026-08-12, reverted,
+// and tried again here — and the second attempt found the real reason it must not be
+// used: on anvil 1.5.1 against a mainnet fork that has been transacted on, `evm_revert`
+// WEDGES THE NODE. Measured twice, both times with the node's own log ending on the
+// `evm_revert` line: once it stopped listening outright (every later spec then failed
+// with ECONNREFUSED at 127.0.0.1:8545) and once it hung until the teardown blew the
+// test timeout. Taking the snapshot after seeding, and unloading the page before
+// reverting so no traffic was in flight, changed nothing.
+//
+// So isolation is by ADDRESS instead, which needs no cheatcode at all beyond the
+// impersonation the bridge already does: `useIsolatedForkAccount()` hands each
+// state-changing leg its own freshly funded account. Two tests cannot collide over a
+// position, an allowance, an LP balance or a loan if they never share a wallet. It also
+// stays correct under parallel workers, which a shared snapshot stack never could.
+//
+// DEFAULT_ACCOUNT is left alone by every leg that spends, which is what keeps the
+// mock-mode render specs (and heat-gate.spec.ts, which pins that address in its own
+// fixture payload) seeing the cold, unspent wallet they were written against.
 export const test = base.extend<Fixtures>({
-  walletMock: async ({ page }, provide) => {
+  walletMock: async ({ page }, provide, testInfo) => {
     // Suppress full-viewport overlays that block clicks in test runs:
     //   - AppLoader splash canvas (zIndex 9999)
     //   - OnboardingModal welcome dialog (zIndex 100)
@@ -223,6 +524,20 @@ export const test = base.extend<Fixtures>({
         page.evaluate(() =>
           (window as unknown as { __walletMock: { getCalls: () => Array<{ method: string; params: unknown }> } }).__walletMock.getCalls()
         ),
+      useIsolatedForkAccount: async (opts) => {
+        if (!ANVIL_RPC_URL) {
+          throw new Error(
+            `useIsolatedForkAccount() called from "${testInfo.title}" with ANVIL_RPC_URL unset. ` +
+              `It is an Anvil-only path — gate the leg on test.skip(!onAnvil, …) first.`,
+          );
+        }
+        const account = deriveForkAccount();
+        const rpc: Rpc = (method, params) => anvilRpc(method, params);
+        await rpc('anvil_setBalance', [account, '0x21e19e0c9bab2400000']); // 10,000 ETH
+        await seedErc20Balance(rpc, TOWELI, account, 1_000_000n * 10n ** 18n);
+        if (opts?.nftCollateral) await seedNftLendingOffer(rpc, account);
+        return account;
+      },
     };
     await provide(mock);
   },
@@ -473,6 +788,12 @@ async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
   // and it is what kept these specs skipped for months.
   await seedErc20Balance(rpc, TOWELI, DEFAULT_ACCOUNT, 1_000_000n * 10n ** 18n);
 
+  // ANVIL_BACKEND step 6 — PROTOCOL state, not just balances, lives in
+  // `walletMock.useIsolatedForkAccount()` rather than here. It is per-leg, not per-test:
+  // the NFT-lending precondition costs two on-chain transactions and moves a real NFT,
+  // and only one spec needs it. Seeding it for all ~20 tests in the fork job would be
+  // 40 pointless transactions of protocol churn.
+
   await page.exposeFunction(
     '__tegridyAnvilRpc',
     async (method: string, params: unknown[] = []): Promise<unknown> => {
@@ -488,6 +809,7 @@ async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
       return rpc(method, params);
     },
   );
+
 }
 
 // ─── ANVIL_BACKEND — IMPLEMENTED 2026-07-30 ──────────────────────────────
