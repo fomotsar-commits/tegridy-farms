@@ -247,7 +247,7 @@ export function AppLayout() {
           style: {
             background: 'var(--color-bg-elevated)',
             border: '1px solid var(--color-border)',
-            color: 'var(--color-text-white)',
+            color: 'var(--color-text-primary)',
             fontFamily: "'Inter', sans-serif",
           },
         }}

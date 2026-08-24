@@ -168,7 +168,7 @@ export const TopNav = React.memo(function TopNav() {
             </button>
             <Link to="/" className="flex items-center gap-1" title="Go to home page">
               <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>
-              <span className="text-[15px] font-semibold tracking-tight text-text-white">FARMS</span>
+              <span className="text-[15px] font-semibold tracking-tight text-white">FARMS</span>
             </Link>
           </div>
 
