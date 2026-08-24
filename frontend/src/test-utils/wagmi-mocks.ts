@@ -179,14 +179,29 @@ vi.mock('wagmi', () => {
   });
 
   const useWaitForTransactionReceipt = () => ({
+    // AUDIT FIX 2026-08-24 — model REAL wagmi, not a fiction: the receipt
+    // lives on `data` (`data.status`, `data.blockNumber`) and the error is an
+    // Error object on `error` whose `.name` viem sets (TransactionReplacedError
+    // etc.). The old shape exposed top-level receiptStatus/blockNumber/errorName
+    // fields that exist nowhere in real wagmi — and the R044 reorg-defense hook
+    // shipped reading them, so a reverted tx reported 'confirmed' in production
+    // while its suite stayed green. `isSuccess` still means "receipt FETCHED"
+    // and is deliberately true for reverted receipts, exactly like real wagmi.
+    data: state.writeStatus.isSuccess
+      ? {
+          status: state.writeStatus.receiptStatus ?? ('success' as const),
+          blockNumber: state.writeStatus.blockNumber,
+          transactionHash: state.writeStatus.hash,
+        }
+      : undefined,
     isLoading: state.writeStatus.isConfirming,
     isSuccess: state.writeStatus.isSuccess,
     isError: state.writeStatus.isTxError,
-    // Additive passthrough for useTrackedTransactionReceipt (R044 H3): lets
-    // tests distinguish success/reverted receipts and replaced/dropped errors.
-    receiptStatus: state.writeStatus.receiptStatus,
-    blockNumber: state.writeStatus.blockNumber,
-    errorName: state.writeStatus.errorName,
+    error: state.writeStatus.isTxError
+      ? Object.assign(new Error(state.writeStatus.errorName ?? 'receipt error'), {
+          name: state.writeStatus.errorName ?? 'Error',
+        })
+      : null,
   });
 
   // R075: no-op so hooks using useWatchContractEvent still mount in tests.

@@ -110,34 +110,29 @@ export function useTrackedTransactionReceipt(
   hash: `0x${string}` | undefined,
   confirmations: number = 2,
 ): TrackedReceipt {
-  // The wagmi mock surface in tests adds `receiptStatus`, `blockNumber`,
-  // `errorName` to its return — at runtime wagmi's real hook attaches the
-  // same fields via the receipt object. We read what we need defensively
-  // so a wagmi-version drift never panics the UI.
-  const result = useWaitForTransactionReceipt({
-    hash,
-    confirmations,
-  }) as unknown as {
-    isLoading: boolean;
-    isSuccess: boolean;
-    isError: boolean;
-    receiptStatus?: 'success' | 'reverted';
-    blockNumber?: bigint;
-    errorName?: string;
-  };
+  // AUDIT FIX 2026-08-24: the previous version read `receiptStatus` /
+  // `blockNumber` / `errorName` from the TOP LEVEL of wagmi's return — fields
+  // that existed only in this hook's own test mock. On real wagmi the receipt
+  // lives on `data` (`data.status`, `data.blockNumber`) and the error object on
+  // `error`, so the reverted branch could never fire and a reverted tx reported
+  // 'confirmed' — the exact bug this wrapper exists to prevent. Read the real
+  // shape; the test mock now mirrors real wagmi instead of the fiction.
+  const result = useWaitForTransactionReceipt({ hash, confirmations });
+  const receipt = result.data;
+  const errorName = result.error?.name;
 
   if (!hash) {
     return { status: 'idle', isPending: false, isConfirmed: false, isTerminal: false };
   }
 
   if (result.isError) {
-    if (result.errorName === 'TransactionReplacedError') {
+    if (errorName === 'TransactionReplacedError') {
       return {
         status: 'replaced',
         isPending: false,
         isConfirmed: false,
         isTerminal: true,
-        errorName: result.errorName,
+        errorName,
       };
     }
     // TransactionNotFoundError + unknown errors fold to "dropped" — safer
@@ -147,18 +142,18 @@ export function useTrackedTransactionReceipt(
       isPending: false,
       isConfirmed: false,
       isTerminal: true,
-      ...(result.errorName !== undefined ? { errorName: result.errorName } : {}),
+      ...(errorName !== undefined ? { errorName } : {}),
     };
   }
 
   if (result.isSuccess) {
-    if (result.receiptStatus === 'reverted') {
+    if (receipt && receipt.status !== 'success') {
       return {
         status: 'failed',
         isPending: false,
         isConfirmed: false,
         isTerminal: true,
-        ...(result.blockNumber !== undefined ? { blockNumber: result.blockNumber } : {}),
+        ...(receipt.blockNumber !== undefined ? { blockNumber: receipt.blockNumber } : {}),
       };
     }
     return {
@@ -166,7 +161,7 @@ export function useTrackedTransactionReceipt(
       isPending: false,
       isConfirmed: true,
       isTerminal: true,
-      ...(result.blockNumber !== undefined ? { blockNumber: result.blockNumber } : {}),
+      ...(receipt?.blockNumber !== undefined ? { blockNumber: receipt.blockNumber } : {}),
     };
   }
 
