@@ -219,10 +219,11 @@ contract StreamingRevenueDistributor is
     ///      power is already 0 for an expired position), but crystallised accrual
     ///      stays claimable for this long before `sync` may recycle it.
     ///
-    ///      Measured from `lockEnd` while the position still exists, and from `exitedAt`
-    ///      once it does not — see `_claimDeadlineOf`. The second anchor is not a
-    ///      widening of the policy: it is what makes the policy apply AT ALL to the
-    ///      ordinary exit path, where the burnt NFT leaves no `lockEnd` to measure from.
+    ///      Measured from `lockEnd` while the position still exists, and from the
+    ///      remembered `lockEndSeen` once it does not — see `_claimDeadlineOf`. The
+    ///      second anchor is not a widening of the policy: it is the SAME number,
+    ///      remembered, and it is what makes the policy apply AT ALL to the ordinary exit
+    ///      path, where the burnt NFT leaves no `lockEnd` to measure from.
     uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
 
     /// @dev `syncMany` iterates external staking reads (~2 calls each). 100 keeps the
@@ -255,16 +256,30 @@ contract StreamingRevenueDistributor is
     mapping(address => uint256) public effectiveBalanceOf;
     uint256 public totalEffectiveSupply;
 
-    /// @notice The instant this contract last OBSERVED `account`'s mirrored power fall to
-    ///         zero. The durable grace anchor for an account whose position NFT is gone.
-    /// @dev    `lockEnd` is unrecoverable once the NFT burns, so the ordinary exit path
-    ///         (unstake, then claim) reads `lockEnd == 0` and would otherwise get NO
-    ///         grace at all — forfeitable by any permissionless `sync` in the same block
-    ///         it exits. Written by `_updateReward` only, which is the sole place the
-    ///         mirror moves, and read only when the escrow answers "no position".
-    ///         Public because a UI rendering a grace countdown needs it, for the same
-    ///         reason `isSynced` is public: a zero it cannot explain is fabricated data.
-    mapping(address => uint64) public exitedAt;
+    /// @notice High-water mark of every `lockEnd` this contract has read for `account`
+    ///         WHILE that account still mirrored live power. The durable grace anchor for
+    ///         an account whose position NFT is gone.
+    /// @dev    A staking-side VALUE, not an observation TIME, and that single change is
+    ///         the whole difference from the previous attempt. `TegridyStaking.withdraw`
+    ///         is gated on `block.timestamp >= p.lockEnd` (TegridyStaking.sol:1465) and
+    ///         then runs `delete positions[tokenId]; _burn(tokenId)` — so THE ONLY
+    ///         PERMITTED EXIT ERASES THE VERY FACT THE GRACE IS MEASURED FROM. Stamping
+    ///         the moment this contract NOTICES the mirror fall let an account already
+    ///         past `lockEnd + CLAIM_GRACE_PERIOD` manufacture a fresh window simply by
+    ///         withdrawing, and the account picks that moment two ways: `withdraw` is its
+    ///         own call, and `getReward` carries `updateReward(msg.sender)`, so it is
+    ///         normally the first to move its own mirror anyway. Storing the NUMBER
+    ///         cannot be gamed either way — after the burn there is nothing left to read,
+    ///         and reading a live `lockEnd` late yields the same number it always did.
+    ///
+    ///         Deliberately `uint256`, not `uint64`: a mapping value never shares a slot,
+    ///         so narrowing buys nothing and only introduces a cast that could truncate
+    ///         an escrow's answer DOWNWARD — i.e. against the staker.
+    ///
+    ///         Public for the same reason `isSynced` is: the forfeit is PERMISSIONLESS,
+    ///         so the anchor it is measured from has to be independently reconstructible
+    ///         off-chain. A countdown a UI cannot explain is fabricated data.
+    mapping(address => uint256) public lockEndSeen;
 
     // ─── Reserve accounting (delta D3) ───────────────────────────────
 
@@ -301,6 +316,10 @@ contract StreamingRevenueDistributor is
     event RewardPaid(address indexed user, uint256 amount);
     event BalanceSynced(address indexed user, uint256 oldBalance, uint256 newBalance);
     event RewardsForfeitedToPool(address indexed user, uint256 amount);
+    /// @dev The forfeit measured off this anchor is permissionless, so the anchor itself
+    ///      must be reconstructible from logs alone. Emitted only when the high-water
+    ///      mark actually moves, so the log is also the audit trail for its monotonicity.
+    event GraceAnchorRaised(address indexed user, uint256 lockEnd);
     event RewardsForfeitedDuringEmptyPeriod(uint256 amount);
     event StreamingEnableProposed(uint256 executeAfter);
     event StreamingEnabled();
@@ -425,17 +444,68 @@ contract StreamingRevenueDistributor is
 
             uint256 oldEff = effectiveBalanceOf[account];
             uint256 newEff = _effectivePower(account);
+
+            // ─── DURABLE GRACE ANCHOR ─────────────────────────────────────────────
+            //
+            // Sampled on EVERY observation that finds LIVE power, and never on the fall
+            // to zero. This site is on every path that can make `rewards[account]`
+            // non-zero: `rewards` grows only through `rewards[account] = earned(account)`
+            // above, `earned()` scales by `effectiveBalanceOf[account]`, and the mirror
+            // write below is that mapping's ONLY writer in this contract.
+            //
+            // WHY `newEff != 0` AND NOT `oldEff != newEff`: `lockEnd` moves forward on
+            // staking paths that leave `boostBps` — and therefore this mirror —
+            // completely unchanged. `extendLock` only requires the resulting expiry to
+            // exceed the old one (TegridyStaking.sol:1251), and the autoMaxLock relock
+            // inside `TegridyStaking.getReward` rewrites `p.lockEnd = block.timestamp +
+            // MAX_LOCK_DURATION` on every single claim (TegridyStaking.sol:1532). A
+            // max-boosted position's power is identical before and after either. Gating
+            // this on the mirror moving — or on the cheap-looking
+            // `lockEndSeen[account] <= block.timestamp` — freezes the anchor at a stale
+            // value; the staker then withdraws at the real, much later `lockEnd` and is
+            // forfeited in the same block. Both gates were considered and both
+            // confiscate. Three staking staticcalls per live observation is the price.
+            //
+            // WHY THE ACCOUNT CANNOT CHOOSE OR TIME IT: `StakingViewLib.votingPowerOf`
+            // skips any position with `nowTs >= p.lockEnd` (StakingViewLib.sol:100), so
+            // non-zero power PROVES an unexpired position exists right now. Once every
+            // position has expired the account has no power at all, this branch is never
+            // entered again, and the anchor is frozen at a value the account can no
+            // longer influence — which is exactly the state a forfeit is decided in. The
+            // only way to raise it is to genuinely push a real `lockEnd` forward, i.e. to
+            // keep capital locked for longer.
+            if (newEff != 0) {
+                (bool seenOk, uint256 seenEnd) = _lockEndOf(account);
+                if (seenOk && seenEnd != 0) {
+                    // A READABLE 0 is a restaker — TegridyRestaking custodies the NFT, so
+                    // `userTokenId` is 0 for their whole restaking life. It is a real
+                    // answer but not an anchor, and it must NOT fall through to a
+                    // timestamp: a restaker synced once and then left alone for a year
+                    // would carry a year-stale anchor and be confiscated the instant they
+                    // stopped reading as restaked. They are held by `_isRestaked` and by
+                    // the no-anchor branch of `_claimDeadlineOf` instead.
+                    //
+                    // The `block.timestamp` floor covers only the multi-position holder
+                    // whose single `userTokenId` pointer names an already-expired sibling:
+                    // live power proves SOME position is unexpired now, so `now` is a
+                    // sound lower bound on this account's true expiry and strictly better
+                    // than storing the stale sibling's earlier number. For a
+                    // single-position staker `seenEnd > block.timestamp` always holds, so
+                    // this costs no extra SSTORE in the ordinary case.
+                    uint256 cand = seenEnd > block.timestamp ? seenEnd : block.timestamp;
+                    // MONOTONE, raised only. A failed read writes nothing, a readable 0
+                    // writes nothing, and no branch ever writes a smaller value — so the
+                    // anchor cannot be walked backward by anyone, the account included.
+                    if (cand > lockEndSeen[account]) {
+                        lockEndSeen[account] = cand;
+                        emit GraceAnchorRaised(account, cand);
+                    }
+                }
+            }
+
             if (oldEff != newEff) {
                 totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
                 effectiveBalanceOf[account] = newEff;
-                // Durable grace anchor. `oldEff != newEff` with `newEff == 0` is exactly
-                // the non-zero -> zero edge, so this fires once per exit and re-arms if
-                // the account ever mirrors back in. Placed here because this is the only
-                // write to the mirror, which makes the anchor and the mirror incapable of
-                // disagreeing, and because `_syncAndMaybeRecycle` runs `_updateReward`
-                // BEFORE its forfeit gate — so the anchor is always written before it is
-                // read, and the 7 days are real rather than retroactively zero.
-                if (newEff == 0) exitedAt[account] = uint64(block.timestamp);
                 emit BalanceSynced(account, oldEff, newEff);
             }
         }
@@ -707,9 +777,15 @@ contract StreamingRevenueDistributor is
     ///      answer — while the zero-address gate is closed nobody is restaked, by
     ///      construction — but a FAILED read is not, and must never be read as "this
     ///      account has exited". Restakers reach this helper with `_lockEndOf` already
-    ///      structurally 0 (TegridyStaking custodies their NFT, so `userTokenId` is 0 and
-    ///      `votingPowerOf` force-returns 0 for the restaking address), which makes this
-    ///      the ONLY guard standing between a restaker and a permissionless forfeit.
+    ///      structurally 0 — TegridyRestaking custodies their NFT, so
+    ///      `StakingRewardLib.afterTokenTransfer` has zeroed `userTokenId[restaker]`
+    ///      (StakingRewardLib.sol:890) and `_positionsByOwner[restaker]` is empty, so
+    ///      `votingPowerOf` sums nothing. (NOT the `return 0` at TegridyStaking.sol:790 —
+    ///      that carve-out fires for the restaking CONTRACT'S OWN address, not for the
+    ///      individual restaker this contract queries. Same conclusion, different
+    ///      mechanism; the previous wording cited the wrong one.) That makes this the
+    ///      ONLY guard standing between a live restaker and a permissionless forfeit, and
+    ///      it is also why no `lockEndSeen` anchor is ever written for them.
     /// @return ok       False iff the restaking read failed. `restaked` is meaningless then.
     /// @return restaked True iff `account` holds a live restaking position.
     function _isRestaked(address account) internal view returns (bool ok, bool restaked) {
@@ -731,11 +807,17 @@ contract StreamingRevenueDistributor is
     ///      let a transient outage read as a legitimate expiry, and the arity change is
     ///      what makes the distinction impossible for a caller to drop by accident.
     ///
-    ///      Only reached for accounts whose live power is already 0, so the single
-    ///      `userTokenId` pointer is sufficient here — the multi-NFT undercount that
-    ///      forced v1's aggregate-first `_getUserLockState` cannot bite, because any
-    ///      account with a second live position would have non-zero power and never
-    ///      reach this path.
+    ///      SINGLE-POINTER CAVEAT, corrected. The previous wording claimed this helper is
+    ///      "only reached for accounts whose live power is already 0", which made the
+    ///      single `userTokenId` pointer sufficient. That justification is now VOID: the
+    ///      anchor sample in `_updateReward` calls this on the LIVE path, precisely when
+    ///      power is non-zero. The underlying gap is pre-existing and unchanged either
+    ///      way — power 0 means ALL positions expired, while the pointer names only the
+    ///      LAST-RECEIVED one, so a holder of two positions can have the pointer name the
+    ///      earlier-expiring token. It is not fatal here because the anchor takes
+    ///      `max(lockEnd, block.timestamp)` and monotonically raises, which is strictly
+    ///      better than the pre-fix gate's single stale read; closing it properly needs
+    ///      an aggregate read the `IVotingEscrow` subset does not expose.
     /// @return ok      False iff a staking read REVERTED. `lockEnd` is meaningless then.
     ///                 See the honesty bound on `_effectivePower`: a codeless escrow is
     ///                 not caught here either, but it bricks the whole call rather than
@@ -762,29 +844,76 @@ contract StreamingRevenueDistributor is
     /// @dev The instant `account`'s claim window closes. The single place the grace
     ///      arithmetic lives, so the forfeit gate and the claim gate cannot drift apart.
     ///
-    ///      Anchor precedence, and why:
-    ///        - `lockEnd != 0` -> the documented `lockEnd + CLAIM_GRACE_PERIOD`. A real
-    ///          expiry always wins; this is v1's semantic and is deliberately not extended.
-    ///        - `lockEnd == 0` from a READABLE escrow is a real answer ("no position"),
-    ///          and it is the ORDINARY exit path, not an edge case: `TegridyStaking`
-    ///          zeroes `userTokenId[from]` on every outbound transfer and its `withdraw`
-    ///          runs `delete positions[tokenId]; _burn(tokenId)`. `lockEnd` is
-    ///          unrecoverable at that point, so grace is measured from `exitedAt` — the
-    ///          instant this contract OBSERVED the account's power fall to zero. Without
-    ///          that anchor a plain unstake-before-claim gets no grace whatsoever.
+    ///      THREE STATES, and the middle one is where the whole design lives:
+    ///
+    ///        (1) NO ANCHOR AT ALL          -> never forfeit, never refuse.
+    ///        (2) POSITION GONE, remembered expiry still in the FUTURE -> deadline 0.
+    ///        (3) otherwise                 -> `anchor + CLAIM_GRACE_PERIOD`.
+    ///
+    ///      (3) IS THE FIX. `TegridyStaking.withdraw` reverts `LockNotExpired` while
+    ///      `block.timestamp < p.lockEnd` (TegridyStaking.sol:1465), so an ON-TERM exit
+    ///      — the ordinary one, the only one `withdraw` permits — ALWAYS leaves
+    ///      `lockEnd <= block.timestamp` and lands here with the remembered number. That
+    ///      is the population this change exists to stop confiscating: before it, a plain
+    ///      unstake-then-claim read `lockEnd == 0` and was forfeitable by any
+    ///      permissionless `sync` in the same block it exited.
+    ///
+    ///      (2) IS NOT A NEW CONFISCATION — IT IS THE PRE-FIX BEHAVIOUR, PRESERVED. A
+    ///      position that vanished while its remembered expiry was still in the future
+    ///      was destroyed BEFORE term: `earlyWithdraw`, which reverts `MustUseWithdraw`
+    ///      unless `block.timestamp < p.lockEnd` (TegridyStaking.sol:1490), or an
+    ///      outbound NFT transfer. Both already got no grace at all, because the un-fixed
+    ///      gate computed `inGrace = false` from `lockEnd == 0`. They are deliberately
+    ///      left exactly as they were, because opening a window for them pays UNBOUNDED
+    ///      phantom accrual: a mirror nobody re-synced keeps earning across windows in
+    ///      which the account held nothing, measured on `RefuteAnchorReset`'s own fixture
+    ///      at 73.4999 ETH against 1.7499 ETH legitimately owed at exit — 42x. In (3) the
+    ///      same phantom exists but is BOUNDED BY CLAIM_GRACE_PERIOD itself: the mirror
+    ///      can only be stale from `lockEnd` to the claim, and the claim must land inside
+    ///      the window. That bounded exposure is v1's, unchanged. Bounding the ACCRUAL
+    ///      rather than the WINDOW is the real close for both, and is a separate change
+    ///      with its own blast radius — see STILL OPEN in the commit message.
     /// @return ok       False iff the escrow was unreadable. `deadline` is meaningless then.
-    /// @return deadline Claim window closes at this instant; 0 means it never opened.
+    /// @return deadline The instant the claim window closes. `type(uint256).max` means NO
+    ///                  ANCHOR EXISTS, and satisfies both call sites without either
+    ///                  needing to know about it: `block.timestamp < max` is always true
+    ///                  (never forfeit) and `block.timestamp >= max` is always false
+    ///                  (never refuse).
     function _claimDeadlineOf(address account) internal view returns (bool ok, uint256 deadline) {
         uint256 lockEnd;
         (ok, lockEnd) = _lockEndOf(account);
         if (!ok) return (false, 0);
 
-        uint256 anchor = lockEnd != 0 ? lockEnd : exitedAt[account];
-        // No anchor means the account never mirrored non-zero, and an account that never
-        // mirrored non-zero has no crystallised accrual to protect: `rewards` only grows
-        // through `earned()`, which is identically 0 under a zero mirror.
-        if (anchor == 0) return (true, 0);
-        return (true, anchor + CLAIM_GRACE_PERIOD);
+        // A LIVE read wins whenever it is later: a position that still exists is better
+        // evidence than a remembered one, and this keeps the ordinary "lock expired, NFT
+        // not yet burnt" case on exactly v1's semantics.
+        uint256 anchor = lockEndSeen[account];
+        if (lockEnd > anchor) anchor = lockEnd;
+
+        // (1) NO ANCHOR. Unreachable for an escrow staker — `rewards` grows only through
+        // `earned()`, `earned()` scales by `effectiveBalanceOf`, that mirror has exactly
+        // one writer, and the anchor is sampled at that same site on the same edge. It IS
+        // reachable for a RESTAKER, and this is stated rather than papered over: their
+        // NFT is custodied, so `_lockEndOf` answers a genuine, readable `(true, 0)` for
+        // their entire restaking life and no anchor is ever written for them. A clean
+        // unrestake hands the NFT back in the SAME transaction and restores a readable
+        // `lockEnd`; the `_returnNftSettleResidual` catch arm (TegridyRestaking.sol:342)
+        // does not — it has already deleted `restakers[user]` and now strands the NFT,
+        // leaving crystallised ETH with no readable expiry and no anchor. Resolve it the
+        // way every other unknown in this file resolves: toward the staker. The cost is a
+        // small permanent reserve (those wei stay in `rewards[account]`, stay inside
+        // `reservedETH()`, and never re-stream), not a loss and not a confiscation.
+        if (anchor == 0) return (true, type(uint256).max);
+
+        // (2) Destroyed before term. See the natspec above.
+        if (lockEnd == 0 && anchor > block.timestamp) return (true, 0);
+
+        // (3) Saturating: `positions()` is an external read, and an escrow answering near
+        // 2^256 must not brick this account's sync AND claim with an arithmetic revert.
+        unchecked {
+            if (anchor > type(uint256).max - CLAIM_GRACE_PERIOD) return (true, type(uint256).max);
+            return (true, anchor + CLAIM_GRACE_PERIOD);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════

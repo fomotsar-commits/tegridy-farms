@@ -699,21 +699,51 @@ contract StreamingRevenueDistributorTest is Test {
     // ║  THE ORDINARY EXIT — tokenId == 0 IS A REAL ANSWER             ║
     // ═══════════════════════════════════════════════════════════════════
 
+    /// @dev Alice exits ON TERM — the only exit `TegridyStaking.withdraw` permits, since
+    ///      it reverts `LockNotExpired` while `block.timestamp < p.lockEnd`
+    ///      (TegridyStaking.sol:1465). The previous version of this fixture cleared a
+    ///      FAR_FUTURE position mid-lock, which is not `withdraw` at all: that is
+    ///      `earlyWithdraw` (which reverts `MustUseWithdraw` unless the lock is still
+    ///      running, TegridyStaking.sol:1490) or an outbound NFT transfer — a different
+    ///      and deliberately ungraced case, pinned by `RefuteAnchorReset`.
+    /// @return owed    crystallised accrual at the instant the mirror fell to zero
+    /// @return lockEnd the staking-side number the grace is measured from
+    function _aliceExitsOnTerm() internal returns (uint256 owed, uint256 lockEnd) {
+        _enableStreaming();
+        lockEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, lockEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+
+        assertEq(dist.lockEndSeen(alice), lockEnd, "anchor was not sampled while the position lived");
+
+        vm.warp(lockEnd + 1);
+        dist.sync(alice);
+        assertEq(dist.effectiveBalanceOf(alice), 0, "expired lock still mirrored");
+        owed = dist.rewards(alice);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised to forfeit");
+
+        // THE PROPERTY ATTEMPT 1 LACKED, stated as an assertion rather than a comment:
+        // `withdraw` runs `delete positions[tokenId]; _burn(tokenId)`, so the only
+        // permitted exit ERASES the `lockEnd` the grace is measured from. An anchor
+        // stamped when this contract NOTICES that fall is chosen by the account; the
+        // remembered NUMBER survives the burn untouched.
+        ve.clearPosition(alice);
+        assertEq(dist.lockEndSeen(alice), lockEnd, "the burn erased the anchor");
+    }
+
     /// @notice A fully-exited staker keeps the documented 7 days, measured from the
-    ///         durable `exitedAt` anchor because the burnt NFT leaves no `lockEnd`.
-    ///         Before the anchor existed this account was forfeitable in the SAME BLOCK
-    ///         it exited, with no outage involved at all.
+    ///         remembered `lockEndSeen` because the burnt NFT leaves no `lockEnd` to
+    ///         read. Before the anchor existed this account was forfeitable in the SAME
+    ///         BLOCK it exited, with no outage involved at all.
     function test_ExitedStakerKeepsGraceThenClaims() public {
-        uint256 owed = _crystalliseAliceAccrual();
+        (uint256 owed, uint256 lockEnd) = _aliceExitsOnTerm();
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
 
-        ve.clearPosition(alice);
-        dist.sync(alice);
-        assertEq(dist.effectiveBalanceOf(alice), 0, "exit not mirrored");
-        uint256 anchor = dist.exitedAt(alice);
-        assertEq(anchor, block.timestamp, "exit was not anchored");
-
-        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() - 1 hours);
+        vm.warp(lockEnd + dist.CLAIM_GRACE_PERIOD() - 1 hours);
         dist.sync(alice);
         assertEq(dist.rewards(alice), owed, "grace not honoured for an exited staker");
         assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited inside the grace window");
@@ -729,20 +759,15 @@ contract StreamingRevenueDistributorTest is Test {
     ///         killing recycling for the entire real population — while passing every
     ///         outage test above. This is the only test that kills that over-fix.
     function test_ExitedStakerForfeitsOnceGraceExpires() public {
-        uint256 owed = _crystalliseAliceAccrual();
+        (uint256 owed, uint256 lockEnd) = _aliceExitsOnTerm();
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
 
-        ve.clearPosition(alice);
-        dist.sync(alice);
-        uint256 anchor = dist.exitedAt(alice);
-        assertGt(anchor, 0, "exit was not anchored");
-
-        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() + 1);
+        vm.warp(lockEnd + dist.CLAIM_GRACE_PERIOD() + 1);
         dist.sync(alice);
 
         // The anchor must be DURABLE. If a later sync re-stamped it, grace would restart
         // on every touch and expire never — recycling would be dead by a different route.
-        assertEq(dist.exitedAt(alice), anchor, "anchor slid forward on a later sync");
+        assertEq(dist.lockEndSeen(alice), lockEnd, "anchor slid forward on a later sync");
 
         assertEq(dist.rewards(alice), 0, "past-grace exited staker was never forfeited");
         assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
@@ -751,6 +776,126 @@ contract StreamingRevenueDistributorTest is Test {
         vm.prank(alice);
         vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
         dist.getReward();
+    }
+
+    /// @notice THE ANCHOR CANNOT BE CHOSEN OR TIMED BY THE ACCOUNT IT PROTECTS — the
+    ///         property attempt 1 lacked, asserted directly. `StakingViewLib.votingPowerOf`
+    ///         skips every position with `nowTs >= p.lockEnd` (StakingViewLib.sol:100), so
+    ///         the moment the lock expires the account has no live power, the sample
+    ///         branch in `_updateReward` is never entered again, and the high-water mark
+    ///         is frozen at a staking-side number the account can no longer move. That is
+    ///         precisely the state a forfeit is decided in. Alice syncs her own record
+    ///         every day for twelve days and cannot shift it by one second.
+    function test_AnchorIsFrozenOnceTheLockExpires() public {
+        _enableStreaming();
+        uint256 lockEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, lockEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        assertEq(dist.lockEndSeen(alice), lockEnd, "anchor was not sampled while the lock was live");
+
+        // NOTE: `block.timestamp` is CSE-folded across `vm.warp` under via_ir, so the
+        // clock is carried in an explicit accumulator rather than re-read in the loop.
+        uint256 t = lockEnd + 1;
+        for (uint256 i; i < 12; ++i) {
+            vm.warp(t);
+            vm.prank(alice);
+            dist.sync(alice);
+            assertEq(dist.lockEndSeen(alice), lockEnd, "the account moved its own grace anchor");
+            t += 1 days;
+        }
+
+        // ...and the window she could not move has closed behind her.
+        vm.prank(alice);
+        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
+        dist.getReward();
+    }
+
+    /// @notice The anchor must TRACK a genuine lock extension, which is why the sample
+    ///         cannot be gated on the mirror moving. `extendLock` only requires the
+    ///         resulting expiry to exceed the old one (TegridyStaking.sol:1251), and the
+    ///         autoMaxLock relock inside `TegridyStaking.getReward` rewrites
+    ///         `p.lockEnd = block.timestamp + MAX_LOCK_DURATION` on EVERY claim
+    ///         (TegridyStaking.sol:1532). Both leave `boostBps` — and therefore this
+    ///         mirror — byte-identical. An anchor frozen at its first value, or sampled
+    ///         only when the mirror moves, would send a staker who relocked into a
+    ///         forfeit measured from the OLD expiry.
+    function test_AnchorFollowsALockExtension() public {
+        _enableStreaming();
+        uint256 firstEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, firstEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        assertEq(dist.lockEndSeen(alice), firstEnd);
+
+        // Relock. Same amount, same boost, same mirror — only `lockEnd` moves.
+        uint256 secondEnd = firstEnd + 60 days;
+        uint256 mirrorBefore = dist.effectiveBalanceOf(alice);
+        ve.setPosition(alice, 500e18, secondEnd);
+        dist.sync(alice);
+        assertEq(dist.effectiveBalanceOf(alice), mirrorBefore, "fixture is vacuous: the mirror moved");
+        assertEq(dist.lockEndSeen(alice), secondEnd, "anchor ignored a lock extension");
+
+        // Run the extended lock out and exit ON TERM. The burnt position leaves nothing
+        // to read, so the EXTENDED anchor is the only thing carrying the grace.
+        vm.warp(secondEnd + 1);
+        dist.sync(alice);
+        uint256 owed = dist.rewards(alice);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised");
+        ve.clearPosition(alice);
+
+        vm.warp(secondEnd + dist.CLAIM_GRACE_PERIOD() - 1 hours);
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+        dist.sync(alice);
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited at the pre-extension anchor");
+
+        uint256 balBefore = alice.balance;
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance - balBefore, owed, "a relocked staker's in-grace claim was refused");
+    }
+
+    /// @notice A LOCK EXTENSION NOBODY SYNCED still wins, which is why the LIVE read is
+    ///         preferred over the remembered one whenever it is later. `extendLock` can
+    ///         move `lockEnd` forward at any time (TegridyStaking.sol:1251) and nothing
+    ///         obliges a keeper to observe it, so the high-water mark can legitimately lag
+    ///         the truth. Drop that preference and a staker who relocked for two more
+    ///         months and was never re-synced is forfeited at the OLD expiry — a
+    ///         confiscation caused purely by keeper latency.
+    function test_AnUnsyncedLockExtensionStillBeatsTheStaleAnchor() public {
+        _enableStreaming();
+        uint256 firstEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, firstEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        assertEq(dist.lockEndSeen(alice), firstEnd);
+
+        // Alice relocks and NOBODY syncs her, so the extended lock runs out having never
+        // been sampled and the anchor keeps the stale `firstEnd`.
+        uint256 secondEnd = firstEnd + 60 days;
+        ve.setPosition(alice, 500e18, secondEnd);
+        vm.warp(secondEnd + 1);
+
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+        dist.sync(alice);
+        assertEq(dist.lockEndSeen(alice), firstEnd, "fixture is vacuous: the anchor was refreshed");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited at a stale anchor");
+
+        uint256 owed = dist.rewards(alice);
+        assertGt(owed, 0, "fixture is vacuous: nothing crystallised");
+        uint256 balBefore = alice.balance;
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance - balBefore, owed, "claim refused at a stale anchor after a relock");
     }
 
     /// @notice The zero anchor is never load-bearing. `rewards` only grows through
@@ -764,17 +909,21 @@ contract StreamingRevenueDistributorTest is Test {
         dist.notifyRewardAmount();
         vm.warp(block.timestamp + DURATION);
 
-        assertEq(dist.exitedAt(carol), 0, "anchor written without a mirror transition");
+        assertEq(dist.lockEndSeen(carol), 0, "anchor written for an account that never held power");
 
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
         dist.sync(carol);
         assertEq(dist.rewards(carol), 0);
         assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited a phantom balance");
 
-        // Gate ORDER matters: the lock/grace gate runs before the `reward == 0` check, so
-        // a total stranger is refused with NoLockedTokens, not NothingToClaim.
+        // SELECTOR CHANGED IN ATTEMPT 2, deliberately. With NO anchor at all the
+        // lock/grace gate declines to judge (`_claimDeadlineOf` state (1)) rather than
+        // refusing, so a total stranger now falls through to the `reward == 0` check.
+        // Both are reverts and neither moves a wei; the gate had to stop refusing on a
+        // missing anchor because refusing there is exactly what confiscates a restaker
+        // whose NFT stranded — see test_StrandedRestakerIsNeitherForfeitedNorRefused.
         vm.prank(carol);
-        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
+        vm.expectRevert(StreamingRevenueDistributor.NothingToClaim.selector);
         dist.getReward();
     }
 
@@ -812,11 +961,31 @@ contract StreamingRevenueDistributorTest is Test {
     ///         permanently. With only `_lockEndOf` three-valued they would still be
     ///         confiscated the moment their anchor expired, having exited nothing.
     ///         `_isRestaked`'s "unknown" signal is the whole guard here.
+    /// @dev    FIXTURE STRENGTHENED IN ATTEMPT 2. The previous version made Carol a
+    ///         restaker who had never held a staking position, so her `lockEndSeen` was 0
+    ///         and `_claimDeadlineOf`'s no-anchor branch would have saved her whether
+    ///         `_isRestaked` was three-valued or not — the assertions passed without the
+    ///         guard under test doing anything (mutation M3/M5 survived it). A restaker
+    ///         comes into existence by staking FIRST and restaking after, which writes a
+    ///         real anchor before the NFT is custodied. With that anchor present and its
+    ///         grace long expired, `_isRestaked` refusing to report an outage as "this
+    ///         account exited" is once again the only thing standing between Carol and a
+    ///         permissionless forfeit.
     function test_RestakingOutageDoesNotConfiscateARestaker() public {
         _enableStreaming();
         _wireRestaking();
-        restaking.setRestaker(carol, 42, 1000e18);
         _stake(bob, 1000e18);
+
+        uint256 carolEnd = block.timestamp + 2 days;
+        ve.setPosition(carol, 1000e18, carolEnd);
+        dist.sync(carol);
+        assertEq(dist.lockEndSeen(carol), carolEnd, "anchor not written before restaking");
+
+        // TegridyRestaking takes custody: the NFT leaves her, `userTokenId[carol]` is
+        // zeroed (StakingRewardLib.sol:890), and her power now arrives through the
+        // restaking leg instead.
+        restaking.setRestaker(carol, 42, 1000e18);
+        ve.clearPosition(carol);
         dist.sync(carol);
         dist.sync(bob);
         assertEq(dist.effectiveBalanceOf(carol), 1000e18, "restaker not mirrored");
@@ -833,9 +1002,11 @@ contract StreamingRevenueDistributorTest is Test {
         dist.sync(carol);
         assertEq(dist.effectiveBalanceOf(carol), 0, "forfeit gate was never reached");
 
-        // Warped well past any grace window, so the ONLY thing that can save Carol is
-        // `_isRestaked` refusing to report an outage as "this account exited".
-        vm.warp(block.timestamp + dist.CLAIM_GRACE_PERIOD() + 1);
+        // Warped past her own pre-restaking anchor + grace — the underlying lock ran out
+        // while the NFT was custodied, which is ordinary. She has exited NOTHING, and the
+        // ONLY thing that can save her is `_isRestaked` refusing to report an outage as
+        // "this account exited".
+        vm.warp(carolEnd + dist.CLAIM_GRACE_PERIOD() + 1);
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
         dist.sync(carol);
         assertEq(dist.rewards(carol), owed, "a restaking outage confiscated a restaker");
@@ -851,7 +1022,74 @@ contract StreamingRevenueDistributorTest is Test {
     ///         restaking — read cleanly, no outage — still forfeits once its grace
     ///         expires. An unset restaking contract and a live one that answers "no" are
     ///         real answers, not unknowns.
+    /// @dev    FIXTURE CORRECTED IN ATTEMPT 2, and the correction is the point. The
+    ///         previous version unwound Carol with `restaking.setRestaker(carol, 0, 0)`
+    ///         and left her with NO staking position afterwards. That is not a clean
+    ///         unrestake: every real exit path (`unrestake`, force-close,
+    ///         `emergencyWithdrawNFT`) deletes `restakers[user]` and hands the NFT back in
+    ///         the SAME transaction through `_returnNftSettleResidual`, whose
+    ///         `safeTransferFrom` repopulates `userTokenId` (StakingRewardLib.sol:897) and
+    ///         makes the real `lockEnd` readable again. The old fixture was silently
+    ///         modelling that function's CATCH ARM — the stranded-NFT case — while its
+    ///         docstring claimed the happy path. The stranded case now has its own test
+    ///         below, with the OPPOSITE expectation, deliberately.
     function test_FormerRestakerStillForfeitsOnceGraceExpires() public {
+        _enableStreaming();
+        _wireRestaking();
+        restaking.setRestaker(carol, 42, 1000e18);
+        _stake(bob, 1000e18);
+        dist.sync(carol);
+        dist.sync(bob);
+
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        vm.warp(block.timestamp + DURATION / 2);
+        dist.sync(carol);
+        assertGt(dist.rewards(carol), 0, "fixture is vacuous: nothing crystallised to forfeit");
+
+        // Carol genuinely unwinds. The NFT comes home in the same transaction, so her
+        // position — and its lockEnd — are readable again the moment she stops being a
+        // restaker. No anchor gap ever opens.
+        uint256 carolEnd = block.timestamp + 2 days;
+        restaking.setRestaker(carol, 0, 0);
+        ve.setPosition(carol, 1000e18, carolEnd);
+        dist.sync(carol);
+        assertEq(dist.lockEndSeen(carol), carolEnd, "the returned position was not anchored");
+
+        vm.warp(carolEnd + 1);
+        dist.sync(carol);
+        uint256 owed = dist.rewards(carol);
+        assertGt(owed, 0, "fixture is vacuous after the unwind");
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        vm.warp(carolEnd + dist.CLAIM_GRACE_PERIOD() + 1);
+        dist.sync(carol);
+        assertEq(dist.rewards(carol), 0, "a former restaker never forfeits");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+    }
+
+    /// @notice THE HONEST FALLBACK, PINNED — and the loud statement that the "an anchor
+    ///         always exists wherever there is something to forfeit" hypothesis is FALSE.
+    ///         It holds for escrow stakers by construction: `rewards` grows only through
+    ///         `earned()`, `earned()` scales by `effectiveBalanceOf`, that mirror has
+    ///         exactly one writer, and the anchor is sampled at that same site — and
+    ///         `StakingViewLib.votingPowerOf` counts a position only while
+    ///         `nowTs < p.lockEnd` (StakingViewLib.sol:100), so live power PROVES a
+    ///         readable non-zero `lockEnd`. It FAILS for restakers: TegridyRestaking
+    ///         custodies the NFT, `userTokenId` is 0 (StakingRewardLib.sol:890), and
+    ///         `_lockEndOf` therefore answers a genuine, readable `(true, 0)` for their
+    ///         entire restaking life. No `lockEndSeen` is ever written for them.
+    ///
+    ///         A clean unrestake repairs that in the same transaction (test above). The
+    ///         `_returnNftSettleResidual` CATCH ARM (TegridyRestaking.sol:342) does not:
+    ///         `restakers[user]` is already deleted and the NFT is stranded, leaving an
+    ///         account with crystallised ETH, no readable expiry, and no anchor.
+    ///         Forfeiting there re-arms attempt 1's bug against exactly the population
+    ///         `_isRestaked` was made three-valued for, so this contract declines to
+    ///         judge instead. The cost is real and stated rather than hidden: those wei
+    ///         stay in `rewards[carol]`, stay inside `reservedETH()`, and never re-stream
+    ///         until she calls `claimStrandedRestakeNFT` and is synced again.
+    function test_StrandedRestakerIsNeitherForfeitedNorRefused() public {
         _enableStreaming();
         _wireRestaking();
         restaking.setRestaker(carol, 42, 1000e18);
@@ -866,17 +1104,23 @@ contract StreamingRevenueDistributorTest is Test {
         uint256 owed = dist.rewards(carol);
         assertGt(owed, 0, "fixture is vacuous: nothing crystallised to forfeit");
 
-        // Carol genuinely unwinds her restaking position. The read is clean throughout.
+        // The stranded state: restaking membership gone, NFT never delivered, so the
+        // staking side still shows her nothing.
         restaking.setRestaker(carol, 0, 0);
         dist.sync(carol);
-        uint256 anchor = dist.exitedAt(carol);
-        assertGt(anchor, 0, "exit was not anchored");
+        assertEq(dist.effectiveBalanceOf(carol), 0, "forfeit gate was never reached");
+        assertEq(dist.lockEndSeen(carol), 0, "a custodied restaker was given a lockEnd anchor");
 
+        vm.warp(block.timestamp + 3650 days);
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
-        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() + 1);
         dist.sync(carol);
-        assertEq(dist.rewards(carol), 0, "a former restaker never forfeits");
-        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+        assertEq(dist.rewards(carol), owed, "a stranded restaker was confiscated");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "a stranded restaker was recycled");
+
+        uint256 balBefore = carol.balance;
+        vm.prank(carol);
+        dist.getReward();
+        assertEq(carol.balance - balBefore, owed, "a stranded restaker's own claim was refused");
     }
 
     function test_RestakerMirrorsThroughFallbackOnlyOnceWired() public {
