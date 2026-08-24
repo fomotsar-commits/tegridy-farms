@@ -138,6 +138,12 @@ const SURFACES: Surface[] = [
 
   // Farm (3 page + sections)
   { group: 'Farm', pageId: 'farm', idx: 0, label: 'F1 — Page bg' },
+  // Jungle Bay bungalow farm panel (renders at /farm in a non-default
+  // bungalow; note bungalow pools bypass overrides, so these picks apply
+  // only when viewed in the classic skin — registered for inventory parity).
+  { group: 'Farm', pageId: 'bungalow-farm', idx: 0, label: 'BF1 — Pool status card' },
+  { group: 'Farm', pageId: 'bungalow-farm', idx: 1, label: 'BF2 — Funding routes card' },
+  { group: 'Farm', pageId: 'bungalow-farm', idx: 2, label: 'BF3 — Page bg' },
   { group: 'Farm', pageId: 'farm', idx: 1, label: 'F2 — Season banner' },
   { group: 'Farm', pageId: 'farm-stats', idx: 0, label: 'FS1 — TVL stat' },
   { group: 'Farm', pageId: 'farm-stats', idx: 1, label: 'FS2 — TOWELI price stat' },

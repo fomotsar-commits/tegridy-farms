@@ -31,6 +31,8 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
+import { getBungalowIdentity } from '../lib/bungalows';
+import { BungalowHero } from '../components/bungalow/BungalowHero';
 
 // F91: surfaced from the Footer's community links — keep one source so Home
 // and Footer can't drift. (Footer still owns its own copy; these mirror it.)
@@ -154,6 +156,12 @@ export default function HomePage() {
     'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
 
+  // Jungle Bay bungalows: non-null when the active bungalow carries its own
+  // token identity (Bayla) — the hero cluster and yield calculator below
+  // switch to token-first surfaces. Resolved once per document (switching
+  // bungalows is a persist + reload), so a plain const is enough.
+  const bungalowIdentity = getBungalowIdentity();
+
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
   // never blocks interaction. Starts on a random quote so repeat visits feel fresh.
   const [quoteIdx, setQuoteIdx] = useState(() => Math.floor(Math.random() * TOWELIE_QUOTES.length));
@@ -233,6 +241,15 @@ export default function HomePage() {
               </Link>
             </div>
 
+            {/* Jungle Bay bungalows: when the active bungalow speaks for itself
+                (Bayla), the whole H1→copy→CTA→quote cluster below is replaced by
+                its token-first hero. The chain pills above and the security badge
+                after stay — they are venue facts either way. The classic cluster
+                is untouched for the Toweli default. */}
+            {bungalowIdentity ? (
+              <BungalowHero bungalow={bungalowIdentity} />
+            ) : (
+            <>
             {/* H1 2026-07-19: "Yield with Tegridy Farms" was generic — it could have
                 headlined any farm. It deliberately does NOT lead with the ETH
                 fee-share: that mechanic is wired on-chain but has distributed 0 ETH
@@ -323,6 +340,8 @@ export default function HomePage() {
                 </m.span>
               </AnimatePresence>
             </div>
+            </>
+            )}
 
             {/* Security trust badge — visible in hero so first-time visitors
                 see security posture before scrolling. Links to /security.
@@ -349,8 +368,10 @@ export default function HomePage() {
 
           {/* Wallet-less yield calculator for first-time visitors.
               Only shown when disconnected — once they connect, the live stats
-              and Dashboard are the better signal. */}
-          {!address && (
+              and Dashboard are the better signal. Suppressed in a token-first
+              bungalow: it computes TOWELI staking yield, which is the wrong
+              token there (Bayla's farm panel owns that story). */}
+          {!address && !bungalowIdentity && (
             <div className="mt-10 max-w-xl">
               <YieldCalculator />
             </div>

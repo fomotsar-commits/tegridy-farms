@@ -50,6 +50,9 @@ try {
       await page.goto(BASE + route, { waitUntil: 'domcontentloaded' });
       await settle(page);
       await page.screenshot({ path: `${OUT}/toweli-${name}-desktop.png` });
+      if (name === 'home') {
+        ok('A: toweli home keeps the classic hero', await page.locator('h1:has-text("Farm TOWELI.")').count() === 1);
+      }
     }
     const srcs = await artSrcs(page);
     ok('A: toweli mode shows zero bayla art', srcs.every((s) => !s.src?.includes('/art/bayla/')),
@@ -75,6 +78,20 @@ try {
       const swapped = nonShared.filter((s) => s.src?.includes('/art/bayla/'));
       ok(`B: ${name} art surfaces swapped to bayla`, nonShared.length > 0 && swapped.length === nonShared.length,
         `${swapped.length}/${nonShared.length}`);
+      // Token-first identity assertions (the "no TOWELI focus" contract).
+      if (name === 'home') {
+        ok('B: home hero speaks BAYLA', await page.locator('h1:has-text("BAYLA.")').count() === 1);
+        ok('B: home hero drops the TOWELI headline', await page.locator('h1:has-text("Farm TOWELI.")').count() === 0);
+        ok('B: the muse line replaces the Towelie ticker',
+          await page.locator('text=The work is yours. The light is hers.').count() >= 1
+          && await page.locator('text=— Towelie').count() === 0);
+        ok('B: Towelie assistant is muted in bayla mode', await page.locator('text=Ask me').count() === 0);
+      }
+      if (name === 'farm') {
+        ok('B: farm renders the BAYLA panel', await page.locator('h1:has-text("Stake BAYLA.")').count() === 1);
+        ok('B: farm panel self-gates honestly', await page.locator('text=Not deployed yet').count() === 1);
+        ok('B: farm drops the TOWELI stack', await page.locator('text=TOWELI Price').count() === 0);
+      }
     }
     // The nav-logo replay button is a BUTTON — must keep classic art.
     const navLogo = await page.$eval('button[title^="Replay splash"] img', (i) => i.getAttribute('src'));

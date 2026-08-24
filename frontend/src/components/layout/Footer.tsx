@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
-import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
@@ -75,6 +75,9 @@ const TRUST_LINKS: { to: string; label: string }[] = [
 ];
 
 export function Footer() {
+  // Jungle Bay bungalows: token-first footer identity (blurb + contract card)
+  // when the active bungalow carries one. Stable per document.
+  const bungalowIdentity = getBungalowIdentity();
   // Footer sits on top of whatever fixed art background the current page provides
   // (galleryCollage on Home, apeHug on Trade, etc.). Before this change, links were
   // text-white/60 with no scrim — barely legible over bright art regions. Now we
@@ -113,15 +116,36 @@ export function Footer() {
             {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
                 there for the reasoning. This blurb renders on EVERY page, so it was the
                 widest-reach copy of both the single-chain framing and the "100% of
-                protocol swap fees" claim that AUDIT R073 contradicts. */}
-            <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-              Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
-            </p>
+                protocol swap fees" claim that AUDIT R073 contradicts.
+                Jungle Bay bungalows: in a token-first bungalow (Bayla) the blurb and
+                the contract card speak that token instead — the classic TOWELI copy
+                is untouched in the default. */}
+            {bungalowIdentity ? (
+              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
+                {bungalowIdentity.name} bungalow — Jungle Bay Island. {bungalowIdentity.tagline}{' '}
+                Trade {bungalowIdentity.symbol} on Solana; scan any token on either chain.
+              </p>
+            ) : (
+              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
+                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
+              </p>
+            )}
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
-              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Contract</p>
-              <CopyButton text={TOWELI_ADDRESS} display={shortenAddress(TOWELI_ADDRESS, 6)}
+              <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
+                {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'Contract'}
+              </p>
+              <CopyButton
+                text={bungalowIdentity?.address ?? TOWELI_ADDRESS}
+                display={shortenAddress(bungalowIdentity?.address ?? TOWELI_ADDRESS, 6)}
                 className="font-mono text-[12px]"
                 style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }} />
+              {bungalowIdentity && bungalowExplorerUrl(bungalowIdentity) && (
+                <a href={bungalowExplorerUrl(bungalowIdentity)!} target="_blank" rel="noopener noreferrer"
+                  aria-label="View token on block explorer (opens in new tab)"
+                  className="block mt-1 text-[11px] underline underline-offset-2 text-white/80 hover:text-white" style={LINK_SHADOW}>
+                  View on explorer ↗
+                </a>
+              )}
             </div>
           </div>
 

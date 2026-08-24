@@ -10,6 +10,7 @@ import { ART } from '../lib/artConfig';
 
 const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
   ethereum: 'Ethereum',
+  base: 'Base',
   solana: 'Solana',
   tbd: 'TBD',
 };
@@ -103,7 +104,7 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-white text-[13px] font-semibold tracking-wide">{b.name}</span>
                   <span className="text-white/50 text-[10px] uppercase tracking-wider">
-                    {b.live ? CHAIN_LABEL[b.chain] : 'Soon'}
+                    {b.chain !== 'tbd' ? CHAIN_LABEL[b.chain] : ''}{!b.live ? (b.chain !== 'tbd' ? ' · Soon' : 'Soon') : ''}
                   </span>
                 </div>
                 <p className="text-white/60 text-[11px] leading-snug mt-0.5">{b.tagline}</p>

@@ -5,49 +5,69 @@ import { TOWELI_ADDRESS } from './constants';
 /**
  * Jungle Bay Island — the 13 bungalows.
  *
- * Each bungalow is one community token. Entering a bungalow re-skins the app's
- * BACKGROUNDS (every `pageArt()` surface — fullscreen page art, card art,
- * stat-tile art) with that bungalow's own art pool. Nothing else changes:
- * buttons, token logos, copy, contracts and rails all stay exactly as built.
+ * "An island in a sea of rugs. Built by the memes. Bungalows for token
+ * communities, an artist economy, and time held is what counts." — the
+ * island's own landing (memetics.wtf).
+ *
+ * The roster below is the island's PUBLISHED canon, read from memetics.wtf's
+ * SPOTS + SIGNSV2 registries on 2026-08-24: twelve settled/named token
+ * bungalows across Ethereum, Base and Solana, plus one unmarked bungalow
+ * ("Someone is building here."). Addresses come from the island's painter
+ * SIGNS canon verbatim — never guess or "fix" one; if the island updates,
+ * re-read the source.
+ *
+ * Entering a bungalow re-skins the app: every `pageArt()` BACKGROUND surface
+ * draws from that bungalow's art pool, and (for bungalows that carry an
+ * `identity`) the hero, farm surface and footer contract card speak that
+ * token instead of TOWELI. Buttons, nav chrome, rails and contracts never
+ * change. The classic Towelie skin is the untouched default.
  *
  * Design constraints, in order:
- *  - Additive only. The classic Towelie art system (ART / ART_OVERRIDES /
- *    ART_POOL_ALL) is untouched and remains the default when no bungalow is
- *    chosen. See feedback_preserve_art — existing art is never removed.
- *  - Zero per-surface edits. `pageArt()` is the single choke point every art
- *    surface already goes through, so the swap happens there and nowhere else.
- *  - `pageArt()` is called at module top-level in places (loader constants,
- *    STAT_ARTS), so the active bungalow must resolve synchronously — plain
- *    localStorage/query reads, no context, no async. Switching bungalows is a
- *    persist + full reload, which also keeps every deterministic-rotation
- *    consumer consistent within a single document lifetime.
- *
- * Only bungalows with `live: true` are selectable. The remaining slots are
- * committed placeholders: fill in name/symbol/chain/address/artPool as each
- * bungalow's token + art set is confirmed, flip `live`, and the picker,
- * deep links (?bungalow=<id>) and theming all light up with no other change.
+ *  - Additive only (feedback_preserve_art) — classic art/copy is layered
+ *    over, never edited.
+ *  - Zero per-surface edits for art: `pageArt()` is the single choke point.
+ *  - Synchronous resolution: `pageArt()` runs at module scope in places, so
+ *    the active bungalow is a plain localStorage/query read, and switching
+ *    is persist + reload.
  */
+export interface BungalowIdentity {
+  /** H1 first line (the token, big). */
+  heroTitle: string;
+  /** H1 second line (the island's status line for the spot). */
+  heroLine: string;
+  /** Hero paragraph. */
+  heroCopy: string;
+  /** Quote pill under the CTAs (replaces the Towelie ticker). */
+  museLine: string;
+  museBy: string;
+}
+
 export interface Bungalow {
-  /** Stable id — storage value, ?bungalow= deep-link value, picker key. */
+  /** Stable id — island slug, storage value, ?bungalow= deep-link value. */
   id: string;
   name: string;
   symbol: string;
-  /** Chain the bungalow's token lives on. 'tbd' until confirmed. */
-  chain: 'ethereum' | 'solana' | 'tbd';
-  /** Token contract address (EVM) or mint (Solana). Undefined until confirmed. */
+  chain: 'ethereum' | 'base' | 'solana' | 'tbd';
+  /** Token contract (EVM) or mint (Solana), verbatim from the island canon. */
   address?: string;
-  /** One-liner shown on the picker card. */
+  /** The island's status word for the spot (SETTLED / NEWEST / QUIET). */
+  status: string;
+  /** The spot's plaque line. */
   tagline: string;
-  /**
-   * Background art pool for this bungalow. Undefined means "classic art
-   * system" (Towelie keeps ART_OVERRIDES + ART_POOL_ALL). A non-empty pool
-   * fully replaces background rotation while this bungalow is active.
-   */
+  /** The spot's accent color on the island map. */
+  accent?: string;
+  /** External trade deep link (canon pattern: Uniswap for TOWELI, Jupiter here). */
+  swapUrl?: string;
+  /** Live liquidity pools for this token (labels + external pair pages). */
+  pools?: { label: string; url: string }[];
+  /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
-  /** Thumbnail shown on the picker card. */
+  /** Picker card thumbnail. */
   thumb: string;
-  /** Selectable in the picker. */
+  /** Selectable in the picker (needs an art pool at minimum). */
   live: boolean;
+  /** Token-first copy for surfaces that re-speak in this bungalow's voice. */
+  identity?: BungalowIdentity;
 }
 
 /** Bayla background pool — /public/art/bayla, dropped 2026-08-24 (24 pieces). */
@@ -63,6 +83,8 @@ export const BAYLA_ART: ArtPiece[] = Array.from({ length: 24 }, (_, i) => {
 
 export const DEFAULT_BUNGALOW_ID = 'toweli';
 
+export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+
 export const BUNGALOWS: Bungalow[] = [
   {
     id: 'toweli',
@@ -70,7 +92,10 @@ export const BUNGALOWS: Bungalow[] = [
     symbol: 'TOWELI',
     chain: 'ethereum',
     address: TOWELI_ADDRESS,
+    status: 'SETTLED',
     tagline: 'The original bungalow. Classic Tegridy art.',
+    accent: '#6fd9a8',
+    swapUrl: `https://app.uniswap.org/swap?outputCurrency=${TOWELI_ADDRESS}&chain=mainnet`,
     thumb: '/art/bobowelie.jpg',
     live: true,
   },
@@ -79,35 +104,45 @@ export const BUNGALOWS: Bungalow[] = [
     name: 'Bayla',
     symbol: 'BAYLA',
     chain: 'solana',
-    address: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump',
-    tagline: 'The green spirit of the island.',
+    address: BAYLA_MINT,
+    status: 'NEWEST',
+    tagline: 'The muse was always here.',
+    accent: '#8ef0d8',
+    swapUrl: `https://jup.ag/swap/SOL-${BAYLA_MINT}`,
+    // Live pairs read from Dexscreener 2026-08-24 (pumpswap = the graduated
+    // pump.fun pool; the Meteora DYN2 leg pairs her with TBBB).
+    pools: [
+      { label: 'BAYLA / SOL · PumpSwap', url: 'https://dexscreener.com/solana/8z52phbctyyw8fsmbbz9kewy2n1w4ucgjc9vcsjypk2n' },
+      { label: 'BAYLA / TBBB · Meteora', url: 'https://dexscreener.com/solana/bo16t7xgbdta2jdrozqhqnsvsb2irhgbydhmsvsr72wv' },
+    ],
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
     live: true,
+    identity: {
+      heroTitle: 'BAYLA.',
+      heroLine: 'The muse was always here.',
+      heroCopy:
+        'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
+        'Artists Collective, living on Solana, seated at the lighthouse. Her pull ' +
+        'reaches every kind of maker. Trade her, hold her for heat, and stake at the ' +
+        'lighthouse when the pool opens. DM+T = Memetic Finance.',
+      museLine: 'The work is yours. The light is hers.',
+      museBy: 'Jungle Bay Artists Collective',
+    },
   },
-  {
-    id: 'drb',
-    name: 'DRB',
-    symbol: 'DRB',
-    chain: 'tbd',
-    tagline: 'Der Bar enters the ring.',
-    thumb: '/art/boxing-ring.jpg',
-    live: false,
-  },
-  // Bungalows 4–13: reserved. Confirm token (name/symbol/chain/address) and
-  // drop an art set in /public/art/<id>/ to open each one.
-  ...Array.from({ length: 10 }, (_, i) => {
-    const n = String(i + 4).padStart(2, '0');
-    return {
-      id: `bungalow-${n}`,
-      name: `Bungalow ${i + 4}`,
-      symbol: 'TBD',
-      chain: 'tbd' as const,
-      tagline: 'Unclaimed bungalow.',
-      thumb: '/art/jungle-dark.jpg',
-      live: false,
-    };
-  }),
+  // ——— The settled residents (island canon order) ———
+  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', thumb: '/art/mfers-heaven.jpg', live: false },
+  { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', thumb: '/art/boxing-ring.jpg', live: false },
+  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'jbm', name: 'JBM', symbol: 'JBM', chain: 'base', address: '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#ffd078', thumb: '/art/jungle-bus.jpg', live: false },
+  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', thumb: '/art/beach-vibes.jpg', live: false },
+  { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'base', address: '0x58d6e314755c2668f3d7358cc7a7a06c4314b238', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', thumb: '/art/jungle-dark.jpg', live: false },
+  // ——— The quiet one ———
+  { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'Someone is building here.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
 ];
 
 /** Storage key — tegridy- prefix keeps it inside the eviction whitelist, same as tegridy-theme. */
@@ -152,6 +187,17 @@ export function getActiveBungalow(): Bungalow | null {
   return byId(safeGetItem(BUNGALOW_STORAGE_KEY));
 }
 
+/**
+ * The active bungalow when it speaks for itself (a non-default bungalow
+ * carrying an `identity`) — the gate for token-first surfaces (hero, farm,
+ * footer card) and for muting Towelie personality surfaces.
+ */
+export function getBungalowIdentity(): (Bungalow & { identity: BungalowIdentity }) | null {
+  const b = getActiveBungalow();
+  if (!b || b.id === DEFAULT_BUNGALOW_ID || !b.identity) return null;
+  return b as Bungalow & { identity: BungalowIdentity };
+}
+
 /** True once the visitor has made any bungalow choice (including the default). */
 export function hasChosenBungalow(): boolean {
   return safeGetItem(BUNGALOW_STORAGE_KEY) !== null;
@@ -172,4 +218,15 @@ export function bungalowArtPool(pageId: string): ArtPiece[] | null {
   const active = getActiveBungalow();
   if (!active || !active.artPool || active.artPool.length === 0) return null;
   return active.artPool;
+}
+
+/** Block-explorer link for a bungalow's token, per its chain. */
+export function bungalowExplorerUrl(b: Bungalow): string | null {
+  if (!b.address) return null;
+  switch (b.chain) {
+    case 'ethereum': return `https://etherscan.io/token/${b.address}`;
+    case 'base': return `https://basescan.org/token/${b.address}`;
+    case 'solana': return `https://solscan.io/token/${b.address}`;
+    default: return null;
+  }
 }

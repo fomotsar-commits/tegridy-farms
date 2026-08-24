@@ -30,6 +30,8 @@ import { seasonStatus } from '../lib/season';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
+import { getActiveBungalow, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -43,7 +45,24 @@ import { LivePoolCard } from '../components/farm/LivePoolCard';
 import { UpcomingPoolCard } from '../components/farm/UpcomingPoolCard';
 import { ArtImg } from '../components/ArtImg';
 
+/**
+ * Jungle Bay bungalows: in a non-default bungalow the whole TOWELI farm stack
+ * (staking card, LP farming, boosts) is the wrong token and the wrong chain,
+ * so the route renders the bungalow's own self-gating farm panel instead.
+ * The branch lives in this wrapper — NOT as an early return inside the farm
+ * component — so the classic component's hook order is untouched. The active
+ * bungalow can only change via persist+reload, so the branch is stable for
+ * the lifetime of the document.
+ */
 export default function FarmPage() {
+  const bungalow = getActiveBungalow();
+  if (bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID) {
+    return <BungalowFarmPanel bungalow={bungalow} />;
+  }
+  return <ToweliFarm />;
+}
+
+function ToweliFarm() {
   usePageTitle('Farm', 'Stake TOWELI and provide liquidity to earn boosted yield on Tegridy Farms.');
   const { isConnected } = useAccount();
   // Wrong-chain display delegated to <WrongChainBanner/>; button-level chain

@@ -7,6 +7,7 @@ import {
   BUNGALOW_STORAGE_KEY,
   DEFAULT_BUNGALOW_ID,
   getActiveBungalow,
+  getBungalowIdentity,
   hasChosenBungalow,
   setActiveBungalow,
   bungalowArtPool,
@@ -49,6 +50,39 @@ describe('bungalow registry', () => {
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
       expect(b.artPool, `${b.id} has no art pool until it goes live`).toBeUndefined();
     }
+  });
+
+  it('carries the island canon roster (memetics.wtf SPOTS + SIGNSV2, read 2026-08-24)', () => {
+    // Slug → [chain, address]. Addresses are the painter SIGNS canon verbatim —
+    // this test exists so a typo'd or "helpfully fixed" address cannot land.
+    const CANON: Record<string, [string, string | undefined]> = {
+      toweli: ['ethereum', '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D'],
+      bayla: ['solana', '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'],
+      pepe: ['ethereum', '0x6982508145454ce325ddbe47a25d4ec3d2311933'],
+      qr: ['base', '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf'],
+      mfer: ['base', '0xe3086852a4b125803c815a158249ae468a3254ca'],
+      bnkr: ['base', '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b'],
+      drb: ['base', '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2'],
+      bobo: ['solana', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'],
+      jbm: ['base', '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d'],
+      soy: ['solana', '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV'],
+      brainlet: ['solana', '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF'],
+      rizz: ['base', '0x58d6e314755c2668f3d7358cc7a7a06c4314b238'],
+      nb1: ['tbd', undefined],
+    };
+    expect(new Set(BUNGALOWS.map((b) => b.id))).toEqual(new Set(Object.keys(CANON)));
+    for (const b of BUNGALOWS) {
+      const [chain, address] = CANON[b.id]!;
+      expect(b.chain, `${b.id} chain`).toBe(chain);
+      expect(b.address, `${b.id} address`).toBe(address);
+    }
+  });
+
+  it('gives Bayla her token-first identity and the default none', () => {
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(bayla.identity?.museLine).toBe('The work is yours. The light is hers.');
+    expect(bayla.swapUrl).toContain('jup.ag');
+    expect(BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID)!.identity).toBeUndefined();
   });
 });
 
@@ -120,6 +154,14 @@ describe('resolution order', () => {
     window.history.replaceState({}, '', '/?bungalow=drb');
     expect(getActiveBungalow()).toBeNull();
     expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBeNull();
+  });
+
+  it('getBungalowIdentity gates token-first surfaces: bayla yes, default and no-choice no', () => {
+    expect(getBungalowIdentity()).toBeNull();
+    setActiveBungalow('bayla');
+    expect(getBungalowIdentity()?.symbol).toBe('BAYLA');
+    setActiveBungalow(DEFAULT_BUNGALOW_ID);
+    expect(getBungalowIdentity()).toBeNull();
   });
 
   it('switching back to the default restores classic art everywhere', () => {

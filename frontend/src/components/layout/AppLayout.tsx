@@ -33,7 +33,7 @@ import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { PageTransition } from '../motion';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { BungalowPicker } from '../BungalowPicker';
-import { hasChosenBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -125,6 +125,11 @@ export function AppLayout() {
   const pickerOpen = pickerRequested
     || (splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
   const closePicker = () => { setPickerDismissed(true); setPickerRequested(false); };
+  // Token-first bungalow (Bayla): mute the Towelie personality surfaces —
+  // the assistant bubble and the TOWELI-scripted onboarding are the wrong
+  // voice there. Both return untouched in the Toweli default. Stable per
+  // document (bungalow switches reload).
+  const bungalowIdentity = getBungalowIdentity();
 
   // F44: announce route changes to screen readers. SPA navigations are otherwise
   // silent — title changes aren't reliably announced on route change. We read
@@ -204,13 +209,17 @@ export function AppLayout() {
       </div>
 
       <BottomNav />
-      <LiveActivity />
-      <TowelieAssistant />
+      {/* LiveActivity's ticker is TOWELI-denominated (price pill, protocol
+          feed) — muted alongside the assistant in a token-first bungalow. */}
+      {!bungalowIdentity && <LiveActivity />}
+      {!bungalowIdentity && <TowelieAssistant />}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →
-          bungalow choice → onboarding, not all three stacked. */}
-      {splashDone && !pickerOpen && <OnboardingModal />}
+          bungalow choice → onboarding, not all three stacked. Suppressed
+          entirely in a token-first bungalow — its four steps script the
+          TOWELI journey (buy → stake → boost), the wrong tour there. */}
+      {splashDone && !pickerOpen && !bungalowIdentity && <OnboardingModal />}
       {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
           (consent === 'pending'); analytics + error reporting are blocked
           until the user clicks Accept or Decline. */}
