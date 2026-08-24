@@ -469,6 +469,12 @@ export const test = base.extend<Fixtures>({
       try {
         sessionStorage.setItem('tf_loaded', '1');
         localStorage.setItem('tegridy-onboarding-seen', '1');
+        // BungalowPicker (Jungle Bay Island) is a FOURTH full-viewport overlay;
+        // it auto-opens only on a fresh-splash load with no persisted choice.
+        // The tf_loaded seed above already suppresses it (freshSplash gate in
+        // AppLayout), but pin the choice too so specs that clear sessionStorage
+        // or replay the splash stay picker-free.
+        localStorage.setItem('tegridy-bungalow', 'toweli');
         // ConsentBanner is a THIRD full-width fixed overlay that this list
         // missed (role=dialog, z-[120], bottom-0 — AppLayout.tsx:187). On short
         // viewports it and the fixed header sandwich the page, so Playwright

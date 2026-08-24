@@ -32,6 +32,8 @@ import { TowelieProvider } from '../../hooks/useTowelie';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { PageTransition } from '../motion';
 import { OnboardingModal } from '../ui/OnboardingModal';
+import { BungalowPicker } from '../BungalowPicker';
+import { hasChosenBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -98,6 +100,31 @@ export function AppLayout() {
   // plays or is skipped (repeat visit / reduced-motion) — so this flips true the
   // moment the splash is gone.
   const [splashDone, setSplashDone] = useState(false);
+
+  // Jungle Bay bungalow picker — the screen after the intro. `freshSplash`
+  // captures whether this document load actually played (or would have
+  // played) the splash: the state initializer runs before AppLoader mounts
+  // and sets `tf_loaded`, so a pre-seeded session (returning tab, e2e
+  // fixtures) reads true here and never auto-opens the picker. It auto-opens
+  // exactly once — first splash with no persisted choice — and any dismissal
+  // persists a choice (see BungalowPicker), so it never nags.
+  const [freshSplash] = useState(() => {
+    try { return !sessionStorage.getItem('tf_loaded'); } catch { return false; }
+  });
+  const [bungalowChosenAtMount] = useState(() => hasChosenBungalow());
+  const [pickerDismissed, setPickerDismissed] = useState(false);
+  // Footer's "Bungalows" button (and anything else) can reopen it any time.
+  const [pickerRequested, setPickerRequested] = useState(false);
+  useEffect(() => {
+    const openPicker = () => setPickerRequested(true);
+    window.addEventListener(OPEN_BUNGALOWS_EVENT, openPicker);
+    return () => window.removeEventListener(OPEN_BUNGALOWS_EVENT, openPicker);
+  }, []);
+  // Derived, not set in an effect (react-hooks/set-state-in-effect): auto-open
+  // exactly once — first real splash, no persisted choice, not yet dismissed.
+  const pickerOpen = pickerRequested
+    || (splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
+  const closePicker = () => { setPickerDismissed(true); setPickerRequested(false); };
 
   // F44: announce route changes to screen readers. SPA navigations are otherwise
   // silent — title changes aren't reliably announced on route change. We read
@@ -179,8 +206,11 @@ export function AppLayout() {
       <BottomNav />
       <LiveActivity />
       <TowelieAssistant />
-      {/* F7: only after the splash finishes (see splashDone above). */}
-      {splashDone && <OnboardingModal />}
+      <BungalowPicker open={pickerOpen} onClose={closePicker} />
+      {/* F7: only after the splash finishes (see splashDone above), and held
+          back while the bungalow picker is up so a first visit sees intro →
+          bungalow choice → onboarding, not all three stacked. */}
+      {splashDone && !pickerOpen && <OnboardingModal />}
       {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
           (consent === 'pending'); analytics + error reporting are blocked
           until the user clicks Accept or Decline. */}

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
+import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
@@ -134,6 +135,18 @@ export function Footer() {
                   {l.label}
                 </Link>
               ))}
+              {/* Jungle Bay Island: reopen the bungalow picker (AppLayout
+                  listens). Lives in this column, NOT the bottom bar — the
+                  TowelieAssistant bubble floats over the bottom-right corner
+                  and intercepts clicks there. */}
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOWS_EVENT))}
+                className={`${LINK_CLASS} text-left`}
+                style={LINK_SHADOW}
+              >
+                🏝️ Bungalows{getActiveBungalow() ? ` — ${getActiveBungalow()!.name}` : ''}
+              </button>
             </div>
           </div>
 

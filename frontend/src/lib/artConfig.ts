@@ -1,5 +1,6 @@
 import type React from 'react';
 import { ART_OVERRIDES } from './artOverrides';
+import { bungalowArtPool } from './bungalows';
 
 export interface ArtPiece {
   id: string;
@@ -310,6 +311,20 @@ function artById(): Map<string, ArtPiece> {
  * honor it; legacy surfaces continue using their hardcoded inline position.
  */
 export function pageArt(pageId: string, idx: number): ArtPiece {
+  // Jungle Bay bungalows: an active non-default bungalow swaps every
+  // background/card surface to its own pool via the same deterministic
+  // rotation. ART_OVERRIDES are skipped on purpose — they pick classic art
+  // ids that don't exist in bungalow pools. Shared surfaces (nav-logo,
+  // loader) return null from bungalowArtPool and stay classic.
+  const bungalowPool = bungalowArtPool(pageId);
+  if (bungalowPool) {
+    let bHash = 5381;
+    for (let i = 0; i < pageId.length; i++) {
+      bHash = ((bHash * 33) ^ pageId.charCodeAt(i)) >>> 0;
+    }
+    const bOffset = bHash % bungalowPool.length;
+    return bungalowPool[(bOffset + idx) % bungalowPool.length]!;
+  }
   const override = ART_OVERRIDES[`${pageId}:${idx}`];
   if (override) {
     const picked = artById().get(override.artId);
