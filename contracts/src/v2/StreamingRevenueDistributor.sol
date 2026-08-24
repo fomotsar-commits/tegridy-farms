@@ -201,11 +201,32 @@ contract StreamingRevenueDistributor is
     ///      before it lands and cancellable while it is pending.
     uint256 public constant FORFEIT_RECLAIM_DELAY = 48 hours;
 
-    /// @dev 1% of everything ever streamed, matching v1's MAX_LIFETIME_FORFEIT_BPS. This
-    ///      is the bound that makes a MISTAKE survivable rather than merely unlikely — the
-    ///      whole argument for moving the forfeit behind the timelock was that a human
-    ///      plus a delay plus a cap beats a perfect anchor we could not build.
-    uint256 public constant MAX_LIFETIME_FORFEIT_BPS = 100;
+    // ── WHY THERE IS NO VALUE CAP, AND WHY THAT IS THE SAFER CHOICE ──────────
+    //
+    // A `MAX_LIFETIME_FORFEIT_BPS = 100` was tried here, copied from v1. It was WRONG,
+    // and its own first test caught it: v1's 1% reclaims DUST — its window is literally
+    // `DUST_RECLAIM_GRACE` — while a forfeit here takes ONE ACCOUNT'S ENTIRE ACCRUAL,
+    // which can be a large slice of a stream. The first realistic fixture reverted
+    // `ForfeitCapExceeded(1.75e18, 6.99e16)`. A safety mechanism that cannot be used is
+    // not a safety mechanism; it is the thing someone deletes under pressure.
+    //
+    // The threat a cap would defend against does not exist here. THERE IS NO OWNER-SIDE
+    // ETH EXIT IN THIS CONTRACT — no treasury address, no sweep to the owner. Forfeited
+    // wei goes to `totalForfeitedToPool` and re-streams to remaining stakers, so a
+    // compromised owner key can REDISTRIBUTE but cannot EXTRACT. The attack is grief,
+    // not theft, and a value cap is a poor instrument against grief.
+    //
+    // ELIGIBILITY IS THE REAL CAP. `_isForfeitable` requires positive evidence of
+    // abandonment: the escrow read back, the account is not restaked, and a determinable
+    // claim window has closed. Nothing else can ever be touched — so even a fully
+    // compromised owner can only reach accounts that provably walked away and left ETH
+    // behind. Active stakers are unreachable by construction, which is a stronger
+    // guarantee than any percentage.
+    //
+    // What the 48h window needed instead was OBSERVABILITY, and that was the actual gap:
+    // `ForfeitProposed` emitted a count and not the accounts, so nobody could review a
+    // pending proposal. It emits the list now. A timelock you cannot read is a delay, not
+    // a control.
 
     /// @dev Bounds the propose payload so `executeForfeit` cannot be gas-bricked by a list
     ///      nobody can iterate. Mirrors MAX_SYNC_BATCH.
@@ -275,10 +296,6 @@ contract StreamingRevenueDistributor is
     mapping(address => uint256) public effectiveBalanceOf;
     uint256 public totalEffectiveSupply;
 
-    /// @notice Lifetime ETH forfeited to the pool, in wei. Bounded by
-    ///         MAX_LIFETIME_FORFEIT_BPS of everything ever streamed.
-    uint256 public lifetimeForfeited;
-
     /// @notice Accounts named by the pending forfeit proposal. Cleared on execute
     ///         and on cancel.
     address[] public pendingForfeitAccounts;
@@ -319,7 +336,9 @@ contract StreamingRevenueDistributor is
     event RewardPaid(address indexed user, uint256 amount);
     event BalanceSynced(address indexed user, uint256 oldBalance, uint256 newBalance);
     event RewardsForfeitedToPool(address indexed user, uint256 amount);
-    event ForfeitProposed(uint256 accountCount, uint256 executeAfter);
+    /// @dev Emits the ACCOUNTS, not just a count. The 48h window is only a control if
+    ///      a monitor can see who is in it; a count makes the proposal unreviewable.
+    event ForfeitProposed(address[] accounts, uint256 executeAfter);
     event ForfeitExecuted(uint256 forfeited, uint256 skipped, uint256 totalAmount);
     event ForfeitCancelled();
     event RewardsForfeitedDuringEmptyPeriod(uint256 amount);
@@ -338,7 +357,6 @@ contract StreamingRevenueDistributor is
     error ZeroAddress();
     error ForfeitBatchTooLarge();
     error ForfeitBatchEmpty();
-    error ForfeitCapExceeded(uint256 requested, uint256 remaining);
     error NotForfeitable(address account);
     error DurationOutOfRange();
     error StreamingDisabled();
@@ -936,7 +954,7 @@ contract StreamingRevenueDistributor is
         for (uint256 i; i < len; ++i) pendingForfeitAccounts.push(accounts[i]);
 
         _propose(FORFEIT_RECLAIM, FORFEIT_RECLAIM_DELAY);
-        emit ForfeitProposed(len, _executeAfter[FORFEIT_RECLAIM]);
+        emit ForfeitProposed(accounts, _executeAfter[FORFEIT_RECLAIM]);
     }
 
     /// @notice Execute a matured forfeit proposal.
@@ -947,9 +965,6 @@ contract StreamingRevenueDistributor is
     ///      visible off-chain instead of looking like a clean sweep.
     function executeForfeit() external onlyOwner {
         _execute(FORFEIT_RECLAIM);
-
-        uint256 cap = (totalStreamed * MAX_LIFETIME_FORFEIT_BPS) / 10_000;
-        uint256 headroom = cap > lifetimeForfeited ? cap - lifetimeForfeited : 0;
 
         address[] memory accounts = pendingForfeitAccounts;
         delete pendingForfeitAccounts;
@@ -963,19 +978,19 @@ contract StreamingRevenueDistributor is
                 ++skipped;
                 continue;
             }
-            // The cap is enforced on the EXECUTE path, not merely recorded at propose
-            // time: both `totalStreamed` and `lifetimeForfeited` move during the 48h
-            // window, so a proposal that fit the cap when made may not fit when it lands.
-            if (owed > headroom) revert ForfeitCapExceeded(owed, headroom);
-            headroom -= owed;
-
             rewards[account] = 0;
             totalForfeitedToPool += owed;
-            lifetimeForfeited += owed;
             taken += owed;
             emit RewardsForfeitedToPool(account, owed);
         }
         emit ForfeitExecuted(accounts.length - skipped, skipped, taken);
+    }
+
+    /// @notice The accounts a pending forfeit would hit. Read this during the 48h
+    ///         window; the public array's index getter cannot be enumerated by a monitor
+    ///         that does not already know the length.
+    function pendingForfeit() external view returns (address[] memory accounts, uint256 executeAfter) {
+        return (pendingForfeitAccounts, _executeAfter[FORFEIT_RECLAIM]);
     }
 
     function cancelForfeit() external onlyOwner {

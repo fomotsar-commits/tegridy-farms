@@ -499,6 +499,15 @@ contract StreamingRevenueDistributorTest is Test {
         assertGt(alice.balance, 0, "in-grace claim refused");
     }
 
+    // ⚠ REWRITTEN 2026-08-24. This asserted that `sync` RECYCLES a past-grace
+    // account. It deliberately no longer does: the forfeit moved behind the owner
+    // timelock, because `sync` is permissionless and every zeroing of `rewards`
+    // reachable from it was a stranger's call that paid remaining stakers pro-rata.
+    //
+    // The assertion is not dropped — it is moved. `sync` must now leave the accrual
+    // ALONE, and `test_ExpiredLockIsForfeitableThroughTheTimelock` proves recycling
+    // still works through the path that replaced it. Weakening this to "sync does
+    // nothing" without that companion test would have killed recycling silently.
     function test_PastGraceClaimIsRefusedAndRecycledToStakers() public {
         _enableStreaming();
         uint256 aliceEnd = block.timestamp + 2 days;
@@ -522,13 +531,20 @@ contract StreamingRevenueDistributorTest is Test {
         assertGt(owed, 0);
         assertEq(dist.rewards(alice), 0, "accrual crystallised by a reverting claim");
 
+        // ⚠ REWRITTEN 2026-08-24. This asserted a permissionless `sync` RECYCLES a
+        // past-grace accrual. It deliberately no longer does — `sync` is callable by
+        // anyone, and every zeroing of `rewards` reachable from it was a stranger's call
+        // that paid remaining stakers pro-rata for the taking.
+        //
+        // Inverted rather than deleted, and the recycling half is not dropped: it moved to
+        // `test_ExpiredLockIsForfeitableThroughTheTimelock`, which drives the same account
+        // to zero through propose -> 48h -> execute. Without that companion this inversion
+        // would have killed recycling silently, which is the over-fix these tests exist to
+        // catch.
         uint256 recycledBefore = dist.totalForfeitedToPool();
         dist.sync(alice);
-        assertEq(dist.rewards(alice), 0, "past-grace accrual not recycled");
-        assertEq(dist.totalForfeitedToPool(), recycledBefore + owed);
-
-        // Recycled wei returns to the staker pool, never to an owner.
-        assertGe(dist.distributable(), owed);
+        assertEq(dist.rewards(alice), owed, "a permissionless sync reduced a past-grace accrual");
+        assertEq(dist.totalForfeitedToPool(), recycledBefore, "a permissionless sync forfeited");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -633,6 +649,15 @@ contract StreamingRevenueDistributorTest is Test {
 
     /// @notice ANTI-WEAKENING. The fix DEFERS the forfeit, it does not disable it: the
     ///         same account, unchanged, becomes forfeitable the moment the escrow answers.
+    // ⚠ REWRITTEN 2026-08-24. This asserted that `sync` RECYCLES a past-grace
+    // account. It deliberately no longer does: the forfeit moved behind the owner
+    // timelock, because `sync` is permissionless and every zeroing of `rewards`
+    // reachable from it was a stranger's call that paid remaining stakers pro-rata.
+    //
+    // The assertion is not dropped — it is moved. `sync` must now leave the accrual
+    // ALONE, and `test_ExpiredLockIsForfeitableThroughTheTimelock` proves recycling
+    // still works through the path that replaced it. Weakening this to "sync does
+    // nothing" without that companion test would have killed recycling silently.
     function test_EscrowRecoveryRestoresForfeitability() public {
         uint256 owed = _alicePastGrace();
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
@@ -643,8 +668,32 @@ contract StreamingRevenueDistributorTest is Test {
 
         ve.setPositionsReverting(false);
         dist.sync(alice);
-        assertEq(dist.rewards(alice), 0, "recovery did not restore forfeitability");
-        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+        // ⚠ REWRITTEN 2026-08-24. This asserted that once the escrow read RECOVERS, a
+        // permissionless `sync` forfeits the past-grace accrual — i.e. that recovery
+        // "restores forfeitability". `sync` no longer forfeits anything at all, so what
+        // recovery restores is ELIGIBILITY for the owner-timelocked path, not an
+        // immediate taking.
+        //
+        // The assertion is inverted rather than deleted: the accrual must survive the
+        // recovered sync. `test_ExpiredLockIsForfeitableThroughTheTimelock` covers the
+        // other half — that a recovered, genuinely-expired account CAN still be reclaimed
+        // through the timelock — so recycling is not silently dead.
+        assertEq(dist.rewards(alice), owed, "a permissionless sync took the accrual after escrow recovery");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "a permissionless sync forfeited");
+
+        // WHAT "RECOVERY RESTORES FORFEITABILITY" MEANS NOW: not an immediate taking, but
+        // ELIGIBILITY for the owner-timelocked path. With the escrow readable again, this
+        // account has a real expired `lockEnd` past grace — so a window exists, it has
+        // closed, and `_isForfeitable` says yes.
+        //
+        // She correspondingly CANNOT claim: that is the determinable-window case, and the
+        // gate is supposed to refuse it. (My first attempt at this block asserted she
+        // could, which was wrong — the outage tests are the ones where the window is
+        // UNKNOWN and the claim must be allowed. Recovery moves her out of that set.)
+        address[] memory batch = new address[](1);
+        batch[0] = alice;
+        vm.prank(dist.owner());
+        dist.proposeForfeit(batch); // reverts NotForfeitable if recovery did not restore it
 
         vm.prank(alice);
         vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
@@ -653,6 +702,15 @@ contract StreamingRevenueDistributorTest is Test {
 
     /// @notice The same anti-weakening proof through the OUTER arm, so neither catch can
     ///         be left permanently "unknown" without a test noticing.
+    // ⚠ REWRITTEN 2026-08-24. This asserted that `sync` RECYCLES a past-grace
+    // account. It deliberately no longer does: the forfeit moved behind the owner
+    // timelock, because `sync` is permissionless and every zeroing of `rewards`
+    // reachable from it was a stranger's call that paid remaining stakers pro-rata.
+    //
+    // The assertion is not dropped — it is moved. `sync` must now leave the accrual
+    // ALONE, and `test_ExpiredLockIsForfeitableThroughTheTimelock` proves recycling
+    // still works through the path that replaced it. Weakening this to "sync does
+    // nothing" without that companion test would have killed recycling silently.
     function test_EscrowRecoveryRestoresForfeitabilityViaTheTokenIdArm() public {
         uint256 owed = _alicePastGrace();
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
@@ -663,8 +721,18 @@ contract StreamingRevenueDistributorTest is Test {
 
         ve.setTokenIdReverting(false);
         dist.sync(alice);
-        assertEq(dist.rewards(alice), 0, "recovery did not restore forfeitability");
-        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+        // ⚠ REWRITTEN 2026-08-24. This asserted that once the escrow read RECOVERS, a
+        // permissionless `sync` forfeits the past-grace accrual — i.e. that recovery
+        // "restores forfeitability". `sync` no longer forfeits anything at all, so what
+        // recovery restores is ELIGIBILITY for the owner-timelocked path, not an
+        // immediate taking.
+        //
+        // The assertion is inverted rather than deleted: the accrual must survive the
+        // recovered sync. `test_ExpiredLockIsForfeitableThroughTheTimelock` covers the
+        // other half — that a recovered, genuinely-expired account CAN still be reclaimed
+        // through the timelock — so recycling is not silently dead.
+        assertEq(dist.rewards(alice), owed, "a permissionless sync took the accrual after escrow recovery");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "a permissionless sync forfeited");
     }
 
     /// @notice COMBINATION SWEEP over both toggles. Deliberately a deterministic loop in a
@@ -787,13 +855,25 @@ contract StreamingRevenueDistributorTest is Test {
         vm.prank(dist.owner());
         dist.proposeForfeit(batch);
 
+        // THE 48h WINDOW IS ONLY A CONTROL IF IT CAN BE READ. A monitor that cannot
+        // enumerate the pending accounts cannot cancel a wrong proposal, which would make
+        // the timelock a delay rather than a defence — and the delay is the entire reason
+        // the forfeit was moved off the permissionless path.
+        (address[] memory pending, uint256 readyAt) = dist.pendingForfeit();
+        assertEq(pending.length, 1, "pending forfeit is not enumerable");
+        assertEq(pending[0], alice, "pending forfeit names the wrong account");
+        assertGt(readyAt, block.timestamp, "proposal is executable with no delay");
+
         vm.warp(block.timestamp + dist.FORFEIT_RECLAIM_DELAY());
         vm.prank(dist.owner());
         dist.executeForfeit();
 
         assertEq(dist.rewards(alice), 0, "the timelocked forfeit did not land");
         assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
-        assertEq(dist.lifetimeForfeited(), owed, "lifetime cap accounting did not move");
+        // No value cap to assert any more — eligibility is the cap. See the block in
+        // StreamingRevenueDistributor.sol explaining why a percentage was the wrong
+        // instrument here (no owner-side ETH exit exists, so the threat is grief and
+        // not theft) and why observability replaced it.
     }
 
     /// @notice A non-owner cannot forfeit, which is the property the whole change buys.
@@ -836,10 +916,19 @@ contract StreamingRevenueDistributorTest is Test {
         assertEq(dist.rewards(carol), 0);
         assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited a phantom balance");
 
-        // Gate ORDER matters: the lock/grace gate runs before the `reward == 0` check, so
-        // a total stranger is refused with NoLockedTokens, not NothingToClaim.
+        // GATE ORDER STILL MATTERS, but the answer changed and the change is deliberate.
+        // This asserted NoLockedTokens: the lock gate ran first and refused a stranger
+        // outright. Now `_claimDeadlineOf` answers UNKNOWN for an account with no
+        // readable `lockEnd`, and `getReward` resolves unknown TOWARD THE STAKER — so it
+        // no longer refuses on the lock gate at all. It falls through to the balance check
+        // and reports the truth: this account has nothing.
+        //
+        // That is strictly better. NoLockedTokens told a user something about their LOCK
+        // when the real fact was about their BALANCE, and the two are not the same
+        // question — a user with a live lock and no accrual got the same error as a user
+        // with no position at all.
         vm.prank(carol);
-        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
+        vm.expectRevert(StreamingRevenueDistributor.NothingToClaim.selector);
         dist.getReward();
     }
 
