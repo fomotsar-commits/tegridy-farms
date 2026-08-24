@@ -1261,10 +1261,41 @@ rediscovering a refutation at the cost of another full review cycle.
 
 ---
 
+# ⚠️ UNCOMMITTED IN THE WORKING TREE — the bungalows feature
+
+**Not mine, not committed, and deliberately left alone.** Recorded here so it cannot be lost or
+mistaken for stray files.
+
+A complete in-progress feature sits in the working tree, timestamped 2026-08-24 00:47:
+
+| Untracked | Modified (committed versions do NOT import it) |
+|---|---|
+| `src/lib/bungalows.ts` | `src/components/layout/AppLayout.tsx` |
+| `src/lib/bungalows.test.ts` | `src/components/layout/Footer.tsx` |
+| `src/components/BungalowPicker.tsx` | `src/lib/artConfig.ts` |
+| `public/art/bayla/` — **24 pieces, 8.5 MB** | `e2e/fixtures/wallet.ts` |
+
+✅ **TRUNK IS SAFE.** The three integration files are committed WITHOUT the bungalows import, so
+`HEAD` builds and a fresh clone works. The feature is self-consistent in the working tree only.
+
+I did not commit it. It is someone else's in-flight work, it touches **art** — which the standing
+instruction says never to alter — and committing a mid-flight feature on someone's behalf is not
+mine to do. The `wallet.ts` edit is part of it too: it seeds `tegridy-bungalow` so `BungalowPicker`
+(a **fourth** full-viewport overlay) does not block e2e specs, following the same pattern the
+ConsentBanner fix established.
+
+▶ **To land it:** commit all four modified files together with the four untracked ones and the art
+directory, in one change. Splitting them leaves trunk importing a module that does not exist.
+▶ **⚠️ Correction to my own reporting:** the "5,957 tests" figure quoted throughout this session was
+measured against the working tree, so it **includes `bungalows.test.ts`**. Trunk's own count is
+lower. Re-measure from a clean checkout before treating that number as trunk's baseline.
+
+---
+
 # 📌 Session close-out, 2026-08-24
 
-Trunk is clean, **zero open PRs**, and all five frontend gates pass (`tsc -b` · lint · 5,957 tests ·
-build · Playwright 524/0).
+Trunk is clean of MY work — **zero open PRs**, and the five frontend gates pass (`tsc -b` · lint ·
+tests · build · Playwright 524/0), with the test-count caveat immediately above.
 
 **Three of five CI checks recovered this session.** `advisories` (the gate had never once executed —
 errexit killed the audit step before it ran), `Static analysis`'s masking shim (a 2-second echo was
