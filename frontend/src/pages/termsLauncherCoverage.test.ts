@@ -61,25 +61,33 @@ describe('Terms of Service — launcher coverage', () => {
   // sentence would have falsified the live Terms on the exact action that moves a
   // user's funds. These assertions moved in the SAME commit as the signer, which is
   // the whole point of this file.
-  it('§2 describes the Solana rail as user-submitted and non-custodial', () => {
-    expect(isSolanaLauncherEnabled()).toBe(true);
+  // REPLACED 2026-08-23 — these two asserted that §2 described the Meteora DBC rail
+  // (user-submitted, non-custodial, immutable config, anti-snipe schedule). That rail
+  // is retired: it graduated into Meteora DAMM v2, a pool this protocol does not own.
+  //
+  // The obligation is unchanged and is why these are rewritten rather than deleted.
+  // Terms of Service are the most consequential copy in the app — a stale §2 that goes
+  // on describing a live Solana launch service is a legal claim about something the
+  // protocol no longer does. So the assertions now pin the RETIREMENT, and pin that
+  // the old operative language is gone rather than merely supplemented.
+  it('§2 states the Solana launch rail is retired and offers no such service', () => {
     const s2 = section(2)?.body ?? '';
-    expect(s2).toMatch(/Meteora/);
-    expect(s2).toMatch(/sign the launch transaction yourself/i);
-    expect(s2).toMatch(/never takes custody/i);
-    expect(s2).toMatch(/cannot submit a launch without your signature/i);
-    // The stale preview language must be GONE, not merely supplemented.
-    expect(s2).not.toMatch(/PREVIEW only/);
-    expect(s2).not.toMatch(/does not submit any Solana transaction/i);
+    expect(s2).toMatch(/RETIRED/);
+    expect(s2).toMatch(/no Solana launch service/i);
+    expect(s2).toMatch(/not deployed/i);
   });
 
-  it('§2 discloses the two things a Solana launcher cannot undo', () => {
+  it('§2 no longer describes a live Solana launch service', () => {
     const s2 = section(2)?.body ?? '';
-    // The config is immutable, so the curve/fees/split are fixed before launch —
-    // a launcher who believes they can retune later has been misled.
-    expect(s2).toMatch(/IMMUTABLE/);
-    expect(s2).toMatch(/anti-snipe/i);
-    expect(s2).toMatch(/irreversible/i);
+    // The operative promises of the retired rail. Any one of these surviving would
+    // have the Terms describing a service that cannot be performed.
+    expect(s2).not.toMatch(/Meteora/);
+    expect(s2).not.toMatch(/sign the launch transaction yourself/i);
+    expect(s2).not.toMatch(/anti-snipe/i);
+    // The EVM launcher is untouched and must NOT have been swept up — it graduates
+    // into a Tegridy-owned V4 pool once the migrator is deployed.
+    expect(s2).toMatch(/Doppler/);
+    expect(s2).toMatch(/Uniswap V4/i);
   });
 
   it('§7 Fees renders the launch fee tier and the full constitution from the constants', () => {

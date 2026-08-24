@@ -240,7 +240,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['solana', 'sol', 'phantom', 'spl'],
-    answer: "Solana's live. /solana swaps SPL tokens through Jupiter with limit orders and SOL liquid-staking, and /solana-launch launches tokens on Meteora's bonding curve. TOWELI itself is never deployed on Solana — that's deliberate, Solana is a separate rail, not a second home for the token.",
+    answer: "Solana's partly live. /solana swaps SPL tokens through Jupiter with limit orders and SOL liquid-staking — that works today. The Solana LAUNCH rail does not: we retired the third-party bonding curve we used to run on, and our own curve isn't deployed yet, so you can't launch a Solana token here right now. TOWELI itself is never deployed on Solana — that's deliberate, Solana is a separate rail, not a second home for the token.",
   },
   {
     keywords: ['jupiter', 'jup', 'swap solana', 'solana swap'],
@@ -248,7 +248,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['meteora', 'dbc', 'bonding curve', 'solana launch'],
-    answer: "The Solana launch rail runs on Meteora's Dynamic Bonding Curve — their audited program, not ours. Fees, the anti-snipe schedule and the LP lock are written into the Fact Sheet before you sign.",
+    // RETIRED 2026-08-23. This used to say the rail "runs on Meteora's Dynamic Bonding
+    // Curve — their audited program, not ours". True at the time, and live to users.
+    // The keywords stay so anyone who asks about Meteora gets the retirement rather
+    // than silence, which would read as the old answer still being right.
+    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement is our own bonding curve, which graduates into our own AMM and burns the LP outright. It is NOT live yet: the programs were closed and have to be redeployed under fresh addresses first. Nothing can be launched on Solana here until that's done.",
   },
   {
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base'],

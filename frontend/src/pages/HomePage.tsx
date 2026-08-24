@@ -6,7 +6,6 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
-import { isSolanaSubmitReady } from '../lib/launcher/solana/dbc';
 import { isSolanaConfigured } from '../lib/solana';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
@@ -634,22 +633,14 @@ export default function HomePage() {
                 label: isLauncherEnabled() ? 'Ethereum' : 'Not yet live',
                 art: pageArt('home', 12),
               },
-              // Gated on isSolanaSubmitReady() — the SAME predicate the nav's "Soon" pill
-              // uses — not on SOLANA_LAUNCHER_ENABLED, which is a hardcoded `true` and is
-              // therefore not evidence that anything can actually launch. Submit-ready
-              // additionally requires VITE_SOLANA_DBC_CONFIG, i.e. a published partner
-              // config to launch against. While that is unset the card reads "Preview"
-              // and /solana-launch renders its configuration preview, which is exactly
-              // what the page does today. The label self-clears the moment the config
-              // is published and the build is redeployed.
-              {
-                to: '/solana-launch',
-                title: 'Launch on Solana',
-                desc: 'Meteora’s Dynamic Bonding Curve, with the anti-snipe schedule, the LP lock, and the fee split written into the Fact Sheet before you sign. No custom program of ours in the path.',
-                stat: isSolanaSubmitReady() ? 'Meteora DBC' : 'Preview',
-                label: isSolanaSubmitReady() ? 'Solana' : 'Config pending',
-                art: pageArt('home', 16),
-              },
+              // The 'Launch on Solana' tile pointed at /solana-launch (Meteora DBC) and
+              // was REMOVED 2026-08-23 with that rail — it graduated into a pool we do
+              // not own. Its replacement, /curve-launch, is deliberately NOT promoted
+              // here: both program ids were closed on mainnet and are permanently
+              // spent, so the page would be advertising a rail that cannot launch. The
+              // nav pills it "Soon" from a live read of the program id; a home tile has
+              // no such read and would be a claim rather than a measurement. Restore a
+              // tile here only after the redeploy, and gate it on the same read.
               { to: '/scan', title: 'Scan a token', desc: 'Holder concentration and distribution for any Ethereum or Solana token — with every exclusion listed and a timestamp. No wallet needed.', stat: 'ETH + SOL', label: 'Any token', art: pageArt('home', 13) },
               // 2026-08-07: stat was 'On-chain', which named no chain. That was harmless
               // while the page was ETH-only; it is not now. /deployer accepts EVM

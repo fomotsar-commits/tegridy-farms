@@ -14,7 +14,6 @@ import { isSolanaConfigured } from './solana';
 import { isIndexerConfigured } from './indexer/client';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
-import { isSolanaSubmitReady } from './launcher/solana/dbc';
 
 export interface NavItem {
   to: string;
@@ -143,23 +142,19 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // either way: while gated, /launch renders the SOON wall + LauncherExplainer
       // rather than a dead link.
       { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
-      // The Solana leg (fee-capture sub-brand over Meteora DBC). Previously only
-      // reachable via a cross-link buried in /launch's GATED explainer, so an
-      // operator (who sees the live wizard, not the explainer) had no path to it.
-      // Surfaced here for parity with Solana Swap.
+      // ── /solana-launch REMOVED 2026-08-23 ────────────────────────────────
+      // The Meteora DBC leg lived here. It was retired because it graduated into
+      // Meteora DAMM v2 — a pool this protocol does not own and could not own
+      // without deploying a different program. Only launchers that graduate into
+      // our own venue survive.
       //
-      // The pill answers ONE question: can I launch from this page? It was once
-      // `soon: !isSolanaLauncherEnabled()`, which keyed it to a feature flag instead
-      // — with the flag on and no signer, the pill cleared and the nav advertised a
-      // launch surface that could not launch. It was then pilled unconditionally.
-      //
-      // 🔄 2026-08-04 — the submit path shipped, so the pill now tracks the honest
-      // condition: `isSolanaSubmitReady()` is the flag AND a published live config.
-      // Both are required and neither implies the other — the flag can be on with no
-      // config, which is precisely the state that produced the original bug.
-      { to: '/solana-launch', label: 'Solana Launch', soon: !isSolanaSubmitReady() },
-      // Our OWN Solana curve (tegridy-launch + our cp-swap fork), as opposed to
-      // the Meteora rail above. Permanently pilled "Soon": the program is not
+      // Its pill was the honest kind (`!isSolanaSubmitReady()` — the flag AND a
+      // published live config, because the flag alone once advertised a launch
+      // surface that could not launch). That lesson is preserved on the entry
+      // below, which is now the only Solana launch rail.
+      // Our OWN Solana curve (tegridy-launch + our cp-swap fork) — since the
+      // Meteora rail was retired, the ONLY Solana launch rail. Permanently pilled
+      // "Soon", and the pill is earned rather than flagged: the program is not
       // deployed on any cluster, and the page proves that from a live read of
       // the program id rather than from a flag. No flag drives this one because
       // there is nothing to flip — a deploy is what changes it, and the page

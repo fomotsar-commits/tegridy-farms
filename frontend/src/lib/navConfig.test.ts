@@ -13,7 +13,6 @@ import {
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
 } from './navConfig';
-import { isSolanaSubmitReady } from './launcher/solana/dbc';
 import { isIndexerConfigured } from './indexer/client';
 // The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
 // Used here as the already-verified answer to "is this path reachable by URL at all",
@@ -134,26 +133,23 @@ describe('navConfig', () => {
   });
 
   // The "Soon" pill answers one question for a visitor: can I do the thing this
-  // entry names? /solana-launch was `soon: !isSolanaLauncherEnabled()` — with the
-  // flag on and no signer, the pill cleared and the nav advertised a launch surface
-  // that could not launch. It was then pilled unconditionally, with the standing
-  // instruction to unpill it only when a submit path actually shipped.
+  // entry names? The lesson that produced that rule is worth keeping even though the
+  // rail that taught it is gone: /solana-launch was once `soon: !isSolanaLauncherEnabled()`,
+  // and with the flag on and no signer the pill cleared while the nav advertised a
+  // launch surface that could not launch. Every pill below is keyed to a condition
+  // that would actually stop a user, never to a flag.
+  // REPLACED 2026-08-23. This asserted /solana-launch was PRESENT and pilled Soon.
+  // That rail (Meteora DBC) is retired — it graduated into a pool this protocol does
+  // not own. The assertion now runs the other way: the entry must be ABSENT.
   //
-  // 🔄 2026-08-04 — it shipped. The pill now tracks `isSolanaSubmitReady()`, which is
-  // the feature flag AND a published live config, so the nav and the submit button
-  // read the SAME condition and cannot disagree.
-  it('pills /solana-launch exactly when it cannot actually launch', () => {
-    // Asserted as a CONCRETE value, not as `!isSolanaSubmitReady()`. Comparing the
-    // pill to the same function navConfig calls is a tautology — it passes for any
-    // implementation, including a hardcoded `soon: true`. So pin the precondition
-    // (no VITE_SOLANA_DBC_CONFIG in this environment, so the rail cannot launch)
-    // and then pin the value that must follow from it. If someone ever publishes a
-    // config into the test environment, the first assertion fails loudly and forces
-    // this test to be re-read rather than silently inverting.
-    expect(isSolanaSubmitReady(), 'no live config should be published in tests').toBe(false);
-    const entry = ALL_NAV.find((n) => n.to === '/solana-launch');
-    expect(entry, '/solana-launch missing from nav').toBeTruthy();
-    expect(entry?.soon, 'unlaunchable rail must stay pilled Soon').toBe(true);
+  // Kept as a test rather than deleted, because "the nav no longer offers a retired
+  // rail" is exactly the kind of property that silently regresses when someone
+  // restores a route and adds its nav entry back out of habit.
+  it('does not offer the retired /solana-launch rail', () => {
+    expect(
+      ALL_NAV.find((n) => n.to === '/solana-launch'),
+      'the Meteora DBC rail was retired 2026-08-23 — its nav entry must not come back',
+    ).toBeUndefined();
   });
 
   // /curve-launch is the OWN-curve page and stays pilled unconditionally: its program
