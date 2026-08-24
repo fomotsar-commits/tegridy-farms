@@ -177,3 +177,10 @@ REVOKE ALL ON airdrop_manifests FROM anon;
 REVOKE ALL ON airdrop_manifests FROM authenticated;
 REVOKE ALL ON airdrop_manifest_entries FROM anon;
 REVOKE ALL ON airdrop_manifest_entries FROM authenticated;
+
+-- ── Record this file in the ledger ────────────────────────────────────
+-- Added 2026-08-24: the self-recording INSERT MIGRATIONS.md describes was
+-- missing from every file after 000 — the ledger was fiction for 016-021.
+INSERT INTO public.schema_migrations (filename, note)
+VALUES ('018_airdrop_manifests.sql', 'airdrop manifest store; fails closed as schema-missing until applied')
+ON CONFLICT (filename) DO NOTHING;

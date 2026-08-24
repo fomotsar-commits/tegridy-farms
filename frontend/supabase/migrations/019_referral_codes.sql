@@ -134,3 +134,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON referral_codes TO authenticated;
 -- fails, and the migration looks like it did nothing. Migration 014 carries the
 -- same line for the same reason; it is why login stayed broken for months.
 NOTIFY pgrst, 'reload schema';
+
+-- ── Record this file in the ledger ────────────────────────────────────
+-- Added 2026-08-24: the self-recording INSERT MIGRATIONS.md describes was
+-- missing from every file after 000 — the ledger was fiction for 016-021.
+INSERT INTO public.schema_migrations (filename, note)
+VALUES ('019_referral_codes.sql', 'referral short-code store; /?ref=0x... works without it, only /?r=code needs it')
+ON CONFLICT (filename) DO NOTHING;

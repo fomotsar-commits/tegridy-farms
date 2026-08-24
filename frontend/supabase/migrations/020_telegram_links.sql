@@ -100,3 +100,10 @@ REVOKE ALL ON telegram_links FROM anon;
 -- PostgREST caches the schema. Without this the table exists in Postgres and
 -- still answers PGRST205 until the connection pool is bounced by hand.
 NOTIFY pgrst, 'reload schema';
+
+-- ── Record this file in the ledger ────────────────────────────────────
+-- Added 2026-08-24: the self-recording INSERT MIGRATIONS.md describes was
+-- missing from every file after 000 — the ledger was fiction for 016-021.
+INSERT INTO public.schema_migrations (filename, note)
+VALUES ('020_telegram_links.sql', 'telegram bot link store; BOT_LINK_SECRET must match on both hosts')
+ON CONFLICT (filename) DO NOTHING;
