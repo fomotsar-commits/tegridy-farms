@@ -1189,15 +1189,15 @@ function LauncherExplainer() {
         Planning a launch? Preview your distribution band and Fact-Sheet tier and fix concentration first with the{' '}
         <Link to="/launch-simulator" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Launch Simulator</Link>.
       </p>
-      {/* Cross-link to the Solana sub-brand rail. Secondary by design: the destination is a
-          CONFIG PREVIEW with no in-app submit path (SOLANA_LAUNCHER_ENABLED = true since
-          2026-07-27, but the page never signs), so this is wayfinding, not a call to
-          action. Fee capture only — no TOWELI on Solana. */}
+      {/* The Meteora rail was retired 2026-08-23 and /solana-launch was removed with
+          deliberately no redirect — this cross-link now points at the surviving Solana
+          surface (our own curve) and says the retirement out loud rather than implying
+          a rail that no longer exists. */}
       <p className="text-white/40 text-xs leading-relaxed">
-        There is also a Solana leg — a separate fee-capture sub-brand over Meteora&rsquo;s Dynamic Bonding Curve, with no
-        TOWELI on Solana and no AMM of our own there. You sign and submit that launch yourself.{' '}
-        <Link to="/solana-launch" className="text-white/60 hover:text-white underline transition-colors">
-          See the Solana rail
+        The old Solana leg over Meteora&rsquo;s Dynamic Bonding Curve was retired on 2026-08-23. The Solana story now runs
+        through our own curve program — no TOWELI on Solana, fee capture only.{' '}
+        <Link to="/curve-launch" className="text-white/60 hover:text-white underline transition-colors">
+          See the Tegridy Curve
         </Link>
       </p>
     </div>

@@ -816,10 +816,7 @@ function CurveExplainer() {
           and closes the curve — all or nothing, so there is no half-migrated state to get stuck in.
         </p>
         <p className="text-white/40">
-          <Link to="/solana-launch" className="text-white/60 hover:text-white underline transition-colors">
-            The Meteora rail
-          </Link>{' '}
-          is a separate surface and is unaffected by any of this.
+          The Meteora rail was retired on 2026-08-23 — this curve is now the only Solana launch surface here.
         </p>
       </Card>
 

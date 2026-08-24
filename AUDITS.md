@@ -174,8 +174,10 @@ Each pass narrowed scope; March passes inventoried broadly, April passes tracked
 
 Found something not listed? Report privately:
 
-- **Contact:** the community channels linked on our site
-- **Bounty:** [Immunefi — Tegridy Farms](https://immunefi.com/bounty/tegridyfarms)
+- **Contact:** fomotsar@gmail.com (see `/.well-known/security.txt` on memetic.fun)
+- **Bounty:** no paid bug-bounty program is live yet — when one launches it will be
+  linked here and in security.txt. (An earlier revision linked an Immunefi page
+  that never existed; removed 2026-08-24.)
 - **SLA:** acknowledgement < 48 hours, triage < 5 business days
 
 Include: affected contract/file + line, reproduction or PoC, suggested severity, payout address/handle. Do **not** exploit against mainnet; test on fork or Sepolia.

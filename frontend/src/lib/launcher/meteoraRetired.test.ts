@@ -142,6 +142,33 @@ describe('the Meteora DBC rail stays retired', () => {
     expect(offenders, `retired-rail claims still in shipped copy:\n${offenders.join('\n')}`).toEqual([]);
   });
 
+  it('no shipped JSX links to the removed route', () => {
+    // Added 2026-08-24: LaunchPage.tsx:1199 and CurveLaunchPage.tsx:819 shipped
+    // live <Link to="/solana-launch"> cross-links for a day after the retirement
+    // — the ROUTE_DEFINITIONS guard above checks only App.tsx and navConfig, so
+    // in-page links dead-ending on the 404 sailed straight through. This scans
+    // every shipped file for a Link/navigate to the removed route. Test files
+    // are exempt (navConfig.test legitimately asserts the entry is absent).
+    const LINK_RE = /\bto=["']\/solana-launch["']/;
+    const NAV_RE = /navigate\(\s*["']\/solana-launch["']/;
+    // Guard the guard: the exact line that shipped must match.
+    expect(LINK_RE.test('<Link to="/solana-launch" className="underline">')).toBe(true);
+
+    const offenders: string[] = [];
+    for (const file of walk(SRC)) {
+      if (/\.test\.tsx?$/.test(file)) continue;
+      readFileSync(file, 'utf8')
+        .split(/\r?\n/)
+        .forEach((line, i) => {
+          const code = codeOnly(line);
+          if (LINK_RE.test(code) || NAV_RE.test(code)) {
+            offenders.push(`${file.slice(SRC.length + 1)}:${i + 1} — ${line.trim().slice(0, 120)}`);
+          }
+        });
+    }
+    expect(offenders, `live links to the removed /solana-launch route:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
   it('still allows the history to be written down', () => {
     // Guard the guard. If the patterns ever widen into a blanket ban on the word, the
     // registry entries and every retirement note become unwritable, and the next session

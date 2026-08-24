@@ -1,15 +1,16 @@
 # Tegridy Farms — security disclosure policy (RFC 9116)
-# https://tegridyfarms.vercel.app
+# https://memetic.fun
 
 Contact: mailto:fomotsar@gmail.com
 Expires: 2027-07-12T00:00:00.000Z
 Preferred-Languages: en
-Canonical: https://tegridyfarms.vercel.app/.well-known/security.txt
+Canonical: https://memetic.fun/.well-known/security.txt
 
 # ── In scope ──────────────────────────────────────────────────────────────
 #   - TOWELI token: 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D (Ethereum mainnet)
 #   - Tegridy Farms smart contracts (the verified/GitHub source is authoritative)
-#   - The dapp at https://tegridyfarms.vercel.app and its serverless API
+#   - The dapp at https://memetic.fun and its serverless API, also served at
+#     https://memetics.finance and https://tegridyfarms.vercel.app
 #
 # ── How to report ─────────────────────────────────────────────────────────
 # Please report vulnerabilities PRIVATELY to the contact above BEFORE any public

@@ -104,9 +104,12 @@ permissionless total-loss bug and was removed; see `MIGRATE_DESIGN.md`.
 - The migration surplus is swept to whoever calls `migrate_to_amm`, deliberately — it makes
   a permissionless step self-financing rather than a guaranteed loss.
 
-**Not deployed.** Program ID is a documented placeholder and the non-devnet build embeds a
-fail-closed sentinel authority, so a mainnet binary refuses to initialize until an operator
-sets a real key.
+**Deployment history (corrected 2026-08-24 — the previous revision of this section said
+"not deployed", which had been false since 2026-08-08):** both programs WERE deployed to
+mainnet on 2026-08-08 and were CLOSED on/before 2026-08-15 — the program ids are
+permanently spent and can never be reused. Any future deployment is a RESTART with fresh
+keypairs and a new `declare_id!` (see MAINNET_RUNBOOK.md § "THE RESTART, IN ORDER").
+The audit target is therefore the source at the commit under review, not a live program.
 
 ---
 

@@ -30,14 +30,12 @@ solana_security_txt::security_txt! {
 // NOT here: it accrues per `amm_config.protocol_fee_rate` and is collected by
 // `amm_config.protocol_owner` (which create_config sets = the admin caller).
 //
-// FAIL-CLOSED MAINNET: the non-devnet branches of the AUTHORITY constants are the
-// System-Program sentinel (all-1s), NOT the devnet keys — so an accidental default
-// (non-devnet) build yields a NON-FUNCTIONAL program (admin can't sign; the fee
-// receiver isn't a token account) rather than one silently controlled by the devnet
-// throwaway keys. CI + devnet builds pass `--features devnet`.
-// ⚠️ OPERATOR before MAINNET: set the non-devnet values — a fresh program keypair,
-// admin = Squads MULTISIG, create_pool_fee_reveiver = the treasury's WSOL ATA (a
-// native-SOL TOKEN ACCOUNT, NOT a wallet) — then do a verifiable build.
+// (Two header paragraphs deleted 2026-08-24: one claimed the non-devnet authority
+// constants were fail-closed all-1s sentinels — false, the real values below are
+// live keys — and one instructed "admin = Squads MULTISIG", the exact compile-time
+// mistake that shipped 2026-08-08 and bricked graduation. The authoritative
+// guidance is the admin module's own comment below: the constant must be a
+// SIGNABLE, SYSTEM-OWNED, rent-paying account, never the Squads multisig account.)
 #[cfg(feature = "devnet")]
 declare_id!("BvBkt84ZiKmiPSuWrdefxbxPTX5YiLnU6YEGtY6pDodL");
 #[cfg(not(feature = "devnet"))]

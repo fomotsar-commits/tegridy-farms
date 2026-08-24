@@ -69,22 +69,22 @@
   <!-- Pillars row -->
   <g transform="translate(68 360)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
     <g>
-      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">100% OF SWAP FEES</text>
-      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">flow to stakers in ETH</text>
+      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">PROTOCOL FEES ON-CHAIN</text>
+      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">stakers, liquidity &amp; ops — in ETH</text>
     </g>
     <g transform="translate(380 0)">
       <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">FIXED SUPPLY</text>
       <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">1B TOWELI, no mint</text>
     </g>
     <g transform="translate(680 0)">
-      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">4.5× BOOST</text>
+      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">4.0× BOOST</text>
       <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">on LP rewards, veTOWELI</text>
     </g>
   </g>
 
   <!-- Bottom strip: URL + chain chip -->
   <g transform="translate(68 564)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
-    <text x="0" y="0" font-size="18" font-weight="600" fill="url(#gold)">tegridyfarms.vercel.app</text>
+    <text x="0" y="0" font-size="18" font-weight="600" fill="url(#gold)">memetic.fun</text>
   </g>
 
   <g transform="translate(1050 556)">

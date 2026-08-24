@@ -85,6 +85,16 @@
       "has": [{ "type": "host", "value": "www.memetics.finance" }],
       "destination": "https://memetics.finance/$1",
       "permanent": true
+    },
+    {
+      "source": "/tradermigos",
+      "destination": "/nakamigos",
+      "permanent": false
+    },
+    {
+      "source": "/scanner",
+      "destination": "/scan",
+      "permanent": false
     }
   ],
   "rewrites": [

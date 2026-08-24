@@ -20,7 +20,10 @@ export const LEGACY_STAKING_ADDRESSES = [
   '0x044A925839ac3CEC0bccC93d00230f39FFbeEe44',
   '0x626644523d34B84818df602c991B4a06789C4819',
 ] as const;
-// Restaking DEFERRED to Phase 7 (EIP-170 split). Zeroed until deployed; UI gates on isDeployed().
+// Restaking: the EIP-170 split LANDED 2026-08-19 (admin sister, host 22,114 B —
+// 2,462 B under the limit). Deploy is now gated on the external re-audit and a
+// real Safe for MULTISIG (docs/OPERATOR_NEXT.md §C4/§C5), not on size or a
+// build. Zeroed until deployed; UI gates on isDeployed().
 export const TEGRIDY_RESTAKING_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
 
 // EIP-170 admin sister contracts — RELAUNCH 2026-06-06 (deployed + wired by DeployMVP).
