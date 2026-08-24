@@ -3,6 +3,10 @@
   "references": [
     { "path": "./tsconfig.app.json" },
     { "path": "./tsconfig.node.json" },
+    // The deploy build ("npm run build") must NOT build this project: test files
+    // import from ../scripts/, which exists in CI/local but not inside Vercel's
+    // rootDirectory=frontend upload, so a bare `tsc -b` fails every deploy while
+    // passing everywhere else. The build script names app+node explicitly.
     { "path": "./tsconfig.test.json" }
   ]
 }
