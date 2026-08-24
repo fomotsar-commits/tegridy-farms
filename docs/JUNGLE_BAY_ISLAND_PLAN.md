@@ -69,18 +69,40 @@ slot blocks the later phases below.
    with the new id.
 6. **Commit on `mvp-launch`.** Do not push unasked.
 
-## 3. The island roster — what the operator must fill in
+## 3. The island roster — CANON (resolved 2026-08-24)
 
-| # | Bungalow | Token | Chain | Address / mint | Art | Status |
-|---|----------|-------|-------|----------------|-----|--------|
-| 1 | Toweli | TOWELI | Ethereum | `0x4206…8F9D` (constants.ts) | classic set | **LIVE (default)** |
-| 2 | Bayla | BAYLA | Solana | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | 24 pieces | **LIVE** |
-| 3 | DRB | DRB | ? | ? | needed | named, parked |
-| 4–13 | ? | ? | ? | ? | needed | reserved slots |
+Read from the island's own landing (memetics.wtf `SPOTS` + `SIGNSV2`
+registries) and pinned verbatim in `lib/bungalows.ts` +
+`bungalows.test.ts`. Three chains — Ethereum, Base, Solana — exactly the
+chains the venue has incorporated.
 
-**Open ask:** the remaining ten bungalow tokens (and DRB's chain + address).
-Ticker + chain + contract/mint + an art drop per bungalow is everything the
-recipe needs.
+| # | Bungalow | Chain | Address / mint | Island status | Skin |
+|---|----------|-------|----------------|---------------|------|
+| 1 | TOWELI | Ethereum | `0x420698CFdEDdEa6bc78D59bC17798113ad278F9D` | SETTLED | **LIVE (default)** |
+| 2 | BAYLA | Solana | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | NEWEST — "The muse was always here." | **LIVE + token-first identity** |
+| 3 | PEPE | Ethereum | `0x6982508145454ce325ddbe47a25d4ec3d2311933` | SETTLED | art drop needed |
+| 4 | QR | Base | `0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf` | SETTLED | art drop needed |
+| 5 | MFER | Base | `0xe3086852a4b125803c815a158249ae468a3254ca` | SETTLED | art drop needed |
+| 6 | BNKR | Base | `0x22af33fe49fd1fa80c7149773dde5890d3c76f3b` | SETTLED | art drop needed |
+| 7 | DRB | Base | `0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2` | SETTLED | art drop needed |
+| 8 | BOBO | Solana | `4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump` | SETTLED · hammers up | art drop needed |
+| 9 | JBM | Base | `0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d` | SETTLED | art drop needed |
+| 10 | SOY | Solana | `4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV` | SETTLED | art drop needed |
+| 11 | BRAINLET | Solana | `8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF` | SETTLED | art drop needed |
+| 12 | RIZZ | Base | `0x58d6e314755c2668f3d7358cc7a7a06c4314b238` | SETTLED | art drop needed |
+| 13 | (unmarked) | — | — | QUIET — "Someone is building here." | reserved |
+
+**Open ask (was: the whole roster; now just):** an art drop per settled
+bungalow to open its skin, and each community's blessing. Addresses and
+chains are canon — never edit them by hand without re-reading the island
+source (the registry test pins them).
+
+Also canon, for later phases: the island's non-bungalow spots — THE PIER
+(arrival), THE GALLERY (lit, 24 credited works by the Jungle Bay Artists
+Collective), THE BODEGA (opening soon), DMT LAGOON (portal), LOTs N/W/S
+("Qualifying heat builds here"), and the three doors (CHECK YOUR HEAT /
+BRING YOUR COMMUNITY HOME / CLAIM YOUR SPOT). The Phase-3 island-map picker
+should be drawn from THIS geography.
 
 ## 4. Phase 2 — bungalow token utility (backgrounds → economy)
 
