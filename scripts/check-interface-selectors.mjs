@@ -90,6 +90,9 @@ const EXTERNAL_INTERFACES = new Set([
   'IPositionMgr',         // Uniswap V4 PositionManager
   'ISeaport',             // OpenSea Seaport (TegridyNativeBuyRouter; mvp-launch-only)
   'IWETH',                // canonical WETH9
+  'IWETHMinimal',         // canonical WETH9 (TegridyCurveLauncher's deposit/transfer slice;
+                          // the guard otherwise half-matches it onto NftfiPooledLendingVault
+                          // and flags WETH's deposit() as declared-but-absent)
 ]);
 
 // Frontend ABIs for EXTERNAL or generic surfaces — no in-repo artifact by

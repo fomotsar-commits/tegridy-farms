@@ -22,7 +22,7 @@
 // the hostile-JSON handling has exactly one tested implementation.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
-import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
+import { isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 

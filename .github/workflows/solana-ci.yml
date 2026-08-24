@@ -159,7 +159,12 @@ jobs:
           # nor pay rent, and therefore made `create_amm_config` permanently uncallable —
           # onto the deploy authority. Diffing the old delta against the new one shows
           # exactly one changed `pubkey!` line; everything else added is comment.
-          EXPECTED_DELTA_SHA256=d754bab20b61d2e7c9ce1ff91f2876efca41f38ee6b4b45c796b49043f9c69b3
+          # RE-PINNED 2026-08-24: comment-only change — lib.rs's header paragraphs
+          # instructing the exact admin=multisig mistake that bricked graduation
+          # (and claiming sentinel values that are live keys) were deleted. Verified
+          # from the guard's own printed delta: every changed line vs the previous
+          # pin is a `//` comment; the functional delta is untouched.
+          EXPECTED_DELTA_SHA256=7b2adbad06b89eb9613388cce5aa8b333fe9718febd7551ce2e95e534a778b0e
 
           # 1. NO file outside the two allowed source files may differ at all.
           #    Paths are anchored to their full relative path — the old pattern matched

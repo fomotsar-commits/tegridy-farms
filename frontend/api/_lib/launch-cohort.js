@@ -25,7 +25,7 @@
 //   like _lib/launch-radar.js and _lib/launcher-outcomes.js. See api/SERVERLESS_BUDGET.md.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
-import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
+import { isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { logSafe } from "./logSafe.js";
 
 const AIRLOCK = "0xde3599a2ec440b296373a983c85c365da55d9dfa";
