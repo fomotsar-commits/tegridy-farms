@@ -385,6 +385,12 @@ export default function HomePage() {
               copy surface and behaviour matches Farm/Community. */}
           <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
 
+          {/* Token-first bungalow (Bayla): the TVL/TOWELI-price stat pills and
+              the TOWELI contract strip are the wrong token there — the
+              BungalowHero carries its own contract chip. Everything inside
+              this gate is untouched for the Toweli default. */}
+          {!bungalowIdentity && (
+          <>
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {([
               // F85: USD-primary TVL with the TOWELI count secondary when a price
@@ -490,8 +496,55 @@ export default function HomePage() {
               Share
             </a>
           </m.div>
+          </>
+          )}
         </div>
 
+        {/* Jungle Bay bungalow lore — Bayla's story card, rendered only in her
+            mode, in the slot where the TOWELI fee-economy explainer sits for
+            the default. Canon copy (pump.fun metadata + the island landing);
+            art-first per the house rule. */}
+        {bungalowIdentity && (
+          <div className="pb-16">
+            <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+              <div className="absolute inset-0" aria-hidden="true">
+                <ArtImg pageId="bungalow-lore" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
+              </div>
+              <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.72)' }} />
+              <div className="relative z-10 p-6 md:p-10 max-w-2xl">
+                <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)' }}>The lore</p>
+                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">The muse of Jungle Bay Island</h2>
+                <p className="text-white/90 text-[14px] leading-relaxed mb-3">
+                  An island in a sea of rugs, built by the memes — bungalows for token
+                  communities, an artist economy, and time held is what counts. Bayla is
+                  its muse: brought to light by the Jungle Bay Artists Collective, seated
+                  at the lighthouse, the newest name on the island map.
+                </p>
+                <p className="text-white/90 text-[14px] leading-relaxed mb-5">
+                  Her pull reaches every kind of maker. The work is yours. The light is
+                  hers. Dank Memes + Time = Memetic Finance.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { href: 'https://memetics.wtf/', label: 'The island' },
+                    { href: 'https://opensea.io/collection/junglebay', label: 'Jungle Bay on OpenSea' },
+                    { href: 'https://x.com/JungleBayAC', label: '@JungleBayAC' },
+                  ].map((l) => (
+                    <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
+                      aria-label={`${l.label} (opens in new tab)`}
+                      className="px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
+                      style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid var(--color-purple-40)' }}>
+                      {l.label} <span className="text-white/40">↗</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!bungalowIdentity && (
+        <>
         {/* Core Loop — the 10-second explainer.
             Directly addresses the critique that new visitors don't grasp
             TOWELI-trade → ETH-fee → stakers → bigger-lock flow fast enough. */}
@@ -577,6 +630,8 @@ export default function HomePage() {
         {/* Real-yield proof — self-gating: renders nothing until the first
             ETH distribution lands, then lights up automatically. */}
         <RealYieldProof />
+        </>
+        )}
 
         {/* Protocol Overview */}
         <div className="pb-16">
@@ -692,7 +747,9 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* How It Works */}
+        {/* How It Works — the three-step TOWELI farm walkthrough; default-only
+            (a bungalow's farm story lives on its own /farm panel). */}
+        {!bungalowIdentity && (
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             {/* 2026-08-07: "How It Works" -> "How the Farm Works". All three steps are
@@ -728,6 +785,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Trust Badges */}
         <div className="pb-16">
@@ -857,7 +915,9 @@ export default function HomePage() {
 
         {/* F90: FAQ teaser — Home never funneled to the FAQ page despite the
             copy + route existing. Additive panel with a CTA, consistent with the
-            page's glass-panel styling. */}
+            page's glass-panel styling. Default-only: the FAQ answers the TOWELI
+            farm, the wrong questions inside a bungalow. */}
+        {!bungalowIdentity && (
         <div className="pb-16">
           <m.div
             className="rounded-2xl p-6 md:p-8 text-center"
@@ -881,9 +941,11 @@ export default function HomePage() {
             </Link>
           </m.div>
         </div>
+        )}
 
-        {/* Referral Widget for connected users */}
-        {address && (
+        {/* Referral Widget for connected users — default-only: referral rewards
+            are the TOWELI program. */}
+        {address && !bungalowIdentity && (
           <div className="pb-16">
             <ReferralWidget
               address={address}

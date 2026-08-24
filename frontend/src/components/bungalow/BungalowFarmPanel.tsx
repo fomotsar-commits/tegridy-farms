@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
-import { bungalowExplorerUrl } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
+import { isSolanaConfigured } from '../../lib/solana';
+import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -103,13 +105,21 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       <div className="mt-6 rounded-2xl p-6" style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
-          {bungalow.swapUrl && (
-            <a href={bungalow.swapUrl} target="_blank" rel="noopener noreferrer"
-              aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
-              className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
-              Trade {bungalow.symbol} ↗
-            </a>
-          )}
+          {(() => {
+            const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+            if (!trade) return null;
+            return 'to' in trade ? (
+              <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
+                Trade {bungalow.symbol}
+              </Link>
+            ) : (
+              <a href={trade.href} target="_blank" rel="noopener noreferrer"
+                aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
+                className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
+                Trade {bungalow.symbol} ↗
+              </a>
+            );
+          })()}
           {bungalow.address && (
             <Link to={`/scan?token=${bungalow.address}`} className="btn-secondary px-6 py-2.5 text-[13px]">
               Scan {bungalow.symbol}
@@ -135,6 +145,9 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           </div>
         )}
       </div>
+
+      {/* The island's held-time oracle — heat is the island's whole thesis. */}
+      <HeatCard />
       </div>
     </div>
   );

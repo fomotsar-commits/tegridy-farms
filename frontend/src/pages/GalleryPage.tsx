@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { GALLERY_ORDER } from '../lib/artConfig';
+import { getBungalowIdentity } from '../lib/bungalows';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { safeSetItem } from '../lib/storage';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -70,10 +71,20 @@ export default function GalleryPage() {
   const { isConnected } = useAccount();
   const { votes, userVotes, vote, voteCooldown } = useVotes();
 
+  // Jungle Bay bungalows: in a token-first bungalow (Bayla) her pool hangs as
+  // a WING on top of the full classic collection — additive, nothing removed,
+  // and the wing pieces get the same lightbox + local votes for free (their
+  // ids are distinct in the shared vote store).
+  const bungalowIdentity = getBungalowIdentity();
+  const collection = useMemo(
+    () => (bungalowIdentity?.artPool ? [...bungalowIdentity.artPool, ...GALLERY_ORDER] : GALLERY_ORDER),
+    [bungalowIdentity],
+  );
+
   // Fix #1: compute sorted array once, pass it to both the grid and the lightbox
   const sortedPieces = useMemo(
-    () => [...GALLERY_ORDER].sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0)),
-    [votes],
+    () => [...collection].sort((a, b) => (votes[b.id] || 0) - (votes[a.id] || 0)),
+    [collection, votes],
   );
 
   return (
@@ -85,7 +96,11 @@ export default function GalleryPage() {
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-20 pb-28 md:pb-12">
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">The Collection</h1>
-          <p className="text-white text-[14px]">{GALLERY_ORDER.length} pieces — original hand-drawn Tegridy art and the Nakamigos drop</p>
+          <p className="text-white text-[14px]">
+            {bungalowIdentity?.artPool
+              ? `${collection.length} pieces — the ${bungalowIdentity.name} wing, original hand-drawn Tegridy art and the Nakamigos drop`
+              : `${GALLERY_ORDER.length} pieces — original hand-drawn Tegridy art and the Nakamigos drop`}
+          </p>
         </m.div>
 
         <div className="rounded-lg px-3 py-2 mb-4 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>

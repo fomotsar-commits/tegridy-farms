@@ -220,6 +220,23 @@ export function bungalowArtPool(pageId: string): ArtPiece[] | null {
   return active.artPool;
 }
 
+/**
+ * Preferred trade route for a bungalow's token: the IN-VENUE Solana swap
+ * (which captures the platform fee that can tithe back to bungalow pools)
+ * when that surface is configured, else the external canon deep link.
+ * Returned as { to } (router path) or { href } (external) so callers render
+ * <Link> vs <a> correctly.
+ */
+export function bungalowTradeRoute(
+  b: Bungalow,
+  solanaConfigured: boolean,
+): { to: string } | { href: string } | null {
+  if (b.chain === 'solana' && b.address && solanaConfigured) {
+    return { to: `/solana?out=${b.address}` };
+  }
+  return b.swapUrl ? { href: b.swapUrl } : null;
+}
+
 /** Block-explorer link for a bungalow's token, per its chain. */
 export function bungalowExplorerUrl(b: Bungalow): string | null {
   if (!b.address) return null;

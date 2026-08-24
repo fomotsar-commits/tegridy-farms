@@ -26,6 +26,7 @@ const ok = (name, pass, detail = '') => {
 
 const SEED_COMMON = `
   localStorage.setItem('tegridy-onboarding-seen', '1');
+  localStorage.setItem('tegridy-onboarding-bayla-seen', '1');
   localStorage.setItem('tegridy_telemetry_consent', 'denied');
 `;
 
@@ -35,6 +36,10 @@ async function settle(page, ms = 2500) {
 }
 
 async function artSrcs(page) {
+  // Lazy chunks + a busy dev server can mount art after the fixed settle —
+  // wait for the first surface (not forever: pages legitimately without any
+  // ArtImg fall through after the timeout and return []).
+  await page.waitForSelector('img[data-art-surface]', { timeout: 12000 }).catch(() => {});
   return page.$$eval('img[data-art-surface]', (imgs) =>
     imgs.map((i) => ({ surface: i.getAttribute('data-art-surface'), src: i.getAttribute('src') })));
 }
@@ -91,6 +96,15 @@ try {
         ok('B: farm renders the BAYLA panel', await page.locator('h1:has-text("Stake BAYLA.")').count() === 1);
         ok('B: farm panel self-gates honestly', await page.locator('text=Not deployed yet').count() === 1);
         ok('B: farm drops the TOWELI stack', await page.locator('text=TOWELI Price').count() === 0);
+        ok('B: heat oracle card present', await page.locator('text=Check your heat').count() >= 1);
+      }
+      if (name === 'home') {
+        ok('B: muse lore section present', await page.locator('text=The muse of Jungle Bay Island').count() >= 1);
+        ok('B: TOWELI fee-economy sections hidden',
+          await page.locator('text=How the Farm Works').count() === 0
+          && await page.locator('text=TVL').count() === 0);
+        const tradeHrefs = await page.$$eval('a[href*="jup.ag"], a[href*="/solana?out="]', (as) => as.map((a) => a.getAttribute('href')));
+        ok('B: Trade BAYLA routes in-venue or to Jupiter', tradeHrefs.length >= 1, tradeHrefs[0] ?? 'none');
       }
     }
     // The nav-logo replay button is a BUTTON — must keep classic art.
@@ -125,6 +139,26 @@ try {
         `${msrcs.length} surfaces`);
       await mctx.close();
     }
+  }
+
+  // ---------- D) The door format: memetics.finance/<bungalow> ----------
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    await ctx.addInitScript(SEED_COMMON); // no tf_loaded, no bungalow choice — a cold shared link
+    const page = await ctx.newPage();
+    await page.goto(BASE + '/bayla', { waitUntil: 'domcontentloaded' });
+    await settle(page, 4000); // door persists + reloads in place
+    ok('D: /bayla keeps its address', new URL(page.url()).pathname === '/bayla');
+    ok('D: /bayla enters the bungalow', await page.evaluate(() => localStorage.getItem('tegridy-bungalow')) === 'bayla');
+    ok('D: /bayla wears her skin', await page.locator('h1:has-text("BAYLA.")').count() === 1);
+    await page.screenshot({ path: `${OUT}/door-bayla.png` });
+    // The towelie spelling is an alias for the toweli slug.
+    await page.goto(BASE + '/towelie', { waitUntil: 'domcontentloaded' });
+    await settle(page, 4000);
+    ok('D: /towelie flips back to the default', await page.evaluate(() => localStorage.getItem('tegridy-bungalow')) === 'toweli');
+    ok('D: /towelie wears the classic hero', await page.locator('h1:has-text("Farm TOWELI.")').count() === 1);
+    ok('D: /towelie keeps its address', new URL(page.url()).pathname === '/towelie');
+    await ctx.close();
   }
 
   // ---------- C) Fresh visit → picker → enter Bayla ----------

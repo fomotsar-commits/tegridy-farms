@@ -23,6 +23,7 @@ import {
   findSolToken,
   searchTokens,
   looksLikeMint,
+  resolveMint,
   fetchTrending,
   iconSrc,
   type SolToken,
@@ -648,7 +649,19 @@ function SolanaSwapInner() {
   const { setVisible } = useWalletModal();
 
   const [payToken, setPayToken] = useState<SolToken>(SOL);
-  const [buyToken, setBuyToken] = useState<SolToken>(USDC);
+  // ?out=<mint> presets the BUY side (Jungle Bay bungalow trade links:
+  // /solana?out=<BAYLA mint>). A curated mint resolves synchronously in this
+  // initializer; unknown mints resolve async below.
+  const [buyToken, setBuyToken] = useState<SolToken>(() => {
+    try {
+      const out = new URLSearchParams(window.location.search).get('out')?.trim();
+      if (out && looksLikeMint(out)) {
+        const known = findSolToken(out);
+        if (known) return known;
+      }
+    } catch { /* URL APIs unavailable — default stands */ }
+    return USDC;
+  });
   const [amount, setAmount] = useState('');
   const [slippageBps, setSlippageBps] = useState(50);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
@@ -665,6 +678,20 @@ function SolanaSwapInner() {
   const baseAmount = useMemo(() => toBaseUnits(amount, payToken.decimals), [amount, payToken.decimals]);
   const sameToken = payToken.mint === buyToken.mint;
   const canQuote = baseAmount !== null && !sameToken;
+
+  // ?out= continued: a NON-curated mint needs the Jupiter lookup for
+  // authoritative decimals (never invent them). Mount-once; a failed lookup
+  // leaves the honest default in place — a bad deep link must never break
+  // the page. The curated case was already handled in the state initializer.
+  useEffect(() => {
+    const out = new URLSearchParams(window.location.search).get('out')?.trim();
+    if (!out || !looksLikeMint(out) || findSolToken(out)) return;
+    const ctrl = new AbortController();
+    resolveMint(out, ctrl.signal)
+      .then((t) => { if (t) setBuyToken(t); })
+      .catch(() => { /* honest default stands */ });
+    return () => ctrl.abort();
+  }, []);
 
   // Reset the unverified-token acknowledgement whenever the pair changes.
   useEffect(() => { setAck(false); }, [payToken.mint, buyToken.mint]);

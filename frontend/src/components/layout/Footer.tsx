@@ -183,7 +183,10 @@ export function Footer() {
                   {l.label}
                 </Link>
               ))}
-              {EXTERNAL_RESOURCES.map((l) => (
+              {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) —
+                  default-only; the bungalow card above carries that token's
+                  own explorer link. */}
+              {!bungalowIdentity && EXTERNAL_RESOURCES.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className={LINK_CLASS} style={LINK_SHADOW}>

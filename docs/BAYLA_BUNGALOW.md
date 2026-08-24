@@ -51,6 +51,38 @@ skin. With `?bungalow=bayla` (or the picker):
   contract too (BAYLA hero present, TOWELI headline absent, assistant muted,
   farm self-gates) — 23/23 on ship day, plus vitest 15/15 on the registry.
 
+### Round 2 (same day, operator's "do all you can" pass)
+
+- **The URL format** — `memetics.finance/<bungalow>` is each bungalow's
+  address. All 13 doors exist from day one (`BungalowDoor` + one route per
+  island slug in App.tsx; `/towelie` is an alias for the `toweli` slug).
+  Visiting a door IS entering the bungalow: persist + in-place reload, the
+  address bar keeps the door path, and the picker now enters through doors
+  so the format shows everywhere. Doors for not-yet-live bungalows render
+  the current skin and start working the moment their slot flips live.
+- **In-venue BAYLA trading** — BAYLA is a featured BUY-side token on
+  `/solana` (decimals 6 per the pump.fun record; deliberately NOT marked
+  Jupiter-verified — the Unverified chip is the honest state), and the swap
+  accepts `?out=<mint>` to preset the buy side (curated mints resolve
+  synchronously, unknown mints through Jupiter's resolver, bad links leave
+  the default). Trade CTAs route in-venue when `isSolanaConfigured()`, else
+  fall back to the canon Jupiter deep link — so the fee-capturing venue leg
+  is used wherever it exists.
+- **Heat on the farm page** — "Check your heat" card wired to the island's
+  held-time oracle through the existing hardened proxy client; fail-closed
+  copy ("The Island is quiet" ≠ cold).
+- **The muse speaks** — her lore card on the bungalow home (canon copy +
+  island/OpenSea/X links), a three-step Bayla welcome replacing the TOWELI
+  onboarding, and a small MuseBubble line in the assistant's corner. The
+  TOWELI fee-economy home sections (stat pills, contract strip, core loop,
+  ProtocolStats/Pulse/ProofOfClaims/RealYieldProof, How-the-Farm-Works, FAQ
+  teaser, referral widget) are default-only; venue-generic sections stay.
+- **Gallery wing** — her 24 pieces hang ON TOP of the full classic
+  collection (additive; shared lightbox + local votes).
+- Verification after round 2: harness 33/33 (incl. the door flow at /bayla
+  and /towelie), tsc + eslint clean (SolanaSwapPage stays at its 4-warning
+  baseline), full vitest suite green.
+
 ## 3. The staking rail decision (Solana, BAYLA)
 
 House rule applies (`feedback_minimal_surface`): battle-tested code only,

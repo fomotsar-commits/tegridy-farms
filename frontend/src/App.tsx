@@ -13,6 +13,8 @@ import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
+import { BUNGALOWS } from './lib/bungalows';
+import { BungalowDoor } from './components/bungalow/BungalowDoor';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -294,6 +296,24 @@ function AnimatedRoutes() {
       />
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
+        {/* Jungle Bay bungalow doors — the memetics.finance/<bungalow> URL
+            format. One route per island slug (all 13, so every door exists
+            from day one) plus the 'towelie' spelling as an alias for the
+            toweli slug. A door renders home under its bungalow's skin; see
+            BungalowDoor for the enter-on-visit semantics. None of these
+            slugs collides with an app route — the registry test would catch
+            a future clash via the canon id list. */}
+        {[...BUNGALOWS.map((b) => ({ path: b.id, id: b.id })), { path: 'towelie', id: 'toweli' }].map(({ path, id }) => (
+          <Route
+            key={path}
+            path={path}
+            element={
+              <BungalowDoor id={id}>
+                <Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>
+              </BungalowDoor>
+            }
+          />
+        ))}
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />

@@ -49,7 +49,10 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
       onClose();
       return;
     }
-    window.location.reload();
+    // Enter through the bungalow's front door so the address bar carries the
+    // memetics.finance/<bungalow> format. The choice is already persisted, so
+    // the door renders directly without a second reload.
+    window.location.assign(`/${b.id}`);
   };
 
   return (

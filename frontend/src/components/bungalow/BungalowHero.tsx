@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowExplorerUrl } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
+import { isSolanaConfigured } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 
@@ -19,6 +20,10 @@ import { shortenAddress } from '../../lib/formatting';
 export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
   const id = bungalow.identity;
   const explorer = bungalowExplorerUrl(bungalow);
+  // In-venue swap preset when the Solana surface is live; canon deep link otherwise.
+  const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+  const tradeClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]';
+  const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
@@ -30,18 +35,22 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
       </p>
 
       <div className="flex flex-wrap gap-3">
-        {bungalow.swapUrl && (
+        {trade && ('to' in trade ? (
+          <Link to={trade.to} className={tradeClass} style={tradeStyle}>
+            Trade {bungalow.symbol}
+          </Link>
+        ) : (
           <a
-            href={bungalow.swapUrl}
+            href={trade.href}
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
-            className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]"
-            style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}
+            className={tradeClass}
+            style={tradeStyle}
           >
             Trade {bungalow.symbol}
           </a>
-        )}
+        ))}
         <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
           Stake {bungalow.symbol}
         </Link>

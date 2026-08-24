@@ -34,6 +34,15 @@ described is now the app's real flow:
 - **Switching = persist + reload.** `pageArt()` is consumed at module scope
   (loader constants, stat rows), so a reload is the one honest way to
   re-resolve every surface; within a session the splash doesn't replay.
+- **The URL format (operator decision 2026-08-24):**
+  `memetics.finance/<bungalow>` is each bungalow's address —
+  `/bayla`, `/toweli` (with `/towelie` as an alias), `/drb`, … All 13 door
+  routes exist today via `BungalowDoor`; a door persists the choice and
+  reloads in place, so the address bar keeps the bungalow path and shared
+  links land inside the right skin. Doors for not-yet-live bungalows render
+  the current skin and light up automatically when the slot flips live.
+  (Per-door social unfurls still serve the venue OG image — the prerender
+  step is an open operator item.)
 - **Verification harness** — `frontend/scripts/verify-bungalows.mjs`
   (playwright-core, no e2e infra needed):
   `node scripts/verify-bungalows.mjs <outDir> [baseUrl]`. Asserts: art swaps

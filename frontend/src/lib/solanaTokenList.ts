@@ -70,6 +70,13 @@ export const BUY_TOKENS: SolToken[] = [
   USDT,
   { mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', symbol: 'JUP', name: 'Jupiter', decimals: 6, verified: true },
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, verified: true },
+  // Jungle Bay Island's own: BAYLA (pump.fun graduate → PumpSwap). Decimals 6
+  // read from the pump.fun coin record (base_decimals) 2026-08-24. `verified`
+  // deliberately unset — that flag is Jupiter's verification tag, and claiming
+  // it would be a lie; the picker's Unverified chip is the honest state. No
+  // logoURI: iconSrc() proxies external hosts only, so the initials avatar is
+  // the right fallback here.
+  { mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump', symbol: 'BAYLA', name: 'BAYLA — Jungle Bay Island', decimals: 6 },
 ];
 
 export interface LstToken extends SolToken {
