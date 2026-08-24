@@ -45,6 +45,11 @@ contract DeployCurveLauncherScript is Script {
     address internal constant WETH_MAINNET = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address internal constant WETH_BASE = 0x4200000000000000000000000000000000000006;
     address internal constant WETH_ROBINHOOD = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
+    // A codeless address used only as the CV-1b getPair probe key: it can never
+    // be half of a registered pair (createPair requires both tokens have code),
+    // so a real factory always returns address(0) for it.
+    address internal constant GETPAIR_PROBE_SENTINEL =
+        0x000000000000000000000000000000000000dEaD;
 
     struct Config {
         address factory;
@@ -134,8 +139,13 @@ contract DeployCurveLauncherScript is Script {
         // getPair selector — a wrong address here strands every graduation.
         require(cfg.factory.code.length > 0, "CV-1: FACTORY has no code");
         // Probe with a never-registered key: any real factory returns zero.
+        // The key is a fixed CODELESS sentinel (0x…dEaD) — createPair requires
+        // both tokens to have code, so this address can NEVER be half of a
+        // registered pair, and the probe is deterministic. (Must not be
+        // `address(this)`: forge script rejects any script that reads its own
+        // ephemeral address, which would revert the real deploy.)
         require(
-            IFactoryProbe(cfg.factory).getPair(cfg.weth, address(this)) == address(0),
+            IFactoryProbe(cfg.factory).getPair(cfg.weth, GETPAIR_PROBE_SENTINEL) == address(0),
             "CV-1b: FACTORY getPair probe returned nonsense"
         );
         require(cfg.weth.code.length > 0, "CV-2: WETH has no code");

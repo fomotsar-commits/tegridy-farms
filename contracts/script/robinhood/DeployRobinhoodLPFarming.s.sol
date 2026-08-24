@@ -150,8 +150,11 @@ contract DeployRobinhoodLPFarmingScript is Script {
         require(farm.treasury() == cfg.treasury, "F-INV-4: treasury mismatch");
         require(farm.rewardsDuration() == cfg.rewardsDuration, "F-INV-5: duration mismatch");
         // The property NullBoost exists to guarantee: flat 1.0x for everyone.
+        // Probe a FIXED address, never `address(this)` — forge script reverts any
+        // script that reads its own ephemeral address, which would break the real
+        // deploy (NullBoost returns 0 for every input, so the address is arbitrary).
         require(
-            NullBoost(d.nullBoost).aggregateActiveBoostBps(address(this)) == 0,
+            NullBoost(d.nullBoost).aggregateActiveBoostBps(address(0xdEaD)) == 0,
             "F-INV-6: boost source is not flat"
         );
     }

@@ -99,6 +99,10 @@
     {
       "pattern": "test/halmos/*.t.sol",
       "reason": "Halmos symbolic specs (`check_*`). Same story as echidna: forge collects zero tests from these files. Requires the `halmos` binary, which is not installed in this workflow."
+    },
+    {
+      "pattern": "test/fork/*.t.sol",
+      "reason": "Mainnet-fork rehearsals — need ETH_RPC_URL to fork real state, which CI does not provide. Each test self-skips (vm.skip) when the RPC is unset, so it is safe even if selected; excluded here so no slice depends on a fork RPC. Run locally with ETH_RPC_URL set."
     }
   ]
 }
