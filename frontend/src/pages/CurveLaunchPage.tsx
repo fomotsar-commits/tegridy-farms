@@ -3,7 +3,6 @@
 import '../lib/solanaPolyfill';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
-import { Link } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { usePageTitle } from '../hooks/usePageTitle';

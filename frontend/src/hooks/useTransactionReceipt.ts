@@ -119,7 +119,10 @@ export function useTrackedTransactionReceipt(
   // shape; the test mock now mirrors real wagmi instead of the fiction.
   const result = useWaitForTransactionReceipt({ hash, confirmations });
   const receipt = result.data;
-  const errorName = result.error?.name;
+  // Widened to string: wagmi's error union does not name viem's
+  // TransactionReplacedError/TransactionNotFoundError, but they are what the
+  // underlying waitForTransactionReceipt actually throws on RBF/drop.
+  const errorName: string | undefined = result.error?.name;
 
   if (!hash) {
     return { status: 'idle', isPending: false, isConfirmed: false, isTerminal: false };

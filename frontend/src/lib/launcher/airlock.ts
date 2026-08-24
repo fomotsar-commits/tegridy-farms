@@ -166,16 +166,27 @@ export interface TegridyLaunchConfig {
 export const MIGRATION_POOL = { fee: 3000, tickSpacing: 60 } as const;
 
 /**
- * Doppler `BuilderVestingInput` (simple recipients/amounts form), mirrored from
+ * Doppler `BuilderVestingInput`, mirrored from
  * `@whetstone-research/doppler-sdk/dist/evm` (BuilderVestingInput, read 2026-07-17).
- * `duration` is a bigint (seconds); `cliffDuration` is a number (seconds). We use the
- * recipients/amounts variant — one creator recipient — not the `allocations[]` variant.
+ * `duration` is a bigint (seconds); `cliffDuration` is a number (seconds).
+ * Legacy launches use the recipients/amounts variant (one creator recipient);
+ * the reserve rider (2026-08-22) uses the `allocations[]` variant so the
+ * creator premine and the ecosystem reserve carry INDEPENDENT schedules —
+ * mirrored here 2026-08-24 when the merge surfaced that the branch's call
+ * site shipped without extending this mirror (it hid inside the branch's old
+ * tsc baseline).
  */
+export interface BuilderVestingAllocation {
+  recipient: Address;
+  amount: bigint;
+  schedule: { duration: bigint; cliffDuration: number };
+}
 export interface BuilderVestingInput {
   duration?: bigint;
   cliffDuration?: number;
   recipients?: Address[];
   amounts?: bigint[];
+  allocations?: BuilderVestingAllocation[];
 }
 
 /** Minimal faithful façade of the real doppler-sdk/evm surface we call. */
