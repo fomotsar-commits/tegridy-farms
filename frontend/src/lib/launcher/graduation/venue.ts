@@ -61,7 +61,7 @@ import { migrationPoolKey, migrationPoolId, type V4PoolKey } from '../lockerStre
 import { isDeployed, TEGRIDY_FACTORY_ADDRESS } from '../../constants';
 import { DEFAULT_FEE_CONSTITUTION } from '../config';
 import {
-  MIGRATE_TO_DAMM_V2_LABEL,
+  SOLANA_MIGRATION_TARGET_LABEL,
   SOLANA_MIGRATION_POOL_FEE_BPS,
   SOLANA_PERMANENT_LOCK_PERCENT,
 } from './solanaVenueFacts';
@@ -108,8 +108,16 @@ export interface GraduationPoolPlan {
   poolKey: V4PoolKey | null;
   /** Populated exactly when `poolId` is null: why it could not be computed. */
   undeterminedReason: string | null;
-  /** Graduated-pool trade fee in hundredths of a bip (3000 = 0.30%). */
-  feeHundredthsBips: number;
+  /**
+   * Graduated-pool trade fee in hundredths of a bip (3000 = 0.30%).
+   *
+   * `null` when NO fee is knowable yet — not a default, not a zero. The own-venue
+   * Solana rail is the case: its fee lives on a cp-swap AmmConfig that has never been
+   * created. Rendering 0% there would state a fee the pool does not charge, which is
+   * the disclosure-becomes-a-lie failure this module exists to prevent. Consumers must
+   * branch and say "not yet determined".
+   */
+  feeHundredthsBips: number | null;
   /** Null on rails that do not expose one (Solana DAMM v2 fee tiers are program-side). */
   tickSpacing: number | null;
   /** The base pair the graduated pool is quoted in. Null on Solana (quote mint, not an EVM address). */
@@ -297,47 +305,70 @@ export function resolveEvmGraduationVenue(opts: EvmVenueOpts = {}): GraduationVe
 /**
  * The graduation plan for the Solana rail.
  *
- * Nothing here is gated on an address because nothing here is switchable: the DBC config
- * this repo builds names DAMM v2 as its migration target unconditionally. The venue is
- * Meteora's, and the protocol's revenue is the DBC partner fee line — not pool ownership.
- * Reported so the two rails cannot be conflated by a surface that only knows about EVM.
+ * REWRITTEN 2026-08-23 for the own venue. This used to describe the Meteora DBC rail,
+ * which graduated into DAMM v2 — a venue this protocol does not own. That rail is
+ * retired. `tegridy-launch` graduates into OUR cp-swap fork instead.
+ *
+ * ⚠ THE VENUE IS OURS AND THE RAIL IS STILL NOT LIVE. Those are different claims and
+ * this function must keep them apart. Marking Solana `venue-owned` because Meteora is
+ * gone would publish a graduation promise the chain cannot keep — the exact failure the
+ * module header exists to prevent — because BOTH program ids were closed on mainnet
+ * 2026-08-13 and are permanently spent, and the cp-swap AmmConfig has never been
+ * created (which is why `migrate_to_amm` failed AmmNotConfigured 6015 for the whole
+ * life of the previous deployment, so no launch ever graduated).
+ *
+ * So: `ownership: 'venue-owned'` — true of the DESIGN, and the migrator is our own
+ * program — while `preconditions` carries the three things that are not yet true, and
+ * the pool fee stays `null` because no AmmConfig exists to read one from.
  */
 export function resolveSolanaGraduationVenue(): GraduationVenuePlan {
   return {
     rail: 'solana',
     migrator: {
       address: null,
-      label: MIGRATE_TO_DAMM_V2_LABEL,
-      ownership: 'external',
+      label: SOLANA_MIGRATION_TARGET_LABEL,
+      // The migrator IS ours — tegridy-launch CPIs our cp-swap fork unconditionally.
+      // `address: null` because both program ids are spent and the restart has not
+      // happened, so there is no address to name yet.
+      ownership: 'venue-owned',
     },
     pool: {
-      venue: 'Meteora DAMM v2',
+      venue: SOLANA_MIGRATION_TARGET_LABEL,
       poolId: null,
       poolKey: null,
       undeterminedReason:
         'Solana pool addresses are program-derived at migration time and are not EVM pool keys.',
-      feeHundredthsBips: SOLANA_MIGRATION_POOL_FEE_BPS * 100,
+      // null, deliberately. The fee lives on the cp-swap AmmConfig, which has never
+      // been created. A plausible default here would be a fee sheet that is a lie.
+      feeHundredthsBips: SOLANA_MIGRATION_POOL_FEE_BPS,
       tickSpacing: null,
       numeraire: null,
     },
     lpLock: {
       disposition: 'permanently-locked',
       custodian: null,
-      custodianLabel: 'Meteora DAMM v2 permanent lock',
+      custodianLabel: 'burned at migration — no custodian',
       durationSeconds: null,
       irreversible: true,
-      note: `${SOLANA_PERMANENT_LOCK_PERCENT}% of migrated LP is permanently locked by the DBC config this repo builds; its fees stream to the partner fee vault. Permanent means no withdrawal path exists for any party.`,
+      note:
+        `${SOLANA_PERMANENT_LOCK_PERCENT}% of migrated LP is BURNED during migration, not locked with a ` +
+        'custodian, and the program asserts the burn emptied the account before it completes. ' +
+        'That is stronger than a permanent lock: a lock has a counterparty, a burn has none.',
     },
-    // Deliberately empty rather than a mirrored EVM split: the DBC fee split is a
-    // different mechanism (Meteora protocol take, then partner/creator), it is computed
-    // per-config by splitTradingFee, and copying EVM's constitution here would publish a
-    // split no Solana launch actually carries.
+    // Still deliberately empty. The own-curve fee split is snapshotted per launch on the
+    // BondingCurve account (trade_fee_bps + creator_fee_share_bps), so a constitution
+    // published here would be a second source of truth that drifts from the account.
     feeSplit: [],
     protocolShareBps: 0,
     disclosure:
-      'Solana launches graduate into Meteora DAMM v2 — an external venue. Venue graduation is not live on this rail either; the protocol’s revenue is the DBC partner fee line on the migrated pool, disclosed per launch from its own config.',
+      'Solana launches graduate into Tegridy’s own cp-swap pool, and the migrated LP is burned. ' +
+      'THE RAIL IS NOT LIVE: both programs were closed on 2026-08-13 and their ids are permanently ' +
+      'spent, so nothing can be launched or graduated until the redeploy. The graduated pool’s trade ' +
+      'fee is not yet determined because its AmmConfig has never been created.',
     preconditions: [
-      'No venue DEX exists on Solana. A venue-owned graduation target would be a new program deploy, not an address flip.',
+      'Both program ids were closed on mainnet 2026-08-13 and are permanently spent — a restart needs fresh keypairs and new declare_id! values.',
+      'The cp-swap AmmConfig has never been created; until create_amm_config and update_global both run, migrate_to_amm fails AmmNotConfigured (6015) and no launch can graduate.',
+      'No launch has ever graduated on this rail, so the migration path is unproven on mainnet.',
     ],
   };
 }

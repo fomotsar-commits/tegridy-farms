@@ -134,11 +134,32 @@ describe('pool + fee facts are derived, not restated', () => {
 describe('the Solana rail is reported as its own venue, never mirrored from EVM', () => {
   const solana = resolveSolanaGraduationVenue();
 
-  it('is external and says venue graduation is not live there either', () => {
+  // REWRITTEN 2026-08-23 with the Meteora retirement. This asserted
+  // `ownership === 'external'` and a disclosure matching /external/, which was true
+  // of the DBC rail: it graduated into Meteora DAMM v2. That rail is retired and
+  // tegridy-launch graduates into OUR cp-swap fork, so the venue really is ours now.
+  //
+  // The property this test exists to protect is UNCHANGED and is asserted harder
+  // below: owning the venue must not be allowed to imply the rail works. Both program
+  // ids were closed on mainnet 2026-08-13 and the cp-swap AmmConfig has never been
+  // created, so nothing can graduate today.
+  it('reports the venue as ours WITHOUT implying the rail is live', () => {
     expect(solana.rail).toBe('solana');
-    expect(solana.migrator.ownership).toBe('external');
-    expect(solana.disclosure).toMatch(/external/i);
-    expect(solana.disclosure).toMatch(/not live/i);
+    expect(solana.migrator.ownership).toBe('venue-owned');
+
+    // The honesty half. A venue-owned rail that stopped saying "not live" would be a
+    // graduation promise the chain cannot keep.
+    expect(solana.disclosure).toMatch(/NOT LIVE/i);
+    expect(solana.disclosure).toMatch(/spent|closed/i);
+    expect(solana.preconditions.length).toBeGreaterThan(0);
+    expect(solana.preconditions.join(' ')).toMatch(/AmmConfig/i);
+  });
+
+  it('states no graduated-pool fee, because no AmmConfig exists to carry one', () => {
+    // null, never 0. A 0 here renders as "0.00%" — a precise-looking fee for a pool
+    // nobody has configured. This is the same distinction the module header draws
+    // between a real value and an unknown one.
+    expect(solana.pool.feeHundredthsBips).toBeNull();
   });
 
   it('publishes no EVM fee split for a rail whose split is computed per config', () => {

@@ -65,7 +65,11 @@ function RailBlock({ plan }: { plan: GraduationVenuePlan }) {
       <Row label="Migrator">
         {plan.migrator.address ? shortenAddress(plan.migrator.address) : '—'} · {plan.migrator.label}
       </Row>
-      <Row label="Graduated pool fee">{feePercent(plan.pool.feeHundredthsBips)}%</Row>
+      <Row label="Graduated pool fee">
+        {plan.pool.feeHundredthsBips === null
+          ? 'not yet determined'
+          : `${feePercent(plan.pool.feeHundredthsBips)}%`}
+      </Row>
       <Row label="Pool id">
         {plan.pool.poolId ? (
           shortenAddress(plan.pool.poolId, 8)
@@ -153,12 +157,26 @@ export function GraduationVenuePanel() {
           </Row>
         ))}
       </div>
-      <p className="text-xs text-white/60 mt-2 leading-relaxed">
-        Shares are of the graduated pool&rsquo;s {feePercent(plan.pool.feeHundredthsBips)}% trade fee, not of
-        volume. The protocol&rsquo;s {(plan.protocolShareBps / 100).toFixed(2)}% of that fee works out to{' '}
-        {((plan.protocolShareBps / 10_000) * (plan.pool.feeHundredthsBips / 10_000)).toFixed(4)}% of traded
-        value{venueOwned ? '.' : ', and it is a share of an external venue’s pool fee — not the pool fee itself.'}
-      </p>
+      {/*
+        The effective-rate sentence MULTIPLIES the pool fee, so with an unknown fee there
+        is no product to state. Substituting 0 would render "0.0000% of traded value" —
+        a precise-looking number for a pool whose fee nobody has set yet.
+      */}
+      {plan.pool.feeHundredthsBips === null ? (
+        <p className="text-xs text-white/60 mt-2 leading-relaxed">
+          Shares are of the graduated pool&rsquo;s trade fee, not of volume. That fee is{' '}
+          <strong>not yet determined</strong> — it lives on an AMM config that has not been created —
+          so the protocol&rsquo;s {(plan.protocolShareBps / 100).toFixed(2)}% of it cannot be expressed as a
+          share of traded value yet.
+        </p>
+      ) : (
+        <p className="text-xs text-white/60 mt-2 leading-relaxed">
+          Shares are of the graduated pool&rsquo;s {feePercent(plan.pool.feeHundredthsBips)}% trade fee, not of
+          volume. The protocol&rsquo;s {(plan.protocolShareBps / 100).toFixed(2)}% of that fee works out to{' '}
+          {((plan.protocolShareBps / 10_000) * (plan.pool.feeHundredthsBips / 10_000)).toFixed(4)}% of traded
+          value{venueOwned ? '.' : ', and it is a share of an external venue’s pool fee — not the pool fee itself.'}
+        </p>
+      )}
 
       <h3 className="text-[13px] uppercase tracking-wide text-white/50 mt-6 mb-2">
         Protocol fee line (read-only)
