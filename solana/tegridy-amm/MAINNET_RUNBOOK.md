@@ -16,6 +16,34 @@ Legend: 🔑 = needs a key/signature · 💰 = costs SOL · 🌐 = external subm
 
 ---
 
+## THE RESTART, IN ORDER (added 2026-08-22 — the zero-toll directive)
+
+The owner's standing decision: relaunch on our own curve and keep **100% of the 1% trade
+fee in-house** (split with the launch creator per §5b — recommended 48/52), instead of
+Meteora DBC's 20% carve. This is a RESTART, not a top-up: both prior program ids are spent
+(§4/§5b banners), so everything program-shaped regenerates while the Squads-side
+identities survive. The sequence, threading the sections below:
+
+| step | what | where | survives / regenerates |
+|---|---|---|---|
+| R1 | Confirm float on hand: **~8.4 SOL deploy rent (MEASURED, §0) + pool seed + fee buffer ≈ 13.4 SOL total**. Rent is lamport-denominated — a SOL price move changes the dollar cost, never the SOL needed | §0 | — |
+| R2 | 🔑 Generate **two fresh program keypairs** + the tegridy-launch deploy authority. Back all three up OFFLINE before the first build — the 08-01 identities were gitignored and UNBACKED-UP, which is one machine failure away from a re-restart | §1 | REGENERATES (old ids spent) |
+| R3 | Re-derive (never trust the table) the Squads multisig / **vault PDA** / fee-receiver WSOL ATA. All three exist and survive the restart | §0 identities | SURVIVES |
+| R4 | 🔑 Patch the 4 authority constants — cp-swap `admin::ID` = an address **proven to sign AND pay on mainnet first** (the §0 post-mortem; the multisig account address bricked the last deploy), fee receiver = the vault's WSOL **token account**, both `declare_id!`s, tegridy-launch `deployer::ID` (fail-closed sentinel otherwise) | §2, §5b step 1 | — |
+| R5 | Build verifiably, **read the linker output**: an SBF stack-frame overflow is a linker WARNING that `cargo check` never surfaces — a warned build ships and then faults at runtime | §3 | — |
+| R6 | 🔑💰 Deploy both programs; move upgrade authority to the vault PDA | §4 | — |
+| R7 | 🔑 `create_amm_config` (cp-swap) and `initialize_global` (tegridy-launch). The three non-free parameters in §5b — creator share, migration reserve, **computed** graduation target — decide whether every launch lists at its curve price or gaps | §5, §5b | — |
+| R8 | 🔑💰 Seed the flagship pool; graduation flows land in **our** `[b"launchpool", mint]` PDA (the canonical-PDA squat is why graduation never targets the stock cp-swap pool address) | §6 | — |
+| R9 | 🌐 Jupiter DEX-integration submission + frontend wiring (assistant task once addresses exist) | §8, §9 | — |
+
+Two program-behavior notes an operator reading logs will want: creator fee legs FOLD into
+the trade instead of crediting a drained wallet (crediting into the 1..890,879-lamport
+rent band would revert the whole tx — the fold is the fix, not a bug), and lamport
+mutations reconcile per-CPI, so the first CPI in an instruction names every account it
+will touch. Both are inside the audited program; neither needs operator action.
+
+---
+
 ## 0. Prereqs
 
 ### DEPLOY FLOAT — **~8.4 SOL**, MEASURED
@@ -319,6 +347,17 @@ That argument only exists while the share is held AT parity rather than bid abov
 it; raising it to 5,000 buys 2 bps of creator goodwill and forfeits the
 like-for-like comparison.
 
+> **Deliberate divergence from the EVM curve (2026-08-23, `docs/CURVE_ECONOMICS.md`).**
+> The EVM `TegridyCurveLauncher` runs a THREE-way split — 40% creator / 25% Jungle
+> Bay treasury / 35% protocol — because the owner wanted an explicit on-chain
+> treasury stream and the EVM contract has the surface for it. Solana STAYS 2-way
+> at 48/52 on purpose: the Rust program has one house bucket, and 48% is held at
+> Meteora parity for the checkable claim above (a Rust treasury bucket is a
+> program change + re-audit, out of scope for the restart). On Solana the treasury
+> funding therefore comes OUT OF the 52% protocol share off-chain — same three
+> stakeholders funded, one fewer on-chain bucket. If you later add a Solana
+> treasury bucket, align it to the EVM 40/25/35 and drop the parity claim.
+
 Snapshotted per launch like the fee itself; `update_global` moves future launches
 only. Bounded at 10_000 (100% of the fee).
 
@@ -353,6 +392,14 @@ headroom.
 Too small and migration fails *after* the pool exists — the worst possible moment.
 
 ### ⚠️ `graduation_target_lamports` — computed, NOT chosen
+
+**Recommended raise ≈ 75 SOL** (`docs/CURVE_ECONOMICS.md`, 2026-08-23 research). pump.fun
+graduates at ~85 SOL (~$12–15k) and under 2% of tokens ever graduate; sitting slightly
+BELOW that lifts the graduation rate — more up-and-coming projects actually reach a real
+pool — while ~75 SOL still clears Jupiter's routing-liquidity threshold. This is the raise
+target the price-continuity math below is solved AROUND; it is not a free knob (see the gap
+warning). Scale `initial_virtual_sol` with it. The EVM curve's chain-tuned equivalents are
+mainnet 4 ETH / Base 2 ETH / Robinhood 1.5 ETH.
 
 The curve prices on virtual+real reserves; the pool is seeded with real reserves
 only. They coincide at exactly one target, and away from it the token **gaps at

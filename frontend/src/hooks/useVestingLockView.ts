@@ -1,7 +1,7 @@
 import { useReadContracts } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { LAUNCH_LOCK_VIEW_ABI } from '../lib/contracts';
-import { LAUNCH_LOCK_VIEW_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { LAUNCH_LOCK_VIEW_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 
 /**
  * `LaunchLockView.snapshot` for one token.
@@ -65,6 +65,7 @@ export function useVestingLockView(token: Address | null, lockLimit = 64): LockV
           0n,
           BigInt(lockLimit),
         ],
+        chainId: CHAIN_ID,
       },
     ],
     query: { enabled, refetchInterval: 60_000 },

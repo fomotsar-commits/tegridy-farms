@@ -1,37 +1,29 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import { createConfig, http, fallback } from 'wagmi';
+import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
-import { mainnet } from 'wagmi/chains';
+import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
 
-// Reliable public RPCs with fallback — avoids rate-limiting on default RPC.
-// R075: `rank: true` enables viem's healthy-RPC ranking — slow / lying nodes
-// get demoted to lower priority on the next request, matching the upstream
-// pattern used by Curve / Velodrome / Aerodrome UIs.
-const transports = {
-  [mainnet.id]: fallback([
-    // Roster re-verified live 2026-06-14 via a REAL read (eth_blockNumber +
-    // Origin), NOT the eth_chainId trap: publicnode, drpc, eth.merkle.io all
-    // return the current block with `access-control-allow-origin: *`. Dropped
-    // cloudflare-eth — earlier notes called it "live" off eth_chainId, but it
-    // returns -32046 "Cannot fulfill request" / -32603 on every real read/
-    // eth_call (the Cloudflare Web3 gateway is sunset for data methods), so it
-    // was a dead 3rd fallback for contract reads. ankr excluded (keyless -32000
-    // Unauthorized); eth.llamarpc.com excluded (HTTP 521 + no ACAO).
-    // eth.merkle.io is allowlisted in the vercel.json CSP connect-src.
-    http('https://ethereum-rpc.publicnode.com'),
-    http('https://eth.drpc.org'),
-    http('https://eth.merkle.io'),
-  ], { rank: true }),
-};
+// MULTICHAIN (2026-08-20): chains and transports are DERIVED from the chain
+// registry via chains/viemChains.ts — Ethereum, Base, Robinhood Chain. The RPC
+// roster rules (real-read verification, ACAO:*, CSP allowlisting, viem `rank`
+// health-ranking — R075) live there with the rosters themselves.
+//
+// THE FLIP THIS CAUSED, so nobody re-discovers it: with >1 chain configured,
+// `useChainId()` follows the wallet instead of pinning to 1. Every mainnet-only
+// surface keeps its explicit `chainId: CHAIN_ID` pins (reads keep coming from
+// mainnet regardless of wallet chain — deliberate, F198) and its own
+// switch-to-mainnet write guards. The GLOBAL wrong-network banner now means
+// "chain we do not serve at all" (see AppLayout), not "not mainnet".
+const transports = WAGMI_TRANSPORTS;
 
 function buildConfig() {
   if (projectId) {
     return getDefaultConfig({
       appName: 'Tegridy Farms',
       projectId,
-      chains: [mainnet],
+      chains: WAGMI_CHAINS as never,
       transports,
     });
   }
@@ -53,7 +45,7 @@ function buildConfig() {
       injected({ shimDisconnect: true }),
       coinbaseWallet({ appName: 'Tegridy Farms' }),
     ],
-    chains: [mainnet],
+    chains: WAGMI_CHAINS as never,
     transports,
   });
 }

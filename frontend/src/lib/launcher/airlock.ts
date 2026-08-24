@@ -135,6 +135,25 @@ export interface TegridyLaunchConfig {
    * claim "vested": the tokens are locked by the on-chain schedule, not merely promised.
    */
   vesting?: { amount: bigint; durationSeconds: number; cliffSeconds?: number };
+  /**
+   * OPTIONAL per-launch ECOSYSTEM RESERVE (owner directive 2026-08-22: "reserve
+   * 5% off of each launch" for that pool's LP incentives / bribes / bounties).
+   * Same on-chain mechanism as the creator premine — a DopplerERC20V1 pre-mint
+   * vesting allocation, enforced by the token factory itself — but to a
+   * PROTOCOL-CONTROLLED custody rather than the creator. The caller owns the
+   * supply math: `initialSupply - numTokensToSell` must cover premine + reserve,
+   * and this facade fails fast when it does not.
+   *
+   * DARK UNTIL CUSTODY EXISTS: nothing constructs this while
+   * `ECOSYSTEM_RESERVE_RECIPIENT` (config.ts) is the zero address, and this
+   * facade refuses a zero recipient outright — a reserve routed to 0x0 would be
+   * a burn wearing an incentives label. Enabling is one change-set: custody
+   * deploy → recipient constant → wizard supply math → Fact Sheet line (the
+   * reserve must be disclosed as its own line, never lumped into
+   * teamAllocationVestedBps — that field means CREATOR allocation and the
+   * truth suite pins it). See docs/ULTIMATE_LAUNCHPAD_PLAN.md.
+   */
+  ecosystemReserve?: { recipient: Address; amount: bigint; durationSeconds: number; cliffSeconds?: number };
 }
 
 /**
@@ -240,7 +259,50 @@ export function buildTegridyLaunchParams(sdk: DopplerEvmSdkLike, cfg: TegridyLau
   // the sole path that makes a "vested" Fact Sheet claim TRUE — the reserved
   // premine (initialSupply - numTokensToSell) is locked to the creator under a
   // Doppler vesting schedule. Absent/zero => never called => byte-identical fair launch.
-  if (cfg.vesting && cfg.vesting.amount > 0n) {
+  const reserve = cfg.ecosystemReserve;
+  if (reserve && reserve.amount > 0n) {
+    // The ecosystem reserve rides the SAME factory-enforced pre-mint vesting the
+    // creator premine uses — but the two lines carry different schedules and
+    // different recipients, which is what the SDK's `allocations` variant is for.
+    // Guard rails, both fail-fast: a zero recipient is a mislabeled burn, and an
+    // allocation total exceeding the unsold remainder would revert on-chain deep
+    // inside create() with a decoder error instead of a sentence.
+    if (!isDeployed(reserve.recipient)) {
+      throw new Error(
+        'Ecosystem reserve recipient is unset (zero address). The reserve ships dark until its custody is deployed and ECOSYSTEM_RESERVE_RECIPIENT is filled — refusing to burn 5% of a launch.',
+      );
+    }
+    const creatorPremine = cfg.vesting && cfg.vesting.amount > 0n ? cfg.vesting.amount : 0n;
+    const unsold = cfg.initialSupply - cfg.numTokensToSell;
+    if (creatorPremine + reserve.amount > unsold) {
+      throw new Error(
+        `Vesting allocations (creator ${creatorPremine} + reserve ${reserve.amount}) exceed the unsold remainder (${unsold}). The wizard's supply math must reserve both before the sale amount is derived.`,
+      );
+    }
+    const allocations = [
+      ...(creatorPremine > 0n
+        ? [{
+            recipient: cfg.userAddress,
+            amount: creatorPremine,
+            schedule: {
+              duration: BigInt(cfg.vesting!.durationSeconds),
+              cliffDuration: cfg.vesting!.cliffSeconds ?? 0,
+            },
+          }]
+        : []),
+      {
+        recipient: reserve.recipient,
+        amount: reserve.amount,
+        schedule: {
+          duration: BigInt(reserve.durationSeconds),
+          cliffDuration: reserve.cliffSeconds ?? 0,
+        },
+      },
+    ];
+    builder = builder.withVesting({ allocations });
+  } else if (cfg.vesting && cfg.vesting.amount > 0n) {
+    // No reserve: the legacy single-recipient shape, byte-identical to every
+    // launch shipped to date (and pinned by the existing tests).
     builder = builder.withVesting({
       recipients: [cfg.userAddress],
       amounts: [cfg.vesting.amount],

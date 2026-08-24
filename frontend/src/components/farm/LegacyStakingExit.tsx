@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import type { Address } from 'viem';
 import { formatEther } from 'viem';
-import { LEGACY_STAKING_ADDRESSES } from '../../lib/constants';
+import { LEGACY_STAKING_ADDRESSES, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { ArtImg } from '../ArtImg';
 
@@ -42,6 +42,7 @@ export function LegacyStakingExit() {
       abi: TEGRIDY_STAKING_ABI,
       functionName: 'userTokenId' as const,
       args: address ? ([address] as const) : undefined,
+      chainId: CHAIN_ID,
     })),
     query: { enabled: isConnected && !!address },
   });
@@ -53,14 +54,16 @@ export function LegacyStakingExit() {
 
   const posReads = useReadContracts({
     contracts: LEGACY_STAKING_ADDRESSES.flatMap((c, i) => [
-      { address: c as Address, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition' as const, args: [ids[i]] as const },
-      { address: c as Address, abi: PENALTY_ABI, functionName: 'EARLY_WITHDRAWAL_PENALTY_BPS' as const },
+      { address: c as Address, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition' as const, args: [ids[i]] as const, chainId: CHAIN_ID },
+      { address: c as Address, abi: PENALTY_ABI, functionName: 'EARLY_WITHDRAWAL_PENALTY_BPS' as const, chainId: CHAIN_ID },
     ]),
     query: { enabled: ids.some((id) => id > 0n) },
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // Merge 2026-08-24: trunk's receipt-status derivation + the multichain
+  // branch's chainId pin, both load-bearing.
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash, chainId: CHAIN_ID });
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
   // receipt.status so a reverted withdraw/earlyWithdraw doesn't silently clear
@@ -115,6 +118,10 @@ export function LegacyStakingExit() {
       abi: TEGRIDY_STAKING_ABI,
       functionName: p.canWithdraw ? 'withdraw' : 'earlyWithdraw',
       args: [p.tokenId],
+      // The legacy staking contracts exist on mainnet only. Unpinned, a wallet
+      // parked on Base/Robinhood would sign this against a codeless address —
+      // a successful no-op whose receipt then reads as a confirmed withdrawal.
+      chainId: CHAIN_ID,
     });
   };
 

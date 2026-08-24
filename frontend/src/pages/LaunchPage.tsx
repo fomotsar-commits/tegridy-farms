@@ -34,6 +34,7 @@ const GRADUATED_FEE_PCT = feePct(MIGRATION_POOL.fee);
 import { buildFactSheet, defaultGateConfig, type RawTokenFacts } from '../lib/launcher/gate';
 import type { LaunchFactSheet } from '../lib/launcher/factSheet';
 import { DOPPLER_MAINNET } from '../lib/launcher/doppler.constants';
+import { launchWrongChainMessage } from '../lib/chains';
 import {
   launchToken,
   wizardConfigToLaunchConfig,
@@ -284,7 +285,7 @@ export default function LaunchPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const price = useTOWELIPriceOptional();
   const lpPhase = useLpEmissionsPhase();
   const [launch, setLaunch] = useState<LaunchStatus>({ phase: 'idle' });
@@ -415,7 +416,7 @@ export default function LaunchPage() {
     // The SDK is pinned to Ethereum mainnet (Doppler chainId 1). Refuse a wrong-chain
     // wallet up front rather than build params against a mismatched address book.
     if (chainId !== DOPPLER_MAINNET.chainId) {
-      setLaunch({ phase: 'error', message: 'Switch your wallet to Ethereum mainnet to launch.' });
+      setLaunch({ phase: 'error', message: launchWrongChainMessage(chainId) });
       return;
     }
     // Numeraire + its USD price. ETH launches use ETH/USD; a TOWELI (exotic) launch MUST
@@ -866,7 +867,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const [tokenInput, setTokenInput] = useState(prefillToken ?? '');
   const [state, setState] = useState<ReattestPhase>({ phase: 'idle' });
   const [schemaReady, setSchemaReady] = useState<boolean | null>(null);
@@ -878,7 +879,7 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
     const token = tokenInput.trim();
     if (!isAddress(token)) return setState({ phase: 'error', message: 'Enter a valid token address (0x…).' });
     if (!isConnected || !address) return setState({ phase: 'error', message: 'Connect the creator wallet to re-attest.' });
-    if (chainId !== DOPPLER_MAINNET.chainId) return setState({ phase: 'error', message: 'Switch your wallet to Ethereum mainnet.' });
+    if (chainId !== DOPPLER_MAINNET.chainId) return setState({ phase: 'error', message: launchWrongChainMessage(chainId) });
     setState({ phase: 'reading' });
     try {
       const tokenAddr = getAddress(token) as Address;

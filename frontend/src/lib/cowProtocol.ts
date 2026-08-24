@@ -53,9 +53,29 @@ export const COW_ORDER_TYPES = {
 // submitted string and requires it to equal `appDataHash` (= the bytes32 used in
 // the signed Order.appData field). Any valid JSON works as long as the hash
 // matches; we use a stable, minimal document so the hash is deterministic.
+//
+// PARTNER FEE (2026-08-22 fee-leak audit): every CoW-routed order — market swaps,
+// limit orders, TWAP, DCA — currently carries NO fee for the venue. CoW's appData
+// schema supports metadata.partnerFee {bps, recipient}, settled by solvers out of
+// the order surplus/price. The capability is wired here DARK: bps = 0 keeps the
+// document (and therefore the pinned hash) BYTE-IDENTICAL to every order shipped
+// to date. Flipping it is a pricing decision (per-rail fee table policy), not a
+// code decision, and the flip is one constant — the doc and hash re-derive
+// together by construction, which is the invariant that matters: an appData doc
+// edited without its hash rejects EVERY order at submission (swapFee.ts pins the
+// pairing). Before flipping: verify the metadata.partnerFee shape against CoW's
+// current app-data schema + one canary order on the live orderbook.
+export const COW_PARTNER_FEE_BPS = 0;
+/** Treasury Safe. Named here (not imported) to keep this module dependency-light;
+ *  equals TREASURY_ADDRESS in constants.ts — the addresses.json registry pins both. */
+export const COW_PARTNER_FEE_RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
+
 export const COW_APP_DATA_DOC = JSON.stringify({
   appCode: 'Tegridy Farms',
-  metadata: {},
+  metadata:
+    COW_PARTNER_FEE_BPS > 0
+      ? { partnerFee: { bps: COW_PARTNER_FEE_BPS, recipient: COW_PARTNER_FEE_RECIPIENT } }
+      : {},
   version: '1.1.0',
 });
 export const COW_APP_DATA_HASH: `0x${string}` = keccak256(stringToHex(COW_APP_DATA_DOC));

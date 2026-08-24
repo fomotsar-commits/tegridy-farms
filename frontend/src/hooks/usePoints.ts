@@ -22,7 +22,7 @@ const SWAP_EXECUTED_EVENT = parseAbiItem(
 
 export function usePoints() {
   const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const chainId = useChainId();
   const onMainnet = chainId === CHAIN_ID;
   const [data, setData] = useState<PointsData | null>(null);

@@ -7,6 +7,7 @@ import { useAddLiquidity } from '../../hooks/useAddLiquidity';
 import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
+import { CHAIN_ID } from '../../lib/constants';
 import { formatTokenAmount, formatNumber } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 
@@ -20,7 +21,14 @@ const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
   if (e.key === '-' || e.key === 'e') e.preventDefault();
 };
 
-const CUSTOM_TOKENS_KEY = 'tegridy_liquidity_custom_tokens';
+// MULTICHAIN (2026-08-20): chain-scoped key, matching useSwap's
+// `tegridy_custom_tokens_v2_${CHAIN_ID}` pattern. The unscoped predecessor key
+// ('tegridy_liquidity_custom_tokens') would have surfaced a Base-imported token
+// in the mainnet picker the day per-chain trading opens. Liquidity is
+// mainnet-pinned today, so scoping by the build-time constant loses nothing and
+// pre-existing entries under the old key are simply ignored (re-import is cheap
+// and re-validates against the chain — see H-33 below).
+const CUSTOM_TOKENS_KEY = `tegridy_liquidity_custom_tokens_${CHAIN_ID}`;
 
 // AUDIT FIX 2026-05-26 [H-33]: validate rehydrated custom tokens before
 // trusting them. Pre-fix, a malicious browser extension that wrote a
@@ -126,10 +134,10 @@ export function LiquidityTab() {
   // Native ETH balance (useAddLiquidity reads the WETH ERC20 balance for native tokens,
   // which is wrong — user might hold ETH but no WETH). Fetch real native balance here.
   const { data: nativeBalanceA } = useBalance({
-    address, query: { enabled: !!address && tokenA.isNative },
+    address, chainId: CHAIN_ID, query: { enabled: !!address && tokenA.isNative },
   });
   const { data: nativeBalanceB } = useBalance({
-    address, query: { enabled: !!address && tokenB.isNative },
+    address, chainId: CHAIN_ID, query: { enabled: !!address && tokenB.isNative },
   });
 
   const balanceADisplay = tokenA.isNative

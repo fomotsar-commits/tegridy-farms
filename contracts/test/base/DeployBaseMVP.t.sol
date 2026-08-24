@@ -40,6 +40,11 @@ contract DeployBaseMVPTest is Test {
 
     function setUp() public {
         vm.chainId(BaseChainConfig.CHAIN_ID);
+        // Literal absolute clock: the mock feed answers block.timestamp - 30 days,
+        // which underflows foundry's tiny default clock now that _validate probes
+        // the feed's dialect; via_ir folds relative warps
+        // (reference_via_ir_timestamp_cse).
+        vm.warp(100 days);
 
         script = new DeployBaseMVPScript();
         verifier = new VerifyBaseMVPScript();

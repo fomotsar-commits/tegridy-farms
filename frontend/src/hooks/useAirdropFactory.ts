@@ -41,11 +41,11 @@ export function useAirdropFactory() {
 
   const { data, refetch } = useReadContracts({
     contracts: [
-      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'currentCampaignFee' },
-      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'campaignCount' },
-      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'paused' },
-      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'MIN_CLAIM_WINDOW' },
-      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'MAX_CLAIM_WINDOW' },
+      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'currentCampaignFee', chainId: CHAIN_ID },
+      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'campaignCount', chainId: CHAIN_ID },
+      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'paused', chainId: CHAIN_ID },
+      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'MIN_CLAIM_WINDOW', chainId: CHAIN_ID },
+      { address: AIRDROP_FACTORY_ADDRESS, abi: AIRDROP_FACTORY_ABI, functionName: 'MAX_CLAIM_WINDOW', chainId: CHAIN_ID },
     ],
     query: { enabled: deployed, refetchInterval: 60_000 },
   });

@@ -39,12 +39,13 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
 
   const { data, refetch } = useReadContracts({
     contracts: [
-      { address: distributor ?? undefined, abi: AIRDROP_DISTRIBUTOR_ABI, functionName: 'campaignInfo' },
+      { address: distributor ?? undefined, abi: AIRDROP_DISTRIBUTOR_ABI, functionName: 'campaignInfo', chainId: CHAIN_ID },
       {
         address: AIRDROP_FACTORY_ADDRESS,
         abi: AIRDROP_FACTORY_ABI,
         functionName: 'isCampaign',
         args: [(distributor ?? '0x0000000000000000000000000000000000000000') as Address],
+        chainId: CHAIN_ID,
       },
     ],
     query: { enabled: valid, refetchInterval: 30_000 },
@@ -66,8 +67,8 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
 
   const { data: tokenData } = useReadContracts({
     contracts: [
-      { address: info?.token, abi: ERC20_ABI, functionName: 'symbol' },
-      { address: info?.token, abi: ERC20_ABI, functionName: 'decimals' },
+      { address: info?.token, abi: ERC20_ABI, functionName: 'symbol', chainId: CHAIN_ID },
+      { address: info?.token, abi: ERC20_ABI, functionName: 'decimals', chainId: CHAIN_ID },
     ],
     query: { enabled: Boolean(info?.token), refetchInterval: 0 },
   });
@@ -75,6 +76,9 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
   // No placeholder index, ever: `args` is undefined and the query is disabled
   // until a real index exists, so there is no path where a genuine `isClaimed(0)`
   // result could be read as the answer for a wallet whose index was never known.
+  // (Merge 2026-08-24: trunk's typed single-read shape kept over the branch's
+  // useReadContracts variant — both carry the chainId pin the multichain flip
+  // requires; downstream reads `claimedRead` as a bare boolean.)
   const { data: claimedRead, refetch: refetchClaimed } = useReadContract({
     address: distributor ?? undefined,
     abi: AIRDROP_DISTRIBUTOR_ABI,

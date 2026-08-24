@@ -35,7 +35,6 @@
     "This repository is PUBLIC. Key custody is tracked in an operator-local file that is not committed;",
     "the 'custody' field here says WHO controls a key, never WHERE it is stored."
   ],
-
   "denylist": [
     {
       "address": "5hNA2MXkoHo1Vf1c3ZE7cAsxsB4tCyahLcJnJ5NsD927v",
@@ -49,7 +48,6 @@
       "reason": "BURNED 2026-08-08. Its seed phrase was pasted into a chat transcript within minutes of generation. Confirmed 0 SOL, never funded. Keyfile quarantined, not deleted."
     }
   ],
-
   "solana": [
     {
       "id": "operator-payer",
@@ -57,7 +55,10 @@
       "role": "Operator payer. Signed the create-config that put the live Meteora DBC partner config on mainnet (2026-08-01), so it is that config's authority.",
       "custody": "single key, operator-held",
       "status": "live",
-      "expect": { "type": "wallet", "funded": true }
+      "expect": {
+        "type": "wallet",
+        "funded": true
+      }
     },
     {
       "id": "deploy-authority",
@@ -73,7 +74,9 @@
       "role": "cp-swap program address (Raydium CPMM fork). Keypair claims the address at first deploy; inert afterwards.",
       "custody": "nobody. Upgrade authority went to squads-vault on the 2026-08-08 deploy and became meaningless when the ProgramData was closed — there is no account left for an authority to act on.",
       "status": "CLOSED ON MAINNET 2026-08-13. Its ProgramData account 6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF returns null with 0 lamports on two independent RPCs (verified 2026-08-15, docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). The 1,141,440-lamport stub is still executable-FLAGGED, which is why `expect.type: executable` below still passes and is not evidence of anything: a program whose ProgramData is gone cannot execute, and Solana will not let a closed program id be redeployed. This program id is SPENT. Deployed 2026-08-08 (4.815 SOL rent); the #281 admin::ID correction can never be applied to it, and any restart needs a new id, a new declare_id! and re-derivation of every PDA the fork owns.",
-      "expect": { "type": "executable" }
+      "expect": {
+        "type": "executable"
+      }
     },
     {
       "id": "tegridy-launch-program",
@@ -81,7 +84,9 @@
       "role": "tegridy-launch bonding-curve program address. Separate program, separate deploy.",
       "custody": "nobody. Upgrade authority went to squads-vault on the 2026-08-08 deploy and became meaningless when the ProgramData was closed.",
       "status": "CLOSED ON MAINNET 2026-08-13. Its ProgramData account 6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS returns null with 0 lamports on two independent RPCs (verified 2026-08-15, docs/SOLANA_PROGRAM_FINDINGS_2026_08_15.md). The executable-FLAGGED stub below is not evidence the program runs. This id is SPENT and cannot be redeployed. Deployed 2026-08-08 (3.581 SOL rent) and initialized; graduation never worked, because AmmNotConfigured (6015) was never cleared before the close.",
-      "expect": { "type": "executable" }
+      "expect": {
+        "type": "executable"
+      }
     },
     {
       "id": "tegridy-launch-programdata",
@@ -89,7 +94,9 @@
       "role": "The BPFLoaderUpgradeable ProgramData account behind tegridy-launch. Registered as a POSITIVE CONTROL for closure: the program stub stays executable-flagged after `solana program close`, so the only machine-checkable difference between a live program and a dead one is whether THIS account exists. `expect.type: absent` is enforced unconditionally by verify-addresses.mjs, so if anyone ever reports this rail live again, CI reads the account rather than the sentence.",
       "custody": "none — the account does not exist",
       "status": "closed 2026-08-13. Must stay absent; a non-null read here means the world changed and every doc citing the close needs re-verifying.",
-      "expect": { "type": "absent" }
+      "expect": {
+        "type": "absent"
+      }
     },
     {
       "id": "cp-swap-programdata",
@@ -97,7 +104,9 @@
       "role": "The BPFLoaderUpgradeable ProgramData account behind the cp-swap fork. Same positive control as the entry above.",
       "custody": "none — the account does not exist",
       "status": "closed 2026-08-13. Must stay absent.",
-      "expect": { "type": "absent" }
+      "expect": {
+        "type": "absent"
+      }
     },
     {
       "id": "tegridy-launch-global",
@@ -105,7 +114,9 @@
       "role": "The tegridy-launch `global` singleton PDA, seeds [\"global\"]. Holds the parameters every FUTURE launch is created from: 1% trade fee, creator 48% / protocol 52%, 30 SOL virtual reserve, graduation target 11.621942308 SOL (the continuity target — it lists at 9999 bps of the final curve price), 0.25 SOL migration reserve. fee_recipient is squads-vault.",
       "custody": "program-derived — nobody holds a key for it. Its `authority` FIELD is the mutable admin and is currently deploy-authority; hand it to squads-vault with `update-global --new-authority`.",
       "status": "STRANDED. Initialized 2026-08-08, 723 bytes, still holding 5,922,960 lamports of rent — owned by a program that was closed on 2026-08-13 and can never execute again. Nobody can sign for it and nobody can close it, so the rent is unrecoverable. Its parameters below describe launches that can no longer be created; they are kept as the record of what the rail was configured to do, not as live settings.",
-      "expect": { "type": "program-owned" }
+      "expect": {
+        "type": "program-owned"
+      }
     },
     {
       "id": "squads-multisig",
@@ -113,7 +124,9 @@
       "role": "Squads v4 multisig. The intended destination for program upgrade authority and for fee custody.",
       "custody": "multisig, threshold 2 (read on-chain at data offset 72)",
       "status": "live",
-      "expect": { "type": "program-owned" }
+      "expect": {
+        "type": "program-owned"
+      }
     },
     {
       "id": "squads-vault",
@@ -122,7 +135,9 @@
       "custody": "PDA of the Squads multisig — no private key exists",
       "status": "live",
       "correction": "This entry used to read 'Squads vault PDA index 0 = cp-swap admin::ID and create_support_mint_associated_owner::ID'. Both halves were wrong, and it is the exact confusion that bricked graduation. (a) The cp-swap binary that WAS deployed baked the MULTISIG account EVGSnRZ… as admin::ID — a 495-byte Squads-program-owned account that can neither sign (v4 signs CPIs as the vault) nor be debited by the System Program, and `CreateAmmConfig` has `payer = owner`. create_amm_config was therefore uncallable and migrate_to_amm never got past AmmNotConfigured (6015). (b) The SOURCE fix (#281) repoints admin::ID at deploy-authority Dcjink4RG…, a plain system-owned wallet — still not this vault. (c) create_support_mint_associated_owner::ID is deliberately the multisig, left as-is because it is a pure OR-fallback. This correction is now history rather than a live hazard: both program ids were closed on 2026-08-13, `verify-program-constants.mjs --deployed` has no bytecode left to search, and the question it settled must be re-answered against whatever binary a restart actually deploys.",
-      "expect": { "type": "wallet" }
+      "expect": {
+        "type": "wallet"
+      }
     },
     {
       "id": "system-program",
@@ -130,7 +145,9 @@
       "role": "The System Program. Registered because it is also tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the committed non-devnet arm (lib.rs:142) — a mainnet binary built without patching that constant can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
       "custody": "native program, nobody",
       "status": "live (native)",
-      "expect": { "type": "executable" }
+      "expect": {
+        "type": "executable"
+      }
     },
     {
       "id": "devnet-fee-receiver-ata",
@@ -138,7 +155,9 @@
       "role": "cp-swap create_pool_fee_reveiver::ID on the `--features devnet` arm — the devnet admin's WSOL ATA. Registered so verify-program-constants can carry it as a FORBIDDEN key: baked into a mainnet binary, every pool-creation fee is paid to an account that does not exist on mainnet.",
       "custody": "owned by devnet-admin",
       "status": "devnet only — 0 on mainnet",
-      "expect": { "type": "token-account" }
+      "expect": {
+        "type": "token-account"
+      }
     },
     {
       "id": "tegridy-launch-placeholder-id",
@@ -146,7 +165,9 @@
       "role": "The throwaway in tegridy-launch's declare_id! (lib.rs:114) AND in deployer::ID's devnet arm (lib.rs:140). Still what trunk compiles against; the mainnet id CpFnacrAC… is patched in at build time per MAINNET_RUNBOOK §5b and never committed. One key, two constants — which is why a byte search of the binary can report it present but cannot say which of the two it came from.",
       "custody": "throwaway — corresponds to no key anybody holds",
       "status": "must be absent from any mainnet binary",
-      "expect": { "type": "absent" }
+      "expect": {
+        "type": "absent"
+      }
     },
     {
       "id": "cpswap-fee-receiver-wsol-ata",
@@ -154,7 +175,9 @@
       "role": "cp-swap create_pool_fee_reveiver::ID — the Squads vault's WSOL associated-token-account. An SPL token account, NOT a wallet.",
       "custody": "owned by the Squads vault",
       "status": "live, created 2026-08-08 (0.00204 SOL). cp-swap's create_pool fails if it is missing, so it had to exist before the first graduation.",
-      "expect": { "type": "token-account" }
+      "expect": {
+        "type": "token-account"
+      }
     },
     {
       "id": "swap-fee-account",
@@ -162,7 +185,9 @@
       "role": "VITE_SOLANA_FEE_ACCOUNT — the live Jupiter platform-fee receiver for /solana. Verified present in the deployed bundle.",
       "custody": "SINGLE KEY, not a Squads vault. Proven on-curve and by transaction-level signing. This is a known custody gap.",
       "status": "live, has never collected a fee",
-      "expect": { "type": "wallet" }
+      "expect": {
+        "type": "wallet"
+      }
     },
     {
       "id": "swap-fee-ata-wsol",
@@ -170,7 +195,9 @@
       "role": "WSOL fee ATA owned by swap-fee-account.",
       "custody": "owned by swap-fee-account",
       "status": "live, balance 0",
-      "expect": { "type": "token-account" }
+      "expect": {
+        "type": "token-account"
+      }
     },
     {
       "id": "swap-fee-ata-usdc",
@@ -178,7 +205,9 @@
       "role": "USDC fee ATA owned by swap-fee-account.",
       "custody": "owned by swap-fee-account",
       "status": "live, balance 0",
-      "expect": { "type": "token-account" }
+      "expect": {
+        "type": "token-account"
+      }
     },
     {
       "id": "meteora-dbc-program",
@@ -202,7 +231,9 @@
       "role": "Devnet admin / the Solana CLI's configured default signer. Devnet only.",
       "custody": "single key, operator-held",
       "status": "devnet only — 0 on mainnet",
-      "expect": { "type": "wallet" }
+      "expect": {
+        "type": "wallet"
+      }
     },
     {
       "id": "devnet-throwaway-program",
@@ -210,10 +241,11 @@
       "role": "The placeholder in declare_id! on both cfg arms. declare_id! is NOT fail-closed — ship without replacing it and you deploy to an address someone else may hold.",
       "custody": "throwaway",
       "status": "must be replaced before any mainnet deploy",
-      "expect": { "type": "wallet" }
+      "expect": {
+        "type": "wallet"
+      }
     }
   ],
-
   "ethereum": [
     { "id": "toweli",                  "address": "0x420698CFdEDdEa6bc78D59bC17798113ad278F9D", "role": "TOWELI token. Fixed supply, no mint function.", "status": "live", "expect": { "type": "contract" }, "evidence": "contracts/src/Toweli.sol:22 and docs/TOKEN_DEPLOY.md:14 name this as the canonical mainnet ERC-20 deployment; CONTRACTS.md (Core Token row) records a live runtime selector scan of it on 2026-08-12 (burn/burnFrom/Ownable2Step present, permit absent, owner() renounced). A selector scan of a runtime is a read of code." },
     { "id": "tegridy-lp-native",       "address": "0x55875887B43C2E23aE424AF0FC8606Fdb058a481", "role": "OUR OWN TOWELI/WETH pair on the Tegridy DEX. This is the shallow one (~$14) — do not confuse it with the Uniswap pair.", "status": "live, effectively empty", "expect": { "type": "contract" }, "evidence": "CONTRACTS.md (Native DEX, TegridyLP row) and docs/MIGRATION_HISTORY.md:49 record a live read-back on 2026-08-06: token0()=TOWELI, token1()=WETH, factory()=0xa24C...7a52. A TegridyPair created by the relaunch factory." },
@@ -223,6 +255,7 @@
     { "id": "treasury",                "address": "0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d", "role": "Treasury Safe. Destination of the launcher's protocol fee line.", "status": "live, holds 0 ETH", "expect": { "type": "contract" }, "evidence": "It is a Gnosis Safe, and a Safe is a contract. CONTRACTS.md (External Dependencies, Treasury (Safe)) records getThreshold()==2 over 2 owners read back 2026-08-06; contracts/script/deploy-gated.sh:31 annotates it 'fee Safe (verified: has code)'. There is no 'safe' expect.type - the checker only reads code presence - so 'contract' is the honest assertion and the Safe-ness stays in role/custody." },
     { "id": "launcher-integrator",     "address": "0xD355A072d6bBbA275DBD83A3149f6347b06d1051", "role": "Doppler integrator fee receiver (withIntegrator). Gates the two-role /admin fees panel.", "custody": "single-key EOA, chosen over a Safe by the operator", "status": "live, holds 0 ETH", "expect": { "type": "eoa" }, "evidence": "frontend/src/lib/launcher/config.ts:26-27: 'OPERATOR-CHOSEN 2026-07-22: a fresh single-key EOA (verified on-chain: valid EIP-55 checksum, no code, nonce 0)'; docs/WHETSTONE_MIGRATOR_PETITION.md:101 says the same. CAVEAT, read this before switching the gate off: EIP-7702 can put a delegation designator (code 0xef0100...) at an EOA without any key changing hands, and CONTRACTS.md (Superseded, Treasury row) records exactly that having happened to the ex-treasury EOA 0xE9B7...f53e. So a failure here means 'this wallet grew code, go look', not automatically 'the registry is wrong'. Asserted deliberately anyway: it is the only entry that exercises the eoa branch, and a fee-receiving hot wallet quietly becoming a contract is worth a red build." },
     { "id": "tegridy-factory",         "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52", "role": "Tegridy DEX factory.", "status": "live", "expect": { "type": "contract" }, "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE TegridyFactory, receipt status 0x1, block 0x1817ce3." },
+    { "id": "curve-launcher",          "address": "0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE", "role": "TegridyCurveLauncher — the own zero-toll launch curve. Owner = Treasury Safe. 1% fee split 40 creator / 25 treasury / 35 protocol; graduates into a TegridyFactory pair at 4 ETH with LP burned to 0xdead; 3.69% reserve to the operator address.", "custody": "Treasury Safe (owner)", "status": "live", "expect": { "type": "contract" }, "evidence": "Deployed 2026-08-24, tx 0x5f5dd7c165db64bc8de72d37e15a1f8c308c35e418e884532502f1abe3cf627d; on-chain read-back: owner + treasury = Treasury Safe 0x7D26…, FACTORY = 0xa24C7287eC56A7DEFDc70033803451240e267a52." },
     { "id": "tegridy-router",          "address": "0xE9F83A07b071748E795d2489651d5310fA098Db8", "role": "Tegridy DEX router.", "status": "live", "expect": { "type": "contract" }, "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE TegridyRouter, receipt status 0x1, block 0x1817ce4." },
     { "id": "tegridy-staking",         "address": "0xcaDc93E96De58EA554c71ca609974625615E046D", "role": "veTOWELI staking. Positions are ERC-721.", "status": "live", "expect": { "type": "contract" }, "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE TegridyStaking, receipt status 0x1, block 0x1817ce3; CONTRACTS.md read-back paused()==false, treasury()==0x7D26...Bd7d." },
     { "id": "tegridy-staking-admin",   "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3", "role": "Staking admin.", "status": "live", "expect": { "type": "contract" }, "evidence": "contracts/broadcast/DeployMVP.s.sol/1/run-latest.json CREATE TegridyStakingAdmin, receipt status 0x1, block 0x1817ce9." },
@@ -256,7 +289,6 @@
     { "id": "uniswap-v2-factory",      "address": "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f", "role": "Uniswap V2 factory.", "custody": "third-party", "status": "live", "expect": { "type": "contract" }, "evidence": "CONTRACTS.md (External Dependencies, Uniswap V2 Factory); frontend/src/hooks/useSwapQuote.ts:158,173 reads it with UNISWAP_V2_FACTORY_ABI to resolve pairs." },
     { "id": "eth-usd-feed",            "address": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419", "role": "Chainlink ETH/USD. ~3600s heartbeat — the launcher uses its own staleness window, not the swap path's 300s.", "custody": "Chainlink", "status": "live", "expect": { "type": "contract" }, "evidence": "CONTRACTS.md (External Dependencies, Chainlink ETH/USD Feed); frontend/src/hooks/useToweliPrice.ts:171-175 calls latestRoundData() on it with CHAINLINK_FEED_ABI." }
   ],
-
   "retiredDeploys": {
     "$comment": [
       "Contracts this repo really did CREATE on Ethereum mainnet and then walked away from.",
@@ -275,70 +307,292 @@
       "Adding a row here is a deliberate act of retirement. Never add one to silence CI."
     ],
     "addresses": [
-      { "address": "0xEfefc0FA229ee0415B803Fa1352cE6aBbe316240", "contract": "FeeDistributor", "script": "Deploy.s.sol" },
-      { "address": "0xAA8aD310e541F4bB89C44Ad7faba74F8B4027f2f", "contract": "TegridyFarm", "script": "Deploy.s.sol" },
-      { "address": "0xEb00Fb134699634215ebF5Ea3a4D6FF3872a5B34", "contract": "CommunityGrants", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0xAd9b32272376774d18F386A7676Bd06D7E33c647", "contract": "MemeBountyBoard", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca", "contract": "POLAccumulator", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0x514553EAcfCb91E05Db0a5e9B09d69d7e9CBaf20", "contract": "PremiumAccess", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0x2ADe96633Ee51400E60De00f098280f07b92b060", "contract": "ReferralSplitter", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0xf00964D5F5fB0a4d4AFEa0999843DA31BbE9A7aF", "contract": "RevenueDistributor", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0xd8f13c7F3e0C4139D1905914a99F2E9F77A4aD37", "contract": "SwapFeeRouter", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0xfE2E5B534cfc3b35773aA26A73beF16B028B0268", "contract": "TegridyRestaking", "script": "DeployAuditFixes.s.sol" },
-      { "address": "0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471", "contract": "CommunityGrants", "script": "DeployCommunityGrants.s.sol" },
-      { "address": "0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6", "contract": "TegridyFactory", "script": "DeployFinal.s.sol" },
-      { "address": "0xeD73D8836D04eab05C36a5c2DaE90d2a73F8eC76", "contract": "TegridyRestaking", "script": "DeployFinal.s.sol" },
-      { "address": "0xE9A4fb4bB72254F420a2585ab8abac3A816C215e", "contract": "TegridyRouter", "script": "DeployFinal.s.sol" },
-      { "address": "0x00fD53D6D65DB8A6Edf34372EA4054c4F9fa8079", "contract": "TegridyStaking", "script": "DeployFinal.s.sol" },
-      { "address": "0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb", "contract": "GaugeController", "script": "DeployGaugeController.s.sol", "note": "The Wave 0 H-2 commit-reveal redeploy. GAUGE_CONTROLLER_ADDRESS in constants.ts is zeroed and names this as 'Prev:'." },
-      { "address": "0xa5AB522C99F86dEd9F429766872101c75517D77c", "contract": "LPFarming", "script": "DeployLPFarming.s.sol" },
-      { "address": "0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890", "contract": "MemeBountyBoard", "script": "DeployMemeBountyBoard.s.sol" },
-      { "address": "0x05409880aDFEa888F2c93568B8D88c7b4aAdB139", "contract": "TegridyNFTLending", "script": "DeployNFTLending.s.sol", "note": "V1. Superseded by nft-lending 0x89BeB6cc… in the 2026-07-16 gated batch. run-latest.json for this script still points HERE, not at the live one — read the registry, not the receipt." },
-      { "address": "0x71EaeCa0f75Ca3d4C757b27825920E3d0Fa839bd", "contract": "SwapFeeRouter", "script": "DeploySwapFeeRouterV2.s.sol" },
-      { "address": "0xa7EF711Be3662B9557634502032F98944eC69ec1", "contract": "TegridyLPFarming", "script": "DeployTegridyLPFarming.s.sol", "note": "Wave 0. Superseded by lp-farming 0x1171268A… on 2026-06-08." },
-      { "address": "0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F", "contract": "TegridyRouter", "script": "DeployTegridyRouter.s.sol" },
-      { "address": "0xfEC9aea42Ea966c9382eEb03f63A784579841EB2", "contract": "TegridyTokenURIReader", "script": "DeployTokenURIReader.s.sol" },
-      { "address": "0xdDbe4cD58FAF4B0b93E4E03A2493327eE3BB4995", "contract": "TegridyTWAP", "script": "DeployTWAP.s.sol" },
-      { "address": "0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032", "contract": "CommunityGrants", "script": "DeployV2.s.sol" },
-      { "address": "0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9", "contract": "MemeBountyBoard", "script": "DeployV2.s.sol" },
-      { "address": "0xaA16dF3dC66c7A6aD7db153711329955519422Ad", "contract": "PremiumAccess", "script": "DeployV2.s.sol", "note": "V1. Superseded by premium-access 0x9DC2675B…" },
-      { "address": "0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16", "contract": "ReferralSplitter", "script": "DeployV2.s.sol" },
-      { "address": "0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8", "contract": "RevenueDistributor", "script": "DeployV2.s.sol" },
-      { "address": "0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0", "contract": "SwapFeeRouter", "script": "DeployV2.s.sol" },
-      { "address": "0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4", "contract": "TegridyRestaking", "script": "DeployV2.s.sol" },
-      { "address": "0x65D8b87917c59a0B33009493fB236bCccF1Ea421", "contract": "TegridyStaking", "script": "DeployV2.s.sol" },
-      { "address": "0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A", "contract": "VoteIncentives", "script": "DeployV2.s.sol", "note": "VOTE_INCENTIVES_ADDRESS in constants.ts is zeroed and names this as 'Prev:'." },
-      { "address": "0xD418A6FeFEC2fe1e2FE65339019e3bb8d3DadFd6", "contract": "CommunityGrants", "script": "DeployV3.s.sol" },
-      { "address": "0x2A44CbeBF23ff4a36F9cAbdd716Fa0Bee481C60d", "contract": "PremiumAccess", "script": "DeployV3.s.sol" },
-      { "address": "0xC63A4824191Ea415A41995dE6E9CbEDBc8C51436", "contract": "SwapFeeRouter", "script": "DeployV3.s.sol" },
-      { "address": "0xc5BD3D2e7989C466f95a3056F2eA91763827D7d0", "contract": "WithdrawalFee", "script": "DeployV3.s.sol" },
-      { "address": "0xD36ADa65d8F08dE6F7030E0b50B8b2358c2ca0b3", "contract": "TegridyDrop", "script": "DeployV3Features.s.sol" },
-      { "address": "0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2", "contract": "TegridyLaunchpad", "script": "DeployV3Features.s.sol", "note": "V1. Deleted from source 2026-04-19; existing V1 clones remain browseable. Superseded by launchpad-v2." },
-      { "address": "0xd471e5675EaDbD8C192A5dA2fF44372D5713367f", "contract": "TegridyLending", "script": "DeployV3Features.s.sol", "note": "TEGRIDY_LENDING_ADDRESS in constants.ts is zeroed and names this as 'Prev:'." },
-      { "address": "0x0728cbcde03D617b26d8C27199436BdfA22d547B", "contract": "TegridyNFTPool", "script": "DeployV3Features.s.sol" },
-      { "address": "0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0", "contract": "TegridyNFTPoolFactory", "script": "DeployV3Features.s.sol", "note": "V1. Superseded by nft-pool-factory 0xbB8E49Ba…" },
-      { "address": "0xa5A974daC4B9f8168Cd3fac727997e66522f5B43", "contract": "VoteIncentives", "script": "DeployVoteIncentives.s.sol" }
+      {
+        "address": "0xEfefc0FA229ee0415B803Fa1352cE6aBbe316240",
+        "contract": "FeeDistributor",
+        "script": "Deploy.s.sol"
+      },
+      {
+        "address": "0xAA8aD310e541F4bB89C44Ad7faba74F8B4027f2f",
+        "contract": "TegridyFarm",
+        "script": "Deploy.s.sol"
+      },
+      {
+        "address": "0xEb00Fb134699634215ebF5Ea3a4D6FF3872a5B34",
+        "contract": "CommunityGrants",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0xAd9b32272376774d18F386A7676Bd06D7E33c647",
+        "contract": "MemeBountyBoard",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0x17215f0dfA5E97c33c025E0560eeddffaD87B7Ca",
+        "contract": "POLAccumulator",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0x514553EAcfCb91E05Db0a5e9B09d69d7e9CBaf20",
+        "contract": "PremiumAccess",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0x2ADe96633Ee51400E60De00f098280f07b92b060",
+        "contract": "ReferralSplitter",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0xf00964D5F5fB0a4d4AFEa0999843DA31BbE9A7aF",
+        "contract": "RevenueDistributor",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0xd8f13c7F3e0C4139D1905914a99F2E9F77A4aD37",
+        "contract": "SwapFeeRouter",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0xfE2E5B534cfc3b35773aA26A73beF16B028B0268",
+        "contract": "TegridyRestaking",
+        "script": "DeployAuditFixes.s.sol"
+      },
+      {
+        "address": "0xeBC3aaf48297b8ccFa8272D9E68c1545eb9CD471",
+        "contract": "CommunityGrants",
+        "script": "DeployCommunityGrants.s.sol"
+      },
+      {
+        "address": "0x8B786163aA3beb97822d480a0c306DfD6dEbdCB6",
+        "contract": "TegridyFactory",
+        "script": "DeployFinal.s.sol"
+      },
+      {
+        "address": "0xeD73D8836D04eab05C36a5c2DaE90d2a73F8eC76",
+        "contract": "TegridyRestaking",
+        "script": "DeployFinal.s.sol"
+      },
+      {
+        "address": "0xE9A4fb4bB72254F420a2585ab8abac3A816C215e",
+        "contract": "TegridyRouter",
+        "script": "DeployFinal.s.sol"
+      },
+      {
+        "address": "0x00fD53D6D65DB8A6Edf34372EA4054c4F9fa8079",
+        "contract": "TegridyStaking",
+        "script": "DeployFinal.s.sol"
+      },
+      {
+        "address": "0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb",
+        "contract": "GaugeController",
+        "script": "DeployGaugeController.s.sol",
+        "note": "The Wave 0 H-2 commit-reveal redeploy. GAUGE_CONTROLLER_ADDRESS in constants.ts is zeroed and names this as 'Prev:'."
+      },
+      {
+        "address": "0xa5AB522C99F86dEd9F429766872101c75517D77c",
+        "contract": "LPFarming",
+        "script": "DeployLPFarming.s.sol"
+      },
+      {
+        "address": "0x6D2C6EC29D97fe8b6D1471091DEEE36baf69d890",
+        "contract": "MemeBountyBoard",
+        "script": "DeployMemeBountyBoard.s.sol"
+      },
+      {
+        "address": "0x05409880aDFEa888F2c93568B8D88c7b4aAdB139",
+        "contract": "TegridyNFTLending",
+        "script": "DeployNFTLending.s.sol",
+        "note": "V1. Superseded by nft-lending 0x89BeB6cc… in the 2026-07-16 gated batch. run-latest.json for this script still points HERE, not at the live one — read the registry, not the receipt."
+      },
+      {
+        "address": "0x71EaeCa0f75Ca3d4C757b27825920E3d0Fa839bd",
+        "contract": "SwapFeeRouter",
+        "script": "DeploySwapFeeRouterV2.s.sol"
+      },
+      {
+        "address": "0xa7EF711Be3662B9557634502032F98944eC69ec1",
+        "contract": "TegridyLPFarming",
+        "script": "DeployTegridyLPFarming.s.sol",
+        "note": "Wave 0. Superseded by lp-farming 0x1171268A… on 2026-06-08."
+      },
+      {
+        "address": "0xCBCF6AcC4697cA3a7D7658Cd2051606a09c9863F",
+        "contract": "TegridyRouter",
+        "script": "DeployTegridyRouter.s.sol"
+      },
+      {
+        "address": "0xfEC9aea42Ea966c9382eEb03f63A784579841EB2",
+        "contract": "TegridyTokenURIReader",
+        "script": "DeployTokenURIReader.s.sol"
+      },
+      {
+        "address": "0xdDbe4cD58FAF4B0b93E4E03A2493327eE3BB4995",
+        "contract": "TegridyTWAP",
+        "script": "DeployTWAP.s.sol"
+      },
+      {
+        "address": "0x8f1Ba1eC97a932EE1332BA0f366BC6aDf60B3032",
+        "contract": "CommunityGrants",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0x3457C2210be35bA7AF6F382a76247Ecd782BF0C9",
+        "contract": "MemeBountyBoard",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0xaA16dF3dC66c7A6aD7db153711329955519422Ad",
+        "contract": "PremiumAccess",
+        "script": "DeployV2.s.sol",
+        "note": "V1. Superseded by premium-access 0x9DC2675B…"
+      },
+      {
+        "address": "0xd3d46C0d25Ef1F4EAdb58b9218AA23Ed4c2f2c16",
+        "contract": "ReferralSplitter",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0x332aaE555b1164eA45c2291fD7eDfa97aAA264D8",
+        "contract": "RevenueDistributor",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0xea13Cd47a37cC5B59675bfd52BFc8ff8691937A0",
+        "contract": "SwapFeeRouter",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0xfba4D340759Ae4c36DfFC6C773D171bf7BDCaEe4",
+        "contract": "TegridyRestaking",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0x65D8b87917c59a0B33009493fB236bCccF1Ea421",
+        "contract": "TegridyStaking",
+        "script": "DeployV2.s.sol"
+      },
+      {
+        "address": "0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A",
+        "contract": "VoteIncentives",
+        "script": "DeployV2.s.sol",
+        "note": "VOTE_INCENTIVES_ADDRESS in constants.ts is zeroed and names this as 'Prev:'."
+      },
+      {
+        "address": "0xD418A6FeFEC2fe1e2FE65339019e3bb8d3DadFd6",
+        "contract": "CommunityGrants",
+        "script": "DeployV3.s.sol"
+      },
+      {
+        "address": "0x2A44CbeBF23ff4a36F9cAbdd716Fa0Bee481C60d",
+        "contract": "PremiumAccess",
+        "script": "DeployV3.s.sol"
+      },
+      {
+        "address": "0xC63A4824191Ea415A41995dE6E9CbEDBc8C51436",
+        "contract": "SwapFeeRouter",
+        "script": "DeployV3.s.sol"
+      },
+      {
+        "address": "0xc5BD3D2e7989C466f95a3056F2eA91763827D7d0",
+        "contract": "WithdrawalFee",
+        "script": "DeployV3.s.sol"
+      },
+      {
+        "address": "0xD36ADa65d8F08dE6F7030E0b50B8b2358c2ca0b3",
+        "contract": "TegridyDrop",
+        "script": "DeployV3Features.s.sol"
+      },
+      {
+        "address": "0x5d597647D5f57aEFba727C160C4C67eEcC0FF3C2",
+        "contract": "TegridyLaunchpad",
+        "script": "DeployV3Features.s.sol",
+        "note": "V1. Deleted from source 2026-04-19; existing V1 clones remain browseable. Superseded by launchpad-v2."
+      },
+      {
+        "address": "0xd471e5675EaDbD8C192A5dA2fF44372D5713367f",
+        "contract": "TegridyLending",
+        "script": "DeployV3Features.s.sol",
+        "note": "TEGRIDY_LENDING_ADDRESS in constants.ts is zeroed and names this as 'Prev:'."
+      },
+      {
+        "address": "0x0728cbcde03D617b26d8C27199436BdfA22d547B",
+        "contract": "TegridyNFTPool",
+        "script": "DeployV3Features.s.sol"
+      },
+      {
+        "address": "0x1C0e1771943fbB299f4E19daD0fAA4Fa4e6c04f0",
+        "contract": "TegridyNFTPoolFactory",
+        "script": "DeployV3Features.s.sol",
+        "note": "V1. Superseded by nft-pool-factory 0xbB8E49Ba…"
+      },
+      {
+        "address": "0xa5A974daC4B9f8168Cd3fac727997e66522f5B43",
+        "contract": "VoteIncentives",
+        "script": "DeployVoteIncentives.s.sol"
+      }
     ]
   },
-
   "heatRegistry": {
     "$comment": "The 13 tokens Jungle Bay Island measures for Heat. Enumerated empirically 2026-08-08 by reading breakdown[] across 49 wallets — the island publishes no registry endpoint, so this list is a SAMPLE-DERIVED FLOOR, not a guarantee of completeness. TOWELI appears on both chains.",
     "base": [
-      { "symbol": "JBM",    "address": "0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d", "note": "Jungle Bay Memes, 100B supply" },
-      { "symbol": "RIZZ",   "address": "0x58d6e314755c2668f3d7358cc7a7a06c4314b238" },
-      { "symbol": "BNKR",   "address": "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b" },
-      { "symbol": "BOBO",   "address": "0x570b1533f6daa82814b25b62b5c7c4c55eb83947" },
-      { "symbol": "MFER",   "address": "0xe3086852a4b125803c815a158249ae468a3254ca" },
-      { "symbol": "DRB",    "address": "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2" },
-      { "symbol": "TOWELI", "address": "0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca", "note": "OUR TOKEN on Base — already measured" },
-      { "symbol": "ALPHA",  "address": "0x3d01fe5a38ddbd307fdd635b4cb0e29681226d6f" },
-      { "symbol": "QR",     "address": "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf" }
+      {
+        "symbol": "JBM",
+        "address": "0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d",
+        "note": "Jungle Bay Memes, 100B supply"
+      },
+      {
+        "symbol": "RIZZ",
+        "address": "0x58d6e314755c2668f3d7358cc7a7a06c4314b238"
+      },
+      {
+        "symbol": "BNKR",
+        "address": "0x22af33fe49fd1fa80c7149773dde5890d3c76f3b"
+      },
+      {
+        "symbol": "BOBO",
+        "address": "0x570b1533f6daa82814b25b62b5c7c4c55eb83947"
+      },
+      {
+        "symbol": "MFER",
+        "address": "0xe3086852a4b125803c815a158249ae468a3254ca"
+      },
+      {
+        "symbol": "DRB",
+        "address": "0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2"
+      },
+      {
+        "symbol": "TOWELI",
+        "address": "0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca",
+        "note": "OUR TOKEN on Base — already measured"
+      },
+      {
+        "symbol": "ALPHA",
+        "address": "0x3d01fe5a38ddbd307fdd635b4cb0e29681226d6f"
+      },
+      {
+        "symbol": "QR",
+        "address": "0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf"
+      }
     ],
     "ethereum": [
-      { "symbol": "TOWELI", "address": "0x420698cfdeddea6bc78d59bc17798113ad278f9d", "note": "OUR TOKEN on mainnet — already measured" },
-      { "symbol": "BOBO",   "address": "0xb90b2a35c65dbc466b04240097ca756ad2005295" },
-      { "symbol": "JBAC",   "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9", "note": "ERC-721 — the NFT is measured by count/5555" },
-      { "symbol": "PEPE",   "address": "0x6982508145454ce325ddbe47a25d4ec3d2311933" }
+      {
+        "symbol": "TOWELI",
+        "address": "0x420698cfdeddea6bc78d59bc17798113ad278f9d",
+        "note": "OUR TOKEN on mainnet — already measured"
+      },
+      {
+        "symbol": "BOBO",
+        "address": "0xb90b2a35c65dbc466b04240097ca756ad2005295"
+      },
+      {
+        "symbol": "JBAC",
+        "address": "0xd37264c71e9af940e49795f0d3a8336afaafdda9",
+        "note": "ERC-721 — the NFT is measured by count/5555"
+      },
+      {
+        "symbol": "PEPE",
+        "address": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
+      }
     ]
   }
 }

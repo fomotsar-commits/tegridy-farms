@@ -145,9 +145,10 @@ contract DeployBaseMVPScript is Script {
         BaseChainConfig.requireDisjoint(cfg.feeRemittance, "FEE_REMITTANCE", cfg.multisig, "MULTISIG");
         BaseChainConfig.requireDisjoint(cfg.feeRemittance, "FEE_REMITTANCE", cfg.pauseGuardian, "PAUSE_GUARDIAN");
 
-        // A feed with no code passes every constructor and then reverts every gated
-        // read once real money is flowing. Catch it while it is still a typo.
-        BaseChainConfig.requireHasCode(cfg.sequencerFeed, "SEQUENCER_FEED");
+        // A feed with no code — or with code but the wrong round dialect — passes
+        // every constructor and then reverts every gated read once real money is
+        // flowing. Probe the dialect while it is still a typo.
+        BaseChainConfig.requireUptimeDialect(cfg.sequencerFeed, "SEQUENCER_FEED");
     }
 
     // ─── Deploy ──────────────────────────────────────────────────────

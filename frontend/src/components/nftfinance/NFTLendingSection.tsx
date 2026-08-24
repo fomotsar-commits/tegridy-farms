@@ -117,18 +117,21 @@ export function NFTLendingSection() {
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'offerCount',
+    chainId: CHAIN_ID,
     query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
   const { data: loanCountData } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'loanCount',
+    chainId: CHAIN_ID,
     query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
   const { data: protocolFeeBpsData } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'protocolFeeBps',
+    chainId: CHAIN_ID,
     query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
 
@@ -508,6 +511,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
       // at push), so query getOffer(i). The prior `i+1` hid offer #0 entirely and
       // OOB-read getOffer(offerCount) on the last iteration (reverted, skipped).
       args: [BigInt(i)] as const,
+      chainId: CHAIN_ID,
     }));
   }, [offerCount]);
 
@@ -872,6 +876,7 @@ function MyLoansTab({ loanCount }: { loanCount: number }) {
       abi: TEGRIDY_NFT_LENDING_ABI,
       functionName: 'getLoan' as const,
       args: [BigInt(i)] as const,
+      chainId: CHAIN_ID,
     }));
   }, [loanCount]);
 
@@ -970,6 +975,7 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'getRepaymentAmount',
     args: [BigInt(loan.id)],
+    chainId: CHAIN_ID,
     query: {
       // F253: keep the quote live through the on-chain grace period (overdue)
       // so a borrower seconds past the deadline can still repay — mirrors

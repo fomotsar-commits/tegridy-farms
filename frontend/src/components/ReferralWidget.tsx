@@ -3,7 +3,7 @@ import { m } from 'framer-motion';
 import { isAddress } from 'viem';
 import { usePublicClient } from 'wagmi';
 import { ArtImg } from './ArtImg';
-import { SITE_URL } from '../lib/constants';
+import { SITE_URL, CHAIN_ID } from '../lib/constants';
 import { safeGetItem } from '../lib/storage';
 
 // F92: same sessionStorage-free key HomePage stashes a captured ?ref= under, so
@@ -55,7 +55,7 @@ export function ReferralWidget({
   // We probe getCode() before letting the user link, and surface a warning.
   const [refIsContract, setRefIsContract] = useState(false);
   const [refChecking, setRefChecking] = useState(false);
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {

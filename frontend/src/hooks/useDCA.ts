@@ -222,7 +222,7 @@ function requestNotificationPermission() {
 export function useDCA() {
   const chainId = useChainId();
   const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const [schedules, setSchedules] = useState<DCASchedule[]>([]);
   const schedulesRef = useRef<DCASchedule[]>([]);
   const executingRef = useRef<Set<string>>(new Set());

@@ -77,6 +77,7 @@ export function useVestingStreams() {
       address: w.wallet,
       abi: VESTING_WALLET_ABI,
       functionName: 'vestingInfo' as const,
+      chainId: CHAIN_ID,
     })),
     query: { enabled: wallets.length > 0, refetchInterval: 30_000 },
   });
@@ -130,8 +131,8 @@ export function useVestingStreams() {
 
   const { data: tokenData } = useReadContracts({
     contracts: tokens.flatMap((t) => [
-      { address: t, abi: ERC20_ABI, functionName: 'symbol' as const },
-      { address: t, abi: ERC20_ABI, functionName: 'decimals' as const },
+      { address: t, abi: ERC20_ABI, functionName: 'symbol' as const, chainId: CHAIN_ID },
+      { address: t, abi: ERC20_ABI, functionName: 'decimals' as const, chainId: CHAIN_ID },
     ]),
     query: { enabled: tokens.length > 0 },
   });

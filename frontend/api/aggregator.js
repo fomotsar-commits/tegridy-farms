@@ -126,7 +126,12 @@ const CONFIGS = {
     matchPath: (segments) =>
       segments.length === 1 && segments[0] === "prices",
     allowedMethods: new Set(["GET", "OPTIONS"]),
-    allowedQuery: ["srcToken", "destToken", "amount", "side", "network"],
+    // partnerAddress/partnerFeeBps: the venue-fee leg (PROVIDER_FEE_LEGS.paraswap).
+    // Admitted here IN ADVANCE so the operator flip is one frontend dial — the
+    // 2026-08-22 fee-leak audit found the proxy silently stripping the one leg
+    // the frontend was already able to send, which would have burned a fee-flip
+    // ceremony on a 403-shaped nothing. Inert while the frontend sends no fee.
+    allowedQuery: ["srcToken", "destToken", "amount", "side", "network", "partnerAddress", "partnerFeeBps"],
     rateLimit: 60,
     rateWindowSec: 60,
   },

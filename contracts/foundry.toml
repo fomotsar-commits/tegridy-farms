@@ -146,6 +146,12 @@ lint_on_build = false
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=1" }
 sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=11155111" }
+# Base rides the same Etherscan v2 multichain API + key (chainid param only).
+base = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/v2/api?chainid=8453" }
+# Robinhood Chain's explorer is Blockscout (robinhoodchain.blockscout.com) —
+# Etherscan v2 does not serve 4663. Blockscout's verifier is Etherscan-shaped;
+# it ignores the key, but forge requires one to be present.
+robinhood = { key = "${ETHERSCAN_API_KEY}", chain = 4663, url = "https://robinhoodchain.blockscout.com/api" }
 
 [rpc_endpoints]
 mainnet = "${ETH_RPC_URL}"
@@ -159,6 +165,14 @@ sepolia = "${SEPOLIA_RPC_URL}"
 #   forge script script/Foo.s.sol --rpc-url flashbots --broadcast --slow
 flashbots = "https://rpc.flashbots.net/fast"
 mevblocker = "https://rpc.mevblocker.io/fullprivacy"
+# ─── L2 legs (2026-08-20) ──────────────────────────────────────────────────
+# Base: keyed provider via env; script/base/* refuses every other chain id.
+# Robinhood Chain (4663, Arbitrum Orbit): public endpoint is rate-limited —
+# fine for dry-runs; broadcasts should use a keyed provider via the same env.
+# There is no private-mempool send-path on sequencer L2s; the sequencer IS the
+# private mempool, so `flashbots`/`mevblocker` have no L2 sibling here.
+base = "${BASE_RPC_URL}"
+robinhood = "${ROBINHOOD_RPC_URL}"
 
 # ─── Opt-in formal-verification profile (SMTChecker) ───────────────────────
 # solc's built-in model checker — a FREE formal layer, ZERO new dependency. It

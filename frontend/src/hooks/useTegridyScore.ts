@@ -7,7 +7,7 @@ import { usePoints } from './usePoints';
 import { COMMUNITY_GRANTS_ABI, MEME_BOUNTY_BOARD_ABI } from '../lib/contracts';
 import {
   COMMUNITY_GRANTS_ADDRESS, MEME_BOUNTY_BOARD_ADDRESS,
-  TEGRIDY_STAKING_ADDRESS, RELAUNCH_DEPLOY_BLOCK,
+  TEGRIDY_STAKING_ADDRESS, RELAUNCH_DEPLOY_BLOCK, CHAIN_ID,
   isDeployed as checkDeployed,
 } from '../lib/constants';
 
@@ -176,7 +176,7 @@ const STAKED_EVENT = parseAbiItem(
 
 export function useTegridyScore(): TegridyScoreResult {
   const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const pos = useUserPosition();
   const points = usePoints();
 
@@ -185,7 +185,7 @@ export function useTegridyScore(): TegridyScoreResult {
 
   const { data: grantsData } = useReadContracts({
     contracts: [
-      { address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'proposalCount' },
+      { address: COMMUNITY_GRANTS_ADDRESS, abi: COMMUNITY_GRANTS_ABI, functionName: 'proposalCount', chainId: CHAIN_ID },
     ],
     query: { enabled: grantsDeployed && !!address, refetchInterval: 60_000 },
   });
@@ -245,7 +245,7 @@ export function useTegridyScore(): TegridyScoreResult {
 
   const { data: bountyData } = useReadContracts({
     contracts: [
-      { address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' },
+      { address: MEME_BOUNTY_BOARD_ADDRESS, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount', chainId: CHAIN_ID },
     ],
     query: { enabled: bountyDeployed && !!address, refetchInterval: 60_000 },
   });

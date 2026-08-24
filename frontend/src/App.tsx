@@ -78,6 +78,7 @@ const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
 // probes the chain for the program on mount and renders "not deployed" from that
 // live read, so it needs no redeploy to start working once the program ships.
 const CurveLaunchPage = lazy(() => import('./pages/CurveLaunchPage'));
+const EthCurvePage = lazy(() => import('./pages/EthCurvePage'));
 // Token launch rail (Doppler V4 integration). LIVE since 2026-07-22
 // (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
 // isLauncherEnabled() so it can be re-gated by flipping the flag + redeploying.
@@ -324,6 +325,7 @@ function AnimatedRoutes() {
             404s, and a redirect to a rail that ALSO cannot launch (both program ids are
             spent) would move a dead end rather than close one. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchPage /></Suspense>} />
+        <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><EthCurvePage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
         <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />

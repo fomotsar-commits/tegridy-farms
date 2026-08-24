@@ -19,6 +19,7 @@ import {
   readFactSheetAttestations,
   type AttestationLookup,
 } from '../lib/launcher/attestation';
+import { CHAIN_ID } from '../lib/constants';
 import {
   clipMessage as clip,
   parseTokenParam,
@@ -65,7 +66,7 @@ export default function LaunchTokenPage() {
   const { token: rawToken } = useParams();
   const parsed = parseTokenParam(rawToken);
   const address = parsed.ok ? parsed.address : null;
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const [state, setState] = useState<LoadState>({ phase: 'loading' });
   // The attestation lookup is loaded SEPARATELY, and deliberately so: it is the one
   // read that has to walk EAS logs, and on the public RPCs this app ships with it

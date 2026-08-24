@@ -28,7 +28,7 @@ import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
 import { ProofOfClaims } from '../components/ProofOfClaims';
 import { CopyButton } from '../components/ui/CopyButton';
-import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL } from '../lib/constants';
+import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { getBungalowIdentity } from '../lib/bungalows';
@@ -698,6 +698,23 @@ export default function HomePage() {
               Protocol Overview for the same tablet-width reason. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
+              // Tegridy Curve — our OWN zero-toll launch curve, LIVE on mainnet
+              // 2026-08-24. Placed first because it is the flagship launch surface and
+              // the one that just went live. Spread-gated on the SAME live read the
+              // page and nav gate on (isDeployed(CURVE_LAUNCHER_ADDRESS)) — if the
+              // address is ever zeroed the card simply disappears, so the front door
+              // can never advertise a curve that isn't deployed. Distinct from the
+              // Doppler card below: no Airlock, no petition, 100% of the fee in-house.
+              ...(isDeployed(CURVE_LAUNCHER_ADDRESS)
+                ? [{
+                    to: '/eth-curve',
+                    title: 'Tegridy Curve',
+                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into a Tegridy pool with the LP burned — no Airlock, no petition, no third-party cut.',
+                    stat: 'Zero-toll',
+                    label: 'Live · Ethereum',
+                    art: pageArt('home', 17),
+                  }]
+                : []),
               // The launch card follows the SAME gate the nav uses, so the front door
               // can never advertise a rail that is switched off (it reads "Soon" and
               // /launch renders its explainer instead of a wizard).

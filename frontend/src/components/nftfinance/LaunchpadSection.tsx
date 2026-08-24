@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useReadContract, useReadContracts } from 'wagmi';
 import { m } from 'framer-motion';
 import { type Address } from 'viem';
-import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, isDeployed } from '../../lib/constants';
+import { TEGRIDY_LAUNCHPAD_V2_ADDRESS, CHAIN_ID, isDeployed } from '../../lib/constants';
 import { TEGRIDY_LAUNCHPAD_V2_ABI } from '../../lib/contracts';
 import { shortenAddress } from '../../lib/formatting';
 import { CreateWizard } from '../launchpad/wizard/CreateWizard';
@@ -44,6 +44,7 @@ export function LaunchpadSection() {
     address: TEGRIDY_LAUNCHPAD_V2_ADDRESS as Address,
     abi: TEGRIDY_LAUNCHPAD_V2_ABI,
     functionName: 'getCollectionCount',
+    chainId: CHAIN_ID,
     query: { enabled: v2Live },
   });
 
@@ -56,6 +57,7 @@ export function LaunchpadSection() {
       abi: TEGRIDY_LAUNCHPAD_V2_ABI,
       functionName: 'getCollection' as const,
       args: [BigInt(i)],
+      chainId: CHAIN_ID,
     }));
   }, [v2CountNum]);
 

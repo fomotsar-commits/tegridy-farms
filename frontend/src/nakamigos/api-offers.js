@@ -279,6 +279,36 @@ function normalizeOffer(order) {
 
 // ═══ CREATE OFFERS ═══
 
+
+// ─── Criteria-offer platform fee (2026-08-22 fee-leak audit) ────────────────
+// Item offers have always carried the 1% Tegridy consideration line; collection
+// and trait offers shipped with OpenSea's `offers/build` response verbatim — no
+// Tegridy line at all. Parity is implemented here but ships OFF: OpenSea's
+// criteria_offers endpoint has not yet been PROVEN to accept an extra
+// consideration item on this collection, and a rejected order shape would break
+// a live marketplace feature to collect a fee. Flip after one live canary offer
+// round-trips (docs/FEE_LEAK_LEDGER.md carries the runbook line).
+const CRITERIA_OFFER_PLATFORM_FEE_ENABLED = false;
+
+function withCriteriaPlatformFee(consideration, priceWei) {
+  if (!CRITERIA_OFFER_PLATFORM_FEE_ENABLED) return consideration;
+  if (!(PLATFORM_FEE_BPS > 0) || PLATFORM_FEE_RECIPIENT === "0x0000000000000000000000000000000000000000") {
+    return consideration;
+  }
+  const platformFeeAmount = (priceWei * BigInt(PLATFORM_FEE_BPS)) / 10000n;
+  return [
+    ...consideration,
+    {
+      itemType: 1, // ERC20 (WETH) — Tegridy platform fee, same line item offers carry
+      token: WETH,
+      identifierOrCriteria: "0",
+      startAmount: platformFeeAmount.toString(),
+      endAmount: platformFeeAmount.toString(),
+      recipient: PLATFORM_FEE_RECIPIENT,
+    },
+  ];
+}
+
 export async function createItemOffer({ tokenId, priceEth, expirationHours = 168, contract = CONTRACT }) {
   // AUDIT FIX 2026-08-06 [wallet-provider]: resolve the provider from the ACTIVE
   // wagmi connector, not the fixed rdns priority walk — see getActiveWalletProvider().
@@ -497,19 +527,21 @@ export async function createCollectionOffer({ priceEth, expirationHours = 168, s
         startAmount: priceWei.toString(),
         endAmount: priceWei.toString(),
       }],
-      consideration: partial.consideration.map(c => ({
+      consideration: withCriteriaPlatformFee(partial.consideration.map(c => ({
         ...c,
         startAmount: c.startAmount || "0",
         endAmount: c.endAmount || "0",
-      })),
+      })), priceWei),
       orderType: partial.orderType || 2,
       startTime: String(now),
       endTime: String(endTime),
       zoneHash: partial.zoneHash,
       salt: ethers.hexlify(ethers.randomBytes(32)),
       conduitKey: partial.conduitKey || CONDUIT_KEY,
-      totalOriginalConsiderationItems: partial.consideration.length,
+      totalOriginalConsiderationItems: 0, // set from the FINAL consideration right below
     };
+
+    orderParameters.totalOriginalConsiderationItems = orderParameters.consideration.length;
 
     // Step 4: Get counter & sign EIP-712
     const seaportABI = ["function getCounter(address) view returns (uint256)"];
@@ -616,19 +648,21 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
         startAmount: priceWei.toString(),
         endAmount: priceWei.toString(),
       }],
-      consideration: partial.consideration.map(c => ({
+      consideration: withCriteriaPlatformFee(partial.consideration.map(c => ({
         ...c,
         startAmount: c.startAmount || "0",
         endAmount: c.endAmount || "0",
-      })),
+      })), priceWei),
       orderType: partial.orderType || 2,
       startTime: String(now),
       endTime: String(endTime),
       zoneHash: partial.zoneHash,
       salt: ethers.hexlify(ethers.randomBytes(32)),
       conduitKey: partial.conduitKey || CONDUIT_KEY,
-      totalOriginalConsiderationItems: partial.consideration.length,
+      totalOriginalConsiderationItems: 0, // set from the FINAL consideration right below
     };
+
+    orderParameters.totalOriginalConsiderationItems = orderParameters.consideration.length;
 
     // Step 4: Get counter & sign
     const seaportABI = ["function getCounter(address) view returns (uint256)"];

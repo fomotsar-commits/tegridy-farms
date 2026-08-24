@@ -69,7 +69,7 @@ async function verifyCustomTokenOnChain(
 export function useSwap() {
   const chainId = useChainId();
   const { address } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const [fromToken, setFromToken] = useState<TokenInfo | null>(() =>
     DEFAULT_TOKENS.find(t => t.symbol === 'ETH') ?? null
   );

@@ -19,10 +19,13 @@
     "    `/` \u2014 `test/*Invariants.t.sol` matches all 7 files under",
     "    `test/invariants/` (verified against forge 1.5.1). Write an explicit",
     "    `test/<dir>/*.t.sol` slice for each subdirectory. A brace CAN span",
-    "    sibling directories — `test/{base,markets,nftfi,v2,vaults}/*.t.sol`",
-    "    matches all five (verified against forge 1.5.1) — so a handful of",
-    "    small subdirectories can share ONE slice rather than spawning a CI",
-    "    job each. Prefer widening that brace to adding a slice: a matrix job",
+    "    sibling directories — `test/{base,curve,markets,nftfi,robinhood,v2,vaults}/*.t.sol`",
+    "    matches all seven (2026-08-24 merge union: trunk had folded nftfi in,",
+    "    the multichain branch had added curve + robinhood — a conflict here is",
+    "    resolved by UNION, never by picking a side, or the losing side's tests",
+    "    silently stop running) — so a handful of small subdirectories can share",
+    "    ONE slice rather than spawning a CI job each. Prefer widening that",
+    "    brace to adding a slice: a matrix job",
     "    costs a recursive submodule checkout, a Foundry install and a compile",
     "    before it runs its first test, and total wall-clock is max(slice),",
     "    not sum(slice). `test/nftfi/` (3 files, 51 tests) was folded in on",
@@ -99,11 +102,11 @@
     },
     {
       "slice": "l2-markets-vaults-nftfi",
-      "pattern": "test/{base,markets,nftfi,v2,vaults}/*.t.sol"
+      "pattern": "test/{base,curve,markets,nftfi,robinhood,v2,vaults}/*.t.sol"
     },
     {
       "slice": "airdrop-launch-vesting",
-      "pattern": "test/{AirdropFactory,AirdropMerkleVector,LaunchLockView,LaunchRugEscrow,VestingFactory}*.t.sol"
+      "pattern": "test/{AirdropFactory,AirdropMerkleVector,AttestedSequencerUptimeFeed,LaunchLockView,LaunchRugEscrow,VestingFactory}*.t.sol"
     }
   ],
   "excluded": [
@@ -114,6 +117,10 @@
     {
       "pattern": "test/halmos/*.t.sol",
       "reason": "Halmos symbolic specs (`check_*`). Same story as echidna: forge collects zero tests from these files. Requires the `halmos` binary, which is not installed in this workflow."
+    },
+    {
+      "pattern": "test/fork/*.t.sol",
+      "reason": "Mainnet-fork rehearsals — need ETH_RPC_URL to fork real state, which CI does not provide. Each test self-skips (vm.skip) when the RPC is unset, so it is safe even if selected; excluded here so no slice depends on a fork RPC. Run locally with ETH_RPC_URL set."
     }
   ]
 }

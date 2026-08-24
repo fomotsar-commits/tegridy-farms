@@ -68,6 +68,13 @@ export interface ChainContracts {
   /** The address in `SwapFeeRouter.revenueDistributor`. Read `feeSink` for what it IS. */
   readonly feeSink: Address;
   readonly treasury: Address;
+  /**
+   * TegridyCurveLauncher — the own zero-toll launch curve. Null until the
+   * operator deploys it on this chain (M.16). Unlike the Doppler rail this needs
+   * no Airlock, no petition and keeps 100% of the fee, so it can go live on any
+   * chain the moment its address lands here.
+   */
+  readonly curveLauncher: Address | null;
   /** Absent on any chain without native TOWELI. */
   readonly toweli: Address | null;
   readonly staking: Address | null;

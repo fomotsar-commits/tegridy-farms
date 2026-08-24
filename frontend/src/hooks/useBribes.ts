@@ -40,15 +40,15 @@ export function useBribes() {
   // Global stats + whitelist addresses + pending-fee + bond size + min-bribe floor.
   const { data: globalData, refetch } = useReadContracts({
     contracts: [
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'epochCount' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'currentEpoch' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'bribeFeeBps' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'getWhitelistedTokens' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingFeeBps' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'feeChangeTime' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'commitRevealEnabled' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'COMMIT_BOND' },
-      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'MIN_BRIBE_AMOUNT' },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'epochCount', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'currentEpoch', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'bribeFeeBps', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'getWhitelistedTokens', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingFeeBps', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'feeChangeTime', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'commitRevealEnabled', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'COMMIT_BOND', chainId: CHAIN_ID },
+      { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'MIN_BRIBE_AMOUNT', chainId: CHAIN_ID },
     ],
     query: { enabled: isDeployed, refetchInterval: 60_000 },
   });
@@ -69,12 +69,12 @@ export function useBribes() {
   const whitelistReads = useMemo(
     () =>
       whitelistAddrs.flatMap((t) => [
-        { address: t, abi: ERC20_ABI, functionName: 'symbol' as const },
-        { address: t, abi: ERC20_ABI, functionName: 'decimals' as const },
-        { address: t, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [userAddr] as const },
-        { address: t, abi: ERC20_ABI, functionName: 'allowance' as const, args: [userAddr, VOTE_INCENTIVES_ADDRESS] as const },
-        { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'minBribeAmounts' as const, args: [t] as const },
-        { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingTokenWithdrawals' as const, args: [userAddr, t] as const },
+        { address: t, abi: ERC20_ABI, functionName: 'symbol' as const, chainId: CHAIN_ID },
+        { address: t, abi: ERC20_ABI, functionName: 'decimals' as const, chainId: CHAIN_ID },
+        { address: t, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [userAddr] as const, chainId: CHAIN_ID },
+        { address: t, abi: ERC20_ABI, functionName: 'allowance' as const, args: [userAddr, VOTE_INCENTIVES_ADDRESS] as const, chainId: CHAIN_ID },
+        { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'minBribeAmounts' as const, args: [t] as const, chainId: CHAIN_ID },
+        { address: VOTE_INCENTIVES_ADDRESS, abi: VOTE_INCENTIVES_ABI, functionName: 'pendingTokenWithdrawals' as const, args: [userAddr, t] as const, chainId: CHAIN_ID },
       ]),
     [whitelistAddrs, userAddr],
   );
@@ -106,6 +106,7 @@ export function useBribes() {
     abi: VOTE_INCENTIVES_ABI,
     functionName: 'epochs',
     args: [BigInt(Math.max(0, epochCount - 1))],
+    chainId: CHAIN_ID,
     query: { enabled: isDeployed && epochCount > 0 },
   });
 
@@ -140,6 +141,7 @@ export function useBribes() {
     abi: VOTE_INCENTIVES_ABI,
     functionName: 'claimable',
     args: [address!, BigInt(Math.max(0, epochCount - 1)), TOWELI_WETH_LP_ADDRESS],
+    chainId: CHAIN_ID,
     query: { enabled: isDeployed && !!address && epochCount > 0 },
   });
 
@@ -161,6 +163,7 @@ export function useBribes() {
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: address ? [address, VOTE_INCENTIVES_ADDRESS] : undefined,
+    chainId: CHAIN_ID,
     query: { enabled: !!address && isDeployed, refetchInterval: 30_000 },
   });
 
@@ -314,6 +317,7 @@ export function useBribes() {
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
     eventName: 'BribeDeposited',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled: isDeployed,
   });
@@ -321,6 +325,7 @@ export function useBribes() {
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
     eventName: 'BribeDepositedETH',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled: isDeployed,
   });
@@ -328,6 +333,7 @@ export function useBribes() {
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
     eventName: 'BribeClaimed',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled: isDeployed,
   });
@@ -335,6 +341,7 @@ export function useBribes() {
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
     eventName: 'GaugeVoted',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled: isDeployed,
   });
@@ -342,6 +349,7 @@ export function useBribes() {
     address: VOTE_INCENTIVES_ADDRESS,
     abi: VOTE_INCENTIVES_ABI,
     eventName: 'EpochAdvanced',
+    chainId: CHAIN_ID,
     onLogs: refetchAll,
     enabled: isDeployed,
   });

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { UNISWAP_V2_PAIR_ABI, CHAINLINK_FEED_ABI, TEGRIDY_TWAP_ABI } from '../lib/contracts';
-import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, isDeployed as checkDeployed } from '../lib/constants';
+import { TEGRIDY_LP_ADDRESS, ETH_USD_FEED, TOWELI_ADDRESS, TEGRIDY_TWAP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { safeSetItem, safeGetItem, safeJsonParse } from '../lib/storage';
 import { geckoTerminalTokenPriceSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
 
@@ -157,6 +157,7 @@ export function useToweliPrice() {
   const { data: reserves } = useReadContract({
     address: pairAddr,
     abi: UNISWAP_V2_PAIR_ABI,
+    chainId: CHAIN_ID,
     functionName: 'getReserves',
     query: { enabled: hasPair, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
@@ -164,6 +165,7 @@ export function useToweliPrice() {
   const { data: token0 } = useReadContract({
     address: pairAddr,
     abi: UNISWAP_V2_PAIR_ABI,
+    chainId: CHAIN_ID,
     functionName: 'token0',
     query: { enabled: hasPair },
   });
@@ -171,6 +173,7 @@ export function useToweliPrice() {
   const { data: ethUsdData } = useReadContract({
     address: ETH_USD_FEED,
     abi: CHAINLINK_FEED_ABI,
+    chainId: CHAIN_ID,
     functionName: 'latestRoundData',
     query: { refetchInterval: 60_000 },
   });
@@ -184,6 +187,7 @@ export function useToweliPrice() {
   const { data: twapAmountOut } = useReadContract({
     address: TEGRIDY_TWAP_ADDRESS,
     abi: TEGRIDY_TWAP_ABI,
+    chainId: CHAIN_ID,
     functionName: 'consult',
     args: hasTwap && hasPair ? [pairAddr, TOWELI_ADDRESS, 10n ** 18n, TWAP_PERIOD_SECONDS] : undefined,
     query: {
