@@ -33,10 +33,11 @@ export const STAKING_MONITOR_VIEW_ADDRESS = '0xbE1E75124C7F07d5B681839C42d8e751f
 export const TEGRIDY_FACTORY_ADDRESS = '0xa24C7287eC56A7DEFDc70033803451240e267a52' as const;
 export const TEGRIDY_ROUTER_ADDRESS = '0xE9F83A07b071748E795d2489651d5310fA098Db8' as const;
 // TegridyCurveLauncher — the own zero-toll launch curve (contracts/src/curve).
-// Zero until the operator broadcasts contracts/script/curve/DeployCurveLauncher.s.sol
-// (M.16); the chains registry maps it through `orNull`, so a zero here reads as
-// `not-deployed` and no surface can call it.
-export const CURVE_LAUNCHER_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+// LIVE on mainnet 2026-08-24 (deploy tx 0x5f5dd7c1…, owner = Treasury Safe,
+// 4 ETH graduation / 40-25-35 split / 3.69% reserve). The chains registry maps
+// it through `orNull`, so this non-zero address reads as `deployed` and the
+// /eth-curve surface + nav go live.
+export const CURVE_LAUNCHER_ADDRESS = '0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE' as const;
 export const TEGRIDY_LP_ADDRESS = '0x55875887B43C2E23aE424AF0FC8606Fdb058a481' as const;
 // Pair first-mint timestamp (unix seconds) — used for fee-APR / avg-daily-volume
 // pool-age math. Interim = the 2026-06-08 LP relaunch date; OPERATOR: replace

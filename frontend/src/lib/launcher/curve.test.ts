@@ -130,8 +130,11 @@ describe('curve math mirror — agrees with TegridyCurveLauncher to the wei', ()
 });
 
 describe('curve rail wiring', () => {
-  it('is not-deployed on mainnet until the operator broadcasts (address is zero)', () => {
-    expect(curveLauncherOn(1)).toEqual({ status: 'not-deployed' });
+  it('is deployed on mainnet — the live launcher address (2026-08-24)', () => {
+    expect(curveLauncherOn(1)).toEqual({
+      status: 'deployed',
+      address: '0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE',
+    });
   });
 
   it('is chain-unconfigured on a chain we do not serve', () => {
