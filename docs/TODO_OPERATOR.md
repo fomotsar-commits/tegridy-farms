@@ -442,7 +442,7 @@ to have run at all. What is left on trunk:
 | `advisories — frontend` / `— indexer` | ✅ **FIXED** (`5565506b`) | Was never an advisory problem. GitHub runs every `run:` block under `bash -e`, and `set -uo pipefail` does not clear errexit, so the unguarded `npm audit --json` ended the step the instant it found anything and **the gate never ran once** since it was armed on 08-18. Running the gate against the real reports: 0 blocking in both projects, every finding already baselined, zero stale suppressions. Nothing was allowlisted to force green. |
 | `Static analysis` (Slither) | 🔴 **STILL RED — and it was masking** | See item 8. |
 | `E2E Tests` | ✅ **GREEN** (`d2d43bdb`) | **524 passed, 32 skipped, 0 failed** on run 32609788572 — the first green on this job. All four projects, including both WebKit ones. See item **1b**: the service worker was answering every stubbed fetch before `page.route` could, and fixed chrome was parking the click target underneath itself. |
-| `E2E Tests (Anvil fork)` | 🔴 **still red** | Diagnosed, not fixed. Four money paths need on-chain preconditions the fixture never seeds — see item **1a**, which has the per-spec recipe. Anvil itself is healthy and this is **not** an operator item. |
+| `E2E Tests (Anvil fork)` | 🟡 **18 passed / 1 failed** (was 4 legs failing) | Fixed and merged (`c6e64cd3`, `deb43a29`). `stake`, `swap` and `claim-rewards` now pass clean. Two remain, and **both are now reported truthfully instead of passing on the wrong thing** — see below. |
 | `Lint, Type Check & Test` | ✅ green | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
 
 The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
@@ -530,6 +530,32 @@ retargets the spec's submit. Give the cascade button a `data-testid`.
 
 ⛔ **DO NOT** fix any of these by loosening an assertion, widening a per-assertion timeout, or adding
 a retry. Two of the four were *already* passing on something that was not the thing under test.
+
+### ✅ Result after the merge — and what the two remaining failures actually mean
+
+CI run 32663349825: **18 passed, 1 failed**, down from four failing legs.
+
+| Leg | Now |
+|---|---|
+| `stake` | ✅ passes clean, 7.5 s, no retry |
+| `swap` | ✅ passes clean |
+| `claim-rewards` | ✅ passes |
+| `liquidity` | 🟡 fails attempt 0 (33.5 s), **passes retry #1** (4.4 s) |
+| `lending` | 🔴 fails all attempts |
+
+**Neither remaining failure is a regression — both are the truth becoming visible.**
+
+- **`lending`** fails on the assertion that replaced the false green:
+  *"the repay was submitted but the loan never read back as repaid — the repayment did not confirm
+  on chain."* The old `toHaveCount(0)` on `/^Repay Loan$/` would have **passed here**, because the
+  button's accessible name changes to *"Confirm in Wallet…"* the instant it is clicked. So this leg
+  was always broken and the test was reporting otherwise. ▶ Debug the repay transaction itself; the
+  spec is now correct.
+- **`liquidity`** fails attempt 0 on the `notHash` guard —
+  *"the only receipt on the page is still the PREVIOUS step's (0x75475ba0…)"* — which is that guard
+  working: without it the add's own receipt link would have satisfied the burn. It passes on a warm
+  retry, so this is a **state/ordering issue between the two legs**, not a false green. ▶ Likely the
+  allowance or the receipt line not clearing between legs; do **not** "fix" it by dropping `notHash`.
 
 ## 1b. The heat-door failures — ✅ DIAGNOSED AND FIXED (`d2d43bdb`)
 
