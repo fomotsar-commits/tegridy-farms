@@ -183,17 +183,17 @@
     {
       "id": "meteora-dbc-program",
       "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN",
-      "role": "Meteora Dynamic Bonding Curve program. Third-party, not ours.",
+      "role": "Meteora Dynamic Bonding Curve program. Third-party, never ours. RETIRED as a Tegridy rail on 2026-08-23: it graduated launches into Meteora DAMM v2, a pool this protocol does not own, and the operator decision is that only launchers graduating into our own venue survive. The program itself is still live on mainnet and is still a real third-party counterparty — this entry records a rail we no longer use, NOT a dead address.",
       "custody": "Meteora",
-      "status": "live third-party program",
+      "status": "live third-party program — RETIRED as a Tegridy rail 2026-08-23",
       "expect": { "type": "executable" }
     },
     {
       "id": "meteora-locker-program",
       "address": "LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn",
-      "role": "Meteora locker program. Third-party, not ours.",
+      "role": "Meteora locker program. Third-party, never ours. RETIRED alongside the DBC rail on 2026-08-23 — it locked the LP of launches that graduated into DAMM v2, and no Tegridy launch graduates there any more. Still live on mainnet as a third-party program.",
       "custody": "Meteora",
-      "status": "live third-party program",
+      "status": "live third-party program — RETIRED as a Tegridy rail 2026-08-23",
       "expect": { "type": "executable" }
     },
     {
