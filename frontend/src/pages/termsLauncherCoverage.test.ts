@@ -9,7 +9,6 @@ import {
   isExoticLaunchEnabled,
 } from '../lib/launcher/config';
 import { protocolFeeSink } from '../lib/launcher/launchService';
-import { isSolanaLauncherEnabled } from '../lib/launcher/solana/dbc';
 
 // CONTENT GUARD for the Terms of Service vs the live launcher.
 //

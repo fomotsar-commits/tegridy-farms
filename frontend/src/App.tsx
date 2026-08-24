@@ -70,11 +70,9 @@ const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
-// Solana launch sub-brand (Meteora DBC). Gated in-page (isSolanaLauncherEnabled)
-// — renders the SOON placeholder until an operator enables it + a verified vault.
-const SolanaLaunchPage = lazy(() => import('./pages/SolanaLaunchPage'));
 // Our OWN Solana bonding curve (tegridy-launch), which graduates into our cp-swap
-// fork — as opposed to the Meteora rail above. NOT gated by a flag: the page
+// fork. Since the Meteora rail was retired 2026-08-23 this is the ONLY Solana launch
+// rail. NOT gated by a flag: the page
 // probes the chain for the program on mount and renders "not deployed" from that
 // live read, so it needs no redeploy to start working once the program ships.
 const CurveLaunchPage = lazy(() => import('./pages/CurveLaunchPage'));
@@ -300,7 +298,11 @@ function AnimatedRoutes() {
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
-        <Route path="solana-launch" element={<Suspense fallback={<PageSkeleton />}><SolanaLaunchPage /></Suspense>} />
+        {/* /solana-launch (Meteora DBC) was REMOVED 2026-08-23 — it graduated into a
+            pool this protocol does not own. /curve-launch below is the surviving Solana
+            launch rail. No redirect is added on purpose: the route is gone, so the SPA
+            404s, and a redirect to a rail that ALSO cannot launch (both program ids are
+            spent) would move a dead end rather than close one. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchPage /></Suspense>} />
         <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />

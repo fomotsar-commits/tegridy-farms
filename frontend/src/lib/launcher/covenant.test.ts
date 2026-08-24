@@ -2,7 +2,7 @@
 // accidental activation loud.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { COVENANT_SPLIT, covenantTotalBps, isCovenantActive, covenantFeeConstitution } from './covenant';
 
@@ -64,10 +64,18 @@ describe('covenant math is active NOWHERE', () => {
       join(ROOT, 'lib', 'launcher', 'airlock.ts'),
       join(ROOT, 'lib', 'launcher', 'gate.ts'),
       join(ROOT, 'lib', 'launcher', 'config.ts'),
-      join(ROOT, 'lib', 'launcher', 'solana', 'submitLaunch.ts'),
-      join(ROOT, 'lib', 'launcher', 'solana', 'dbc.ts'),
+      // The Solana entries were `solana/submitLaunch.ts` and `solana/dbc.ts` until the
+      // Meteora rail was retired 2026-08-23. Replaced with the SURVIVING rail's launch
+      // path rather than dropped, so this guard keeps covering a Solana launch builder
+      // instead of quietly becoming EVM-only.
+      join(ROOT, 'lib', 'launcher', 'solana', 'curve', 'ix.ts'),
+      join(ROOT, 'lib', 'launcher', 'solana', 'curve', 'config.ts'),
     ];
+    // Guard the guard: an empty or unreadable list would make every assertion below
+    // vacuous, and this file has just had two entries deleted out from under it.
+    expect(LAUNCH_PATH.length, 'the launch-path list emptied itself').toBeGreaterThanOrEqual(6);
     for (const f of LAUNCH_PATH) {
+      expect(existsSync(f), `${f} is on the launch-path list but does not exist`).toBe(true);
       expect(readFileSync(f, 'utf8'), `${f} imports covenant.ts`).not.toMatch(/from ['"].*covenant['"]/);
     }
   });

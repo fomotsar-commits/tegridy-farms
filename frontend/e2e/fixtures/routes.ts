@@ -213,7 +213,6 @@ export const ROUTES: readonly RouteSpec[] = [
       'RPC + program and is not reachable from this suite.',
     knownViolations: ['page-has-heading-one'],
   },
-  { path: '/solana-launch', owner: 'pages/SolanaLaunchPage.tsx', gate: null, knownViolations: [] },
   { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx', gate: null, knownViolations: [] },
   { path: '/launch', owner: 'pages/LaunchPage.tsx', gate: null, knownViolations: ['form-field-label'] },
   {
