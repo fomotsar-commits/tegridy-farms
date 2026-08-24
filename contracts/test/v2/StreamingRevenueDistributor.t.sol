@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "forge-std/Test.sol";
 import {StreamingRevenueDistributor} from "../../src/v2/StreamingRevenueDistributor.sol";
 
@@ -890,12 +891,17 @@ contract StreamingRevenueDistributorTest is Test {
         address[] memory batch = new address[](1);
         batch[0] = alice;
 
+        // SPECIFIC SELECTORS, NOT A BARE expectRevert. This is the test that replaced
+        // `RefuteAnchorReset.t.sol` — the whole protection now rests on "a stranger cannot
+        // reach the forfeit at all" — and a bare `vm.expectRevert()` accepts ANY revert,
+        // including one from a fixture mistake. It would have gone green while proving
+        // nothing, which is the exact failure class this repo keeps shipping.
         vm.prank(bob);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, bob));
         dist.proposeForfeit(batch);
 
         vm.prank(bob);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, bob));
         dist.executeForfeit();
     }
 
