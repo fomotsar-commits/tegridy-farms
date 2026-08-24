@@ -10,6 +10,7 @@ import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
+import { surfaceTxError } from '../../lib/txErrors';
 
 // Per-collection art for the collateral selector — pulls from each project's
 // canonical asset instead of Tegridy's art pool so the cards represent the
@@ -980,10 +981,18 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
   });
 
   const { writeContract: repayLoan, data: repayTx, isPending: repaying } = useWriteContract();
-  const { isLoading: repayConfirming, isSuccess: repaySuccess } = useWaitForTransactionReceipt({ hash: repayTx });
+  const { data: repayReceipt, isLoading: repayConfirming, isSuccess: repayReceiptFetched } = useWaitForTransactionReceipt({ hash: repayTx });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` means "receipt was
+  // FETCHED" — a reverted repay still latches it, and this component then told
+  // the borrower their NFT was returned while the loan sat open, aging toward
+  // claimDefault. Only `receipt.status === 'success'` repaid anything.
+  const repayReverted = repayReceiptFetched && !!repayReceipt && repayReceipt.status !== 'success';
+  const repaySuccess = repayReceiptFetched && !repayReverted;
 
   const { writeContract: claimDefault, data: claimTx, isPending: claiming } = useWriteContract();
-  const { isLoading: claimConfirming, isSuccess: claimSuccess } = useWaitForTransactionReceipt({ hash: claimTx });
+  const { data: claimReceipt, isLoading: claimConfirming, isSuccess: claimReceiptFetched } = useWaitForTransactionReceipt({ hash: claimTx });
+  const claimReverted = claimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
+  const claimSuccess = claimReceiptFetched && !claimReverted;
 
   useEffect(() => {
     if (repaySuccess) {
@@ -998,6 +1007,13 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
   }, [repaySuccess, refetchRepayment]);
 
   useEffect(() => {
+    if (repayReverted) {
+      toast.error('Repayment reverted on-chain — the loan is still open. Refresh the quote and try again.');
+      refetchRepayment();
+    }
+  }, [repayReverted, refetchRepayment]);
+
+  useEffect(() => {
     if (claimSuccess) {
       toast.success('Default claimed! NFT transferred to you.');
       // F257 (T5): refresh so the claimed loan reflects defaultClaimed.
@@ -1005,6 +1021,12 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoanChanged is a stable refetch handle; fire once per confirmed tx
   }, [claimSuccess]);
+
+  useEffect(() => {
+    if (claimReverted) {
+      toast.error('Claim reverted on-chain — the default was not claimed.');
+    }
+  }, [claimReverted]);
 
   const handleRepay = () => {
     // AUDIT FIX M-8: refuse on wrong chain — repayLoan would burn the
@@ -1015,26 +1037,44 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
       toast.error('Could not read repayment amount');
       return;
     }
-    repayLoan({
-      chainId: CHAIN_ID,
-      address: TEGRIDY_NFT_LENDING_ADDRESS,
-      abi: TEGRIDY_NFT_LENDING_ABI,
-      functionName: 'repayLoan',
-      args: [BigInt(loan.id)],
-      value: repaymentData as bigint,
-    });
+    // AUDIT FIX 2026-08-24 (the red money-path E2E, and a real mainnet defect):
+    // getRepaymentAmount quotes interest per-second at READ time, but the
+    // contract re-computes it at EXECUTION time and requires
+    // msg.value >= principal + interest — so any quote >= 1s stale under-pays
+    // by >= 1 wei and repayLoan reverts InsufficientRepayment. Once accrued
+    // interest clears the min-interest floor (~2 days at 10% APR), every repay
+    // sent as the exact quote failed, sliding borrowers toward claimDefault.
+    // Pad with ~10 minutes of interest headroom: the contract refunds every wei
+    // above the execution-time requirement, so the pad costs dust and only
+    // needs to outlive wallet-confirmation latency.
+    const perSecondInterest = (loan.principal * loan.aprBps) / (10_000n * 31_536_000n) + 1n;
+    const repayValue = (repaymentData as bigint) + perSecondInterest * 600n;
+    repayLoan(
+      {
+        chainId: CHAIN_ID,
+        address: TEGRIDY_NFT_LENDING_ADDRESS,
+        abi: TEGRIDY_NFT_LENDING_ABI,
+        functionName: 'repayLoan',
+        args: [BigInt(loan.id)],
+        value: repayValue,
+      },
+      { onError: (err) => surfaceTxError(err, toast, { component: 'NFTLendingSection.repay' }) },
+    );
   };
 
   const handleClaimDefault = () => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)) { toast.error('NFT lending is not deployed yet'); return; }
-    claimDefault({
-      chainId: CHAIN_ID,
-      address: TEGRIDY_NFT_LENDING_ADDRESS,
-      abi: TEGRIDY_NFT_LENDING_ABI,
-      functionName: 'claimDefault',
-      args: [BigInt(loan.id)],
-    });
+    claimDefault(
+      {
+        chainId: CHAIN_ID,
+        address: TEGRIDY_NFT_LENDING_ADDRESS,
+        abi: TEGRIDY_NFT_LENDING_ABI,
+        functionName: 'claimDefault',
+        args: [BigInt(loan.id)],
+      },
+      { onError: (err) => surfaceTxError(err, toast, { component: 'NFTLendingSection.claimDefault' }) },
+    );
   };
 
   // AUDIT R011 (HIGH-049-4): drive the deadline string off the shared 1-Hz
