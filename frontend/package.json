@@ -47,7 +47,7 @@
     "ethers": "^6.17.0",
     "framer-motion": "^13.0.0",
     "html2canvas": "^1.4.1",
-    "jose": "^6.2.5",
+    "jose": "^6.2.9",
     "lightweight-charts": "^5.2.0",
     "papaparse": "^5.5.4",
     "react": "^19.2.8",
