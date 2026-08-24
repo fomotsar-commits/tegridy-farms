@@ -235,6 +235,12 @@ export const TopNav = React.memo(function TopNav() {
                                 Soon
                               </span>
                             )}
+                            {n.live && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                                <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                                Live
+                              </span>
+                            )}
                           </NavLink>
                         ))}
                       </div>
@@ -415,6 +421,12 @@ export const TopNav = React.memo(function TopNav() {
                           {n.soon && (
                             <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
                               Soon
+                            </span>
+                          )}
+                          {n.live && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+                              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                              Live
                             </span>
                           )}
                         </NavLink>

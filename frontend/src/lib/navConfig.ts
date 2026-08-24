@@ -26,6 +26,15 @@ export interface NavItem {
    * amber token as FeatureNotDeployed.tsx:40 so nav and page agree visually.
    */
   soon?: boolean;
+  /**
+   * Renders a small green "Live" pill beside the label — the POSITIVE mirror of
+   * `soon`, opt-in per entry (most live links carry nothing; a LIVE pill on every
+   * one would be noise). Reserved for a surface that JUST went live and is worth
+   * pointing at. MUST be driven by the same live-read the page gates on (e.g.
+   * `isDeployed(...)`), never a hardcoded `true`, so the pill cannot outlive the
+   * thing it announces. `soon` and `live` are mutually exclusive by construction.
+   */
+  live?: boolean;
 }
 
 /**
@@ -169,7 +178,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // Airlock/petition. `soon` clears itself the moment CURVE_LAUNCHER_ADDRESS
       // is filled from the deploy (M.16); no flag, same live-read discipline as
       // the entries above.
-      { to: '/eth-curve', label: 'Tegridy Curve (ETH)', soon: !isDeployed(CURVE_LAUNCHER_ADDRESS) },
+      { to: '/eth-curve', label: 'Tegridy Curve (ETH)', soon: !isDeployed(CURVE_LAUNCHER_ADDRESS), live: isDeployed(CURVE_LAUNCHER_ADDRESS) },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
       { to: '/launch-simulator', label: 'Launch Simulator' },
       // Referrals sits in Engage because it is a recruiting tool, not a stat and not a

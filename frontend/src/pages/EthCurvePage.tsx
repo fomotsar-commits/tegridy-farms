@@ -83,7 +83,15 @@ export default function EthCurvePage() {
       <PageArtBackdrop pageId={PAGE_ID} />
       <div className="relative z-10 max-w-xl mx-auto px-4 py-8 space-y-4">
         <div>
-          <h1 className="heading-luxury text-2xl">Tegridy Curve</h1>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="heading-luxury text-2xl">Tegridy Curve</h1>
+            {availability.status === 'deployed' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                Live on Ethereum
+              </span>
+            )}
+          </div>
           <p className="text-white/60 text-[13px] mt-1 leading-relaxed">
             Our own bonding curve. Launch a token in one signature, trade it as it climbs, and
             graduate into a Tegridy pool with the liquidity burned — no third party takes a cut.
