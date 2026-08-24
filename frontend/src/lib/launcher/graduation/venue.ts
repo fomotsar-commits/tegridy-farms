@@ -21,6 +21,33 @@
 // ships. `ownership` is 'external' until the constant is set, and every consumer is
 // obliged to render `disclosure` — see the honesty guard in venue.test.ts.
 //
+// ## ⚠ WHY THE EVM RAIL IS NOT "A LAUNCHER THAT DOES NOT GRADUATE TO US"
+//
+// Read this before acting on any instruction to retire non-graduating launchers.
+// On 2026-08-23 the Meteora DBC rail was retired on exactly that basis, and the
+// EVM rail reports `ownership: 'external'` today too — so a literal sweep would
+// take it as well. That would be wrong, and expensive.
+//
+// The two are different IN KIND:
+//
+//   EVM      graduates externally ONLY because `TEGRIDY_V4_MIGRATOR_ADDRESS` is the
+//            zero address. The Tegridy-owned target EXISTS —
+//            `contracts/src/v4/TegridyLiquidityMigrator.sol`, written and in-repo,
+//            graduating into a canonical V4 pool carrying `TegridyV4Hook`. The gap is
+//            a DEPLOY plus an Airlock `setModuleState(migrator, 4)`. An address flip.
+//
+//   Meteora  named DAMM v2 unconditionally in its DBC config. A venue-owned Solana
+//            target would have been a new PROGRAM DEPLOY, not an address flip. It
+//            could never graduate to us, which is why it was the one retired.
+//
+// Deleting the EVM rail would also strand live mainnet revenue:
+// `contracts/src/LockerClaimer.sol` (deployed 0xD2Ac3dC1…, verified 2026-08-01) is
+// the only address that can originate `releaseFees()` on the Doppler locker, which is
+// pull-based and pays `msg.sender` only.
+//
+// So `ownership: 'external'` is a statement about TODAY'S CHAIN STATE, never a verdict
+// on whether a rail belongs here.
+//
 // This module fires nothing and reads no chain state on its own. `verifyMigratorModule`
 // takes a client and is the only async surface: it asks the Airlock whether the migrator
 // this plan names is actually whitelisted, so a "ready" indicator is earned by a read
