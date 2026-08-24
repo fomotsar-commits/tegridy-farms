@@ -83,7 +83,10 @@ describe("ingestWatch — the happy path", () => {
     const store = fakeStore();
     const rpc = fakeRpc({
       pages: [[sigEntry(3), sigEntry(2), sigEntry(1)]],
-      transactions: { sig1: buyTx(1001), sig2: buyTx(1002), sig3: buyTx(1003) },
+      // "seed" present: the cursor-retention probe (AUDIT FIX 2026-08-24) asks
+      // the cluster about the resume signature; a fixture without it models an
+      // aged-out cursor and legitimately records a gap.
+      transactions: { seed: buyTx(999), sig1: buyTx(1001), sig2: buyTx(1002), sig3: buyTx(1003) },
     });
     const out = await ingestWatch({ rpc, store, watch: watch({ startSignature: "seed" }), pageLimit: 10, maxPages: 5 });
 
@@ -95,11 +98,13 @@ describe("ingestWatch — the happy path", () => {
 
   it("advances past a reverted transaction without fetching its body", async () => {
     const store = fakeStore();
-    const getTransaction = vi.fn();
+    const getTransaction = vi.fn(async () => buyTx(999));
     const rpc = fakeRpc({ pages: [[sigEntry(1, { err: { Custom: 1 } })]], getTransaction });
     const out = await ingestWatch({ rpc, store, watch: watch({ startSignature: "seed" }), pageLimit: 10, maxPages: 5 });
 
-    expect(getTransaction).not.toHaveBeenCalled();
+    // The invariant is about the REVERTED signature's body — the one call the
+    // cursor-retention probe makes is for "seed", never for sig1.
+    expect(getTransaction).not.toHaveBeenCalledWith("sig1");
     expect(out.trades).toBe(0);
     expect(store.commits).toHaveLength(1);
     expect(store.commits[0].trade).toBeNull();
@@ -112,7 +117,7 @@ describe("ingestWatch — a hole is never a zero", () => {
   // over the transaction. Advancing quietly would delete it from history.
   it("records tx-unavailable AND advances, so it neither loops nor vanishes", async () => {
     const store = fakeStore();
-    const rpc = fakeRpc({ pages: [[sigEntry(1)]], transactions: {} });
+    const rpc = fakeRpc({ pages: [[sigEntry(1)]], transactions: { seed: buyTx(999) } });
     const out = await ingestWatch({ rpc, store, watch: watch({ startSignature: "seed" }), pageLimit: 10, maxPages: 5 });
 
     expect(out.gaps).toBe(1);
@@ -124,7 +129,7 @@ describe("ingestWatch — a hole is never a zero", () => {
     const store = fakeStore();
     const routed = buyTx(1001);
     routed.meta.postTokenBalances = [bal(4, BASE, VAULT_AUTH, 900_000)]; // one leg only
-    const rpc = fakeRpc({ pages: [[sigEntry(1)]], transactions: { sig1: routed } });
+    const rpc = fakeRpc({ pages: [[sigEntry(1)]], transactions: { seed: buyTx(999), sig1: routed } });
     const out = await ingestWatch({ rpc, store, watch: watch({ startSignature: "seed" }), pageLimit: 10, maxPages: 5 });
 
     expect(out.trades).toBe(0);
@@ -194,7 +199,31 @@ describe("ingestWatch — transient failure changes nothing", () => {
     expect(out.stoppedEarly).toBe(true);
     expect(store.commits.map((c) => c.signature)).toEqual(["sig1"]);
     expect(store.gaps).toEqual([]);
-    expect(calls).toBe(2);
+    // 3 calls: the cursor-retention probe for "seed", then sig1, then sig2
+    // (which throws). Was 2 before the probe existed.
+    expect(calls).toBe(3);
+  });
+
+  it("records resume-aged-out when the walk claims the cursor but the cluster no longer knows it", async () => {
+    // The SILENT variant of pruned-history (AUDIT FIX 2026-08-24): most RPCs do
+    // not throw on an aged-out `until` — they ignore it, drain to the retention
+    // floor, and the walk reports reachedUntil. Pre-fix that read as "caught
+    // up" while the range between the floor and the old cursor vanished
+    // unrecorded. The one-getTransaction probe turns it into a gap row.
+    const store = fakeStore({ lastSignature: "old", lastSlot: 500, lastBlockTime: null });
+    const rpc = fakeRpc({
+      pages: [[sigEntry(2), sigEntry(1)]],
+      transactions: { sig1: buyTx(1001), sig2: buyTx(1002) }, // no "old": aged out
+    });
+    const out = await ingestWatch({ rpc, store, watch: watch(), pageLimit: 10, maxPages: 5 });
+
+    const gap = store.gaps.find((g) => g.kind === "resume-aged-out");
+    expect(gap).toBeTruthy();
+    expect(gap.toSlot).toBe(500);
+    expect(out.gaps).toBeGreaterThanOrEqual(1);
+    // The new signatures themselves still commit — the gap is the record of
+    // what could NOT be fetched, not a reason to drop what could.
+    expect(store.commits.map((c) => c.signature)).toEqual(["sig1", "sig2"]);
   });
 });
 

@@ -91,16 +91,31 @@ ponder.on("TegridyStaking:Staked", async ({ event, context }) => {
   const { user, tokenId, amount, lockDuration, boostBps } = event.args;
   const ts = event.block.timestamp;
 
-  await context.db.insert(stakingPosition).values({
-    tokenId,
-    user,
-    amount,
-    lockDuration,
-    lockEnd: ts + lockDuration,
-    boostBps,
-    createdAt: ts,
-    updatedAt: ts,
-  });
+  // AUDIT FIX 2026-08-24: this was the ONLY write in the file without conflict
+  // handling — a replayed Staked event (RPC fallback re-serve, reorg re-emit)
+  // threw a primary-key violation, which Ponder retries and then halts the
+  // whole sync on. Update-on-conflict matches the defensiveness every sibling
+  // handler already has.
+  await context.db
+    .insert(stakingPosition)
+    .values({
+      tokenId,
+      user,
+      amount,
+      lockDuration,
+      lockEnd: ts + lockDuration,
+      boostBps,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+    .onConflictDoUpdate({
+      user,
+      amount,
+      lockDuration,
+      lockEnd: ts + lockDuration,
+      boostBps,
+      updatedAt: ts,
+    });
 
   await context.db
     .insert(stakingAction)

@@ -42,9 +42,18 @@ const graphqlMiddleware = graphql({
 // `/graphql` + `/metrics` endpoints, opening a DoS amplification surface and
 // trivial credential-coupled lookups. Set ALLOWED_ORIGINS in the indexer env
 // (comma-separated) for additional preview/staging origins.
+// AUDIT FIX 2026-08-24: this list shipped WITHOUT the production origins — it
+// named nakamigos.gallery (a different product's domain) and the legacy
+// vercel.app host, so the day the frontend at memetic.fun / memetics.finance
+// pointed at a hosted indexer, every browser fetch would have been CORS-blocked
+// while curl probes passed. Keep in lock-step with the frontend's canonical
+// origin set (api/__tests__/origin-allowlist-parity.test.js parses it from
+// launcher-outcomes.js).
 const allowedOrigins = [
-  "https://nakamigos.gallery",
-  "https://www.nakamigos.gallery",
+  "https://memetic.fun",
+  "https://www.memetic.fun",
+  "https://memetics.finance",
+  "https://www.memetics.finance",
   "https://tegridyfarms.vercel.app",
   ...(process.env.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) ?? []),
 ];

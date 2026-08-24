@@ -31,6 +31,19 @@ export async function createPgClient(connectionString, opts = {}) {
     // claim — the connection string itself is the secret.
     ssl: /\bsslmode=disable\b/.test(connectionString) ? false : { rejectUnauthorized: false },
   });
+  // AUDIT FIX 2026-08-24: a node-postgres Client with no 'error' listener turns
+  // an idle-connection reset (server restart, LB idle timeout) into either an
+  // uncaught 'error' event crash or — after node 16 — a zombified client whose
+  // every query rejects while /health keeps answering 200. There is no
+  // in-place reconnect for a Client mid-transaction, and the cursor design
+  // makes restarts free (per-signature atomic commits), so the honest move is
+  // a loud exit and a supervisor restart — never a silent zombie.
+  client.on("error", (err) => {
+    console.error(
+      `[db] postgres connection lost (${opts.applicationName ?? "tegridy-indexer-solana"}): ${err.message} — exiting for a clean supervisor restart`,
+    );
+    process.exit(1);
+  });
   await client.connect();
   return client;
 }

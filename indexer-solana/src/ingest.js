@@ -84,6 +84,38 @@ export async function ingestWatch({ rpc, store, watch, pageLimit, maxPages }) {
     summary.gaps++;
   }
 
+  // AUDIT FIX 2026-08-24: the pruned-history catch above fires only when the
+  // RPC THROWS about an aged-out resume point. Most endpoints do not throw —
+  // an `until` signature that fell out of retention is silently ignored, the
+  // walk drains to the retention floor and reports reachedUntil, and the hole
+  // between the floor and the old cursor was never recorded: the tick read as
+  // "caught up". When a non-empty walk claims to have reached a cursor, spend
+  // one getTransaction confirming the cluster still knows that signature; if
+  // it does not, the walk cannot actually have reached it, and the missing
+  // range becomes a gap row instead of a silence. A transient failure here
+  // records nothing — "could not verify" must not be written down as either
+  // answer.
+  if (until !== null && walk.reachedUntil && walk.signatures.length > 0) {
+    let cursorRetained = true;
+    try {
+      cursorRetained = (await rpc.getTransaction(until)) !== null;
+    } catch (e) {
+      if (isPruned(e)) cursorRetained = false;
+      else if (!isTransient(e)) throw e;
+    }
+    if (!cursorRetained) {
+      await store.recordGap({
+        pool: watch.pool,
+        kind: "resume-aged-out",
+        fromSlot: oldest?.slot ?? null,
+        toSlot: cursor?.lastSlot ?? null,
+        detail:
+          "the resume signature is no longer retained by the RPC; history between the retention floor and the previous cursor is unrecoverable from this endpoint",
+      });
+      summary.gaps++;
+    }
+  }
+
   for (const sig of walk.signatures) {
     summary.fetched++;
 
@@ -196,7 +228,18 @@ export async function runTick({ rpc, store, watches, pageLimit, maxPages, logger
   const summaries = [];
   for (const watch of watches) {
     try {
-      summaries.push(await ingestWatch({ rpc, store, watch, pageLimit, maxPages }));
+      const summary = await ingestWatch({ rpc, store, watch, pageLimit, maxPages });
+      summaries.push(summary);
+      // AUDIT FIX 2026-08-24: a transient getTransaction failure sets
+      // stoppedEarly and returns cleanly — correct per-tick, but pre-fix it
+      // contributed NOTHING to the tick record, so a provider that rate-limits
+      // getTransaction forever (while getSignaturesForAddress still answers)
+      // froze the cursor while every tick recorded success and /ready stayed
+      // green. Carrying it into `errors` keeps last_ok_at honest: /ready goes
+      // stale when the cursor genuinely cannot advance.
+      if (summary.stoppedEarly) {
+        errors.push(`${watch.pool}: stopped early on a transient RPC failure — cursor did not advance`);
+      }
     } catch (e) {
       errors.push(`${watch.pool}: ${e.message}`);
       logger.error?.(`[solana-indexer] ${watch.pool} tick failed: ${e.message}`);
