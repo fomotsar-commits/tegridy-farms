@@ -26,7 +26,7 @@
 //   not be built on a cached, best-effort read.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
-import { isOriginAllowed } from "./aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -96,7 +96,7 @@ export async function handleHeat(req, res) {
   // BECAUSE the island CORS-locks its oracle to junglebayisland.lat; without a 403 here
   // we are the open proxy that lock was meant to prevent, spending the island's shared
   // 100/min budget under our egress reputation on behalf of anyone with curl.
-  if (!isOriginAllowed(req.headers?.origin || "")) {
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

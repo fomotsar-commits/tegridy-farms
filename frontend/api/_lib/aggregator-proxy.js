@@ -96,6 +96,38 @@ export function isOriginAllowed(origin) {
   return allowed.has(origin);
 }
 
+// AUDIT FIX 2026-08-24: request-level gate, for the `?resource=` branches.
+//
+// The 2026-07-10 allowance inside runProxy already knew that same-origin
+// browser GET/HEAD requests carry NO Origin header — browsers only send Origin
+// for cross-origin requests and for non-GET methods. But every `?resource=`
+// branch dispatches BEFORE runProxy and re-implemented the gate as a bare
+// `isOriginAllowed(req.headers?.origin || "")`, which 403'd every same-origin
+// GET in production: the launch heat gate, launch-radar, launcher-outcomes,
+// alerts, referrals, commerce and airdrop reads were all dead for real users.
+// It survived every check because dev/CI skip the gate (isProdLikeEnv() false)
+// and every curl probe hand-set an Origin header, which passes.
+//
+// Absent-Origin safe methods are admitted only when Sec-Fetch-Site agrees:
+// browsers send it on every request ("same-origin" for the app's own fetches,
+// "none" for a typed/bookmarked URL) and page script cannot forge it, so a
+// hostile page's no-cors GET (which also omits Origin) arrives as "cross-site"
+// and is rejected. Clients that send neither header (curl) pass the gate and
+// are bounded by the per-IP + global rate limits — the only control that ever
+// actually applied to them, since Origin is freely forgeable outside a browser.
+//
+// State-changing methods are unchanged: browsers always send Origin on POST,
+// so the CSRF-shaped protection stays exactly as strict as before.
+export function isRequestOriginAllowed(req) {
+  const method = String(req.method || "").toUpperCase();
+  const origin = req.headers?.origin || "";
+  if ((method === "GET" || method === "HEAD") && !origin) {
+    const site = String(req.headers?.["sec-fetch-site"] || "").toLowerCase();
+    return site === "" || site === "same-origin" || site === "none";
+  }
+  return isOriginAllowed(origin);
+}
+
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
   const allowed = buildAllowedOrigins();
@@ -202,15 +234,12 @@ export async function runProxy(req, res, cfg) {
 
   // Origin allowlist (fail-closed in production).
   // AUDIT FIX 2026-07-10: same-origin browser GET/HEAD requests carry NO Origin
-  // header (browsers only send Origin for cross-origin requests and for all
-  // non-GET methods), so a fail-closed empty-Origin gate 403'd every legitimate
+  // header, so a fail-closed empty-Origin gate 403'd every legitimate
   // same-origin quote fetch on production (dev is permissive, which hid this).
-  // Allow a missing Origin ONLY for safe methods; state-changing methods (POST)
-  // still require an allowlisted Origin — which browsers always send — so
-  // cross-origin POST abuse through our trusted origin stays blocked.
-  const origin = req.headers?.origin || "";
-  const safeMethod = req.method === "GET" || req.method === "HEAD";
-  if (!(safeMethod && !origin) && !isOriginAllowed(origin)) {
+  // AUDIT FIX 2026-08-24: that allowance now lives in isRequestOriginAllowed —
+  // shared with every `?resource=` branch, which had each re-implemented the
+  // gate WITHOUT it — and tightened with the Sec-Fetch-Site check.
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

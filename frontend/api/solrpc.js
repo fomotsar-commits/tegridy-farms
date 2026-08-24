@@ -16,6 +16,7 @@
 import { checkRateLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
+import { isRequestOriginAllowed } from "./_lib/aggregator-proxy.js";
 
 const SOLANA_RPC_UPSTREAM =
   process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
@@ -75,11 +76,6 @@ function buildAllowedOrigins() {
   return set;
 }
 
-function isOriginAllowed(origin) {
-  if (!isProdLikeEnv()) return true; // permissive only in genuine local dev
-  return buildAllowedOrigins().has(origin);
-}
-
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
   const allowed = buildAllowedOrigins();
@@ -98,7 +94,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  if (!isOriginAllowed(req.headers?.origin || "")) {
+  // Request-level gate (shared): for this POST-only handler it is equivalent to
+  // the local isOriginAllowed — browsers always send Origin on POST — but it
+  // stays correct if a GET branch is ever added (same-origin GETs carry no
+  // Origin header; see aggregator-proxy.js AUDIT FIX 2026-08-24).
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

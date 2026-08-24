@@ -22,7 +22,7 @@
 // the hostile-JSON handling has exactly one tested implementation.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
-import { isOriginAllowed } from "./aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -78,7 +78,7 @@ export async function handleLaunchRadar(req, res) {
 
   // ENFORCE the origin — `setCors` only sets a header. Dispatched before runProxy, so
   // this branch does not inherit aggregator-proxy.js's 403 and must apply it itself.
-  if (!isOriginAllowed(req.headers?.origin || "")) {
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

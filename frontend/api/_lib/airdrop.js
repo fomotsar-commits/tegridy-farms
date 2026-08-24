@@ -70,7 +70,7 @@
 //   style note.
 
 import { checkRateLimit } from "./ratelimit.js";
-import { isOriginAllowed } from "./aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 import { readSiweSession } from "./apiAuth.js";
@@ -682,7 +682,7 @@ export async function handleAirdrop(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  if (!isOriginAllowed(req.headers?.origin || "")) {
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

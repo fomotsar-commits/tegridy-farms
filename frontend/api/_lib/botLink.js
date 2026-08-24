@@ -63,7 +63,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { jwtVerify } from "jose";
 import { checkRateLimit } from "./ratelimit.js";
-import { isOriginAllowed } from "./aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -584,7 +584,7 @@ export async function handleBotLink(req, res) {
 
   // The browser gate. Skipped for bot calls, which have no Origin to check and
   // carry a signature instead — never skipped for anything else.
-  if (!isBotCall && !isOriginAllowed(req.headers?.origin || "")) {
+  if (!isBotCall && !isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

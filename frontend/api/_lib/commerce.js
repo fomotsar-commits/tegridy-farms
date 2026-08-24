@@ -52,7 +52,7 @@
 import { createHmac } from "node:crypto";
 import { jwtVerify } from "jose";
 import { checkRateLimit } from "./ratelimit.js";
-import { isOriginAllowed } from "./aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -570,7 +570,7 @@ export async function handleCommerce(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
-  if (!isOriginAllowed(req.headers?.origin || "")) {
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 

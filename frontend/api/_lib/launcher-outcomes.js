@@ -24,7 +24,7 @@
 // never throws, never invents a rosy or a damning signal.
 
 import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
-import { isOriginAllowed } from "./aggregator-proxy.js";
+import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
 
@@ -536,7 +536,7 @@ export async function handleLauncherOutcomes(req, res) {
   // runProxy, so it never inherited aggregator-proxy.js's 403 — and this is the most
   // expensive branch we expose: one POST is worth up to MAX_BASELINES(50) × 4 = 200
   // upstream reads, against an Etherscan free tier of ~300/min shared across the app.
-  if (!isOriginAllowed(req.headers?.origin || "")) {
+  if (!isRequestOriginAllowed(req)) {
     return res.status(403).json({ error: "Origin not allowed" });
   }
 
