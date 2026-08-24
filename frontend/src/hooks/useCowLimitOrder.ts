@@ -151,7 +151,13 @@ export function useCowLimitOrder() {
             functionName: 'approve',
             args: [COW_VAULT_RELAYER_ADDRESS, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          // AUDIT (receipt-status, 2026-08-24): waitForTransactionReceipt
+          // RESOLVES for reverted txs — signing an order on top of a reverted
+          // approve creates an open order that can only expire unfilled.
+          const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          if (approveReceipt.status !== 'success') {
+            throw new Error('Token approval reverted on-chain — the order was not submitted.');
+          }
         }
 
         // 2. Build + EIP-712 sign the order.

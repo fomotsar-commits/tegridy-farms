@@ -213,7 +213,14 @@ export function useCowSwap() {
             functionName: 'approve',
             args: [COW_VAULT_RELAYER_ADDRESS, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          // AUDIT (receipt-status, 2026-08-24): waitForTransactionReceipt
+          // RESOLVES for reverted txs. Pre-fix, a reverted approve fell through
+          // to signing + submitting an order the vault relayer could never pull
+          // — an open order guaranteed to expire unfilled.
+          const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          if (approveReceipt.status !== 'success') {
+            throw new Error('Token approval reverted on-chain — the order was not submitted.');
+          }
         }
 
         // 4. Build + sign the market order (buyAmount = quote − slippage floor).

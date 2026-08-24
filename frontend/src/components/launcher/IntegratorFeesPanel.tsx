@@ -100,8 +100,13 @@ export function IntegratorFeesPanel() {
         currency: fee.currency,
         amount: fee.amount,
       });
-      await publicClient.waitForTransactionReceipt({ hash });
+      // AUDIT (receipt-status, 2026-08-24): the receipt resolves for reverted
+      // txs too — only status === 'success' actually moved the fees.
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
       if (!mounted.current) return;
+      if (receipt.status !== 'success') {
+        throw new Error('Withdrawal reverted on-chain — no fees moved.');
+      }
       toast.success(`Withdrew ${formatWei(fee.amount, fee.decimals)} ${fee.symbol}`);
       refetch();
     } catch (e) {

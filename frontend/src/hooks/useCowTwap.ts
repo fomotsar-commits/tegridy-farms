@@ -143,7 +143,13 @@ export function useCowTwap() {
             functionName: 'approve',
             args: [COW_VAULT_RELAYER_ADDRESS, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          // AUDIT (receipt-status, 2026-08-24): waitForTransactionReceipt
+          // RESOLVES for reverted txs. A reverted approve means every TWAP part
+          // fails to settle — refuse to register on top of it.
+          const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          if (approveReceipt.status !== 'success') {
+            throw new Error('Token approval reverted on-chain — the TWAP was not registered.');
+          }
         }
 
         // 2. Register the conditional order with dispatch=true so the watchtower
@@ -157,7 +163,10 @@ export function useCowTwap() {
           functionName: 'create',
           args: [{ handler: TWAP_HANDLER_ADDRESS, salt, staticInput }, true],
         });
-        await publicClient.waitForTransactionReceipt({ hash: txHash });
+        const createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        if (createReceipt.status !== 'success') {
+          throw new Error('Registration reverted on-chain — the TWAP is NOT active.');
+        }
         toast.success('TWAP registered on CoW — parts settle on schedule, MEV-protected.');
         return { txHash, salt };
       } catch (e) {

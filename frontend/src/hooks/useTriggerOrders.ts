@@ -173,7 +173,14 @@ export function useTriggerOrders({ kind, sellToken, buyToken }: UseTriggerOrders
             functionName: 'approve',
             args: [COW_VAULT_RELAYER_ADDRESS, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          // AUDIT (receipt-status, 2026-08-24): waitForTransactionReceipt
+          // RESOLVES for a reverted tx — it only rejects when the receipt cannot
+          // be fetched. A reverted approve left the allowance at zero while we
+          // went on to register an order CoW could never fill.
+          const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveHash });
+          if (approveReceipt.status !== 'success') {
+            throw new Error('Token approval reverted on-chain — the order was not registered.');
+          }
         }
 
         const salt = randomSalt();
@@ -185,7 +192,13 @@ export function useTriggerOrders({ kind, sellToken, buyToken }: UseTriggerOrders
           functionName: 'create',
           args: [{ handler: live.handler, salt, staticInput }, true],
         });
-        await publicClient.waitForTransactionReceipt({ hash: txHash });
+        // The file header names this as the one bug this surface cannot ship:
+        // telling a user their stop-loss is live when it is not. A reverted
+        // create still mines a receipt, so the status check IS that guarantee.
+        const createReceipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+        if (createReceipt.status !== 'success') {
+          throw new Error('Registration reverted on-chain — your stop-loss is NOT active.');
+        }
         toast.success('Stop-loss registered. CoW’s watchtower posts it if your stop is reached.');
         return { txHash, salt };
       } catch (e) {
