@@ -17,7 +17,12 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const userAddr = address ?? PLACEHOLDER_ADDR;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
+  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
+  // receipt.status === 'success' is a real success; the toasts below key off this.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
   // 2026-07-26: an approval is a prerequisite, not the liquidity op. Track which
   // is in flight (set in every write fn below) so the toast can say "approved —
   // one more step" instead of "Liquidity operation confirmed!" after a mere approval.
@@ -179,6 +184,19 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
       return () => clearTimeout(t);
     }
   }, [isTxError, hash]);
+
+  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
+  // the tx failed — honest error instead of the success toast (see derivation above).
+  useEffect(() => {
+    if (isReverted && hash) {
+      toast.error('Transaction reverted on-chain', {
+        id: `err-${hash}`,
+        description: 'It was mined but the contract rejected it — no tokens moved and no approval changed.',
+      });
+      const t = setTimeout(() => reset(), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [isReverted, hash]);
 
   useEffect(() => {
     if (writeError) {

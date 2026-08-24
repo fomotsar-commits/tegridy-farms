@@ -914,7 +914,12 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   });
 
   const { writeContract, data: hash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isClaimSuccess } = useWaitForTransactionReceipt({ hash });
+  const { data: claimReceipt, isLoading: isConfirming, isSuccess: isClaimReceiptFetched } = useWaitForTransactionReceipt({ hash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
+  // success toast on receipt.status.
+  const isClaimReverted = isClaimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
+  const isClaimSuccess = isClaimReceiptFetched && !isClaimReverted;
 
   const pending = pendingETH ? Number(formatEther(pendingETH as bigint)) : 0;
 
@@ -932,6 +937,15 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
     // until the next background poll. Gated once-per-hash by ethToastFiredRef.
     refetchPendingETH();
   }, [isClaimSuccess, hash]); // eslint-disable-line react-hooks/exhaustive-deps -- refetchPendingETH is stable; fire once per confirmed hash
+
+  // Reverted on-chain — dedup per hash like the success toast above.
+  const ethRevertToastFiredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isClaimReverted || !hash) return;
+    if (ethRevertToastFiredRef.current.has(hash)) return;
+    ethRevertToastFiredRef.current.add(hash);
+    toast.error('ETH claim reverted on-chain — nothing was claimed and your pending ETH is unchanged.');
+  }, [isClaimReverted, hash]);
 
   // F142: a failed pendingETH read leaves `pending === 0`, which is otherwise
   // indistinguishable from "nothing to claim" — the card would silently vanish.

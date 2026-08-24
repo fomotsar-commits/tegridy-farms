@@ -25,7 +25,12 @@ export function useBribes() {
   const isDeployed = checkDeployed(VOTE_INCENTIVES_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
+  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
+  // receipt.status === 'success' is a real success; the toasts below key off this.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
   // 2026-07-26: an approval is a prerequisite, not the deposit. Track when the
   // in-flight tx is an approve so the toast says "approved — now confirm your
   // deposit" instead of a generic "confirmed". Reset to 'action' in both toast
@@ -366,6 +371,19 @@ export function useBribes() {
       return () => clearTimeout(t);
     }
   }, [isSuccess, isTxError, writeError, refetchAll, reset]);
+
+  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
+  // the tx failed — honest error instead of "Transaction confirmed!" (see derivation above).
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain', {
+        description: 'It was mined but the contract rejected it — no tokens moved and nothing changed.',
+      });
+      lastActionRef.current = 'action';
+      const t = setTimeout(reset, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isReverted, reset]);
 
   return {
     isDeployed,

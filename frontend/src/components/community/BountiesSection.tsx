@@ -43,7 +43,14 @@ export function BountiesSection() {
     return true;
   };
   const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isReceiptError } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted create/submit/claim can't toast "Transaction
+  // confirmed!" and refetch as if it landed.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
+  const isTxError = isReceiptError || isReverted;
 
   const { data: bountyCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'bountyCount' });
   const { data: totalPosted, refetch: refetchPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, functionName: 'totalBountiesPosted' });
@@ -90,12 +97,13 @@ export function BountiesSection() {
       return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
-      if (writeError) surfaceTxError(writeError, toast, { component: 'BountiesSection' });
+      if (isReverted) toast.error('Transaction reverted on-chain — nothing was posted, submitted, or claimed, and no ETH moved');
+      else if (writeError) surfaceTxError(writeError, toast, { component: 'BountiesSection' });
       else toast.error('Transaction failed');
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetchCount, refetchPosted, refetchPaidOut, refetchPayout, refetchRefund, refetchBounties, reset]);
+  }, [isSuccess, isTxError, isReverted, writeError, refetchCount, refetchPosted, refetchPaidOut, refetchPayout, refetchRefund, refetchBounties, reset]);
 
   const handleCreate = () => {
     // T7 fix: gate on a connected account before touching state. Disconnected,

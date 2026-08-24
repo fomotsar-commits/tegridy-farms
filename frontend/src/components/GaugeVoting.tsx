@@ -108,7 +108,13 @@ export function GaugeVoting() {
   //       'legacy' = one-step vote() kept only for emergencies.
   const [mode, setMode] = useState<'commit' | 'legacy'>('commit');
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted commit/reveal/vote can't toast success or
+  // clear the local reveal salt.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   // Stable boolean from a runtime constant — hooks below run unconditionally
   // and use `query: { enabled: !notDeployed }` so the network requests don't
@@ -305,6 +311,12 @@ export function GaugeVoting() {
       setLocalCommitment(null);
     }
   }, [isSuccess, hasVotedThisEpoch, commitmentKey, refetchRevealWindow]);
+
+  // Honest failure path: the receipt arrived but the tx reverted on-chain.
+  useEffect(() => {
+    if (!isReverted) return;
+    toast.error('Transaction reverted on-chain — your vote was not recorded and nothing changed');
+  }, [isReverted]);
 
   // Countdown to reveal window opening — hoisted out of conditional JSX so the
   // hook order stays stable. The string is only displayed when rendered below.

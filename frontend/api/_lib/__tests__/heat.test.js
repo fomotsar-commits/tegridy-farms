@@ -154,9 +154,29 @@ describe("origin gate — production mode", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a MISSING Origin header (bare curl) with 403 — fail-closed", async () => {
+  // AUDIT FIX 2026-08-24: the old assertion here ("missing Origin → 403,
+  // fail-closed") pinned the bug that killed this surface in production —
+  // same-origin browser GETs carry NO Origin header, so the launch gate 403'd
+  // every real user while curl probes (which hand-set Origin) passed. The gate
+  // now admits absent-Origin GETs unless Sec-Fetch-Site says cross-site;
+  // headerless clients (curl) are bounded by the rate limits, which is the only
+  // control that ever actually applied to them — Origin is freely forgeable
+  // outside a browser.
+  it("admits a same-origin browser GET: no Origin, Sec-Fetch-Site same-origin", async () => {
+    const { res, statusSpy } = makeRes();
+    await handleHeat(
+      makeReq({ query: { address: ETH }, headers: { origin: "", "sec-fetch-site": "same-origin" } }),
+      res,
+    );
+    expect(statusSpy).not.toHaveBeenCalledWith(403);
+  });
+
+  it("rejects a hostile page's no-cors GET: no Origin, Sec-Fetch-Site cross-site", async () => {
     const { res, statusSpy, jsonSpy } = makeRes();
-    await handleHeat(makeReq({ query: { address: ETH }, headers: { origin: "" } }), res);
+    await handleHeat(
+      makeReq({ query: { address: ETH }, headers: { origin: "", "sec-fetch-site": "cross-site" } }),
+      res,
+    );
     expect(statusSpy).toHaveBeenCalledWith(403);
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Origin not allowed" });
     expect(fetchMock).not.toHaveBeenCalled();

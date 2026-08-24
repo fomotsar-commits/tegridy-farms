@@ -110,7 +110,12 @@ function PauseControls({
   refetchReads: () => Promise<unknown>;
 }) {
   const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
+  // success toast on receipt.status.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   // R007 Pattern B — fire the toast exactly once per `txHash` going confirmed,
   // no matter how many re-renders see `isSuccess: true`. Reads the dedup ref
@@ -126,6 +131,17 @@ function PauseControls({
       void refetchReads();
     }
   }, [isSuccess, txHash, isPaused, refetchReads]);
+
+  // Reverted on-chain — same Pattern B dedup so a remount can't re-toast.
+  const lastRevertHash = useRef<typeof txHash | null>(null);
+  useEffect(() => {
+    if (isReverted && txHash && lastRevertHash.current !== txHash) {
+      lastRevertHash.current = txHash;
+      toast.error(isPaused
+        ? 'Unpause transaction reverted on-chain — the contract is still paused.'
+        : 'Pause transaction reverted on-chain — the contract is still active.');
+    }
+  }, [isReverted, txHash, isPaused]);
 
   // F384: surface a wallet rejection / gas-estimate failure instead of failing
   // silently (mirrors usePremiumAccess error toasting). Deduped per error.

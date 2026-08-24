@@ -84,7 +84,18 @@ export function CheckoutWidget({ invoiceId, fetchImpl }: CheckoutWidgetProps) {
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const {
+    data: receipt,
+    isLoading: isConfirming,
+    isSuccess: isReceiptFetched,
+  } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
+  // was FETCHED — it latches true for an on-chain REVERTED transfer too, which
+  // would have rendered "The transfer confirmed on chain" and offered "Tell the
+  // merchant" for a payment that never moved. Only `receipt.status === 'success'`
+  // is a real success.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   const holdsEnough =
     invoice !== null && typeof settleBalance === 'bigint' && settleBalance >= invoice.settleAmount;
@@ -267,6 +278,26 @@ export function CheckoutWidget({ invoiceId, fetchImpl }: CheckoutWidgetProps) {
                 className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
               >
                 Done
+              </button>
+            </div>
+          ) : null}
+
+          {isReverted && txHash ? (
+            <div className="mt-4 rounded-lg border border-red-400/30 bg-red-400/[0.06] p-3">
+              <p className="text-[13px] text-white/85">
+                The transfer reverted on-chain. No {invoice.settleSymbol} moved and the merchant was not
+                paid — do not report this hash as a payment.
+              </p>
+              <p className="mt-1 break-all text-[11px] text-white/60">{txHash}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  reset();
+                  setPosted({ kind: 'idle' });
+                }}
+                className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
+              >
+                Dismiss
               </button>
             </div>
           ) : null}

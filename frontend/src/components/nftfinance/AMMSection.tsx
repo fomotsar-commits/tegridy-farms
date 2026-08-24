@@ -561,10 +561,17 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
   const [approvalStep, setApprovalStep] = useState<'check' | 'approving' | 'approved'>('check');
 
   const { writeContract, data: txHash } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted swap can't fire the success toast below.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   const { writeContract: writeApproval, data: approvalTxHash } = useWriteContract();
-  const { isLoading: isApproving, isSuccess: approvalSuccess } = useWaitForTransactionReceipt({ hash: approvalTxHash });
+  const { data: approvalReceipt, isLoading: isApproving, isSuccess: isApprovalReceiptFetched } = useWaitForTransactionReceipt({ hash: approvalTxHash });
+  const approvalReverted = isApprovalReceiptFetched && !!approvalReceipt && approvalReceipt.status !== 'success';
+  const approvalSuccess = isApprovalReceiptFetched && !approvalReverted;
 
   const validCollection = isValidAddress(collection);
 
@@ -664,6 +671,15 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
       toast.success('Collection approved for trading!');
     }
   }, [approvalSuccess, refetchApproval]);
+
+  // Reverted approval: reset the step (it was set to 'approving' on submit and
+  // would otherwise stick there, leaving the button disabled forever).
+  useEffect(() => {
+    if (approvalReverted) {
+      setApprovalStep('check');
+      toast.error('Approval reverted on-chain — the collection was not approved.');
+    }
+  }, [approvalReverted]);
 
   // Reset approval step when switching modes or collections
   useEffect(() => {
@@ -784,6 +800,12 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
       refetchHeldIds();
     }
   }, [isSuccess, refetchBuyQuote, refetchSellQuote, refetchHeldIds]);
+
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain — no NFTs or ETH changed hands.');
+    }
+  }, [isReverted]);
 
   return (
     <ArtCard art={pageArt('amm', 1)} opacity={1} overlay="none" className="rounded-2xl">
@@ -1118,7 +1140,11 @@ function PoolAdminPanel({
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): gate on receipt.status — raw isSuccess
+  // latches true for on-chain REVERTED txs too.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   // Read the paused + pending-change state for this pool.
   const { data: state, refetch: refetchState } = useReadContracts({
@@ -1137,6 +1163,12 @@ function PoolAdminPanel({
     refetchState();
     onChange();
   }, [isSuccess, refetchState, onChange]);
+
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain — the pool settings were not changed.');
+    }
+  }, [isReverted]);
 
   const isPaused = state?.[0]?.status === 'success' ? (state[0].result as boolean) : false;
   const pendingSpot = state?.[1]?.status === 'success' ? (state[1].result as bigint) : 0n;
@@ -1545,7 +1577,12 @@ function PoolCard({
   // isPending = wallet signing phase; isConfirming = on-chain confirmation.
   // Both must gate buttons to prevent double-submit during wallet prompt.
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: poolTxSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: poolTxReceipt, isLoading: isConfirming, isSuccess: poolTxReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): gate on receipt.status — raw isSuccess
+  // latches true for on-chain REVERTED txs too, and the submission callback
+  // below already toasted "Liquidity added!/withdrawn!".
+  const poolTxReverted = poolTxReceiptFetched && !!poolTxReceipt && poolTxReceipt.status !== 'success';
+  const poolTxSuccess = poolTxReceiptFetched && !poolTxReverted;
 
   // Refetch pool data after successful liquidity operations
   useEffect(() => {
@@ -1554,6 +1591,12 @@ function PoolCard({
       refetchPoolHeldIds();
     }
   }, [poolTxSuccess, refetchPoolInfo, refetchPoolHeldIds]);
+
+  useEffect(() => {
+    if (poolTxReverted) {
+      toast.error('Transaction reverted on-chain — no liquidity was moved.');
+    }
+  }, [poolTxReverted]);
 
   const refetchAll = useCallback(() => {
     refetchPoolInfo();
@@ -2023,10 +2066,16 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
   // one for the factory.createPool call. Keeping them separate means we
   // can watch receipts independently and react to each stage.
   const { writeContract: writeApprove, data: approveTx, isPending: isApprovePending } = useWriteContract();
-  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({ hash: approveTx });
+  const { data: approveReceipt, isLoading: isApproveConfirming, isSuccess: isApproveReceiptFetched } = useWaitForTransactionReceipt({ hash: approveTx });
+  // AUDIT (receipt-status, 2026-08-24): gate both legs on receipt.status — raw
+  // isSuccess latches true for on-chain REVERTED txs too.
+  const isApproveReverted = isApproveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
+  const isApproveSuccess = isApproveReceiptFetched && !isApproveReverted;
 
   const { writeContract: writeDeploy, data: deployTx, isPending: isDeployPending } = useWriteContract();
-  const { data: deployReceipt, isLoading: isDeployConfirming, isSuccess: isDeploySuccess } = useWaitForTransactionReceipt({ hash: deployTx });
+  const { data: deployReceipt, isLoading: isDeployConfirming, isSuccess: isDeployReceiptFetched } = useWaitForTransactionReceipt({ hash: deployTx });
+  const isDeployReverted = isDeployReceiptFetched && !!deployReceipt && deployReceipt.status !== 'success';
+  const isDeploySuccess = isDeployReceiptFetched && !isDeployReverted;
 
   const spotNum = parseFloat(spotPriceInput) || 0;
   const deltaNum = parseFloat(deltaInput) || 0;
@@ -2055,6 +2104,18 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
       refetchApproval();
     }
   }, [isApproveSuccess, refetchApproval]);
+
+  useEffect(() => {
+    if (isApproveReverted) {
+      toast.error('Approval reverted on-chain — the collection was not approved.');
+    }
+  }, [isApproveReverted]);
+
+  useEffect(() => {
+    if (isDeployReverted) {
+      toast.error('Pool deployment reverted on-chain — no pool was created and nothing was deposited.');
+    }
+  }, [isDeployReverted]);
 
   // Decode PoolCreated from the deploy receipt so the new pool can be auto-
   // tracked without the user pasting the address by hand.

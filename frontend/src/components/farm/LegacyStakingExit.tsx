@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { m } from 'framer-motion';
+import { toast } from 'sonner';
 import { useAccount, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import type { Address } from 'viem';
 import { formatEther } from 'viem';
@@ -59,7 +60,13 @@ export function LegacyStakingExit() {
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted withdraw/earlyWithdraw doesn't silently clear
+  // the confirm state as if the exit had gone through.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   useEffect(() => {
     if (isSuccess) {
@@ -71,6 +78,13 @@ export function LegacyStakingExit() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuccess]);
+
+  // Honest failure path for on-chain reverts: nothing moved; funds stay staked.
+  useEffect(() => {
+    if (!isReverted) return;
+    toast.error('Withdrawal reverted on-chain — no TOWELI moved; your position is unchanged');
+    reset();
+  }, [isReverted, reset]);
 
   const positions: (LegacyPosition & { idx: number })[] = [];
   LEGACY_STAKING_ADDRESSES.forEach((c, i) => {

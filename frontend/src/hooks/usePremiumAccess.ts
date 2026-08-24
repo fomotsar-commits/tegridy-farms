@@ -16,8 +16,17 @@ export function usePremiumAccess() {
   const isPending = isApprovePending || isActionPending;
 
   // Track each tx independently so approve doesn't shadow the subsequent action tx
-  const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess, isError: isApproveTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
-  const { isLoading: isActionConfirming, isSuccess: isActionSuccess, isError: isActionTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
+  const { data: approveReceipt, isLoading: isApproveConfirming, isSuccess: isApproveReceiptFetched, isError: isApproveTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
+  const { data: actionReceipt, isLoading: isActionConfirming, isSuccess: isActionReceiptFetched, isError: isActionTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
+
+  // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too, which fired the
+  // "confirmed!" toasts for a reverted approve/subscribe. Only
+  // `receipt.status === 'success'` is a real success.
+  const isApproveReverted = isApproveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
+  const isApproveSuccess = isApproveReceiptFetched && !isApproveReverted;
+  const isActionReverted = isActionReceiptFetched && !!actionReceipt && actionReceipt.status !== 'success';
+  const isActionSuccess = isActionReceiptFetched && !isActionReverted;
 
   const isConfirming = isApproveConfirming || isActionConfirming;
   const isSuccess = isApproveSuccess || isActionSuccess;
@@ -150,6 +159,22 @@ export function usePremiumAccess() {
       return () => clearTimeout(t);
     }
   }, [isActionTxError, resetAction]);
+
+  useEffect(() => {
+    if (isApproveReverted) {
+      toast.error('Approval reverted on-chain — your allowance is unchanged and no TOWELI moved.');
+      const t = setTimeout(() => { resetApprove(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isApproveReverted, resetApprove]);
+
+  useEffect(() => {
+    if (isActionReverted) {
+      toast.error('Transaction reverted on-chain — nothing changed: no TOWELI moved and no premium was activated.');
+      const t = setTimeout(() => { resetAction(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isActionReverted, resetAction]);
 
   // Surface wallet/write errors (user rejection, gas estimation, etc.)
   useEffect(() => {

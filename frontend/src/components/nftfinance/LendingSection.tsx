@@ -729,7 +729,12 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
 
   const chainId = useChainId();
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted tx can't fire the success toast below.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   // F268: the protocol fee is taken from the lender's interest (per the StatsBar
   // tooltip), so the earnings preview must net it out rather than show gross.
@@ -753,6 +758,12 @@ function LendTab({ deployed, onCreated }: { deployed: boolean; onCreated?: () =>
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onCreated is a stable refetch handle; fire once per confirmed tx
   }, [isSuccess]);
+
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Offer creation reverted on-chain — no ETH was deposited and no offer was created.');
+    }
+  }, [isReverted]);
 
   const aprPercent = aprBps ? (parseFloat(aprBps) / 100).toFixed(2) : '0.00';
   const feeFraction = protocolFeeBps !== undefined ? Number(protocolFeeBps) / 10000 : 0;
@@ -1046,19 +1057,29 @@ function OfferRow({
 
   // Approve
   const { writeContract: approveWrite, data: approveTx, isPending: approvePending } = useWriteContract();
-  const { isLoading: approveConfirming, isSuccess: approveSuccess } = useWaitForTransactionReceipt({
+  const { data: approveReceipt, isLoading: approveConfirming, isSuccess: approveReceiptFetched } = useWaitForTransactionReceipt({
     hash: approveTx,
   });
+  // AUDIT (receipt-status, 2026-08-24): gate both legs on receipt.status — raw
+  // isSuccess latches true for on-chain REVERTED txs too.
+  const approveReverted = approveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
+  const approveSuccess = approveReceiptFetched && !approveReverted;
 
   // Accept
   const { writeContract: acceptWrite, data: acceptTx, isPending: acceptPending } = useWriteContract();
-  const { isLoading: acceptConfirming, isSuccess: acceptSuccess } = useWaitForTransactionReceipt({
+  const { data: acceptReceipt, isLoading: acceptConfirming, isSuccess: acceptReceiptFetched } = useWaitForTransactionReceipt({
     hash: acceptTx,
   });
+  const acceptReverted = acceptReceiptFetched && !!acceptReceipt && acceptReceipt.status !== 'success';
+  const acceptSuccess = acceptReceiptFetched && !acceptReverted;
 
   useEffect(() => {
     if (approveSuccess) toast.success('NFT approved for lending');
   }, [approveSuccess]);
+
+  useEffect(() => {
+    if (approveReverted) toast.error('Approval reverted on-chain — the NFT was not approved.');
+  }, [approveReverted]);
 
   useEffect(() => {
     if (acceptSuccess) {
@@ -1070,6 +1091,10 @@ function OfferRow({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onAccepted is a stable refetch handle; fire once per confirmed tx
   }, [acceptSuccess]);
+
+  useEffect(() => {
+    if (acceptReverted) toast.error('Accept reverted on-chain — no loan was opened and no funds moved.');
+  }, [acceptReverted]);
 
   const handleApprove = () => {
     // AUDIT FIX M-8: refuse on wrong chain so the approval doesn't hit a
@@ -1614,10 +1639,16 @@ function LoanRow({
   });
 
   const { writeContract: repayWrite, data: repayTx, isPending: repayPending } = useWriteContract();
-  const { isLoading: repayConfirming, isSuccess: repaySuccess } = useWaitForTransactionReceipt({ hash: repayTx });
+  const { data: repayReceipt, isLoading: repayConfirming, isSuccess: repayReceiptFetched } = useWaitForTransactionReceipt({ hash: repayTx });
+  // AUDIT (receipt-status, 2026-08-24): gate both legs on receipt.status — raw
+  // isSuccess latches true for on-chain REVERTED txs too.
+  const repayReverted = repayReceiptFetched && !!repayReceipt && repayReceipt.status !== 'success';
+  const repaySuccess = repayReceiptFetched && !repayReverted;
 
   const { writeContract: claimWrite, data: claimTx, isPending: claimPending } = useWriteContract();
-  const { isLoading: claimConfirming, isSuccess: claimSuccess } = useWaitForTransactionReceipt({ hash: claimTx });
+  const { data: claimReceipt, isLoading: claimConfirming, isSuccess: claimReceiptFetched } = useWaitForTransactionReceipt({ hash: claimTx });
+  const claimReverted = claimReceiptFetched && !!claimReceipt && claimReceipt.status !== 'success';
+  const claimSuccess = claimReceiptFetched && !claimReverted;
 
   useEffect(() => {
     if (repaySuccess) {
@@ -1632,6 +1663,10 @@ function LoanRow({
   }, [repaySuccess, refetchRepayment]);
 
   useEffect(() => {
+    if (repayReverted) toast.error('Repayment reverted on-chain — nothing was repaid and the loan is unchanged.');
+  }, [repayReverted]);
+
+  useEffect(() => {
     if (claimSuccess) {
       toast.success('Collateral claimed');
       // F257 (T5): refresh so the defaulted loan reflects defaultClaimed.
@@ -1639,6 +1674,10 @@ function LoanRow({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onLoanChanged is a stable refetch handle; fire once per confirmed tx
   }, [claimSuccess]);
+
+  useEffect(() => {
+    if (claimReverted) toast.error('Claim reverted on-chain — the collateral was not claimed.');
+  }, [claimReverted]);
 
   const handleRepay = () => {
     // AUDIT FIX M-8: refuse on wrong chain — repayLoan would burn the

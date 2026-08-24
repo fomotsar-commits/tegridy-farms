@@ -35,6 +35,11 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
   const chainId = useChainId();
   const { sendTransaction, data: txHash, isPending, error } = useSendTransaction();
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Only
+  // receipt.data.status === 'success' is an actual on-chain success.
+  const isReverted = receipt.isSuccess && !!receipt.data && receipt.data.status !== 'success';
+  const isConfirmed = receipt.isSuccess && !isReverted;
 
   const prepared = prepareRepay({
     loanId: position.loanId,
@@ -145,7 +150,12 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
               The wallet rejected or failed to send this transaction. Nothing was repaid.
             </p>
           )}
-          {receipt.isSuccess && (
+          {isReverted && (
+            <p className="mt-2 text-[11px] leading-snug" style={{ color: '#FF9C9C' }} role="alert">
+              The transaction reverted on-chain. Nothing was repaid and the loan is unchanged.
+            </p>
+          )}
+          {isConfirmed && (
             <p className="mt-2 text-[11px] leading-snug" style={{ color: '#22c55e' }} role="status">
               Repayment confirmed on-chain. The collateral returns to this wallet in the same transaction.
             </p>

@@ -54,7 +54,14 @@ export function useNFTDropV2(dropAddress: string) {
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID — see useLPFarming.ts.
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isReceiptError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
+  // receipt was FETCHED" — it latches true for on-chain REVERTED mints too. Only
+  // receipt.status === 'success' is a real success. isReverted folds into
+  // isTxError so the `inFlight` guard below can't latch forever after a revert.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
+  const isTxError = isReceiptError || isReverted;
 
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
@@ -242,13 +249,20 @@ export function useNFTDropV2(dropAddress: string) {
       // instead of "Mint failed"; a bare on-chain revert keeps the action copy.
       if (writeError) {
         surfaceTxError(writeError, toast, { component: 'useNFTDropV2' });
+      } else if (isReverted) {
+        // Receipt-status revert: mined, but the contract rejected it.
+        toast.error(lastActionRef.current === 'refund' ? 'Refund reverted on-chain' : 'Mint reverted on-chain', {
+          description: lastActionRef.current === 'refund'
+            ? 'No ETH was sent back — your refund is still claimable.'
+            : 'Nothing was minted and your ETH was not taken.',
+        });
       } else {
         toast.error(lastActionRef.current === 'refund' ? 'Refund failed' : 'Mint failed');
       }
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, reset]);
+  }, [isSuccess, isTxError, isReverted, writeError, reset]);
 
   return {
     // Read data

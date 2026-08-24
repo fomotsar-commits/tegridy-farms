@@ -70,7 +70,12 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   const [dutchDuration, setDutchDuration] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted admin write can't read as applied.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
   const busy = isPending || isConfirming || !deployed;
 
   const { data: onchainPhase, refetch: refetchPhase } = useReadContract({
@@ -123,6 +128,14 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
       void refetchPaused();
     }
   }, [isSuccess, refetchPhase, refetchContractURI, refetchPaused]);
+
+  // Surface on-chain reverts: the submission toast in `exec` fires on submit
+  // ("<fn> succeeded"), so without this a reverted tx would read as applied.
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain — no admin change was applied.');
+    }
+  }, [isReverted]);
 
   // R071 M-072-05: client-side Dutch-auction invariants mirror the Solidity
   // guards (TegridyDropV2.configureDutchAuction). Surfacing them inline lets

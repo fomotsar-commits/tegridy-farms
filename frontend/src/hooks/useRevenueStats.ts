@@ -17,7 +17,12 @@ export function useRevenueStats() {
   const isPending = isClaimPending;
   const writeError = claimError;
 
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ hash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
+  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
+  // receipt.status === 'success' is a real success; the toasts below key off this.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   // F47 (T7): the global lifetime figures (totalDistributed / totalClaimed /
   // epochCount / totalReferralsPaid) are public protocol stats — they back the
@@ -129,6 +134,18 @@ export function useRevenueStats() {
       return () => clearTimeout(t);
     }
   }, [isSuccess, isTxError, writeError, refetch, resetClaim]);
+
+  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
+  // the tx failed — honest error instead of "Transaction confirmed!" (see derivation above).
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain', {
+        description: 'It was mined but the contract rejected it — no ETH moved and nothing changed.',
+      });
+      const t = setTimeout(resetClaim, 0);
+      return () => clearTimeout(t);
+    }
+  }, [isReverted, resetClaim]);
 
   return {
     // Revenue Distribution

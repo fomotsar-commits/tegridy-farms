@@ -20,8 +20,14 @@ export function Step5_Deploy({
   onBack: () => void;
 }) {
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, data: receipt } =
+  const { isLoading: isConfirming, isSuccess: isReceiptFetched, data: receipt } =
     useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
+  // was FETCHED — it latches true for an on-chain REVERTED deploy too, which froze
+  // the button at "Deployed ✓" with no collection and no error. Only
+  // `receipt.status === 'success'` is a real success.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
   const [localErr, setLocalErr] = useState<string | null>(null);
   const chainId = useChainId();
 
@@ -134,6 +140,16 @@ export function Step5_Deploy({
       });
     }
   }, [isSuccess, deployedCollection, txHash, state.deployedAddress, dispatch]);
+
+  // Surface an on-chain revert in the same error panel as pre-flight failures.
+  // isSuccess is false here, so the Deploy button re-arms for a retry.
+  useEffect(() => {
+    if (isReverted) {
+      setLocalErr(
+        'Deploy transaction reverted on-chain — no collection was created (the gas was spent, nothing else changed). Check the transaction on Etherscan, then try again.'
+      );
+    }
+  }, [isReverted]);
 
   return (
     <div className="space-y-5">

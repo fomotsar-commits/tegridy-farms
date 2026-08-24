@@ -40,7 +40,14 @@ export function GrantsSection() {
     return true;
   };
   const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isReceiptError } = useWaitForTransactionReceipt({ hash: txHash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
+  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
+  // receipt.status so a reverted vote/finalize/createProposal can't toast
+  // "Transaction confirmed!" and refetch as if it landed.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
+  const isTxError = isReceiptError || isReverted;
 
   const { data: proposalCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({
     address: gcAddr, abi: COMMUNITY_GRANTS_ABI, functionName: 'proposalCount',
@@ -96,12 +103,13 @@ export function GrantsSection() {
       return () => clearTimeout(t);
     }
     if (isTxError || writeError) {
-      if (writeError) surfaceTxError(writeError, toast, { component: 'GrantsSection' });
+      if (isReverted) toast.error('Transaction reverted on-chain — no proposal, vote, or finalization was recorded; nothing changed');
+      else if (writeError) surfaceTxError(writeError, toast, { component: 'GrantsSection' });
       else toast.error('Transaction failed');
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset]);
+  }, [isSuccess, isTxError, isReverted, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset]);
 
   const handleVote = (proposalId: number, support: boolean) => {
     // T7 fix: gate on a connected account, not just chain. When disconnected,

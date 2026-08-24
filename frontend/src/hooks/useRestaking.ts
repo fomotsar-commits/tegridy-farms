@@ -14,7 +14,12 @@ export function useRestaking() {
   const isDeployed = checkDeployed(TEGRIDY_RESTAKING_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
+  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
+  // receipt.status === 'success' is a real success; the toasts below key off this.
+  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
+  const isSuccess = isReceiptFetched && !isReverted;
 
   // Read user's staking position + restaking state in parallel.
   // R043 H-062-02: chainId pin on every entry, gate on the canonical chain.
@@ -139,6 +144,16 @@ export function useRestaking() {
   useEffect(() => {
     if (isTxError) toast.error('Transaction failed on-chain');
   }, [isTxError]);
+
+  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
+  // the tx failed — honest error instead of the success toast (see derivation above).
+  useEffect(() => {
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain', {
+        description: 'Nothing was restaked, unrestaked, or claimed — your position is unchanged.',
+      });
+    }
+  }, [isReverted]);
 
   useEffect(() => {
     // F474: classify wallet cancellations as a soft "Cancelled" info toast.
