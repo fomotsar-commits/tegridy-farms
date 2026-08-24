@@ -442,8 +442,8 @@ to have run at all. What is left on trunk:
 | `advisories — frontend` / `— indexer` | ✅ **FIXED** (`5565506b`) | Was never an advisory problem. GitHub runs every `run:` block under `bash -e`, and `set -uo pipefail` does not clear errexit, so the unguarded `npm audit --json` ended the step the instant it found anything and **the gate never ran once** since it was armed on 08-18. Running the gate against the real reports: 0 blocking in both projects, every finding already baselined, zero stale suppressions. Nothing was allowlisted to force green. |
 | `Static analysis` (Slither) | 🔴 **STILL RED — and it was masking** | See item 8. |
 | `E2E Tests` | ✅ **GREEN** (`d2d43bdb`) | **524 passed, 32 skipped, 0 failed** on run 32609788572 — the first green on this job. All four projects, including both WebKit ones. See item **1b**: the service worker was answering every stubbed fetch before `page.route` could, and fixed chrome was parking the click target underneath itself. |
-| `E2E Tests (Anvil fork)` | 🟡 **18 passed / 1 failed** (was 4 legs failing) | Fixed and merged (`c6e64cd3`, `deb43a29`). `stake`, `swap` and `claim-rewards` now pass clean. Two remain, and **both are now reported truthfully instead of passing on the wrong thing** — see below. |
-| `Lint, Type Check & Test` | ✅ green | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
+| `E2E Tests (Anvil fork)` | 🟡 **18 passed / 1 failed** (was 4 legs failing) | Fixed and merged (`c6e64cd3`, `deb43a29`). `stake`, `swap` and `claim-rewards` pass clean. The one failure is a REAL broken repay transaction that the old false-green assertion hid — see **①.2**. |
+| `Lint, Type Check & Test` | ✅ green (and `Build`) | Went red for ~15 minutes today on my own `no-fallthrough` mistake (`a0c83c42`); see the note at the end of item 8. |
 
 The failures are not the problem. A permanently-red trunk is: once red is the normal state, the
 next real regression is indistinguishable from the noise. This repo has already shipped **three**
@@ -915,99 +915,121 @@ dark. That is the whole shape of this project right now: **over-built and under-
 
 ## Order of operations
 
-### ① Finish getting trunk green — all three are agent work, no keys needed
+### ① What an agent can finish alone — three items, all with the work already written
 
-`E2E Tests` went green on 2026-08-22 (`d2d43bdb` + `ef70d013`, **524 passed / 0 failed**, confirmed
-on two runs). Three items remain. Do them in this order; each is self-contained.
+Updated **2026-08-24**. `E2E Tests` is green (524/0). Zero open PRs. Trunk is clean and all five
+frontend gates pass: `tsc -b` · `npm run lint` · 5,957 tests · `npm run build` · Playwright.
+
+⚠️ **Run all five before committing.** Trunk went red on 2026-08-22 because a session verified with
+`tsc -b` and `vitest` and skipped `npm run lint`, and the break was found two days later by reading
+why unrelated Dependabot PRs were failing.
 
 ---
 
-#### ①.1 The four Anvil money-path specs — **most of the work is already written**
+#### ①.1 🔴 The v2 distributor — WRITTEN AND GREEN, needs an independent review before merge
 
-**A complete implementation exists on branch [`wip/e2e-anvil-money-paths`](https://github.com/fomotsar-commits/tegridy-farms/tree/wip/e2e-anvil-money-paths)** (`53ee94ca`, 689 insertions across 7 files).
-It was adversarially verified and came back **REFUTED on one leg**, which is the only reason it is
-not merged. Everything else in it the verifier found sound.
+**Branch [`wip/v2-timelocked-forfeit-UNREVIEWED`](https://github.com/fomotsar-commits/tegridy-farms/tree/wip/v2-timelocked-forfeit-UNREVIEWED). 40/40 tests pass. DO NOT MERGE YET.**
 
-**Step 1 — fix the one refuted assertion.** `frontend/e2e/lending.spec.ts:134` asserts
-`repay.toHaveCount(0)` on a locator scoped by accessible name `/^Repay Loan$/`.
-`NFTLendingSection.tsx:1138` renders
-`{repaying ? 'Confirm in Wallet...' : repayConfirming ? 'Repaying...' : 'Repay Loan'}` — so the name
-changes the instant the click sets `repaying`, and the count reaches 0 **whether or not the
-repayment ever confirmed**. That is a false green inside the fix for a false green.
-▶ **Assert contract state, not the button's label** — read the loan back and require it closed.
+This is the **third** attempt at this contract. Attempts 1 and 2 each looked exactly this clean and
+were each refuted by two independent adversarial passes. Attempt 3 has had **none** — the review
+workflow failed on API 529s five times.
 
-**Step 2 — give the liquidity submit a `data-testid`.** `liquidity.spec.ts:75` uses
-`panel.locator('button:not([aria-pressed])').last()`, which resolves correctly **today but
-positionally**: appending any button to `LiquidityTab` silently retargets the spec's submit.
+**What it does.** It stops trying to make a permissionless confiscation safe and removes the
+permissionless confiscation. `sync`/`syncMany` now only update the mirror; they cannot reduce
+`rewards`, touch `totalForfeitedToPool`, or cost any account a wei. The forfeit moved behind an
+owner timelock (`proposeForfeit` → 48h → `executeForfeit`, plus `cancelForfeit` and a
+`pendingForfeit()` view). The refuted `exitedAt` anchor is deleted, and `_claimDeadlineOf` now
+returns **UNKNOWN** where no durable anchor exists — the two callers resolve unknown in opposite
+directions, both toward the staker.
 
-**Step 3 — rebase onto trunk, run, merge.** The branch predates several trunk commits.
+**There is deliberately NO value cap**, and that decision is the thing most likely to be second-
+guessed, so the reasoning is in the source at the `MAX_LIFETIME_FORFEIT_BPS` block. In short: a 1%
+cap copied from v1 made the mechanism unusable (its first realistic test hit
+`ForfeitCapExceeded(1.75e18, 6.99e16)` — v1's 1% reclaims *dust*), and this contract has **no
+owner-side ETH exit at all** — verified across the whole file and every inherited base, exactly one
+ETH-moving call exists and it pays `msg.sender` their own reward. So a compromised owner can
+**redistribute but not extract**, and eligibility is the real cap: only accounts with positive
+evidence of abandonment can ever be touched. Active stakers are unreachable by construction.
 
-```bash
-git fetch origin && git checkout -b e2e-anvil origin/wip/e2e-anvil-money-paths && git rebase origin/mvp-launch
+▶ **RUN THE SAVED REVIEW.** It is resumable and nothing is cached, so it is a clean run:
+
+```
+Workflow({scriptPath: '.../workflows/scripts/refute-timelocked-forfeit-wf_4f0670ec-855.js',
+          resumeFromRunId: 'wf_4f0670ec-855'})
 ```
 
-**Verify with all four gates, from `frontend/`** — the third and fourth are the ones agents skip, and
-skipping lint is how trunk went red on 2026-08-22:
+▶ **The two questions self-review could NOT answer**, and which the pass must:
+1. Can a permissionless `sync` shift value **between** accounts through the mirror, without touching
+   `rewards`? A mirror write is not obviously harmless — trace `earned()` and `rewardPerTokenStored`.
+2. Can the owner forfeit an account whose rewards **arrive during** the 48h window?
 
-```bash
-npx tsc -b --noEmit && npm run lint && npx vitest run && npx playwright test --project=chromium --retries=0
-```
+✅ **Already verified mechanically** (do not redo): three mutations killed — `_isForfeitable`
+returning true, `onlyOwner` dropped from `proposeForfeit`, and the no-anchor case returning
+`(true, 0)` (that last is the exact shape attempts 1 and 2 died on, and four tests object to it).
+Zero `testFuzz_*` names. Size 12,770 / 24,576 bytes.
 
-⚠️ **Read this before you touch those specs.** The four failures were **four different bugs**, and
-missing fork state was the answer to exactly one. Three were false greens or dead locators — full
-account in item **1a**. In particular, *"pre-fund the reward storage"*, which this document told you
-to do for two revisions, **would not have turned `claim-rewards` green**: it waits on
-`/^claim\s+\d/i`, which matches no CTA `/farm` can draw in any state.
-
-⛔ **Do not** loosen an assertion, widen a per-assertion timeout, add a retry, or use `force: true`.
-Two of these four were already *passing* on something that was not the thing under test.
-
----
-
-#### ①.2 The eight Slither defects — fix, do not suppress
-
-Both triage passes are done. **The answer is NOT to suppress.** The full account, with every verdict
-and both passes verbatim, is [`SLITHER_TRIAGE_2026_08_22.md`](SLITHER_TRIAGE_2026_08_22.md); the
-short version is item **8**.
-
-Fix these eight, **each in its own PR with a test**. Ordered by how much a reader should care:
-
-| # | Where | What |
-|---|---|---|
-| 1 | `RestakingMonitorView` | `_effectivePower` degrades silently to zero **three ways** — including the default post-deploy state (`restakingContract` unset) — so `isSynced` answers **true for every un-registered restaker**. Fabricated data in a view contract. |
-| 2 | `NftfiPooledLendingVault.repay` `:386` | **Not** revert-on-failure: it clamps and under-applies silently, and `NftfiBnpl` has no rescue path. |
-| 3 | `TegridyFeeLocker` | The `amount == 0` short-circuit is where a corrupted fee delta goes silent — **no reentrancy guard**, on a balance pot shared with every other lock, with `currency1` an arbitrary third-party ERC20 from the Airlock. |
-| 4 | staking, `:218-221` | A path blocks the staker's own `getReward()` while crystallising their ETH, contradicting the documented 7-day `CLAIM_GRACE_PERIOD`. **The suite cannot reach it** — `MockVE.userTokenId` never clears and never reverts. Needs a human decision. |
-| 5 | `TegridyHarvestVault:370/:386` | A **one-wei donation** floors `swapAmount` to zero and grieves `harvest` into `NothingToCompound`. |
-| 6 | `TegridyFeeExecutorRouter:253` | `received == 0` computes `0 - 1` and panic-reverts. Safe direction; wants an explicit `if (received == 0) revert ZeroAmount();` and a test. |
-| 7 | `WETHFallbackLib:128-129` | Runs on full gas against a `WETH` address the constructor never code-checks — contrary to that library's own warning at `:87-88`. |
-| 8 | `executePolAccumulator` `:530-538` | Omits the `_assertAllowable` re-assertion its sibling `executeAllowTarget` `:453-454` performs by design. |
-
-**Then re-run Slither** — the finding set will have moved, and the remaining triage belongs against
-the new report, not the old one. For whatever genuinely survives, prefer an **assertion or an
-initializer** over a comment above a silenced detector.
-
-⛔ **Never** add `reentrancy-balance` or `incorrect-equality` to `detectors_to_exclude`; **never**
-lower `fail-on` or add `continue-on-error`. And do not trust the FeeExecutorRouter's existing
-reentrancy test as cover — its `vm.expectRevert()` is bare and **its revert is swallowed by
-`_execSwap` at line 343**.
-
-⚠️ While you are in `contracts/slither.config.json`: its `_scope` note lists 15 in-scope contracts
-and 12 supposedly removed ones, and **every file that actually fires appears on neither list**.
-`_scope` is a comment and enforces nothing. Rewrite or delete it.
+⚠️ **Accepted trade-off, asserted by two tests so nobody "fixes" it with a third anchor:** a
+fully-exited staker and a former restaker can **never** be forfeited, by anyone including the owner
+— the burnt NFT leaves no `lockEnd` and a restaker's `userTokenId` is 0 for life. Their ETH stays
+claimable by them forever and never recycles. That is the safe direction: the protocol has no claim
+on user funds it cannot prove were abandoned.
 
 ---
 
-#### ①.3 Merge the 15 Dependabot PRs
+#### ①.2 🟡 The `lending` repay — a real broken transaction, now visible
 
-All 14 non-major PRs were sent `@dependabot rebase` onto the fixed trunk on 2026-08-22. **Hold #296**
-(framer-motion 12 → **13**, a major).
+`E2E Tests (Anvil fork)` is **18 passed / 1 failed**, down from four failing legs
+(`c6e64cd3`, `deb43a29`). `stake`, `swap` and `claim-rewards` pass clean.
 
-▶ Merge **one at a time** — each merge moves trunk and Dependabot rebases the rest, so batching just
-means N rounds of CI either way.
-⚠️ Their earlier red was **not** a verdict on the bumps: `#303` and `#287` were failing on a lint
-regression of mine (fixed in `a0c83c42`) and the CodeQL-action bumps were red on a two-week-stale
-run from before the rebase. Re-read the checks before judging any of them.
+**The remaining failure is not a test problem.** `lending.spec.ts` reports *"the repay was submitted
+but the loan never read back as repaid — the repayment did not confirm on chain."* That is the
+assertion which replaced a false green: the old `toHaveCount(0)` on `/^Repay Loan$/` would have
+**passed here**, because the button's accessible name changes to *"Confirm in Wallet…"* the instant
+it is clicked. So this leg was always broken and the test was reporting otherwise.
+
+▶ **Debug the repay transaction, not the spec.** The spec is now correct.
+
+Also amber: `liquidity` fails attempt 0 on the `notHash` guard — *"the only receipt on the page is
+still the PREVIOUS step's"* — and passes on a warm retry. That guard is working; without it the
+add's own receipt link would satisfy the burn. It is a state/ordering issue between the two legs.
+⛔ **Do not "fix" it by dropping `notHash`.**
+
+---
+
+#### ①.3 🔴 The eight Slither defects — fix, do not suppress
+
+Unchanged and still the largest open item. Both triage passes are done; the answer is **not** to
+suppress. Full account with every verdict and both passes verbatim:
+[`SLITHER_TRIAGE_2026_08_22.md`](SLITHER_TRIAGE_2026_08_22.md). The short version, and the ordered
+defect list, is in item **8** below.
+
+The three worth naming here, because they are the same defect class as the distributor work above —
+a silent zero standing in for an unknown:
+
+1. **`RestakingMonitorView`** — `_effectivePower` degrades to zero **three ways**, one of which is
+   the default post-deploy state, so `isSynced` answers **true for every un-registered restaker**.
+2. **`NftfiPooledLendingVault.repay`** is **not** revert-on-failure: it clamps and under-applies
+   silently at `:386`, and `NftfiBnpl` has no rescue path.
+3. **`TegridyHarvestVault:370/:386`** — a **one-wei donation** grieves `harvest` into
+   `NothingToCompound`.
+
+⛔ Never add `reentrancy-balance` or `incorrect-equality` to `detectors_to_exclude`; never lower
+`fail-on` or add `continue-on-error`. And do not trust the FeeExecutorRouter's existing reentrancy
+test as cover — its `vm.expectRevert()` is bare and **its revert is swallowed by `_execSwap` at line
+343**.
+
+---
+
+#### ①.4 ✅ Dependabot — DONE, nothing open
+
+Fifteen PRs closed, thirteen bumps landed (`e5f78839` for twelve as one verified batch, plus
+framer-motion 13 separately in `87690e42` with its own 524-test e2e matrix, plus
+`@vitejs/plugin-react` 6.1.0). **Zero open PRs.**
+
+Every one of those PRs had been reporting `Lint, Type Check & Test` red, and **every red was stale**
+— runs from 2026-08-22 20:23 failing on a `no-fallthrough` error fixed hours later in `a0c83c42`.
+None had re-run. If a batch of Dependabot PRs ever looks uniformly red again, check the run
+timestamps before believing it.
 
 ### ② The operator critical path — nothing to the right of it moves until you act
 
@@ -1216,3 +1238,55 @@ rewards never recycle for un-synced accounts, and that trade-off is a decision, 
 ⚠️ **A ninth vacuous-gate instance, found in passing:** every unit slice runs
 `--no-match-test "^(invariant_|testFuzz_)"`, so **any test named `testFuzz_*` under `test/v2/`
 compiles, is reported as part of the slice, and never executes.** Do not name new tests that way.
+
+---
+
+# 🌿 The `wip/` branches — what is parked on origin and why
+
+Five branches are pushed to origin deliberately. Agent worktrees get cleaned up, and three of these
+existed only as untracked files in a temp directory at some point today. **Nothing here is garbage;
+each is either work held back for review or evidence of why something does not ship.**
+
+| Branch | State | What to do with it |
+|---|---|---|
+| **`wip/v2-timelocked-forfeit-UNREVIEWED`** | ✅ 40/40 green, self-reviewed, **NOT independently reviewed** | The live one. Run the saved refutation workflow (see **①.1**), then merge if it survives. This is attempt **3**; the first two looked just as clean. |
+| **`wip/lockend-sentinel-REFUTED`** | ❌ Refuted twice | **Read before touching the distributor.** Carries `RefuteAnchorReset.t.sol`, the test that proves its `exitedAt` anchor was resettable by the account it protected. Attempt 3 keeps its two-value `_lockEndOf` / `_isRestaked` — those parts were never refuted. |
+| **`wip/lockend-anchor-attempt2-REFUTED`** | ❌ Refuted in design | Attempt 2, the monotone `lockEnd` high-water mark. 1,079 lines including 637 of tests. Refuted because **restakers can never satisfy it** — their `userTokenId` is 0 for life, so no `lockEnd`-derived anchor exists for them. Kept because its test cases may cover ground attempt 3 does not. |
+| **`wip/e2e-anvil-money-paths`** | ✅ Merged to trunk (`c6e64cd3`) | Historical. Safe to delete once you are comfortable the merge is settled. |
+| **`wip/e2e-heat-door-full`** | ✅ Fully harvested | Its assertions landed in `ef70d013`. Only an `E2E_PORT` parameterisation remains unharvested — a nicety for running the suite on a non-default port. Safe to delete. |
+
+⚠️ **Do not delete the two REFUTED branches without reading them first.** They are the only record of
+two designs that looked correct and were not. A fourth attempt that re-invents either one would be
+rediscovering a refutation at the cost of another full review cycle.
+
+---
+
+# 📌 Session close-out, 2026-08-24
+
+Trunk is clean, **zero open PRs**, and all five frontend gates pass (`tsc -b` · lint · 5,957 tests ·
+build · Playwright 524/0).
+
+**Three of five CI checks recovered this session.** `advisories` (the gate had never once executed —
+errexit killed the audit step before it ran), `Static analysis`'s masking shim (a 2-second echo was
+publishing a pass under the same check name as a failing 4-minute analysis), and **`E2E Tests`, green
+for the first time**. Two remain: the Anvil repay (**①.2**) and Slither's eight defects (**①.3**).
+
+**What changed structurally, and is worth not undoing:**
+- The Meteora DBC rail is **retired** — 5,307 lines, with the registry record kept, a mutation-checked
+  tripwire, and the licence provenance rescued into `NOTICE.md`. §1.3 explains why the EVM rail was
+  **not** swept up with it.
+- Four `-not-applicable.yml` companion workflows are **gone**. They could publish a pass under the
+  same check name as a real failure, and did. The filter lives in a `scope` job now
+  (`.github/scripts/diff-scope.mjs`), so exactly one check run per name can exist.
+- Light mode is **dropped**, with the contrast suite rewritten as a tripwire rather than deleted.
+- The Solana own venue is **ready to redeploy** — three code blockers closed, curve settled at a flat
+  100 bps with a 50/50 creator split. See
+  [`SOLANA_RESTART_PLAN_2026_08_23.md`](SOLANA_RESTART_PLAN_2026_08_23.md); §1 is history, start at §2.
+
+**The pattern that produced most of the value, recorded because it will recur:** five separate things
+this session were *green or passing without checking anything* — the advisory gate, the Slither shim,
+`readDeployment`, and two e2e specs passing on an approval receipt rather than the transaction under
+test. A sixth was one command from shipping: a Slither triage cleared 54 of 56 findings with careful
+line-cited reasoning, and the adversarial pass rejected twelve of them and found eight real defects
+underneath. **Ask of any check: could it fail if the thing it guards broke?** Two of the five were
+found by reading why something *unrelated* was red.
