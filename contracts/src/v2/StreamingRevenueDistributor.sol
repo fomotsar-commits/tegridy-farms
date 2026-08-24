@@ -190,8 +190,26 @@ contract StreamingRevenueDistributor is
     bytes32 public constant STREAMING_ENABLE = keccak256("V2_STREAMING_ENABLE");
     bytes32 public constant REWARDS_DURATION_CHANGE = keccak256("V2_STREAM_REWARDS_DURATION");
     bytes32 public constant RESTAKING_CHANGE = keccak256("V2_STREAM_RESTAKING");
+    /// @notice Reclaiming abandoned accrual to the pool. Owner-timelocked BY DESIGN —
+    ///         see `proposeForfeit`. v1's equivalent is `FORFEIT_RECLAIM`.
+    bytes32 public constant FORFEIT_RECLAIM = keccak256("V2_STREAM_FORFEIT_RECLAIM");
 
     uint256 public constant STREAMING_ENABLE_DELAY = 48 hours;
+
+    /// @dev Same 48 hours as v1's FORFEIT_RECLAIM_DELAY. The window is the point: a
+    ///      forfeit is irreversible for the account it hits, so it must be observable
+    ///      before it lands and cancellable while it is pending.
+    uint256 public constant FORFEIT_RECLAIM_DELAY = 48 hours;
+
+    /// @dev 1% of everything ever streamed, matching v1's MAX_LIFETIME_FORFEIT_BPS. This
+    ///      is the bound that makes a MISTAKE survivable rather than merely unlikely — the
+    ///      whole argument for moving the forfeit behind the timelock was that a human
+    ///      plus a delay plus a cap beats a perfect anchor we could not build.
+    uint256 public constant MAX_LIFETIME_FORFEIT_BPS = 100;
+
+    /// @dev Bounds the propose payload so `executeForfeit` cannot be gas-bricked by a list
+    ///      nobody can iterate. Mirrors MAX_SYNC_BATCH.
+    uint256 public constant MAX_FORFEIT_BATCH = 100;
     uint256 public constant REWARDS_DURATION_DELAY = 24 hours;
     uint256 public constant RESTAKING_CHANGE_DELAY = 48 hours;
 
@@ -219,10 +237,12 @@ contract StreamingRevenueDistributor is
     ///      power is already 0 for an expired position), but crystallised accrual
     ///      stays claimable for this long before `sync` may recycle it.
     ///
-    ///      Measured from `lockEnd` while the position still exists, and from `exitedAt`
-    ///      once it does not — see `_claimDeadlineOf`. The second anchor is not a
-    ///      widening of the policy: it is what makes the policy apply AT ALL to the
-    ///      ordinary exit path, where the burnt NFT leaves no `lockEnd` to measure from.
+    ///      Measured from `lockEnd`, which exists only while the position does. Once the
+    ///      NFT is burnt there is NO durable anchor, and `_claimDeadlineOf` says so rather
+    ///      than inventing one — two attempts to invent one were refuted. That is safe now
+    ///      only because the forfeit is owner-timelocked: an undeterminable window means
+    ///      "do not forfeit", which costs the pool a delay instead of costing a staker
+    ///      their ETH.
     uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
 
     /// @dev `syncMany` iterates external staking reads (~2 calls each). 100 keeps the
@@ -255,16 +275,14 @@ contract StreamingRevenueDistributor is
     mapping(address => uint256) public effectiveBalanceOf;
     uint256 public totalEffectiveSupply;
 
-    /// @notice The instant this contract last OBSERVED `account`'s mirrored power fall to
-    ///         zero. The durable grace anchor for an account whose position NFT is gone.
-    /// @dev    `lockEnd` is unrecoverable once the NFT burns, so the ordinary exit path
-    ///         (unstake, then claim) reads `lockEnd == 0` and would otherwise get NO
-    ///         grace at all — forfeitable by any permissionless `sync` in the same block
-    ///         it exits. Written by `_updateReward` only, which is the sole place the
-    ///         mirror moves, and read only when the escrow answers "no position".
-    ///         Public because a UI rendering a grace countdown needs it, for the same
-    ///         reason `isSynced` is public: a zero it cannot explain is fabricated data.
-    mapping(address => uint64) public exitedAt;
+    /// @notice Lifetime ETH forfeited to the pool, in wei. Bounded by
+    ///         MAX_LIFETIME_FORFEIT_BPS of everything ever streamed.
+    uint256 public lifetimeForfeited;
+
+    /// @notice Accounts named by the pending forfeit proposal. Cleared on execute
+    ///         and on cancel.
+    address[] public pendingForfeitAccounts;
+
 
     // ─── Reserve accounting (delta D3) ───────────────────────────────
 
@@ -301,6 +319,9 @@ contract StreamingRevenueDistributor is
     event RewardPaid(address indexed user, uint256 amount);
     event BalanceSynced(address indexed user, uint256 oldBalance, uint256 newBalance);
     event RewardsForfeitedToPool(address indexed user, uint256 amount);
+    event ForfeitProposed(uint256 accountCount, uint256 executeAfter);
+    event ForfeitExecuted(uint256 forfeited, uint256 skipped, uint256 totalAmount);
+    event ForfeitCancelled();
     event RewardsForfeitedDuringEmptyPeriod(uint256 amount);
     event StreamingEnableProposed(uint256 executeAfter);
     event StreamingEnabled();
@@ -315,6 +336,10 @@ contract StreamingRevenueDistributor is
     // ─── Errors ───────────────────────────────────────────────────────
 
     error ZeroAddress();
+    error ForfeitBatchTooLarge();
+    error ForfeitBatchEmpty();
+    error ForfeitCapExceeded(uint256 requested, uint256 remaining);
+    error NotForfeitable(address account);
     error DurationOutOfRange();
     error StreamingDisabled();
     error StreamingAlreadyEnabled();
@@ -435,7 +460,6 @@ contract StreamingRevenueDistributor is
                 // disagreeing, and because `_syncAndMaybeRecycle` runs `_updateReward`
                 // BEFORE its forfeit gate — so the anchor is always written before it is
                 // read, and the 7 days are real rather than retroactively zero.
-                if (newEff == 0) exitedAt[account] = uint64(block.timestamp);
                 emit BalanceSynced(account, oldEff, newEff);
             }
         }
@@ -534,21 +558,28 @@ contract StreamingRevenueDistributor is
         uint256 owed = rewards[account];
         if (owed == 0) return;
 
-        // AN OUTAGE IS NOT EVIDENCE. Both reads below are three-valued and both resolve
-        // toward the staker, because the asymmetry is total: wrongly deferring a forfeit
-        // costs the pool a delay, wrongly forfeiting destroys a staker's own accrued ETH
-        // permanently and this function is PERMISSIONLESS. Forfeiting on a read we did
-        // not get would let a transient staking outage render as a legitimate expiry.
-        (bool restakingOk, bool restaked) = _isRestaked(account);
-        if (!restakingOk || restaked) return;
-
-        (bool ok, uint256 deadline) = _claimDeadlineOf(account);
-        if (!ok) return;
-        if (block.timestamp < deadline) return;
-
-        rewards[account] = 0;
-        totalForfeitedToPool += owed;
-        emit RewardsForfeitedToPool(account, owed);
+        // ── THE FORFEIT USED TO HAPPEN HERE, AND THAT WAS THE BUG ──────────────
+        //
+        // This function is PERMISSIONLESS (`sync`/`syncMany`, no access control, natspec
+        // "Permissionless by design"). Every zeroing of `rewards[account]` reachable from
+        // here was therefore a stranger's call, and forfeited wei re-streams to REMAINING
+        // stakers — so a large staker was PAID pro-rata for confiscating everyone else's
+        // accrual. One call, gas only.
+        //
+        // Two attempts were made to make that safe by engineering a precise grace anchor.
+        // Both were refuted, each by two independent adversarial reviews, and the second
+        // refutation showed no `lockEnd`-derived anchor can EVER exist for restakers.
+        // The conclusion was that the anchor was never the problem: a permissionless
+        // confiscation path turns every imprecision into someone losing ETH.
+        //
+        // So the forfeit moved behind the owner timelock, matching v1
+        // (`RevenueDistributor.FORFEIT_RECLAIM`, 48h + a 1% lifetime cap) — which is why
+        // an escrow failure in v1 was only ever a retryable lockout. `sync` now does
+        // exactly one thing: it updates the mirror. It cannot reduce `rewards`, cannot
+        // touch `totalForfeitedToPool`, and cannot cost any account a wei.
+        //
+        // `owed` is read above purely to skip the mirror write for accounts with nothing
+        // to protect; it is no longer a precondition for taking anything.
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -765,26 +796,43 @@ contract StreamingRevenueDistributor is
     ///      Anchor precedence, and why:
     ///        - `lockEnd != 0` -> the documented `lockEnd + CLAIM_GRACE_PERIOD`. A real
     ///          expiry always wins; this is v1's semantic and is deliberately not extended.
-    ///        - `lockEnd == 0` from a READABLE escrow is a real answer ("no position"),
-    ///          and it is the ORDINARY exit path, not an edge case: `TegridyStaking`
-    ///          zeroes `userTokenId[from]` on every outbound transfer and its `withdraw`
-    ///          runs `delete positions[tokenId]; _burn(tokenId)`. `lockEnd` is
-    ///          unrecoverable at that point, so grace is measured from `exitedAt` — the
-    ///          instant this contract OBSERVED the account's power fall to zero. Without
-    ///          that anchor a plain unstake-before-claim gets no grace whatsoever.
-    /// @return ok       False iff the escrow was unreadable. `deadline` is meaningless then.
-    /// @return deadline Claim window closes at this instant; 0 means it never opened.
+    ///        - `lockEnd == 0` from a READABLE escrow is a real answer about the POSITION
+    ///          ("none") but NOT an answer about the window, and it is the ORDINARY exit
+    ///          path rather than an edge case: `TegridyStaking` zeroes `userTokenId[from]`
+    ///          on every outbound transfer, and `withdraw` runs
+    ///          `delete positions[tokenId]; _burn(tokenId)`. Restakers sit in that state
+    ///          permanently. So this returns UNKNOWN, and the callers disagree on purpose.
+    /// @return ok       False when no window can be determined — either the escrow was
+    ///                  unreadable, or there is no durable anchor. `deadline` is
+    ///                  meaningless then, and each caller must resolve it TOWARD THE
+    ///                  STAKER: allow the claim, refuse the forfeit.
+    /// @return deadline Claim window closes at this instant. Only meaningful when `ok`.
     function _claimDeadlineOf(address account) internal view returns (bool ok, uint256 deadline) {
         uint256 lockEnd;
         (ok, lockEnd) = _lockEndOf(account);
         if (!ok) return (false, 0);
 
-        uint256 anchor = lockEnd != 0 ? lockEnd : exitedAt[account];
-        // No anchor means the account never mirrored non-zero, and an account that never
-        // mirrored non-zero has no crystallised accrual to protect: `rewards` only grows
-        // through `earned()`, which is identically 0 under a zero mirror.
-        if (anchor == 0) return (true, 0);
-        return (true, anchor + CLAIM_GRACE_PERIOD);
+        // NO DURABLE ANCHOR EXISTS, so the honest answer is UNKNOWN.
+        //
+        // `exitedAt` — the instant this contract first NOTICED the mirror fall to zero —
+        // used to fill this gap and was REFUTED twice. `TegridyStaking.withdraw` is gated
+        // on `block.timestamp >= p.lockEnd` and burns the NFT, so the only permitted exit
+        // ERASES the fact grace is measured from; and the account is normally the first to
+        // move the mirror, so it chose the anchor's value. A past-grace account could
+        // withdraw, manufacture a fresh window, and be paid ETH already assigned to
+        // `totalForfeitedToPool`.
+        //
+        // Restakers make it worse: their NFT is custodied by TegridyRestaking, so
+        // `userTokenId` is 0 and this returns a GENUINE, READABLE `lockEnd == 0` for their
+        // entire life while rewards accrue. No `lockEnd`-derived anchor can ever exist for
+        // them.
+        //
+        // Returning `(true, 0)` here — "grace never opened" — is what made that dangerous:
+        // it read as a definitively EXPIRED window. `(false, 0)` says we do not know, and
+        // the two callers resolve it in opposite directions, both toward the staker:
+        // `getReward` ALLOWS the claim, and the forfeit path refuses to forfeit.
+        if (lockEnd == 0) return (false, 0);
+        return (true, lockEnd + CLAIM_GRACE_PERIOD);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -850,6 +898,105 @@ contract StreamingRevenueDistributor is
         restakingContract = ITegridyRestaking(pendingRestaking);
         emit RestakingContractUpdated(pendingRestaking);
         pendingRestaking = address(0);
+    }
+
+    // ── FORFEIT: OWNER-TIMELOCKED, AND THAT IS THE SECURITY PROPERTY ─────────
+    //
+    // Reclaiming genuinely abandoned accrual is legitimate — otherwise a dead account's
+    // ETH sits here forever and the pool can never recover it. What is NOT legitimate is
+    // letting anyone do it on a read we might have got wrong.
+    //
+    // v2 originally forfeited inside the PERMISSIONLESS `sync`. Two attempts to make that
+    // safe with a precise grace anchor were refuted, each by two independent adversarial
+    // reviews, and the second showed no `lockEnd`-derived anchor can exist for restakers
+    // at all. This is v1's shape instead: propose, wait 48h, execute, capped at 1% of
+    // lifetime streamed. An imprecise eligibility read now costs a delay, not a
+    // confiscation — which is the entire reason an escrow failure in v1 was only ever a
+    // retryable lockout.
+
+    /// @notice Propose forfeiting the crystallised accrual of specific accounts.
+    /// @dev Eligibility is checked HERE and again at execute. Both resolve an unknown
+    ///      TOWARD THE STAKER: `_isRestaked` or `_claimDeadlineOf` returning `ok == false`
+    ///      makes the account ineligible, because "we could not read the escrow" and "this
+    ///      account abandoned its rewards" are different facts and only one of them
+    ///      justifies taking money.
+    function proposeForfeit(address[] calldata accounts) external onlyOwner {
+        uint256 len = accounts.length;
+        if (len == 0) revert ForfeitBatchEmpty();
+        if (len > MAX_FORFEIT_BATCH) revert ForfeitBatchTooLarge();
+
+        // Reject the WHOLE batch if any member is ineligible rather than silently
+        // skipping it. A partial proposal that quietly drops names is how an operator
+        // ends up believing an account was reclaimed when it never was.
+        for (uint256 i; i < len; ++i) {
+            if (!_isForfeitable(accounts[i])) revert NotForfeitable(accounts[i]);
+        }
+
+        delete pendingForfeitAccounts;
+        for (uint256 i; i < len; ++i) pendingForfeitAccounts.push(accounts[i]);
+
+        _propose(FORFEIT_RECLAIM, FORFEIT_RECLAIM_DELAY);
+        emit ForfeitProposed(len, _executeAfter[FORFEIT_RECLAIM]);
+    }
+
+    /// @notice Execute a matured forfeit proposal.
+    /// @dev RE-CHECKS eligibility per account. 48 hours is long enough for a lock to be
+    ///      extended or a position restaked, and an account that became legitimate again
+    ///      inside the window must not be taken — so an ineligible member is SKIPPED here
+    ///      rather than reverting the batch, and the event reports the skip count so it is
+    ///      visible off-chain instead of looking like a clean sweep.
+    function executeForfeit() external onlyOwner {
+        _execute(FORFEIT_RECLAIM);
+
+        uint256 cap = (totalStreamed * MAX_LIFETIME_FORFEIT_BPS) / 10_000;
+        uint256 headroom = cap > lifetimeForfeited ? cap - lifetimeForfeited : 0;
+
+        address[] memory accounts = pendingForfeitAccounts;
+        delete pendingForfeitAccounts;
+
+        uint256 taken;
+        uint256 skipped;
+        for (uint256 i; i < accounts.length; ++i) {
+            address account = accounts[i];
+            uint256 owed = rewards[account];
+            if (owed == 0 || !_isForfeitable(account)) {
+                ++skipped;
+                continue;
+            }
+            // The cap is enforced on the EXECUTE path, not merely recorded at propose
+            // time: both `totalStreamed` and `lifetimeForfeited` move during the 48h
+            // window, so a proposal that fit the cap when made may not fit when it lands.
+            if (owed > headroom) revert ForfeitCapExceeded(owed, headroom);
+            headroom -= owed;
+
+            rewards[account] = 0;
+            totalForfeitedToPool += owed;
+            lifetimeForfeited += owed;
+            taken += owed;
+            emit RewardsForfeitedToPool(account, owed);
+        }
+        emit ForfeitExecuted(accounts.length - skipped, skipped, taken);
+    }
+
+    function cancelForfeit() external onlyOwner {
+        _cancel(FORFEIT_RECLAIM);
+        delete pendingForfeitAccounts;
+        emit ForfeitCancelled();
+    }
+
+    /// @dev Eligible only on POSITIVE evidence of abandonment: the escrow read back, the
+    ///      account is not restaked, a claim window was determinable, and it has closed.
+    ///      Every `false` below is a refusal to take money on a fact we do not have.
+    function _isForfeitable(address account) internal view returns (bool) {
+        if (account == address(0)) return false;
+        if (effectiveBalanceOf[account] != 0) return false;
+
+        (bool restakingOk, bool restaked) = _isRestaked(account);
+        if (!restakingOk || restaked) return false;
+
+        (bool ok, uint256 deadline) = _claimDeadlineOf(account);
+        if (!ok) return false;
+        return block.timestamp >= deadline;
     }
 
     function cancelRestakingChange() external onlyOwner {

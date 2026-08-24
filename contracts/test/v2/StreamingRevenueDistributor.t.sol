@@ -699,58 +699,124 @@ contract StreamingRevenueDistributorTest is Test {
     // ║  THE ORDINARY EXIT — tokenId == 0 IS A REAL ANSWER             ║
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice A fully-exited staker keeps the documented 7 days, measured from the
-    ///         durable `exitedAt` anchor because the burnt NFT leaves no `lockEnd`.
-    ///         Before the anchor existed this account was forfeitable in the SAME BLOCK
-    ///         it exited, with no outage involved at all.
-    function test_ExitedStakerKeepsGraceThenClaims() public {
+    /// @notice A fully-exited staker keeps their accrual and can still claim it.
+    ///
+    ///         REWRITTEN with the timelocked-forfeit change. This used to assert a 7-day
+    ///         window measured from an `exitedAt` anchor. That anchor was refuted twice
+    ///         (the only permitted exit BURNS the NFT, erasing the `lockEnd` grace is
+    ///         measured from, and the account chose when the anchor was stamped), so it
+    ///         is gone. `_claimDeadlineOf` now answers UNKNOWN for an exited account, and
+    ///         `getReward` resolves unknown toward the staker.
+    ///
+    ///         The protection is therefore STRONGER than the old 7 days and no longer
+    ///         depends on an anchor at all: `sync` cannot take anything from anyone.
+    function test_ExitedStakerKeepsAccrualAndCanStillClaim() public {
         uint256 owed = _crystalliseAliceAccrual();
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
 
         ve.clearPosition(alice);
         dist.sync(alice);
         assertEq(dist.effectiveBalanceOf(alice), 0, "exit not mirrored");
-        uint256 anchor = dist.exitedAt(alice);
-        assertEq(anchor, block.timestamp, "exit was not anchored");
 
-        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() - 1 hours);
+        // Far past any window the old design would have closed.
+        vm.warp(block.timestamp + dist.CLAIM_GRACE_PERIOD() * 10);
         dist.sync(alice);
-        assertEq(dist.rewards(alice), owed, "grace not honoured for an exited staker");
-        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "forfeited inside the grace window");
+        assertEq(dist.rewards(alice), owed, "a permissionless sync reduced an exited staker's accrual");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "sync forfeited");
 
         uint256 balBefore = alice.balance;
         vm.prank(alice);
         dist.getReward();
-        assertEq(alice.balance - balBefore, owed, "in-grace claim refused after exit");
+        assertEq(alice.balance - balBefore, owed, "exited staker could not claim their own accrual");
     }
 
-    /// @notice THE ANTI-WEAKENING TEST. A fix that treated `lockEnd == 0` as "unknown"
-    ///         would make every fully-exited account permanently unforfeitable — silently
-    ///         killing recycling for the entire real population — while passing every
-    ///         outage test above. This is the only test that kills that over-fix.
-    function test_ExitedStakerForfeitsOnceGraceExpires() public {
-        uint256 owed = _crystalliseAliceAccrual();
-        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+    /// @notice ⚠️ THE TRADE-OFF, ASSERTED RATHER THAN HIDDEN.
+    ///
+    ///         A fully-exited account has NO durable anchor — the burnt NFT leaves no
+    ///         `lockEnd`, and restakers sit in that state permanently. Under the previous
+    ///         design that gap was filled by an anchor, and the anchor was refutable.
+    ///         Under this design the gap is answered honestly with UNKNOWN, and
+    ///         `_isForfeitable` refuses to take money on a fact it does not have.
+    ///
+    ///         CONSEQUENCE: this population can NEVER be forfeited, by anyone, including
+    ///         the owner. Their ETH stays claimable by them forever and never returns to
+    ///         the pool. That is a deliberate choice — the ETH is not lost, only
+    ///         unrecycled, and the protocol has no claim on user funds it cannot prove
+    ///         were abandoned. It is recorded here so nobody "fixes" it by inventing a
+    ///         third anchor.
+    function test_ExitedStakerIsNeverForfeitableEvenByTheOwner() public {
+        _crystalliseAliceAccrual();
 
         ve.clearPosition(alice);
         dist.sync(alice);
-        uint256 anchor = dist.exitedAt(alice);
-        assertGt(anchor, 0, "exit was not anchored");
+        vm.warp(block.timestamp + dist.CLAIM_GRACE_PERIOD() * 10);
 
-        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() + 1);
+        address[] memory batch = new address[](1);
+        batch[0] = alice;
+        vm.prank(dist.owner());
+        vm.expectRevert(
+            abi.encodeWithSelector(StreamingRevenueDistributor.NotForfeitable.selector, alice)
+        );
+        dist.proposeForfeit(batch);
+    }
+
+    /// @notice RECYCLING IS NOT DEAD — the anti-weakening test, repointed.
+    ///
+    ///         The population where abandonment IS provable is an account whose lock has
+    ///         EXPIRED while it still holds the NFT: `lockEnd` is readable, non-zero and
+    ///         in the past, so a window exists and has closed. That is the case the
+    ///         timelocked forfeit exists for, and it must work end to end or the pool can
+    ///         never reclaim anything.
+    function test_ExpiredLockIsForfeitableThroughTheTimelock() public {
+        uint256 owed = _crystalliseAliceAccrual();
+        uint256 forfeitedBefore = dist.totalForfeitedToPool();
+
+        // Lock expires, NFT still held: readable non-zero lockEnd, now in the past.
+        uint256 lockEnd = block.timestamp + 1 days;
+        ve.setPosition(alice, 0, lockEnd);
         dist.sync(alice);
+        assertEq(dist.effectiveBalanceOf(alice), 0, "expired lock still mirrors power");
 
-        // The anchor must be DURABLE. If a later sync re-stamped it, grace would restart
-        // on every touch and expire never — recycling would be dead by a different route.
-        assertEq(dist.exitedAt(alice), anchor, "anchor slid forward on a later sync");
+        vm.warp(lockEnd + dist.CLAIM_GRACE_PERIOD() + 1);
+        // A permissionless sync STILL takes nothing — that is the whole change.
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), owed, "sync forfeited without the timelock");
 
-        assertEq(dist.rewards(alice), 0, "past-grace exited staker was never forfeited");
+        address[] memory batch = new address[](1);
+        batch[0] = alice;
+        vm.prank(dist.owner());
+        dist.proposeForfeit(batch);
+
+        vm.warp(block.timestamp + dist.FORFEIT_RECLAIM_DELAY());
+        vm.prank(dist.owner());
+        dist.executeForfeit();
+
+        assertEq(dist.rewards(alice), 0, "the timelocked forfeit did not land");
         assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
-        assertGe(dist.distributable(), owed, "recycled wei did not return to the staker pool");
+        assertEq(dist.lifetimeForfeited(), owed, "lifetime cap accounting did not move");
+    }
 
-        vm.prank(alice);
-        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
-        dist.getReward();
+    /// @notice A non-owner cannot forfeit, which is the property the whole change buys.
+    ///         This replaces what `RefuteAnchorReset.t.sol` proved about the old anchor:
+    ///         the protection is no longer "the anchor is correct", it is "a stranger
+    ///         cannot reach the forfeit at all".
+    function test_ForfeitIsUnreachableWithoutOwnership() public {
+        _crystalliseAliceAccrual();
+        uint256 lockEnd = block.timestamp + 1 days;
+        ve.setPosition(alice, 0, lockEnd);
+        dist.sync(alice);
+        vm.warp(lockEnd + dist.CLAIM_GRACE_PERIOD() + 1);
+
+        address[] memory batch = new address[](1);
+        batch[0] = alice;
+
+        vm.prank(bob);
+        vm.expectRevert();
+        dist.proposeForfeit(batch);
+
+        vm.prank(bob);
+        vm.expectRevert();
+        dist.executeForfeit();
     }
 
     /// @notice The zero anchor is never load-bearing. `rewards` only grows through
@@ -764,7 +830,6 @@ contract StreamingRevenueDistributorTest is Test {
         dist.notifyRewardAmount();
         vm.warp(block.timestamp + DURATION);
 
-        assertEq(dist.exitedAt(carol), 0, "anchor written without a mirror transition");
 
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
         dist.sync(carol);
@@ -869,14 +934,28 @@ contract StreamingRevenueDistributorTest is Test {
         // Carol genuinely unwinds her restaking position. The read is clean throughout.
         restaking.setRestaker(carol, 0, 0);
         dist.sync(carol);
-        uint256 anchor = dist.exitedAt(carol);
-        assertGt(anchor, 0, "exit was not anchored");
 
+        // REWRITTEN with the timelocked-forfeit change. This asserted that a former
+        // restaker IS forfeited once an `exitedAt`-anchored grace expired. That anchor is
+        // gone (refuted twice), and a former restaker has no readable `lockEnd` — their
+        // NFT was custodied, so `userTokenId` is 0. `_claimDeadlineOf` answers UNKNOWN and
+        // nothing may be taken from them.
+        //
+        // ⚠️ So a former restaker joins the never-forfeitable population. Their ETH stays
+        // claimable by them and never returns to the pool. Stated here rather than
+        // discovered later — and it is the SAFE direction: this population's power reaches
+        // the contract through the restaking leg, whose own read degrades to `false` on
+        // failure, so anchoring their forfeit on anything would have made an outage look
+        // like an exit.
         uint256 forfeitedBefore = dist.totalForfeitedToPool();
-        vm.warp(anchor + dist.CLAIM_GRACE_PERIOD() + 1);
+        vm.warp(block.timestamp + dist.CLAIM_GRACE_PERIOD() * 10);
         dist.sync(carol);
-        assertEq(dist.rewards(carol), 0, "a former restaker never forfeits");
-        assertEq(dist.totalForfeitedToPool(), forfeitedBefore + owed, "recycling is dead");
+        assertEq(dist.rewards(carol), owed, "a former restaker's accrual was reduced by a stranger's sync");
+        assertEq(dist.totalForfeitedToPool(), forfeitedBefore, "sync forfeited a former restaker");
+
+        vm.prank(carol);
+        dist.getReward();
+        assertEq(dist.rewards(carol), 0, "a former restaker could not claim their own accrual");
     }
 
     function test_RestakerMirrorsThroughFallbackOnlyOnceWired() public {
