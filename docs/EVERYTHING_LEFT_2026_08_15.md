@@ -55,6 +55,54 @@ legitimate, *after* `verify-program-constants.mjs` passes against the built bina
 
 ---
 
+## 2026-08-24 — the agent-side queue was EXECUTED. Read this before the sections below.
+
+A full-scan-then-fix session closed most of "MY QUEUE" and changed several facts the sections
+below still state in their pre-08-24 form:
+
+1. **The multichain branch is MERGED** (`d48864e6`). The M.1–M.18 ceremony is now a trunk
+   document, not a branch one. The 7-conflict resolution kept trunk's guardian-ordering docs,
+   took the slice-manifest UNION (`{base,curve,markets,nftfi,robinhood,v2,vaults}`), and
+   preserved the ParaSwap partner allowlist. #313's framer-motion caveat is now unblocked.
+2. **Trunk can DEPLOY again** — the Vercel build was red because `tsc -b` swept
+   `tsconfig.test.json` (741 test files, one importing outside `frontend/`); the build script
+   now names app+node explicitly.
+3. **The two E2E reds are explained and fixed**: the money-path red was a REAL bug, not
+   seeding — repay sent a stale per-second quote as exact `msg.value`
+   (`InsufficientRepayment` on every mid-term repay). Padded + error-surfaced; the
+   "UNSEEDED" diagnosis is dead.
+4. **The aggregator `?resource=` origin gates 403'd every same-origin browser GET in prod**
+   (heat/launch gate, launch-radar, launcher-outcomes, alerts, referrals, commerce, airdrop —
+   all dead for real users; invisible because probes hand-set Origin and dev/CI skip the
+   gate). One shared `isRequestOriginAllowed` now serves all ten sites, with a
+   Sec-Fetch-Site check that is strictly stronger. **Probe rule: never verify a browser GET
+   with `curl -H Origin:` alone.**
+5. **The receipt-status class is closed repo-wide** (reverted tx rendered as success on ~20
+   write paths; now 3-of-3 → all; the broken R044 shared hook read fields that existed only
+   in its own mock — fixed, and the mock scaffold now models real wagmi).
+6. Honesty batch landed: Meteora ghost links (+ tripwire for in-page links), og.svg/png
+   retracted-claim + origin + 4.0× boost, security.txt canonical, /tradermigos + /scanner
+   redirects, theme-init dark-only, cp-swap header deletion (delta re-pinned, comment-only),
+   AUDIT_RFQ "not deployed" corrected, Immunefi dead link removed, referrals parity test now
+   EXISTS (the comment cited it for weeks).
+7. Indexer batch landed: prod origins in the CORS allowlist, pg error-listener exit,
+   stalled-cursor honesty into /ready, Staked onConflictDoUpdate, resume-aged-out gap
+   detection (+ tests).
+8. **022 and 023 are WRITTEN** (`frontend/supabase/migrations/`) — the vanished
+   native_orders/trade_offers REVOKE (preflight + decision framing inline) and the 004 §2
+   prune lockdown standalone. 016–021 now carry the self-recording ledger INSERTs.
+9. Dependabot: the queue turned over — the old #310/#313/#316/#318 are gone; all 8 open PRs
+   (#324–#331) are fresh minor/patch bumps and got `@dependabot rebase` onto the merged trunk.
+10. **§1.3 (DBC config v2) is MOOT as written** — the Meteora rail was retired 2026-08-23;
+    mint a v2 config only if the rail is ever deliberately revived.
+11. Left for the operator, unchanged: §0.1–§0.4, §1.1–§1.2, the switchboard, Decision 1, the
+    multichain broadcasts (M.2+ — Safes need a nonce≥1 smoke test first; forge cannot
+    broadcast to 4663, use the cast-replay method), external sends, and deleting the two
+    remaining absorbed doc branches (`claude/sad-almeida-bde63d`, `todo-update`) — remote
+    branch deletion is gated away from the agent.
+
+---
+
 # YOUR QUEUE — ordered by unlock per minute
 
 ## 0.1 ⭐ The login change-set — still the single biggest unlock, unchanged for a week
