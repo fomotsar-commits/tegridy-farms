@@ -162,11 +162,13 @@ describe('curve rail wiring', () => {
 
   it('the ABI exposes the 3-way fee-share fields on getLaunch + launchConfig', () => {
     const getLaunch = CURVE_LAUNCHER_ABI.find((f) => f.type === 'function' && f.name === 'getLaunch');
-    const tuple = (getLaunch as { outputs: { components: { name: string }[] }[] }).outputs[0].components.map((c) => c.name);
+    // `find` narrows to a union member | undefined; the double cast is the
+    // documented TS idiom for reshaping a const-asserted ABI entry in a test.
+    const tuple = (getLaunch as unknown as { outputs: { components: { name: string }[] }[] }).outputs[0].components.map((c) => c.name);
     expect(tuple).toContain('creatorFeeShareBps');
     expect(tuple).toContain('treasuryFeeShareBps');
     const cfg = CURVE_LAUNCHER_ABI.find((f) => f.type === 'function' && f.name === 'launchConfig');
-    const cfgOut = (cfg as { outputs: { name: string }[] }).outputs.map((o) => o.name);
+    const cfgOut = (cfg as unknown as { outputs: { name: string }[] }).outputs.map((o) => o.name);
     expect(cfgOut).toContain('treasuryFeeShareBps');
   });
 });
