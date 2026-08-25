@@ -101,6 +101,17 @@ below still state in their pre-08-24 form:
     remaining absorbed doc branches (`claude/sad-almeida-bde63d`, `todo-update`) — remote
     branch deletion is gated away from the agent.
 
+**2026-08-25 UPDATE — §0.1, §0.2 and the deploy are DONE, live-verified:** the operator ran
+the eight DROPs + 014 + 013 (SIWE nonce = 200, the first successful login response production
+has ever returned; analytics probe = `accepted:1`), `VITE_ANALYTICS_ENDPOINT` + `VAPID_SUBJECT`
+were added to Vercel (⚠️ the §0.2 table was STALE — the VAPID keypair had been set since
+Jun 10; only those two plus `MEMETICS_BIRTH_SECRET` were actually missing), and
+`npx vercel --prod --yes` shipped the 08-24 trunk. Verified live: launch gate reads heat
+(4.87° Drifter panel renders), all four formerly-403 aggregator GETs clear the gate from
+page context, vanity redirects 307, security.txt canonical, new og.png bytes serving.
+§0.1/§0.2 rows below are closed; §0.3/§0.4, §1.1–§1.2, MEMETICS_BIRTH_SECRET (unless pasted
+during the session) and everything after remain open.
+
 ---
 
 # YOUR QUEUE — ordered by unlock per minute
