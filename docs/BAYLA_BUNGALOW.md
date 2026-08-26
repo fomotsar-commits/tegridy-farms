@@ -203,6 +203,45 @@ note the observed rate here for the funding math.
   the wallet fixture pins toweli by design) walks /bayla, the /towelie
   alias, and a not-yet-live door across the four-device matrix.
 
+## 6d. THE FLIP — everything is built; funding is last (shipped 2026-08-26)
+
+The live Streamflow integration is now IN the app, dark until configured.
+The operator's remaining path, in order:
+
+1. **Ceremony** (task #12): create the BAYLA stake pool + one fixed reward
+   pool (reward mint = BAYLA; `permissionless: true` on the reward pool so
+   anyone can top it up in public). Record every parameter + the stake-pool
+   address here.
+2. **Set `VITE_BAYLA_STAKE_POOL=<stake pool address>`** in Vercel env →
+   redeploy. That single env var flips /farm in bayla mode from the dark
+   card to the live lighthouse section: vault balance (a labeled 0 until
+   funded), total staked, lock window, stake form, entries with
+   claim/unstake — all direct on-chain reads through the venue's own RPC
+   proxy. No code commit needed.
+3. **Live-fire test (MANDATORY before announcing):** with a dust wallet —
+   stake a token, claim (0), unstake — one full round trip. The write paths
+   ride Streamflow's grouped SDK flows (`stakeAndCreateEntries`,
+   `unstakeAndClaim`, `claimRewards` — argument shapes pinned against SDK
+   13.3.1's own type definitions, claim's required `stakePoolMint`
+   included), but the SDK notes ATAs are expected to exist; if the dust
+   round-trip trips on a missing ATA, Claude adds the pre-instructions via
+   the SDK's `prepare*` path — a bounded follow-up, not a redesign.
+4. **Announce.** The page is honest at this point by construction: the
+   vault reads 0 and says staking earns nothing yet.
+5. **FUND LAST** (task #13): claim the PumpSwap creator fees → deposit into
+   the reward pool (their UI or `fundPool`). The vault balance on the panel
+   climbs with every top-up, publicly.
+
+What ships in code (commit-level detail): `lib/bungalowStaking.ts` — the
+thin adapter over @streamflow/staking 13.3.1 (dynamic imports only; zero
+custom money math; all failures resolve as honest reasons, wallet
+rejections read "You declined the signature — nothing moved.");
+`LighthousePoolLive.tsx` — its own lazy chunk (~12 kB + SDK on demand), so
+nothing loads until a pool is configured; registry `stakePool` env
+plumbing; 7 adapter tests against a mocked SDK (vault 0 vs unreadable is
+pinned: zero is a fact, unreadable is an outage); an env-keyed dev probe
+verified the flip end-to-end (dark card ↔ live section) before commit.
+
 ## 6. Open operator items
 
 1. Streamflow pool ceremony (or veto → fallback order in §3).

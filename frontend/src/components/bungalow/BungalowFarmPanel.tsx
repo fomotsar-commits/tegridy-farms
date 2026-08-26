@@ -1,9 +1,16 @@
+import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
 import { isSolanaConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
+
+// The live pool section carries the @solana wallet stack + the Streamflow
+// SDK — lazy so those bytes load ONLY when a pool address is configured.
+const LighthousePoolLive = lazy(() =>
+  import('./LighthousePoolLive').then((m) => ({ default: m.LighthousePoolLive })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -60,7 +67,20 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Status card — the honest gate. */}
+        {/* Pool slot: the honest dark card until a pool address is configured
+            (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
+            live section renders an EMPTY reward vault as a labeled real zero
+            — funding is allowed to come last without the page ever lying. */}
+        {bungalow.stakePool ? (
+          <Suspense fallback={
+            <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+              <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
+              <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
+            </div>
+          }>
+            <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+          </Suspense>
+        ) : (
         <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
             <ArtImg pageId="bungalow-farm" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -76,12 +96,13 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               program, and the funded reward balance, in that order.
             </p>
             <p className="text-white/85 text-[13px] leading-relaxed">
-              The shape it takes: stake {bungalow.symbol}, earn from a reward pool that
-              is <strong>funded before it advertises</strong> — the venue&rsquo;s rule
-              that a dry pool must read as a real zero.
+              The shape it takes: stake {bungalow.symbol}, earn from a reward pool
+              whose vault balance is always shown as it is — an unfunded pool reads
+              as a real, labeled zero, never as a promise.
             </p>
           </div>
         </div>
+        )}
 
         {/* Funding routes card — where incentives come from. */}
         <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>

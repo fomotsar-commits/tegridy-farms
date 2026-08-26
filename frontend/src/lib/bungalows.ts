@@ -60,6 +60,15 @@ export interface Bungalow {
   swapUrl?: string;
   /** Live liquidity pools for this token (labels + external pair pages). */
   pools?: { label: string; url: string }[];
+  /**
+   * Streamflow stake-pool address — the lighthouse pool. Env-keyed so the
+   * operator lights it up with a Vercel env var + redeploy, no code commit:
+   * the ceremony ends with pasting the pool address into
+   * VITE_BAYLA_STAKE_POOL. Absent → the farm panel keeps its honest
+   * "Not deployed yet" card. FUNDING-LAST: the pool may go live with an
+   * empty reward vault; the live section renders that as a labeled zero.
+   */
+  stakePool?: string;
   /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
   /** Picker card thumbnail. */
@@ -84,6 +93,10 @@ export const BAYLA_ART: ArtPiece[] = Array.from({ length: 24 }, (_, i) => {
 export const DEFAULT_BUNGALOW_ID = 'toweli';
 
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+
+// The lighthouse pool address (Streamflow stake pool) — set by the operator
+// after the ceremony. Trim guards against a pasted trailing newline.
+const BAYLA_STAKE_POOL = (import.meta.env?.VITE_BAYLA_STAKE_POOL as string | undefined)?.trim() || undefined;
 
 export const BUNGALOWS: Bungalow[] = [
   {
@@ -117,6 +130,7 @@ export const BUNGALOWS: Bungalow[] = [
     ],
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
+    stakePool: BAYLA_STAKE_POOL,
     live: true,
     identity: {
       heroTitle: 'BAYLA.',
