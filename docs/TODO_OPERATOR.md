@@ -6,7 +6,7 @@
 > can finish alone — each written out step by step. Everything below it is the detail behind those. **If you read one section, read
 > that one.**
 
-**Written 2026-08-21. Revised twice on 2026-08-22.** This is the single canonical to-do list.
+**Written 2026-08-21. Last revised 2026-08-24.** This is the single canonical to-do list.
 Everything that could be built without you has been built, tested, and pushed. What follows needs a
 key, a credential, a payment, a signature, or a decision — plus a short tail of code work that is
 blocked on one of those.
@@ -249,6 +249,51 @@ While you are looking: `swap-fee-account` `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6a
 keypair file in them; none matches. Either it is somewhere else, or ~0.010 SOL is written off.
 Worth one sentence so the registry stops implying it is spendable.
 
+## 0.5 ⏳ EXECUTE THE TWAP FLOOR CHANGE — open now, expires 2026-08-30 18:03 UTC
+
+**Time:** ~30 seconds. **Cost:** ~$0.02 of gas. **Half of this is already done.**
+
+The proposal is staged on chain. `proposeAdminMinReserveFloor1(native pair, 1e18)` landed
+2026-08-22 18:03:59 UTC in tx
+[`0x29cd52c0…6771f`](https://etherscan.io/tx/0x29cd52c0ed433f32a9438ddaadad8afd764cf7979899d6b3be70980864d6771f),
+block 25,812,358, and `pendingMinReserveFloor1` reads `1000000000000000000`. The 24-hour timelock
+opened **2026-08-23 18:03:59 UTC**.
+
+**If you do nothing it expires on 2026-08-30 18:03:59 UTC** and the 24-hour wait starts over. That
+is the only cost of missing it — nothing breaks — but it is a day back on the critical path for no
+reason.
+
+```
+& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0xdFdd6D72539A425dC917F49FB834901105cA98c9 "executeAdminMinReserveFloor1(address)" 0x55875887B43C2E23aE424AF0FC8606Fdb058a481 --account deployer --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Then the check that actually proves it — this must go from `10000000000000000000` to
+`1000000000000000000`:
+
+```
+& "C:\Users\jimbo\.foundry\bin\cast.exe" call 0xdFdd6D72539A425dC917F49FB834901105cA98c9 "effectiveMinReserveFloor1(address)(uint256)" 0x55875887B43C2E23aE424AF0FC8606Fdb058a481 --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Changed your mind? `cancelAdminMinReserveFloor1(address)` on the same contract, same signer.
+
+**⚠️ This does NOT turn the oracle on, and nobody should read it as having done so.** Two gates
+remain after it lands, both verified on chain 2026-08-22:
+
+- the native pair holds **0.0794 WETH** against the new **1.0** floor, so `consult()` still reverts
+  — that is §Tier 3's 1.98 ETH deepen; and
+- `observationCount(native pair)` is **0**. `consult()` needs **≥2**, at least 15 minutes apart
+  (`MIN_PERIOD`), written by `update(pair)`. That is gas, not capital, but it needs a keeper running
+  from then on. Fund the pool and skip the keeper and the oracle still refuses to answer.
+
+What executing buys you is that the 24-hour wait is no longer sitting between you and a working
+oracle on the day the pool gets funded. It adds no exposure in the meantime: a 1.0 floor against a
+0.0794 pool fails closed exactly as a 10.0 floor does.
+
+⛔ `cast` is **not on PATH** on this box. The leading `&` is PowerShell's call operator and is
+required — without it the quoted path is treated as a string and nothing happens. Sign with
+`--account deployer` (the encrypted keystore, prompts for its password), never `--interactive`,
+which asks you to paste a raw private key.
+
 ---
 
 # TIER 1 — one account or one paste, unlocks the largest built-but-dark surface
@@ -419,8 +464,14 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 
 # Decisions I need one sentence on
 
-1. ⭐ **Does the Solana own venue restart at all?** This is the biggest open question on the page
-   and nothing downstream of it can be planned until you answer.
+1. ~~⭐ **Does the Solana own venue restart at all?**~~ **ANSWERED — restart. Superseded
+   2026-08-23 by [`SOLANA_RESTART_PLAN_2026_08_23.md`](SOLANA_RESTART_PLAN_2026_08_23.md)** and
+   carried as row 3 of the operator critical path above.
+
+   *Left in place because the reasoning below is still the accurate account of why the ids are
+   spent and what a restart costs — but the three options it closes with are stale. Meteora is
+   retired (§1.3, "Zero Meteora"), so "stay on Meteora DBC" is no longer on the table, and the
+   answer is not open.*
 
    Both programs were closed on 2026-08-13 and **their program ids are spent** — Solana will not
    redeploy a closed id, so `CpFnacr…zED` and `3ZvZXEBr…PM9y` are gone permanently, along with every
@@ -450,9 +501,10 @@ construction: its credential can bind a chat and can *never* attach a wallet).
    binary — that check exists because getting `admin::ID` wrong once already cost the whole
    deployment.
 
-   Three honest options: **restart** (fund it and I will rewrite the runbook around new ids),
-   **stay on Meteora DBC** (then §1.3's config v2 is the whole Solana story and is much cheaper), or
-   **park Solana** (then §3.2's audit RFQ and §3.3's packet come off the critical path). Say which.
+   ~~Three honest options: restart · stay on Meteora DBC · park Solana.~~ **Closed 2026-08-23:
+   restart, and Meteora is retired outright** — see the restart plan and §1.3. The option list above
+   is kept struck through rather than deleted so a reader who remembers being asked can see it was
+   answered, not dropped.
 
 2. **The PWA app name.** The manifest description is corrected but the *name* is untouched — the
    app is "Tegridy Farms" at memetic.fun with a Tradermigos marketplace inside it, and installing
@@ -471,6 +523,7 @@ chain on every re-index, which would have destroyed every manifest).
 
 | When | What | If missed |
 |---|---|---|
+| **2026-08-30 18:03 UTC** | ⏳ **TWAP floor proposal expires** — §0.5, staged and waiting, ~30 seconds to execute | The staged 10 → 1.0 WETH change is discarded and the 24-hour timelock restarts. Nothing breaks; you just lose a day off the oracle's critical path for free |
 | **~2026-10-11** | Staking reserve runway ends | **Not an honesty problem — corrected 2026-08-23, see below.** Refill when convenient. |
 | **~Aug 2027** | `memetics.finance` renewal (1-year, registered 2026-08-02) | A second production domain lapses while monitoring stays green |
 | Standing | `TegridyStaking` has **22 bytes** of EIP-170 headroom; `VoteIncentives` has **99** | The next one-line edit to either makes its redeploy artifact undeployable. The extraction is unbuilt. Do not casually edit those two files. |
@@ -1089,6 +1142,7 @@ commands, what you should see, and what a mismatch means.
 
 | # | Do this | Time | Unlocks | Detail |
 |---|---|---|---|---|
+| **0** | ⏳ **Execute the staged TWAP floor change** — *expires 2026-08-30 18:03 UTC* | ~30 sec | Nothing on its own. Takes the 24h timelock off the oracle's critical path, so the deepen day is same-day. Half already done and on chain | §0.5 |
 | 1 | **Vercel env session + redeploy** | ~5 min | The CSP fix currently **browser-blocking Pro Pass creation**, the write-proxy repoint, the analytics endpoint | §0.2 |
 | 2 | **Login change-set** | ~2 min of SQL | Profiles, DMs, watchlists, votes, push, alerts, referral claims, real analytics — the entire social tier | §0.1 |
 | 3 | **Redeploy the Solana own venue** | one ceremony | The only Solana rail — Meteora is retired | [restart plan](SOLANA_RESTART_PLAN_2026_08_23.md) |
