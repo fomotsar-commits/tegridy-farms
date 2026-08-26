@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { useChainId } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -17,6 +18,7 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { CHAIN_ID } from '../lib/constants';
+import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn } from '../lib/launcher/curve';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
@@ -76,7 +78,15 @@ export default function EthCurvePage() {
     trackPageView('/eth-curve');
   }, []);
 
-  const availability = curveLauncherOn(CHAIN_ID);
+  // Chain-aware: the Tegridy curve is LIVE on Ethereum, Base and Robinhood. Show the
+  // launcher for the wallet's chain when it has one; otherwise default to mainnet
+  // (a disconnected wallet resolves to mainnet too). A wallet already on a served
+  // curve chain then reads + writes on that chain with no wrong-chain banner.
+  const walletChainId = useChainId();
+  const activeChainId =
+    curveLauncherOn(walletChainId).status === 'deployed' ? walletChainId : CHAIN_ID;
+  const availability = curveLauncherOn(activeChainId);
+  const chainName = getChainConfig(activeChainId)?.name ?? 'Ethereum';
 
   return (
     <>
@@ -88,7 +98,7 @@ export default function EthCurvePage() {
             {availability.status === 'deployed' && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-                Live on Ethereum
+                Live on {chainName}
               </span>
             )}
           </div>
@@ -100,7 +110,7 @@ export default function EthCurvePage() {
 
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
-            <WrongChainBanner requiredChainId={CHAIN_ID} />
+            <WrongChainBanner requiredChainId={activeChainId} />
             <CurveCreatePanel launcher={availability.address} />
             <TradeByAddress launcher={availability.address} />
             <CurveHowItWorks />

@@ -598,5 +598,135 @@
         "address": "0x6982508145454ce325ddbe47a25d4ec3d2311933"
       }
     ]
-  }
+  },
+  "base": [
+    {
+      "id": "tegridy-factory",
+      "address": "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",
+      "role": "TegridyFactory (Base MVP, 2026-08-25)",
+      "status": "live"
+    },
+    {
+      "id": "tegridy-router",
+      "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
+      "role": "TegridyRouter (Base MVP)",
+      "status": "live"
+    },
+    {
+      "id": "tegridy-twap",
+      "address": "0xB021651dACaD5dabf83ef587297E093DfA0c95Ec",
+      "role": "TegridyTWAP (Base MVP)",
+      "status": "live"
+    },
+    {
+      "id": "swap-fee-router",
+      "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52",
+      "role": "SwapFeeRouter (Base MVP)",
+      "status": "live"
+    },
+    {
+      "id": "swap-fee-router-admin",
+      "address": "0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2",
+      "role": "SwapFeeRouterAdmin (Base MVP)",
+      "status": "live"
+    },
+    {
+      "id": "curve-launcher",
+      "address": "0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060",
+      "role": "TegridyCurveLauncher (Base): 2 ETH grad, 1% fee 40/25/35, 3.69% reserve, owner=MULTISIG",
+      "status": "live"
+    },
+    {
+      "id": "treasury-safe",
+      "address": "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
+      "role": "TREASURY role Safe (2-of-2, owners 0x1489/0x28d7)",
+      "status": "live"
+    },
+    {
+      "id": "multisig-safe",
+      "address": "0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
+      "role": "MULTISIG role Safe (2-of-2); MVP owner/feeToSetter pending accept",
+      "status": "live"
+    },
+    {
+      "id": "pause-guardian-safe",
+      "address": "0xF2De91a0086baA36D60B73ee1DF261ef8919A56c",
+      "role": "PAUSE_GUARDIAN role Safe (2-of-2)",
+      "status": "live"
+    },
+    {
+      "id": "fee-remittance-safe",
+      "address": "0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1",
+      "role": "FEE_REMITTANCE role Safe (2-of-2), bridge sink",
+      "status": "live"
+    }
+  ],
+  "robinhood": [
+    {
+      "id": "attested-sequencer-uptime-feed",
+      "address": "0x12a249A027AA7DdF184E824b4bb63ba031A39fEC",
+      "role": "AttestedSequencerUptimeFeed (owner=MULTISIG, attestor=PAUSE_GUARDIAN)",
+      "status": "live"
+    },
+    {
+      "id": "tegridy-factory",
+      "address": "0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3",
+      "role": "TegridyFactory (Robinhood MVP, 2026-08-25)",
+      "status": "live"
+    },
+    {
+      "id": "tegridy-router",
+      "address": "0xB021651dACaD5dabf83ef587297E093DfA0c95Ec",
+      "role": "TegridyRouter (Robinhood MVP)",
+      "status": "live"
+    },
+    {
+      "id": "tegridy-twap",
+      "address": "0xa24C7287eC56A7DEFDc70033803451240e267a52",
+      "role": "TegridyTWAP (Robinhood MVP)",
+      "status": "live"
+    },
+    {
+      "id": "swap-fee-router",
+      "address": "0xE9F83A07b071748E795d2489651d5310fA098Db8",
+      "role": "SwapFeeRouter (Robinhood MVP)",
+      "status": "live"
+    },
+    {
+      "id": "swap-fee-router-admin",
+      "address": "0xdFdd6D72539A425dC917F49FB834901105cA98c9",
+      "role": "SwapFeeRouterAdmin (Robinhood MVP)",
+      "status": "live"
+    },
+    {
+      "id": "curve-launcher",
+      "address": "0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5",
+      "role": "TegridyCurveLauncher (Robinhood): 1.5 ETH grad, 1% fee 40/25/35, 3.69% reserve, owner=MULTISIG",
+      "status": "live"
+    },
+    {
+      "id": "treasury-safe",
+      "address": "0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0",
+      "role": "TREASURY role Safe (2-of-2, owners 0x1489/0x28d7)",
+      "status": "live"
+    },
+    {
+      "id": "multisig-safe",
+      "address": "0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B",
+      "role": "MULTISIG role Safe (2-of-2); MVP owner/feeToSetter pending accept",
+      "status": "live"
+    },
+    {
+      "id": "pause-guardian-safe",
+      "address": "0xF2De91a0086baA36D60B73ee1DF261ef8919A56c",
+      "role": "PAUSE_GUARDIAN role Safe (2-of-2)",
+      "status": "live"
+    },
+    {
+      "id": "fee-remittance-safe",
+      "address": "0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1",
+      "role": "FEE_REMITTANCE role Safe (2-of-2), bridge sink",
+      "status": "live"
+    }
+  ]
 }
