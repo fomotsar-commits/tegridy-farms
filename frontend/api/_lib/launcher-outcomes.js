@@ -354,26 +354,31 @@ async function etherscanCall(params) {
 }
 
 async function fetchChainStats(token, creator) {
-  let holderCount = null;
-  let lastTeamActivityAt = null;
+  // AUDIT FIX 2026-08-25: the two Etherscan reads are independent and were
+  // awaited sequentially — per token, on the heaviest fan-out path. Run them
+  // concurrently; each still fails to null on its own.
 
   // Holder count — Pro-gated stat; free tier returns status "0" → stays null.
-  try {
-    const j = await etherscanCall({
-      module: "token",
-      action: "tokenholdercount",
-      contractaddress: String(token),
-    });
-    if (j && j.status === "1") {
-      const n = num(j.result);
-      if (n != null && n >= 0) holderCount = Math.floor(n);
+  const holderCountP = (async () => {
+    try {
+      const j = await etherscanCall({
+        module: "token",
+        action: "tokenholdercount",
+        contractaddress: String(token),
+      });
+      if (j && j.status === "1") {
+        const n = num(j.result);
+        if (n != null && n >= 0) return Math.floor(n);
+      }
+    } catch {
+      /* null */
     }
-  } catch {
-    /* null */
-  }
+    return null;
+  })();
 
   // Creator's most recent tx (newest-first, 1 row).
-  if (creator && ETH_ADDRESS_RE.test(String(creator))) {
+  const lastTeamActivityP = (async () => {
+    if (!(creator && ETH_ADDRESS_RE.test(String(creator)))) return null;
     try {
       const j = await etherscanCall({
         module: "account",
@@ -387,12 +392,14 @@ async function fetchChainStats(token, creator) {
       });
       const row = j && j.status === "1" && Array.isArray(j.result) ? j.result[0] : null;
       const ts = row ? num(row.timeStamp) : null;
-      if (ts != null && ts >= 0) lastTeamActivityAt = Math.floor(ts);
+      if (ts != null && ts >= 0) return Math.floor(ts);
     } catch {
       /* null */
     }
-  }
+    return null;
+  })();
 
+  const [holderCount, lastTeamActivityAt] = await Promise.all([holderCountP, lastTeamActivityP]);
   return { holderCount, lastTeamActivityAt };
 }
 
@@ -593,8 +600,12 @@ export async function handleLauncherOutcomes(req, res) {
     const outcomes = {};
     for (const r of records) outcomes[String(r.token).toLowerCase()] = r;
 
-    // Cache briefly at the edge — outcomes move slowly and the fan-out is heavy.
-    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+    // AUDIT FIX 2026-08-25: the old `s-maxage=60, stale-while-revalidate=300`
+    // header here was INERT — this handler is POST-only (:562) and Vercel's
+    // edge caches GETs, so the heaviest fan-out endpoint was never cached and
+    // the header only *read* as if it were. Removed rather than left lying;
+    // real edge caching means a GET-shaped variant, which is a deliberate
+    // API change, not a header.
     return res.status(200).json({ launches: summaries, outcomes });
   } catch (err) {
     console.error("launcher-outcomes error:", logSafe(err));

@@ -100,7 +100,6 @@ REVOKE ALL ON api_keys FROM authenticated;
 -- Revocation takes effect on the next request: apiAuth.js does not cache
 -- verification results, which costs one round trip per keyed call and buys the
 -- property that a withdrawn key stops working immediately.
-
 -- ── Record this file in the ledger ────────────────────────────────────
 -- Added 2026-08-24: the self-recording INSERT MIGRATIONS.md describes was
 -- missing from every file after 000 — the ledger was fiction for 016-021.

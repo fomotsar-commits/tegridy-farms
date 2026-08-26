@@ -223,11 +223,12 @@ GRANT SELECT ON commerce_settlements TO authenticated;
 -- recycles, so without this line the tables exist, every checkout call fails,
 -- and the migration looks like it did nothing. Migrations 014 and 019 carry the
 -- same line for the same reason.
-NOTIFY pgrst, 'reload schema';
-
 -- ── Record this file in the ledger ────────────────────────────────────
 -- Added 2026-08-24: the self-recording INSERT MIGRATIONS.md describes was
 -- missing from every file after 000 — the ledger was fiction for 016-021.
 INSERT INTO public.schema_migrations (filename, note)
 VALUES ('021_commerce.sql', 'commerce_invoices + commerce_settlements; webhooks need COMMERCE_WEBHOOK_SECRET')
 ON CONFLICT (filename) DO NOTHING;
+
+NOTIFY pgrst, 'reload schema';
+

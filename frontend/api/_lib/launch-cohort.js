@@ -111,12 +111,27 @@ function createLogsUrl(key) {
  * null when the asset genuinely is not in the history. The caller must keep those apart:
  * a truncated window that returned null would publish "this token was never launched".
  */
+// AUDIT FIX 2026-08-25: createLogFor re-downloaded the ENTIRE Airlock Create
+// history from Etherscan on every birth-record request. The history is
+// append-only and moves slowly; memoize the raw fetch for 60s at module scope
+// so a burst of records shares one upstream call. Keyed by URL so a key
+// rotation naturally misses. Failures are never cached.
+let createLogsMemo = { url: null, at: 0, json: null };
+const CREATE_LOGS_MEMO_MS = 60_000;
+
 export async function createLogFor(asset, key) {
   if (!key) return null;
   const want = String(asset).toLowerCase();
-  const r = await fetch(createLogsUrl(key), { headers: { accept: "application/json" } });
-  if (!r.ok) throw new Error(`etherscan ${r.status}`);
-  const j = await r.json();
+  const url = createLogsUrl(key);
+  let j;
+  if (createLogsMemo.url === url && Date.now() - createLogsMemo.at < CREATE_LOGS_MEMO_MS) {
+    j = createLogsMemo.json;
+  } else {
+    const r = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`etherscan ${r.status}`);
+    j = await r.json();
+    createLogsMemo = { url, at: Date.now(), json: j };
+  }
   if (!Array.isArray(j?.result)) {
     const msg = String(j?.result ?? j?.message ?? "");
     if (/no records found/i.test(msg)) return null;

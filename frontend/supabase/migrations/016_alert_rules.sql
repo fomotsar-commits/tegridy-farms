@@ -98,7 +98,6 @@ CREATE POLICY "Owner deletes own alert rules" ON alert_rules FOR DELETE USING (
 -- nothing — an unauthenticated caller has no rules and no business reading any.
 GRANT SELECT, INSERT, UPDATE, DELETE ON alert_rules TO authenticated;
 REVOKE ALL ON alert_rules FROM anon;
-
 -- ── Record this file in the ledger ────────────────────────────────────
 -- Added 2026-08-24: the self-recording INSERT MIGRATIONS.md describes was
 -- missing from every file after 000 — the ledger was fiction for 016-021.

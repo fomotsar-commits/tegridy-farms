@@ -19,6 +19,7 @@ import { computeSeaportOrderHash, isValidSeaportOrderHash } from "./_lib/seaport
 // compromised RPC cannot OOM the lambda or rack up memory-time billing with a
 // 100MB receipt or a gzip-bomb. Parity with the aggregator-proxy hardening.
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
+import { fetchAlchemyWithFailover, alchemyKeyChain } from "./_lib/alchemy-failover.js";
 import { sendPushToWallet } from "./_lib/push.js";
 
 // Whitelist allowed contract addresses (lowercase)
@@ -1510,8 +1511,10 @@ export default async function handler(req, res) {
       }
 
       // Verify the transaction on-chain via Alchemy RPC
-      const alchemyKey = process.env.ALCHEMY_API_KEY;
-      const hasAlchemy = alchemyKey && alchemyKey !== "demo";
+      // RESIL-1: gate on the whole failover chain, not just the primary key —
+      // but the chain always carries the primary SLOT (possibly empty/demo), so
+      // "has" means "at least one usable key", matching the old gate's semantics.
+      const hasAlchemy = alchemyKeyChain().some((k) => k && k !== "demo");
 
       // AUDIT FIX H-2: fail closed in production when Alchemy is unavailable.
       // The on-chain receipt + topic check is load-bearing — without it, an
@@ -1556,11 +1559,19 @@ export default async function handler(req, res) {
 
       if (hasAlchemy) {
         try {
-          const rpcRes = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
-          });
+          // RESIL-1 (2026-08-25): route through the failover chain like every other
+          // Alchemy consumer — the fill-verification money path was the one caller
+          // still pinned to the primary key, so a single-key outage 502'd exactly
+          // the requests that settle trades.
+          const rpcRes = await fetchAlchemyWithFailover((key) => ({
+            url: `https://eth-mainnet.g.alchemy.com/v2/${key}`,
+            opts: {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
+              signal: AbortSignal.timeout(8000),
+            },
+          }));
           // AUDIT FIX 2026-05-26 [H-20]: bounded read. A 100MB receipt or gzip-bomb
           // upstream would otherwise OOM the lambda. readBoundedText cancels mid-stream.
           const { text: rpcBodyText, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
@@ -2085,18 +2096,28 @@ export default async function handler(req, res) {
 
       // Same fail-closed on-chain verification as listing fills (H-2/F10):
       // the OrderFulfilled event in the receipt must carry this exact hash.
-      const alchemyKey = process.env.ALCHEMY_API_KEY;
-      const hasAlchemy = alchemyKey && alchemyKey !== "demo";
+      // RESIL-1: gate on the whole failover chain, not just the primary key —
+      // but the chain always carries the primary SLOT (possibly empty/demo), so
+      // "has" means "at least one usable key", matching the old gate's semantics.
+      const hasAlchemy = alchemyKeyChain().some((k) => k && k !== "demo");
       if (!hasAlchemy && process.env.NODE_ENV === "production") {
         return res.status(503).json({ error: "On-chain verification temporarily unavailable — please retry in a few minutes" });
       }
       if (hasAlchemy) {
         try {
-          const rpcRes = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
-          });
+          // RESIL-1 (2026-08-25): route through the failover chain like every other
+          // Alchemy consumer — the fill-verification money path was the one caller
+          // still pinned to the primary key, so a single-key outage 502'd exactly
+          // the requests that settle trades.
+          const rpcRes = await fetchAlchemyWithFailover((key) => ({
+            url: `https://eth-mainnet.g.alchemy.com/v2/${key}`,
+            opts: {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txHash] }),
+              signal: AbortSignal.timeout(8000),
+            },
+          }));
           const { text: rpcBodyText, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
           if (truncated) return res.status(502).json({ error: "On-chain verification temporarily unavailable" });
           let rpcData;

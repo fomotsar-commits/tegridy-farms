@@ -297,7 +297,13 @@ export async function runProxy(req, res, cfg) {
 
   let upstreamRes;
   try {
-    const fetchOpts = { method: req.method, headers: outHeaders };
+    // AUDIT FIX 2026-08-25: hard upstream budget. This ONE fetch serves every
+    // proxied provider (odos/cow/lifi/kyber/openocean/paraswap/swapapi/jupiter),
+    // and none of them carried a timeout — a hung upstream held the function
+    // open to the platform's own kill (10s on Hobby), burning the whole budget
+    // to say nothing. 8s turns that into a clean 502 with time to spare;
+    // heat.js models the same pattern with its own tighter budget.
+    const fetchOpts = { method: req.method, headers: outHeaders, signal: AbortSignal.timeout(8000) };
     if (req.method === "POST") {
       fetchOpts.body = JSON.stringify(reqBody ?? {});
     }
