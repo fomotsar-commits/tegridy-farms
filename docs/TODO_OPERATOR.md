@@ -78,6 +78,28 @@ registry's false "earned 0 wei" note is corrected.
 their checks finish. Two absorbed doc branches still owed a delete:
 `git push origin --delete claude/sad-almeida-bde63d todo-update` (agent-blocked).
 
+⛔ **NEW 2026-08-26 — the Robinhood curve launcher is LIVE and its reserve recipient is an EOA.**
+`TegridyCurveLauncher` deployed to Robinhood 4663 at **`0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5`**
+(tx `0x0b18e2dd…d2bc`, block 46343018). Verified on chain 2026-08-26 — owner, pauseGuardian and
+treasury are all the correct L2 role Safes, WETH matches, and the FACTORY answers `getPair`, so
+graduation is **not** stranded.
+
+**One thing is wrong and it is worth fixing before the first launch:**
+`reserveRecipient` = `0x14898258122C0740106391E6e8E4F17F3b6d456E` — **the deployer EOA, not a Safe.**
+`reserveBps` is 369, so **3.69% of every launch's 1,000,000,000 supply transfers to that single key
+at graduation**, while every other role on the same contract went to a 2-of-2 Safe.
+
+- Fix: `setLaunchConfig(...)` with the same values and a Safe as `reserveRecipient`. It is
+  **owner-only**, and the owner is `l2-multisig-safe`.
+- **`launchCount()` is 0**, so this currently costs nothing. After the first launch it does.
+- Convenient side effect: that transaction is exactly the **"prove the Safe can sign" smoke test**
+  the M.2 gate has been waiting on — all eight role-Safe instances still read `nonce() == 0`.
+
+Also noted, same shape as mainnet: the Robinhood factory's `feeToSetter` is still the deployer EOA
+(`feeTo` is correctly `l2-fee-remittance-safe`), so the fee-rotation ordering in
+`docs/GOLIVE_HANDOFF.md` applies on this chain too — **`executeFeeToChange()` before
+`acceptFeeToSetter()`, and the first is the deployer's call, not the Safe's.**
+
 🛑 **NEW 2026-08-26 — two PRE-DEPLOY defects in `StreamingRevenueDistributor`, found by an
 adversarial review and confirmed by independent adjudicators.** The contract is deployed nowhere
 (no `addresses.json` entry, no `lib/constants.ts` constant), so this is **not live money** — but
