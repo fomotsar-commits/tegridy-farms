@@ -143,7 +143,13 @@ export async function calculatePnL(wallet, collection, heldTokens, forceRefresh 
     });
     allSales = data.nftSales || [];
   } catch (err) {
-    if (import.meta.env.DEV) console.warn("calculatePnL: could not fetch buy sales:", err.message);
+    // Read-honesty: a failed read must NOT collapse into "no sales history".
+    // Swallowing left allSales = [] so every held token's cost basis read 0 and
+    // the whole portfolio rendered as pure profit. Always log, and throw so the
+    // caller (PortfolioTracker's catch) shows its retryable error state —
+    // "could not read sales history" is not "no sales history".
+    console.warn("calculatePnL: could not fetch buy sales:", err.message);
+    throw new Error(`Could not read sales history: ${err.message}`);
   }
 
   let sellSales = [];
@@ -156,7 +162,10 @@ export async function calculatePnL(wallet, collection, heldTokens, forceRefresh 
     });
     sellSales = data.nftSales || [];
   } catch (err) {
-    if (import.meta.env.DEV) console.warn("calculatePnL: could not fetch sell sales:", err.message);
+    // Same read-honesty rule as the buy fetch above: swallowing here silently
+    // zeroed realized P&L while its label still claimed to cover past sales.
+    console.warn("calculatePnL: could not fetch sell sales:", err.message);
+    throw new Error(`Could not read sales history: ${err.message}`);
   }
 
   // Build a map of token purchases (latest buy per token)
