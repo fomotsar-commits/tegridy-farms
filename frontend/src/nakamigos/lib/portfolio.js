@@ -149,7 +149,7 @@ export async function calculatePnL(wallet, collection, heldTokens, forceRefresh 
     // caller (PortfolioTracker's catch) shows its retryable error state —
     // "could not read sales history" is not "no sales history".
     console.warn("calculatePnL: could not fetch buy sales:", err.message);
-    throw new Error(`Could not read sales history: ${err.message}`);
+    throw new Error(`Could not read sales history: ${err.message}`, { cause: err });
   }
 
   let sellSales = [];
@@ -165,7 +165,7 @@ export async function calculatePnL(wallet, collection, heldTokens, forceRefresh 
     // Same read-honesty rule as the buy fetch above: swallowing here silently
     // zeroed realized P&L while its label still claimed to cover past sales.
     console.warn("calculatePnL: could not fetch sell sales:", err.message);
-    throw new Error(`Could not read sales history: ${err.message}`);
+    throw new Error(`Could not read sales history: ${err.message}`, { cause: err });
   }
 
   // Build a map of token purchases (latest buy per token)
