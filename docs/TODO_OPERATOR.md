@@ -78,6 +78,28 @@ registry's false "earned 0 wei" note is corrected.
 their checks finish. Two absorbed doc branches still owed a delete:
 `git push origin --delete claude/sad-almeida-bde63d todo-update` (agent-blocked).
 
+🛑 **NEW 2026-08-26 — two PRE-DEPLOY defects in `StreamingRevenueDistributor`, found by an
+adversarial review and confirmed by independent adjudicators.** The contract is deployed nowhere
+(no `addresses.json` entry, no `lib/constants.ts` constant), so this is **not live money** — but
+both are true of trunk today and both must be closed before it ships:
+
+1. **A stranger can drive a victim's grace anchor BACKWARDS.** `_observeLockEnd` assigns
+   `lastObservedLockEnd` with no `>` guard and is reachable from the permissionless `sync`.
+   `StakingRewardLib.afterTokenTransfer` writes `userTokenId[to] = id` unconditionally, and its
+   `AlreadyHasPosition` guard only fires when `userTokenId[to] != 0` — exactly 0 for someone who
+   just withdrew. So transferring an EXPIRED dust veNFT to a victim (an ERC-721 transfer needs no
+   consent) and calling `sync(victim)` slams their claim grace shut and flips them to forfeitable.
+   On trunk that is a complete stranger-executed confiscation, because trunk's `sync` forfeits
+   directly.
+2. **A permissionless `sync` moves value BETWEEN accounts.** An unreadable escrow/restaking read
+   collapses to zero, `_updateReward` writes that zero into `effectiveBalanceOf`, and the stream
+   re-prices onto whoever stayed mirrored. Measured **22× amplification** via `syncMany` over 50
+   victims; the victim has no defence, and it ignores the staking kill switch.
+
+Full account, plus the three regressions that refuted the attempted fix:
+[`V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md`](V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md).
+⛔ Branch `fix/v2-owner-timelocked-forfeit-v4` is **attempt 4 and is REFUTED — do not merge it.**
+
 **Four standing rules.**
 1. Claude never types a secret into a field. Where a step involves a key, you set it. Never paste a
    secret into a chat, including to me.
