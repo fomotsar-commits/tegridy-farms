@@ -73,18 +73,19 @@ describe("fetchContractFlags", () => {
   });
 
   it("walks to the next endpoint when one fails, and only throws when all do", async () => {
+    // Keyless roster is 2 endpoints since the 2026-08-25 merkle drop: one
+    // transport failure, then the last slot succeeds.
     let call = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
         call += 1;
         if (call === 1) throw new Error("socket hang up");
-        if (call === 2) return { ok: false, status: 503, json: async () => ({}) };
         return batch([CODE]);
       }),
     );
     expect((await fetchContractFlags([A])).get(A)).toBe(true);
-    expect(call).toBe(3);
+    expect(call).toBe(2);
   });
 
   it("throws when every endpoint fails — never an all-EOA default", async () => {
@@ -107,14 +108,14 @@ describe("fetchContractFlags", () => {
 
   it("prefers a configured key and always keeps the keyless roster as backup", () => {
     delete process.env.ALCHEMY_API_KEY;
-    expect(rpcUrlChain()).toHaveLength(3);
+    expect(rpcUrlChain()).toHaveLength(2);
     process.env.ALCHEMY_API_KEY = "realkey";
     const chain = rpcUrlChain();
     expect(chain[0]).toContain("realkey");
-    expect(chain).toHaveLength(4);
+    expect(chain).toHaveLength(3);
     // "demo" is a placeholder, not a key — it must not displace a working public node.
     process.env.ALCHEMY_API_KEY = "demo";
-    expect(rpcUrlChain()).toHaveLength(3);
+    expect(rpcUrlChain()).toHaveLength(2);
     delete process.env.ALCHEMY_API_KEY;
   });
 });
