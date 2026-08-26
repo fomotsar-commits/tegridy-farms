@@ -310,12 +310,25 @@ export default defineConfig(({ mode }) => {
             if (id.includes('node_modules/@noble/') || id.includes('node_modules/@scure/')) {
               return 'vendor-crypto';
             }
+            // AUDIT FIX 2026-08-25: shared plumbing must never be folded into
+            // vendor-solana. eventemitter3 is used by BOTH the WalletConnect/
+            // wagmi stack and the Solana wallet-adapter; left unassigned, the
+            // bundler placed it inside vendor-solana, so the eager vendor-wagmi
+            // chunk statically imported the 332KB Solana graph and index.html
+            // modulepreloaded all of it on every first paint. Same hazard for
+            // @wallet-standard (chain-agnostic wallet plumbing). Pin both to
+            // their own tiny chunks so neither graph welds to the other.
+            if (
+              id.includes('node_modules/eventemitter3/') ||
+              id.includes('node_modules/@wallet-standard/')
+            ) {
+              return 'vendor-shared-wallet-plumbing';
+            }
             // Solana swap surface deps — only the lazy /solana page imports
             // these, so this named chunk stays out of the initial bundle.
             if (
               id.includes('node_modules/@solana/') ||
-              id.includes('node_modules/@solana-mobile/') ||
-              id.includes('node_modules/@wallet-standard/')
+              id.includes('node_modules/@solana-mobile/')
             ) {
               return 'vendor-solana';
             }
