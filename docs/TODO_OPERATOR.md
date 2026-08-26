@@ -27,6 +27,57 @@ silent, that one is not empty.
 what to run, what you should see, and what a mismatch means. If a "you should see" does not match,
 stop and say so — a surprise is information.
 
+---
+
+## 🟢 2026-08-25 STATE — this layer supersedes the sections below where they disagree
+
+An 08-24 full scan → same-day fix session → 08-25 go-live + an 8-lane verified sweep moved a lot.
+Every claim here is probe- or read-verified today, not carried forward.
+
+**CLOSED — do not redo:**
+- ~~§0.1 login change-set~~ — **DONE 08-25, live**: DROPs + 014 + 013 applied; SIWE `?action=nonce`
+  → 200 (production's first ever); analytics `accepted:1`. Never run 008 after — rule stands.
+- ~~§0.2 redeploy~~ — done 08-25 morning… **and already owed again**: six fix-pushes since (see
+  the new standing item below).
+- ~~§1.2 birth secret~~ — set + verified (invalid-body probe passes the secret gate → 400).
+- ~~§1.3 DBC v2~~ — stays retired. ~~Decision 4 light-scrim~~ — superseded by the 08-23
+  light-mode removal. The Slither triage is NOT "unrefuted": `SLITHER_TRIAGE_2026_08_22.md`
+  Appendix A IS the refutation pass — 12 verdicts rejected, **8 real pre-deploy contract defects
+  to fix; no suppressions until then**.
+
+**NEW STANDING ITEM — redeploy on ask.** Prod deploys are CLI-only and agent-blocked, so after
+any fix batch: `npx vercel --prod --yes` from repo root. Right now prod is 6 pushes behind trunk
+(incl. the 332KB vendor-solana first-paint unweld and the API timeout/failover batch).
+
+**CLOCK CORRECTION — the top decision is now dated ~Sept 30.** Live reads 08-25:
+`rewardsRemaining` = 2,549,296 TOWELI at 71,219/day ⇒ **the staking reward pool runs dry in
+~5 weeks** (docs said ~Oct 11; the balance-based figure is an upper bound). Top-up or rate-cut —
+one sentence, then it's executable.
+
+**THE ONE-SESSION SWITCHBOARD (§2.1 grew):** migrations **016–021 plus the new 022/023**
+(`frontend/supabase/migrations/` — 022 = the recovered native_orders/trade_offers REVOKE with its
+preflight inline; 023 = 004 §2 standalone). Order: 017 AFTER 015 (done), rest order-free, never
+008 after any of them. Probe-verified today: all six stores answer schema-missing/store-unavailable;
+**every env var except `BOT_LINK_SECRET` is already set** — the doc's env worries are stale.
+
+**MULTICHAIN (M.2 gate):** M.1's four role Safes verified live on BOTH chains — but all eight
+instances have **nonce()==0: the "proven signers" smoke test has never run** and is the sole
+blocker before M.2. Full addresses + warnings now in `frontend/scripts/addresses.json`
+(`l2-*-safe`); receipts on trunk; **4663 deploys use `docs/ROBINHOOD_CAST_REPLAY.md`** (forge
+cannot broadcast there — the old script headers said otherwise and are fixed).
+
+**CORRECTION to an 08-24 note:** the Whetstone petition is NOT "no longer necessary" in
+general — the own-curve rail doesn't need it, but the Doppler/V4 graduate-to-us leg still does
+(§ TIER 3 stands). Its merge precondition is now satisfied; re-run the §15 reads before sending.
+
+**Fee rail (pre-deepening precondition):** re-verified unchanged — 2.4e12 wei still parked in
+`ReferralSplitter.callerCredit`; permissionless `recoverCallerCredit()` never called. The
+registry's false "earned 0 wei" note is corrected.
+
+**Dependabot:** all 8 open PRs (#324–331) rebased onto today's green trunk — merge them when
+their checks finish. Two absorbed doc branches still owed a delete:
+`git push origin --delete claude/sad-almeida-bde63d todo-update` (agent-blocked).
+
 **Four standing rules.**
 1. Claude never types a secret into a field. Where a step involves a key, you set it. Never paste a
    secret into a chat, including to me.
