@@ -42,6 +42,14 @@ import { PublicKey } from '@solana/web3.js';
 const STREAMFLOW_TREASURY = new PublicKey('5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw');
 import { ICluster } from '@streamflow/common';
 
+//   FUNDING (operator, task #13 — deliberately its own mode, run LAST):
+//     node scripts/bayla-lighthouse-ceremony.mjs --fund --pool <stakePool> \
+//          --amount 50000 --keypair C:\path\to\creator.json [--broadcast]
+//   Dry-run by default (prints the plan); --broadcast creates Streamflow's
+//   treasury ATA if missing (devnet-proven prerequisite) and deposits
+//   <amount> whole BAYLA into the reward pool. Rerunnable — every top-up is
+//   its own public transaction and the app's vault number climbs with each.
+//
 const args = process.argv.slice(2);
 const has = (f) => args.includes(f);
 const val = (f, d = undefined) => {
@@ -50,6 +58,7 @@ const val = (f, d = undefined) => {
 };
 
 const REHEARSE = has('--rehearse');
+const FUND = has('--fund');
 const BROADCAST = has('--broadcast');
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const DAY = 86_400;
@@ -283,7 +292,53 @@ async function mainnet() {
   log('then the dust-wallet live-fire (runbook §6d), announce, and FUND LAST.');
 }
 
-(REHEARSE ? rehearse() : mainnet()).catch((e) => {
+async function fund() {
+  const pool = val('--pool');
+  const amountWhole = Number(val('--amount', '0'));
+  const mint = val('--mint', BAYLA_MINT);
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+  if (!pool) throw new Error('--fund requires --pool <stake pool address> (from the ceremony output / VITE_BAYLA_STAKE_POOL)');
+  if (!(amountWhole > 0)) throw new Error('--fund requires --amount <whole tokens>, e.g. --amount 50000');
+  const amountRaw = new BN(Math.round(amountWhole * 1e6).toString()); // BAYLA = 6 decimals
+
+  log('FUNDING PLAN (task #13 — the deliberately-LAST step):');
+  console.log(JSON.stringify({
+    cluster: 'mainnet', stakePool: pool, rewardMint: mint,
+    amount: `${amountWhole.toLocaleString()} BAYLA (${amountRaw.toString()} raw)`,
+    rewardPoolNonce: Number(val('--nonce', '0')),
+    prerequisite: "Streamflow treasury ATA for the reward mint (created idempotently if missing — devnet-proven)",
+    note: 'feeValue: null routes the fee check to the fee-manager default config (devnet-proven).',
+  }, null, 2));
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <path-to-id.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()}`);
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
+
+  log('ensuring Streamflow treasury ATA for the reward mint…');
+  await createAssociatedTokenAccountIdempotent(connection, payer, new PublicKey(mint), STREAMFLOW_TREASURY);
+  log(`fundPool… ${amountWhole.toLocaleString()} BAYLA`);
+  const res = await client.fundPool({
+    stakePool: pool,
+    stakePoolMint: mint,
+    rewardMint: mint,
+    nonce: Number(val('--nonce', '0')),
+    amount: amountRaw,
+    feeValue: null,
+  }, ext);
+  log(`✓ funded (tx ${res.txId})`);
+  log(`solscan: https://solscan.io/tx/${res.txId}`);
+  log('the vault balance on /farm (bayla mode) reflects this within one refresh.');
+}
+
+(REHEARSE ? rehearse() : FUND ? fund() : mainnet()).catch((e) => {
   console.error('[lighthouse] FAILED:', e?.message ?? e);
   // Anchor/web3 simulation errors carry program logs — surface them, they
   // are the only way to see WHY a simulation failed.
