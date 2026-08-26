@@ -155,6 +155,54 @@ Ranked by how real they are today:
   domain per bungalow, e.g. bayla.memetics.finance), that is a routing +
   branding decision to take deliberately — flagged, not assumed.
 
+## 6b. Ceremony pre-flight (researched 2026-08-25, live reads)
+
+**Streamflow — product verified current** (streamflow.finance/staking, read
+via browser 2026-08-25):
+
+- The staking product exists as described: **no-code staking pools for any
+  SPL token**, configurable lock periods / APY / reward logic, reward
+  **top-ups through their UI**, "fully automated stake reward distribution",
+  pools "**fully non-custodial**", protocol **audited**, **public SDK** (our
+  Phase-B integration path), and Streamflow is listed in the official Solana
+  docs. Their own depletion rule matches our honesty law verbatim: *"If a
+  pool's reward allocation is depleted, no additional rewards can be
+  distributed."*
+- Ceremony walk (operator, ~minutes by their claim): open the app from
+  streamflow.finance with the creator/treasury wallet → Staking → create the
+  BAYLA pool. Parameter frame from §3: no or short minimum lock (heat
+  already rewards holding), fixed reward rate, claim cadence of your choice.
+  **Record in this doc:** every parameter, the pool address, and the
+  creation/protocol fees the app quotes (not published on the marketing
+  page — they surface in-app).
+- Then **fund before announcing** (§4 route 1 or 3), and hand the pool
+  address to Claude — the farm panel's status card is the slot the live
+  reads drop into (registry gets `stakePool`).
+
+**pump.fun creator-fee claim:** the claim belongs to the creator wallet
+(`G2EHPse…Krbu`) and is made in the pump.fun UI from the coin/profile
+surface. Their support articles block automated reading — verify the
+current claim flow and fee share in-app when signed in as the creator, and
+note the observed rate here for the funding math.
+
+## 6c. Also shipped without ceremony (2026-08-25)
+
+- **Door unfurls**: `postbuild` renders `dist/bayla/index.html` with her own
+  head identity (title, description, canonical, og/twitter tags, her
+  BAYLA/SOL artwork as the og image) — sharing memetics.finance/bayla now
+  unfurls as Bayla, not as the venue. Fail-loud transforms; parity with the
+  registry pinned by `bungalowDoors.test.ts`; door paths get no-cache
+  headers in vercel.json. (The white-label DECISION — task #15 — remains
+  open; this was its mechanical half.)
+- **Bungalow dashboard**: /dashboard in bayla mode is her standing page —
+  connect a Solana wallet (read-only; nothing to sign), BAYLA balance via
+  direct RPC, USD read only when Jupiter's price API actually answers, heat
+  prefilled with the connected wallet, and the live-surface links. Lazy
+  chunk: the EVM dashboard never loads the @solana stack.
+- **CI-grade door coverage**: `e2e/bungalow-doors.spec.ts` (fixture-free —
+  the wallet fixture pins toweli by design) walks /bayla, the /towelie
+  alias, and a not-yet-live door across the four-device matrix.
+
 ## 6. Open operator items
 
 1. Streamflow pool ceremony (or veto → fallback order in §3).

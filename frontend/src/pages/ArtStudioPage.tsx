@@ -145,6 +145,8 @@ const SURFACES: Surface[] = [
   { group: 'Farm', pageId: 'bungalow-farm', idx: 1, label: 'BF2 — Funding routes card' },
   { group: 'Farm', pageId: 'bungalow-farm', idx: 2, label: 'BF3 — Page bg' },
   { group: 'Home', pageId: 'bungalow-lore', idx: 0, label: 'BL1 — Bungalow lore card' },
+  { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 0, label: 'BD1 — Page bg' },
+  { group: 'Dashboard', pageId: 'bungalow-dashboard', idx: 1, label: 'BD2 — Wallet card' },
   { group: 'Farm', pageId: 'farm', idx: 1, label: 'F2 — Season banner' },
   { group: 'Farm', pageId: 'farm-stats', idx: 0, label: 'FS1 — TVL stat' },
   { group: 'Farm', pageId: 'farm-stats', idx: 1, label: 'FS2 — TOWELI price stat' },

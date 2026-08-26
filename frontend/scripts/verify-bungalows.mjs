@@ -98,6 +98,12 @@ try {
         ok('B: farm drops the TOWELI stack', await page.locator('text=TOWELI Price').count() === 0);
         ok('B: heat oracle card present', await page.locator('text=Check your heat').count() >= 1);
       }
+      if (name === 'dashboard') {
+        ok('B: dashboard is her standing page',
+          await page.locator('h1:has-text("BAYLA Dashboard.")').count() === 1
+          && await page.locator('button:has-text("Connect Solana Wallet")').count() === 1);
+        await page.screenshot({ path: `${OUT}/bayla-dashboard-desktop.png` });
+      }
       if (name === 'home') {
         ok('B: muse lore section present', await page.locator('text=The muse of Jungle Bay Island').count() >= 1);
         ok('B: TOWELI fee-economy sections hidden',
