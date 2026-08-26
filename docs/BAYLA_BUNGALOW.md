@@ -203,6 +203,42 @@ note the observed rate here for the funding math.
   the wallet fixture pins toweli by design) walks /bayla, the /towelie
   alias, and a not-yet-live door across the four-device matrix.
 
+## 6e. DEVNET REHEARSAL — the entire lifecycle executed (2026-08-26)
+
+The full pool lifecycle ran on devnet with REAL transactions through the
+exact SDK flows the app and the mainnet ceremony use (Streamflow deploys
+the same program ids on both clusters). Final state after the round trip:
+`totalStake = 0`, everything claimed and closed.
+
+| Step | Devnet signature |
+|---|---|
+| createStakePool → `DcFMJPnUuaaVPfFBitgGEoDK4cpuazCTWC7Jp794kw48` | `bc93u5envgLQ…fwfEdQW` |
+| createRewardPool → `4EehnXNUyJCokn7pe9QPhDT4QH9jcXaXkQEfZnuSYrxG` | `3BnXpgnhwS1H…JPyJPkA` |
+| **fundPool (100,000 tokens — the task-#13 op)** | `NR71dGyJPRms…fjgMiGK` |
+| stakeAndCreateEntries (1,000 tokens) | `2bnQsmuDA8D1…au8rTUUZ` |
+| claimRewards | `5coBCKECGcc6…BYsE9bPp` |
+| unstakeAndClaim (+close) | `2bTK9LXkESGb…naweJMyN` |
+
+Explorer: https://solscan.io/account/DcFMJPnUuaaVPfFBitgGEoDK4cpuazCTWC7Jp794kw48?cluster=devnet
+
+**Four traps found live and now BAKED into the tooling** (each one would
+have burned the mainnet ceremony or a first-time staker):
+
+1. `createRewardPool` requires `stakePoolNonce` and `lastClaimPeriodOpt` —
+   the SDK README's example omits both; the shipped .d.ts is the truth.
+2. `fundPool` must pass `feeValue: null` to route the fee check to the
+   fee-manager's default config — omitting it derives a per-funder PDA that
+   was never initialized (AccountNotInitialized).
+3. Funding expects **Streamflow's treasury ATA for the reward mint** to
+   exist — the ceremony script creates it idempotently first.
+4. Staking expects the **staker's ATA for the stake-mint PDA** (the receipt
+   token) — the frontend adapter now prepends an idempotent create to the
+   SAME transaction via the SDK's prepare-path + execute, so first-time
+   stakers can never hit it.
+
+The rehearsal is rerunnable any time:
+`node scripts/bayla-lighthouse-ceremony.mjs --rehearse [--funder <devnet-keypair.json>]`.
+
 ## 6d. THE FLIP — everything is built; funding is last (shipped 2026-08-26)
 
 The live Streamflow integration is now IN the app, dark until configured.

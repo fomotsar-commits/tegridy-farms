@@ -7,6 +7,14 @@ export * from './abi-supplement';
 
 // ─── TegridyStaking (Unified Lock + Stake + Boost + Governance + NFT Positions) ───
 export const TEGRIDY_STAKING_ABI = [
+  // §2.5 (STAKING_LOOK): the claim receipt reads what was actually PAID from
+  // this event — under a pool shortfall getReward transfers min(pending, pool)
+  // and the tx-log amount is the only honest source (TegridyStaking.sol:411).
+  { type: 'event', name: 'RewardPaid', inputs: [
+    { name: 'user', type: 'address', indexed: true },
+    { name: 'tokenId', type: 'uint256', indexed: true },
+    { name: 'reward', type: 'uint256', indexed: false },
+  ] },
   { type: 'function', name: 'stake', inputs: [{ name: '_amount', type: 'uint256' }, { name: '_lockDuration', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'withdraw', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
   { type: 'function', name: 'earlyWithdraw', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },

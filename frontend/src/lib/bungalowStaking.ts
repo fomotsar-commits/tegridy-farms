@@ -65,15 +65,22 @@ const READ_FAIL = 'The pool could not be read right now — that is an outage, n
 /* eslint-disable @typescript-eslint/no-explicit-any -- SDK account structs are
    IDL-derived; every access below is defensive against field drift. */
 
-async function makeClient() {
-  const [{ SolanaStakingClient }, { ICluster }] = await Promise.all([
+// ONE dynamic-import site for the SDK, shared by every call below — both so
+// the chunk graph stays predictable and so tests mock a single seam.
+async function loadSdk() {
+  const [staking, { ICluster }] = await Promise.all([
     import('@streamflow/staking'),
     import('@streamflow/common'),
   ]);
-  return new SolanaStakingClient({
+  const client = new staking.SolanaStakingClient({
     clusterUrl: solanaRpcEndpoint(),
     cluster: ICluster.Mainnet,
   });
+  return { client, staking };
+}
+
+async function makeClient() {
+  return (await loadSdk()).client;
 }
 
 function bnToBigint(v: unknown): bigint | null {
@@ -183,7 +190,14 @@ function writeFailure(err: unknown, fallback: string): Failure {
   return { ok: false, reason: `${fallback}${msg ? ` (${msg.slice(0, 140)})` : ''}` };
 }
 
-/** Stake via the SDK's grouped flow (stake + reward entries in one transaction). */
+/**
+ * Stake — the SDK's prepare-path with one extra instruction in FRONT: an
+ * idempotent create of the staker's ATA for the stake-mint PDA (the receipt
+ * token the pool mints). PROVEN NECESSARY on devnet: without it, Stake dies
+ * with AccountNotInitialized on the `to` account for every first-time
+ * staker (rehearsal tx 4B8hFc…KJRu). Everything rides ONE transaction via
+ * the SDK's own execute() (bundling + compute budget are theirs).
+ */
 export async function stake(args: {
   invoker: SignerWalletAdapter;
   pool: PoolView;
@@ -194,23 +208,48 @@ export async function stake(args: {
   try {
     const nonce = nextVacantNonce(args.entries);
     if (nonce === null) return { ok: false, reason: 'All 256 stake slots are in use for this wallet.' };
-    const [client, { default: BN }] = await Promise.all([makeClient(), import('bn.js')]);
-    const res: any = await client.stakeAndCreateEntries(
+    const staker = args.invoker.publicKey;
+    if (!staker) return { ok: false, reason: 'Connect a wallet first.' };
+    const [{ client, staking }, { default: BN }, web3, splToken] = await Promise.all([
+      loadSdk(),
+      import('bn.js'),
+      import('@solana/web3.js'),
+      import('@solana/spl-token'),
+    ]);
+    const ext = { invoker: args.invoker };
+    const stakeMintPda = staking.deriveStakeMintPDA(
+      client.getCurrentProgramId('stakePoolProgram' as any),
+      new web3.PublicKey(args.pool.address),
+    );
+    const receiptAta = splToken.getAssociatedTokenAddressSync(stakeMintPda, staker, false);
+    const ataIx = splToken.createAssociatedTokenAccountIdempotentInstruction(staker, receiptAta, staker, stakeMintPda);
+    const stakePrep: any = await client.prepareStakeInstructions(
       {
         stakePool: args.pool.address as any,
         stakePoolMint: args.pool.mint as any,
         amount: new BN(args.amountRaw.toString()),
         duration: new BN(String(args.durationSecs)),
         nonce,
-        rewardPools: args.pool.rewardPools.map((rp) => ({
-          nonce: rp.nonce,
-          mint: rp.mint as any,
-          rewardPoolType: 'fixed' as const,
-        })),
       },
-      { invoker: args.invoker },
+      ext,
     );
-    return { ok: true, txId: String(res?.txId ?? '') };
+    const rewardIxs: any[] = [];
+    for (const rp of args.pool.rewardPools) {
+      const prep: any = await client.prepareCreateRewardEntryInstructions(
+        {
+          stakePool: args.pool.address as any,
+          stakePoolMint: args.pool.mint as any,
+          rewardPoolNonce: rp.nonce,
+          depositNonce: nonce,
+          rewardMint: rp.mint as any,
+          rewardPoolType: 'fixed' as const,
+        } as any,
+        ext,
+      );
+      rewardIxs.push(...(prep?.ixs ?? []));
+    }
+    const res: any = await client.execute([ataIx, ...(stakePrep?.ixs ?? []), ...rewardIxs], ext);
+    return { ok: true, txId: String(res?.txId ?? res?.signature ?? '') };
   } catch (err) {
     return writeFailure(err, 'The stake did not go through — nothing moved.');
   }

@@ -9,10 +9,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const getStakePool = vi.fn();
 const searchRewardPools = vi.fn();
 const searchStakeEntries = vi.fn();
-const stakeAndCreateEntries = vi.fn();
 const unstakeAndClaim = vi.fn();
 const claimRewards = vi.fn();
 const getTokenAccountBalance = vi.fn();
+const prepareStakeInstructions = vi.fn();
+const prepareCreateRewardEntryInstructions = vi.fn();
+const execute = vi.fn();
 
 vi.mock('@streamflow/staking', () => ({
   SolanaStakingClient: class {
@@ -20,12 +22,23 @@ vi.mock('@streamflow/staking', () => ({
     getStakePool = getStakePool;
     searchRewardPools = searchRewardPools;
     searchStakeEntries = searchStakeEntries;
-    stakeAndCreateEntries = stakeAndCreateEntries;
     unstakeAndClaim = unstakeAndClaim;
     claimRewards = claimRewards;
+    prepareStakeInstructions = prepareStakeInstructions;
+    prepareCreateRewardEntryInstructions = prepareCreateRewardEntryInstructions;
+    execute = execute;
+    getCurrentProgramId = vi.fn(() => 'StakePoolProgramId');
   },
+  deriveStakeMintPDA: vi.fn(() => 'StakeMintPda'),
 }));
 vi.mock('@streamflow/common', () => ({ ICluster: { Mainnet: 'mainnet' } }));
+vi.mock('@solana/web3.js', () => ({
+  PublicKey: class { v: string; constructor(v: string) { this.v = v; } toBase58() { return this.v; } },
+}));
+vi.mock('@solana/spl-token', () => ({
+  getAssociatedTokenAddressSync: vi.fn(() => 'ReceiptAta'),
+  createAssociatedTokenAccountIdempotentInstruction: vi.fn(() => ({ __ix: 'create-receipt-ata' })),
+}));
 
 import {
   readPool,
@@ -110,25 +123,37 @@ describe('stake', () => {
     rewardPools: [{ address: 'Rp1', mint: 'MintAddr', nonce: 3, fundedRaw: 0n, rewardAmountRaw: '1', rewardPeriodSecs: 86400 }],
   };
 
-  it('calls the grouped SDK flow with the vacant nonce and every reward pool', async () => {
-    stakeAndCreateEntries.mockResolvedValue({ txId: 'SIG' });
-    const invoker = { name: 'wallet' } as never;
+  const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
+
+  it('bundles receipt-ATA + stake + reward entries into ONE executed transaction', async () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [{ __ix: 'stake' }] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [{ __ix: 'reward-entry' }] });
+    execute.mockResolvedValue({ txId: 'SIG' });
     const r = await stake({ invoker, pool, amountRaw: 123n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.txId).toBe('SIG');
-    const [args, ext] = stakeAndCreateEntries.mock.calls[0]!;
-    expect(args.stakePool).toBe(POOL);
-    expect(args.stakePoolMint).toBe('MintAddr');
-    expect(args.nonce).toBe(0);
-    expect(args.amount.toString()).toBe('123');
-    expect(args.duration.toString()).toBe('86400');
-    expect(args.rewardPools).toEqual([{ nonce: 3, mint: 'MintAddr', rewardPoolType: 'fixed' }]);
+    // The devnet-proven ordering: ATA create FIRST (first-time stakers die
+    // with AccountNotInitialized without it), then stake, then reward entry.
+    const [ixs, ext] = execute.mock.calls[0]!;
+    expect(ixs.map((i: { __ix: string }) => i.__ix)).toEqual(['create-receipt-ata', 'stake', 'reward-entry']);
     expect(ext.invoker).toBe(invoker);
+    const [stakeArgs] = prepareStakeInstructions.mock.calls[0]!;
+    expect(stakeArgs.stakePool).toBe(POOL);
+    expect(stakeArgs.stakePoolMint).toBe('MintAddr');
+    expect(stakeArgs.nonce).toBe(0);
+    expect(stakeArgs.amount.toString()).toBe('123');
+    expect(stakeArgs.duration.toString()).toBe('86400');
+    const [entryArgs] = prepareCreateRewardEntryInstructions.mock.calls[0]!;
+    expect(entryArgs.rewardPoolNonce).toBe(3);
+    expect(entryArgs.depositNonce).toBe(0);
+    expect(entryArgs.stakePoolMint).toBe('MintAddr');
   });
 
   it('maps a wallet rejection to the human refusal line', async () => {
-    stakeAndCreateEntries.mockRejectedValue(new Error('User rejected the request'));
-    const r = await stake({ invoker: {} as never, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    execute.mockRejectedValue(new Error('User rejected the request'));
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe('You declined the signature — nothing moved.');
   });

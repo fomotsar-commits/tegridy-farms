@@ -377,6 +377,41 @@ tests LP-boost staleness and batching, not the single-asset JBAC preview
    dry-state fallback and nominal APR/emissions chips, plus the nonexistent
    monitoring event).
 
+## 8b. FIXES LANDED 2026-08-26 (items 1–4 below, plus the §4 projection guard and §2.7 copy)
+
+- **§2.1** — the stake preview no longer adds the JBAC +0.5x on the plain
+  `stake()` path (FarmPage boost math), and the boost-preview row now states
+  "not applied — requires NFT-deposit staking" for JBAC holders. Effective
+  stake, voting power, projections and the stake receipt all inherit the
+  honest figure. (Wiring `stakeWithBoost` + the vault deposit flow remains a
+  separate product decision.)
+- **§2.2** — APR is clamped to 0 AT THE SOURCE (`usePoolData.isDry`), so the
+  farm strip, stat tiles, home pill and projections all read zero on the dry
+  day; the strip renders real zeros with "reserve empty — emissions paused
+  until refilled" instead of falling back to the cumulative 6.4M figure
+  (pinned by the previously-missing net, `IncentivesStrip.dry.test.tsx`);
+  FarmPage and /tokenomics render an EMPTY reserve as `0`, keeping `–`
+  strictly for "could not read".
+- **§2.3** — Revalidate Boost renders on ACTIVE locks only (the state where
+  the call can succeed) instead of exclusively on expired ones (where it
+  always reverted LockExpired).
+- **§2.5** — the claim receipt reads the PAID amount from the transaction's
+  own `RewardPaid` log (event added to the frontend ABI; `useFarmActions`
+  exposes the receipt), falling back to the submit-time snapshot only if
+  log parsing fails.
+- **§2.7** — the live Claimable interpolator pins to the exact on-chain
+  value when the reserve is dry (no phantom accrual sawtooth), and the
+  auto-max-lock card now carries the natspec's corrected copy (disabling
+  stops future re-extensions; the current 4-year lock stays; early exit
+  costs 25%).
+- **§4** — the Farm projections carry the Dashboard's runway guard:
+  "Current reserve runs ≈ Nd at this rate — figures beyond that assume
+  refills."
+
+Still open from this look: §2.6 tokenURI (blocked on the EIP-170
+extraction — operator redeploy ceremony), the reserve refill/rate-cut
+decision, and the two permissionless ETH-lane calls.
+
 ## 8. Recommended fix order (all agent-buildable except where noted)
 
 1. **§2.1 JBAC boost** — either wire `stakeWithBoost` (NFT approval + vault
