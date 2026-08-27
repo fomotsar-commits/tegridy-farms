@@ -127,7 +127,23 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: stable
+          # PINNED 2026-08-27 — `version: stable` FLOATS to whatever Foundry last
+          # released, and it bit: foundry v1.8.0 shipped mid-day 2026-08-27 (12:30
+          # UTC), so two runs of the SAME contract code hours apart got different
+          # EVMs — the morning run (forge 1.7.1) was green, the afternoon run
+          # failed two boundary-sensitive tests with zero code change:
+          #   * FinalAudit_AMM::test_AUDIT5_rebaseTokenExploitsBalanceBeforeAfter
+          #     (asserts on reserve0 blind to token sort order), and
+          #   * TegridyNFTPool_Reentrancy::test_reentrancy_swapNFTsForETH_payoutBlocked
+          #     (raw-ETH-vs-WETH payout at the 30k gas-stipend boundary).
+          # A floating toolchain turns every Foundry release day into unexplained
+          # red on unrelated PRs. Pin restored the morning's verified toolchain.
+          #
+          # Bump ritual (same discipline as the #205 toolchain bump, where a
+          # partial bump fired three times): change ALL sites in ONE commit —
+          #   grep -rn "version: v" .github/workflows/   # expect ONE version, 7 sites
+          # — run the full matrix, and fix any boundary test in the same PR.
+          version: v1.7.1
 
       - name: Cache forge deps
         # CI fix 2026-05-17: bumped from v4.0.2 SHA (deprecated by GitHub per
@@ -512,7 +528,9 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: stable
+          # PINNED 2026-08-27 (was `stable`, which FLOATS) — see the build job in
+          # contracts-ci.yml for the incident. Bump ALL 7 sites together, never one.
+          version: v1.7.1
 
       - name: Restore forge cache
         # Same cache key as the build job — restores src compilation so the
@@ -694,7 +712,9 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: stable
+          # PINNED 2026-08-27 (was `stable`, which FLOATS) — see the build job in
+          # contracts-ci.yml for the incident. Bump ALL 7 sites together, never one.
+          version: v1.7.1
 
       - name: Restore forge cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
