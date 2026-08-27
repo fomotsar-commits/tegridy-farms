@@ -428,17 +428,38 @@ contract StreamingRevenueDistributor is
             // `notifyRewardAmount` both respect.
             //
             // So a read we could not perform now changes NOTHING. The mirror keeps
-            // its last known-good value until a readable one replaces it. The
-            // trade is deliberate and it is the safe direction: a stale-high
-            // mirror over-credits an account that has genuinely left, which costs
-            // the pool a bounded amount of stream; a stranger-written zero
-            // under-credits an account that has NOT left, which takes their money.
+            // its last-written value until a readable one replaces it.
             //
-            // Residual, stated rather than hidden: the restaking leg is called with
-            // a gas stipend, so a restaking contract that reverts or exhausts the
-            // stipend holds its own stakers' mirrors stale. That is a misbehaving
-            // dependency, not a caller-chosen attack, and it fails toward the
-            // staker rather than away from them.
+            // THE COST OF THAT, STATED HONESTLY AND MEASURED. An earlier draft of
+            // this comment said the trade "costs the pool a bounded amount" and
+            // "fails toward the staker rather than away from them". An adversarial
+            // review measured both and both were wrong, so they are corrected here
+            // rather than quietly deleted:
+            //
+            //   * It does not cost THE POOL. A frozen mirror keeps its share of the
+            //     stream, so the cost falls on every OTHER staker — measured at
+            //     ~17.6% of entitlement per frozen peer of equal weight. It fails
+            //     toward the account being read and AWAY from everyone else.
+            //   * The blast radius is wider than "restakers". While
+            //     `restakingContract` is wired, a broken restaking read freezes
+            //     EVERY account whose escrow power reads zero — a set dominated by
+            //     exited and expired PLAIN stakers who never touched restaking.
+            //     `_mirrorPower`'s re-ask does NOT rescue them; it is gated on
+            //     `restakingContract == address(0)`.
+            //
+            // What IS true, also measured: the harm is bounded by outage duration
+            // intersected with the schedule, not open-ended — one ordinary
+            // permissionless `sync` after the dependency heals restores both the
+            // mirror and `totalEffectiveSupply` exactly. And it is not
+            // caller-chosen: a reviewer swept every permissionless entry point
+            // trying to trigger it on demand and could not.
+            //
+            // Why this is still the right side of the trade: the alternative — the
+            // pre-2026-08-26 behaviour — wrote a stranger-chosen zero, which is
+            // caller-triggered, unbounded by any outage, and takes money from the
+            // account that did nothing wrong. This costs peers a bounded amount
+            // during a dependency failure. That is worse than nothing and better
+            // than the thing it replaced, and both halves of that sentence matter.
             (bool readable, uint256 newEff) = _mirrorPower(account);
             uint256 oldEff = effectiveBalanceOf[account];
             if (readable && oldEff != newEff) {
@@ -478,8 +499,15 @@ contract StreamingRevenueDistributor is
     ///      `_updateReward` answers "what is this account's power right now?". There,
     ///      an escrow that ANSWERED with zero and no fallback to consult is a real
     ///      zero — it is what an expired lock looks like. Treating it as unreadable
-    ///      froze every expired plain-staker position at its stale-high mirror and
-    ///      kept it accruing forever, which a test caught immediately.
+    ///      froze every expired plain-staker position at its stale-high mirror,
+    ///      which a test caught immediately.
+    ///
+    ///      ⚠ SCOPE, because reading this next to `_updateReward`'s block invites
+    ///      the wrong conclusion: this re-ask fires ONLY when `restakingContract`
+    ///      is unset. Once restaking is wired, a broken restaking read still
+    ///      freezes every account whose escrow power reads zero, expired plain
+    ///      stakers included. That case is NOT fixed here and is recorded in
+    ///      docs/V2_FORFEIT_ATTEMPT5_REVIEW_2026_08_27.md.
     ///
     ///      So: unreadable means the escrow did not answer. It does not mean we had
     ///      nowhere to double-check.
