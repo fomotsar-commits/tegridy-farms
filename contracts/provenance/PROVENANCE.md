@@ -136,6 +136,34 @@ TWAP-poisoning donation primitive.
 | ETH legs: `TransferHelper.safeTransferETH` → `WETHFallbackLib.safeTransferETHOrWrap`; `assert(IWETH.transfer)` → `require(..., "WETH_TRANSFER_FAILED")` | M-03: contract callers without `receive()` must not strand funds; L-08: no gas-eating asserts. WETHFallbackLib itself is audit §3.2 / row 3 — open | router ETH-refund tests in `Audit195_Router.t.sol` |
 | `nonReentrant` on every entrypoint, `Swap`/`LiquidityAdded`/`LiquidityRemoved` events, custom errors, `receive()` gated `ONLY_WETH` | H-15 observability; gas; defence-in-depth | `AuditFixes_Pair.t.sol::test_router_hasNonReentrant` |
 
+### D7. UniswapV2OracleLibrary — verbatim 0.8 port (row 8 re-anchor, 2026-08-27)
+
+`contracts/src/lib/UniswapV2OracleLibrary.sol` replaces `SwapFeeRouterConvertLib`'s hand-derived
+cumulative-price counterfactual (a live delegatecall slippage floor) with a port of the canonical
+library, pinned as its own diff target. The expected diff is **small by construction** — any hunk
+beyond these three named deviations means the port drifted:
+
+| Divergence | One-line rationale | Pinned by |
+|---|---|---|
+| uniswap-lib `FixedPoint.fraction` inlined as `fraction(...)` returning the raw UQ112x112 uint224 (canonical reads `._x` off a struct) | `@uniswap/lib` is not vendorable into 0.8 without a remapping change (forbidden — see [[reference_foundry_19_blocked]] history); the value + DIV_BY_ZERO guard are identical | `Audit_SFR_H01.t.sol::test_SFR_ROW8_fraction_matchesFixedPoint` |
+| minimal `IUniswapV2Pair` declared locally instead of imported from v2-core | same three-selector surface; no import graph into 0.5 sources | interface shape exercised by every ROW8 / SFR-H01 test |
+| explicit `unchecked` around the counterfactual (0.6 wrapping was implicit) | canonical comments say "subtraction/addition overflow is desired" — this IS that semantics under 0.8 | `Audit_SFR_H01.t.sol::test_SFR_ROW8_accumulatorWrap_noPanic` (dies on Panic if `unchecked` is stripped) |
+
+Behavioural equivalence with the removed hand-derivation is pinned by
+`Audit_SFR_H01.t.sol::test_SFR_ROW8_currentCumulativePrices_matchesPairIntegral` (idle-window
+bridge = stored + spot×elapsed, both sides) and `::test_SFR_ROW8_sameBlock_noCounterfactual`
+(the `blockTimestampLast != blockTimestamp` gate), plus the pre-existing SFR-H01
+bootstrap/sandwich/tighten/happy-path suite which runs end-to-end through the port. The wrapper
+`_readCurrentCumulative` keeps only what is deliberately ours: factory pair-resolution, the typed
+`NoPairForToken` guards (including the empty-reserves reject canonical does not have), and
+token→WETH side selection.
+
+**License note (correction to the 2026-08-26 audit doc):** v2-core and v2-periphery are
+**GPL-3.0**, not MIT (verified from the LICENSE files at the pinned commits). The vendored copies
+under `upstream/` are unmodified reference sources with full attribution here and in
+`upstream.lock.json`; the derived port file carries `SPDX-License-Identifier: GPL-3.0-or-later`
+rather than the repo-default MIT.
+
 ## Scope limits (what this gate does NOT check)
 
 - **Imported bodies** (OZ ERC20/SafeERC20/ReentrancyGuard/EnumerableSet, solmate
@@ -144,6 +172,5 @@ TWAP-poisoning donation primitive.
   H-37 ritual; the base-contract files have their own audits.
 - **Deployed bytecode vs source**: this gate proves source lineage; compile/deploy parity is the
   Contracts CI build + `VerifyMVP` deploy gate's job.
-- `UniswapV2OracleLibrary.sol` is vendored + hash-pinned but not yet a diff target — it is the
-  upstream for remediation row 8 (`SwapFeeRouterConvertLib` re-anchor). Add it to `TARGETS` when
-  that lands.
+- ~~`UniswapV2OracleLibrary.sol` is vendored + hash-pinned but not yet a diff target~~ — row 8
+  landed 2026-08-27: it is now the fourth diff target (see D7).

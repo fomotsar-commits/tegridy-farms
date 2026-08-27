@@ -6,6 +6,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SequencerCheck} from "./SequencerCheck.sol";
 import {IWETH} from "./WETHFallbackLib.sol";
+// AUDIT ROW-8 RE-ANCHOR (docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md): the cumulative-
+// price counterfactual is no longer hand-derived here — it comes from the 0.8 port of
+// canonical UniswapV2OracleLibrary, which the v2-provenance CI gate pins byte-for-byte
+// (modulo the named allowlist) against the vendored upstream source.
+import {UniswapV2OracleLibrary} from "./UniswapV2OracleLibrary.sol";
 
 interface IUniswapV2Router02 {
     function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline)
@@ -418,9 +423,20 @@ library SwapFeeRouterConvertLib {
     }
 
     /// @dev AUDIT SFR-H-01: read the Uniswap V2 pair's cumulative price (token → WETH
-    ///      direction) and bridge with `spotPrice * elapsedSinceLastPairTouch` so the
-    ///      cumulative is correct even when the pair has been idle. Mirrors the Uniswap
-    ///      V2 OracleLibrary `currentCumulativePrices` pattern.
+    ///      direction), bridged across any idle window so the integral is current.
+    /// @dev AUDIT ROW-8 RE-ANCHOR: the counterfactual bridge (`spot × elapsed` on top of
+    ///      the stored accumulator, wrap-preserving) is now the provenance-pinned
+    ///      canonical `UniswapV2OracleLibrary.currentCumulativePrices` instead of a
+    ///      hand-derived equivalent. This wrapper keeps only what is OURS on purpose:
+    ///        * pair resolution via the factory (caller cannot lie about the pair);
+    ///        * the typed `NoPairForToken` guards, including the empty-reserves reject
+    ///          the canonical library does not have (an empty pair cannot be swapped
+    ///          through, and rejecting here beats an opaque inner-router revert);
+    ///        * side selection — the canonical helper returns BOTH cumulatives; the
+    ///          token→WETH direction is picked from `token0()`.
+    ///      Behaviour is equivalence-tested against the pre-refactor formula in
+    ///      test/Audit_SFR_H01.t.sol (ROW8 suite), including the same-block no-bridge
+    ///      case and uint256 accumulator wrap.
     function _readCurrentCumulative(Cfg memory cfg, address token)
         internal
         view
@@ -430,38 +446,16 @@ library SwapFeeRouterConvertLib {
         if (pair == address(0)) revert NoPairForToken();
 
         ISwapFeeRouterUniPair p = ISwapFeeRouterUniPair(pair);
-        (uint112 reserve0, uint112 reserve1, uint32 pairTs) = p.getReserves();
-        // No-reserves pair would mean no swap is possible — let the inner router revert
-        // there with a clearer reason. Defensive: if both are zero return zeros.
+        (uint112 reserve0, uint112 reserve1,) = p.getReserves();
+        // No-reserves pair would mean no swap is possible — reject with the typed error
+        // (and keep the canonical library's fraction() from a bare DIV_BY_ZERO revert).
         if (reserve0 == 0 || reserve1 == 0) revert NoPairForToken();
 
-        // SLITHER 2026-05-18: Uniswap V2 oracle-timestamp truncation; not used as randomness source
-        // slither-disable-next-line weak-prng
-        currentTs = uint32(block.timestamp % 2 ** 32);
-        // Spot price token→WETH = reserveWETH / reserveToken (in UQ112x112).
-        // Determine which side `token` is on.
-        bool tokenIsToken0 = p.token0() == token;
-        uint256 cumBase = tokenIsToken0 ? p.price0CumulativeLast() : p.price1CumulativeLast();
-
-        // Bridge the integral across the idle window. spot is `reserveOther / reserveThis`
-        // where `this` is the token side and `other` is the WETH side.
-        uint256 spot;
-        if (tokenIsToken0) {
-            spot = (uint256(reserve1) * Q112_SFR) / reserve0;
-        } else {
-            // SLITHER 2026-05-18: precision/overflow tradeoff acceptable; combined-fraction form risks uint256 overflow on large inputs
-            // slither-disable-next-line divide-before-multiply
-            spot = (uint256(reserve0) * Q112_SFR) / reserve1;
-        }
-        uint32 bridgeElapsed;
-        unchecked {
-            // uint32 modular subtraction — safe across the year-2106 rollover.
-            bridgeElapsed = currentTs - pairTs;
-        }
-        unchecked {
-            // Modular addition matches Uniswap V2 wrapping accumulator semantics.
-            currentCum = cumBase + (spot * uint256(bridgeElapsed));
-        }
+        (uint256 price0Cumulative, uint256 price1Cumulative, uint32 blockTimestamp) =
+            UniswapV2OracleLibrary.currentCumulativePrices(pair);
+        currentTs = blockTimestamp;
+        // Spot/cumulative direction token→WETH: price0 is token0-denominated.
+        currentCum = p.token0() == token ? price0Cumulative : price1Cumulative;
     }
 
     /// @dev AUDIT SFR-H-01: derive the internal TWAP-floor minETHOut from the snapshot

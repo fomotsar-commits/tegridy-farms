@@ -106,6 +106,19 @@ const TARGETS = [
     ],
   },
   {
+    // Row-8 re-anchor: a deliberate 0.8 PORT of the canonical oracle library, so the
+    // expected diff here is small by construction — pragma/import/unchecked/inlined-
+    // FixedPoint only. Any other hunk means the port drifted from canonical.
+    name: 'UniswapV2OracleLibrary',
+    ours: 'contracts/src/lib/UniswapV2OracleLibrary.sol',
+    upstream: ['upstream/v2-periphery/UniswapV2OracleLibrary.sol'],
+    snapshot: 'expected/UniswapV2OracleLibrary.expected.diff',
+    renames: [],
+    minOurs: 20, //     the port is ~30 normalized statements — the global floors are for the big forks
+    minUpstream: 12, // canonical library is ~20 normalized statements
+    minChanged: 6, //   and its diff is deliberately tiny
+  },
+  {
     name: 'TegridyRouter',
     ours: 'contracts/src/TegridyRouter.sol',
     upstream: [
@@ -130,8 +143,11 @@ const TARGETS = [
 // Floors so this gate can never pass over nothing (a gate that compared two
 // empty streams would report "no drift" — same false-green shape as the CI
 // slice guards). Values are well under the real sizes (see PROVENANCE.md).
+// A target may override with `minOurs` / `minChanged` when it is deliberately
+// small (the verbatim oracle-library port), never to loosen a fork's floor.
 const MIN_OURS_LINES = 100;
 const MIN_UPSTREAM_LINES = 30;
+const MIN_CHANGED_LINES = 20;
 
 // ---------------------------------------------------------------------------
 // small utils
@@ -459,11 +475,13 @@ function computeTarget(t, lock) {
     upLines.push(...normalizeSource(readLf(path.join(PROV, vendored)), [], { isUpstream: true }));
   }
 
-  if (oursLines.length < MIN_OURS_LINES) {
-    throw new Error(`${t.name}: normalized OUR side is only ${oursLines.length} lines (< ${MIN_OURS_LINES}) — refusing to compare near-nothing`);
+  const minOurs = t.minOurs ?? MIN_OURS_LINES;
+  if (oursLines.length < minOurs) {
+    throw new Error(`${t.name}: normalized OUR side is only ${oursLines.length} lines (< ${minOurs}) — refusing to compare near-nothing`);
   }
-  if (upLines.length < MIN_UPSTREAM_LINES) {
-    throw new Error(`${t.name}: normalized UPSTREAM side is only ${upLines.length} lines (< ${MIN_UPSTREAM_LINES}) — refusing to compare near-nothing`);
+  const minUpstream = t.minUpstream ?? MIN_UPSTREAM_LINES;
+  if (upLines.length < minUpstream) {
+    throw new Error(`${t.name}: normalized UPSTREAM side is only ${upLines.length} lines (< ${minUpstream}) — refusing to compare near-nothing`);
   }
 
   const ops = diffLines(upLines, oursLines);
@@ -527,12 +545,12 @@ function main() {
     let allOk = true;
     for (const t of TARGETS) {
       const got = computeTarget(t, lock);
-      // "compared nothing" guard: every target is a heavy fork, so a tiny
-      // changed-line volume means the comparison did not measure what it
-      // claims to (hunk COUNT is the wrong metric — context merging collapses
-      // many divergences into few hunks).
-      if (got.minus + got.plus < 20) {
-        fail(`${t.name}: only ${got.minus + got.plus} changed lines vs upstream — below any plausible floor for this fork; the comparison did not measure what it claims to measure`);
+      // "compared nothing" guard: a tiny changed-line volume means the
+      // comparison did not measure what it claims to (hunk COUNT is the wrong
+      // metric — context merging collapses many divergences into few hunks).
+      const minChanged = t.minChanged ?? MIN_CHANGED_LINES;
+      if (got.minus + got.plus < minChanged) {
+        fail(`${t.name}: only ${got.minus + got.plus} changed lines vs upstream — below this target's floor (${minChanged}); the comparison did not measure what it claims to measure`);
         allOk = false;
         continue;
       }
