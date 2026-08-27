@@ -496,7 +496,6 @@ async function refresh(lock) {
     const p = path.join(PROV, f.vendored);
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, body);
-    f.sha256raw = sha256(body);
   }
   for (const [, src] of Object.entries(lock.sources)) {
     for (const f of src.files) {
@@ -572,7 +571,7 @@ function main() {
       const metaChanged = meta.filter((o) => o.t !== ' ');
       fail(
         `${t.name}: V2 divergence set CHANGED — the normalized diff against canonical Uniswap V2\n` +
-          `   no longer matches ${rel(t.ours ? path.join(PROV, t.snapshot) : snapPath)}.\n` +
+          `   no longer matches ${rel(snapPath)}.\n` +
           `   This gate fires on ANY change to ${t.ours} that survives normalization — that is its job.\n` +
           `   If the change is deliberate: re-pin with --update-snapshots AND name the divergence in\n` +
           `   contracts/provenance/PROVENANCE.md (rationale + the test that pins it) in the same commit.\n` +
