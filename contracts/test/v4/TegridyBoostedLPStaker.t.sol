@@ -22,11 +22,14 @@ contract MockReward is ERC20 {
 contract MockStakingBoost {
     uint256 public boost;
     bool public reverting;
+    mapping(address => uint256) public override_;
     function setBoost(uint256 b) external { boost = b; }
+    function setBoostFor(address who, uint256 b) external { override_[who] = b; }
     function setReverting(bool r) external { reverting = r; }
-    function aggregateActiveBoostBps(address) external view returns (uint256) {
+    function aggregateActiveBoostBps(address who) external view returns (uint256) {
         require(!reverting, "STAKING_DOWN");
-        return boost;
+        uint256 o = override_[who];
+        return o != 0 ? o : boost;
     }
 }
 
@@ -101,6 +104,21 @@ contract TegridyBoostedLPStakerTest is Test {
         );
 
         pm.mintTo(alice, TOKEN_ID);
+        pm.mintTo(bob, TOKEN_ID_2);
+    }
+
+    address bob = makeAddr("bob");
+    uint256 constant TOKEN_ID_2 = 2;
+
+    function _fundRewards(uint256 amount, uint256 duration) internal {
+        reward.mint(address(this), amount);
+        reward.approve(address(staker), amount);
+        staker.notifyRewardAmount(amount, duration);
+    }
+
+    function _depositAs(address who, uint256 tokenId) internal {
+        vm.prank(who);
+        staker.deposit(tokenId);
     }
 
     function _deposit() internal {
@@ -171,4 +189,40 @@ contract TegridyBoostedLPStakerTest is Test {
         staker.deposit(TOKEN_ID);
         assertEq(pm.ownerOf(TOKEN_ID), alice, "NFT not pulled on a failed deposit");
     }
+    /// @notice RESIDUAL from the review: a mid-outage withdrawer exits tolerantly at
+    ///         1x, and this must NOT retroactively cheapen what they already earned at
+    ///         their real boost. `updateReward` crystallises BEFORE `_resync` degrades,
+    ///         so the pre-outage accrual is banked at the boosted share and pays in full.
+    ///         Two stakers with DIFFERENT boosts, so the boost actually drives the split.
+    function test_WithdrawMidOutagePaysFullBoostedPreOutageAccrual() public {
+        staking.setBoostFor(alice, 45_000); // 4.5x
+        staking.setBoostFor(bob, 10_000);   // 1x
+        _depositAs(alice, TOKEN_ID);
+        _depositAs(bob, TOKEN_ID_2);
+        // alice effective = LIQ*4.5, bob = LIQ*1 → alice's share is 4.5/5.5.
+        assertEq(staker.effectiveBalanceOf(alice), uint256(LIQ) * 45_000 / 10_000);
+
+        _fundRewards(5.5 ether, 30 days);
+        skip(10 days);
+
+        // Snapshot alice's earned at her real 4.5x share, at this exact instant.
+        uint256 earnedBoosted = staker.earned(alice);
+        assertGt(earnedBoosted, 0);
+
+        // Oracle goes down; alice withdraws in the SAME block (no further accrual).
+        staking.setReverting(true);
+        vm.prank(alice);
+        staker.withdraw(TOKEN_ID);
+
+        // Crystallised at the boosted share, not re-split at the degraded 1x.
+        assertEq(staker.rewards(alice), earnedBoosted, "boosted accrual cheapened on a tolerant exit");
+        assertEq(pm.ownerOf(TOKEN_ID), alice, "NFT returned");
+
+        // And it actually pays out in full.
+        uint256 balBefore = reward.balanceOf(alice);
+        vm.prank(alice);
+        staker.getReward();
+        assertEq(reward.balanceOf(alice) - balBefore, earnedBoosted, "did not pay the full boosted accrual");
+    }
+
 }
