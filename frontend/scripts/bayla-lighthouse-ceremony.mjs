@@ -71,6 +71,17 @@ async function confirm(connection, sig) {
   return sig;
 }
 
+// BAYLA is a Token-2022 mint (owner TokenzQd… — verified on mainnet
+// 2026-08-26 after the first broadcast died with IncorrectProgramId during
+// vault init). The SDK threads tokenProgramId through every call; detect the
+// mint's owner program instead of ever assuming legacy SPL.
+async function detectTokenProgram(connection, mint) {
+  const info = await connection.getAccountInfo(new PublicKey(mint));
+  if (!info) throw new Error(`mint ${mint} not found on this cluster`);
+  log(`token program for ${mint.slice(0, 6)}…: ${info.owner.toBase58()}`);
+  return info.owner.toBase58();
+}
+
 async function rehearse() {
   const clusterUrl = val('--rpc', 'https://api.devnet.solana.com');
   const connection = new Connection(clusterUrl, 'confirmed');
@@ -263,7 +274,9 @@ async function mainnet() {
   log(`signer ${payer.publicKey.toBase58()}`);
 
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
-  const ext = { invoker: payer };
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
   const created = await client.createStakePool({
     mint,
     nonce,
@@ -271,6 +284,7 @@ async function mainnet() {
     maxDuration: new BN(maxDays * DAY),
     maxWeight: new BN(1_000_000_000),
     permissionless: false,
+    tokenProgramId,
   }, ext);
   const stakePool = String(created.metadataId);
   log(`✓ stake pool ${stakePool} (tx ${created.txId})`);
@@ -284,6 +298,7 @@ async function mainnet() {
     stakePoolMint: mint,
     stakePoolNonce: nonce,
     lastClaimPeriodOpt: null,
+    tokenProgramId,
   }, ext);
   log(`✓ reward pool ${String(rp.metadataId)} (tx ${rp.txId})`);
   log('');
@@ -322,8 +337,11 @@ async function fund() {
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
   const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
 
+  const tokenProgramId = await detectTokenProgram(connection, mint);
   log('ensuring Streamflow treasury ATA for the reward mint…');
-  await createAssociatedTokenAccountIdempotent(connection, payer, new PublicKey(mint), STREAMFLOW_TREASURY);
+  await createAssociatedTokenAccountIdempotent(
+    connection, payer, new PublicKey(mint), STREAMFLOW_TREASURY, undefined, new PublicKey(tokenProgramId),
+  );
   log(`fundPool… ${amountWhole.toLocaleString()} BAYLA`);
   const res = await client.fundPool({
     stakePool: pool,
@@ -332,6 +350,7 @@ async function fund() {
     nonce: Number(val('--nonce', '0')),
     amount: amountRaw,
     feeValue: null,
+    tokenProgramId,
   }, ext);
   log(`✓ funded (tx ${res.txId})`);
   log(`solscan: https://solscan.io/tx/${res.txId}`);

@@ -12,13 +12,14 @@ const searchStakeEntries = vi.fn();
 const unstakeAndClaim = vi.fn();
 const claimRewards = vi.fn();
 const getTokenAccountBalance = vi.fn();
+const getAccountInfo = vi.fn();
 const prepareStakeInstructions = vi.fn();
 const prepareCreateRewardEntryInstructions = vi.fn();
 const execute = vi.fn();
 
 vi.mock('@streamflow/staking', () => ({
   SolanaStakingClient: class {
-    connection = { getTokenAccountBalance };
+    connection = { getTokenAccountBalance, getAccountInfo };
     getStakePool = getStakePool;
     searchRewardPools = searchRewardPools;
     searchStakeEntries = searchStakeEntries;
@@ -56,7 +57,7 @@ beforeEach(() => {
 });
 
 describe('readPool', () => {
-  it('maps pool + reward pools and reads each reward vault balance', async () => {
+  it('maps pool + reward pools, reads vault balances, and DETECTS the token program', async () => {
     getStakePool.mockResolvedValue({
       mint: 'MintAddr', minDuration: bn(86400), maxDuration: bn(86400 * 30), totalStake: bn('5000000'),
     });
@@ -64,12 +65,16 @@ describe('readPool', () => {
       { publicKey: 'Rp1', account: { mint: 'MintAddr', nonce: bn(0), vault: 'Vault1', rewardAmount: bn('3000'), rewardPeriod: bn(86400) } },
     ]);
     getTokenAccountBalance.mockResolvedValue({ value: { amount: '0' } });
+    // BAYLA lesson (mainnet 2026-08-26): the mint owner is Token-2022, and
+    // assuming legacy dies with IncorrectProgramId — detection is mandatory.
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb' } });
 
     const r = await readPool(POOL);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.pool.minDurationSecs).toBe(86400);
     expect(r.pool.totalStakeRaw).toBe(5_000_000n);
+    expect(r.pool.tokenProgram).toBe('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
     expect(r.pool.rewardPools).toHaveLength(1);
     // FUNDING-LAST: an empty vault is a real 0n, not null/unknown.
     expect(r.pool.rewardPools[0]!.fundedRaw).toBe(0n);
@@ -118,7 +123,8 @@ describe('readEntries + nextVacantNonce', () => {
 
 describe('stake', () => {
   const pool = {
-    address: POOL, mint: 'MintAddr', minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
+    address: POOL, mint: 'MintAddr', tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+    minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
     totalStakeRaw: 0n,
     rewardPools: [{ address: 'Rp1', mint: 'MintAddr', nonce: 3, fundedRaw: 0n, rewardAmountRaw: '1', rewardPeriodSecs: 86400 }],
   };
@@ -129,6 +135,7 @@ describe('stake', () => {
     prepareStakeInstructions.mockResolvedValue({ ixs: [{ __ix: 'stake' }] });
     prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [{ __ix: 'reward-entry' }] });
     execute.mockResolvedValue({ txId: 'SIG' });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
     const r = await stake({ invoker, pool, amountRaw: 123n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.txId).toBe('SIG');
@@ -143,16 +150,20 @@ describe('stake', () => {
     expect(stakeArgs.nonce).toBe(0);
     expect(stakeArgs.amount.toString()).toBe('123');
     expect(stakeArgs.duration.toString()).toBe('86400');
+    // The BAYLA Token-2022 lesson: the pool's detected program rides every write.
+    expect(stakeArgs.tokenProgramId).toBe(pool.tokenProgram);
     const [entryArgs] = prepareCreateRewardEntryInstructions.mock.calls[0]!;
     expect(entryArgs.rewardPoolNonce).toBe(3);
     expect(entryArgs.depositNonce).toBe(0);
     expect(entryArgs.stakePoolMint).toBe('MintAddr');
+    expect(entryArgs.tokenProgramId).toBe(pool.tokenProgram);
   });
 
   it('maps a wallet rejection to the human refusal line', async () => {
     prepareStakeInstructions.mockResolvedValue({ ixs: [] });
     prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
     execute.mockRejectedValue(new Error('User rejected the request'));
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
     const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe('You declined the signature — nothing moved.');
