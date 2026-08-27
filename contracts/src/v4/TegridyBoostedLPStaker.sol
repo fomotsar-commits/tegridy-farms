@@ -179,12 +179,32 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         _resync(lp);
     }
 
-    function _resync(address lp) internal {
-        uint256 raw = liquidityOf[lp];
-        uint256 boost = staking.aggregateActiveBoostBps(lp);
+    /// @dev The active-boost read, made NON-REVERTING. (2026-08-27, principal-trap fix)
+    ///
+    ///      A staker's escrowed LP NFT must be withdrawable regardless of the boost
+    ///      oracle's state. Synthetix `StakingRewards.withdraw` touches nothing external
+    ///      but the staking-token transfer; here `withdraw` calls `_resync`, and if the
+    ///      boost read reverted (staking paused, a checkpoint bug, a future ABI break)
+    ///      `_resync` reverted and the NFT — the user's own principal — was TRAPPED.
+    ///
+    ///      A failed read now degrades to the 1x floor (no boost). That UNDER-credits
+    ///      the account, which is the safe direction (it can never over-pay the pool),
+    ///      and it self-heals: the next `refreshBoost`/`deposit`/`withdraw` re-reads a
+    ///      healthy oracle. The one guarantee that matters — the NFT comes back — now
+    ///      holds unconditionally.
+    function _activeBoostBps(address lp) internal view returns (uint256 boost) {
+        try staking.aggregateActiveBoostBps(lp) returns (uint256 b) {
+            boost = b;
+        } catch {
+            boost = BPS; // 1x floor on a failed read — never trap the position
+        }
         if (boost > MAX_BOOST_BPS) boost = MAX_BOOST_BPS;
         if (boost < BPS) boost = BPS; // 1x floor
-        uint256 newEff = raw * boost / BPS;
+    }
+
+    function _resync(address lp) internal {
+        uint256 raw = liquidityOf[lp];
+        uint256 newEff = raw * _activeBoostBps(lp) / BPS;
         totalEffectiveSupply = totalEffectiveSupply - effectiveBalanceOf[lp] + newEff;
         effectiveBalanceOf[lp] = newEff;
     }
