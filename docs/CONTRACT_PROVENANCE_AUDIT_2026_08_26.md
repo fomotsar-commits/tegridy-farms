@@ -325,6 +325,31 @@ The real coupling hazard is the other one: `StakingMonitorView` reconstructs `Po
 
 **`LockerClaimer.sol` (45 SLOC) — no upstream exists.** The problem — "be an address that can be *named* as beneficiary of a pull-based, self-addressed fee locker and can itself *originate* the `releaseFees` call" — is specific to Doppler's `StreamableFeesLocker` paying `msg.sender` only. Dependencies used unmodified: OZ `ReentrancyGuard` and Solady `SafeTransferLib` (submodule clean at `acd959aa`, v0.1.26). The counterparty at `0xe24FC2F7191e850e2D4514aBb4d39305b1871eC6` is third-party Doppler and the interface was verified against deployed runtime by `eth_getCode` + selector scan (:8-15). **This is the one file that both uses Solady's SafeTransferLib correctly and verified its counterparty ABI against bytecode. It is the template.**
 
+## 6b. Row 0, answered in part — the float is currently ZERO
+
+The remediation list opens with "verify whether the owner holds an untimelocked drain of the entire
+undistributed ETH float, before anything else." Half of that is answerable from a read, and it was
+done 2026-08-26 against mainnet (`eth_getBalance`, publicnode):
+
+```
+RevenueDistributor  0xF993316E2fC079de4358c489A935E01e03E23E17
+  ETH balance : 0.0 ETH
+  code bytes  : 22,926
+  keccak(code): 0xa50deedb03bdd537f7203ed77b2338d8592b2cf77d5e86a50ec9ef83921ad864
+```
+
+**There is nothing to drain today.** That does not retire the finding — it re-prices it. This is a
+*fix-before-it-holds-money* item, not an incident, and the honest sequencing follows from that:
+
+- It stops being free the moment the fee rail starts remitting here. `ReferralSplitter.callerCredit`
+  already holds ~2.4e12 wei that `recoverCallerCredit()` would move (remediation row 16), and the
+  swap-fee rail is the thing being switched on.
+- The second half of row 0 — does the *deployed* bytecode actually contain the untimelocked
+  path — is still open and needs a compile-and-compare against the source at the deploy commit,
+  not a read. The code hash above is the fixed point to compare against.
+
+Treat row 0 as **blocking the first ETH remittance into this contract**, not as blocking today.
+
 ## 7. The remediation list
 
 Ordered by (value at risk × novelty) / effort. **Pre-deploy** rows cost a deploy; **Live** rows cost a migration.
