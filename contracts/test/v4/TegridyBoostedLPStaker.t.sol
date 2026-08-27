@@ -134,19 +134,41 @@ contract TegridyBoostedLPStakerTest is Test {
         assertEq(staker.effectiveBalanceOf(alice), 0, "effective balance cleared");
     }
 
-    /// @notice A boost-oracle outage degrades a remaining position to the 1x floor
-    ///         rather than reverting — the safe, self-healing direction.
-    function test_OutageDegradesToFloorAndSelfHeals() public {
+    /// @notice THE ANTI-DIVERSION INVARIANT. `refreshBoost` is permissionless. An
+    ///         oracle outage must NOT let a stranger deflate a victim's boost to 1x —
+    ///         that would skim the victim's future accrual onto everyone else (the
+    ///         permissionless-write + degraded-read diversion the v2 distributor was
+    ///         rebuilt to kill). So a refresh on a bad read REVERTS and leaves the
+    ///         victim exactly as they were.
+    function test_RefreshBoostRevertsDuringOutageAndCannotDeflateAVictim() public {
         _deposit();
-        assertEq(staker.effectiveBalanceOf(alice), uint256(LIQ) * 2);
+        uint256 boostedBefore = staker.effectiveBalanceOf(alice);
+        assertEq(boostedBefore, uint256(LIQ) * 2);
 
         staking.setReverting(true);
-        staker.refreshBoost(alice); // permissionless poke; must not revert
-        assertEq(staker.effectiveBalanceOf(alice), uint256(LIQ), "degraded to 1x floor");
 
-        // Oracle recovers; the next poke restores the boost.
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(bytes("STAKING_DOWN"));
+        staker.refreshBoost(alice);
+
+        // Untouched: the outage cost the victim nothing.
+        assertEq(staker.effectiveBalanceOf(alice), boostedBefore, "victim boost deflated by a stranger");
+
+        // And it self-heals: once the oracle is back, a refresh keeps the boost.
         staking.setReverting(false);
         staker.refreshBoost(alice);
-        assertEq(staker.effectiveBalanceOf(alice), uint256(LIQ) * 2, "re-boosted on recovery");
+        assertEq(staker.effectiveBalanceOf(alice), uint256(LIQ) * 2, "boost not preserved on recovery");
+    }
+
+    /// @notice Deposit is strict too: on a bad read it reverts atomically, so the
+    ///         caller keeps their NFT and simply retries. (Only the exit path is
+    ///         allowed to proceed on a failed read.)
+    function test_DepositRevertsDuringOutage() public {
+        staking.setReverting(true);
+        vm.prank(alice);
+        vm.expectRevert(bytes("STAKING_DOWN"));
+        staker.deposit(TOKEN_ID);
+        assertEq(pm.ownerOf(TOKEN_ID), alice, "NFT not pulled on a failed deposit");
     }
 }

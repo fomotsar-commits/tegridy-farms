@@ -159,7 +159,7 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         depositorOf[tokenId] = msg.sender;
         positionLiquidity[tokenId] = liq;
         liquidityOf[msg.sender] += liq;
-        _resync(msg.sender);
+        _resync(msg.sender, false);
         emit Deposited(msg.sender, tokenId, liq);
     }
 
@@ -169,14 +169,14 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         delete depositorOf[tokenId];
         delete positionLiquidity[tokenId];
         liquidityOf[msg.sender] -= liq;
-        _resync(msg.sender);
+        _resync(msg.sender, true);
         positionManager.safeTransferFrom(address(this), msg.sender, tokenId);
         emit Withdrawn(msg.sender, tokenId, liq);
     }
 
     /// @notice Re-apply `lp`'s current boost (permissionless poke).
     function refreshBoost(address lp) external updateReward(lp) {
-        _resync(lp);
+        _resync(lp, false);
     }
 
     /// @dev The active-boost read, made NON-REVERTING. (2026-08-27, principal-trap fix)
@@ -192,19 +192,40 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
     ///      and it self-heals: the next `refreshBoost`/`deposit`/`withdraw` re-reads a
     ///      healthy oracle. The one guarantee that matters — the NFT comes back — now
     ///      holds unconditionally.
-    function _activeBoostBps(address lp) internal view returns (uint256 boost) {
-        try staking.aggregateActiveBoostBps(lp) returns (uint256 b) {
-            boost = b;
-        } catch {
-            boost = BPS; // 1x floor on a failed read — never trap the position
+    ///      TOLERANCE IS SCOPED TO THE SELF-EXIT PATH. (2026-08-27, hardened)
+    ///      `tolerant` is true ONLY on `withdraw`, where msg.sender is removing THEIR
+    ///      OWN position and the guarantee that matters is the NFT coming back. It is
+    ///      false on `deposit` and `refreshBoost`.
+    ///
+    ///      Why not tolerant everywhere: `refreshBoost(lp)` is PERMISSIONLESS and can
+    ///      target any account. If it degraded on an oracle revert, a stranger could
+    ///      call `refreshBoost(victim)` during an oracle outage to drop the victim's
+    ///      boost to 1x while keeping their own stale-high — deflating the victim's
+    ///      FUTURE accrual and skimming the shared stream onto themselves. That is the
+    ///      exact permissionless-write + degraded-read diversion the v2 distributor was
+    ///      refactored to kill. So the non-exit paths REVERT on an oracle failure: a
+    ///      failed `refreshBoost` is a harmless no-op that leaves the victim untouched,
+    ///      and a failed `deposit` reverts atomically (the caller keeps their NFT and
+    ///      retries). Only the caller's own exit is allowed to proceed on a bad read.
+    function _activeBoostBps(address lp, bool tolerant) internal view returns (uint256 boost) {
+        if (tolerant) {
+            try staking.aggregateActiveBoostBps(lp) returns (uint256 b) {
+                boost = b;
+            } catch {
+                boost = BPS; // 1x floor on a failed read — never trap the exiting position
+            }
+        } else {
+            // Non-exit paths: a revert propagates, so no permissionless caller can
+            // move another account's boost by forcing (or exploiting) an oracle failure.
+            boost = staking.aggregateActiveBoostBps(lp);
         }
         if (boost > MAX_BOOST_BPS) boost = MAX_BOOST_BPS;
         if (boost < BPS) boost = BPS; // 1x floor
     }
 
-    function _resync(address lp) internal {
+    function _resync(address lp, bool tolerant) internal {
         uint256 raw = liquidityOf[lp];
-        uint256 newEff = raw * _activeBoostBps(lp) / BPS;
+        uint256 newEff = raw * _activeBoostBps(lp, tolerant) / BPS;
         totalEffectiveSupply = totalEffectiveSupply - effectiveBalanceOf[lp] + newEff;
         effectiveBalanceOf[lp] = newEff;
     }
