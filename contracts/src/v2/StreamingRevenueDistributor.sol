@@ -536,28 +536,60 @@ contract StreamingRevenueDistributor is
     ///      an empty account). `_updateReward` deliberately keeps consuming the
     ///      degraded zero (liveness over accuracy, see `_effectivePower`); honesty
     ///      surfaces like `isSynced` MUST consume `readable` instead of trusting it.
+    /// @dev THE TWO POWER LEGS ARE ADDITIVE. (2026-08-27)
+    ///
+    ///      This used to SHORT-CIRCUIT: `if (power > 0) return (true, power);`, so
+    ///      the restaking leg was consulted only when the staking leg read zero. An
+    ///      account holding BOTH a live stake and a restake was therefore mirrored
+    ///      at its staking leg alone and its restaked weight silently discarded.
+    ///
+    ///      That is not an edge case. `TegridyStaking.stake` gates on
+    ///      `userTokenId[msg.sender] == 0`, and restaking transfers the NFT out and
+    ///      clears that pointer — so `stake -> restake -> stake` is a permitted
+    ///      flow that leaves one veNFT owned and one custodied. Measured against
+    ///      the real contracts: staking leg 228.45e18, restaked leg 45,690e18,
+    ///      mirror written 228.45e18 — 99.50% of the account's weight left OUTSIDE
+    ///      the accrual set, while `isSynced` returned true and certified it.
+    ///
+    ///      It was also weaponisable. A stranger can gift a restaker a live veNFT
+    ///      without consent (`StakingRewardLib.afterTokenTransfer` gates only on
+    ///      `userTokenId[to] != 0`, and a restaker's is zero), then call the
+    ///      permissionless `sync(victim)`: the freshly non-zero staking leg
+    ///      short-circuited the real restaked weight away. Reproduced at a 2,816x
+    ///      mirror collapse, moving 31.478 ETH of a 70 ETH schedule to other
+    ///      stakers.
+    ///
+    ///      Summing is what v1 did (its audited additive aggregation) and what this
+    ///      repo's own `lib/VotePowerOracle` does. It cannot double-count: a
+    ///      position is either owned by the account or custodied by the restaking
+    ///      contract, never both, so the legs are disjoint by construction.
+    ///
+    ///      READABILITY IS CONJUNCTIVE, and deliberately stricter than before. A
+    ///      total is only known when EVERY leg that contributes to it answered. If
+    ///      either read reverts or exhausts its gas stipend the total is unknown,
+    ///      `readable` is false, and `_updateReward` preserves the existing mirror
+    ///      rather than writing a number it cannot stand behind. The old code
+    ///      returned `(true, restakedOnly)` when the staking read failed — that is
+    ///      a confident total assembled from one of two legs, and it under-credits
+    ///      exactly the dual-position accounts this fix exists for.
     function _tryEffectivePower(address account) internal view returns (bool readable, uint256 power) {
-        bool primaryReadable = true;
+        bool stakingReadable = true;
+        uint256 stakingPower;
         try votingEscrow.votingPowerOf(account) returns (uint256 p) {
-            power = p;
+            stakingPower = p;
         } catch {
-            primaryReadable = false;
+            stakingReadable = false;
         }
-        if (power > 0) return (true, power);
 
-        // Restakers read 0 above because TegridyRestaking custodies the NFT. Same
-        // fallback as v1's NEW-S1; without it every restaker mirrors in at zero and
-        // is silently paid nothing.
-        //
-        // `(false, 0)` and not `(primaryReadable, 0)`: with no fallback wired there
-        // may be restakers this contract cannot see, so it cannot certify a zero.
-        // `isSynced` depends on that — see `_mirrorPower` for the one caller that
-        // needs the opposite answer, and why.
-        if (address(restakingContract) == address(0)) return (false, 0);
+        // With no fallback wired there may be restakers this contract cannot see,
+        // so it cannot certify a zero. `isSynced` depends on that — see
+        // `_mirrorPower` for the one caller that needs the opposite answer, and why.
+        if (address(restakingContract) == address(0)) {
+            return (stakingReadable && stakingPower > 0, stakingPower);
+        }
+
         try restakingContract.boostedAmountAt{gas: RESTAKING_CALL_GAS}(account, block.timestamp) returns (uint256 p) {
-            // A positive restaked balance is real data even during a staking outage;
-            // a zero is only trustworthy when the primary read was also readable.
-            return (p > 0 || primaryReadable, p);
+            return (stakingReadable, stakingPower + p);
         } catch {
             return (false, 0);
         }
