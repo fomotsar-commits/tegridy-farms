@@ -35,9 +35,16 @@ import { ArtImg } from '../ArtImg';
  * the status card.
  */
 export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
+  // The hero must not keep saying "being built" once the pool exists — the
+  // 2026-08-27 audit caught exactly that stale claim in prod after the BAYLA
+  // lighthouse went live on-chain. Copy branches on the same registry fact
+  // (stakePool) that swaps the dark card for the live section below.
+  const poolIsLive = Boolean(bungalow.stakePool);
   usePageTitle(
     `Farm — ${bungalow.symbol}`,
-    `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,
+    poolIsLive
+      ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — the lighthouse pool is live at Jungle Bay Island.`
+      : `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
@@ -60,9 +67,20 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           Stake {bungalow.symbol}.
         </h1>
         <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
-          {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
-          {chainLabel} — and until it is deployed and verified, this page makes no
-          promises and asks for nothing.
+          {poolIsLive ? (
+            <>
+              {bungalow.tagline} The lighthouse pool is live for {bungalow.symbol} on{' '}
+              {chainLabel} — created on-chain, readable by anyone. The numbers below
+              are read straight from the pool, and rewards only ever show what the
+              vault actually holds.
+            </>
+          ) : (
+            <>
+              {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
+              {chainLabel} — and until it is deployed and verified, this page makes no
+              promises and asks for nothing.
+            </>
+          )}
         </p>
       </div>
 
