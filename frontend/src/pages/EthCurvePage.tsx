@@ -34,7 +34,7 @@ export function CurveHowItWorks() {
     { k: 'Zero third-party tolls', v: 'No Airlock, no migrator, no petition. 100% of the 1% trade fee stays in-house.' },
     { k: 'Fee split 40 / 25 / 35', v: 'Every trade funds the creator (40%), the Jungle Bay treasury (25%) and the protocol (35%).' },
     { k: 'Graduate to us', v: 'Hitting the raise target seeds the Tegridy pool with all raised ETH + unsold tokens — LP burned to 0x…dEaD, nobody can pull it.' },
-    { k: '3.69% survival reserve', v: "Carved from each launch's supply and released to fund that pool's LP incentives, bribes and bounties." },
+    { k: '3.69% ecosystem reserve', v: "Carved from each launch's supply and sent to protocol custody at graduation, then used at the protocol's discretion toward that token's ecosystem — liquidity incentives, campaigns and bounties. Discretionary, not enforced on-chain." },
   ];
   return (
     <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
