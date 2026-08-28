@@ -215,6 +215,7 @@ export const ROUTES: readonly RouteSpec[] = [
   },
   { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx', gate: null, knownViolations: [] },
   { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx', gate: null, knownViolations: [] },
+  { path: '/eth-curve/:token', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
   { path: '/launch', owner: 'pages/LaunchPage.tsx', gate: null, knownViolations: ['form-field-label'] },
   {
     path: '/launch/:token',
@@ -596,5 +597,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // Zero address: every launcher probe fails -> the page's honest not-found
+  // state, which still renders the h1 the sweep asserts.
+  if (route.path === '/eth-curve/:token') return '/eth-curve/0x0000000000000000000000000000000000000000';
   return route.path;
 }

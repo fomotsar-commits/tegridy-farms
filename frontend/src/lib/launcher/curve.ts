@@ -165,6 +165,53 @@ export function saleSupplyForReserveBps(reserveBps: number): bigint {
   return CURVE_TOTAL_SUPPLY - reserveAmount;
 }
 
+/**
+ * Spot price of ONE whole token (1e18 units) in wei, from the same virtual
+ * reserves the contract trades on. Floors, like every read here. Returns 0n for
+ * an emptied tokenReserve (post-graduation state) rather than dividing by zero.
+ */
+export function curveSpotPriceWei(
+  launch: Pick<CurveLaunch, 'virtualEth' | 'ethReserve' | 'tokenReserve'>,
+): bigint {
+  if (launch.tokenReserve <= 0n) return 0n;
+  return ((launch.virtualEth + launch.ethReserve) * 10n ** 18n) / launch.tokenReserve;
+}
+
+/**
+ * Market cap in wei: spot price x the FIXED total supply, computed in one
+ * division so the only floor is the last one. This is an honest client-side
+ * number on the EVM curve — supply is a compile-time constant and both reserves
+ * come from one getLaunch read — unlike the Solana surface, whose no-fabricated-
+ * FDV rule (OWN_CURVE_FRONTEND_CONTRACT §9) exists because neither is readable
+ * there. Returns 0n post-graduation; the pool prices it from then on.
+ */
+export function curveMarketCapWei(
+  launch: Pick<CurveLaunch, 'virtualEth' | 'ethReserve' | 'tokenReserve'>,
+): bigint {
+  if (launch.tokenReserve <= 0n) return 0n;
+  return ((launch.virtualEth + launch.ethReserve) * CURVE_TOTAL_SUPPLY) / launch.tokenReserve;
+}
+
+/**
+ * Pick which chain a curve token lives on from per-chain getLaunch probe
+ * results. A token address does not name its chain — and the same address IS a
+ * different contract on another chain in this very deploy history — so the
+ * token page probes every deployed launcher and picks here:
+ *   - `preferred` (the ?c= query param) wins when its probe succeeded;
+ *   - otherwise the first success in probe order;
+ *   - null when every probe failed (honest not-found, never a guess).
+ * Pure so the tie-break is testable without wagmi.
+ */
+export function pickResolvedCurveChain(
+  probes: ReadonlyArray<{ chainId: number; ok: boolean }>,
+  preferred?: number,
+): number | null {
+  if (preferred !== undefined && probes.some((p) => p.chainId === preferred && p.ok)) {
+    return preferred;
+  }
+  return probes.find((p) => p.ok)?.chainId ?? null;
+}
+
 // ─────────────────────────── write-call descriptors (for wagmi) ────────────────────────
 
 /**

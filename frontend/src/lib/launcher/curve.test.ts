@@ -13,6 +13,9 @@ import {
   createLaunchCall,
   CURVE_TOTAL_SUPPLY,
   CURVE_LAUNCHER_ABI,
+  curveSpotPriceWei,
+  curveMarketCapWei,
+  pickResolvedCurveChain,
 } from './curve';
 
 // The economics the deploy script defaults to (docs/CURVE_ECONOMICS.md) and the
@@ -170,5 +173,47 @@ describe('curve rail wiring', () => {
     const cfg = CURVE_LAUNCHER_ABI.find((f) => f.type === 'function' && f.name === 'launchConfig');
     const cfgOut = (cfg as unknown as { outputs: { name: string }[] }).outputs.map((o) => o.name);
     expect(cfgOut).toContain('treasuryFeeShareBps');
+  });
+});
+
+// ── spot / market cap (the discovery surface's honest numbers) ──
+
+describe('curveSpotPriceWei / curveMarketCapWei', () => {
+  it('birth state: mcap equals virtualEth scaled by total/sale supply, one floor only', () => {
+    // At birth E=0, R=SALE_SUPPLY, so mcap = V * TOTAL / SALE. With the fixture
+    // values that is 0.2 ETH * 1e9e18 / 0.95e9e18 — pinned to the exact wei.
+    const mcap = curveMarketCapWei(freshLaunch);
+    expect(mcap).toBe((VIRTUAL_ETH * CURVE_TOTAL_SUPPLY) / SALE_SUPPLY);
+    expect(mcap).toBe(210526315789473684n); // 0.2105… ETH — floor, not rounded
+    // Spot is the same ratio per 1e18 token units.
+    expect(curveSpotPriceWei(freshLaunch)).toBe((VIRTUAL_ETH * 10n ** 18n) / SALE_SUPPLY);
+  });
+
+  it('mcap grows with ethReserve and never divides by zero post-graduation', () => {
+    const mid = { ...freshLaunch, ethReserve: GRADUATION_ETH / 2n, tokenReserve: SALE_SUPPLY / 2n };
+    expect(curveMarketCapWei(mid)).toBeGreaterThan(curveMarketCapWei(freshLaunch));
+    const emptied = { ...freshLaunch, tokenReserve: 0n };
+    expect(curveMarketCapWei(emptied)).toBe(0n);
+    expect(curveSpotPriceWei(emptied)).toBe(0n);
+  });
+});
+
+// ── chain resolution for /eth-curve/:token ──
+
+describe('pickResolvedCurveChain', () => {
+  const probes = [
+    { chainId: 1, ok: false },
+    { chainId: 8453, ok: true },
+    { chainId: 4663, ok: true },
+  ];
+  it('honors a preferred chain when its probe succeeded', () => {
+    expect(pickResolvedCurveChain(probes, 4663)).toBe(4663);
+  });
+  it('falls back to the first success when preferred failed or is absent', () => {
+    expect(pickResolvedCurveChain(probes, 1)).toBe(8453);
+    expect(pickResolvedCurveChain(probes)).toBe(8453);
+  });
+  it('returns null (honest not-found) when every probe failed', () => {
+    expect(pickResolvedCurveChain(probes.map((p) => ({ ...p, ok: false })))).toBeNull();
   });
 });

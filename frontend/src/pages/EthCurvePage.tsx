@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useChainId } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -22,6 +23,7 @@ import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn } from '../lib/launcher/curve';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
+import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -83,9 +85,9 @@ export default function EthCurvePage() {
     trackPageView('/eth-curve');
   }, []);
 
-  // A token created this session, handed from the create success card to the
-  // trade panel so the creator lands on their live coin, not a dead-end toast.
-  const [tradeToken, setTradeToken] = useState<Address | null>(null);
+  // The create success card hands the fresh token here — the creator lands on
+  // their coin's permanent, shareable page, not a dead-end toast.
+  const navigate = useNavigate();
 
   // Chain-aware: the Tegridy curve is LIVE on Ethereum, Base and Robinhood. Show the
   // launcher for the wallet's chain when it has one; otherwise default to mainnet
@@ -120,8 +122,13 @@ export default function EthCurvePage() {
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
             <WrongChainBanner requiredChainId={activeChainId} />
-            <CurveCreatePanel launcher={availability.address} chainId={activeChainId} onTrade={setTradeToken} />
-            <TradeByAddress launcher={availability.address} chainId={activeChainId} prefill={tradeToken} />
+            <CurveCreatePanel
+              launcher={availability.address}
+              chainId={activeChainId}
+              onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
+            />
+            <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} />
+            <TradeByAddress launcher={availability.address} chainId={activeChainId} />
             <CurveHowItWorks />
           </m.div>
         ) : (
