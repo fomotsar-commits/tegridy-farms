@@ -17,6 +17,8 @@ describe('CurveHowItWorks', () => {
     render(<CurveHowItWorks />);
     expect(screen.getByText(/Graduate to us/i)).toBeInTheDocument();
     expect(screen.getByText(/burned to 0x…dEaD/i)).toBeInTheDocument();
-    expect(screen.getByText(/3\.69% survival reserve/i)).toBeInTheDocument();
+    expect(screen.getByText(/3\.69% ecosystem reserve/i)).toBeInTheDocument();
+    // Honesty: the reserve's use is discretionary, not contract-enforced — say so.
+    expect(screen.getByText(/not enforced on-chain/i)).toBeInTheDocument();
   });
 });

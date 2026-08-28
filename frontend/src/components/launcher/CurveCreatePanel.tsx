@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { usePublicClient, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { parseEventLogs, type Address } from 'viem';
@@ -280,7 +281,16 @@ export function CurveCreateView({
       <p className="text-white/45 text-[11px] leading-relaxed">
         <span className="text-white/70 font-medium">You earn 40% of every trade’s fee while the curve runs — accrued on-chain, claimable only by you.</span>{' '}
         Fixed supply, no team unlock beyond your opening buy. Graduation seeds the Tegridy pool
-        with the LP burned; a 3.69% reserve funds this pool's survival incentives.
+        with the LP burned; a 3.69% reserve goes to protocol custody for discretionary ecosystem support.
+      </p>
+      <p className="text-white/40 text-[11px] leading-relaxed">
+        By launching you become the <span className="text-white/55">issuer</span> of this token and are
+        responsible for its legal treatment — including whether it is a security or otherwise regulated
+        where you and your buyers are. You accept the{' '}
+        <Link to="/terms" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+          Terms
+        </Link>
+        , including the issuer, irreversibility and prohibited-use sections.
       </p>
       <button
         type="button"
