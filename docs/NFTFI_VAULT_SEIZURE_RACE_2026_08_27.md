@@ -1,9 +1,9 @@
-# NftfiPooledLendingVault — stale-NAV seizure race (CONFIRMED, pre-deploy, needs a design call)
+# NftfiPooledLendingVault — stale-NAV seizure race (CONFIRMED + FIXED, pre-deploy)
 
-**Contract:** `contracts/src/nftfi/NftfiPooledLendingVault.sol` (580 lines, ERC-4626).
+**Contract:** `contracts/src/nftfi/NftfiPooledLendingVault.sol` (ERC-4626).
 **Status:** PRE-DEPLOY — absent from `frontend/scripts/addresses.json` and `constants.ts`. No live funds.
-**Repro:** `contracts/test/nftfi/NftfiVaultSeizureRace.t.sol::test_staleNavLetsInformedLpDumpDefaultOnStayer_KNOWN_DEFECT`
-(passes today — pins the current unfair behavior).
+**Test:** `contracts/test/nftfi/NftfiVaultSeizureRace.t.sol` — regression suite for the fix (the pre-fix
+race was reproduced first; git history holds that revision).
 
 ## The finding
 
@@ -55,17 +55,51 @@ that closes it without a trade-off — each option trades gas vs. LP liquidity v
    smallest change. *Con:* does not close the race, only narrows it; relies on keeper liveness for
    fairness — fragile.
 
-**Recommendation: Option 1** — it is the only one that keeps the fair-NAV invariant *and* LP liquidity.
-Use the incremental `markDefault` counter variant if loan concurrency could be large; otherwise the
-bounded loop is simplest. Either way, decide whether to impair at `deadline` or at `deadline +
-SEIZE_GRACE` (the grace hour is a genuine cure window, so impairing at `+ grace` is defensible and keeps
-par valuation for loans that may still be repaid).
+## The fix — LANDED: Option 2 (freeze deposits/withdrawals while a default is unrecognized)
+
+Given the go-ahead ("do what's best"), Option 2 was chosen over the recommended-on-paper Option 1 once
+the implementation trade-offs were concrete:
+
+- **It keeps the money-path math untouched.** The contract header states its overrides "each narrow what
+  the base would allow — none widens it", and deliberately keeps `totalAssets` minimal. Option 1 rewrites
+  `totalAssets` (called on *every* deposit/withdraw/convert/preview) to loop and impair — heavy and
+  invasive on the exact function the header protects. Option 2 leaves `totalAssets = idle +
+  principalOutstanding` **O(1) and unchanged**, and only narrows the four `max*` ceilings — precisely the
+  override style the contract already uses.
+- **It fully closes the race** and produces the same fair outcome: while any open loan is past
+  `deadline + SEIZE_GRACE` and unseized, `maxDeposit`/`maxWithdraw`/`maxRedeem` all return 0, so nobody
+  can enter or exit at the stale par NAV. The permissionless `seize` recognizes the loss (drops
+  `principalOutstanding`) and clears the freeze; everyone then exits at the corrected, shared price.
+- **Custom-code surface is minimal** (the ethos): one bounded `EnumerableSetLib.Uint256Set` of open
+  loans (add on `borrow`, remove on full-repay and on `seize`), a `MAX_ACTIVE_LOANS = 256` cap so the
+  freeze scan can never be griefed out-of-gas, and one `hasSeizableLoan()` view. No new NAV accounting,
+  no `markDefault` machinery, no keeper.
+
+Freeze boundary is `deadline + SEIZE_GRACE` (not `deadline`): the grace hour is a genuine borrower cure
+window, so par valuation and normal liquidity during it are intended, and the freeze begins exactly when
+`seize` becomes callable. This leaves a bounded ~1h residual (an LP exiting during grace on a loan that
+ultimately defaults) — minor, and matches standard impair-at-default timing.
+
+**Verification:** `NftfiVaultSeizureRace.t.sol` — the pre-fix race (early exiter took 50/fair-35, stayer
+20) is replaced by an equal 35/35 split; the early exit reverts during the freeze; a healthy loan and the
+grace window do NOT freeze (narrowness). Freeze gate mutation-verified (remove it → red). **54 nftfi
+tests pass, zero regression.**
+
+### Operational notes (not vulnerabilities)
+
+- **`liquidationSink` must be set.** The freeze clears only via `seize`, which reverts if the sink is
+  unset. A pool that lends with no sink can be frozen by a default until the owner sets one — set the
+  sink before lending (the deploy path does).
+- **Freeze-scan gas** grows with concurrent open loans (bounded at 256). Realistic single-collection
+  pools hold far fewer; if a pool is expected to run hot, consider lowering `MAX_ACTIVE_LOANS` or the
+  incremental-counter variant of Option 1.
+- **Griefing is uneconomical.** To hold the freeze open an attacker must keep a loan past `deadline +
+  grace`; but that loan is permissionlessly seizable, so anyone clears the freeze and the attacker forfeits
+  their (over-collateralized) NFT.
 
 ## Status
 
-- ✅ Confirmed + reproduced (`NftfiVaultSeizureRace.t.sol`), pre-deploy, not pushed.
-- ☐ **Design call required** (which option; impair-at-deadline vs +grace) before implementing.
-- ☐ On decision: implement, flip the test's marked assertion to the fair-outcome form
-  (`assertApproxEqAbs(gotEarly, gotStayer, …)`), keep the existing nftfi suites green.
-- Note: the same par-until-seize valuation feeds `NftfiBnpl` if it prices against this vault — check
-  when the fix lands.
+- ✅ Confirmed + reproduced, then FIXED (freeze-on-seizable) and verified — pre-deploy, **not pushed**.
+- ✅ 54 nftfi tests green (existing 51 + 3 regression); freeze gate mutation-verified.
+- Note: the same par-until-seize valuation feeds `NftfiBnpl` if it prices against this vault — check when
+  BNPL integrates.

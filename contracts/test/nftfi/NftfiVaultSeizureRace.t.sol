@@ -6,35 +6,33 @@ import {console2} from "forge-std/console2.sol";
 import {NftfiPooledLendingVault} from "../../src/nftfi/NftfiPooledLendingVault.sol";
 import {MockWethNftfi, MockCollection} from "./NftfiMocks.sol";
 
-/// @title  NftfiPooledLendingVault — stale-NAV seizure race (characterization)
-/// @notice CONFIRMED pre-deploy finding. `totalAssets() = idle cash +
-///         principalOutstanding` values every live loan at FULL PAR until `seize`
-///         is called, and `seize` is only possible at `deadline + SEIZE_GRACE`
-///         (1h) and then only once someone actually calls it. A loan is publicly
-///         known-defaulted the moment `block.timestamp > loan.deadline` (it is
-///         past due and unrepaid), yet the share price keeps counting it at par
-///         for the whole window until seizure lands.
+/// @title  NftfiPooledLendingVault — seizure-race regression (freeze-on-seizable)
+/// @notice REGRESSION TEST for AUDIT FIX 2026-08-27 [SEIZURE-RACE].
 ///
-///         Because `maxWithdraw`/`maxRedeem` are bounded by idle cash (not by the
-///         bad loan), an INFORMED LP can redeem at the inflated par NAV during
-///         that window and exit whole, concentrating the entire writedown on the
-///         LPs who remain when `seize` finally runs. This violates the core
-///         ERC-4626 promise that share price reflects true NAV and that no holder
-///         can exit at others' expense.
+///         Before the fix, `totalAssets = idle + principalOutstanding` valued a
+///         defaulted loan at FULL PAR until `seize` was called, and `maxWithdraw`/
+///         `maxRedeem` were bounded only by idle cash. An informed LP could redeem
+///         at the stale par NAV during the window between default and seizure and
+///         dump the entire writedown on the LPs who stayed (reproduced pre-fix: the
+///         early exiter took 50 ETH of a fair 35, the stayer got 20 — the whole
+///         30 ETH loss on one party).
 ///
-///         STATUS: pre-deploy (not in addresses.json / constants.ts); no live
-///         funds. This test PINS the current (unfair) behavior. The fix is a
-///         design choice (impair seizable loans in `totalAssets`, or freeze
-///         redemptions while any loan is seizable) — see the writeup. When a fix
-///         lands, flip the marked assertion to the fair-outcome form.
+///         THE FIX freezes deposits and withdrawals (via the `max*` ceilings)
+///         whenever any open loan is past `deadline + SEIZE_GRACE` and unseized —
+///         i.e. a default whose writedown `totalAssets` has not recognized. Nobody
+///         can transact at the stale par NAV. The permissionless `seize` clears the
+///         freeze by recognizing the loss, after which everyone exits at the
+///         correct, shared price. See docs/NFTFI_VAULT_SEIZURE_RACE_2026_08_27.md.
+///
+///         STATUS: pre-deploy (not in addresses.json / constants.ts); no live funds.
 contract NftfiVaultSeizureRaceTest is Test {
     MockWethNftfi weth;
     MockCollection nft;
     NftfiPooledLendingVault vault;
 
     address owner = address(0xA11CE);
-    address lpEarly = address(0xB0B); // informed LP who front-runs the seizure
-    address lpStayer = address(0xCA11); // honest LP who eats the loss
+    address lpEarly = address(0xB0B); // would-be front-runner of the seizure
+    address lpStayer = address(0xCA11);
     address borrower = address(0xD00D);
     address sink = address(0x51AC);
     address treasury = address(0x7EA5);
@@ -49,7 +47,7 @@ contract NftfiVaultSeizureRaceTest is Test {
 
         vm.startPrank(owner);
         vault.setLiquidationSink(sink);
-        vault.setFees(0, 0); // zero fees for clean par arithmetic
+        vault.setFees(0, 0);
         vault.pushFloor(FLOOR);
         vm.stopPrank();
 
@@ -74,52 +72,85 @@ contract NftfiVaultSeizureRaceTest is Test {
         vm.stopPrank();
     }
 
-    function test_staleNavLetsInformedLpDumpDefaultOnStayer_KNOWN_DEFECT() public {
-        // Two equal LPs; equal shares, equal risk.
+    function test_seizureFreezeSharesLossEqually() public {
         _deposit(lpEarly, 50 ether);
         _deposit(lpStayer, 50 ether);
 
-        // A borrower draws the max loan against the floor.
         uint256 loanId = _borrow(borrower, 30 ether);
-        assertEq(vault.totalAssets(), 100 ether, "loan counts at par, NAV unchanged by lending");
+        assertEq(vault.totalAssets(), 100 ether, "loan counts at par while performing");
+        assertFalse(vault.hasSeizableLoan(), "no default yet");
 
-        // Borrower DEFAULTS: never repays; time passes past the seizable line.
+        // Borrower DEFAULTS; time passes past the seizable line.
         vm.warp(vm.getBlockTimestamp() + 30 days + 1 hours + 1);
 
-        // ROOT CAUSE: the loan is seizable now, yet NAV still values it at par.
+        // FIX: the pool is now frozen — the stale par NAV cannot be transacted on.
+        assertTrue(vault.hasSeizableLoan(), "default is now recognized as a freeze trigger");
+        assertEq(vault.maxRedeem(lpEarly), 0, "withdrawals frozen while a default is unresolved");
+        assertEq(vault.maxWithdraw(lpEarly), 0, "withdrawals frozen (asset units too)");
+        assertEq(vault.maxDeposit(lpStayer), 0, "deposits frozen too (no entry at stale par)");
+
+        // The informed LP's attempt to front-run the seizure REVERTS.
         uint256 earlyShares = vault.balanceOf(lpEarly);
-        uint256 stalePreview = vault.previewRedeem(earlyShares);
-        console2.log("previewRedeem for lpEarly while loan is seizable-but-unseized:", stalePreview);
-        assertApproxEqAbs(stalePreview, 50 ether, 1, "NAV still prices the bad loan at par");
-
-        // Informed LP front-runs the seizure and redeems at the inflated par NAV.
         vm.prank(lpEarly);
+        vm.expectRevert(); // RedeemMoreThanMax
         vault.redeem(earlyShares, lpEarly, lpEarly);
-        uint256 gotEarly = weth.balanceOf(lpEarly) - 950 ether; // started at 1000, deposited 50
-        console2.log("lpEarly extracted (should be ~fair 35):", gotEarly);
 
-        // Now seizure finally lands; `seize` alone writes the principal down to 0
-        // in totalAssets (recovery, if any, would come later via settleSeizure).
+        // Anyone (permissionless) seizes the overdue loan, recognizing the loss.
         vault.seize(loanId);
+        assertFalse(vault.hasSeizableLoan(), "freeze cleared once the loss is recognized");
+        assertEq(vault.totalAssets(), 70 ether, "writedown recognized: 100 - 30 principal = 70");
 
-        // The stayer redeems whatever is left. (Compute the amount BEFORE the
-        // prank — a vault call inside the redeem args would otherwise consume it.)
-        uint256 stayerShares = vault.balanceOf(lpStayer);
-        uint256 rmax = vault.maxRedeem(lpStayer);
-        uint256 toRedeem = rmax < stayerShares ? rmax : stayerShares;
+        // Now both LPs exit — at the corrected, shared NAV.
+        uint256 esh = vault.balanceOf(lpEarly);
+        uint256 emax = vault.maxRedeem(lpEarly);
+        vm.prank(lpEarly);
+        vault.redeem(emax < esh ? emax : esh, lpEarly, lpEarly);
+        uint256 gotEarly = weth.balanceOf(lpEarly) - 950 ether;
+
+        uint256 ssh = vault.balanceOf(lpStayer);
+        uint256 smax = vault.maxRedeem(lpStayer);
         vm.prank(lpStayer);
-        vault.redeem(toRedeem, lpStayer, lpStayer);
+        vault.redeem(smax < ssh ? smax : ssh, lpStayer, lpStayer);
         uint256 gotStayer = weth.balanceOf(lpStayer) - 950 ether;
-        console2.log("lpStayer recovered (should be ~fair 35):", gotStayer);
 
-        // The pool truly held 70 ETH of cash after lending 30; with zero recovery
-        // the fair split of the 30 writedown is 15 each -> 35 each.
-        // CURRENT (defective): the early exiter escapes near par and the stayer
-        // absorbs almost the entire writedown.
-        console2.log("unfair gap (early - stayer):", gotEarly - gotStayer);
+        console2.log("lpEarly recovered :", gotEarly);
+        console2.log("lpStayer recovered:", gotStayer);
 
-        // ── ASSERTION TO FLIP AFTER THE FIX ────────────────────────────────────
-        // POST-FIX (fair): assertApproxEqAbs(gotEarly, gotStayer, 0.5 ether, "loss shared equally");
-        assertGt(gotEarly, gotStayer + 20 ether, "KNOWN DEFECT: early exiter dumps the loss on the stayer");
+        // FAIR: the 30 ETH loss is split evenly; neither can dump it on the other.
+        assertApproxEqAbs(gotEarly, gotStayer, 1e6, "loss shared equally, not dumped");
+        assertApproxEqAbs(gotEarly, 35 ether, 0.01 ether, "each LP bears half the writedown");
+    }
+
+    /// The freeze must be NARROW: a healthy (performing, not-yet-due) loan must not
+    /// block ordinary deposits and withdrawals. Guards against an over-broad fix.
+    function test_healthyLoanDoesNotFreeze() public {
+        _deposit(lpEarly, 50 ether);
+        _deposit(lpStayer, 50 ether);
+        _borrow(borrower, 30 ether);
+
+        // Well before the deadline: performing loan, no freeze.
+        vm.warp(vm.getBlockTimestamp() + 10 days);
+        assertFalse(vault.hasSeizableLoan(), "performing loan must not trip the freeze");
+        assertGt(vault.maxRedeem(lpEarly), 0, "LPs can still exit against idle cash");
+        assertGt(vault.maxDeposit(lpStayer), 0, "deposits still open");
+
+        // An LP withdraws their idle-cash share normally.
+        uint256 sh = vault.balanceOf(lpEarly);
+        uint256 mx = vault.maxRedeem(lpEarly);
+        vm.prank(lpEarly);
+        vault.redeem(mx < sh ? mx : sh, lpEarly, lpEarly);
+        assertGt(weth.balanceOf(lpEarly), 950 ether, "normal withdrawal succeeded");
+    }
+
+    /// Even inside the SEIZE_GRACE cure window (past deadline, not yet seizable) the
+    /// loan may still be repaid, so the pool is NOT frozen yet — matching the point
+    /// at which `seize` itself becomes callable.
+    function test_graceWindowDoesNotFreeze() public {
+        _deposit(lpEarly, 50 ether);
+        _borrow(borrower, 30 ether);
+
+        vm.warp(vm.getBlockTimestamp() + 30 days + 30 minutes); // past deadline, inside grace
+        assertFalse(vault.hasSeizableLoan(), "grace window is a cure window, not a freeze");
+        assertGt(vault.maxRedeem(lpEarly), 0, "still liquid during grace");
     }
 }
