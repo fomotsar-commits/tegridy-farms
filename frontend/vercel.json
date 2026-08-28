@@ -29,6 +29,12 @@
       ]
     },
     {
+      "source": "/(bayla|toweli|towelie|pepe|qr|mfer|bnkr|drb|bobo|jbm|soy|brainlet|rizz|nb1)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
       "source": "/record/(.*)",
       "headers": [
         { "key": "Cross-Origin-Resource-Policy", "value": "cross-origin" },

@@ -226,15 +226,17 @@ export default function TokenomicsPage() {
                   contract's own periodFinish clock. */}
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Rewards Remaining</p>
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{rewardsRemaining > 0 ? `${formatNumber(rewardsRemaining, 1)} TOWELI` : '–'}</p>
+                {/* STAKING_LOOK §2.2: an EMPTY reserve is a real 0; '–' means unread. */}
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{rewardsRemaining > 0 ? `${formatNumber(rewardsRemaining, 1)} TOWELI` : pool.isDry ? '0 TOWELI' : '–'}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Emission Rate</p>
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day</p>
+                {/* §2.2: the configured rate emits NOTHING while the reserve is empty. */}
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.isDry ? '0.00 / day — reserve empty' : `${((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day`}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Ends In</p>
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : '–'}</p>
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{daysLeft > 0 ? `${daysLeft.toFixed(0)} days` : pool.isDry ? '0 days — reserve empty' : '–'}</p>
               </div>
             </div>
           </div>

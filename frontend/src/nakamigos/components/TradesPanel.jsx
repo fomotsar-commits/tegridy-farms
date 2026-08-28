@@ -3,7 +3,7 @@ import { Eth } from "./Icons";
 import TradeWindow from "./TradeWindow";
 import DirectMessages from "./DirectMessages";
 import NftImage from "./NftImage";
-import { ItemChips, TradeSummary, fmtEthWei as fmtEth } from "./TradeChips";
+import { ItemChips, TradeSummary, fmtEthWei as fmtEth, liveTopups } from "./TradeChips";
 import { fetchTrades, acceptTrade, acceptOpenTrade, updateTradeStatus, cancelTradeOnChain, fillableHoldings } from "../lib/trades";
 import { getNotificationStatus, subscribeToPush, unsubscribeFromPush, isSubscribed } from "../lib/notifications";
 import { fetchWalletNfts } from "../api";
@@ -73,7 +73,9 @@ function OpenTradeAccept({ trade, wallet, addToast, onClose, onAccepted }) {
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => Number(item.itemType) === 4)
     .map(({ item, index }) => ({ index, contract: item.token.toLowerCase() }));
-  const ethTopup = fmtEth(trade.eth_topup_wei);
+  // Live Dutch-leg quote — must match the TradeSummary rendered above, not
+  // the stored final-leg column.
+  const { ethTopup } = liveTopups(trade);
 
   useEffect(() => {
     let cancelled = false;
@@ -218,8 +220,10 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
   // From the VIEWER's perspective: incoming → "you get" what they offered.
   const youGet = isIncoming ? trade.offered : trade.requested;
   const youGive = isIncoming ? trade.requested : trade.offered;
-  const ethTopup = fmtEth(trade.eth_topup_wei);   // taker pays
-  const wethTopup = fmtEth(trade.weth_topup_wei); // maker adds
+  // Dutch legs: quote the LIVE interpolated amounts (same helper TradeSummary
+  // uses) — the stored topup columns carry the final-leg value, not what the
+  // taker pays/receives NOW. eth = taker pays, weth = maker adds.
+  const { ethTopup, wethTopup, ethArrow, wethArrow } = liveTopups(trade);
   const isActive = trade.status === "active";
 
   const run = async (kind, fn, successMsg) => {
@@ -280,20 +284,20 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
           <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--gold)", letterSpacing: "0.08em", marginBottom: 5 }}>YOU GIVE</div>
           <ItemChips items={youGive} accent="var(--gold)" />
           {isIncoming && ethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup} ETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup}{ethArrow} ETH</div>
           )}
           {!isIncoming && wethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 5 }}>+ {wethTopup} WETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--gold)", marginTop: 5 }}>+ {wethTopup}{wethArrow} WETH</div>
           )}
         </div>
         <div style={{ flex: "1 1 220px" }}>
           <div style={{ fontFamily: "var(--mono)", fontSize: 8, color: "var(--green)", letterSpacing: "0.08em", marginBottom: 5 }}>YOU GET</div>
           <ItemChips items={youGet} accent="var(--green)" />
           {isIncoming && wethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", marginTop: 5 }}>+ {wethTopup} WETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", marginTop: 5 }}>+ {wethTopup}{wethArrow} WETH</div>
           )}
           {!isIncoming && ethTopup && (
-            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup} ETH</div>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--green)", marginTop: 5 }}>+ <Eth size={9} /> {ethTopup}{ethArrow} ETH</div>
           )}
         </div>
       </div>

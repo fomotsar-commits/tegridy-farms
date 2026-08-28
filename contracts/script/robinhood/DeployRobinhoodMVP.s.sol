@@ -43,10 +43,17 @@ import {RobinhoodChainConfig} from "./RobinhoodChainConfig.sol";
 ///                             by deploy day; leave unset to deploy the attested
 ///                             stand-in (the expected path today)
 ///
-/// @dev    Run:
+/// @dev    Run (DRY-RUN — this part works on 4663):
 ///           forge script script/robinhood/DeployRobinhoodMVP.s.sol --rpc-url $ROBINHOOD_RPC --sender $OP -vvv
-///         Real run adds `--broadcast` plus a keystore/Ledger signer. Dry-run first
-///         and read every printed invariant before broadcasting.
+///
+///         ⛔ `--broadcast` DOES NOT WORK ON CHAIN 4663. forge's broadcast path
+///         does a chain-registry lookup and dies `Error: Chain 4663 not
+///         supported` (proven on the M.1 Safe deploy, 2026-08-24; `--legacy`
+///         does not help). `cast send` has no such lookup. The real deploy is
+///         the dry-run→cast-replay method — full runbook with the nonce/order/
+///         gas rules in docs/ROBINHOOD_CAST_REPLAY.md. Never hand this header's
+///         forge command a `--broadcast` on 4663; it will fail after you have
+///         already unlocked a signer.
 contract DeployRobinhoodMVPScript is Script {
     struct Config {
         address treasury;

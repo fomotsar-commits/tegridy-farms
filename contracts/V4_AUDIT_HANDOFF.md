@@ -52,7 +52,7 @@ cd contracts
 forge build                                          # exit 0 (lint_on_build=false — see below)
 forge test --match-contract TegridyV4HookTest        # 39 tests
 forge test --match-contract TegridyLiquidityMigrator # 21 tests
-forge test --match-contract TegridyFeeLocker         # 17 tests
+forge test --match-contract TegridyFeeLocker         # 19 tests
 ```
 
 Environment quirks the auditor should know:
@@ -192,7 +192,7 @@ non-hook-coupled — and VerifyV4 asserts their wiring incl. the staker's allowe
   load-bearing, and five for Doppler's 5% floor (owner absent; owner below the floor
   asserting the exact `(5e16, 4e16)` args; exactly-at-floor accepted; duplicate entries
   summed; an Airlock-owner rotation followed live).
-- **17 tests** (`test/v4/TegridyFeeLocker.t.sol`). Covers: write-once `bindMigrator`,
+- **19 tests** (`test/v4/TegridyFeeLocker.t.sol`). Covers: write-once `bindMigrator`,
   only-migrator lock, shares-sum-to-WAD, duplicate/unsorted/zero-share rejection,
   double-lock, permanent lock never releasing, timed lock blocking before expiry, exact
   split with no dust, a hostile beneficiary unable to block others.

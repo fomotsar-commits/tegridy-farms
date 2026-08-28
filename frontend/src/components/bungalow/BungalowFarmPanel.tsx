@@ -1,9 +1,16 @@
+import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
 import { isSolanaConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
+
+// The live pool section carries the @solana wallet stack + the Streamflow
+// SDK — lazy so those bytes load ONLY when a pool address is configured.
+const LighthousePoolLive = lazy(() =>
+  import('./LighthousePoolLive').then((m) => ({ default: m.LighthousePoolLive })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -28,9 +35,16 @@ import { ArtImg } from '../ArtImg';
  * the status card.
  */
 export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
+  // The hero must not keep saying "being built" once the pool exists — the
+  // 2026-08-27 audit caught exactly that stale claim in prod after the BAYLA
+  // lighthouse went live on-chain. Copy branches on the same registry fact
+  // (stakePool) that swaps the dark card for the live section below.
+  const poolIsLive = Boolean(bungalow.stakePool);
   usePageTitle(
     `Farm — ${bungalow.symbol}`,
-    `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,
+    poolIsLive
+      ? `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — the lighthouse pool is live at Jungle Bay Island.`
+      : `Stake ${bungalow.symbol} on ${bungalow.chain === 'solana' ? 'Solana' : bungalow.chain} — arriving at Jungle Bay Island.`,
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const chainLabel = bungalow.chain === 'solana' ? 'Solana' : bungalow.chain === 'base' ? 'Base' : 'Ethereum';
@@ -53,14 +67,38 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           Stake {bungalow.symbol}.
         </h1>
         <p className="text-white/85 text-[15px] max-w-lg leading-relaxed">
-          {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
-          {chainLabel} — and until it is deployed and verified, this page makes no
-          promises and asks for nothing.
+          {poolIsLive ? (
+            <>
+              {bungalow.tagline} The lighthouse pool is live for {bungalow.symbol} on{' '}
+              {chainLabel} — created on-chain, readable by anyone. The numbers below
+              are read straight from the pool, and rewards only ever show what the
+              vault actually holds.
+            </>
+          ) : (
+            <>
+              {bungalow.tagline} The lighthouse pool is being built for {bungalow.symbol} on{' '}
+              {chainLabel} — and until it is deployed and verified, this page makes no
+              promises and asks for nothing.
+            </>
+          )}
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Status card — the honest gate. */}
+        {/* Pool slot: the honest dark card until a pool address is configured
+            (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
+            live section renders an EMPTY reward vault as a labeled real zero
+            — funding is allowed to come last without the page ever lying. */}
+        {bungalow.stakePool ? (
+          <Suspense fallback={
+            <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
+              <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
+              <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
+            </div>
+          }>
+            <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+          </Suspense>
+        ) : (
         <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
           <div className="absolute inset-0">
             <ArtImg pageId="bungalow-farm" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
@@ -76,12 +114,13 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               program, and the funded reward balance, in that order.
             </p>
             <p className="text-white/85 text-[13px] leading-relaxed">
-              The shape it takes: stake {bungalow.symbol}, earn from a reward pool that
-              is <strong>funded before it advertises</strong> — the venue&rsquo;s rule
-              that a dry pool must read as a real zero.
+              The shape it takes: stake {bungalow.symbol}, earn from a reward pool
+              whose vault balance is always shown as it is — an unfunded pool reads
+              as a real, labeled zero, never as a promise.
             </p>
           </div>
         </div>
+        )}
 
         {/* Funding routes card — where incentives come from. */}
         <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>

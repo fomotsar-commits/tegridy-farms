@@ -131,7 +131,8 @@ contract TegridyHarvestVaultTest is Test {
 
     function _harvest() internal returns (uint256) {
         vm.prank(keeper);
-        return vault.harvest(0, 0);
+        // minLpOut == 0 is rejected by the vault; 1 is the weakest bound it will accept.
+        return vault.harvest(0, 1);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -358,7 +359,7 @@ contract TegridyHarvestVaultTest is Test {
         vault.setKeeper(keeper, true);
         uint256 assetsBefore = vault.totalAssets();
         vm.prank(keeper);
-        uint256 lp = vault.harvest(0, 0);
+        uint256 lp = vault.harvest(0, 1);
 
         assertEq(lp, 0, "nothing to compound");
         assertEq(vault.totalAssets(), assetsBefore, "no-op leaves accounting untouched");
@@ -372,20 +373,20 @@ contract TegridyHarvestVaultTest is Test {
 
         vm.prank(attacker);
         vm.expectRevert(TegridyHarvestVault.NotKeeper.selector);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
 
         vault.setKeeper(keeper, true);
         vm.prank(keeper);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
 
         vault.setKeeper(keeper, false);
         vm.warp(block.timestamp + 1 days);
         vm.prank(keeper);
         vm.expectRevert(TegridyHarvestVault.NotKeeper.selector);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
 
         // Owner never needs the allow-list.
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
     }
 
     function test_harvest_respectsMinLpOut() public {
@@ -407,7 +408,87 @@ contract TegridyHarvestVaultTest is Test {
         vault.setKeeper(keeper, true);
         vm.prank(keeper);
         vm.expectRevert(TegridyRouter.InsufficientOutputAmount.selector);
-        vault.harvest(type(uint128).max, 0);
+        vault.harvest(type(uint128).max, 1);
+    }
+
+    /// @notice `minLpOut` is the only price bound on the harvest re-add (the per-leg
+    ///         minimums are deliberately zero, and both operands of the NothingToCompound
+    ///         check are donatable raw balances), so an allow-listed keeper must not be
+    ///         able to disable it by passing zero.
+    function test_harvest_rejectsZeroMinLpOut() public {
+        vm.prank(alice);
+        vault.deposit(10_000 ether, alice);
+        vm.warp(block.timestamp + 3 days);
+
+        vault.setKeeper(keeper, true);
+        vm.prank(keeper);
+        vm.expectRevert(TegridyHarvestVault.ZeroMinLpOut.selector);
+        vault.harvest(0, 0);
+    }
+
+    /// @notice A 1-wei reward-token donation while the farm owes ~nothing must be a no-op,
+    ///         not a revert: one wei cannot split into a swap leg and a liquidity leg, and
+    ///         before the dust threshold it walked past the zero check into
+    ///         NothingToCompound, rolling back `getReward()` on every keeper attempt.
+    function test_harvest_oneWeiDonationIsANoOpNotAGrief() public {
+        vm.prank(alice);
+        vault.deposit(1_000 ether, alice);
+        vault.setKeeper(keeper, true);
+
+        // No time has passed, so the farm owes zero and the griefer's wei is the whole
+        // reward balance.
+        toweli.transfer(attacker, 1);
+        vm.prank(attacker);
+        toweli.transfer(address(vault), 1);
+
+        vm.prank(keeper);
+        uint256 lp = vault.harvest(0, 1);
+        assertEq(lp, 0, "dust harvest is a no-op, never a revert");
+        assertEq(toweli.balanceOf(address(vault)), 1, "the wei waits as sweepable dust");
+        assertEq(vault.lastHarvestTimestamp(), 0, "a no-op is not a harvest");
+
+        // Self-heals: once real rewards accrue the wei is swept in with them.
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(keeper);
+        assertGt(vault.harvest(0, 1), 0, "next real harvest compounds normally");
+    }
+
+    /// A dust donation ABOVE 1 wei is the same grief: the fix must gate on the swap's
+    /// OUTPUT quote, not on a raw reward-wei count. In the 1000:1 pool a ~999-wei TOWELI
+    /// donation's swap leg (~499 wei) quotes to zero WETH out, so on a `rewards < 2`
+    /// threshold it would pass the threshold, swap 499, get 0 out, and revert
+    /// INSUFFICIENT_OUTPUT — rolling back getReward() on every keeper attempt at ~zero
+    /// cost. This test would FAIL on that threshold fix and passes on the output gate.
+    /// (Structured like the 1-wei case: no time passes, so the farm owes zero and the
+    /// donation is the entire reward balance — no accumulation confound.)
+    function test_harvest_multiWeiDustDonationIsStillANoOp() public {
+        vm.prank(alice);
+        vault.deposit(1_000 ether, alice);
+        vault.setKeeper(keeper, true);
+
+        uint256 amount = 999;
+
+        // Precondition: the swap leg genuinely quotes to zero WETH out — this is what
+        // makes the donation a grief candidate rather than a legitimate tiny harvest.
+        address[] memory path = new address[](2);
+        path[0] = address(toweli);
+        path[1] = address(weth);
+        assertEq(router.getAmountsOut(amount / 2, path)[1], 0, "swap leg must quote 0 out for this case to matter");
+
+        toweli.transfer(attacker, amount);
+        vm.prank(attacker);
+        toweli.transfer(address(vault), amount);
+
+        vm.prank(keeper);
+        uint256 lp = vault.harvest(0, 1);
+        assertEq(lp, 0, "sub-quote dust harvest is a no-op, never a revert");
+        assertEq(toweli.balanceOf(address(vault)), amount, "the dust waits as sweepable dust");
+        assertEq(vault.lastHarvestTimestamp(), 0, "a no-op is not a harvest");
+
+        // Self-heals: the dust rides in with the next real harvest.
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(keeper);
+        assertGt(vault.harvest(0, 1), 0, "next real harvest compounds normally");
     }
 
     function test_harvest_neverReducesTotalAssets() public {
@@ -562,13 +643,13 @@ contract TegridyHarvestVaultTest is Test {
 
         // Every owner-callable lever, in sequence, while the position is live.
         vm.warp(block.timestamp + 2 days);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
         vault.setKeeper(keeper, false);
         vault.setKeeper(keeper, true);
         vault.pause();
         vault.unpause();
         vm.warp(block.timestamp + 2 days);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
         vault.panic();
         vault.unpause();
         vault.deployIdle();

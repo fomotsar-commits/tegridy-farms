@@ -28,6 +28,13 @@ export interface UploadProgress {
   currentFile?: string;
 }
 
+/** An Arweave/Irys transaction tag. Extra tags make uploads queryable via the
+ *  Irys GraphQL gateway (e.g. the curve-identity binding tags). */
+export interface IrysTag {
+  name: string;
+  value: string;
+}
+
 export type UploadStatus =
   | 'idle'
   | 'initializing'
@@ -57,8 +64,14 @@ export interface UseIrysUploadApi {
   /// transaction ID which resolves at `ar://<id>/<filename>`.
   uploadFolder: (files: File[]) => Promise<string>;
 
+  /// Upload ONE file as a single transaction (no manifest). Returns the tx ID,
+  /// which resolves directly at `ar://<id>`. Optional extra tags are appended
+  /// after the Content-Type/File-Name defaults.
+  uploadFile: (file: File, tags?: IrysTag[]) => Promise<string>;
+
   /// Upload a JSON object as a single transaction. Returns the tx ID.
-  uploadJson: (data: object, filename?: string) => Promise<string>;
+  /// Optional extra tags are appended after the defaults.
+  uploadJson: (data: object, filename?: string, tags?: IrysTag[]) => Promise<string>;
 
   /// Upload an array of { filename, json } items as a folder manifest.
   uploadJsonFolder: (items: Array<{ filename: string; json: object }>) => Promise<string>;
@@ -192,7 +205,37 @@ export function useIrysUpload(): UseIrysUploadApi {
     }
   }, [getUploader]);
 
-  const uploadJson = useCallback(async (data: object, filename = 'data.json') => {
+  const uploadFile = useCallback(async (file: File, tags: IrysTag[] = []) => {
+    // R044 H2: enforce the per-file cap BEFORE initialising the SDK.
+    if (file.size > MAX_UPLOAD_BYTES_PER_FILE) {
+      throw new PayloadTooLargeError(file.size, MAX_UPLOAD_BYTES_PER_FILE,
+        `File "${file.name}" exceeds ${MAX_UPLOAD_BYTES_PER_FILE} bytes`);
+    }
+    setStatus('uploading');
+    setError(null);
+    setProgress({ uploaded: 0, total: 1, currentFile: file.name });
+    try {
+      const u = await getUploader();
+      const buf = Buffer.from(await file.arrayBuffer());
+      const receipt = await u.upload(buf, {
+        tags: [
+          { name: 'Content-Type', value: file.type },
+          { name: 'File-Name', value: file.name },
+          ...tags,
+        ],
+      });
+      setProgress({ uploaded: 1, total: 1 });
+      setStatus('ready');
+      return receipt.id;
+    } catch (e) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      setError(err);
+      setStatus('error');
+      throw err;
+    }
+  }, [getUploader]);
+
+  const uploadJson = useCallback(async (data: object, filename = 'data.json', tags: IrysTag[] = []) => {
     const u = await getUploader();
     const json = JSON.stringify(data);
     if (json.length > MAX_UPLOAD_BYTES_PER_FILE) {
@@ -203,6 +246,7 @@ export function useIrysUpload(): UseIrysUploadApi {
       tags: [
         { name: 'Content-Type', value: 'application/json' },
         { name: 'File-Name', value: filename },
+        ...tags,
       ],
     });
     return receipt.id;
@@ -278,6 +322,7 @@ export function useIrysUpload(): UseIrysUploadApi {
     balance,
     fund,
     uploadFolder,
+    uploadFile,
     uploadJson,
     uploadJsonFolder,
     reset,

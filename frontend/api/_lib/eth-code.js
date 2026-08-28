@@ -27,7 +27,10 @@
 const PUBLIC_RPC_URLS = Object.freeze([
   "https://ethereum-rpc.publicnode.com",
   "https://eth.drpc.org",
-  "https://eth.merkle.io",
+  // eth.merkle.io DROPPED 2026-08-25: 429s every request (rate-limited the
+  // keyless tier off) — a dead third slot that closed the failover chain and
+  // burned a retry on every rotation. Re-verify with a REAL read (eth_blockNumber
+  // + Origin) before ever re-adding. publicnode + drpc re-verified live today.
 ]);
 
 function alchemyUrl(key) {

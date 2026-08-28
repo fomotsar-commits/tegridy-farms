@@ -220,9 +220,9 @@ contract StreamingRevenueDistributor is
     ///      stays claimable for this long before `sync` may recycle it.
     uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
 
-    /// @dev `syncMany` iterates external staking reads (~2 calls each). 100 keeps the
-    ///      worst case far inside a block at the same order as v1's MAX_CLAIM_EPOCHS
-    ///      per-call budget.
+    /// @dev `syncMany` iterates external staking reads (~5 calls each, incl. the
+    ///      grace-anchor observation). 100 keeps the worst case far inside a block at
+    ///      the same order as v1's MAX_CLAIM_EPOCHS per-call budget.
     uint256 public constant MAX_SYNC_BATCH = 100;
 
     /// @dev Gas ceiling on the restaking lookup, ported from v1's F-50-8. A captured
@@ -249,6 +249,14 @@ contract StreamingRevenueDistributor is
     /// @notice Mirrored veTOWELI boosted power per account (delta D2).
     mapping(address => uint256) public effectiveBalanceOf;
     uint256 public totalEffectiveSupply;
+
+    /// @notice Grace anchor: the last non-zero staking-side `lockEnd` observed for an
+    ///         account while its position was still readable (see `_observeLockEnd`).
+    ///         Stores the lockEnd VALUE, not the observation time, so a staking-side
+    ///         withdraw/transfer (which zeroes `userTokenId`) cannot reset it and a
+    ///         delayed first observation cannot extend it — the anchor is not
+    ///         selectable or timeable by the account it protects.
+    mapping(address => uint256) public lastObservedLockEnd;
 
     // ─── Reserve accounting (delta D3) ───────────────────────────────
 
@@ -433,22 +441,37 @@ contract StreamingRevenueDistributor is
     /// @dev `votingPowerOf` already excludes expired positions, so an expired lock
     ///      mirrors to 0 without any lockEnd arithmetic on this side.
     function _effectivePower(address account) internal view returns (uint256) {
-        uint256 power;
+        (, uint256 power) = _tryEffectivePower(account);
+        return power;
+    }
+
+    /// @dev Two-value form of the power read, `LaunchRugEscrow._readCovenantBps`-style:
+    ///      `readable` is false whenever a failure mode was collapsed into the zero — a
+    ///      reverting staking read, a reverting / over-budget restaking lookup, or a
+    ///      zero-power account while `restakingContract` is unset (the default
+    ///      post-deploy state, in which a custodied restaker is indistinguishable from
+    ///      an empty account). `_updateReward` deliberately keeps consuming the
+    ///      degraded zero (liveness over accuracy, see `_effectivePower`); honesty
+    ///      surfaces like `isSynced` MUST consume `readable` instead of trusting it.
+    function _tryEffectivePower(address account) internal view returns (bool readable, uint256 power) {
+        bool primaryReadable = true;
         try votingEscrow.votingPowerOf(account) returns (uint256 p) {
             power = p;
         } catch {
-            power = 0;
+            primaryReadable = false;
         }
-        if (power > 0) return power;
+        if (power > 0) return (true, power);
 
         // Restakers read 0 above because TegridyRestaking custodies the NFT. Same
         // fallback as v1's NEW-S1; without it every restaker mirrors in at zero and
         // is silently paid nothing.
-        if (address(restakingContract) == address(0)) return 0;
+        if (address(restakingContract) == address(0)) return (false, 0);
         try restakingContract.boostedAmountAt{gas: RESTAKING_CALL_GAS}(account, block.timestamp) returns (uint256 p) {
-            return p;
+            // A positive restaked balance is real data even during a staking outage;
+            // a zero is only trustworthy when the primary read was also readable.
+            return (p > 0 || primaryReadable, p);
         } catch {
-            return 0;
+            return (false, 0);
         }
     }
 
@@ -457,8 +480,13 @@ contract StreamingRevenueDistributor is
     ///         a zero from an account that has staked but never synced is an
     ///         un-registered account, NOT "no revenue yet", and rendering it as the
     ///         latter is the fabricated-data failure this protocol gates against.
+    /// @dev Reads the two-value power form: an UNREADABLE zero (staking outage,
+    ///      restaking outage, or the restaking fallback not yet wired) reports false —
+    ///      "cannot verify" must never render as "synced". A false negative here is
+    ///      idle UI copy; the false positive was exactly the fabrication above.
     function isSynced(address account) external view returns (bool) {
-        return effectiveBalanceOf[account] == _effectivePower(account);
+        (bool readable, uint256 power) = _tryEffectivePower(account);
+        return readable && effectiveBalanceOf[account] == power;
     }
 
     /// @notice Mirror `account`'s current boosted power into the accrual set.
@@ -486,17 +514,35 @@ contract StreamingRevenueDistributor is
     ///      analogue of v1's epoch forfeit — with the difference that the wei goes
     ///      back to stakers via the next `notifyRewardAmount`, never to a treasury.
     ///      An account still inside grace, still restaked, or still holding power is
-    ///      untouched.
+    ///      untouched — and every unreadable input REFUSES the forfeit (fail closed).
     function _syncAndMaybeRecycle(address account) internal {
         _updateReward(account);
+
+        // Record the durable grace anchor while the position is still observable —
+        // BEFORE any early return, so touching a live account arms its grace window.
+        (bool lockReadable, ) = _observeLockEnd(account);
 
         if (effectiveBalanceOf[account] != 0) return;
         uint256 owed = rewards[account];
         if (owed == 0) return;
-        if (_isRestaked(account)) return;
 
-        uint256 lockEnd = _lockEndOf(account);
-        if (lockEnd != 0 && block.timestamp < lockEnd + CLAIM_GRACE_PERIOD) return;
+        // Forfeiture fails CLOSED (`LaunchRugEscrow._readCovenantBps` posture: seizing
+        // on an unreadable read would convert an outage into a confiscation). Refuse
+        // to recycle when:
+        //   - restaking is unset: the staking side zeroes `userTokenId` on the custody
+        //     transfer, so a restaker in good standing is indistinguishable from a
+        //     fully-exited account until the fallback is wired (48h timelock);
+        //   - the restaking read reverts: the account may be a restaker in standing;
+        //   - the lock read reverts: no proof the grace period has elapsed;
+        //   - the anchor is unset: the position was never observed while it existed
+        //     (e.g. a pre-wire restaker), so `lockEnd + CLAIM_GRACE_PERIOD` cannot be
+        //     computed. "No data" is never treated as "no lock".
+        if (address(restakingContract) == address(0)) return;
+        (bool restakeReadable, bool restaked) = _isRestaked(account);
+        if (!restakeReadable || restaked) return;
+        if (!lockReadable) return;
+        uint256 anchor = lastObservedLockEnd[account];
+        if (anchor == 0 || block.timestamp < anchor + CLAIM_GRACE_PERIOD) return;
 
         rewards[account] = 0;
         totalForfeitedToPool += owed;
@@ -608,13 +654,23 @@ contract StreamingRevenueDistributor is
         // staking kill-switch is engaged.
         if (_isStakingPaused()) revert StakingPaused();
 
+        // The grace anchor is recorded on every claim too, so a staker whose only
+        // touches are `getReward` calls still arms their grace window before exiting.
+        _observeLockEnd(msg.sender);
+
         // v1's lock/grace gate, ported: an account with no live position and past its
         // grace window cannot withdraw. `_syncAndMaybeRecycle` is what eventually
         // recycles such an account's balance back to the pool.
-        bool active = effectiveBalanceOf[msg.sender] > 0 || _isRestaked(msg.sender);
+        (, bool restaked) = _isRestaked(msg.sender);
+        bool active = effectiveBalanceOf[msg.sender] > 0 || restaked;
         if (!active) {
-            uint256 lockEnd = _lockEndOf(msg.sender);
-            bool inGrace = lockEnd > 0 && block.timestamp < lockEnd + CLAIM_GRACE_PERIOD;
+            // Reads the SAME durable anchor the recycle path reads, so the two gates
+            // can no longer contradict each other: an ordinary unstake-before-claim
+            // (staking zeroes `userTokenId` on any outbound veNFT transfer/burn) keeps
+            // the documented 7-day window open here exactly as long as recycling
+            // stays refused there.
+            uint256 anchor = lastObservedLockEnd[msg.sender];
+            bool inGrace = anchor != 0 && block.timestamp < anchor + CLAIM_GRACE_PERIOD;
             if (!inGrace) revert NoLockedTokens();
         }
 
@@ -644,38 +700,62 @@ contract StreamingRevenueDistributor is
         }
     }
 
-    function _isRestaked(address account) internal view returns (bool) {
-        if (address(restakingContract) == address(0)) return false;
+    /// @dev Two-value, `LaunchRugEscrow._readCovenantBps`-style: `readable` is false
+    ///      when the restaking read reverts or exceeds its gas budget (same F-50-8 cap
+    ///      as `boostedAmountAt`), so the recycle path can refuse rather than treat an
+    ///      outage as "not restaked". An unset restaking contract is a READABLE
+    ///      "not restaked" — the claim gate must not treat everyone as restaked — and
+    ///      the recycle path refuses that state separately.
+    function _isRestaked(address account) internal view returns (bool readable, bool restaked) {
+        if (address(restakingContract) == address(0)) return (true, false);
         // slither-disable-next-line unused-return
-        try restakingContract.restakers(account) returns (
+        try restakingContract.restakers{gas: RESTAKING_CALL_GAS}(account) returns (
             uint256 tokenId, uint256 positionAmount, uint256, int256, uint256
         ) {
-            return tokenId != 0 && positionAmount > 0;
+            return (true, tokenId != 0 && positionAmount > 0);
         } catch {
-            return false;
+            return (false, false);
         }
     }
 
-    /// @dev Only reached for accounts whose live power is already 0, so the single
-    ///      `userTokenId` pointer is sufficient here — the multi-NFT undercount that
-    ///      forced v1's aggregate-first `_getUserLockState` cannot bite, because any
-    ///      account with a second live position would have non-zero power and never
-    ///      reach this path.
-    function _lockEndOf(address account) internal view returns (uint256) {
+    /// @dev LOAD-BEARING only for accounts whose live power is already 0 (the grace
+    ///      decisions), so the single `userTokenId` pointer is sufficient here — the
+    ///      multi-NFT undercount that forced v1's aggregate-first `_getUserLockState`
+    ///      cannot bite, because any account with a second live position would have
+    ///      non-zero power and never be recycled or grace-gated.
+    ///      Two-value, `LaunchRugEscrow._readCovenantBps`-style: `(false, 0)` for a
+    ///      reverting read so callers can distinguish "no data" from "no current
+    ///      position" (`(true, 0)`). Collapsing both into a bare 0 was the
+    ///      claim-grace contradiction: fail-OPEN forfeiture in `_syncAndMaybeRecycle`
+    ///      and fail-CLOSED claims in `getReward` from the same undifferentiated zero.
+    function _lockEndOf(address account) internal view returns (bool readable, uint256 lockEnd) {
         try votingEscrow.userTokenId(account) returns (uint256 tokenId) {
-            if (tokenId == 0) return 0;
+            if (tokenId == 0) return (true, 0);
             // slither-disable-next-line unused-return
             try votingEscrow.positions(tokenId) returns (
-                uint256, uint256, int256, uint256 lockEnd,
+                uint256, uint256, int256, uint256 le,
                 uint256, uint256, bool, bool, uint256, uint256, bool
             ) {
-                return lockEnd;
+                return (true, le);
             } catch {
-                return 0;
+                return (false, 0);
             }
         } catch {
-            return 0;
+            return (false, 0);
         }
+    }
+
+    /// @dev Non-view companion to `_lockEndOf`: records the grace anchor whenever the
+    ///      position is still observable. Stores the staking-side `lockEnd` VALUE, not
+    ///      the observation time — a delayed first observation cannot extend the grace
+    ///      window, and a staking-side `withdraw` (which zeroes `userTokenId`) cannot
+    ///      erase it. "Selecting" a different anchor requires actually holding a live
+    ///      position locked until that `lockEnd`, which also makes the account
+    ///      unrecyclable for as long as it holds power — so the anchor is never a free
+    ///      lever for the account it protects.
+    function _observeLockEnd(address account) internal returns (bool readable, uint256 lockEnd) {
+        (readable, lockEnd) = _lockEndOf(account);
+        if (readable && lockEnd != 0) lastObservedLockEnd[account] = lockEnd;
     }
 
     // ═══════════════════════════════════════════════════════════════════

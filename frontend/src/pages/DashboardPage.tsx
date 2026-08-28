@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState } from 'react';
+import { useMemo, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { m } from 'framer-motion';
 import { useAccount, useBalance, useChainId, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { formatEther } from 'viem';
@@ -40,6 +40,14 @@ import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { usePortfolio } from '../hooks/usePortfolio';
 import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
+import { getBungalowIdentity } from '../lib/bungalows';
+import { PageSkeleton } from '../components/PageSkeleton';
+
+// Jungle Bay bungalows: lazy so the @solana/* wallet stack rides ONLY the
+// bungalow-dashboard chunk — the default EVM dashboard never pays for it.
+const BungalowDashboardPanel = lazy(() =>
+  import('../components/bungalow/BungalowDashboardPanel').then((m) => ({ default: m.BungalowDashboardPanel })),
+);
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -57,7 +65,25 @@ function dashTabFromQuery(v: string | null): DashTab | null {
   return (VALID_DASH_TABS as string[]).includes(v) ? (v as DashTab) : null;
 }
 
+/**
+ * Jungle Bay bungalows: a token-first bungalow (Bayla) gets its own dashboard
+ * — a Solana wallet standing panel — because every number below is EVM/TOWELI.
+ * Branch lives in this wrapper so the classic component's hook order is
+ * untouched; the active bungalow only changes via persist + reload.
+ */
 export default function DashboardPage() {
+  const bungalow = getBungalowIdentity();
+  if (bungalow) {
+    return (
+      <Suspense fallback={<PageSkeleton />}>
+        <BungalowDashboardPanel bungalow={bungalow} />
+      </Suspense>
+    );
+  }
+  return <ToweliDashboard />;
+}
+
+function ToweliDashboard() {
   usePageTitle('Dashboard', 'Real-time protocol analytics, TVL, and TOWELI token metrics.');
   const { isConnected, address, isReconnecting, isConnecting } = useAccount();
   const { isWrongNetwork } = useNetworkCheck();
