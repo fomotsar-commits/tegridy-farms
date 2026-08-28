@@ -91,36 +91,55 @@ in any test that warps more than once.**
 
 ---
 
-## The fix — Synthetix funded-period rebase is JUSTIFIED (targeted)
+## The fix — LANDED: minimal cumulative-liability cap (operator-chosen over the rebase)
 
-Move the bonus stream to the Synthetix `StakingRewards` funded-period model:
+Two fixes close this. The operator chose the **minimal cumulative-liability cap** to minimize
+regression risk on the 17 heavily-audited restaking suites; the Synthetix rebase is recorded below as
+the documented alternative.
 
-- `notifyBonusReward(amount, duration)` sets `rewardRate = (amount + leftover) / duration` and
-  `periodFinish = now + duration`, pulling `amount` in (mirror the reward side's `notifyRewardAmount`).
-- Accrual uses `lastTimeRewardApplicable = min(now, periodFinish)`, so emission **stops** at
-  `periodFinish` and cumulative emission ≡ cumulative funded **by construction**. The `outstanding ≤
-  balance` invariant that fails today becomes structurally true.
-- **Drop** the live-`balanceOf` clamp (it can only ever see an instantaneous snapshot and cannot
-  express a cumulative bound) — safe *because* `periodFinish` now bounds accrual.
+### Landed fix — a `totalBonusEmitted` cumulative counter
 
-**Preserve the claim-side hardening — none of it depends on the broken accrual clamp:**
-- `_safeBonusTransferExt` self-call + `unforwardedBonusRewards` deferral (bricked-recipient safety),
-- `_accrueBonusChecked` monotonicity tripwire (`AccrueNotMonotone`),
-- exit-path permissiveness (`unrestake`/`recoverStuckPrincipal`/`emergencyWithdrawNFT` already return
-  principal even when reads/transfers revert — separately confirmed clean by the exit lens).
+`_accrueBonus` now caps against the **full outstanding liability**, not just crystallized IOUs:
 
-This is a root-cause fix that removes the fragility, not a symptom patch, and it does **not** regress
-the diversion / principal-trap / access hardening (those live on other code paths and were audited
-clean). It is a pre-deploy change; it must land with the invariant test flipped to its solvency form
-and re-run green before any deploy.
+- New monotonic state `totalBonusEmitted` is incremented by the ACTUAL liability minted each accrual
+  (`accDelta * totalRestaked / ACC_PRECISION`, net of per-share flooring).
+- The clamp changes from `available = bal − totalUnforwardedBonus` to
+  `available = bal − (totalBonusEmitted − totalBonusDistributed)`. That `outstanding` term already
+  **includes** the IOUs (`totalUnforwardedBonus` is a subset), so it is no longer subtracted
+  separately. Because every one of the six bonus-outflow sites increments `totalBonusDistributed` by
+  the exact amount transferred, `outstanding` is precisely the unpaid liability — robust to restaker
+  entry/exit and never drifting above what positions can claim.
+
+Direction is provably conservative: `distributed ≤ emitted` always (payouts are shares of what was
+minted), so the worst case of any miss is *under*-minting (a liveness dust-stranding), never
+*over*-minting. Solvency (`cumulative emission ≤ cumulative funded`) holds by construction.
+
+**Verification:** `test/RestakingBonusInsolvency.t.sol::test_BonusAccrual_StaysSolvent_capBindsAcrossWindows`
+proves the pool is minted at most once (W2–W4 mint zero), `totalBonusEmitted ≤ funded`, and the whole
+pool is still distributed (non-vacuous, obligation ≈ funding). Both halves of the fix are
+mutation-verified (revert the clamp → red; neuter the counter → red). **279 tests across all 24
+restaking + consumer suites pass — zero regression.**
+
+### Documented alternative (not taken) — Synthetix funded-period rebase
+
+`notifyBonusReward(amount, duration)` → `rewardRate = (amount+leftover)/duration`, `periodFinish`,
+`lastTimeRewardApplicable = min(now, periodFinish)`; drop the live-`balanceOf` clamp. Also makes
+cumulative emission ≡ funded by construction and additionally removes the "no natural end / relies on
+continuous refunding" fragility, but rewrites the accrual core and would churn the 17 suites — higher
+regression risk. Reconsider if the fixed-rate-until-empty semantics themselves become undesirable.
+
+Either fix preserves the claim-side hardening (all on other code paths, audited clean this pass):
+`_safeBonusTransferExt` deferral, the `_accrueBonusChecked` monotonicity tripwire, exit-path
+permissiveness.
 
 ---
 
 ## Test-first status
 
-- ✅ Failing/characterization test committed (`RestakingBonusInsolvency.t.sol`) — pins the compounding
-  over-mint and the insolvency, with the exact post-fix assertions in comments.
-- ☐ Implement the funded-period rebase (pre-deploy).
-- ☐ Flip the two marked assertions to `assertLe(obligation, B0)` / mint-once; re-run green.
-- ☐ Keep the existing restaking suites (17 files) green through the rebase — they encode the
-  hardening that must be preserved.
+- ✅ Audit + reproduction: adversarial 5-lens audit, one CONFIRMED HIGH, empirically reproduced.
+- ✅ Solvency regression test committed (`RestakingBonusInsolvency.t.sol`) — asserts the invariant now
+  holds, mutation-verified load-bearing.
+- ✅ Minimal cumulative-liability cap implemented in `_accrueBonus` (+ `totalBonusEmitted` counter).
+- ✅ Full restaking + consumer suites green (279 tests, 0 regressions).
+- Pre-deploy only (`TEGRIDY_RESTAKING_ADDRESS == address(0)`); not pushed. The existing 17 restaking
+  suites encode the hardening that was preserved and remain green.

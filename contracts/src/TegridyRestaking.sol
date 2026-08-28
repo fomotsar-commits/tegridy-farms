@@ -357,6 +357,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     uint256 public totalBonusFunded;
     uint256 public totalBonusDistributed;
+    /// @notice AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]: cumulative bonus liability
+    ///         actually MINTED into `accBonusPerShare` (net of per-share flooring).
+    ///         `_accrueBonus`'s pool cap subtracts the OUTSTANDING liability
+    ///         (`totalBonusEmitted - totalBonusDistributed`) from the live balance,
+    ///         not just crystallized IOUs — accrual moves no tokens, so the balance
+    ///         still holds every unclaimed reward, and the old `bal -
+    ///         totalUnforwardedBonus` cap let successive accruals with no intervening
+    ///         claim re-mint the same backing, compounding one full pool per window
+    ///         into insolvency (test/RestakingBonusInsolvency.t.sol; docs/
+    ///         RESTAKING_BONUS_INSOLVENCY_2026_08_27.md). Monotonic; only grows in
+    ///         `_accrueBonus` and is never decremented (claims move `totalBonusDistributed`).
+    uint256 public totalBonusEmitted;
     mapping(address => uint256) public unforwardedBaseRewards; // AUDIT FIX H-02: Track base rewards arriving outside claimAll
     uint256 public totalUnforwardedBase; // SECURITY FIX: Track total unforwarded to cap attribution
     mapping(address => uint256) public pendingUnsettledRewards;
@@ -2384,7 +2396,19 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // rationale. _accrueBonus is the stale-path settlement helper
                 // called by claimAll / unrestake / refreshPosition / etc; it
                 // must apply the same uncommitted-pool cap as the modifier.
-                available = bal > totalUnforwardedBonus ? bal - totalUnforwardedBonus : 0;
+                //
+                // AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]: cap against the FULL
+                // outstanding liability, not just crystallized IOUs. Accrual moves
+                // no tokens, so the live balance still contains every reward already
+                // minted-but-unclaimed; the prior `bal - totalUnforwardedBonus` cap
+                // therefore re-offered that same already-promised balance on the
+                // next accrual, letting the fixed-rate stream compound one full pool
+                // per window into insolvency. `totalUnforwardedBonus` (failed
+                // transfers) is a SUBSET of the outstanding liability below, so it is
+                // no longer subtracted separately (that would double-count IOUs).
+                uint256 outstanding =
+                    totalBonusEmitted > totalBonusDistributed ? totalBonusEmitted - totalBonusDistributed : 0;
+                available = bal > outstanding ? bal - outstanding : 0;
             } catch {
                 available = 0;
             }
@@ -2393,7 +2417,15 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 reward = available;
             }
             if (reward > 0) {
-                accBonusPerShare += (reward * ACC_PRECISION) / totalRestaked;
+                uint256 accDelta = (reward * ACC_PRECISION) / totalRestaked;
+                if (accDelta > 0) {
+                    accBonusPerShare += accDelta;
+                    // AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]: book the ACTUAL liability
+                    // minted (net of per-share flooring) so `outstanding` never drifts
+                    // above what positions can claim, keeping the cap tight but never
+                    // starving genuinely-funded accrual.
+                    totalBonusEmitted += (accDelta * totalRestaked) / ACC_PRECISION;
+                }
             }
             lastBonusRewardTime = block.timestamp;
         // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)

@@ -44,31 +44,32 @@ contract MockWETH is ERC20 {
     }
 }
 
-/// @title  Restaking bonus-accrual insolvency — CONFIRMED pre-deploy HIGH (characterization)
-/// @notice `_accrueBonus` (TegridyRestaking.sol:2374) computes each accrual window's
-///         mint as `elapsed * bonusRewardPerSecond`, clamped to the INSTANTANEOUS
-///         `available = balanceOf(this) - totalUnforwardedBonus`. But accrual moves
-///         NO tokens (the balance only falls on an actual claim), and the clamp
-///         subtracts only `totalUnforwardedBonus` (crystallized FAILED transfers) —
-///         NOT the already-accrued-but-unclaimed liability. So every accrual that
-///         fires while unclaimed liability sits in the balance re-distributes that
-///         same backing again. With no intervening claims the over-mint COMPOUNDS
-///         linearly, one full pool per window: `accBonusPerShare` climbs without
-///         bound, the accumulator ends up owing several times what was ever funded,
-///         first claimers drain the pool and later claimers are stranded with
-///         unbacked `unforwardedBonusRewards` IOUs.
+/// @title  Restaking bonus-accrual solvency guard (regression for the fixed HIGH)
+/// @notice REGRESSION TEST for AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]. Before the
+///         fix, `_accrueBonus` (TegridyRestaking.sol:2374) clamped each accrual
+///         window's mint to the INSTANTANEOUS `available = balanceOf(this) -
+///         totalUnforwardedBonus`. Accrual moves NO tokens (the balance only falls
+///         on an actual claim), and the clamp subtracted only `totalUnforwardedBonus`
+///         (crystallized FAILED transfers) — NOT already-accrued-but-unclaimed
+///         liability. So every accrual that fired while unclaimed liability sat in
+///         the balance re-distributed that same backing again; with no intervening
+///         claims the over-mint COMPOUNDED one full pool per window into insolvency.
 ///
-///         There is NO `periodFinish` and `totalBonusFunded`/`totalBonusDistributed`
-///         are write-only (never gate accrual), so nothing bounds cumulative
-///         emission to cumulative funding. The Synthetix funded-period model
-///         (`rate = funded/duration`, stop accrual at `periodFinish`) makes
-///         cumulative emission ≡ cumulative funded by construction and closes this.
+///         THE FIX caps against the full OUTSTANDING liability
+///         (`totalBonusEmitted - totalBonusDistributed`) instead of just IOUs, so
+///         cumulative emission can never exceed cumulative funding. This test proves
+///         it: the pool is minted at most ONCE (W1), later windows mint zero, and the
+///         total obligation never exceeds funding. Historical mechanism (pre-fix):
+///         the accumulator ended up owing several times what was ever funded,
+///         first claimers drained the pool and later claimers were stranded with
+///         unbacked `unforwardedBonusRewards` IOUs (417k liability / 100k funded
+///         over 4 windows, empirically).
 ///
 ///         STATUS: pre-deploy (TEGRIDY_RESTAKING_ADDRESS == address(0)); no live
-///         funds. This test PINS the current defect (asserts it EXISTS) so it is
-///         captured executably; when the funded-period fix lands, flip the two
-///         marked assertions to their post-fix (solvency) form and the test proves
-///         the fix. See docs/RESTAKING_BONUS_INSOLVENCY_2026_08_27.md.
+///         funds. Fix chosen: the minimal cumulative-liability cap (a
+///         `totalBonusEmitted` counter), preferred over a full Synthetix
+///         funded-period rebase to minimize regression on the 17 audited restaking
+///         suites. See docs/RESTAKING_BONUS_INSOLVENCY_2026_08_27.md.
 ///
 ///         METHOD NOTE: warps are driven off `vm.getBlockTimestamp()`, not
 ///         `block.timestamp`. Under this repo's optimizer+via_ir, solc CSEs
@@ -145,13 +146,13 @@ contract RestakingBonusInsolvencyTest is Test {
         restaking.applyBonusRate(BONUS_RATE);
     }
 
-    function test_BonusAccrual_CompoundingOverMint_KNOWN_DEFECT() public {
+    function test_BonusAccrual_StaysSolvent_capBindsAcrossWindows() public {
         _stakeAndRestake(alice);
         _stakeAndRestake(bob);
 
         uint256 B0 = weth.balanceOf(address(restaking));
         // W chosen so each window's intended emission (W*rate) >= the whole funded
-        // pool, so the clamp binds to `available` every window.
+        // pool, so a broken clamp would (and pre-fix did) re-bind every window.
         uint256 W = 1_000_001;
 
         // Four accrual windows, NO claim and NO new funding between any of them.
@@ -165,32 +166,30 @@ contract RestakingBonusInsolvencyTest is Test {
             uint256 acc = restaking.accBonusPerShare();
             uint256 increment = acc - prevAcc;
 
-            // COMPOUNDING PROOF: every window mints a fresh, non-zero increment even
-            // though nothing new was funded and nothing was claimed. (A correct
-            // funded-period model would mint the pool ONCE and then 0.)
-            assertGt(increment, 0, "DEFECT: each window re-mints against the same backing");
+            // SOLVENCY PROOF: the pool is minted at most ONCE. The first window that
+            // hits the cap emits the funded pool; every later window with no new
+            // funding and no claims must emit ZERO (the re-mint the bug relied on).
             if (i == 1) {
                 firstIncrement = increment;
+                assertGt(increment, 0, "W1 should mint the funded pool once");
             } else {
-                assertApproxEqRel(
-                    increment, firstIncrement, 1e15, "DEFECT: over-mint compounds at a constant per-window rate"
-                );
+                assertEq(increment, 0, "FIX: later windows must not re-mint the same backing");
             }
 
-            // Accrual never moves tokens: the backing the clamp trusts never shrinks.
+            // Accrual never moves tokens: the backing never shrinks (so the fix is
+            // genuinely from the emitted-liability cap, not from a balance change).
             assertEq(weth.balanceOf(address(restaking)), B0, "balance unchanged by accrual");
-            assertEq(restaking.totalUnforwardedBonus(), 0, "no failed transfers yet");
             prevAcc = acc;
         }
 
-        // The accumulator now implies far more liability than was ever funded.
-        uint256 grossLiability = restaking.accBonusPerShare() * restaking.totalRestaked() / ACC;
-        console2.log("gross accumulator liability:", grossLiability);
-        console2.log("funded B0                 :", B0);
-        assertGt(grossLiability, 3 * B0, "DEFECT: 4 windows imply >3x the funded liability");
+        // INVARIANT: cumulative liability minted never exceeds cumulative funding.
+        uint256 emitted = restaking.totalBonusEmitted();
+        console2.log("totalBonusEmitted:", emitted);
+        console2.log("funded B0        :", B0);
+        assertLe(emitted, B0, "cumulative emission must never exceed funding");
 
-        // Economic consequence: total obligation (paid out + still-owed IOUs) exceeds
-        // what was ever funded — the pool is insolvent.
+        // Economic proof: total obligation (paid out + still-owed IOUs) is fully
+        // backed by the funded pool — the contract is solvent.
         vm.prank(alice);
         restaking.claimAll();
         vm.prank(bob);
@@ -199,10 +198,9 @@ contract RestakingBonusInsolvencyTest is Test {
         uint256 obligation = weth.balanceOf(alice) + weth.balanceOf(bob) + restaking.unforwardedBonusRewards(alice)
             + restaking.unforwardedBonusRewards(bob);
         console2.log("total obligation (paid + IOUs):", obligation);
-
-        // ── ASSERTION TO FLIP AFTER THE FUNDED-PERIOD FIX ──────────────────────
-        // CURRENT (defective): obligation > funding.  POST-FIX (solvent):
-        //   assertLe(obligation, B0, "cumulative emission must never exceed funding");
-        assertGt(obligation, B0, "KNOWN DEFECT: obligation exceeds funding (insolvent)");
+        assertLe(obligation, B0, "obligation must never exceed funding (solvent)");
+        // And the fix is non-vacuous: both stakers were genuinely paid the pool
+        // (not starved) — the whole funded amount is accounted for, within rounding.
+        assertApproxEqAbs(obligation, B0, 1e6, "the funded pool is fully distributed, no more no less");
     }
 }
