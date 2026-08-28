@@ -1022,10 +1022,12 @@ labels *"Fund-loss detector class… run loud."*
 **Eight real defects were found underneath the dismissals.** None is what the detector claimed; each
 surfaced while checking whether the detector's claim was false. The three worth naming here:
 
-- **`RestakingMonitorView`** — `_effectivePower` silently degrades to zero **three ways**, one of
-  which is *the default post-deploy state* (`restakingContract` unset). So `isSynced` returns **true
-  for every un-registered restaker** — the house's cardinal sin, sitting in a view contract, and
-  exactly what its own natspec says it exists to prevent.
+- **`StreamingRevenueDistributor` (v2)** — `_effectivePower` silently degrades to zero **three ways**,
+  one of which is *the default post-deploy state* (`restakingContract` unset). So `isSynced` returns
+  **true for every un-registered restaker** — the house's cardinal sin, and exactly what its own natspec
+  says it exists to prevent. (ATTRIBUTION FIX 2026-08-27: `_effectivePower`/`isSynced` live in
+  `src/v2/StreamingRevenueDistributor.sol`, NOT `RestakingMonitorView` — a re-auditor following the old
+  name opened the wrong file.)
 - **`NftfiPooledLendingVault.repay`** is **not** revert-on-failure: it clamps and under-applies
   silently at `:386`, and `NftfiBnpl` has no rescue path. A suppression would have made the gate
   blind to it.
@@ -1237,8 +1239,9 @@ defect list, is in item **8** below.
 The three worth naming here, because they are the same defect class as the distributor work above —
 a silent zero standing in for an unknown:
 
-1. **`RestakingMonitorView`** — `_effectivePower` degrades to zero **three ways**, one of which is
-   the default post-deploy state, so `isSynced` answers **true for every un-registered restaker**.
+1. **`StreamingRevenueDistributor` (v2)** — `_effectivePower` degrades to zero **three ways**, one of
+   which is the default post-deploy state, so `isSynced` answers **true for every un-registered
+   restaker**. (These live in `src/v2/StreamingRevenueDistributor.sol`, not `RestakingMonitorView`.)
 2. **`NftfiPooledLendingVault.repay`** is **not** revert-on-failure: it clamps and under-applies
    silently at `:386`, and `NftfiBnpl` has no rescue path.
 3. **`TegridyHarvestVault:370/:386`** — a **one-wei donation** grieves `harvest` into
