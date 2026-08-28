@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
-import { isSolanaConfigured } from '../../lib/solana';
+import { isSolanaSwapLive } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
@@ -145,7 +145,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
           {(() => {
-            const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+            const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
             if (!trade) return null;
             return 'to' in trade ? (
               <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">

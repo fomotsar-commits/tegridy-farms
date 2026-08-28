@@ -145,6 +145,13 @@ Ranked by how real they are today:
 
 ## 5. What is deliberately NOT promised
 
+- ⚠️ **SUPERSEDED 2026-08-28 for the first bullet only** — see
+  `BAYLA_STAKING_SWAP_2026_08_28.md` §5. The pool now exists and publishes its
+  own rate on-chain, so "no APR anywhere" became "print the rate the chain
+  states, twice, and never conflate the two": the **configured** rate labeled
+  as configuration, the **paying** rate as the real 0 it is while the vault is
+  empty, and runway only when a funded vault and a live stake both exist. No
+  number on the surface is synthesized. Every other bullet below still holds.
 - No APR, no runway, no "coming soon" dates anywhere in the UI — the panel
   states the pool doesn't exist and describes the funding routes as
   evaluation, because that is the truth on 2026-08-24.
@@ -306,6 +313,17 @@ verified the flip end-to-end (dark card ↔ live section) before commit.
 
 ## 6. Open operator items
 
+0. **NEW 2026-08-28 — the pool has no duration bonus.** It was created with
+   `minWeight == maxWeight == 1e9`, so a 365-day lock earns exactly what a
+   1-day lock earns; only the exit date changes. If TOWELI-style "lock longer,
+   earn more" was the intent, it needs a NEW stake pool (`maxWeight` is set at
+   creation) and a staker migration — the UI already implements the program's
+   real weight curve and would light up with zero changes. Decide.
+   Details: `BAYLA_STAKING_SWAP_2026_08_28.md` §4.1.
+0b. **NEW 2026-08-28 — the reward pool is `permissionless: true`.** A one-click
+   "top up the reward vault" button is buildable (SDK `fundPool`) and was left
+   out only because Streamflow takes a protocol fee on funding that must be
+   read and disclosed first. Say the word.
 1. Streamflow pool ceremony (or veto → fallback order in §3).
 2. First reward-pool funding: source (creator-fee claim vs. top-up) and
    size; the panel flips to live numbers only after this.

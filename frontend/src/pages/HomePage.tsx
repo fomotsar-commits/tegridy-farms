@@ -6,7 +6,7 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
-import { isSolanaConfigured } from '../lib/solana';
+import { isSolanaSwapLive } from '../lib/solana';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -235,12 +235,12 @@ export default function HomePage() {
                   (scanner/index.ts dispatches to the Solana adapter unconditionally, so
                   it cannot be dark in any deployment). Mirrors navConfig's SOLANA_LIVE. */}
               <Link
-                to={isSolanaConfigured() ? '/solana' : '/scan'}
-                aria-label={isSolanaConfigured() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
+                to={isSolanaSwapLive() ? '/solana' : '/scan'}
+                aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
                 className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
                 style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
               >
-                {isSolanaConfigured() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
+                {isSolanaSwapLive() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
               </Link>
             </div>
 
@@ -680,7 +680,7 @@ export default function HomePage() {
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
               // three. A card advertising a wall is worse than no card.
-              ...(isSolanaConfigured()
+              ...(isSolanaSwapLive()
                 ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens routed through Jupiter, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Jupiter', label: 'Solana', art: pageArt('home', 15) }]
                 : []),
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },

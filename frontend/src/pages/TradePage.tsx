@@ -18,6 +18,7 @@ import { TwapOrderPanel } from '../components/swap/TwapOrderPanel';
 import { TriggerOrderTab } from '../components/swap/TriggerOrderTab';
 import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
+import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
@@ -215,6 +216,12 @@ export default function TradePage() {
           <h1 className="heading-luxury text-2xl md:text-3xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].title}</h1>
           <p className="text-white text-[13px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{titleByTab[tab].desc}</p>
         </m.div>
+
+        {/* Which chain — this surface is the Ethereum one, and the venue also
+            trades on Solana. Without this the only route between the two was
+            the "More" menu, which is why a Solana bungalow's "Trade" landed on
+            an ETH swap that could not touch its token. */}
+        <ChainSwitch active="ethereum" />
 
         {/* Tab Toggle */}
         <div

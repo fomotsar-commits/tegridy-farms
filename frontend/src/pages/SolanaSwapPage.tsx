@@ -12,7 +12,8 @@ import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
-import { isSolanaConfigured, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { ChainSwitch } from '../components/swap/ChainSwitch';
+import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   PAY_WITH_TOKENS,
   BUY_TOKENS,
@@ -419,7 +420,8 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
       </div>
       <p className="text-white/30 text-[9px] mt-1.5">
         Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
-        back to SOL anytime. APY is variable. A {SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.
+        back to SOL anytime. APY is variable.{' '}
+        {isSolanaFeeConfigured() ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.` : 'No platform fee is charged on the buy.'}
       </p>
     </div>
   );
@@ -753,7 +755,7 @@ function SolanaSwapInner() {
   const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
   // The fee can only be collected on a pair touching SOL or USDC (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
-  const feeMintForPair = isSolanaConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
+  const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
   const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
   const shieldWarnings = [...(shield[payToken.mint] ?? []), ...(shield[buyToken.mint] ?? [])];
   // Show ALL Shield warnings, but only FORCE the ack on a genuinely dangerous
@@ -850,6 +852,7 @@ function SolanaSwapInner() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
+      <ChainSwitch active="solana" />
       <m.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1067,7 +1070,10 @@ function SolanaSwapInner() {
           )}
 
           <p className="mt-3 text-center text-white/40 text-[10px]">
-            Swaps route through Jupiter on Solana. A {feePct}% platform fee applies on pairs that include SOL or USDC.
+            Swaps route through Jupiter on Solana.{' '}
+            {isSolanaFeeConfigured()
+              ? `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`
+              : 'No platform fee is charged here today — you get Jupiter’s route as quoted.'}
           </p>
             </>
           ) : (
@@ -1107,14 +1113,17 @@ export default function SolanaSwapPage() {
   usePageTitle('Solana Swap', 'Buy Solana tokens on Tegridy Farms via Jupiter.');
   useEffect(() => { trackPageView('solana-swap'); }, []);
 
-  if (!isSolanaConfigured()) {
+  // The surface is gated on the SWAP being available, not on the venue having
+  // somewhere to send a fee — see isSolanaSwapLive(). The branch is kept (rather
+  // than deleted) so a future operator kill-switch has one place to live.
+  if (!isSolanaSwapLive()) {
     return (
       <div className="max-w-md mx-auto px-4 py-10">
         <FeatureNotDeployed
           pageId="swap"
           idx={2}
           title="Solana swap isn't live yet"
-          subtitle="Buy Solana tokens on Tegridy with a transparent platform fee — coming soon."
+          subtitle="Buy Solana tokens on Tegridy — coming soon."
         />
       </div>
     );

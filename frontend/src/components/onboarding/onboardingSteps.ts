@@ -22,7 +22,7 @@ import {
   isDeployed,
 } from '../../lib/constants';
 import { isLauncherEnabled } from '../../lib/launcher/config';
-import { isSolanaConfigured } from '../../lib/solana';
+import { isSolanaSwapLive } from '../../lib/solana';
 
 export type OnboardingSurfaceId =
   | 'trade'
@@ -79,7 +79,7 @@ export const ONBOARDING_SURFACES: readonly OnboardingSurface[] = [
     route: '/solana',
     label: 'Solana swap',
     blurb: 'Swap Solana tokens through Jupiter from the same venue.',
-    isLive: () => isSolanaConfigured(),
+    isLive: () => isSolanaSwapLive(),
   },
   {
     id: 'launch',
