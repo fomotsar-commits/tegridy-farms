@@ -631,38 +631,75 @@ async function onchain() {
     });
   }
 
-  for (const group of chunk(ethEntries, 50)) {
-    const res = await post(
-      ETH_RPC,
-      group.map((e, i) => ({ jsonrpc: '2.0', id: i, method: 'eth_getCode', params: [safeAddress(e.address), 'latest'] })),
-    );
-    const cls = res.ok ? classifyEvmBatch(res.json) : unanswered(res.reason);
-    if (!cls.answered) {
-      warn(`Ethereum chain read SKIPPED for ${group.length} address(es): ${cls.reason}`);
-      for (const e of group) { console.log(`  ${e.id.padEnd(30)} (NOT CHECKED)`); skipped.push(`ethereum/${e.id}`); }
-      continue;
-    }
-    group.forEach((e, i) => {
-      if (!cls.byId.has(i)) {
-        console.log(`  ${e.id.padEnd(30)} (NOT CHECKED)`);
-        skipped.push(`ethereum/${e.id}`);
-        return;
+  // EVM entries are per-CHAIN. `chainId` (number or array; default 1 = mainnet)
+  // names every chain the entry's `expect` must hold on — the L2 role Safes are
+  // CREATE2 twins that must carry code on BOTH 8453 and 4663, while the
+  // Robinhood-only curve launcher names 4663 alone. Before this, the read sent
+  // every ethereum-section address to the MAINNET RPC, so an L2 entry was
+  // structurally unverifiable: "expects a CONTRACT; no code" — true on chain 1,
+  // a lie about the entry. Keyed on the entry itself like the Solana devnet
+  // exemption above (a property of which chain the entry DESCRIBES), never
+  // inferred from prose. A chainId with no RPC here is a hard FAIL, not a
+  // skip — an unverifiable entry must never read as a verified one.
+  const EVM_RPCS = {
+    1: ETH_RPC,
+    8453: process.env.BASE_RPC || 'https://mainnet.base.org',
+    4663: process.env.RH_RPC || 'https://rpc.mainnet.chain.robinhood.com',
+  };
+  const evmPairs = [];
+  for (const e of ethEntries) {
+    const chains = Array.isArray(e.chainId) ? e.chainId : [e.chainId ?? 1];
+    for (const cid of chains) {
+      if (!EVM_RPCS[cid]) {
+        fail(`ethereum/${e.id}: chainId ${cid} has no RPC in EVM_RPCS — teach the checker that chain or fix the entry`);
+        continue;
       }
-      const code = cls.byId.get(i);
-      const hasCode = code !== '0x' && !/^0x0*$/.test(code);
-      console.log(`  ${e.id.padEnd(30)} ${hasCode ? `contract (${(code.length - 2) / 2} bytes)` : 'EOA / no code'}`);
-      // Ethereum entries carry no `expect` block today, so only what the registry
-      // actually states is enforced. Add `"expect": {"type": "contract"|"eoa"}`
-      // to an entry and it is checked from that moment on.
-      const want = e.expect?.type;
-      if (want === 'contract' && !hasCode) fail(`ethereum/${e.id}: registry expects a CONTRACT; the address has no code`);
-      if (want === 'eoa' && hasCode) fail(`ethereum/${e.id}: registry expects an EOA; the address HAS code`);
-    });
+      evmPairs.push({ e, cid });
+    }
+  }
+  const evmLabel = (e, cid) => (cid === 1 ? e.id : `${e.id}@${cid}`);
+  const byChain = new Map();
+  for (const p of evmPairs) {
+    if (!byChain.has(p.cid)) byChain.set(p.cid, []);
+    byChain.get(p.cid).push(p);
+  }
+  for (const [cid, pairs] of byChain) {
+    for (const group of chunk(pairs, 50)) {
+      const res = await post(
+        EVM_RPCS[cid],
+        group.map((p, i) => ({ jsonrpc: '2.0', id: i, method: 'eth_getCode', params: [safeAddress(p.e.address), 'latest'] })),
+      );
+      const cls = res.ok ? classifyEvmBatch(res.json) : unanswered(res.reason);
+      if (!cls.answered) {
+        warn(`EVM chain ${cid} read SKIPPED for ${group.length} address(es): ${cls.reason}`);
+        for (const p of group) { console.log(`  ${evmLabel(p.e, p.cid).padEnd(30)} (NOT CHECKED)`); skipped.push(`ethereum/${evmLabel(p.e, p.cid)}`); }
+        continue;
+      }
+      group.forEach((p, i) => {
+        const { e, cid: pcid } = p;
+        if (!cls.byId.has(i)) {
+          console.log(`  ${evmLabel(e, pcid).padEnd(30)} (NOT CHECKED)`);
+          skipped.push(`ethereum/${evmLabel(e, pcid)}`);
+          return;
+        }
+        const code = cls.byId.get(i);
+        const hasCode = code !== '0x' && !/^0x0*$/.test(code);
+        console.log(`  ${evmLabel(e, pcid).padEnd(30)} ${hasCode ? `contract (${(code.length - 2) / 2} bytes)` : 'EOA / no code'}`);
+        // Ethereum entries carry no `expect` block today, so only what the registry
+        // actually states is enforced. Add `"expect": {"type": "contract"|"eoa"}`
+        // to an entry and it is checked from that moment on — on EVERY chain the
+        // entry names.
+        const want = e.expect?.type;
+        if (want === 'contract' && !hasCode) fail(`ethereum/${evmLabel(e, pcid)}: registry expects a CONTRACT; the address has no code`);
+        if (want === 'eoa' && hasCode) fail(`ethereum/${evmLabel(e, pcid)}: registry expects an EOA; the address HAS code`);
+      });
+    }
   }
 
   // Never let "not checked" read as "checked and fine". Printed unconditionally, so a
-  // zero is stated rather than inferred from the absence of a warning.
-  console.log(`\n  chain read: ${solEntries.length + ethEntries.length} considered, ${skipped.length} NOT CHECKED (the RPC did not answer)`);
+  // zero is stated rather than inferred from the absence of a warning. The EVM count
+  // is (entry, chain) PAIRS — a two-chain Safe is two reads and counts as two.
+  console.log(`\n  chain read: ${solEntries.length + evmPairs.length} considered, ${skipped.length} NOT CHECKED (the RPC did not answer)`);
   if (skipped.length) console.log(`    ${skipped.join(', ')}`);
 
   // Same principle applied to coverage rather than availability: an entry with no

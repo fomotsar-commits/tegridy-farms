@@ -60,6 +60,15 @@ export interface Bungalow {
   swapUrl?: string;
   /** Live liquidity pools for this token (labels + external pair pages). */
   pools?: { label: string; url: string }[];
+  /**
+   * Streamflow stake-pool address — the lighthouse pool. Env-keyed so the
+   * operator lights it up with a Vercel env var + redeploy, no code commit:
+   * the ceremony ends with pasting the pool address into
+   * VITE_BAYLA_STAKE_POOL. Absent → the farm panel keeps its honest
+   * "Not deployed yet" card. FUNDING-LAST: the pool may go live with an
+   * empty reward vault; the live section renders that as a labeled zero.
+   */
+  stakePool?: string;
   /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
   /** Picker card thumbnail. */
@@ -84,6 +93,21 @@ export const BAYLA_ART: ArtPiece[] = Array.from({ length: 24 }, (_, i) => {
 export const DEFAULT_BUNGALOW_ID = 'toweli';
 
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
+
+// The lighthouse pool — CREATED ON MAINNET 2026-08-26 by the ceremony script
+// (signer GCCSLE7d…auV9, Token-2022 detected):
+//   stake pool  4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp
+//     (tx 3vDxaGWo9ZrzrNWQumqe9AG2oUxJU4YRCoBBbthf8SykVTTQxmP5s2j1pvcPHZmA7PpET9vXV2s19rvMEFcAzeoB)
+//   reward pool HdapJt3cJ92fBcoCiaeAyACicXGF9m6RGQdWRMX9L9XL — 0.003 BAYLA per
+//     staked BAYLA per day, permissionless public funding
+//     (tx 3dgfyV2EgyxT1pszEc9k1RzBbFi9SNARtVKKDDE6SpBoJDbyuiMSu5EhihM6JXmeNGurKrkgyFiCyiburzBUCSR)
+// The address ships hardcoded so no env var is load-bearing; the env override
+// remains for emergencies (pointing staging at a test pool, or dark-switching
+// by setting it to an empty-but-present value is NOT supported — the fallback
+// wins whenever the env is unset/blank).
+const BAYLA_STAKE_POOL =
+  (import.meta.env?.VITE_BAYLA_STAKE_POOL as string | undefined)?.trim()
+  || '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp';
 
 export const BUNGALOWS: Bungalow[] = [
   {
@@ -117,6 +141,7 @@ export const BUNGALOWS: Bungalow[] = [
     ],
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
+    stakePool: BAYLA_STAKE_POOL,
     live: true,
     identity: {
       heroTitle: 'BAYLA.',
@@ -131,16 +156,23 @@ export const BUNGALOWS: Bungalow[] = [
     },
   },
   // ——— The settled residents (island canon order) ———
-  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', thumb: '/art/mfers-heaven.jpg', live: false },
-  { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', thumb: '/art/boxing-ring.jpg', live: false },
-  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'jbm', name: 'JBM', symbol: 'JBM', chain: 'base', address: '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#ffd078', thumb: '/art/jungle-bus.jpg', live: false },
-  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', thumb: '/art/beach-vibes.jpg', live: false },
-  { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'base', address: '0x58d6e314755c2668f3d7358cc7a7a06c4314b238', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', thumb: '/art/jungle-dark.jpg', live: false },
+  // swapUrl follows the island's own swapUrlFor fallback (dexscreener
+  // <chain>/<ca>) for EVM tokens, and the Jupiter deep-link pattern (same as
+  // Bayla's canon) for Solana ones — bungalowTradeRoute() prefers the
+  // in-venue /solana preset over these whenever that surface is configured.
+  // Dormant until each slot flips live. Market notes (2026-08-25 reads) live
+  // in docs/ISLAND_ROSTER_DOSSIER.md — JBM and RIZZ had no indexed pairs
+  // that day, so their swapUrl stays the canon fallback page regardless.
+  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', swapUrl: 'https://dexscreener.com/ethereum/0x6982508145454ce325ddbe47a25d4ec3d2311933', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', swapUrl: 'https://dexscreener.com/base/0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', swapUrl: 'https://dexscreener.com/base/0xe3086852a4b125803c815a158249ae468a3254ca', thumb: '/art/mfers-heaven.jpg', live: false },
+  { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', swapUrl: 'https://dexscreener.com/base/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', swapUrl: 'https://dexscreener.com/base/0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', thumb: '/art/boxing-ring.jpg', live: false },
+  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', swapUrl: 'https://jup.ag/swap/SOL-4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'jbm', name: 'JBM', symbol: 'JBM', chain: 'base', address: '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#ffd078', swapUrl: 'https://dexscreener.com/base/0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', thumb: '/art/jungle-bus.jpg', live: false },
+  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', swapUrl: 'https://jup.ag/swap/SOL-4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', swapUrl: 'https://jup.ag/swap/SOL-8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', thumb: '/art/beach-vibes.jpg', live: false },
+  { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'base', address: '0x58d6e314755c2668f3d7358cc7a7a06c4314b238', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', swapUrl: 'https://dexscreener.com/base/0x58d6e314755c2668f3d7358cc7a7a06c4314b238', thumb: '/art/jungle-dark.jpg', live: false },
   // ——— The quiet one ———
   { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'Someone is building here.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
 ];

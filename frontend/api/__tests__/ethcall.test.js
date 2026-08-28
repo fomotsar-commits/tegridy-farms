@@ -58,7 +58,7 @@ describe("ethcall — failover chain", () => {
   const originalKey = process.env.ALCHEMY_API_KEY;
 
   beforeEach(() => {
-    delete process.env.ALCHEMY_API_KEY; // chain = the 3 public URLs only
+    delete process.env.ALCHEMY_API_KEY; // chain = the 2 public URLs only (merkle dropped 2026-08-25)
   });
 
   afterEach(() => {
@@ -68,14 +68,15 @@ describe("ethcall — failover chain", () => {
   });
 
   it("advances to the next URL on a transport failure", async () => {
+    // Roster is 2 entries since the 2026-08-25 merkle drop: one transport
+    // failure, then the last slot succeeds.
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new Error("ECONNRESET"))
-      .mockResolvedValueOnce({ ok: false, status: 502 })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ result: "0x2a" }) });
     globalThis.fetch = fetchMock;
 
     await expect(ethCall("0x" + "1".repeat(40), "0xdeadbeef")).resolves.toBe("0x2a");
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("does NOT retry a deterministic JSON-RPC error", async () => {

@@ -183,7 +183,7 @@ Foundry, `contracts/test/v4/`. Counted from the working tree 2026-08-19.
 | File | `test*` functions | Covers |
 | --- | --- | --- |
 | `TegridyLiquidityMigrator.t.sol` | **21** | full-range mint, migrator retains nothing, pool carries the hook, `onlyAirlock` on both entrypoints, unconfigured-pair revert, tick-spacing bounds, the SDK payload shape, beneficiary routing to the locker, lock-duration rejection, `sweepStuck` destination, initializer-grant load-bearing, and the five floor tests below |
-| `TegridyFeeLocker.t.sol` | **17** | write-once `bindMigrator`, only-migrator lock, shares-sum-to-WAD, duplicate/unsorted/zero-share rejection, double-lock, permanent lock never releases, timed lock blocks before expiry, exact split with no dust, hostile beneficiary cannot block others |
+| `TegridyFeeLocker.t.sol` | **19** | write-once `bindMigrator`, only-migrator lock, shares-sum-to-WAD, duplicate/unsorted/zero-share rejection, double-lock, permanent lock never releases, timed lock blocks before expiry, exact split with no dust, hostile beneficiary cannot block others, collect + claim are reentrancy-guarded (donate-mid-collect cannot corrupt the delta) |
 | `TegridyV4Hook.t.sol` | **39** | pool-key allowlist, dynamic-fee gate, admin timelock flows, POL accrual/redeem/conservation fuzz, fee bounds fuzz, fee-split conservation, pause semantics, trusted-router paths |
 
 The five that exist because of §6, by name so you can grep rather than trust a count:

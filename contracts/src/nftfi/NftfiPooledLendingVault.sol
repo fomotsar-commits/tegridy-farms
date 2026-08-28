@@ -377,6 +377,12 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
     ///         buyer's behalf is the intended second caller — but only the
     ///         borrower's own record is credited, and the collateral only ever
     ///         returns to `loan.borrower`.
+    /// @dev    CLAMPS, DOES NOT REVERT. `amount` above the debt is trimmed to
+    ///         the debt and only the trimmed `paid` is pulled, so this function
+    ///         can silently apply less than it was handed and `paid` is the
+    ///         only signal that it did. A caller that sized an exact payment
+    ///         MUST compare `paid` against what it sent — as
+    ///         `NftfiBnpl.payInstalment` does — rather than discard it.
     function repay(uint256 loanId, uint256 amount) external nonReentrant returns (uint256 paid) {
         Loan storage loan = _liveLoan(loanId);
         if (amount == 0) revert NothingToRepay();

@@ -46,22 +46,34 @@ describe('the registry serves the three decided chains', () => {
   });
 });
 
-describe('the L2 entries are configured, honest, and not yet live', () => {
+describe('the L2 entries are configured, honest, and LIVE (MVP + curve deployed 2026-08-25)', () => {
   it.each([BASE, ROBINHOOD])('chain %i is served', (chainId) => {
     expect(isChainConfigured(chainId)).toBe(true);
     expect(getChainConfig(chainId)).not.toBeNull();
   });
 
   it.each([BASE, ROBINHOOD])(
-    'chain %i answers not-deployed for the protocol, never chain-unconfigured',
+    'chain %i answers deployed for the core protocol (MVP live), never chain-unconfigured',
     (chainId) => {
-      // "We serve this chain and this piece is not on it yet" — the exact state
-      // the three-way ContractAvailability exists to express.
+      // The MVP + curve landed 2026-08-25 (on-chain read-back verified). Every core
+      // slot now resolves to a real address; the three-way ContractAvailability
+      // expresses "served AND deployed", not "served, nothing on it yet".
       for (const key of ['factory', 'router', 'twap', 'swapFeeRouter', 'feeSink', 'treasury'] as const) {
-        expect(contractOn(chainId, key)).toEqual({ status: 'not-deployed' });
+        expect(contractOn(chainId, key).status).toBe('deployed');
       }
     },
   );
+
+  it('the curve launchpad is LIVE on both L2s at its verified address', () => {
+    expect(contractOn(BASE, 'curveLauncher')).toEqual({
+      status: 'deployed',
+      address: '0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060',
+    });
+    expect(contractOn(ROBINHOOD, 'curveLauncher')).toEqual({
+      status: 'deployed',
+      address: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
+    });
+  });
 
   it.each([BASE, ROBINHOOD])('chain %i knows its canonical WETH — a chain fact, not a deployment', (chainId) => {
     const weth = contractOn(chainId, 'weth');

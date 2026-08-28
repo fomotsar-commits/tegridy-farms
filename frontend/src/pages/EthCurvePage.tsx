@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { useChainId } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -17,6 +18,7 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { CHAIN_ID } from '../lib/constants';
+import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn } from '../lib/launcher/curve';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
@@ -47,9 +49,14 @@ export function CurveHowItWorks() {
   );
 }
 
-/** Trade any curve token by pasting its address (until a launch explorer exists). */
-function TradeByAddress({ launcher }: { launcher: Address }) {
+/** Trade any curve token by pasting its address (until a launch explorer exists).
+ *  `prefill` lets the create flow hand its fresh token straight to the trade
+ *  panel — the "Trade it now" jump on the success card. */
+function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; chainId: number; prefill?: Address | null }) {
   const [input, setInput] = useState('');
+  useEffect(() => {
+    if (prefill) setInput(prefill);
+  }, [prefill]);
   const token = useMemo<Address | null>(() => (isAddress(input) ? (input as Address) : null), [input]);
   return (
     <div className="space-y-3">
@@ -65,7 +72,7 @@ function TradeByAddress({ launcher }: { launcher: Address }) {
         />
         {input.length > 0 && !token && <p className="text-amber-300/80 text-[11px] mt-1">Not a valid address.</p>}
       </div>
-      {token && <CurveTradePanel launcher={launcher} token={token} />}
+      {token && <CurveTradePanel launcher={launcher} token={token} chainId={chainId} />}
     </div>
   );
 }
@@ -76,7 +83,19 @@ export default function EthCurvePage() {
     trackPageView('/eth-curve');
   }, []);
 
-  const availability = curveLauncherOn(CHAIN_ID);
+  // A token created this session, handed from the create success card to the
+  // trade panel so the creator lands on their live coin, not a dead-end toast.
+  const [tradeToken, setTradeToken] = useState<Address | null>(null);
+
+  // Chain-aware: the Tegridy curve is LIVE on Ethereum, Base and Robinhood. Show the
+  // launcher for the wallet's chain when it has one; otherwise default to mainnet
+  // (a disconnected wallet resolves to mainnet too). A wallet already on a served
+  // curve chain then reads + writes on that chain with no wrong-chain banner.
+  const walletChainId = useChainId();
+  const activeChainId =
+    curveLauncherOn(walletChainId).status === 'deployed' ? walletChainId : CHAIN_ID;
+  const availability = curveLauncherOn(activeChainId);
+  const chainName = getChainConfig(activeChainId)?.name ?? 'Ethereum';
 
   return (
     <>
@@ -88,7 +107,7 @@ export default function EthCurvePage() {
             {availability.status === 'deployed' && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-                Live on Ethereum
+                Live on {chainName}
               </span>
             )}
           </div>
@@ -100,9 +119,9 @@ export default function EthCurvePage() {
 
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
-            <WrongChainBanner requiredChainId={CHAIN_ID} />
-            <CurveCreatePanel launcher={availability.address} />
-            <TradeByAddress launcher={availability.address} />
+            <WrongChainBanner requiredChainId={activeChainId} />
+            <CurveCreatePanel launcher={availability.address} chainId={activeChainId} onTrade={setTradeToken} />
+            <TradeByAddress launcher={availability.address} chainId={activeChainId} prefill={tradeToken} />
             <CurveHowItWorks />
           </m.div>
         ) : (

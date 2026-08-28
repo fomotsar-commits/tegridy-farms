@@ -115,7 +115,7 @@ Uniswap pair **7.6697 WETH / 268,553,703 TOWELI**:
 
 | step | cost |
 |---|---|
-| lower floor 10 → 1.0 WETH (propose, wait 24h, execute) | ~$0.02 of gas |
+| lower floor 10 → 1.0 WETH — **propose DONE 2026-08-22** (tx `0x29cd52c0…6771f`); execute is open and **expires 2026-08-30 18:03 UTC** | ~$0.02 of gas, half of it already spent |
 | buy **32.43M TOWELI** (14.1% slippage against the Uniswap pool) | 1.0565 WETH = **$2,653** |
 | add **0.9206 WETH + 32.43M TOWELI** proportionally to the native pair | 0.9206 WETH = **$2,311** |
 | **all-in** | **≈ 1.98 ETH = $4,964** |

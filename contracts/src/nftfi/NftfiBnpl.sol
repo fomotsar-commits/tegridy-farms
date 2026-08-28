@@ -67,6 +67,7 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
     error ParamOutOfRange();
     error FeeRecipientUnset();
     error SelfPurchase();
+    error RepayShortApplied();
 
     // ─── Immutables ──────────────────────────────────────────────────
 
@@ -329,7 +330,14 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
 
         _weth.safeTransferFrom(msg.sender, address(this), paid);
         _weth.safeApprove(address(vault), paid);
-        vault.repay(p.loanId, paid);
+        // The vault CLAMPS rather than reverts: `repay` applies at most what it
+        // believes is due, and its return value is the only signal that it took
+        // less than it was handed. Today `paid` never exceeds the vault's due —
+        // quoteRepay and repay fold in identical pending interest at the same
+        // timestamp — but that is two contracts' arithmetic agreeing, not an
+        // enforced check, and this desk has no sweep or rescue path: a partial
+        // application would strand the difference here permanently. Refuse it.
+        if (vault.repay(p.loanId, paid) != paid) revert RepayShortApplied();
         _weth.safeApprove(address(vault), 0);
 
         p.instalmentsPaid = next;
