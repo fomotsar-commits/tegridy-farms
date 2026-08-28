@@ -117,6 +117,43 @@ contract MockWETH {
     }
 }
 
+/// @dev A hostile Seaport that re-enters the router mid-fulfillment. Proves the
+///      nonReentrant lock on buy() (and, via OZ's shared _status slot, sweep).
+contract MaliciousSeaport {
+    bytes public reentrantCall;
+
+    function arm(bytes calldata data) external {
+        reentrantCall = data;
+    }
+
+    function fulfillAdvancedOrder(AdvancedOrder calldata, CriteriaResolver[] calldata, bytes32, address)
+        external
+        payable
+        returns (bool)
+    {
+        // Re-enter the router (msg.sender) mid-fill and re-throw its revert verbatim,
+        // so the outer buy() surfaces ReentrancyGuardReentrantCall.
+        (bool ok, bytes memory ret) = msg.sender.call(reentrantCall);
+        if (!ok) {
+            assembly {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
+        return true;
+    }
+
+    receive() external payable {}
+}
+
+/// @dev A treasury whose receive() reverts — forces the sweep's WETH-fallback leg.
+contract RevertingReceiver {
+    error NoEth();
+
+    receive() external payable {
+        revert NoEth();
+    }
+}
+
 contract TegridyNativeBuyRouterTest is Test {
     TegridyNativeBuyRouter router;
     MockSeaport seaport;
@@ -410,5 +447,72 @@ contract TegridyNativeBuyRouterTest is Test {
         new TegridyNativeBuyRouter(address(seaport), address(splitter), address(0), address(weth));
         vm.expectRevert(TegridyNativeBuyRouter.ZeroAddress.selector);
         new TegridyNativeBuyRouter(address(seaport), address(splitter), treasury, address(0));
+    }
+
+    // -- reentrancy: nonReentrant on buy() is real (shared _status slot covers sweep) --
+
+    function test_BuyIsNonReentrant() public {
+        MaliciousSeaport evil = new MaliciousSeaport();
+        TegridyNativeBuyRouter r = new TegridyNativeBuyRouter(address(evil), address(splitter), treasury, address(weth));
+        AdvancedOrder memory o = _oneNativeOrder(1 ether, 1, 1);
+        // Arm the hostile seaport to call back into buy() during the fill. The
+        // nonReentrant guard runs before any body logic, so a value-0 re-entry with
+        // this same order trips it immediately.
+        evil.arm(abi.encodeCall(TegridyNativeBuyRouter.buy, (o, bytes32(0))));
+
+        vm.deal(buyer, 1 ether);
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
+        r.buy{value: 1 ether}(o, bytes32(0));
+    }
+
+    // -- sweep WETH-fallback leg: a brick-on-receive treasury still gets paid --
+
+    function test_SweepWrapsToWethForRevertingTreasury() public {
+        RevertingReceiver badTreasury = new RevertingReceiver();
+        router.setTreasury(address(badTreasury)); // test contract is owner
+        vm.deal(address(router), 0.03 ether);
+
+        router.sweepToTreasury();
+
+        // The raw ETH .call reverts (receive reverts), so the lib wraps to WETH and
+        // sends the token instead — funds reach the treasury, nothing bricks.
+        assertEq(weth.balanceOf(address(badTreasury)), 0.03 ether, "swept as WETH via fallback");
+        assertEq(address(router).balance, 0, "router emptied");
+        assertEq(address(badTreasury).balance, 0, "no raw ETH stuck at the bricked treasury");
+    }
+
+    // -- _nativeTotal sums ONLY native legs (the advertised ERC20 pass-through) --
+
+    function test_NativeTotalIgnoresErc20Consideration() public {
+        ConsiderationItem[] memory cons = new ConsiderationItem[](2);
+        cons[0] = ConsiderationItem({
+            itemType: ItemType.NATIVE,
+            token: address(0),
+            identifierOrCriteria: 0,
+            startAmount: 1 ether,
+            endAmount: 1 ether,
+            recipient: payable(SELLER)
+        });
+        cons[1] = ConsiderationItem({
+            itemType: ItemType.ERC20,
+            token: address(0xE12C20),
+            identifierOrCriteria: 0,
+            startAmount: 5 ether,
+            endAmount: 5 ether,
+            recipient: payable(SELLER)
+        });
+        AdvancedOrder memory o = _wrap(cons, 1, 1);
+        seaport.setFeeToReturn(0);
+
+        // Exact NATIVE total is 1 ETH; the 5-ETH ERC20 leg must not be counted.
+        vm.prank(buyer);
+        router.buy{value: 1 ether}(o, bytes32(0));
+        assertEq(seaport.lastValue(), 1 ether, "only the native leg is required as msg.value");
+
+        // Sending native+erc20 (6 ETH) overpays the native-only total -> revert.
+        vm.prank(buyer);
+        vm.expectRevert(TegridyNativeBuyRouter.ValueMismatch.selector);
+        router.buy{value: 6 ether}(o, bytes32(0));
     }
 }
