@@ -8,6 +8,10 @@ import "../src/SwapFeeRouterAdmin.sol";
 // ROW-8 re-anchor: the canonical-port equivalence suite at the bottom of this file
 // exercises the library directly against the same mock pair the conversion tests use.
 import {UniswapV2OracleLibrary} from "../src/lib/UniswapV2OracleLibrary.sol";
+// ROW8 side-selection pin: the wrapper's token0()==token ternary is the ONE line
+// that inverts prices if it regresses. Named import — SwapFeeRouter.sol imports
+// these with braces, which does not re-export, so no collision here.
+import {SwapFeeRouterConvertLib, IUniswapV2Router02, ISwapFeeRouterUniFactory} from "../src/lib/SwapFeeRouterConvertLib.sol";
 
 /// @title AUDIT SFR-H-01 â€” TWAP-floor minETHOut prevents permissionless conversion sandwich
 /// @notice Regression test for the senior-recon HIGH finding on
@@ -161,6 +165,20 @@ contract MockUniRouter_SFR {
     }
 
     receive() external payable {}
+}
+
+/// @dev Exposes the internal `_readCurrentCumulative` so its token-side selection
+///      can be pinned directly (the 2026-08-28 fleet critique's one named gap:
+///      the ROW8 tests exercised the canonical library, and the wrapper's
+///      side-pick ternary only end-to-end).
+contract ConvertLibCumulReader {
+    function read(SwapFeeRouterConvertLib.Cfg memory cfg, address token)
+        external
+        view
+        returns (address pair, uint256 currentCum, uint32 currentTs)
+    {
+        return SwapFeeRouterConvertLib._readCurrentCumulative(cfg, token);
+    }
 }
 
 contract Audit_SFR_H01 is Test {
@@ -506,4 +524,47 @@ contract Audit_SFR_H01 is Test {
     function fractionExternal(uint112 n, uint112 d) external pure returns (uint224) {
         return UniswapV2OracleLibrary.fraction(n, d);
     }
+
+    /// @dev ROW8 (fleet-critique gap): pin the wrapper's side selection under BOTH
+    ///      token orderings. Reserves are asymmetric so price0Cum != price1Cum —
+    ///      a flipped ternary cannot return the right number by coincidence.
+    ///      Same-block read (poke stamps now) => bridge term is zero and the
+    ///      expected value is EXACTLY the stored accumulator for the token side.
+    function test_SFR_ROW8_readCurrentCumulative_picksTokenSide_bothOrderings() public {
+        ConvertLibCumulReader reader = new ConvertLibCumulReader();
+        SwapFeeRouterConvertLib.Cfg memory cfg = SwapFeeRouterConvertLib.Cfg({
+            weth: address(weth),
+            router: IUniswapV2Router02(address(uniRouter)),
+            uniFactory: ISwapFeeRouterUniFactory(address(factory)),
+            sequencerFeed: address(0),
+            owner: address(this)
+        });
+
+        // Case A: token IS token0 of its pair.
+        MockToken_SFR tokA = new MockToken_SFR("SideA", "SDA");
+        MockUniPair_SFR pairA = new MockUniPair_SFR(address(tokA), address(weth));
+        factory.setPair(address(tokA), address(weth), address(pairA));
+        pairA.setReserves(100 ether, 5 ether); // asymmetric on purpose
+        pairA.pokeCumulative(1000);
+        assertTrue(
+            pairA.price0CumulativeLast() != pairA.price1CumulativeLast(),
+            "fixture must make the two sides distinguishable"
+        );
+        (address gotPairA, uint256 cumA, uint32 tsA) = reader.read(cfg, address(tokA));
+        assertEq(gotPairA, address(pairA));
+        assertEq(tsA, uint32(block.timestamp % 2 ** 32));
+        assertEq(cumA, pairA.price0CumulativeLast(), "token==token0 must read the price0 accumulator");
+
+        // Case B: token IS token1 of its pair (constructor order reversed).
+        MockToken_SFR tokB = new MockToken_SFR("SideB", "SDB");
+        MockUniPair_SFR pairB = new MockUniPair_SFR(address(weth), address(tokB));
+        factory.setPair(address(tokB), address(weth), address(pairB));
+        pairB.setReserves(5 ether, 100 ether);
+        pairB.pokeCumulative(1000);
+        assertTrue(pairB.price0CumulativeLast() != pairB.price1CumulativeLast());
+        (address gotPairB, uint256 cumB,) = reader.read(cfg, address(tokB));
+        assertEq(gotPairB, address(pairB));
+        assertEq(cumB, pairB.price1CumulativeLast(), "token==token1 must read the price1 accumulator");
+    }
 }
+
