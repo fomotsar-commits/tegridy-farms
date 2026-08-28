@@ -1492,3 +1492,29 @@ test. A sixth was one command from shipping: a Slither triage cleared 54 of 56 f
 line-cited reasoning, and the adversarial pass rejected twelve of them and found eight real defects
 underneath. **Ask of any check: could it fail if the thing it guards broke?** Two of the five were
 found by reading why something *unrelated* was red.
+
+---
+
+## 2026-08-28 — Row 8's OPERATOR half: the live ConvertLib still runs the old bytecode
+
+The row-8 re-anchor (PR #336) replaced `SwapFeeRouterConvertLib._readCurrentCumulative`'s
+hand-derived cumulative-price bridge with a provenance-pinned port of canonical
+`UniswapV2OracleLibrary` — **in source**. The DEPLOYED delegatecall library
+(`0x96A4Ed675eA203c4b4ae02F8Ad6D4f300Ee97295` on mainnet, plus the Base/RH stack copies)
+still executes the old hand-rolled math, which the ROW8 equivalence tests pin as
+behaviorally identical (`Audit_SFR_H01.t.sol` — idle-window integral, same-block no-bridge,
+uint256 wrap; a fleet critique agent is independently re-proving bit-equivalence as of
+2026-08-28). So this is NOT urgent and changes no live behavior — but "row 8 source half
+closed" must not be read as done-done while the money path runs old bytecode.
+
+**Operator item (bundle with the NEXT planned SwapFeeRouter-stack deploy, do not deploy for
+this alone):**
+1. Redeploy `SwapFeeRouterConvertLib` + relink/redeploy the SwapFeeRouter stack on all
+   three chains (mainnet / Base 8453 / Robinhood 4663).
+2. Re-run the ownership + pending-role ceremonies for the fresh addresses (2-of-2 Safe —
+   same shape as the M.2 ceremony; prove-it-signs first, as always).
+3. Update `frontend/scripts/addresses.json` + chains/registry + re-verify sources on the
+   three explorers (the Standard-JSON method from the 08-27 L2 verification is recorded in
+   project_2026_08_20_multichain memory / docs).
+4. Only then may docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md row 8 drop its "live bytecode
+   unchanged" caveat.
