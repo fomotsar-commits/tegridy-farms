@@ -203,4 +203,32 @@ contract RestakingBonusInsolvencyTest is Test {
         // (not starved) — the whole funded amount is accounted for, within rounding.
         assertApproxEqAbs(obligation, B0, 1e6, "the funded pool is fully distributed, no more no less");
     }
+
+    /// The read-only sister duplicates the host's accrual cap. It must mirror the
+    /// FIXED cap (bal - (emitted - distributed)), not the old (bal -
+    /// totalUnforwardedBonus), or it over-reports pending bonus vs what claimAll pays.
+    /// Long lock (setUp) => no boost decay/kick, so the only remaining divergence
+    /// under test is the cap term this fix corrected.
+    function test_MonitorPendingBonusMatchesHostCappedAccrual() public {
+        _stakeAndRestake(alice);
+        _stakeAndRestake(bob);
+
+        // Warp so intended emission exceeds the funded pool -> the host cap binds.
+        // Do NOT tick accrual, so the view must PROJECT the same capped accrual the
+        // host will realize in claimAll (same block, same window).
+        vm.warp(vm.getBlockTimestamp() + 1_000_001);
+
+        uint256 pview = rMonitorView.pendingBonus(alice);
+        assertGt(pview, 0, "view projects some pending bonus");
+
+        uint256 aliceBefore = weth.balanceOf(alice);
+        vm.prank(alice);
+        restaking.claimAll();
+        uint256 actualClaimable = (weth.balanceOf(alice) - aliceBefore) + restaking.unforwardedBonusRewards(alice);
+
+        // The FIXED view mirrors the host's tight cap -> it does not over-report. The
+        // old cap (bal - totalUnforwardedBonus) would project the full pool and exceed
+        // what claimAll pays (part of the pool was already emitted pre-window).
+        assertApproxEqAbs(pview, actualClaimable, 1e12, "monitor view diverges from host claimAll");
+    }
 }
