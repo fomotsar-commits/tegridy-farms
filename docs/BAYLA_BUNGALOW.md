@@ -203,6 +203,32 @@ note the observed rate here for the funding math.
   the wallet fixture pins toweli by design) walks /bayla, the /towelie
   alias, and a not-yet-live door across the four-device matrix.
 
+## 6f. THE MAINNET CEREMONY — DONE (2026-08-26). The lighthouse exists.
+
+Executed by the operator with the designated ceremony key
+(`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, the pool's admin authority
+going forward — note it lives as a keyfile in the OneDrive-synced faucet
+folder; custody caveat accepted by the operator on 2026-08-26):
+
+- **Stake pool: `4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp`**
+  (tx `3vDxaGWo9ZrzrNWQumqe9AG2oUxJU4YRCoBBbthf8SykVTTQxmP5s2j1pvcPHZmA7PpET9vXV2s19rvMEFcAzeoB`)
+  — BAYLA mint, locks 1–365 days, flat 1x weight, Token-2022 program
+  auto-detected (`TokenzQd…` — the first broadcast died assuming legacy;
+  detection is now baked into script + adapter).
+- **Reward pool: `HdapJt3cJ92fBcoCiaeAyACicXGF9m6RGQdWRMX9L9XL`**
+  (tx `3dgfyV2EgyxT1pszEc9k1RzBbFi9SNARtVKKDDE6SpBoJDbyuiMSu5EhihM6JXmeNGurKrkgyFiCyiburzBUCSR`)
+  — 0.003 BAYLA per staked BAYLA per day, **permissionless public funding**.
+- Verified independently through the app's own read path post-creation:
+  pool live, totalStake 0, reward vault **0 raw — the honest zero**.
+- The address ships **hardcoded in the registry** (env override retained),
+  so no Vercel env var is load-bearing for the live pool.
+
+Remaining: the dust-wallet live-fire (first tiny stake/claim/unstake —
+needs any wallet holding a little BAYLA), announce, then **fund last**:
+`node scripts/bayla-lighthouse-ceremony.mjs --fund --pool 4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp --amount <whole BAYLA> --keypair <id.json> --broadcast`
+(the funding wallet must hold the BAYLA; creator fees accrue to
+`G2EHPse…Krbu` on pump.fun).
+
 ## 6e. DEVNET REHEARSAL — the entire lifecycle executed (2026-08-26)
 
 The full pool lifecycle ran on devnet with REAL transactions through the

@@ -49,9 +49,14 @@ export function CurveHowItWorks() {
   );
 }
 
-/** Trade any curve token by pasting its address (until a launch explorer exists). */
-function TradeByAddress({ launcher }: { launcher: Address }) {
+/** Trade any curve token by pasting its address (until a launch explorer exists).
+ *  `prefill` lets the create flow hand its fresh token straight to the trade
+ *  panel — the "Trade it now" jump on the success card. */
+function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; chainId: number; prefill?: Address | null }) {
   const [input, setInput] = useState('');
+  useEffect(() => {
+    if (prefill) setInput(prefill);
+  }, [prefill]);
   const token = useMemo<Address | null>(() => (isAddress(input) ? (input as Address) : null), [input]);
   return (
     <div className="space-y-3">
@@ -67,7 +72,7 @@ function TradeByAddress({ launcher }: { launcher: Address }) {
         />
         {input.length > 0 && !token && <p className="text-amber-300/80 text-[11px] mt-1">Not a valid address.</p>}
       </div>
-      {token && <CurveTradePanel launcher={launcher} token={token} />}
+      {token && <CurveTradePanel launcher={launcher} token={token} chainId={chainId} />}
     </div>
   );
 }
@@ -77,6 +82,10 @@ export default function EthCurvePage() {
   useEffect(() => {
     trackPageView('/eth-curve');
   }, []);
+
+  // A token created this session, handed from the create success card to the
+  // trade panel so the creator lands on their live coin, not a dead-end toast.
+  const [tradeToken, setTradeToken] = useState<Address | null>(null);
 
   // Chain-aware: the Tegridy curve is LIVE on Ethereum, Base and Robinhood. Show the
   // launcher for the wallet's chain when it has one; otherwise default to mainnet
@@ -111,8 +120,8 @@ export default function EthCurvePage() {
         {availability.status === 'deployed' ? (
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
             <WrongChainBanner requiredChainId={activeChainId} />
-            <CurveCreatePanel launcher={availability.address} />
-            <TradeByAddress launcher={availability.address} />
+            <CurveCreatePanel launcher={availability.address} chainId={activeChainId} onTrade={setTradeToken} />
+            <TradeByAddress launcher={availability.address} chainId={activeChainId} prefill={tradeToken} />
             <CurveHowItWorks />
           </m.div>
         ) : (

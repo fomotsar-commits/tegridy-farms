@@ -122,6 +122,28 @@ Full account, plus the three regressions that refuted the attempted fix:
 [`V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md`](V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md).
 ⛔ Branch `fix/v2-owner-timelocked-forfeit-v4` is **attempt 4 and is REFUTED — do not merge it.**
 
+**Five standing rules.**
+
+0. 🏛️ **ETHOS — stand on battle-tested, billion-dollar, never-hacked protocol code.**
+   *Operator instruction, 2026-08-26.* Where a mechanism has already been solved by a protocol that
+   has held nine or ten figures for years without being drained — OpenZeppelin, Uniswap, Curve,
+   Synthetix, Aave, Safe, Solady — **use theirs, unmodified, and inherit their audit history.**
+   Novel Solidity is a liability we underwrite ourselves; forked Solidity is a liability someone
+   else has already paid millions to have attacked.
+
+   How to apply it, so it is a rule and not a slogan:
+   - **New code:** before writing a contract, name the upstream that already does this and say why
+     it cannot be used as-is. "Ours is nicer" is not a reason. Gas is rarely a reason.
+   - **Forks:** track the upstream version and keep the diff SMALL and WRITTEN DOWN. A fork that has
+     drifted far enough that upstream's audits no longer describe it is bespoke code wearing a
+     trusted name — the most dangerous category, because it reads as safe.
+   - **Existing code:** the audit in
+     [`CONTRACT_PROVENANCE_AUDIT_2026_08_26.md`](CONTRACT_PROVENANCE_AUDIT_2026_08_26.md) grades
+     every contract against this rule. Work the un-anchored ones down in risk order, live first.
+   - **The honest tension:** ~47,000 lines of Solidity across 72 contracts already exist and ~30 are
+     live. This rule cannot be applied retroactively by rewriting everything. It governs (a) every
+     new contract from today, and (b) the prioritised remediation list in that audit.
+
 **Four standing rules.**
 1. Claude never types a secret into a field. Where a step involves a key, you set it. Never paste a
    secret into a chat, including to me.

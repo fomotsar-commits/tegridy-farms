@@ -3,7 +3,11 @@ import '../../lib/solanaPolyfill';
 import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import '@solana/wallet-adapter-react-ui/styles.css';
+// VENDORED, not the package css: the upstream file opens with a Google-Fonts
+// @import that the CSP blocks, and Vite 8 turned that block into a fatal
+// CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
+// See the header in the vendored file before touching this.
+import '../../styles/wallet-adapter-ui.css';
 import { solanaRpcEndpoint } from '../../lib/solana';
 
 /**

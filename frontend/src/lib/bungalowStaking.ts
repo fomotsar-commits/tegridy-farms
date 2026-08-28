@@ -40,6 +40,13 @@ export interface RewardPoolView {
 export interface PoolView {
   address: string;
   mint: string;
+  /**
+   * The mint's OWNER program (legacy SPL or Token-2022), detected at read
+   * time and threaded through every write — BAYLA is Token-2022, and the
+   * first mainnet broadcast died with IncorrectProgramId for assuming
+   * legacy (2026-08-26). Never assume; always detect.
+   */
+  tokenProgram: string;
   minDurationSecs: number;
   maxDurationSecs: number;
   /** Raw total staked (base units of the stake mint); null = unreadable. */
@@ -129,11 +136,20 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
       });
     }
 
+    // Detect the mint's owner program (Token-2022 vs legacy) for the writes.
+    let tokenProgram = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    try {
+      const { PublicKey } = await import('@solana/web3.js');
+      const mintInfo = await client.connection.getAccountInfo(new PublicKey(String(pool?.mint ?? '')));
+      if (mintInfo?.owner) tokenProgram = mintInfo.owner.toBase58();
+    } catch { /* keep legacy default; writes against the wrong program fail loudly, never silently */ }
+
     return {
       ok: true,
       pool: {
         address: stakePool,
         mint: String(pool?.mint ?? ''),
+        tokenProgram,
         minDurationSecs: bnToNumber(pool?.minDuration),
         maxDurationSecs: bnToNumber(pool?.maxDuration),
         totalStakeRaw: bnToBigint(pool?.totalStake),
@@ -221,8 +237,16 @@ export async function stake(args: {
       client.getCurrentProgramId('stakePoolProgram' as any),
       new web3.PublicKey(args.pool.address),
     );
-    const receiptAta = splToken.getAssociatedTokenAddressSync(stakeMintPda, staker, false);
-    const ataIx = splToken.createAssociatedTokenAccountIdempotentInstruction(staker, receiptAta, staker, stakeMintPda);
+    // The receipt mint is created BY the pool program — read its owner
+    // program from the chain rather than assuming it matches the stake
+    // token's (Token-2022 pools may differ; detection is always right).
+    let receiptProgram = new web3.PublicKey(args.pool.tokenProgram);
+    try {
+      const info = await client.connection.getAccountInfo(stakeMintPda);
+      if (info?.owner) receiptProgram = info.owner as any;
+    } catch { /* fall back to the pool's token program */ }
+    const receiptAta = splToken.getAssociatedTokenAddressSync(stakeMintPda, staker, false, receiptProgram);
+    const ataIx = splToken.createAssociatedTokenAccountIdempotentInstruction(staker, receiptAta, staker, stakeMintPda, receiptProgram);
     const stakePrep: any = await client.prepareStakeInstructions(
       {
         stakePool: args.pool.address as any,
@@ -230,6 +254,7 @@ export async function stake(args: {
         amount: new BN(args.amountRaw.toString()),
         duration: new BN(String(args.durationSecs)),
         nonce,
+        tokenProgramId: args.pool.tokenProgram as any,
       },
       ext,
     );
@@ -243,6 +268,7 @@ export async function stake(args: {
           depositNonce: nonce,
           rewardMint: rp.mint as any,
           rewardPoolType: 'fixed' as const,
+          tokenProgramId: args.pool.tokenProgram as any,
         } as any,
         ext,
       );
@@ -268,10 +294,12 @@ export async function unstakeAndClaim(args: {
         stakePool: args.pool.address as any,
         stakePoolMint: args.pool.mint as any,
         nonce: args.entryNonce,
+        tokenProgramId: args.pool.tokenProgram as any,
         rewardPools: args.pool.rewardPools.map((rp) => ({
           nonce: rp.nonce,
           mint: rp.mint as any,
           rewardPoolType: 'fixed' as const,
+          tokenProgramId: args.pool.tokenProgram as any,
         })),
       },
       { invoker: args.invoker },
@@ -299,6 +327,7 @@ export async function claimRewards(args: {
         depositNonce: args.entryNonce,
         rewardMint: args.rewardPool.mint as any,
         rewardPoolType: 'fixed' as const,
+        tokenProgramId: args.pool.tokenProgram as any,
       },
       { invoker: args.invoker },
     );

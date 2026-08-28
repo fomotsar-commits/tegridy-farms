@@ -94,9 +94,20 @@ export const DEFAULT_BUNGALOW_ID = 'toweli';
 
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 
-// The lighthouse pool address (Streamflow stake pool) — set by the operator
-// after the ceremony. Trim guards against a pasted trailing newline.
-const BAYLA_STAKE_POOL = (import.meta.env?.VITE_BAYLA_STAKE_POOL as string | undefined)?.trim() || undefined;
+// The lighthouse pool — CREATED ON MAINNET 2026-08-26 by the ceremony script
+// (signer GCCSLE7d…auV9, Token-2022 detected):
+//   stake pool  4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp
+//     (tx 3vDxaGWo9ZrzrNWQumqe9AG2oUxJU4YRCoBBbthf8SykVTTQxmP5s2j1pvcPHZmA7PpET9vXV2s19rvMEFcAzeoB)
+//   reward pool HdapJt3cJ92fBcoCiaeAyACicXGF9m6RGQdWRMX9L9XL — 0.003 BAYLA per
+//     staked BAYLA per day, permissionless public funding
+//     (tx 3dgfyV2EgyxT1pszEc9k1RzBbFi9SNARtVKKDDE6SpBoJDbyuiMSu5EhihM6JXmeNGurKrkgyFiCyiburzBUCSR)
+// The address ships hardcoded so no env var is load-bearing; the env override
+// remains for emergencies (pointing staging at a test pool, or dark-switching
+// by setting it to an empty-but-present value is NOT supported — the fallback
+// wins whenever the env is unset/blank).
+const BAYLA_STAKE_POOL =
+  (import.meta.env?.VITE_BAYLA_STAKE_POOL as string | undefined)?.trim()
+  || '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp';
 
 export const BUNGALOWS: Bungalow[] = [
   {
