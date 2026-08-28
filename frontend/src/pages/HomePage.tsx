@@ -652,7 +652,11 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Ethereum', art: pageArt('home', 6) },
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
+              // 2026-08-28: "two active pools to earn yield" outlived the LP
+              // pool's funded period (periodFinish 2026-06-15, lpEmissions.ts) —
+              // the exact literal-vs-phase drift dayTwoEconomyPhrase() exists to
+              // prevent. State what pays now without promising the dormant pool.
+              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI to earn now; the LP pool rejoins when its next emissions round is funded.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
               // Spread-gated on the SAME predicate navConfig uses to decide whether
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
@@ -712,7 +716,7 @@ export default function HomePage() {
                     title: 'Tegridy Curve',
                     desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into a Tegridy pool with the LP burned — no Airlock, no petition, no third-party cut.',
                     stat: 'Zero-toll',
-                    label: 'Live · Ethereum',
+                    label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),
                   }]
                 : []),

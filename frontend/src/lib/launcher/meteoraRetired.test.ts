@@ -131,7 +131,12 @@ describe('the Meteora DBC rail stays retired', () => {
         .split(/\r?\n/)
         .forEach((line, i) => {
           const code = codeOnly(line);
-          if (!/['"`]/.test(code)) return; // no string literal on this line
+          // 2026-08-28: the string-literal gate below used to skip QUOTE-LESS
+          // JSX text lines entirely — CurveLaunchPage carried "runs on
+          // Meteora's curve" as bare JSX prose for five days while this
+          // tripwire passed. JSX text is exactly as user-visible as a string
+          // literal, so only comment-stripped emptiness exempts a line now.
+          if (code.trim().length === 0) return;
           for (const { re, why } of PRESENT_TENSE_CLAIMS) {
             if (re.test(code)) {
               offenders.push(`${file.slice(SRC.length + 1)}:${i + 1} — ${why}\n    ${line.trim().slice(0, 140)}`);

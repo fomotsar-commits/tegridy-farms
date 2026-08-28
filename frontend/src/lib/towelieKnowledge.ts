@@ -158,6 +158,16 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Trade → Liquidity → Remove tab. Pick how much LP to burn, get both tokens back at the current ratio.",
   },
 
+  // ── Token launches (the Tegridy Curve) ──────────────────────
+  {
+    // ADDED 2026-08-28: the flagship launch surface had NO entry — a user
+    // typing "curve" or "launch" got the NFT-AMM answer or silence. priority
+    // bump wins keyword ties against older entries.
+    priority: 1,
+    keywords: ['launch', 'launcher', 'curve', 'tegridy', 'create', 'token', 'memecoin', 'graduate'],
+    answer: "The Tegridy Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. One signature launches a token; trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into a Tegridy pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
+  },
+
   // ── NFTs ─────────────────────────────────────────────────────
   {
     // AUDIT R073: prior copy said "stack them for stacked boost" — wrong.
@@ -167,8 +177,13 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Holding any JBAC NFT adds a flat +0.5× boost on top of your lock boost. Binary attribute — extra NFTs don't stack. Boost floor is 0.4× either way.",
   },
   {
+    // HONESTY PASS 2026-08-28: this trio (lending / AMM / launchpad) said "not
+    // redeployed since the relaunch" for contracts that have been LIVE since
+    // 2026-07-21 (constants.ts:97/101/114) — /faq said "live" while the towel
+    // said "waiting". The assistant is a surface like any other: keep it in
+    // sync with constants.ts in BOTH directions.
     keywords: ['nft', 'lending', 'borrow', 'collateral'],
-    answer: "NFT Finance → NFT Lending. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH. No oracles needed. Internally reviewed (no third-party audit yet), not redeployed since the relaunch — the page un-gates when it's live.",
+    answer: "NFT Finance → NFT Lending, live on mainnet. Use JBAC, Nakamigos, or GNSS as collateral to borrow ETH — peer-to-peer terms, no oracles needed. Internally reviewed, no third-party audit yet.",
   },
   {
     keywords: ['liquidation', 'liquidate', 'default'],
@@ -183,41 +198,48 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "GNSS is one of the supported NFT collections — used for boosts and as collateral in NFT Lending.",
   },
   {
-    keywords: ['amm', 'bonding', 'curve'],
-    answer: "NFT AMM lets you trade NFTs against bonding-curve pools. Add NFTs as inventory, earn fees on every swap. Pure on-chain — but not redeployed since the relaunch yet.",
+    // 2026-08-28: 'curve'/'bonding' moved OFF this entry — those words now
+    // belong to the live Tegridy Curve launcher entry below; a user typing
+    // "curve" was getting an NFT answer about the flagship's name.
+    keywords: ['amm', 'nft', 'pool', 'swap'],
+    answer: "NFT AMM lets you trade NFTs against on-chain pools, live on mainnet — add NFTs as inventory, earn fees on every swap.",
   },
   {
     keywords: ['launchpad'],
-    answer: "Launchpad lets project owners create gated NFT collections with a wizard. Built and internally reviewed (no third-party audit yet); the NFT Finance → Launchpad tab un-gates when it redeploys.",
+    answer: "Launchpad V2 is live: project owners create gated NFT collections with a wizard under NFT Finance → Launchpad. Internally reviewed, no third-party audit yet.",
   },
 
   // ── Governance ──────────────────────────────────────────────
-  // HONESTY PASS 2026-06-11: GaugeController, VoteIncentives, MemeBountyBoard and
-  // CommunityGrants are NOT deployed (zeroed addresses in lib/constants.ts).
-  // Answers describe them as built-and-audited-but-not-live, with what to do now.
+  // HONESTY PASS 2026-08-28: the 06-11 framing ("not deployed, zeroed
+  // addresses") became half-false — all four governance contracts ARE deployed
+  // on mainnet (the 2026-07-16 batch, unpaused) but their addresses are still
+  // zeroed in THIS app, so the pages stay gated. /risks says exactly that;
+  // the towel was the fourth surface still telling the 06-11 story (the
+  // 08-13 three-surfaces fix, 428abc5f, missed it). Deployed-but-not-wired
+  // is the true state — say that.
   {
     keywords: ['vote', 'voting', 'governance', 'gauge'],
-    answer: "Gauge voting's built and internally reviewed (no third-party audit yet), not live on mainnet yet — /community un-gates when it deploys. The plan: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
+    answer: "Gauge voting's deployed on mainnet but not wired into this app yet — the addresses here are still zeroed, so /community stays gated while the wiring and checks finish. The design: your locked TOWELI × boost directs emissions to pools. Meanwhile, stake and watch /changelog.",
   },
   {
     keywords: ['weight', 'power', 'vote'],
-    answer: "When gauge voting goes live, vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Not deployed yet — but locking now still builds your future weight.",
+    answer: "When gauge voting is wired up here, vote weight = locked TOWELI × current boost. Lock more or longer → more weight. Locking now still builds your future weight.",
   },
   {
     keywords: ['epoch', 'cycle', 'period'],
-    answer: "Voting epochs will run 7 days once gauge voting is live — votes cast one epoch direct emissions the next. Not deployed yet, so no clock's ticking.",
+    answer: "Voting epochs run 7 days once gauge voting is wired into the app — votes cast one epoch direct emissions the next. The contract's on mainnet; this app hasn't connected to it yet, so no clock's ticking here.",
   },
   {
     keywords: ['bribes', 'bribe', 'incentive', 'cartman'],
-    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Built and internally reviewed (no third-party audit yet), not deployed yet — it lands on /community alongside gauge voting.",
+    answer: "Cartman's Market — deposit tokens to bribe voters into directing emissions your way. Kinda shady. Deployed on mainnet, not wired into this app yet — it lands on /community alongside gauge voting.",
   },
   {
     keywords: ['bounty', 'bounties', 'task'],
-    answer: "Bounties are coming back post-relaunch — the MemeBountyBoard contract isn't redeployed yet. When it's live: post a task with a reward, contributors complete it for the bounty. Both sides win.",
+    answer: "MemeBountyBoard is deployed on mainnet but not wired into this app yet. When it connects: post a task with a reward, contributors complete it for the bounty. Both sides win.",
   },
   {
     keywords: ['grants', 'proposal', 'fund'],
-    answer: "Community Grants is built and internally reviewed (no third-party audit yet) but not redeployed yet. When it's live: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
+    answer: "Community Grants is deployed on mainnet, not wired into this app yet. When it connects: propose a project, locked-TOWELI voters fund it. Tegridy preserved by votes.",
   },
 
   // ── Wallet / network ────────────────────────────────────────
@@ -235,8 +257,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // on a site that has a live Solana swap. Fixed here, plus the three new entries
   // below so the keywords actually match what someone would type.
   {
+    // HONESTY PASS 2026-08-28: "two chains" and "its own launch rail" were both
+    // false — the Tegridy Curve is live on Ethereum, Base AND Robinhood since
+    // 08-25, and the Solana launch rail was retired 08-23 with nothing
+    // launchable there. Four chains total, one of them swap-only.
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Two chains. TOWELI staking, farming and the Doppler launcher are on Ethereum mainnet — wrong chain there and your wallet shows a 'Switch' button, hit it. Solana has its own swap (routed through Jupiter) and its own launch rail; connect a Solana wallet for those. The token scanner reads both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Tegridy Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. Solana is swap-only: /solana routes SPL trades through Jupiter (no Solana launches right now). The token scanner reads EVM and Solana both.",
   },
   {
     keywords: ['solana', 'sol', 'phantom', 'spl'],
@@ -252,11 +278,14 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // Curve — their audited program, not ours". True at the time, and live to users.
     // The keywords stay so anyone who asks about Meteora gets the retirement rather
     // than silence, which would read as the old answer still being right.
-    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement is our own bonding curve, which graduates into our own AMM and burns the LP outright. It is NOT live yet: the programs were closed and have to be redeployed under fresh addresses first. Nothing can be launched on Solana here until that's done.",
+    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement exists and is LIVE on the EVM side: the Tegridy Curve at /eth-curve launches on Ethereum, Base and Robinhood, graduates into our own AMM and burns the LP outright. The SOLANA version is not live — those programs were closed and need fresh addresses — so nothing can be launched on Solana here for now.",
   },
   {
-    keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base'],
-    answer: "No L2 yet — the second chain we actually run on is Solana, not a rollup. L2 deployment stays on the roadmap if the community votes for it.",
+    // HONESTY PASS 2026-08-28: "No L2 yet" went false on 2026-08-25 — the
+    // Tegridy Curve launcher is live on Base (OP-stack L2) and Robinhood Chain
+    // (Arbitrum Orbit L2). Keep this in sync with lib/chains/registry.ts.
+    keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base', 'robinhood'],
+    answer: "Two L2s, live: the Tegridy Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana handles swap-only.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],
@@ -269,8 +298,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
 
   // ── Tx history / accounting ────────────────────────────────
   {
+    // 2026-08-28: "export coming soon" promised a feature with no owner while
+    // /tax already ships the actual export surface. Point at what exists.
     keywords: ['history', 'transactions', 'past', 'activity'],
-    answer: "Dashboard → History tab (or just /history) for your full tx log. Filter by type, export coming soon.",
+    answer: "Dashboard → History tab (or just /history) for your full tx log, filterable by type. Need an export? /tax builds the downloadable report.",
   },
   {
     keywords: ['tax', 'taxes', 'accounting', 'cost', 'basis'],
@@ -303,8 +334,13 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // HONESTY PASS 2026-07-24: PremiumAccess went live 2026-07-21. Fee is in
     // TOWELI (read from the contract — never hardcode it here, it is timelock-
     // mutable), and there is no points multiplier or fee discount.
+    // HONESTY PASS 2026-08-28: "holders earn ETH from swap fees" was the exact
+    // unconditioned history-claim the #199/#215/#258 passes banned — the
+    // distributor has paid 0 ETH to date (premiumBenefits.ts conditions the
+    // same sentence on a live read). A static answer can't read the chain, so
+    // it states the DESIGN and the current honest status.
     keywords: ['premium', 'gold', 'card', 'subscription'],
-    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page — and holders earn ETH from swap fees like every staker. JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
+    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page. Holders are in line for ETH from protocol swap fees like every staker; none has been distributed yet (the page shows the live number). JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
   },
   {
     // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess
@@ -318,8 +354,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Earn points for staking, claiming, voting, etc. Top of /leaderboard gets bragging rights and seasonal rewards.",
   },
   {
+    // HONESTY PASS 2026-08-28: "you both earn bonus" was the joiner-bonus
+    // overclaim /referrals and the changelog already record as fixed — the
+    // splitter credits the REFERRER only (ReferralSplitter.sol). This was the
+    // last surface still promising the friend a cut.
     keywords: ['referral', 'invite', 'friend', 'code'],
-    answer: "Dashboard has your referral link. Friend signs up + farms, you both earn bonus. Tegridy through community.",
+    answer: "Dashboard has your referral link. When someone you refer trades, the referral share of their fee is credited to YOU — the joiner gets no discount or bonus, and /referrals says so up front. Tegridy through community.",
   },
   {
     keywords: ['tegridy', 'score'],
