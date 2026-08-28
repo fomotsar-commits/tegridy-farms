@@ -629,12 +629,12 @@ contract StreamingRevenueDistributor is
         }
     }
 
-    /// @dev Sync, then recycle a fully-exited account's crystallised accrual back to
-    ///      the staker pool once its grace period has elapsed. This is the streaming
-    ///      analogue of v1's epoch forfeit — with the difference that the wei goes
-    ///      back to stakers via the next `notifyRewardAmount`, never to a treasury.
-    ///      An account still inside grace, still restaked, or still holding power is
-    ///      untouched — and every unreadable input REFUSES the forfeit (fail closed).
+    /// @dev Refresh `account`'s mirrored effective power from its live staking +
+    ///      restaking legs, so accrual is priced off current power. MIRROR-ONLY: it
+    ///      moves no funds, credits no pool, and can never reduce `rewards[account]`.
+    ///      (The forfeit/recycle mechanism that once lived here is GONE — the
+    ///      historical note below is why. Do not describe this function as moving or
+    ///      recycling value; it does not.)
     /// @dev Mirror-only. THE FORFEIT USED TO LIVE HERE AND IT IS GONE. (2026-08-26)
     ///
     ///      Four attempts were made to make a permissionless confiscation safe by
