@@ -177,6 +177,27 @@ export async function gotoNakamigos(page: Page): Promise<void> {
  */
 export const ROUTES: readonly RouteSpec[] = [
   { path: '/', owner: 'pages/HomePage.tsx', gate: null, knownViolations: ['heading-order'] },
+  // ── Bungalow doors (2026-08-28 audit) ────────────────────────────────────
+  // App.tsx builds these routes by MAPPING over lib/bungalows.ts (`path={path}`
+  // JSX expressions), which the sync-guard's `path="…"` regex cannot see — so
+  // for months 14 real routes had zero e2e/a11y coverage while the guard's
+  // "covers every routed path" stayed green. The guard now derives door paths
+  // from the same BUNGALOWS map (see a11yRouteCoverage.test.ts), so this
+  // literal list CANNOT drift: add a bungalow and the vitest guard fails until
+  // its door is added here. Every door renders HomePage under a BungalowDoor
+  // skin, hence HomePage's known violation set.
+  ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
+    (slug) => ({
+      path: `/${slug}`,
+      owner: 'pages/HomePage.tsx',
+      gate: null,
+      // CI-measured 2026-08-28 on the sweep's first pass over these routes:
+      // the 13 default-skin doors present HomePage's heading-order violation;
+      // /bayla's token-first identity hero orders its headings correctly and
+      // measures CLEAN — the exact-assertion refused the over-declared pin.
+      knownViolations: slug === 'bayla' ? [] : ['heading-order'],
+    }),
+  ),
   {
     path: '/farm',
     owner: 'pages/FarmPage.tsx',

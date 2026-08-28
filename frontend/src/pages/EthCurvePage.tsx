@@ -135,7 +135,7 @@ export default function EthCurvePage() {
           <div className="space-y-4">
             <FeatureNotDeployed
               title="The Tegridy curve is coming to Ethereum."
-              subtitle="The contract is audited and ready; it goes live the moment the launcher is broadcast. Here's what it does."
+              subtitle="The contract is internally reviewed and ready; it goes live the moment the launcher is broadcast. Here's what it does."
               pageId={PAGE_ID}
               idx={0}
             />

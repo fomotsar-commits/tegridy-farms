@@ -16,14 +16,20 @@
 // accident — see `CurveChartState`, which has no default and no zero-value fallback.
 
 import { useId, useMemo } from 'react';
+// 2026-08-28 (bundle audit): import the PURE halves directly, not the
+// `…/solana/curve` barrel. The barrel also re-exports program/ix/read/rpc,
+// which statically import @solana/web3.js + buffer — harmless while this
+// chart's only consumer is the lazy Solana page, but the day it's reused on an
+// EVM surface the barrel would weld vendor-solana into that page's chunk (the
+// exact 08-27 instance-2 shape). Direct imports make the reuse safe by
+// construction.
 import {
   buildCurveGeometry,
-  formatSol as formatSolRaw,
-  spotPriceLabel,
   type CurveGeometry,
   type CurveSnapshot,
   type CurveUnplottableReason,
-} from '../../lib/launcher/solana/curve';
+} from '../../lib/launcher/solana/curve/geometry';
+import { formatSol as formatSolRaw, spotPriceLabel } from '../../lib/launcher/solana/curve/format';
 
 /**
  * Fixed-width SOL for the stat grid — a ragged fraction breaks the column.

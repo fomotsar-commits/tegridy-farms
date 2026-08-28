@@ -169,7 +169,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // the program id rather than from a flag. No flag drives this one because
       // there is nothing to flip — a deploy is what changes it, and the page
       // picks that up on its own.
-      { to: '/curve-launch', label: 'Tegridy Curve', soon: true },
+      // 2026-08-28: renamed from the bare "Tegridy Curve" — the dead Solana
+      // rail owned the flagship's plain name while the LIVE EVM curve carried
+      // the qualifier, so the menu read "Tegridy Curve — Soon" first.
+      { to: '/curve-launch', label: 'Tegridy Curve (Solana)', soon: true },
       // Our OWN EVM curve (TegridyCurveLauncher) — zero-toll, graduate-to-us, no
       // Airlock/petition. `soon` clears itself the moment CURVE_LAUNCHER_ADDRESS
       // is filled from the deploy (M.16); no flag, same live-read discipline as

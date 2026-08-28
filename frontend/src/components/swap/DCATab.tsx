@@ -263,7 +263,7 @@ export function DCATab() {
       <p className="text-white/15 text-[10px] text-center mt-1">
         Buys route to the better price of the Tegridy pool (net of fee) and Uniswap.
       </p>
-      <p className="text-amber-400/40 text-[10px] text-center mt-1">
+      <p className="text-amber-200/90 text-[10px] text-center mt-1">
         Schedules are stored in your browser. Clearing browser data or switching devices will remove them.
       </p>
 

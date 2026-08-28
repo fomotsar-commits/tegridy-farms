@@ -423,7 +423,19 @@ export default defineConfig(({ mode }) => {
               id.includes('node_modules/@wallet-standard/') ||
               id.includes('node_modules/buffer/') ||
               id.includes('node_modules/base64-js/') ||
-              id.includes('node_modules/ieee754/')
+              id.includes('node_modules/ieee754/') ||
+              // 2026-08-28 (bundle audit, preemptive): bs58/base-x/bn.js/
+              // safe-buffer are shared between the Irys upload stack (used by
+              // EVM create flows) and @solana/web3.js — the same
+              // unassigned-shared-module shape that captured eventemitter3
+              // (08-25) and buffer (08-27) into vendor-solana. Pinning them
+              // here costs a few KB in the eager plumbing chunk and removes
+              // the class: an EVM-surface Irys upload can never drag
+              // vendor-solana in through a shared dep again.
+              id.includes('node_modules/bs58/') ||
+              id.includes('node_modules/base-x/') ||
+              id.includes('node_modules/bn.js/') ||
+              id.includes('node_modules/safe-buffer/')
             ) {
               return 'vendor-shared-wallet-plumbing';
             }

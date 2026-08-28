@@ -30,7 +30,8 @@
 
   <!-- Solana rail — absent from every previous revision of this file -->
   <url><loc>https://memetic.fun/solana</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
-  <url><loc>https://memetic.fun/solana-launch</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <!-- /solana-launch was REMOVED 2026-08-23 (route deliberately 404s, no redirect) — never re-add it here. -->
+  <url><loc>https://memetic.fun/eth-curve</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
 
   <!-- Jungle Bay bungalow doors — only doors with their own rendered head
        (dist/<door>/index.html) are listed; a door serving the stock venue

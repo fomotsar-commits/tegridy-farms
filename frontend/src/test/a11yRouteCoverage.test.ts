@@ -15,6 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { BUNGALOWS } from '../lib/bungalows';
 import { A11Y_RULES } from '../../e2e/fixtures/a11yAudit';
 import {
   AUDITABLE_ROUTES,
@@ -46,6 +47,17 @@ function routedPathsFromApp(): string[] {
     // path this sweep can enumerate.
     paths.add('/' + raw.replace(/\/\*$/, ''));
   }
+  // 2026-08-28: App.tsx ALSO builds routes by mapping over BUNGALOWS with
+  // `path={path}` JSX expressions — invisible to the regex above, which let 14
+  // real routes live with zero coverage while this guard passed. Derive them
+  // from the SAME map App.tsx maps over, gated on the block still existing so
+  // the derivation can never outlive the code (if the block is rewritten and
+  // the gate stops matching, the doors drop out of this set and the equality
+  // test fails LOUDLY toward the fixture's extras — never silently).
+  if (/BUNGALOWS\.map\(\(b\) => \(\{ path: b\.id/.test(src)) {
+    for (const b of BUNGALOWS) paths.add('/' + b.id);
+    paths.add('/towelie'); // the alias spelling App.tsx appends to the map
+  }
   return [...paths].sort();
 }
 
@@ -57,6 +69,12 @@ describe('the a11y route table matches the app', () => {
     );
     expect(found).toContain('/');
     expect(found).toContain('/swap');
+    // The expression-built bungalow doors must be derivable — if this fails,
+    // App.tsx's BUNGALOWS.map block changed shape and the gate in
+    // routedPathsFromApp needs its regex updated IN THE SAME CHANGE.
+    expect(appSource()).toMatch(/BUNGALOWS\.map\(\(b\) => \(\{ path: b\.id/);
+    expect(found).toContain('/toweli');
+    expect(found).toContain('/towelie');
   });
 
   it('covers every routed path, and invents none', () => {

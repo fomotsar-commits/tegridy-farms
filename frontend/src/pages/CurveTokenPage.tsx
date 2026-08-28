@@ -10,10 +10,10 @@
 // honest not-found state, never a guess; the state still renders the page's h1
 // (the a11y sweep loads this route with the zero address).
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useAccount, useReadContract, useReadContracts, useWriteContract } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { toast } from 'sonner';
 import { formatEther, isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -49,13 +49,15 @@ function fmtEth(wei: bigint, dp = 6): string {
 export interface CurveCreatorClaimViewProps {
   claimableWei: bigint;
   pending: boolean;
+  /** Submission→receipt window (the 08-24 receipt-status standard). */
+  mining?: boolean;
   onClaim: () => void;
 }
 
 /** Rendered ONLY for the launch's creator — the gating lives in the container,
  *  where it is enforced against the on-chain creator, not a prop a caller can
  *  forget. Never pausable on-chain; never hidden behind a dead control here. */
-export function CurveCreatorClaimView({ claimableWei, pending, onClaim }: CurveCreatorClaimViewProps) {
+export function CurveCreatorClaimView({ claimableWei, pending, mining = false, onClaim }: CurveCreatorClaimViewProps) {
   return (
     <div className="rounded-2xl p-4" style={cardStyle}>
       <div className="flex items-center justify-between gap-3">
@@ -69,7 +71,7 @@ export function CurveCreatorClaimView({ claimableWei, pending, onClaim }: CurveC
           onClick={onClaim}
           className="btn-primary px-4 py-2 text-[13px] disabled:opacity-50"
         >
-          {pending ? 'Confirm in wallet…' : 'Claim'}
+          {pending ? (mining ? 'Confirming on-chain…' : 'Confirm in wallet…') : 'Claim'}
         </button>
       </div>
       <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
@@ -92,6 +94,26 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
     query: { refetchInterval: 15_000 },
   });
 
+  // AUDIT 2026-08-28 (receipt-status): `pending` used to span only the wallet
+  // prompt, and the refetch fired PRE-MINE (returning the old claimable) — so
+  // Claim re-enabled against a stale non-zero while the first claim mined, and
+  // a second click submitted a guaranteed NothingToClaim revert. The button now
+  // holds through the receipt, the refetch runs after it, and a revert comes
+  // back as a red toast instead of silence.
+  const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
+  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+    hash: txHash ?? undefined,
+    chainId,
+    query: { enabled: txHash !== null },
+  });
+  useEffect(() => {
+    if (!txHash || !receiptFetched || !receipt) return;
+    if (receipt.status === 'success') toast.success('Creator fees claimed.');
+    else toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
+    setTxHash(null);
+    void refetch();
+  }, [txHash, receiptFetched, receipt, refetch]);
+
   // The gate: only the on-chain creator ever sees this surface.
   if (!account || account.toLowerCase() !== creator.toLowerCase()) return null;
   const claimableWei = typeof claimableRaw === 'bigint' ? claimableRaw : 0n;
@@ -100,16 +122,23 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
     writeContract(
       { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'claimCreatorFees', args: [token], chainId },
       {
-        onSuccess: () => {
-          toast.success('Claim submitted.');
-          void refetch();
+        onSuccess: (hash) => {
+          toast.success('Claim submitted — waiting for confirmation…');
+          setTxHash(hash);
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the claim.'),
       },
     );
   };
 
-  return <CurveCreatorClaimView claimableWei={claimableWei} pending={isPending} onClaim={onClaim} />;
+  return (
+    <CurveCreatorClaimView
+      claimableWei={claimableWei}
+      pending={isPending || txHash !== null}
+      mining={txHash !== null}
+      onClaim={onClaim}
+    />
+  );
 }
 
 // ────────────────────────────────────── the page ──────────────────────────────────────

@@ -153,7 +153,7 @@ export const TopNav = React.memo(function TopNav() {
                 sessionStorage.removeItem('tf_loaded');
                 window.location.href = '/';
               }}
-              className="group relative w-7 h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
+              className="group relative w-11 h-11 md:w-7 md:h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
               style={{ border: '1px solid var(--color-purple-25)' }}
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
@@ -180,7 +180,7 @@ export const TopNav = React.memo(function TopNav() {
               onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOWS_EVENT))}
               title="Choose your bungalow"
               aria-label="Choose your bungalow"
-              className="flex items-center gap-1 px-2 h-7 rounded-full text-[11px] flex-shrink-0 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
+              className="flex items-center gap-1 px-2 h-11 md:h-7 min-w-[44px] md:min-w-0 justify-center rounded-full text-[11px] flex-shrink-0 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
               style={{ border: '1px solid var(--color-purple-25)', color: 'var(--color-kyle, #7fd89d)' }}
             >
               <span aria-hidden="true">🏝️</span>
@@ -297,7 +297,7 @@ export const TopNav = React.memo(function TopNav() {
                       </button>
                     ) : (
                       <button onClick={openAccountModal} aria-label="Account details"
-                        className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[11.5px] md:text-[13px] font-mono text-text-secondary max-w-[140px] md:max-w-none"
+                        className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 min-h-[44px] md:min-h-0 rounded-lg text-[11.5px] md:text-[13px] font-mono text-text-secondary max-w-[140px] md:max-w-none"
                         style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                         <span className="w-1.5 h-1.5 rounded-full bg-success flex-shrink-0" />
                         <span className="truncate">{account.displayName}</span>
