@@ -56,7 +56,9 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: stable
+          # PINNED 2026-08-27 (was `stable`, which FLOATS) — see the build job in
+          # contracts-ci.yml for the incident. Bump ALL 7 sites together, never one.
+          version: v1.7.1
 
       # --ir-minimum is load-bearing, not a speed knob. foundry.toml sets
       # via_ir = true, and `forge coverage` under full via_ir loses the source
