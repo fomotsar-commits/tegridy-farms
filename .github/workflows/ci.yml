@@ -376,7 +376,9 @@ jobs:
       - name: Install Foundry (anvil)
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
-          version: stable
+          # PINNED 2026-08-27 (was `stable`, which FLOATS) — see the build job in
+          # contracts-ci.yml for the incident. Bump ALL 7 sites together, never one.
+          version: v1.7.1
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
@@ -419,18 +421,34 @@ jobs:
         run: |
           set -euo pipefail
           test -f anvil-report.json || { echo "::error::no anvil-report.json — the run produced no report"; exit 1; }
+          # Playwright's stats bucket tests by OUTCOME: `expected` = passed
+          # clean, `flaky` = failed then passed on retry, `unexpected` =
+          # failed, `skipped` = never ran. A flaky-but-passing test is NOT in
+          # `expected`, so the ran-count must sum expected+flaky or a single
+          # fork-RPC flake reads as "selection shrank" and reds trunk for a
+          # test that ran and passed (it did exactly that on 2026-08-27:
+          # 19/0/0/1 across three commits, misattributed to an unrelated
+          # frontend change). Flakiness on a MONEY path still deserves eyes —
+          # retries can mask state-dependence — so it warns loudly, it just
+          # doesn't impersonate a coverage loss.
           EXPECTED="$(jq '.stats.expected // 0' anvil-report.json)"
           SKIPPED="$(jq '.stats.skipped // 0' anvil-report.json)"
-          echo "passed=$EXPECTED skipped=$SKIPPED"
+          FLAKY="$(jq '.stats.flaky // 0' anvil-report.json)"
+          RAN=$((EXPECTED + FLAKY))
+          echo "ran=$RAN (clean=$EXPECTED flaky=$FLAKY) skipped=$SKIPPED"
           if [ "$SKIPPED" -ne 0 ]; then
             echo "::error title=Money-path E2E skipped::${SKIPPED} test(s) skipped in the Anvil job. This job exists because these tests were skipped everywhere; a skip here is a green report over an unexecuted money path. Check that ANVIL_RPC_URL reaches the specs."
-            if ! jq -r '.. | objects | select(.status? == "skipped") | .title? // empty' anvil-report.json; then
+            if ! jq -r '.. | objects | select(has("tests")) | select(any(.tests[]?; .status == "skipped")) | .title' anvil-report.json; then
               echo "(could not enumerate the skipped titles from the report)"
             fi
             exit 1
           fi
-          if [ "$EXPECTED" -lt 20 ]; then
-            echo "::error title=Money-path E2E selection shrank::only ${EXPECTED} tests ran; expected the full 20 across the five money-path specs. A spec file that stops matching is a silent coverage loss."
+          if [ "$FLAKY" -ne 0 ]; then
+            FLAKY_TITLES="$(jq -r '[.. | objects | select(has("tests")) | select(any(.tests[]?; .status == "flaky")) | .title] | join("; ")' anvil-report.json || echo "unknown")"
+            echo "::warning title=Money-path E2E flaky::${FLAKY} test(s) passed only on retry: ${FLAKY_TITLES}. Passing, but a flaky money path deserves a look."
+          fi
+          if [ "$RAN" -lt 20 ]; then
+            echo "::error title=Money-path E2E selection shrank::only ${RAN} tests ran; expected the full 20 across the five money-path specs. A spec file that stops matching is a silent coverage loss."
             exit 1
           fi
 

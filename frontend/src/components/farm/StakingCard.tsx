@@ -41,7 +41,7 @@ interface StakingCardProps {
   input: StakeInputState;
   confirms: ConfirmState;
   setConfirm: (key: keyof ConfirmState, val: boolean) => void;
-  pool?: { apr: string; aprNum: number; isDeployed: boolean };
+  pool?: { apr: string; aprNum: number; isDeployed: boolean; isDry?: boolean; secondsRemaining?: number };
   computed: {
     boostDisplay: string;
     totalBoostBps: number;
@@ -115,10 +115,16 @@ export function StakingCard({
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Boost</p>
                 <AnimatedCounter value={pos.boostMultiplier} decimals={2} suffix="x" className="stat-value text-[16px] text-white" />
-                {pos.hasPosition && !pos.isLocked && pos.boostMultiplier > 1 && (
+                {/* STAKING_LOOK §2.3: revalidateBoost reverts LockExpired() on
+                    any EXPIRED position (DS2-07 guard) — the old condition
+                    (!pos.isLocked) rendered this button exactly and only in
+                    the one state where every click burned gas and reverted.
+                    It belongs on ACTIVE locks, where the call can succeed. */}
+                {pos.hasPosition && pos.isLocked && pos.boostMultiplier > 1 && (
                   <button
                     onClick={() => { lastActionRef.current = null; actions.revalidateBoost(pos.tokenId); }}
                     disabled={actions.isPending || actions.isConfirming}
+                    title="Re-checks the boost's NFT custody on an active lock"
                     className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                     Revalidate Boost
                   </button>
@@ -129,9 +135,14 @@ export function StakingCard({
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Claimable</p>
                 <div aria-hidden="true">
+                  {/* STAKING_LOOK §2.7: the live interpolator ticks at the
+                      NOMINAL rate; once the reserve is dry the contract
+                      accrues nothing, so ticking here would be a permanent
+                      up-snap-back sawtooth of phantom accrual. Pin to the
+                      exact on-chain value when dry. */}
                   <AnimatedCounter
-                    value={pos.accrualPerSec > 0 ? pos.pendingLive : (parseFloat(pos.pendingFormatted) || 0)}
-                    decimals={pos.accrualPerSec > 0 ? 6 : 4}
+                    value={pos.accrualPerSec > 0 && !pool?.isDry ? pos.pendingLive : (parseFloat(pos.pendingFormatted) || 0)}
+                    decimals={pos.accrualPerSec > 0 && !pool?.isDry ? 6 : 4}
                     duration={900}
                     className="stat-value text-[16px] text-white" />
                 </div>
@@ -418,10 +429,14 @@ export function StakingCard({
                 <span className="text-white text-[11px]">Your Boost</span>
                 <span className="stat-value text-[16px] text-white">{boostDisplay}x</span>
               </div>
+              {/* STAKING_LOOK §2.1: this stake path can NEVER grant the JBAC
+                  bonus (plain stake(); the +0.5x requires stakeWithBoost's
+                  NFT deposit, which this UI doesn't drive) — so the preview
+                  states that instead of advertising a boost it won't deliver. */}
               {nft.holdsJBAC && (
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-white text-[11px]">Includes JBAC bonus</span>
-                  <span className="text-white text-[11px]">+0.5x</span>
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <span className="text-white/70 text-[11px]">JBAC bonus (+0.5x)</span>
+                  <span className="text-white/70 text-[11px] text-right">not applied — requires NFT-deposit staking</span>
                 </div>
               )}
               {amtNum > 0 && (
@@ -462,6 +477,16 @@ export function StakingCard({
                 <p className="text-white/30 text-[9px] mt-2 text-center">
                   Based on {pool.apr}% base APR × {boostDisplay}x boost. Rates change with total staked.
                 </p>
+                {/* STAKING_LOOK §4: the same runway guard DashboardPage already
+                    carries — figures past the reserve's runway assume refills. */}
+                {(() => {
+                  const runwayDays = Math.floor((pool.secondsRemaining ?? 0) / 86400);
+                  return runwayDays > 0 && runwayDays < 365 ? (
+                    <p className="text-[9px] mt-1 text-center" style={{ color: '#e3b341', opacity: 0.85 }}>
+                      Current reserve runs ≈ {runwayDays}d at this rate — figures beyond that assume refills.
+                    </p>
+                  ) : null;
+                })()}
               </div>
             )}
 

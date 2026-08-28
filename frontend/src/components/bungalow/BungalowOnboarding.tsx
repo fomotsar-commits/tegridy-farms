@@ -37,7 +37,12 @@ export function BungalowOnboarding({ bungalow }: { bungalow: Bungalow & { identi
     },
     {
       title: 'The lighthouse pool',
-      body: `${bungalow.symbol} staking is being built. It ships only when its pool is deployed, verified and funded — a dry pool must read as a real zero, so nothing here will ever advertise rewards that are not already on-chain.`,
+      // Branch on the same registry fact that flips the farm page live —
+      // "being built" was still showing in prod after the pool shipped
+      // (2026-08-27 audit).
+      body: bungalow.stakePool
+        ? `${bungalow.symbol} staking is live — the lighthouse pool is on-chain and the farm page reads it directly. A dry vault reads as a real zero, so nothing here will ever advertise rewards that are not already on-chain.`
+        : `${bungalow.symbol} staking is being built. It ships only when its pool is deployed, verified and funded — a dry pool must read as a real zero, so nothing here will ever advertise rewards that are not already on-chain.`,
     },
   ];
   const isLast = step === steps.length - 1;

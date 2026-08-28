@@ -295,6 +295,9 @@ export function useFarmActions() {
     isTxError,
     writeError,
     hash,
+    /** The fetched receipt (logs included) — §2.5: claim receipts must report
+        what was PAID (RewardPaid event), not the submit-time snapshot. */
+    receipt,
     reset,
   };
 }

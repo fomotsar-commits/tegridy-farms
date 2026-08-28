@@ -36,6 +36,18 @@ contract MockVE {
         return rawPower[user];
     }
 
+    /// @dev Mirrors StakingRewardLib's `_afterTokenTransfer`: ANY outbound veNFT
+    ///      transfer or burn zeroes the `userTokenId` pointer — an ordinary
+    ///      unstake-before-claim, or the custody hop into TegridyRestaking. The
+    ///      pre-fix suite could not see the grace-contradiction defects because this
+    ///      mapping never cleared.
+    function clearPosition(address user) external {
+        tokenOwner[userTokenId[user]] = address(0);
+        userTokenId[user] = 0;
+        rawPower[user] = 0;
+        lockEnds[user] = 0;
+    }
+
     function positions(uint256 tokenId) external view returns (
         uint256 amount, uint256 boostedAmount, int256 rewardDebt, uint256 lockEnd,
         uint256 boostBps, uint256 lockDuration, bool autoMaxLock, bool hasJbacBoost,
@@ -49,19 +61,24 @@ contract MockVE {
 contract MockRestaking {
     mapping(address => uint256) public power;
     mapping(address => uint256) public tokenIds;
+    bool public reverting;
 
     function setRestaker(address user, uint256 tokenId, uint256 p) external {
         tokenIds[user] = tokenId;
         power[user] = p;
     }
 
+    function setReverting(bool r) external { reverting = r; }
+
     function restakers(address user) external view returns (
         uint256 tokenId, uint256 positionAmount, uint256 boostedAmount, int256 bonusDebt, uint256 depositTime
     ) {
+        if (reverting) revert("RESTAKING_DOWN");
         return (tokenIds[user], power[user], power[user], int256(0), 0);
     }
 
     function boostedAmountAt(address user, uint256) external view returns (uint256) {
+        if (reverting) revert("RESTAKING_DOWN");
         return power[user];
     }
 }
@@ -458,6 +475,10 @@ contract StreamingRevenueDistributorTest is Test {
 
     function test_PastGraceClaimIsRefusedAndRecycledToStakers() public {
         _enableStreaming();
+        // Forfeiture fails CLOSED while the restaking fallback is unset (a custodied
+        // restaker is indistinguishable from an exited account there), so recycling
+        // arms only once the fallback is wired.
+        _wireRestaking();
         uint256 aliceEnd = block.timestamp + 2 days;
         ve.setPosition(alice, 500e18, aliceEnd);
         _stake(bob, 500e18);
@@ -633,6 +654,156 @@ contract StreamingRevenueDistributorTest is Test {
         dist.setPauseGuardian(address(0xBEEF));
 
         assertEq(address(dist).balance, balBefore, "an owner path moved ETH");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ║  AUDIT 2026-08-25 — HONEST isSynced + FAIL-CLOSED FORFEITURE   ║
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// @notice [issynced-fabricated-sync] A custodied restaker while the restaking
+    ///         fallback is UNSET (the default post-deploy state, armed only by a 48h
+    ///         timelock) must not be reported as synced: their zero mirror is
+    ///         "un-registered", not "no revenue yet".
+    function test_IsSyncedIsNotFabricatedForAnUnregisteredRestaker() public {
+        restaking.setRestaker(carol, 42, 1000e18);
+        assertFalse(dist.isSynced(carol), "un-registered restaker reported synced");
+    }
+
+    /// @notice [issynced-fabricated-sync] A mirror degraded to zero by a reverting
+    ///         staking read must not be reported as synced.
+    function test_IsSyncedIsNotFabricatedDuringAStakingOutage() public {
+        _stake(alice, 100e18);
+        dist.sync(alice);
+        assertTrue(dist.isSynced(alice));
+
+        ve.setReverting(true);
+        dist.sync(alice); // outage degrades the mirror to 0 (liveness over accuracy)
+        assertEq(dist.effectiveBalanceOf(alice), 0);
+        assertFalse(dist.isSynced(alice), "outage-degraded account reported synced");
+    }
+
+    /// @notice [issynced-fabricated-sync] Same for the third degradation path: a
+    ///         reverting (or over-budget) restaking lookup.
+    function test_IsSyncedIsNotFabricatedWhenTheRestakingLookupReverts() public {
+        _wireRestaking();
+        restaking.setRestaker(carol, 42, 1000e18);
+        dist.sync(carol);
+        assertEq(dist.effectiveBalanceOf(carol), 1000e18);
+        assertTrue(dist.isSynced(carol));
+
+        restaking.setReverting(true);
+        dist.sync(carol); // lookup revert degrades the mirror to 0
+        assertEq(dist.effectiveBalanceOf(carol), 0);
+        assertFalse(dist.isSynced(carol), "degraded restaker reported synced");
+    }
+
+    /// @notice [claim-grace-contradiction] An ordinary unstake-before-claim (staking
+    ///         zeroes `userTokenId` on any outbound veNFT transfer/burn) must keep the
+    ///         documented 7-day grace window OPEN for the victim's own claim.
+    function test_UnstakeBeforeClaimKeepsTheSevenDayGraceOpen() public {
+        _enableStreaming();
+        uint256 aliceEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, aliceEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+
+        vm.warp(aliceEnd + 1);
+        dist.sync(alice); // crystallise under the expired position
+        uint256 owed = dist.rewards(alice);
+        assertGt(owed, 0);
+
+        ve.clearPosition(alice); // the unstake: userTokenId -> 0
+
+        vm.warp(aliceEnd + 3 days); // still inside CLAIM_GRACE_PERIOD
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance, owed, "in-grace claim refused after an ordinary unstake");
+    }
+
+    /// @notice [v2-distributor-confiscation] The permissionless sync must not forfeit
+    ///         an unstaked account while its grace window is still open — and once the
+    ///         window HAS elapsed, recycling to the pool must still work.
+    function test_UnstakeBeforeClaimIsNotConfiscatableInsideGrace() public {
+        _enableStreaming();
+        _wireRestaking(); // forfeiture arms only once the restaking fallback is readable
+        uint256 aliceEnd = block.timestamp + 2 days;
+        ve.setPosition(alice, 500e18, aliceEnd);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+
+        vm.warp(aliceEnd + 1);
+        dist.sync(alice);
+        uint256 owed = dist.rewards(alice);
+        assertGt(owed, 0);
+
+        ve.clearPosition(alice);
+
+        vm.warp(aliceEnd + 3 days); // inside the 7-day grace
+        vm.prank(bob);
+        dist.sync(alice); // attacker-paid confiscation attempt: one call, gas only
+        assertEq(dist.rewards(alice), owed, "in-grace accrual confiscated by permissionless sync");
+        assertEq(dist.totalForfeitedToPool(), 0);
+
+        // Past the anchor's grace the recycle is legitimate pool hygiene again.
+        vm.warp(aliceEnd + dist.CLAIM_GRACE_PERIOD() + 1);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), 0, "post-grace accrual not recycled");
+        assertEq(dist.totalForfeitedToPool(), owed);
+    }
+
+    /// @notice [v2-distributor-confiscation] A restaker is structurally `lockEnd == 0`
+    ///         on the staking side (the custody transfer zeroes `userTokenId`), and the
+    ///         restaking fallback ships UNSET. In that default state nothing
+    ///         distinguishes a restaker in good standing from a fully-exited account —
+    ///         so nothing may be recycled.
+    function test_RestakerIsNotConfiscatableWhileRestakingIsUnset() public {
+        _enableStreaming();
+        _stake(alice, 500e18);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        vm.warp(block.timestamp + 3 days);
+
+        // Alice restakes: the NFT moves into custody, her staking-side reads all zero.
+        ve.clearPosition(alice);
+        restaking.setRestaker(alice, 42, 500e18);
+
+        vm.prank(bob);
+        dist.sync(alice);
+        assertGt(dist.rewards(alice), 0, "restaker confiscated while restaking was unwired");
+        assertEq(dist.totalForfeitedToPool(), 0);
+    }
+
+    /// @notice [v2-distributor-confiscation] With the fallback wired, an unreadable
+    ///         restaking read must REFUSE forfeiture (fail closed), not treat the
+    ///         account as exited (the catch-arm-returns-false disarm).
+    function test_RestakerIsNotConfiscatableDuringARestakingOutage() public {
+        _enableStreaming();
+        _wireRestaking();
+        _stake(alice, 500e18);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+        vm.warp(block.timestamp + 3 days);
+
+        ve.clearPosition(alice);
+        restaking.setRestaker(alice, 42, 500e18);
+        restaking.setReverting(true);
+
+        vm.prank(bob);
+        dist.sync(alice);
+        assertGt(dist.rewards(alice), 0, "restaker confiscated during a restaking outage");
+        assertEq(dist.totalForfeitedToPool(), 0);
     }
 
     receive() external payable {}

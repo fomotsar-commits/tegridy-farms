@@ -1,5 +1,16 @@
 # Slither triage — the 48 High/Medium findings that gate CI
 
+> ## ✅ 2026-08-25 — ALL 12 REFUTATION-CONFIRMED DEFECTS ARE FIXED (commit `3acd395b`)
+> A 13-agent scope→fix→adversarial-verify round closed every real defect the refutation surfaced,
+> plus the v2-distributor confiscation finding tracked separately in TODO_OPERATOR. All are
+> PRE-DEPLOY (none touched a live deployment). Each carries a test that fails on pre-fix code;
+> affected suites all green (harvest 41, fee-executor-router 25, fee-locker 19, nftfi 25,
+> distributor 34); all 6 contracts well under EIP-170. The round-2 review caught its own
+> incomplete first fix (harvest dust gate on raw wei → re-fixed to gate on the swap OUTPUT quote).
+> **What remains is line-by-line SUPPRESSION with reasons for the findings that were correctly
+> FALSE_POSITIVE, so the `fail-on:medium` gate can go green** — the code defects are done. Do NOT
+> re-open the fixed items below; they are struck by the fix commit, not by suppression.
+
 Two passes, 2026-08-22. Five agents triaged all 48 against the Solidity; three more were then told to
 **refute** every `FALSE_POSITIVE` verdict, because that is the verdict that makes work disappear.
 

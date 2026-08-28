@@ -170,3 +170,54 @@ describe('useIrysUpload — R044 H2 size cap', () => {
     expect(uploadMock).toHaveBeenCalledTimes(3);
   });
 });
+
+// ── single-file + custom-tag surface (curve identity rail) ──
+
+describe('useIrysUpload — uploadFile / tagged uploadJson', () => {
+  beforeEach(() => {
+    uploadMock.mockReset();
+    uploadMock.mockResolvedValue({ id: 'tx_id_abc' });
+  });
+
+  it('uploadFile sends one tx with defaults + extra tags and returns its id', async () => {
+    const { result } = renderHook(() => useIrysUpload());
+    let id = '';
+    await act(async () => {
+      id = await result.current.uploadFile(makeFile('coin.png', 4096), [
+        { name: 'App-Name', value: 'Tegridy-Curve-Identity' },
+      ]);
+    });
+    expect(id).toBe('tx_id_abc');
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    const tags = uploadMock.mock.calls[0]![1].tags as Array<{ name: string; value: string }>;
+    expect(tags).toContainEqual({ name: 'File-Name', value: 'coin.png' });
+    expect(tags).toContainEqual({ name: 'App-Name', value: 'Tegridy-Curve-Identity' });
+  });
+
+  it('uploadFile enforces the per-file cap BEFORE touching the SDK', async () => {
+    const { result } = renderHook(() => useIrysUpload());
+    let caught: PayloadTooLargeError | null = null;
+    await act(async () => {
+      try {
+        await result.current.uploadFile(makeFile('huge.bin', MAX_UPLOAD_BYTES_PER_FILE + 1));
+      } catch (e) {
+        caught = e as PayloadTooLargeError;
+      }
+    });
+    expect(caught).not.toBeNull();
+    expect(caught!.name).toBe('PayloadTooLargeError');
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
+  it('uploadJson appends extra tags after its defaults', async () => {
+    const { result } = renderHook(() => useIrysUpload());
+    await act(async () => {
+      await result.current.uploadJson({ hello: 1 }, 'meta.json', [
+        { name: 'Tegridy-Token', value: '0xabc' },
+      ]);
+    });
+    const tags = uploadMock.mock.calls[0]![1].tags as Array<{ name: string; value: string }>;
+    expect(tags[0]).toEqual({ name: 'Content-Type', value: 'application/json' });
+    expect(tags).toContainEqual({ name: 'Tegridy-Token', value: '0xabc' });
+  });
+});

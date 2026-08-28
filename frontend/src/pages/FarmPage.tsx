@@ -3,7 +3,9 @@ import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { JBAC_BONUS_BPS, CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
+import { CURRENT_SEASON, LOCK_OPTIONS } from '../lib/constants';
+import { parseEventLogs, formatEther } from 'viem';
+import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { calculateBoost } from '../lib/boostCalculations';
 import { useFarmStats } from '../hooks/useFarmStats';
@@ -136,8 +138,13 @@ function ToweliFarm() {
   useAutoReset(confirms.earlyWithdraw, setEarlyWithdrawConfirm, 5000);
 
   const boostBps = calculateBoost(selectedLock.seconds);
-  const nftBonus = nft.holdsJBAC ? JBAC_BONUS_BPS : 0;
-  const totalBoostBps = Math.min(boostBps + nftBonus, 45000);
+  // STAKING_LOOK §2.1: this flow calls plain stake(), which the contract
+  // explicitly grants NO JBAC bonus (TegridyStaking.sol:1011 — the +0.5x
+  // requires stakeWithBoost's NFT deposit, a path this UI does not drive).
+  // The preview therefore must NOT add JBAC_BONUS_BPS: it promised 4.5x and
+  // delivered 4.0x, in the exact window where the user decides. The bonus
+  // returns to this preview if/when the NFT-deposit flow is wired.
+  const totalBoostBps = Math.min(boostBps, 45000);
   const boostDisplay = (totalBoostBps / 10000).toFixed(2);
 
   const amtNum = parseFloat(stakeAmount) || 0;
@@ -152,7 +159,10 @@ function ToweliFarm() {
   // same hook that powers /tokenomics). pool.rewardsRemaining is a decimal
   // string; format it to a comma TOWELI figure, falling back to '–' when unread.
   const rewardsRemainingNum = parseFloat(pool.rewardsRemaining);
-  const rewardsRemainingDisplay = pool.isDeployed && rewardsRemainingNum > 0
+  // STAKING_LOOK §2.2: an EMPTY reserve is a real, displayable zero — '–'
+  // means "could not read", and conflating the two was exactly the dry-day
+  // display bug. isDry only flips once reads landed, so the distinction holds.
+  const rewardsRemainingDisplay = pool.isDeployed && (rewardsRemainingNum > 0 || pool.isDry)
     ? `${Math.round(rewardsRemainingNum).toLocaleString()} TOWELI`
     : '–';
 
@@ -246,12 +256,28 @@ function ToweliFarm() {
       // fires a clear "approved — now confirm your stake" toast instead, and the
       // button relabels to "Stake & Lock". (Confetti already excluded approve.)
       } else if (actionType === 'claim') {
+        // §2.5 (STAKING_LOOK): report what was PAID, from the tx's own
+        // RewardPaid log — under a pool shortfall the contract transfers
+        // min(pending, pool) (possibly 0, remainder booked as an IOU), so the
+        // submit-time snapshot can overstate the payout exactly when the
+        // reserve matters. The snapshot remains only as a last-resort
+        // fallback if log parsing fails.
+        let paidFromLogs: string | null = null;
+        try {
+          const paidEvents = parseEventLogs({
+            abi: TEGRIDY_STAKING_ABI,
+            logs: actions.receipt?.logs ?? [],
+            eventName: 'RewardPaid',
+          });
+          if (paidEvents.length > 0) {
+            const total = paidEvents.reduce((s, e) => s + ((e.args as { reward?: bigint }).reward ?? 0n), 0n);
+            paidFromLogs = formatEther(total);
+          }
+        } catch { /* fall back to the snapshot below */ }
         showReceipt({
           type: 'claim',
           data: {
-            // F106: read the submit-time snapshot, not the live (possibly already
-            // refetched-to-0) position value.
-            rewardAmount: submittedAmountRef.current ?? pos.pendingFormatted,
+            rewardAmount: paidFromLogs ?? submittedAmountRef.current ?? pos.pendingFormatted,
             token: 'TOWELI',
             txHash: actions.hash,
           },
@@ -300,7 +326,7 @@ function ToweliFarm() {
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
-            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} />
+            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
               stats={stats}
@@ -382,7 +408,7 @@ function ToweliFarm() {
         </m.div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} />
+        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} reserveEmpty={pool.isDry} />
 
         {/* Stats */}
         <FarmStatsRow
@@ -561,7 +587,7 @@ function ToweliFarm() {
             pos={pos}
             actions={actions}
             nft={nft}
-            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed }}
+            pool={{ apr: pool.apr, aprNum: pool.aprNum, isDeployed: pool.isDeployed, isDry: pool.isDry, secondsRemaining: pool.secondsRemaining }}
             input={{
               amount: stakeAmount,
               setAmount: setStakeAmount,

@@ -47,13 +47,20 @@ export function usePoolData() {
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
   const periodFinish = secondsRemaining > 0n ? nowSec + secondsRemaining : 0n;
 
+  // STAKING_LOOK §2.2: once the reserve is EMPTY, on-chain accrual is clamped
+  // to zero (StakingRewardLib caps every tick to the pool), so a nominal
+  // rate-derived APR is a lie the moment isDry flips. Clamp at the SOURCE so
+  // every consumer (farm strip, stat tiles, home pill, projections) inherits
+  // the honest zero with no per-surface edits.
+  const isDry = haveReads && rewardsRemaining === 0n;
+
   let apr = '0';
   // Numeric APR % for any math. Consumers MUST use this, not parseFloat(apr): once
   // apr >= 10000 the display string is comma-formatted ("28,567") and parseFloat
   // would silently truncate it to 28, breaking every projection ~1000x low.
   let aprNum = 0;
   const aprCapped = false;
-  if (rewardRate > 0n && totalBoostedStake > 0n) {
+  if (rewardRate > 0n && totalBoostedStake > 0n && !isDry) {
     // Scale up before dividing to preserve precision for low APRs
     const aprScaled = rewardRate * 31536000n * 10000n * 10n ** 18n;
     const aprBps = aprScaled / totalBoostedStake;
@@ -78,6 +85,8 @@ export function usePoolData() {
     secondsRemaining: Number(secondsRemaining),
     /** TOWELI actually left in the reward pool — the honest "remaining" figure. */
     rewardsRemaining: formatEther(rewardsRemaining),
+    /** True once reads landed and the reward pool is EMPTY — emissions are 0, whatever the rate says. */
+    isDry,
     apr,
     aprNum,
     aprCapped,

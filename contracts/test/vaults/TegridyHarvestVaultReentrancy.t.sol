@@ -223,7 +223,7 @@ contract TegridyHarvestVaultReentrancyTest is Test {
 
         reward.arm(address(vault), Hook.Harvest);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
     }
 
     function test_harvest_rejectsReentrantDepositFromRewardToken() public {
@@ -235,7 +235,7 @@ contract TegridyHarvestVaultReentrancyTest is Test {
 
         reward.arm(address(vault), Hook.Deposit);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        vault.harvest(0, 0);
+        vault.harvest(0, 1);
     }
 
     /// @notice With the hook disarmed the same flows succeed, so the reverts above are the

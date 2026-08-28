@@ -114,14 +114,17 @@ const BASE: ChainConfig = {
   },
   contracts: {
     weth: '0x4200000000000000000000000000000000000006',
-    factory: ZERO,
-    router: ZERO,
-    twap: ZERO,
-    swapFeeRouter: ZERO,
-    swapFeeRouterAdmin: ZERO,
-    feeSink: ZERO,
-    treasury: ZERO,
-    curveLauncher: null, // until DeployCurveLauncher lands on Base (M.16)
+    // MVP + curve LIVE on Base 8453 (2026-08-25: DeployBaseMVP + DeployCurveLauncher,
+    // every slot on-chain read-back verified). Ownership handoffs to MULTISIG are
+    // pending the 2-of-2 accept ceremony; the curve is MULTISIG-owned from birth.
+    factory: '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC',
+    router: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
+    twap: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
+    swapFeeRouter: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
+    swapFeeRouterAdmin: '0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2',
+    feeSink: '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1', // FEE_REMITTANCE Safe — remittance sink, not a distributor
+    treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', // TREASURY Safe
+    curveLauncher: '0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060',
     toweli: null, // never — fixed supply, one chain
     staking: null,
     referralSplitter: null,
@@ -147,7 +150,7 @@ const ROBINHOOD: ChainConfig = {
   id: 4663,
   name: 'Robinhood Chain',
   nativeCurrencySymbol: 'ETH',
-  sequencerUptimeFeed: null, // ← AttestedSequencerUptimeFeed address at go-live; see above
+  sequencerUptimeFeed: '0x12a249A027AA7DdF184E824b4bb63ba031A39fEC', // AttestedSequencerUptimeFeed, LIVE 2026-08-25 (owner=MULTISIG, attestor=PAUSE_GUARDIAN)
   feeSink: 'remittance',
   capabilities: {
     staking: false,
@@ -158,14 +161,17 @@ const ROBINHOOD: ChainConfig = {
   },
   contracts: {
     weth: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73',
-    factory: ZERO,
-    router: ZERO,
-    twap: ZERO,
-    swapFeeRouter: ZERO,
-    swapFeeRouterAdmin: ZERO,
-    feeSink: ZERO,
-    treasury: ZERO,
-    curveLauncher: null, // until DeployCurveLauncher lands on Robinhood (M.16)
+    // MVP + curve LIVE on Robinhood 4663 (2026-08-25: DeployRobinhoodMVP via
+    // dry-run->ethers replay + DeployCurveLauncher, every slot read-back verified).
+    // The AttestedSequencerUptimeFeed is the sequencerUptimeFeed above (deployed first).
+    factory: '0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3',
+    router: '0xB021651dACaD5dabf83ef587297E093DfA0c95Ec',
+    twap: '0xa24C7287eC56A7DEFDc70033803451240e267a52',
+    swapFeeRouter: '0xE9F83A07b071748E795d2489651d5310fA098Db8',
+    swapFeeRouterAdmin: '0xdFdd6D72539A425dC917F49FB834901105cA98c9',
+    feeSink: '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1', // FEE_REMITTANCE Safe
+    treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', // TREASURY Safe
+    curveLauncher: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
     toweli: null,
     staking: null,
     referralSplitter: null,

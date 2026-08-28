@@ -104,8 +104,16 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
           </div>
           <div className="relative z-10 p-4">
             <p className="text-white text-[12px] font-medium mb-1">Auto-Max Lock</p>
+            {/* STAKING_LOOK §2.7: "Disable anytime to let it expire naturally"
+                was flagged FALSE in the contract's own natspec 2026-08-12 —
+                enabling writes a full 4-year lockEnd immediately and nothing
+                ever shortens it. This is the corrected copy that natspec
+                prescribed and no pass had landed. */}
             <p className="text-white text-[11px]">
-              Enable auto-max lock to keep maximum boost (4.0x) perpetually. Your lock auto-renews on every claim. Disable anytime to let it expire naturally.
+              Enable auto-max lock to keep maximum boost (4.0x) perpetually — enabling
+              immediately sets a full 4-year lock, and it re-extends on every claim.
+              Disabling stops future re-extensions, but the current 4-year lock stays;
+              exiting before it ends always costs the 25% early-withdrawal penalty.
             </p>
           </div>
         </div>

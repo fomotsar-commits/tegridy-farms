@@ -13,7 +13,6 @@ import { m } from 'framer-motion';
 import { useAccount, useReadContract, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { formatEther, maxUint256, type Address } from 'viem';
-import { CHAIN_ID } from '../../lib/constants';
 import { sanitizeDecimalInput } from '../../lib/formatting';
 import { safeParseEtherPositive } from '../../lib/safeParseEther';
 import {
@@ -25,6 +24,12 @@ import {
   withSlippage,
   type CurveLaunch,
 } from '../../lib/launcher/curve';
+import {
+  twitterUrl,
+  telegramUrl,
+  type CurveIdentityResolution,
+} from '../../lib/launcher/curveIdentity';
+import { useCurveIdentity } from '../../hooks/useCurveIdentity';
 
 const ERC20_MIN_ABI = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'o', type: 'address' }, { name: 's', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
@@ -53,6 +58,9 @@ export interface CurveTradeViewProps {
   launch: CurveLaunch;
   tokenSymbol: string;
   nativeSymbol?: string;
+  /** Creator-published identity (image/description/socials), when resolved.
+   *  Absent/none renders an honest monogram tile — never a fabricated image. */
+  identity?: CurveIdentityResolution;
   /** Wallet's balance of the launch token (for the sell tab). */
   tokenBalance?: bigint;
   /** True when a sell needs an ERC-20 approval before it can run. */
@@ -63,10 +71,77 @@ export interface CurveTradeViewProps {
   onApprove: () => void;
 }
 
+/** Image-or-monogram identity header. The monogram is the explicit no-image
+ *  state (resolving, none, invalid, error, or a broken image URL). */
+function IdentityHeader({
+  identity,
+  tokenSymbol,
+}: {
+  identity?: CurveIdentityResolution;
+  tokenSymbol: string;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const ok = identity?.status === 'ok' ? identity.identity : null;
+  const monogram = (ok?.symbol ?? tokenSymbol).slice(0, 3).toUpperCase();
+  const showImage = ok !== null && !imgFailed;
+  return (
+    <div className="flex items-center gap-3">
+      {showImage ? (
+        <img
+          src={ok.imageUrl}
+          alt={`${ok.name} token image`}
+          className="w-12 h-12 rounded-xl object-cover shrink-0"
+          style={{ border: '1px solid rgba(255,255,255,0.14)' }}
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        <div
+          aria-hidden="true"
+          className={`w-12 h-12 rounded-xl shrink-0 flex items-center justify-center bg-black/50 text-white/45 text-[12px] font-mono font-semibold ${
+            identity?.status === 'resolving' ? 'animate-pulse' : ''
+          }`}
+          style={{ border: '1px solid rgba(255,255,255,0.14)' }}
+        >
+          {monogram}
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="text-white/90 text-sm font-semibold truncate">
+          {ok ? ok.name : tokenSymbol}
+          {ok && <span className="text-white/45 font-mono font-normal text-[12px]"> · {ok.symbol}</span>}
+        </p>
+        {ok?.description && (
+          <p className="text-white/55 text-[11px] leading-snug line-clamp-2">{ok.description}</p>
+        )}
+        {ok && (ok.website || ok.twitter || ok.telegram) && (
+          <p className="text-[11px] space-x-2 mt-0.5">
+            {ok.website && (
+              <a className="text-sky-300/80 hover:text-sky-200" href={ok.website} target="_blank" rel="noopener noreferrer">
+                website
+              </a>
+            )}
+            {ok.twitter && (
+              <a className="text-sky-300/80 hover:text-sky-200" href={twitterUrl(ok.twitter)} target="_blank" rel="noopener noreferrer">
+                @{ok.twitter}
+              </a>
+            )}
+            {ok.telegram && (
+              <a className="text-sky-300/80 hover:text-sky-200" href={telegramUrl(ok.telegram)} target="_blank" rel="noopener noreferrer">
+                telegram
+              </a>
+            )}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function CurveTradeView({
   launch,
   tokenSymbol,
   nativeSymbol = 'ETH',
+  identity,
   tokenBalance,
   needsApproval,
   pending,
@@ -110,7 +185,8 @@ export function CurveTradeView({
 
   if (launch.graduated) {
     return (
-      <div className="rounded-2xl p-5" style={cardStyle}>
+      <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
+        <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} />
         <p className="text-white/90 text-sm font-semibold">This launch has graduated 🎓</p>
         <p className="text-white/60 text-[12px] mt-1 leading-relaxed">
           The curve is closed. Its liquidity is live in the Tegridy pool with the LP burned to
@@ -148,6 +224,8 @@ export function CurveTradeView({
       className="rounded-2xl p-5 space-y-4"
       style={cardStyle}
     >
+      <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} />
+
       {/* Graduation progress */}
       <div>
         <div className="flex justify-between text-[11px] text-white/60 mb-1">
@@ -265,6 +343,10 @@ function Row({ label, value, strong, sub }: { label: string; value: string; stro
 export interface CurveTradePanelProps {
   launcher: Address;
   token: Address;
+  /** The chain the curve lives on. Reads/writes are pinned here — they must
+   *  never follow the wallet's chain (the launcher address is per-chain, and
+   *  the same address can be a DIFFERENT contract on another chain). */
+  chainId: number;
   tokenSymbol?: string;
 }
 
@@ -289,7 +371,7 @@ function toCurveLaunch(raw: unknown): CurveLaunch | null {
   };
 }
 
-export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: CurveTradePanelProps) {
+export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN' }: CurveTradePanelProps) {
   const { address: account } = useAccount();
   const { writeContract, isPending } = useWriteContract();
 
@@ -298,7 +380,7 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
     abi: CURVE_LAUNCHER_ABI,
     functionName: 'getLaunch',
     args: [token],
-    chainId: CHAIN_ID,
+    chainId,
     query: { refetchInterval: 15_000 },
   });
   const { data: balance } = useReadContract({
@@ -306,7 +388,7 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
     abi: ERC20_MIN_ABI,
     functionName: 'balanceOf',
     args: account ? [account] : undefined,
-    chainId: CHAIN_ID,
+    chainId,
     query: { enabled: Boolean(account) },
   });
   const { data: allowance } = useReadContract({
@@ -314,11 +396,13 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
     abi: ERC20_MIN_ABI,
     functionName: 'allowance',
     args: account ? [account, launcher] : undefined,
-    chainId: CHAIN_ID,
+    chainId,
     query: { enabled: Boolean(account) },
   });
 
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
+  // Hook order: resolve identity unconditionally (before the loading return).
+  const identity = useCurveIdentity(token, chainId, launch?.creator);
   if (!launch) {
     return (
       <div className="rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
@@ -332,7 +416,7 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
 
   const onBuy = (ethGross: bigint, minTokensOut: bigint) => {
     writeContract(
-      { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'buy', args: [token, minTokensOut], value: ethGross },
+      { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'buy', args: [token, minTokensOut], value: ethGross, chainId },
       {
         onSuccess: () => toast.success('Buy submitted.'),
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the buy.'),
@@ -341,7 +425,7 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
   };
   const onApprove = () => {
     writeContract(
-      { address: token, abi: ERC20_MIN_ABI, functionName: 'approve', args: [launcher, maxUint256] },
+      { address: token, abi: ERC20_MIN_ABI, functionName: 'approve', args: [launcher, maxUint256], chainId },
       {
         onSuccess: () => toast.success('Approval submitted — confirm, then sell.'),
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the approval.'),
@@ -350,7 +434,7 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
   };
   const onSell = (tokensIn: bigint, minEthOut: bigint) => {
     writeContract(
-      { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'sell', args: [token, tokensIn, minEthOut] },
+      { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'sell', args: [token, tokensIn, minEthOut], chainId },
       {
         onSuccess: () => toast.success('Sell submitted.'),
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the sell.'),
@@ -365,7 +449,8 @@ export function CurveTradePanel({ launcher, token, tokenSymbol = 'TOKEN' }: Curv
   return (
     <CurveTradeView
       launch={launch}
-      tokenSymbol={tokenSymbol}
+      tokenSymbol={identity.status === 'ok' ? identity.identity.symbol : tokenSymbol}
+      identity={identity}
       tokenBalance={tokenBalance}
       needsApproval={needsApproval}
       pending={isPending}

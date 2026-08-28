@@ -9,6 +9,7 @@ import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionMa
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {BeneficiaryData} from "./TegridyLiquidityMigrator.sol";
 
 /// @dev The ERC721 surface of the V4 PositionManager that this contract uses.
@@ -46,7 +47,7 @@ interface IPositionNft {
 ///         launch, splits whatever that position earns, and hands the position to
 ///         a named recipient once its lock expires. Keeping it that narrow is
 ///         deliberate — it is fund-holding code entering an external audit.
-contract TegridyFeeLocker is IERC721Receiver {
+contract TegridyFeeLocker is IERC721Receiver, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @dev Shares are WAD-denominated and must sum to exactly this.
@@ -206,7 +207,17 @@ contract TegridyFeeLocker is IERC721Receiver {
     ///         by TAKE_PAIR — removing no principal and sweeping only what the
     ///         position has earned. Note the position's PRINCIPAL is never
     ///         touched by this function; only fees can leave.
-    function collect(uint256 tokenId) external {
+    ///
+    ///         `nonReentrant` because the credited amounts are BALANCE DELTAS
+    ///         around `modifyLiquidities`, over a pot commingled across every
+    ///         lock and every unclaimed credit — and TAKE_PAIR executes the
+    ///         launch asset's own token code, an arbitrary third-party ERC20. A
+    ///         hook there re-entering `claim` (or `collect`) moves the pot
+    ///         mid-measurement: the delta then reverts (underflow) or, on an
+    ///         exactly-matching claim, reads ZERO — fees swept off the position
+    ///         but credited to nobody, unreachable forever. The shared guard
+    ///         makes the delta's provenance sound.
+    function collect(uint256 tokenId) external nonReentrant {
         Lock storage l = _locks[tokenId];
         if (!l.exists) revert UnknownPosition();
 
@@ -242,6 +253,10 @@ contract TegridyFeeLocker is IERC721Receiver {
     ///      nor over-distribute. Without that, repeated collects would accumulate
     ///      an unclaimable residue forever.
     function _credit(Lock storage l, Currency currency, uint256 amount) internal {
+        // A zero skip is legitimate ONLY because `collect` is nonReentrant:
+        // nothing can drain the pot mid-measurement, so a zero delta really means
+        // "this currency earned nothing" — not a reentrant claim cancelling the
+        // delta and silently stranding swept fees.
         if (amount == 0) return;
 
         uint256 n = l.beneficiaries.length;
@@ -267,7 +282,10 @@ contract TegridyFeeLocker is IERC721Receiver {
     /// @notice Withdraw everything owed to the caller in `currency`.
     /// @dev    Caller-scoped by construction: a claimant can only ever move its
     ///         own balance, so this needs no access control.
-    function claim(Currency currency) external {
+    ///
+    ///         `nonReentrant` shares `collect`'s guard, so a claim can never run
+    ///         inside collect's balance-delta window (see `collect`).
+    function claim(Currency currency) external nonReentrant {
         uint256 amount = claimable[msg.sender][currency];
         if (amount == 0) revert NothingToClaim();
 

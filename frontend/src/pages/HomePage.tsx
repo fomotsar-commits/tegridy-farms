@@ -85,14 +85,21 @@ const HOW_IT_WORKS_STEPS = [
 ];
 
 export default function HomePage() {
+  // Jungle Bay bungalows: resolved FIRST because the title below depends on
+  // it — the /bayla door serves her <title> statically for crawlers, and
+  // without this the SPA would overwrite it back to the venue title the
+  // moment it hydrates. Stable per document (switching reloads).
+  const bungalowIdentity = getBungalowIdentity();
   // 2026-08-07: the meta description said "Stake TOWELI on Ethereum" and stopped there,
   // so every search result, every link preview, and every share of the front door
   // described a single-chain product. Both halves below are separately checkable:
   // TOWELI staking really is Ethereum-only (do not let that rot into "multichain
   // staking"), and the Solana swap really is live and routed through Jupiter.
   usePageTitle(
-    'Home',
-    'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.',
+    bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
+    bungalowIdentity
+      ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} Trade ${bungalowIdentity.symbol} on Solana; scan any token on either chain.`
+      : 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.',
   );
   const { address } = useAccount();
   const stats = useFarmStats();
@@ -155,12 +162,6 @@ export default function HomePage() {
   const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
     'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
-
-  // Jungle Bay bungalows: non-null when the active bungalow carries its own
-  // token identity (Bayla) — the hero cluster and yield calculator below
-  // switch to token-first surfaces. Resolved once per document (switching
-  // bungalows is a persist + reload), so a plain const is enough.
-  const bungalowIdentity = getBungalowIdentity();
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
   // never blocks interaction. Starts on a random quote so repeat visits feel fresh.

@@ -56,7 +56,8 @@ const TRANSPORTS: Record<number, Transport> = {
       // for why cloudflare-eth / ankr / llamarpc are out.
       http('https://ethereum-rpc.publicnode.com'),
       http('https://eth.drpc.org'),
-      http('https://eth.merkle.io'),
+      // eth.merkle.io DROPPED 2026-08-25: 429s every request — dead third slot
+      // that burned a retry per rotation. Re-verify with a real read before re-adding.
     ],
     { rank: true },
   ),

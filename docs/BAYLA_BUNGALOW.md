@@ -203,6 +203,107 @@ note the observed rate here for the funding math.
   the wallet fixture pins toweli by design) walks /bayla, the /towelie
   alias, and a not-yet-live door across the four-device matrix.
 
+## 6f. THE MAINNET CEREMONY — DONE (2026-08-26). The lighthouse exists.
+
+Executed by the operator with the designated ceremony key
+(`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, the pool's admin authority
+going forward — note it lives as a keyfile in the OneDrive-synced faucet
+folder; custody caveat accepted by the operator on 2026-08-26):
+
+- **Stake pool: `4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp`**
+  (tx `3vDxaGWo9ZrzrNWQumqe9AG2oUxJU4YRCoBBbthf8SykVTTQxmP5s2j1pvcPHZmA7PpET9vXV2s19rvMEFcAzeoB`)
+  — BAYLA mint, locks 1–365 days, flat 1x weight, Token-2022 program
+  auto-detected (`TokenzQd…` — the first broadcast died assuming legacy;
+  detection is now baked into script + adapter).
+- **Reward pool: `HdapJt3cJ92fBcoCiaeAyACicXGF9m6RGQdWRMX9L9XL`**
+  (tx `3dgfyV2EgyxT1pszEc9k1RzBbFi9SNARtVKKDDE6SpBoJDbyuiMSu5EhihM6JXmeNGurKrkgyFiCyiburzBUCSR`)
+  — 0.003 BAYLA per staked BAYLA per day, **permissionless public funding**.
+- Verified independently through the app's own read path post-creation:
+  pool live, totalStake 0, reward vault **0 raw — the honest zero**.
+- The address ships **hardcoded in the registry** (env override retained),
+  so no Vercel env var is load-bearing for the live pool.
+
+Remaining: the dust-wallet live-fire (first tiny stake/claim/unstake —
+needs any wallet holding a little BAYLA), announce, then **fund last**:
+`node scripts/bayla-lighthouse-ceremony.mjs --fund --pool 4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp --amount <whole BAYLA> --keypair <id.json> --broadcast`
+(the funding wallet must hold the BAYLA; creator fees accrue to
+`G2EHPse…Krbu` on pump.fun).
+
+## 6e. DEVNET REHEARSAL — the entire lifecycle executed (2026-08-26)
+
+The full pool lifecycle ran on devnet with REAL transactions through the
+exact SDK flows the app and the mainnet ceremony use (Streamflow deploys
+the same program ids on both clusters). Final state after the round trip:
+`totalStake = 0`, everything claimed and closed.
+
+| Step | Devnet signature |
+|---|---|
+| createStakePool → `DcFMJPnUuaaVPfFBitgGEoDK4cpuazCTWC7Jp794kw48` | `bc93u5envgLQ…fwfEdQW` |
+| createRewardPool → `4EehnXNUyJCokn7pe9QPhDT4QH9jcXaXkQEfZnuSYrxG` | `3BnXpgnhwS1H…JPyJPkA` |
+| **fundPool (100,000 tokens — the task-#13 op)** | `NR71dGyJPRms…fjgMiGK` |
+| stakeAndCreateEntries (1,000 tokens) | `2bnQsmuDA8D1…au8rTUUZ` |
+| claimRewards | `5coBCKECGcc6…BYsE9bPp` |
+| unstakeAndClaim (+close) | `2bTK9LXkESGb…naweJMyN` |
+
+Explorer: https://solscan.io/account/DcFMJPnUuaaVPfFBitgGEoDK4cpuazCTWC7Jp794kw48?cluster=devnet
+
+**Four traps found live and now BAKED into the tooling** (each one would
+have burned the mainnet ceremony or a first-time staker):
+
+1. `createRewardPool` requires `stakePoolNonce` and `lastClaimPeriodOpt` —
+   the SDK README's example omits both; the shipped .d.ts is the truth.
+2. `fundPool` must pass `feeValue: null` to route the fee check to the
+   fee-manager's default config — omitting it derives a per-funder PDA that
+   was never initialized (AccountNotInitialized).
+3. Funding expects **Streamflow's treasury ATA for the reward mint** to
+   exist — the ceremony script creates it idempotently first.
+4. Staking expects the **staker's ATA for the stake-mint PDA** (the receipt
+   token) — the frontend adapter now prepends an idempotent create to the
+   SAME transaction via the SDK's prepare-path + execute, so first-time
+   stakers can never hit it.
+
+The rehearsal is rerunnable any time:
+`node scripts/bayla-lighthouse-ceremony.mjs --rehearse [--funder <devnet-keypair.json>]`.
+
+## 6d. THE FLIP — everything is built; funding is last (shipped 2026-08-26)
+
+The live Streamflow integration is now IN the app, dark until configured.
+The operator's remaining path, in order:
+
+1. **Ceremony** (task #12): create the BAYLA stake pool + one fixed reward
+   pool (reward mint = BAYLA; `permissionless: true` on the reward pool so
+   anyone can top it up in public). Record every parameter + the stake-pool
+   address here.
+2. **Set `VITE_BAYLA_STAKE_POOL=<stake pool address>`** in Vercel env →
+   redeploy. That single env var flips /farm in bayla mode from the dark
+   card to the live lighthouse section: vault balance (a labeled 0 until
+   funded), total staked, lock window, stake form, entries with
+   claim/unstake — all direct on-chain reads through the venue's own RPC
+   proxy. No code commit needed.
+3. **Live-fire test (MANDATORY before announcing):** with a dust wallet —
+   stake a token, claim (0), unstake — one full round trip. The write paths
+   ride Streamflow's grouped SDK flows (`stakeAndCreateEntries`,
+   `unstakeAndClaim`, `claimRewards` — argument shapes pinned against SDK
+   13.3.1's own type definitions, claim's required `stakePoolMint`
+   included), but the SDK notes ATAs are expected to exist; if the dust
+   round-trip trips on a missing ATA, Claude adds the pre-instructions via
+   the SDK's `prepare*` path — a bounded follow-up, not a redesign.
+4. **Announce.** The page is honest at this point by construction: the
+   vault reads 0 and says staking earns nothing yet.
+5. **FUND LAST** (task #13): claim the PumpSwap creator fees → deposit into
+   the reward pool (their UI or `fundPool`). The vault balance on the panel
+   climbs with every top-up, publicly.
+
+What ships in code (commit-level detail): `lib/bungalowStaking.ts` — the
+thin adapter over @streamflow/staking 13.3.1 (dynamic imports only; zero
+custom money math; all failures resolve as honest reasons, wallet
+rejections read "You declined the signature — nothing moved.");
+`LighthousePoolLive.tsx` — its own lazy chunk (~12 kB + SDK on demand), so
+nothing loads until a pool is configured; registry `stakePool` env
+plumbing; 7 adapter tests against a mocked SDK (vault 0 vs unreadable is
+pinned: zero is a fact, unreadable is an outage); an env-keyed dev probe
+verified the flip end-to-end (dark card ↔ live section) before commit.
+
 ## 6. Open operator items
 
 1. Streamflow pool ceremony (or veto → fallback order in §3).

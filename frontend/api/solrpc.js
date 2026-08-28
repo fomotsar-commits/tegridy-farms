@@ -48,6 +48,31 @@ const ALLOWED_SOL_METHODS = new Set([
 ]);
 const MAX_RPC_BATCH = 20;
 
+// 2026-08-27: the BAYLA lighthouse pool page reads Streamflow staking state via
+// the SDK's searchRewardPools/searchStakeEntries, which issue getProgramAccounts.
+// The L-1 allowlist above (correctly) rejects blanket getProgramAccounts — an
+// open scan against a keyed RPC is exactly the hole L-1 closed — so instead of
+// adding the method wholesale, allow it ONLY against the Streamflow staking
+// programs (small, bounded account sets; ids identical across clusters, read
+// from @streamflow/staking dist constants). params[0] is the program id.
+const ALLOWED_SCAN_PROGRAMS = new Set([
+  "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH", // Streamflow stake pools
+  "RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj", // Streamflow reward pools
+  "RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez", // Streamflow dynamic reward pools
+]);
+
+function isAllowedRpcCall(c) {
+  if (!c || typeof c.method !== "string") return false;
+  if (c.method === "getProgramAccounts") {
+    return (
+      Array.isArray(c.params) &&
+      typeof c.params[0] === "string" &&
+      ALLOWED_SCAN_PROGRAMS.has(c.params[0])
+    );
+  }
+  return ALLOWED_SOL_METHODS.has(c.method);
+}
+
 // AUDIT FIX F1: treat Vercel preview AND production as prod-like. Preview deploys
 // inherit prod env but DO NOT set NODE_ENV=production, so a bare NODE_ENV check
 // would leave the origin gate open on every preview URL.
@@ -128,7 +153,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Invalid or oversized JSON-RPC batch" });
   }
   for (const c of calls) {
-    if (!c || typeof c.method !== "string" || !ALLOWED_SOL_METHODS.has(c.method)) {
+    if (!isAllowedRpcCall(c)) {
       return res.status(403).json({ error: `RPC method not allowed: ${c && c.method}` });
     }
   }
