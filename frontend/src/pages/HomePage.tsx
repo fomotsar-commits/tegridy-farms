@@ -33,6 +33,8 @@ import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
+import { BungalowMarket } from '../components/bungalow/BungalowMarket';
+import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 
 // F91: surfaced from the Footer's community links — keep one source so Home
 // and Footer can't drift. (Footer still owns its own copy; these mirror it.)
@@ -500,6 +502,23 @@ export default function HomePage() {
           </>
           )}
         </div>
+
+        {/* The bungalow's market — her own pool's chart + numbers, in the slot
+            where the default venue puts its TOWELI stat pills. Renders only
+            when the bungalow declares a `market` pool; self-hides otherwise. */}
+        {bungalowIdentity?.market && (
+          <div className="pb-8">
+            <BungalowMarket bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* Who holds her — the venue's own scanner, run on this bungalow's
+            token, with its coverage limits stated rather than smoothed over. */}
+        {bungalowIdentity?.address && (
+          <div className="pb-16">
+            <BungalowHolders bungalow={bungalowIdentity} />
+          </div>
+        )}
 
         {/* Jungle Bay bungalow lore — Bayla's story card, rendered only in her
             mode, in the slot where the TOWELI fee-economy explainer sits for

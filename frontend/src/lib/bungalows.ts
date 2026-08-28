@@ -69,6 +69,16 @@ export interface Bungalow {
    * empty reward vault; the live section renders that as a labeled zero.
    */
   stakePool?: string;
+  /**
+   * The pool the bungalow's price chart + market strip read, as GeckoTerminal
+   * identifies it. Undefined = no market surface (the honest state for a
+   * bungalow whose token has no indexed pool).
+   *
+   * This is the PRIMARY pool, not the whole list: `pools` above is a set of
+   * outbound links, and a chart has to name one pair. Bayla's is the graduated
+   * pump.fun pool on PumpSwap — the deepest of her two by liquidity.
+   */
+  market?: { network: string; pool: string; label: string };
   /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
   /** Picker card thumbnail. */
@@ -139,6 +149,15 @@ export const BUNGALOWS: Bungalow[] = [
       { label: 'BAYLA / SOL · PumpSwap', url: 'https://dexscreener.com/solana/8z52phbctyyw8fsmbbz9kewy2n1w4ucgjc9vcsjypk2n' },
       { label: 'BAYLA / TBBB · Meteora', url: 'https://dexscreener.com/solana/bo16t7xgbdta2jdrozqhqnsvsb2irhgbydhmsvsr72wv' },
     ],
+    // GeckoTerminal's own id for the PumpSwap pool above (same address, checksum
+    // -insensitive). Verified live 2026-08-28: price, FDV, reserve, 24h volume
+    // and the buy/sell split all read. `market_cap_usd` comes back null — she
+    // has no circulating-supply record upstream, so the strip shows FDV.
+    market: {
+      network: 'solana',
+      pool: '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n',
+      label: 'BAYLA / SOL · PumpSwap',
+    },
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
     stakePool: BAYLA_STAKE_POOL,

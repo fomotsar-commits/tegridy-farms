@@ -293,10 +293,29 @@ export default defineConfig(({ mode }) => {
         },
         // Solana RPC proxy — mirrors api/solrpc.js. Forwards JSON-RPC POSTs to
         // the configured RPC (server-only SOLANA_RPC_URL, or the keyless default).
+        //
+        // 2026-08-28: this proxy used to forward the browser's `Origin` header
+        // upstream, and api.mainnet-beta.solana.com answers ANY request carrying
+        // an Origin with `403 Access forbidden` — it refuses browser-origin
+        // traffic. So in dev EVERY Solana read failed: the BAYLA lighthouse pool
+        // rendered a permanent "could not be read — outage, not a zero", and so
+        // did balances on the swap surface. Verified by isolation against this
+        // very proxy: Origin+Referer → 403, Referer only → 200, neither → 200.
+        // The PROD function is unaffected — api/solrpc.js builds a clean upstream
+        // request with only Content-Type/Accept. Stripping the browser-only
+        // headers here makes dev behave like prod instead of faking an outage.
         '/api/solrpc': {
           target: env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
           changeOrigin: true,
           rewrite: () => '/',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
+              // Never reflect the dev browser's cookies at a third-party RPC.
+              proxyReq.removeHeader('cookie');
+            });
+          },
         },
         // /api/etherscan is a Vercel serverless function in production.
         // For local dev we forward to the deployed proxy so the API key stays

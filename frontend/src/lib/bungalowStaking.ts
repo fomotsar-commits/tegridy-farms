@@ -156,7 +156,11 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
         rewardPools,
       },
     };
-  } catch {
+  } catch (err) {
+    // The UI copy stays honest and generic, but a bare catch left NOBODY able to
+    // say why the lighthouse read failed — the cause never reached a console.
+    // Warn with the real error (same-origin proxy URL, no secret to leak).
+    console.warn('[bungalowStaking] readPool failed', err);
     return { ok: false, reason: READ_FAIL };
   }
 }

@@ -1,20 +1,18 @@
 import { useEffect, useMemo, useRef, useState, memo, useCallback } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, ColorType, type CandlestickData, type Time, CandlestickSeries } from 'lightweight-charts';
-import { TOWELI_WETH_LP_ADDRESS, GECKOTERMINAL_URL } from '../../lib/constants';
+import {
+  TF_CONFIG,
+  TOWELI_MARKET,
+  chartEmbedUrl,
+  chartPoolUrl,
+  ohlcvCacheKey,
+  ohlcvUrl,
+  type ChartMarket,
+  type Timeframe,
+} from '../../lib/chart/market';
 import { useTheme } from '../../contexts/ThemeContext';
 
-type Timeframe = '1h' | '4h' | '1d' | '1w';
-
-const TF_CONFIG: Record<Timeframe, { apiTf: string; aggregate: string; label: string; limit: number }> = {
-  '1h': { apiTf: 'hour', aggregate: '1', label: '1H', limit: 168 },
-  '4h': { apiTf: 'hour', aggregate: '4', label: '4H', limit: 90 },
-  '1d': { apiTf: 'day', aggregate: '1', label: '1D', limit: 90 },
-  '1w': { apiTf: 'day', aggregate: '7', label: '1W', limit: 52 },
-};
-
-const GECKO_EMBED_URL = `https://www.geckoterminal.com/eth/pools/${TOWELI_WETH_LP_ADDRESS}?embed=1&info=0&swaps=0&grayscale=0&light_chart=0`;
-
-// In-memory cache
+// In-memory cache, keyed by pool AND timeframe (see ohlcvCacheKey).
 const ohlcvCache: Record<string, { data: CandlestickData<Time>[]; ts: number }> = {};
 const CACHE_TTL = 60_000;
 
@@ -37,16 +35,15 @@ async function fetchWithRetry(url: string, retries = 5, delay = 800, signal?: Ab
   throw new Error('Max retries reached');
 }
 
-async function fetchOHLCV(tf: Timeframe, signal?: AbortSignal): Promise<CandlestickData<Time>[]> {
-  const cacheKey = tf;
+async function fetchOHLCV(tf: Timeframe, market: ChartMarket, signal?: AbortSignal): Promise<CandlestickData<Time>[]> {
+  const cacheKey = ohlcvCacheKey(market, tf);
   const cached = ohlcvCache[cacheKey];
   if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
-  const cfg = TF_CONFIG[tf];
   // F152: direct cross-origin fetch to GeckoTerminal with retry/backoff. There is
   // no same-origin proxy — on Safari ITP / Edge tracking-prevention failures the
   // caller falls through to the embedded GeckoTerminal iframe instead.
-  const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/ohlcv/${cfg.apiTf}?aggregate=${cfg.aggregate}&limit=${cfg.limit}&currency=usd`;
+  const url = ohlcvUrl(market, tf);
 
   const res = await fetchWithRetry(url, 5, 800, signal);
   if (!res.ok) throw new Error(`API ${res.status}`);
@@ -101,7 +98,7 @@ function formatPrice(price: number): string {
   return price.toFixed(8);
 }
 
-function PriceChartInner() {
+function PriceChartInner({ market = TOWELI_MARKET }: { market?: ChartMarket }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -228,7 +225,7 @@ function PriceChartInner() {
     setLoading(true);
     setError(null);
 
-    fetchOHLCV(timeframe, controller.signal)
+    fetchOHLCV(timeframe, market, controller.signal)
       .then((bars) => {
         // Guard against race condition: ignore if a newer request was made
         if (requestId !== requestIdRef.current) return;
@@ -263,7 +260,7 @@ function PriceChartInner() {
           setLoading(false);
         }
       });
-  }, [useEmbed]);
+  }, [useEmbed, market]);
 
   // Fetch data on timeframe change; abort on unmount.
   // R007 Pattern C — defer the loadData call (which does synchronous
@@ -287,7 +284,7 @@ function PriceChartInner() {
       <div className="w-full h-full flex flex-col">
         <div className="flex items-center gap-1 mb-2 px-1">
           <a
-            href={GECKOTERMINAL_URL}
+            href={chartPoolUrl(market)}
             target="_blank"
             rel="noopener noreferrer"
             className="ml-auto text-white/60 hover:text-white text-[10px] transition-colors"
@@ -302,12 +299,12 @@ function PriceChartInner() {
               it doesn't need same-origin to render its own assets. Removing it
               is the tightest sandbox that still lets the chart be interactive. */}
           <iframe
-            src={GECKO_EMBED_URL}
+            src={chartEmbedUrl(market)}
             className="absolute inset-0 w-full h-full"
             style={{ border: 'none', borderRadius: '8px' }}
             sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
             referrerPolicy="no-referrer"
-            title="TOWELI Price Chart"
+            title={`${market.label} price chart`}
           />
         </div>
       </div>
@@ -331,7 +328,7 @@ function PriceChartInner() {
           </button>
         ))}
         <a
-          href={GECKOTERMINAL_URL}
+          href={chartPoolUrl(market)}
           target="_blank"
           rel="noopener noreferrer"
           className="ml-auto text-white/60 hover:text-white text-[10px] transition-colors"

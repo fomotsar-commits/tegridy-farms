@@ -13,6 +13,8 @@ import { fromBaseUnits, getUsdPrices } from '../../lib/jupiter';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ArtImg } from '../ArtImg';
 import { HeatCard } from './HeatCard';
+import { BungalowMarket } from './BungalowMarket';
+import { BungalowHolders } from './BungalowHolders';
 
 /**
  * The bungalow dashboard (Bayla) — "your standing on the island".
@@ -160,6 +162,21 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
             )}
           </div>
         </div>
+
+        {/* The market — chart + numbers for her own pool. The classic dashboard
+            leads with a TOWELI chart; this is the same answer for this token,
+            and it self-hides for a bungalow with no declared market pool. */}
+        {bungalow.market && (
+          <div className="mt-6">
+            <BungalowMarket bungalow={bungalow} />
+          </div>
+        )}
+
+        {bungalow.address && (
+          <div className="mt-6">
+            <BungalowHolders bungalow={bungalow} />
+          </div>
+        )}
 
         {/* Heat — prefilled with the connected wallet. */}
         <HeatCard defaultAddress={publicKey?.toBase58()} />
