@@ -29,6 +29,67 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-08-28 STATE — newest layer; supersedes everything below where they disagree
+
+A curve-launchpad + audit + US-compliance session. The launchpad now has a **usable, tested front
+door** (token identity, discovery, honest copy) and the fleet closed a real trapped-NFT bug. What's
+left needs YOU — a signature, a decision, or counsel — in unlock-per-minute order.
+
+**CLOSED this session — do not redo (all pushed + prod-verified):**
+- Curve **token identity** (image/description/socials via Irys, no redeploy) + **discovery** (Live
+  Launches grid + permanent `/eth-curve/:token` page + creator claim UI). The launchpad's #1–#3
+  competitive gaps. Live on prod (verified in the deployed chunk).
+- **17/17 L2 contracts verified** on Base (Etherscan) + Robinhood (Blockscout).
+- **v4 BoostedLPStaker**: audit found a REAL trapped-NFT path (oracle ABI-break re-traps under
+  0.8.26, both cases); fixed with a zero-external-call `emergencyWithdraw` hatch, mutation-verified.
+- **US misleading-claims copy fix** (`cdedbc22`): the curve reserve claim now matches what the code
+  enforces ("ecosystem reserve… discretionary, not enforced on-chain"; dropped the "bribes"/"survival"
+  over-promise) + a creator-issuer/securities line at the create point. Live.
+- **First-creator flow now regression-protected** (`0f1ae62b`): 4 mutation-checked container tests
+  pin the upload-before-tx safety ordering, receipt-log parse, and identity-retry path.
+- **CORRECTION to the "redeploy on ask" standing item below:** prod **auto-deploys on green trunk**
+  now — verified this session on multiple commits (Vercel posted success without the CLI). The
+  CLI-redeploy standing item is retired unless a deploy visibly fails.
+
+**WHAT NEEDS YOU — in order:**
+
+1. 🔴 **THE SIGNING SESSION — dated, closes Sept 2–3.** One sitting, 11 transactions, every value
+   read live and every selector derived. Full runbook with paste-ready calldata:
+   [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md).
+   - **Part A — 2-of-2 accept ceremony**, 4 tx per L2 from the multisig Safe `0xBC4E…Be5B`
+     (Base `acceptFeeToSetter` deadline **2026-09-02 07:20 UTC**; RH **2026-09-03 05:02 UTC**). The
+     TWAP `acceptOwnership` is ordered first as each nonce-0 Safe's smoke test — if it fails, STOP,
+     nothing is lost.
+   - **Part B — reserve-recipient → Treasury Safe**, one `setLaunchConfig` per chain (mainnet + both
+     L2s). **FREE while `launchCount` is 0 on all three (verified); permanently impossible for any
+     launch created before it** (recipient is snapshotted per-launch). Do it in the same sitting.
+   - Miss the deadline = re-propose + wait; not fatal, but roles stay on the hot deployer EOA.
+
+2. 🟡 **US regulatory decisions — counsel + operator.** Copy is now honest (done); "within bounds"
+   still needs you. Risk-ranked with cost-to-mitigate: [`US_COMPLIANCE_BRIEF_2026_08_28.md`](US_COMPLIANCE_BRIEF_2026_08_28.md).
+   Cheapest-high-impact, no lawyer needed: **geoblock US/sanctioned jurisdictions** (representation-only
+   today, no geofence in code) and **form an entity before the first fee dollar** (Terms admit none
+   exists). Needs counsel: securities status of the curve tokens + the promoted-earnings model. The
+   pump.fun SDNY docket (all-memecoins-are-securities + RICO/"casino") is the roadmap — your model has
+   MORE ecosystem features, so more exposure, but zero launches = low target profile today.
+
+3. 🟢 **Distribution — the actual Sept-30 bet.** The product is done; the constraint is one external
+   human paying us. Highest-probability path is a NAMED person, not SEO: a BAYLA/island community
+   member launching a sister token, or one of hood.fun's ~68 orphaned creators (hood.fun died —
+   "for sale" — leaving working tokens with no venue). Outreach is operator work; Claude can build
+   the target list + pitch assets on request.
+
+4. ⚙️ **Environment — exclude the repo (or `frontend/node_modules`) from OneDrive sync.** OneDrive
+   keeps reverting the checkout's installed deps to a stale cloud snapshot (~20-min half-life),
+   breaking local tooling repeatedly. A settings change only you can make; zero effect on prod/CI.
+
+**Still moving (fleet, not you):** v2 forfeit-deletion residuals (dead views + a contradictory doc
+comment), NativeBuyRouter test-gaps, and the #336 provenance stack (equivalence independently proven
+bit-identical; its operator half — redeploy the SwapFeeRouter stack to actually LAND row 8 — is
+tracked in this file's row-8 section).
+
+---
+
 ## 🟢 2026-08-25 STATE — this layer supersedes the sections below where they disagree
 
 An 08-24 full scan → same-day fix session → 08-25 go-live + an 8-lane verified sweep moved a lot.
