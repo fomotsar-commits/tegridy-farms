@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b tsconfig.app.json tsconfig.node.json && vite build && node scripts/render-bungalow-doors.mjs",
+    "build": "tsc -b tsconfig.app.json tsconfig.node.json && vite build && node scripts/check-dist-graph.mjs && node scripts/render-bungalow-doors.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
