@@ -7,6 +7,7 @@ on:
       - "contracts/**"
       - "scripts/check-interface-selectors.mjs"
       - "scripts/check-test-slice-coverage.mjs"
+      - "scripts/check-v2-provenance.mjs"
       - "frontend/scripts/extract-missing-abis.mjs"
       - ".github/contracts-test-slices.json"
       # The selector guard reads both of these: contracts.ts holds the
@@ -92,6 +93,7 @@ jobs:
             'contracts/**' \
             'scripts/check-interface-selectors.mjs' \
             'scripts/check-test-slice-coverage.mjs' \
+            'scripts/check-v2-provenance.mjs' \
             'frontend/scripts/extract-missing-abis.mjs' \
             '.github/contracts-test-slices.json' \
             'frontend/src/lib/contracts.ts' \
@@ -762,13 +764,61 @@ jobs:
           FOUNDRY_INVARIANT_DEPTH: 256
 
   # ─────────────────────────────────────────────────────────────────────
+  # V2 provenance gate (docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md row 7).
+  #
+  # TegridyPair / TegridyFactory / TegridyRouter are Uniswap V2 forks whose
+  # every audit comparison against upstream used to be reasoned FROM MEMORY —
+  # canonical V2 was not on disk, so drift into V2's audited surface (the
+  # k-invariant, the 1/6 protocol-fee formula, the kLast lifecycle) was
+  # invisible. This job recomputes a normalized diff of the three contracts
+  # against hash-pinned vendored v2-core/v2-periphery sources
+  # (contracts/provenance/upstream/, pinned in upstream.lock.json) and fails
+  # unless it byte-matches the committed snapshot under
+  # contracts/provenance/expected/. Any semantic edit to those files goes red
+  # until deliberately re-pinned WITH a named allowlist entry in
+  # contracts/provenance/PROVENANCE.md.
+  #
+  # Silent-gate posture (the checklist this repo learned the hard way):
+  #   * runs on pull_request via the scope job — never cron-only;
+  #   * no network: compares against in-repo hash-pinned copies, so it cannot
+  #     flake into a skip;
+  #   * own job, so no earlier red step can black it out;
+  #   * the script fails on empty/undersized comparisons (per-target changed-
+  #     line floors), on missing snapshots, on unpinned files smuggled into
+  #     upstream/, and on hash-mismatched vendored copies — "compared
+  #     nothing" can never report green;
+  #   * result is read EXPLICITLY in all-tests-pass below, not just `needs`-ed.
+  #
+  # Zero npm deps, Node builtins only — same shape as the other guard scripts.
+  # ─────────────────────────────────────────────────────────────────────
+  v2-provenance:
+    name: V2 provenance gate
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      - name: V2 divergence set matches the pinned snapshots
+        run: node scripts/check-v2-provenance.mjs
+
+  # ─────────────────────────────────────────────────────────────────────
   # Required-status aggregator. Branch-protection rules can point at THIS
   # check name ("Contracts CI / all-tests-pass") instead of each matrix
   # slice — adding a new slice doesn't require updating branch protection.
   # ─────────────────────────────────────────────────────────────────────
   all-tests-pass:
     name: all-tests-pass
-    needs: [scope, build, slices, test, fuzz-invariant]
+    needs: [scope, build, slices, test, fuzz-invariant, v2-provenance]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -811,6 +861,14 @@ jobs:
           # here would read as "not success" and fail loudly anyway.
           if [ "${{ needs['fuzz-invariant'].result }}" != "success" ]; then
             echo "Fuzz + invariant harnesses: ${{ needs['fuzz-invariant'].result }}"
+            exit 1
+          fi
+          # Same rule as fuzz-invariant: under `if: always()` a skipped or
+          # failed dependency still lets this job run, so the provenance
+          # gate's result must be read explicitly or a red/skipped run would
+          # aggregate as green. Bracket notation for the hyphenated id.
+          if [ "${{ needs['v2-provenance'].result }}" != "success" ]; then
+            echo "V2 provenance gate: ${{ needs['v2-provenance'].result }}"
             exit 1
           fi
           echo "✅ All matrix slices passed"
