@@ -8,6 +8,7 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {TegridyFeeLocker} from "../../src/v4/TegridyFeeLocker.sol";
 import {BeneficiaryData} from "../../src/v4/TegridyLiquidityMigrator.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @dev Minimal ERC20 for the claim paths. Deliberately not a mock framework —
 ///      these tests are about the locker's arithmetic and access control.
@@ -266,5 +267,134 @@ contract TegridyFeeLockerTest is Test {
         vm.prank(alice);
         vm.expectRevert(TegridyFeeLocker.NotAuthorizedLocker.selector);
         fresh.bindMigrator(alice);
+    }
+
+    // ─── Reentrancy: collect's balance-delta provenance ───────────────
+
+    /// @dev Harness for the collect() path: a mock PositionManager whose
+    ///      modifyLiquidities "sweeps" fees into the locker and then hands
+    ///      control to arbitrary code — exactly the window a hooked launch
+    ///      asset's token code gets during TAKE_PAIR in prod. Beneficiaries are
+    ///      the attacker and alice, 50/50, sorted at runtime.
+    function _reentrancyHarness()
+        internal
+        returns (ReenteringPosm posm, TegridyFeeLocker lkr, TestToken feeToken, ClaimReenterer attacker)
+    {
+        posm = new ReenteringPosm();
+        lkr = new TegridyFeeLocker(IPositionManager(address(posm)), address(this));
+        lkr.bindMigrator(migrator);
+        feeToken = new TestToken();
+        posm.configure(feeToken, address(lkr));
+        attacker = new ClaimReenterer(lkr, Currency.wrap(address(feeToken)));
+
+        BeneficiaryData[] memory b = new BeneficiaryData[](2);
+        (address lo, address hi) =
+            address(attacker) < alice ? (address(attacker), alice) : (alice, address(attacker));
+        b[0] = BeneficiaryData({beneficiary: lo, shares: uint96(0.5e18)});
+        b[1] = BeneficiaryData({beneficiary: hi, shares: uint96(0.5e18)});
+
+        PoolKey memory k = PoolKey({
+            currency0: Currency.wrap(address(0)),
+            currency1: Currency.wrap(address(feeToken)),
+            fee: 0x800000,
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
+        });
+
+        vm.prank(migrator);
+        lkr.lockPosition(TOKEN_ID, k, launchTimelock, 0, b);
+    }
+
+    /// @notice `collect` credits BALANCE DELTAS taken around `modifyLiquidities`,
+    ///         during which TAKE_PAIR runs the launch asset's own token code. A
+    ///         hook claiming EXACTLY its claimable mid-collect cancels the delta
+    ///         to zero: pre-fix, collect "succeeded", emitted
+    ///         FeesCollected(id, 0, 0), and the swept fees were credited to
+    ///         nobody — unreachable forever (no sweep, no owner, no rescue). The
+    ///         shared nonReentrant guard on collect/claim must abort that claim
+    ///         instead. Kills BOTH single-modifier mutants: strip the guard from
+    ///         `claim` and the reentrant claim succeeds inside collect's held
+    ///         guard; strip it from `collect` and claim's own check passes
+    ///         because no guard was taken.
+    function test_reentrantClaimDuringCollectRevertsInsteadOfStrandingFees() public {
+        (ReenteringPosm posm, TegridyFeeLocker lkr, TestToken feeToken, ClaimReenterer attacker) =
+            _reentrancyHarness();
+        Currency c1 = Currency.wrap(address(feeToken));
+
+        // Benign collect #1 seeds the attacker's claimable: 1 token in, 0.5 each.
+        posm.setFee(1e18);
+        lkr.collect(TOKEN_ID);
+        assertEq(lkr.claimable(address(attacker), c1), 0.5e18);
+
+        // Collect #2 sweeps EXACTLY the attacker's claimable; the armed hook
+        // claims it mid-measurement, cancelling the delta to zero. Pre-fix this
+        // succeeded silently; the guard must make it revert loudly instead.
+        posm.setFee(0.5e18);
+        posm.arm(attacker);
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        lkr.collect(TOKEN_ID);
+
+        // And nothing is stranded: every token the locker holds is still
+        // credited to somebody.
+        uint256 credited = lkr.claimable(address(attacker), c1) + lkr.claimable(alice, c1);
+        assertEq(feeToken.balanceOf(address(lkr)), credited, "pot must equal total credits");
+    }
+
+    /// POSITIVE CONTROL: the guard must not break the legitimate sequence — a
+    /// benign collect followed by a normal, non-reentrant claim.
+    function test_collectThenClaimStillWorksUnderGuard() public {
+        (ReenteringPosm posm, TegridyFeeLocker lkr, TestToken feeToken,) = _reentrancyHarness();
+
+        posm.setFee(1e18);
+        lkr.collect(TOKEN_ID);
+
+        vm.prank(alice);
+        lkr.claim(Currency.wrap(address(feeToken)));
+        assertEq(feeToken.balanceOf(alice), 0.5e18);
+    }
+}
+
+/// @dev Mock V4 PositionManager for the reentrancy tests: `modifyLiquidities`
+///      sweeps `fee` tokens into the locker (the TAKE_PAIR leg) and then, if
+///      armed, hands control to the attacker — the moment prod hands control to
+///      the launch asset's own transfer code.
+contract ReenteringPosm {
+    TestToken internal token;
+    address internal locker;
+    uint256 internal fee;
+    ClaimReenterer internal reenterer; // address(0) => benign collect
+
+    function configure(TestToken token_, address locker_) external {
+        token = token_;
+        locker = locker_;
+    }
+
+    function setFee(uint256 fee_) external {
+        fee = fee_;
+    }
+
+    function arm(ClaimReenterer reenterer_) external {
+        reenterer = reenterer_;
+    }
+
+    function modifyLiquidities(bytes calldata, uint256) external payable {
+        token.mint(locker, fee);
+        if (address(reenterer) != address(0)) reenterer.attack();
+    }
+}
+
+/// @dev A beneficiary that claims its own legitimately-credited balance while
+///      collect() is still measuring its balance delta.
+contract ClaimReenterer {
+    TegridyFeeLocker internal locker;
+    Currency internal currency;
+
+    constructor(TegridyFeeLocker locker_, Currency currency_) {
+        locker = locker_;
+        currency = currency_;
+    }
+
+    function attack() external {
+        locker.claim(currency);
     }
 }

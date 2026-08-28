@@ -14,6 +14,9 @@ const CONFIDENCE_COLOR = { high: "var(--green)", medium: "var(--yellow)", low: "
 
 const WINDOW_DAYS = 30;
 const FLOOR_DEPTH = 100;
+// The activity fetch is capped — when it comes back full, the "last N days"
+// window is really "the most recent N events", and the labels must say so.
+const ACTIVITY_LIMIT = 100;
 
 function pct(x, digits = 1) {
   if (x == null || !Number.isFinite(x)) return "—";
@@ -188,10 +191,15 @@ export function OwnershipPanel({ result, truncated }) {
 }
 
 // ── Wash-trade / self-dealing signals ──
-function WashPanel({ result, onViewProfile }) {
+function WashPanel({ result, capped, onViewProfile }) {
+  // At the fetch cap the window claim would overstate coverage — a busy
+  // collection's 30 days got clipped to the most recent 100 events.
+  const windowLabel = capped
+    ? `the last ${WINDOW_DAYS} days (clipped to the most recent ${ACTIVITY_LIMIT} events)`
+    : `the last ${WINDOW_DAYS} days`;
   if (!result || !result.measured) {
     return (
-      <Section title="Wash-trade signals" subtitle={`Self-dealing over sales in the last ${WINDOW_DAYS} days.`}>
+      <Section title="Wash-trade signals" subtitle={`Self-dealing over sales in ${windowLabel}.`}>
         <SectionEmpty reason={result?.reason} />
       </Section>
     );
@@ -200,7 +208,7 @@ function WashPanel({ result, onViewProfile }) {
   return (
     <Section
       title="Wash-trade signals"
-      subtitle={`${result.comparableSales} comparable sales (of ${result.totalSales}) in the last ${WINDOW_DAYS} days.`}
+      subtitle={`${result.comparableSales} comparable sales (of ${result.totalSales}) in ${windowLabel}.`}
       chip={<Chip color={suspectColor}>{pct(result.suspect.shareOfVolume, 0)} suspect volume</Chip>}
     >
       {tileGrid(
@@ -304,7 +312,7 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
-  const [meta, setMeta] = useState({ truncated: false, salesUnavailable: false, ownersUnavailable: false });
+  const [meta, setMeta] = useState({ truncated: false, salesUnavailable: false, ownersUnavailable: false, salesCapped: false });
   const [nonce, setNonce] = useState(0);
 
   const totalSupply = stats?.supply ?? collection.supply;
@@ -314,7 +322,7 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
       setLoading(true);
       setError(null);
 
-      const salesP = fetchActivity({ contract: collection.contract, limit: 100, daysBack: WINDOW_DAYS, signal })
+      const salesP = fetchActivity({ contract: collection.contract, limit: ACTIVITY_LIMIT, daysBack: WINDOW_DAYS, signal })
         .then((res) => (res && res.fallback ? { activities: [], fallback: true } : res))
         .catch(() => ({ activities: [], _err: true }));
 
@@ -346,6 +354,9 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
             truncated: !!ownersRes.truncated,
             salesUnavailable: !!(salesRes.fallback || salesRes._err),
             ownersUnavailable: ownersRes._ok === false,
+            // A full page means the daysBack window was silently clipped by
+            // the cap — the wash-panel label must stop claiming full coverage.
+            salesCapped: (salesRes.activities || []).length >= ACTIVITY_LIMIT,
           });
         })
         .catch((err) => {
@@ -452,7 +463,7 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
       {data && (
         <>
           <OwnershipPanel result={data.ownership} truncated={meta.truncated} />
-          <WashPanel result={data.wash} onViewProfile={onViewProfile} />
+          <WashPanel result={data.wash} capped={meta.salesCapped} onViewProfile={onViewProfile} />
           <FloorPanel result={data.floor} />
 
           <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)" }}>

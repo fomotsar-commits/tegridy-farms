@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import {NftfiBnpl} from "../../src/nftfi/NftfiBnpl.sol";
 import {NftfiPooledLendingVault} from "../../src/nftfi/NftfiPooledLendingVault.sol";
-import {MockWethNftfi, MockCollection} from "./NftfiMocks.sol";
+import {MockWethNftfi, MockCollection, ShortApplyVault} from "./NftfiMocks.sol";
 
 contract NftfiBnplTest is Test {
     MockWethNftfi weth;
@@ -400,5 +400,82 @@ contract NftfiBnplTest is Test {
 
     function _surplusRecipient(uint256 planId) internal view returns (address surplusRecipient) {
         (, surplusRecipient,,,,,,,,) = vault.loans(_loanId(planId));
+    }
+}
+
+/// @dev [nftfi-repay-silent-underapply] The vault's `repay` clamps rather than
+///      reverts, so it can apply less than it was handed and the discarded
+///      return would be the only signal. The desk sizes `paid` from `quoteRepay`
+///      and the two agree today only by two-contract arithmetic coincidence;
+///      the desk has no sweep or rescue path, so if that coincidence ever broke,
+///      the unapplied WETH would strand permanently. These tests stage the break
+///      with a vault whose quote and clamp diverge, and pin the desk's refusal.
+contract NftfiBnplRepayShortApplyTest is Test {
+    MockWethNftfi weth;
+    MockCollection nft;
+    ShortApplyVault shortVault;
+    NftfiBnpl desk;
+
+    address owner = address(0xA11CE);
+    address seller = address(0x5E11);
+    address buyer = address(0xB0E4);
+
+    uint256 constant PRICE = 4 ether;
+
+    function setUp() public {
+        weth = new MockWethNftfi();
+        nft = new MockCollection("Jungle", "JBAC");
+        shortVault = new ShortApplyVault(address(weth), address(nft));
+        desk = new NftfiBnpl(address(weth), address(shortVault), address(0), owner);
+
+        weth.mint(address(shortVault), 100 ether);
+        weth.mint(buyer, 100 ether);
+    }
+
+    function _open() internal returns (uint256 planId) {
+        uint256 tokenId = nft.mint(seller);
+        vm.startPrank(seller);
+        nft.approve(address(desk), tokenId);
+        uint256 listingId = desk.list(tokenId, PRICE, uint64(block.timestamp + 7 days));
+        vm.stopPrank();
+
+        vm.startPrank(buyer);
+        weth.approve(address(desk), 10 ether);
+        planId = desk.openPlan(listingId, 10 ether);
+        vm.stopPrank();
+    }
+
+    function test_anInstalmentTheVaultDoesNotFullyApplyIsRefusedNotStranded() public {
+        uint256 planId = _open();
+
+        // The coincidence breaks: the vault still quotes 3 ETH of principal, so
+        // the desk sizes a 1 ETH instalment, but the vault will now apply only
+        // 0.5 ETH of it and hand back the fact in its return value alone.
+        shortVault.setActualDue(0.5 ether);
+
+        vm.startPrank(buyer);
+        weth.approve(address(desk), 10 ether);
+        vm.expectRevert(NftfiBnpl.RepayShortApplied.selector);
+        desk.payInstalment(planId, 10 ether);
+        vm.stopPrank();
+
+        assertEq(
+            weth.balanceOf(address(desk)),
+            0,
+            "no WETH may strand in a contract with no sweep or rescue path"
+        );
+    }
+
+    function test_anInstalmentTheVaultFullyAppliesStillGoesThrough() public {
+        uint256 planId = _open();
+
+        // Quote and clamp agree — the guard must be invisible on the good path.
+        vm.startPrank(buyer);
+        weth.approve(address(desk), 10 ether);
+        uint256 paid = desk.payInstalment(planId, 10 ether);
+        vm.stopPrank();
+
+        assertEq(paid, 1 ether, "one third of the 3 ETH financed leg, zero interest");
+        assertEq(weth.balanceOf(address(desk)), 0, "the full instalment moved on to the vault");
     }
 }

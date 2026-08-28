@@ -1114,30 +1114,15 @@ function CollectionView({ tab, deepLinkTokenId, collectionSlug, themeName, cycle
   );
 }
 
-// Google Fonts URL is injected at runtime — see useEffect in App() below.
-// Only "Press Start 2P" is actually referenced by the .nakamigos-app CSS.
-const NAKAMIGOS_FONTS_HREF =
-  'https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap';
+// No Google Fonts injection: the site CSP has never allowed
+// fonts.googleapis.com, so the "Press Start 2P" <link> this app used to
+// append on mount could not load in production — every /nakamigos visit
+// just logged a CSP violation while the CSS fell back to `monospace`
+// (which is what shipped all along). If the pixel font is ever wanted for
+// real, self-host the woff2 under /public and declare @font-face in
+// App.css — do not reintroduce an external stylesheet.
 
 export default function App() {
-  // Defer the Google Fonts <link> to the moment Nakamigos mounts. The CSS
-  // file is bundled eagerly via main.tsx (so styles are available the
-  // instant a /nakamigos route is hit), but the font fetch shouldn't fire
-  // on every page of the main app — that produced a visible 503 in the
-  // network panel on every navigation.
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const existing = document.querySelector(`link[href="${NAKAMIGOS_FONTS_HREF}"]`);
-    if (existing) return;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = NAKAMIGOS_FONTS_HREF;
-    link.dataset.nakamigos = 'fonts';
-    document.head.appendChild(link);
-    // Intentional: do not remove on unmount. Keeps the font cached for
-    // subsequent re-mounts (fast in-app navigation back to /nakamigos).
-  }, []);
-
   return (
     <ErrorBoundary title="App initialization error" onReset={() => window.location.href = '/nakamigos'}>
       <WalletProvider>

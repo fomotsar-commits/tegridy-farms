@@ -6,7 +6,7 @@
 > can finish alone — each written out step by step. Everything below it is the detail behind those. **If you read one section, read
 > that one.**
 
-**Written 2026-08-21. Revised twice on 2026-08-22.** This is the single canonical to-do list.
+**Written 2026-08-21. Last revised 2026-08-24.** This is the single canonical to-do list.
 Everything that could be built without you has been built, tested, and pushed. What follows needs a
 key, a credential, a payment, a signature, or a decision — plus a short tail of code work that is
 blocked on one of those.
@@ -26,6 +26,123 @@ silent, that one is not empty.
 **How to read this.** Items are ordered by *unlock per minute you spend*, not by size. Each has
 what to run, what you should see, and what a mismatch means. If a "you should see" does not match,
 stop and say so — a surprise is information.
+
+---
+
+## 🟢 2026-08-25 STATE — this layer supersedes the sections below where they disagree
+
+An 08-24 full scan → same-day fix session → 08-25 go-live + an 8-lane verified sweep moved a lot.
+Every claim here is probe- or read-verified today, not carried forward.
+
+**CLOSED — do not redo:**
+- ~~§0.1 login change-set~~ — **DONE 08-25, live**: DROPs + 014 + 013 applied; SIWE `?action=nonce`
+  → 200 (production's first ever); analytics `accepted:1`. Never run 008 after — rule stands.
+- ~~§0.2 redeploy~~ — done 08-25 morning… **and already owed again**: six fix-pushes since (see
+  the new standing item below).
+- ~~§1.2 birth secret~~ — set + verified (invalid-body probe passes the secret gate → 400).
+- ~~§1.3 DBC v2~~ — stays retired. ~~Decision 4 light-scrim~~ — superseded by the 08-23
+  light-mode removal. The Slither triage is NOT "unrefuted": `SLITHER_TRIAGE_2026_08_22.md`
+  Appendix A IS the refutation pass — 12 verdicts rejected, **8 real pre-deploy contract defects
+  to fix; no suppressions until then**.
+
+**NEW STANDING ITEM — redeploy on ask.** Prod deploys are CLI-only and agent-blocked, so after
+any fix batch: `npx vercel --prod --yes` from repo root. Right now prod is 6 pushes behind trunk
+(incl. the 332KB vendor-solana first-paint unweld and the API timeout/failover batch).
+
+**CLOCK CORRECTION — the top decision is now dated ~Sept 30.** Live reads 08-25:
+`rewardsRemaining` = 2,549,296 TOWELI at 71,219/day ⇒ **the staking reward pool runs dry in
+~5 weeks** (docs said ~Oct 11; the balance-based figure is an upper bound). Top-up or rate-cut —
+one sentence, then it's executable.
+
+**THE ONE-SESSION SWITCHBOARD (§2.1 grew):** migrations **016–021 plus the new 022/023**
+(`frontend/supabase/migrations/` — 022 = the recovered native_orders/trade_offers REVOKE with its
+preflight inline; 023 = 004 §2 standalone). Order: 017 AFTER 015 (done), rest order-free, never
+008 after any of them. Probe-verified today: all six stores answer schema-missing/store-unavailable;
+**every env var except `BOT_LINK_SECRET` is already set** — the doc's env worries are stale.
+
+**MULTICHAIN (M.2 gate):** M.1's four role Safes verified live on BOTH chains — but all eight
+instances have **nonce()==0: the "proven signers" smoke test has never run** and is the sole
+blocker before M.2. Full addresses + warnings now in `frontend/scripts/addresses.json`
+(`l2-*-safe`); receipts on trunk; **4663 deploys use `docs/ROBINHOOD_CAST_REPLAY.md`** (forge
+cannot broadcast there — the old script headers said otherwise and are fixed).
+
+**CORRECTION to an 08-24 note:** the Whetstone petition is NOT "no longer necessary" in
+general — the own-curve rail doesn't need it, but the Doppler/V4 graduate-to-us leg still does
+(§ TIER 3 stands). Its merge precondition is now satisfied; re-run the §15 reads before sending.
+
+**Fee rail (pre-deepening precondition):** re-verified unchanged — 2.4e12 wei still parked in
+`ReferralSplitter.callerCredit`; permissionless `recoverCallerCredit()` never called. The
+registry's false "earned 0 wei" note is corrected.
+
+**Dependabot:** all 8 open PRs (#324–331) rebased onto today's green trunk — merge them when
+their checks finish. Two absorbed doc branches still owed a delete:
+`git push origin --delete claude/sad-almeida-bde63d todo-update` (agent-blocked).
+
+⛔ **NEW 2026-08-26 — the Robinhood curve launcher is LIVE and its reserve recipient is an EOA.**
+`TegridyCurveLauncher` deployed to Robinhood 4663 at **`0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5`**
+(tx `0x0b18e2dd…d2bc`, block 46343018). Verified on chain 2026-08-26 — owner, pauseGuardian and
+treasury are all the correct L2 role Safes, WETH matches, and the FACTORY answers `getPair`, so
+graduation is **not** stranded.
+
+**One thing is wrong and it is worth fixing before the first launch:**
+`reserveRecipient` = `0x14898258122C0740106391E6e8E4F17F3b6d456E` — **the deployer EOA, not a Safe.**
+`reserveBps` is 369, so **3.69% of every launch's 1,000,000,000 supply transfers to that single key
+at graduation**, while every other role on the same contract went to a 2-of-2 Safe.
+
+- Fix: `setLaunchConfig(...)` with the same values and a Safe as `reserveRecipient`. It is
+  **owner-only**, and the owner is `l2-multisig-safe`.
+- **`launchCount()` is 0**, so this currently costs nothing. After the first launch it does.
+- Convenient side effect: that transaction is exactly the **"prove the Safe can sign" smoke test**
+  the M.2 gate has been waiting on — all eight role-Safe instances still read `nonce() == 0`.
+
+Also noted, same shape as mainnet: the Robinhood factory's `feeToSetter` is still the deployer EOA
+(`feeTo` is correctly `l2-fee-remittance-safe`), so the fee-rotation ordering in
+`docs/GOLIVE_HANDOFF.md` applies on this chain too — **`executeFeeToChange()` before
+`acceptFeeToSetter()`, and the first is the deployer's call, not the Safe's.**
+
+🛑 **NEW 2026-08-26 — two PRE-DEPLOY defects in `StreamingRevenueDistributor`, found by an
+adversarial review and confirmed by independent adjudicators.** The contract is deployed nowhere
+(no `addresses.json` entry, no `lib/constants.ts` constant), so this is **not live money** — but
+both are true of trunk today and both must be closed before it ships:
+
+1. **A stranger can drive a victim's grace anchor BACKWARDS.** `_observeLockEnd` assigns
+   `lastObservedLockEnd` with no `>` guard and is reachable from the permissionless `sync`.
+   `StakingRewardLib.afterTokenTransfer` writes `userTokenId[to] = id` unconditionally, and its
+   `AlreadyHasPosition` guard only fires when `userTokenId[to] != 0` — exactly 0 for someone who
+   just withdrew. So transferring an EXPIRED dust veNFT to a victim (an ERC-721 transfer needs no
+   consent) and calling `sync(victim)` slams their claim grace shut and flips them to forfeitable.
+   On trunk that is a complete stranger-executed confiscation, because trunk's `sync` forfeits
+   directly.
+2. **A permissionless `sync` moves value BETWEEN accounts.** An unreadable escrow/restaking read
+   collapses to zero, `_updateReward` writes that zero into `effectiveBalanceOf`, and the stream
+   re-prices onto whoever stayed mirrored. Measured **22× amplification** via `syncMany` over 50
+   victims; the victim has no defence, and it ignores the staking kill switch.
+
+Full account, plus the three regressions that refuted the attempted fix:
+[`V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md`](V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md).
+⛔ Branch `fix/v2-owner-timelocked-forfeit-v4` is **attempt 4 and is REFUTED — do not merge it.**
+
+**Five standing rules.**
+
+0. 🏛️ **ETHOS — stand on battle-tested, billion-dollar, never-hacked protocol code.**
+   *Operator instruction, 2026-08-26.* Where a mechanism has already been solved by a protocol that
+   has held nine or ten figures for years without being drained — OpenZeppelin, Uniswap, Curve,
+   Synthetix, Aave, Safe, Solady — **use theirs, unmodified, and inherit their audit history.**
+   Novel Solidity is a liability we underwrite ourselves; forked Solidity is a liability someone
+   else has already paid millions to have attacked.
+
+   How to apply it, so it is a rule and not a slogan:
+   - **New code:** before writing a contract, name the upstream that already does this and say why
+     it cannot be used as-is. "Ours is nicer" is not a reason. Gas is rarely a reason.
+   - **Forks:** track the upstream version and keep the diff SMALL and WRITTEN DOWN. A fork that has
+     drifted far enough that upstream's audits no longer describe it is bespoke code wearing a
+     trusted name — the most dangerous category, because it reads as safe.
+   - **Existing code:** the audit in
+     [`CONTRACT_PROVENANCE_AUDIT_2026_08_26.md`](CONTRACT_PROVENANCE_AUDIT_2026_08_26.md) grades
+     every contract against this rule. Work the un-anchored ones down in risk order, live first.
+   - **The honest tension:** ~47,000 lines of Solidity across 72 contracts already exist and ~30 are
+     live. This rule cannot be applied retroactively by rewriting everything. It governs (a) every
+     new contract from today, and (b) the prioritised remediation list in that audit.
 
 **Four standing rules.**
 1. Claude never types a secret into a field. Where a step involves a key, you set it. Never paste a
@@ -198,6 +315,51 @@ While you are looking: `swap-fee-account` `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6a
 keypair file in them; none matches. Either it is somewhere else, or ~0.010 SOL is written off.
 Worth one sentence so the registry stops implying it is spendable.
 
+## 0.5 ⏳ EXECUTE THE TWAP FLOOR CHANGE — open now, expires 2026-08-30 18:03 UTC
+
+**Time:** ~30 seconds. **Cost:** ~$0.02 of gas. **Half of this is already done.**
+
+The proposal is staged on chain. `proposeAdminMinReserveFloor1(native pair, 1e18)` landed
+2026-08-22 18:03:59 UTC in tx
+[`0x29cd52c0…6771f`](https://etherscan.io/tx/0x29cd52c0ed433f32a9438ddaadad8afd764cf7979899d6b3be70980864d6771f),
+block 25,812,358, and `pendingMinReserveFloor1` reads `1000000000000000000`. The 24-hour timelock
+opened **2026-08-23 18:03:59 UTC**.
+
+**If you do nothing it expires on 2026-08-30 18:03:59 UTC** and the 24-hour wait starts over. That
+is the only cost of missing it — nothing breaks — but it is a day back on the critical path for no
+reason.
+
+```
+& "C:\Users\jimbo\.foundry\bin\cast.exe" send 0xdFdd6D72539A425dC917F49FB834901105cA98c9 "executeAdminMinReserveFloor1(address)" 0x55875887B43C2E23aE424AF0FC8606Fdb058a481 --account deployer --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Then the check that actually proves it — this must go from `10000000000000000000` to
+`1000000000000000000`:
+
+```
+& "C:\Users\jimbo\.foundry\bin\cast.exe" call 0xdFdd6D72539A425dC917F49FB834901105cA98c9 "effectiveMinReserveFloor1(address)(uint256)" 0x55875887B43C2E23aE424AF0FC8606Fdb058a481 --rpc-url https://ethereum-rpc.publicnode.com
+```
+
+Changed your mind? `cancelAdminMinReserveFloor1(address)` on the same contract, same signer.
+
+**⚠️ This does NOT turn the oracle on, and nobody should read it as having done so.** Two gates
+remain after it lands, both verified on chain 2026-08-22:
+
+- the native pair holds **0.0794 WETH** against the new **1.0** floor, so `consult()` still reverts
+  — that is §Tier 3's 1.98 ETH deepen; and
+- `observationCount(native pair)` is **0**. `consult()` needs **≥2**, at least 15 minutes apart
+  (`MIN_PERIOD`), written by `update(pair)`. That is gas, not capital, but it needs a keeper running
+  from then on. Fund the pool and skip the keeper and the oracle still refuses to answer.
+
+What executing buys you is that the 24-hour wait is no longer sitting between you and a working
+oracle on the day the pool gets funded. It adds no exposure in the meantime: a 1.0 floor against a
+0.0794 pool fails closed exactly as a 10.0 floor does.
+
+⛔ `cast` is **not on PATH** on this box. The leading `&` is PowerShell's call operator and is
+required — without it the quoted path is treated as a string and nothing happens. Sign with
+`--account deployer` (the encrypted keystore, prompts for its password), never `--interactive`,
+which asks you to paste a raw private key.
+
 ---
 
 # TIER 1 — one account or one paste, unlocks the largest built-but-dark surface
@@ -368,8 +530,14 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 
 # Decisions I need one sentence on
 
-1. ⭐ **Does the Solana own venue restart at all?** This is the biggest open question on the page
-   and nothing downstream of it can be planned until you answer.
+1. ~~⭐ **Does the Solana own venue restart at all?**~~ **ANSWERED — restart. Superseded
+   2026-08-23 by [`SOLANA_RESTART_PLAN_2026_08_23.md`](SOLANA_RESTART_PLAN_2026_08_23.md)** and
+   carried as row 3 of the operator critical path above.
+
+   *Left in place because the reasoning below is still the accurate account of why the ids are
+   spent and what a restart costs — but the three options it closes with are stale. Meteora is
+   retired (§1.3, "Zero Meteora"), so "stay on Meteora DBC" is no longer on the table, and the
+   answer is not open.*
 
    Both programs were closed on 2026-08-13 and **their program ids are spent** — Solana will not
    redeploy a closed id, so `CpFnacr…zED` and `3ZvZXEBr…PM9y` are gone permanently, along with every
@@ -399,9 +567,10 @@ construction: its credential can bind a chat and can *never* attach a wallet).
    binary — that check exists because getting `admin::ID` wrong once already cost the whole
    deployment.
 
-   Three honest options: **restart** (fund it and I will rewrite the runbook around new ids),
-   **stay on Meteora DBC** (then §1.3's config v2 is the whole Solana story and is much cheaper), or
-   **park Solana** (then §3.2's audit RFQ and §3.3's packet come off the critical path). Say which.
+   ~~Three honest options: restart · stay on Meteora DBC · park Solana.~~ **Closed 2026-08-23:
+   restart, and Meteora is retired outright** — see the restart plan and §1.3. The option list above
+   is kept struck through rather than deleted so a reader who remembers being asked can see it was
+   answered, not dropped.
 
 2. **The PWA app name.** The manifest description is corrected but the *name* is untouched — the
    app is "Tegridy Farms" at memetic.fun with a Tradermigos marketplace inside it, and installing
@@ -420,6 +589,7 @@ chain on every re-index, which would have destroyed every manifest).
 
 | When | What | If missed |
 |---|---|---|
+| **2026-08-30 18:03 UTC** | ⏳ **TWAP floor proposal expires** — §0.5, staged and waiting, ~30 seconds to execute | The staged 10 → 1.0 WETH change is discarded and the 24-hour timelock restarts. Nothing breaks; you just lose a day off the oracle's critical path for free |
 | **~2026-10-11** | Staking reserve runway ends | **Not an honesty problem — corrected 2026-08-23, see below.** Refill when convenient. |
 | **~Aug 2027** | `memetics.finance` renewal (1-year, registered 2026-08-02) | A second production domain lapses while monitoring stays green |
 | Standing | `TegridyStaking` has **22 bytes** of EIP-170 headroom; `VoteIncentives` has **99** | The next one-line edit to either makes its redeploy artifact undeployable. The extraction is unbuilt. Do not casually edit those two files. |
@@ -1038,6 +1208,7 @@ commands, what you should see, and what a mismatch means.
 
 | # | Do this | Time | Unlocks | Detail |
 |---|---|---|---|---|
+| **0** | ⏳ **Execute the staged TWAP floor change** — *expires 2026-08-30 18:03 UTC* | ~30 sec | Nothing on its own. Takes the 24h timelock off the oracle's critical path, so the deepen day is same-day. Half already done and on chain | §0.5 |
 | 1 | **Vercel env session + redeploy** | ~5 min | The CSP fix currently **browser-blocking Pro Pass creation**, the write-proxy repoint, the analytics endpoint | §0.2 |
 | 2 | **Login change-set** | ~2 min of SQL | Profiles, DMs, watchlists, votes, push, alerts, referral claims, real analytics — the entire social tier | §0.1 |
 | 3 | **Redeploy the Solana own venue** | one ceremony | The only Solana rail — Meteora is retired | [restart plan](SOLANA_RESTART_PLAN_2026_08_23.md) |

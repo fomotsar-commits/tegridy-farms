@@ -40,6 +40,23 @@ export function ItemChips({ items, accent }) {
 }
 
 /**
+ * Live cash legs of a trade, formatted for display. Dutch legs interpolate to
+ * NOW via currentLegAmounts (with a direction arrow); static legs fall back to
+ * the stored topup columns. Every surface that quotes a topup — summary chips,
+ * inbox cards, confirm buttons — must come through here so the number shown is
+ * the number the taker pays/receives at this moment, never the final-leg value.
+ */
+export function liveTopups(trade) {
+  const legs = trade.parameters ? currentLegAmounts(trade.parameters) : null;
+  return {
+    ethTopup: legs ? fmtWei(legs.ethNowWei) : fmtEthWei(trade.eth_topup_wei),
+    wethTopup: legs ? fmtWei(legs.wethNowWei) : fmtEthWei(trade.weth_topup_wei),
+    ethArrow: legs?.ethDecaying ? " ↘" : "",
+    wethArrow: legs?.wethRising ? " ↗" : "",
+  };
+}
+
+/**
  * Compact two-column give/get summary of a trade, from `viewer`'s
  * perspective. Used inside DM threads; TradesPanel has its own fuller card.
  */
@@ -53,11 +70,7 @@ export function TradeSummary({ trade, viewer }) {
   const youGive = isTarget ? trade.requested : trade.offered;
   // Dutch legs: show the LIVE interpolated amounts with a direction arrow
   // (the stored topup columns carry the max commitment, not the moment).
-  const legs = trade.parameters ? currentLegAmounts(trade.parameters) : null;
-  const ethTopup = legs ? fmtWei(legs.ethNowWei) : fmtEthWei(trade.eth_topup_wei);
-  const wethTopup = legs ? fmtWei(legs.wethNowWei) : fmtEthWei(trade.weth_topup_wei);
-  const ethArrow = legs?.ethDecaying ? " ↘" : "";
-  const wethArrow = legs?.wethRising ? " ↗" : "";
+  const { ethTopup, wethTopup, ethArrow, wethArrow } = liveTopups(trade);
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       <div style={{ flex: "1 1 130px" }}>

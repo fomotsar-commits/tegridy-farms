@@ -28,6 +28,7 @@ interface IHarvestFarm {
 
 interface IHarvestRouter {
     function WETH() external view returns (address);
+    function getAmountsOut(uint256 amountIn, address[] memory path) external view returns (uint256[] memory amounts);
     function swapExactTokensForTokens(
         uint256 amountIn,
         uint256 amountOutMin,
@@ -173,6 +174,7 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
     error SlippageTooHigh();
     error NothingToCompound();
     error NothingStaked();
+    error ZeroMinLpOut();
 
     modifier onlyKeeper() {
         if (msg.sender != owner() && !isKeeper[msg.sender]) revert NotKeeper();
@@ -334,7 +336,9 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
 
     /// @notice Claim farm rewards, convert them to LP, and re-stake.
     /// @param minPairedOut Minimum `pairedToken` the reward→paired swap must return.
-    /// @param minLpOut     Minimum LP the re-add must mint.
+    /// @param minLpOut     Minimum LP the re-add must mint. Must be nonzero: it is the only
+    ///                     price bound on the re-add, and a bound the caller can zero out is
+    ///                     not a bound.
     /// @return lpCompounded LP minted and re-staked by this call.
     ///
     /// @dev NOT permissionless, and the reason is the swap. The reward leg and the LP share
@@ -355,6 +359,12 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         onlyKeeper
         returns (uint256 lpCompounded)
     {
+        // Both operands of the NothingToCompound check below are raw balances anyone can
+        // raise by donation, so `minLpOut` is the one bound on the addLiquidity ratio that
+        // an outsider cannot skew. Reject zero here so an allow-listed keeper cannot
+        // disable it and expose the re-add to unbounded ratio-skew loss.
+        if (minLpOut == 0) revert ZeroMinLpOut();
+
         farm.getReward();
 
         // Every reward-token unit held here is yield: the vault's principal is the LP, and
@@ -363,20 +373,34 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         uint256 rewards = rewardToken.balanceOf(address(this));
         if (rewards == 0) return 0;
 
+        // AUDIT FIX 2026-08-25 (dust-donation harvest grief): gate on the swap's
+        // OUTPUT quote, computed BEFORE any fee is charged — not on a raw
+        // reward-wei threshold. The swap leg is half the post-fee rewards; if it
+        // quotes to zero output the swap reverts (INSUFFICIENT_OUTPUT) or leaves
+        // pairedSide == 0 and hits NothingToCompound below — either one rolls back
+        // getReward(), so a reward-token donation of 1..~(reserveIn/reserveOut) wei
+        // could block every keeper harvest while farm rewards are near zero, at
+        // economically zero cost. A fixed `rewards < k` cannot close it: the yield
+        // depends on pool price, not wei count (a 2-wei donation into a 1000:1 pool
+        // still quotes to 0 out and reverts). No-op'ing leaves the wei as the
+        // sweepable dust described above and self-heals once real rewards accrue;
+        // charging the fee only past the gate keeps a no-op from ever charging a fee
+        // against nothing compounded.
+        address[] memory path = new address[](2);
+        path[0] = address(rewardToken);
+        path[1] = address(pairedToken);
+        uint256 swapAmount = (rewards - _performanceFee(rewards)) / 2;
+        if (swapAmount == 0 || router.getAmountsOut(swapAmount, path)[1] == 0) return 0;
+
+        // Past the gate: the swap and re-add cannot dust-revert, so the fee is safe to take.
         uint256 fee = _chargePerformanceFee(rewards);
         uint256 toConvert = rewards - fee;
-        if (toConvert == 0) return 0;
+        swapAmount = toConvert / 2; // == the gated value (same pure fee formula)
 
-        uint256 swapAmount = toConvert / 2;
-        if (swapAmount > 0) {
-            address[] memory path = new address[](2);
-            path[0] = address(rewardToken);
-            path[1] = address(pairedToken);
-            rewardToken.forceApprove(address(router), swapAmount);
-            // The router's deadline window is a mempool-staleness guard, not a price guard.
-            // Price protection on this call is `minPairedOut` and nothing else.
-            router.swapExactTokensForTokens(swapAmount, minPairedOut, path, address(this), block.timestamp);
-        }
+        rewardToken.forceApprove(address(router), swapAmount);
+        // The router's deadline window is a mempool-staleness guard, not a price guard.
+        // Price protection on this call is `minPairedOut` and nothing else.
+        router.swapExactTokensForTokens(swapAmount, minPairedOut, path, address(this), block.timestamp);
 
         uint256 rewardSide = rewardToken.balanceOf(address(this));
         uint256 pairedSide = pairedToken.balanceOf(address(this));
@@ -417,14 +441,21 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
     }
 
     /// @dev Both gates must be open for a fee to exist. Returns the amount actually sent.
-    function _chargePerformanceFee(uint256 rewards) internal returns (uint256 fee) {
+    /// @dev Pure calculation of the performance fee on `rewards` — no transfer.
+    ///      Kept as the single formula so the pre-charge swap-output gate in
+    ///      `harvest` reasons about exactly the fee `_chargePerformanceFee` will take.
+    function _performanceFee(uint256 rewards) internal view returns (uint256) {
         address recipient = feeRecipient;
         uint256 bps = performanceFeeBps;
         if (recipient == address(0) || bps == 0) return 0;
-        fee = (rewards * bps) / BPS_DENOMINATOR;
+        return (rewards * bps) / BPS_DENOMINATOR;
+    }
+
+    function _chargePerformanceFee(uint256 rewards) internal returns (uint256 fee) {
+        fee = _performanceFee(rewards);
         if (fee == 0) return 0;
         totalFeesCharged += fee;
-        rewardToken.safeTransfer(recipient, fee);
+        rewardToken.safeTransfer(feeRecipient, fee);
     }
 
     /// @notice Rewards claimable by this vault at the farm, before fee and conversion.

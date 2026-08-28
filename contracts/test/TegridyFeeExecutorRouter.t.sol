@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "forge-std/Test.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {TegridyFeeExecutorRouter} from "../src/TegridyFeeExecutorRouter.sol";
 
 // ─── Mocks ───────────────────────────────────────────────────────────
@@ -73,10 +74,28 @@ contract MaliciousAggregator {
     address public otherToken;
     TegridyFeeExecutorRouter public router;
 
+    // Reenter-mode arming: parameters for a fully VIABLE inner swap (this contract funded and
+    // approved, benign allowlisted route) so the ONLY thing that can stop it is nonReentrant.
+    uint256 public reentryAmountIn;
+    address public reentryTokenOut;
+    address public reentryRoute;
+    bytes public reentryData;
+    // Recorded outcome of the re-entrant call. `_execSwap` wraps ANY inner revert in
+    // SwapCallFailed, so the guard selector is invisible outside — it must be captured here.
+    bool public reentrySucceeded;
+    bytes4 public reentryRevertSelector;
+
     function set(Mode m, address _otherToken, address _router) external {
         mode = m;
         otherToken = _otherToken;
         router = TegridyFeeExecutorRouter(payable(_router));
+    }
+
+    function armReentry(uint256 _amountIn, address _tokenOut, address _route, bytes calldata _swapData) external {
+        reentryAmountIn = _amountIn;
+        reentryTokenOut = _tokenOut;
+        reentryRoute = _route;
+        reentryData = _swapData;
     }
 
     function swap(address tokenIn, address, uint256 amountIn, uint256) external payable {
@@ -87,10 +106,26 @@ contract MaliciousAggregator {
             // Router never approved this token to us → must revert.
             IERC20(otherToken).transferFrom(msg.sender, address(this), 1);
         } else {
-            // Re-enter the router mid-swap → nonReentrant must revert.
-            router.swapERC20(
-                tokenIn, 1, tokenIn, 0, 100, address(this), address(this), "", address(this), block.timestamp
-            );
+            // Re-enter the router mid-swap with a call that is viable BUT FOR the guard (see
+            // armReentry; the disarmed control test proves viability). Record the inner outcome
+            // instead of letting it bubble: the router re-wraps it as SwapCallFailed, which
+            // would make the assertion selector-blind (the old vacuous-gate defect).
+            try router.swapERC20(
+                tokenIn,
+                reentryAmountIn,
+                reentryTokenOut,
+                0,
+                100,
+                reentryRoute,
+                reentryRoute,
+                reentryData,
+                address(this),
+                block.timestamp
+            ) returns (uint256) {
+                reentrySucceeded = true;
+            } catch (bytes memory err) {
+                reentryRevertSelector = bytes4(err);
+            }
         }
     }
 }
@@ -140,7 +175,9 @@ contract TegridyFeeExecutorRouterTest is Test {
 
     function setUp() public {
         treasury = makeAddr("treasury");
-        weth = makeAddr("weth");
+        // Must carry code: the constructor code-checks WETH (AUDIT FIX 2026-08-25). The WETH
+        // wrap fallback never triggers in these tests (all recipients accept raw ETH).
+        weth = address(new SimpleReceiver());
         user = makeAddr("user");
 
         revDist = new SimpleReceiver();
@@ -441,14 +478,33 @@ contract TegridyFeeExecutorRouterTest is Test {
         assertEq(tokenOut.balanceOf(address(router)), 5 ether, "router balance untouched");
     }
 
-    function test_malicious_reentrancy_reverts() public {
+    /// @dev Funds + approves the re-entrant caller and arms a benign route, so the inner swap
+    ///      would SUCCEED but for `nonReentrant` (the disarmed control below proves that), then
+    ///      asserts the recorded inner selector IS the guard error. The old form of this test
+    ///      was a gate that could not fail: bare expectRevert around an inner call that reverted
+    ///      for a guard-independent reason (unfunded caller), behind `_execSwap`'s SwapCallFailed
+    ///      wrap — it passed with `nonReentrant` deleted. Modeled on the armed-hook + disarmed-
+    ///      control pattern in test/vaults/TegridyHarvestVaultReentrancy.t.sol.
+    function test_malicious_reentrancy_blockedByGuard() public {
         MaliciousAggregator m = new MaliciousAggregator();
         m.set(MaliciousAggregator.Mode.Reenter, address(0), address(router));
         _allow(address(m));
+        tokenIn.mint(address(m), 10 ether);
+        vm.prank(address(m));
+        tokenIn.approve(address(router), type(uint256).max);
+        (, uint256 netInner) = _net(1 ether);
+        m.armReentry(
+            1 ether,
+            address(tokenOut),
+            address(agg),
+            _data(address(agg), address(tokenIn), address(tokenOut), netInner, 3 ether)
+        );
+
         (, uint256 net) = _net(100 ether);
         vm.startPrank(user);
         tokenIn.approve(address(router), 100 ether);
-        vm.expectRevert(); // nonReentrant → SwapCallFailed
+        // The OUTER swap completes (minOut 0; the aggregator pulls nothing) so the recorded
+        // inner outcome survives — an outer expectRevert could never see past SwapCallFailed.
         router.swapERC20(
             address(tokenIn),
             100 ether,
@@ -462,6 +518,40 @@ contract TegridyFeeExecutorRouterTest is Test {
             block.timestamp + 600
         );
         vm.stopPrank();
+
+        assertFalse(m.reentrySucceeded(), "re-entrant swap executed");
+        assertEq(
+            bytes32(m.reentryRevertSelector()),
+            bytes32(ReentrancyGuard.ReentrancyGuardReentrantCall.selector),
+            "inner revert was not the reentrancy guard"
+        );
+    }
+
+    /// @dev Disarmed control: the EXACT call armed above, executed outside the guard window,
+    ///      succeeds — so the guard is the only thing stopping it mid-swap.
+    function test_control_reentrantCallSucceedsOutsideGuard() public {
+        MaliciousAggregator m = new MaliciousAggregator();
+        m.set(MaliciousAggregator.Mode.Reenter, address(0), address(router));
+        _allow(address(m));
+        tokenIn.mint(address(m), 10 ether);
+        vm.prank(address(m));
+        tokenIn.approve(address(router), type(uint256).max);
+        (, uint256 netInner) = _net(1 ether);
+
+        vm.prank(address(m));
+        uint256 got = router.swapERC20(
+            address(tokenIn),
+            1 ether,
+            address(tokenOut),
+            0,
+            100,
+            address(agg),
+            address(agg),
+            _data(address(agg), address(tokenIn), address(tokenOut), netInner, 3 ether),
+            address(m),
+            block.timestamp
+        );
+        assertEq(got, 3 ether, "armed re-entry call must be viable outside the guard");
     }
 
     function test_returnDataBomb_revertPath_doesNotOOG() public {
@@ -540,5 +630,77 @@ contract TegridyFeeExecutorRouterTest is Test {
         vm.prank(user);
         vm.expectRevert();
         router.setFeeBps(50);
+    }
+
+    // ── Audit fixes 2026-08-25 ───────────────────────────────────────
+
+    /// [fee-router-received-zero-underflow] A token that delivers a zero balance delta
+    /// (100% fee-on-transfer) must revert with the typed ZeroAmount, not Panic(0x11).
+    /// Pre-fix: dust rule forced fee=1, `received - fee` underflowed → this expectRevert
+    /// (pinned to the ZeroAmount selector) fails on the panic data.
+    function test_revert_zeroReceived_fullFoT() public {
+        FoTToken fot = new FoTToken(10_000); // 100% burn → router receives 0
+        fot.mint(user, 1 ether);
+        vm.startPrank(user);
+        fot.approve(address(router), 1 ether);
+        vm.expectRevert(TegridyFeeExecutorRouter.ZeroAmount.selector);
+        router.swapERC20(
+            address(fot),
+            1 ether,
+            address(tokenOut),
+            0,
+            100,
+            address(agg),
+            address(agg),
+            "",
+            user,
+            block.timestamp + 600
+        );
+        vm.stopPrank();
+    }
+
+    /// [wethfallback-unchecked-weth] Constructor must code-check WETH the way _assertAllowable
+    /// code-checks every other trusted address. Pre-fix: a code-less _weth deployed fine →
+    /// this expectRevert fails.
+    function test_revert_constructor_wethNotAContract() public {
+        address[] memory t = new address[](0);
+        address[] memory s = new address[](0);
+        vm.expectRevert(TegridyFeeExecutorRouter.NotAContract.selector);
+        new TegridyFeeExecutorRouter(makeAddr("noCodeWeth"), address(revDist), treasury, FEE_BPS, t, s);
+    }
+
+    /// [executepolaccumulator-missing-reassert] The accumulator loses its code during the 48h
+    /// timelock window; execute must re-assert allowability (mirrors executeAllowTarget).
+    /// Pre-fix: execute installed the code-less address without reverting.
+    function test_executePolAccumulator_reassertsAllowable() public {
+        address acc = address(new SimpleReceiver());
+        router.proposePolAccumulator(acc);
+        vm.etch(acc, ""); // code vanishes mid-window (self-destruct analogue)
+        vm.warp(block.timestamp + 48 hours);
+        vm.expectRevert(TegridyFeeExecutorRouter.NotAContract.selector);
+        router.executePolAccumulator();
+        assertEq(router.polAccumulator(), address(0), "code-less accumulator not installed");
+    }
+
+    /// [tokenin-tokenout-unchecked] tokenIn == tokenOut folds the caller's just-pulled principal
+    /// into the outBefore baseline (read AFTER the pull); the invariant must be enforced, not
+    /// incidental. Pre-fix: the call was accepted (safe only by algebra) → expectRevert fails.
+    function test_revert_tokenInEqualsTokenOut() public {
+        vm.startPrank(user);
+        tokenIn.approve(address(router), 1 ether);
+        vm.expectRevert(TegridyFeeExecutorRouter.SameToken.selector);
+        router.swapERC20(
+            address(tokenIn),
+            1 ether,
+            address(tokenIn),
+            0,
+            100,
+            address(agg),
+            address(agg),
+            "",
+            user,
+            block.timestamp + 600
+        );
+        vm.stopPrank();
     }
 }

@@ -1043,18 +1043,30 @@ function LoanCard({ loan, userAddress, onLoanChanged }: { loan: LoanData & { id:
       toast.error('Could not read repayment amount');
       return;
     }
-    // AUDIT FIX 2026-08-24 (the red money-path E2E, and a real mainnet defect):
-    // getRepaymentAmount quotes interest per-second at READ time, but the
-    // contract re-computes it at EXECUTION time and requires
-    // msg.value >= principal + interest — so any quote >= 1s stale under-pays
-    // by >= 1 wei and repayLoan reverts InsufficientRepayment. Once accrued
-    // interest clears the min-interest floor (~2 days at 10% APR), every repay
-    // sent as the exact quote failed, sliding borrowers toward claimDefault.
-    // Pad with ~10 minutes of interest headroom: the contract refunds every wei
-    // above the execution-time requirement, so the pad costs dust and only
-    // needs to outlive wallet-confirmation latency.
-    const perSecondInterest = (loan.principal * loan.aprBps) / (10_000n * 31_536_000n) + 1n;
-    const repayValue = (repaymentData as bigint) + perSecondInterest * 600n;
+    // AUDIT FIX 2026-08-24, CORRECTED 2026-08-26 (real mainnet defect + the red
+    // money-path E2E): getRepaymentAmount returns `principal + RAW interest`, but
+    // repayLoan requires `principal + max(rawInterest, MIN-INTEREST FLOOR)` once
+    // `elapsed > 0` (TegridyNFTLending.sol:1033-1048). The floor is
+    // `max(1-day-of-APR interest, 5 bps of principal)` and the quote OMITS it —
+    // so for a fresh loan the contract wants principal + ~5 bps while the quote is
+    // ~principal, and any padding that only covers per-second staleness (the
+    // 2026-08-24 first fix) under-pays by the whole floor and reverts
+    // InsufficientRepayment. It only ever passed when borrow and repay landed in
+    // the same block (elapsed == 0, floor skipped). Mirror the contract's floor
+    // exactly, then add a small time pad for accrual between read and execution.
+    // The contract refunds every wei above the execution-time requirement, so
+    // over-sending the floor when raw interest already exceeds it costs nothing.
+    const SECONDS_PER_YEAR = 31_536_000n;
+    const raw = (repaymentData as bigint) > loan.principal ? (repaymentData as bigint) - loan.principal : 0n;
+    // ceil(principal * aprBps * 1 day / (BPS * year)) — the 1-day-APR floor.
+    const oneDayFloorNum = loan.principal * loan.aprBps * 86_400n;
+    const oneDayFloorDen = 10_000n * SECONDS_PER_YEAR;
+    const oneDayFloor = (oneDayFloorNum + oneDayFloorDen - 1n) / oneDayFloorDen;
+    const flatFloor = (loan.principal * 5n) / 10_000n; // 5 bps of principal
+    const minInterest = oneDayFloor > flatFloor ? oneDayFloor : flatFloor;
+    const flooredInterest = raw > minInterest ? raw : minInterest;
+    const perSecondInterest = (loan.principal * loan.aprBps) / (10_000n * SECONDS_PER_YEAR) + 1n;
+    const repayValue = loan.principal + flooredInterest + perSecondInterest * 600n;
     repayLoan(
       {
         chainId: CHAIN_ID,

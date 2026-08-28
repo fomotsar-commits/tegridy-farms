@@ -851,18 +851,32 @@ export async function fetchListings(slug = COLLECTION_SLUG, { openseaSlug, contr
   // calculator ever show — so we resolve on it immediately instead of blocking
   // first paint on all ~5 serial cursor pages. Each source is individually
   // .catch()'d so one failing never blanks the other.
+  let osFailed = false;
+  let nativeFailed = false;
   const [osPage1, nativeResult] = await Promise.all([
     fetchOpenSeaListingsPage(osSlug, null).catch(err => {
       console.warn("OpenSea listings unavailable:", err.message);
+      osFailed = true;
       return { raw: [], next: null };
     }),
     contract
       ? import("./lib/orderbook").then(m => m.fetchNativeListings(contract)).catch(err => {
           console.warn("Native listings unavailable:", err?.message);
+          nativeFailed = true;
           return { orders: [] };
         })
       : Promise.resolve({ orders: [] }),
   ]);
+
+  // Read-honesty: when EVERY attempted source failed this is an outage, not an
+  // empty market. Merging two failure-empties yielded source:"opensea", which
+  // the listings surface renders as the healthy "No active listings right now"
+  // copy. Signal it the way fetchWalletNfts does (returned `error` field):
+  // useListings reads data.error into listingsError, and with source null the
+  // UI falls through to its existing "temporarily unavailable" state.
+  if (osFailed && (!contract || nativeFailed)) {
+    return { listings: [], source: null, error: "Listing data temporarily unavailable. Please try again shortly." };
+  }
 
   const nativeListings = mapNativeListings(nativeResult);
   const osRaw = [...osPage1.raw];

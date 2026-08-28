@@ -11,6 +11,8 @@ interface IncentivesStripProps {
   secondsRemaining?: number;
   /** F109: live staker fee-share % read from SwapFeeRouter.stakerShareBps (undefined until loaded). */
   stakerSharePct?: number;
+  /** STAKING_LOOK §2.2: reads landed AND the reward pool is EMPTY — render real zeros, never nominal figures. */
+  reserveEmpty?: boolean;
 }
 
 /**
@@ -48,7 +50,7 @@ function formatRunway(seconds: number): string {
  */
 const BOOTSTRAP_APR_THRESHOLD = 1000; // %
 
-export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining, stakerSharePct }: IncentivesStripProps) {
+export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining, stakerSharePct, reserveEmpty }: IncentivesStripProps) {
   const isBootstrap = (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
   // F109: derive the fee-share chip from the live on-chain split when loaded.
   const feeShareValue = feeShareLabel(stakerSharePct);
@@ -59,20 +61,25 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
   // F123: Synthetix-style runway countdown — surfaced from the same hook that
   // already powers /tokenomics, so the Farm page no longer hides emission runway.
   const runway = secondsRemaining && secondsRemaining > 0 ? formatRunway(secondsRemaining) : '';
+  // STAKING_LOOK §2.2 — the dry-day contract, pinned by IncentivesStrip.dry
+  // test: an EMPTY reserve renders REAL ZEROS with the reason attached. The
+  // old behavior fell back to the cumulative "Reward Pool 6,400,000" with a
+  // nominal APR — a dead pool advertising a live one.
+  const drySub = 'reserve empty — emissions paused until refilled';
   const items = [
     {
       l: 'Emissions APR',
-      v: apr && apr !== '0' && apr !== '–' ? `${apr}%` : '–',
+      v: reserveEmpty ? '0%' : apr && apr !== '0' && apr !== '–' ? `${apr}%` : '–',
       icon: '📈',
-      sub: isBootstrap ? 'TOWELI emission incentive — bootstrap rate, falls as TVL grows' : undefined,
+      sub: reserveEmpty ? drySub : isBootstrap ? 'TOWELI emission incentive — bootstrap rate, falls as TVL grows' : undefined,
     },
     {
       l: hasRemaining ? 'Rewards Remaining' : 'Reward Pool',
-      v: hasRemaining ? rewardsRemaining! : rewardPool,
+      v: hasRemaining ? rewardsRemaining! : reserveEmpty ? '0 TOWELI' : rewardPool,
       icon: '💰',
-      sub: runway ? `≈ ${runway} of runway left at the current rate` : undefined,
+      sub: reserveEmpty ? drySub : runway ? `≈ ${runway} of runway left at the current rate` : undefined,
     },
-    { l: 'Daily Emissions', v: dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
+    { l: 'Daily Emissions', v: reserveEmpty ? '0 / day' : dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
     { l: 'Max Boost', v: '4.0× · 4-yr lock', icon: '🚀' },
     { l: 'Fee Share', v: feeShareValue, icon: '💎' },
   ];

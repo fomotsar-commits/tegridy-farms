@@ -164,6 +164,7 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
     error ProtectedAddress();
     error NothingPending();
     error NothingToWithdraw();
+    error SameToken();
 
     /// @param _weth               Canonical WETH (verified to have code at deploy).
     /// @param _revenueDistributor Push-ETH staker sink (immutable).
@@ -188,6 +189,13 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
             revert ZeroAddress();
         }
         if (_feeBps > MAX_FEE_BPS) revert FeeTooHigh();
+        // AUDIT FIX 2026-08-25: code-check WETH before storing it immutably, matching the
+        // codeLen guard `_assertAllowable` enforces on every other trusted address (incl. the
+        // EIP-7702 length-23 carve-out). WETHFallbackLib's wrap fallback calls
+        // IWETH(weth).deposit() with ALL remaining gas after fee writes; its natspec requires
+        // a trusted canonical WETH ("a malicious WETH could re-enter via deposit()").
+        uint256 wethCodeLen = _weth.code.length;
+        if (wethCodeLen == 0 || wethCodeLen == 23) revert NotAContract();
         WETH = _weth;
         revenueDistributor = _revenueDistributor;
         treasury = _treasury;
@@ -246,6 +254,11 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
         uint256 balBefore = IERC20(tokenIn).balanceOf(address(this));
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
         uint256 received = IERC20(tokenIn).balanceOf(address(this)) - balBefore;
+        // AUDIT FIX 2026-08-25: a zero balance delta (100% fee-on-transfer / no-op token) would
+        // let the dust rule below force fee=1 and underflow `received - fee` (Panic 0x11), and
+        // at tiny deltas the dust fee blows past the caller's feeBpsMax bound. Fail closed with
+        // a typed revert; this also makes the dust rule provably harmless (received >= 1).
+        if (received == 0) revert ZeroAmount();
 
         // Skim fee in the input token (dust rule mirrors SwapFeeRouter).
         uint256 fee = (received * feeBps) / BPS;
@@ -331,6 +344,10 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
         // involved in the swap (the Li.Fi `target = token, data = transferFrom(...)` vector).
         if (target == address(this)) revert SelfTargetForbidden();
         if (target == tokenIn || target == tokenOut) revert TokenIsTarget();
+        // AUDIT FIX 2026-08-25: tokenIn == tokenOut would fold the caller's just-pulled
+        // principal into the `outBefore` baseline (read AFTER the pull). The delta algebra
+        // happens to resolve safely, but enforce the invariant explicitly, not by coincidence.
+        if (tokenIn == tokenOut) revert SameToken();
         if (feeBps > feeBpsMax || feeBps > MAX_FEE_BPS) revert FeeExceedsMax();
     }
 
@@ -531,6 +548,9 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
         _execute(POL_ACCUMULATOR_CHANGE);
         address a = pendingPolAccumulator;
         if (a == address(0) && polShareBps > 0) revert PolShareNonZero();
+        // Re-assert at execute time (the address could have self-destructed since propose) —
+        // AUDIT FIX 2026-08-25, mirrors executeAllowTarget.
+        if (a != address(0)) _assertAllowable(a);
         address old = polAccumulator;
         polAccumulator = a;
         pendingPolAccumulator = address(0);

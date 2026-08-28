@@ -15,8 +15,17 @@ import type { HeatReading } from '../../lib/heat/heatOracle';
  * state ("the island is quiet"), never rendered as cold/zero — "we could not
  * ask" and "you are cold" are different facts.
  */
-export function HeatCard() {
-  const [address, setAddress] = useState('');
+export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
+  const [address, setAddress] = useState(defaultAddress ?? '');
+  // R007 Pattern A (store the previous prop, adjust during render): when a
+  // wallet connects after mount, its address becomes the input's new default
+  // without an effect and without clobbering an address the user typed over
+  // an EMPTY default.
+  const [lastDefault, setLastDefault] = useState(defaultAddress);
+  if (defaultAddress !== lastDefault) {
+    setLastDefault(defaultAddress);
+    if (defaultAddress) setAddress(defaultAddress);
+  }
   const [reading, setReading] = useState<HeatReading | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
