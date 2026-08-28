@@ -22,6 +22,7 @@ import { getChainConfig } from '../lib/chains/registry';
 import { curveLauncherOn } from '../lib/launcher/curve';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
+import { CurveLaunchExplorer } from '../components/launcher/CurveLaunchExplorer';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -49,9 +50,9 @@ export function CurveHowItWorks() {
   );
 }
 
-/** Trade any curve token by pasting its address (until a launch explorer exists).
- *  `prefill` lets the create flow hand its fresh token straight to the trade
- *  panel — the "Trade it now" jump on the success card. */
+/** Trade any curve token — by pasting its address, or handed one by the
+ *  explorer grid / create-success card via `prefill`. The paste box stays even
+ *  with the explorer live: a token deep in the history is still one paste away. */
 function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; chainId: number; prefill?: Address | null }) {
   const [input, setInput] = useState('');
   useEffect(() => {
@@ -121,7 +122,17 @@ export default function EthCurvePage() {
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
             <WrongChainBanner requiredChainId={activeChainId} />
             <CurveCreatePanel launcher={availability.address} chainId={activeChainId} onTrade={setTradeToken} />
-            <TradeByAddress launcher={availability.address} chainId={activeChainId} prefill={tradeToken} />
+            <CurveLaunchExplorer
+              launcher={availability.address}
+              chainId={activeChainId}
+              onTrade={(t) => {
+                setTradeToken(t);
+                document.getElementById('curve-trade')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            />
+            <div id="curve-trade">
+              <TradeByAddress launcher={availability.address} chainId={activeChainId} prefill={tradeToken} />
+            </div>
             <CurveHowItWorks />
           </m.div>
         ) : (

@@ -66,19 +66,71 @@ export interface CurveTradeViewProps {
   /** True when a sell needs an ERC-20 approval before it can run. */
   needsApproval: boolean;
   pending: boolean;
+  /** The connected wallet's claimable creator fees for THIS token. Defined only
+   *  when the viewer IS the launch's creator — its presence is what renders the
+   *  claim strip (a 0n renders the strip with an honest zero, so creators can
+   *  see the surface exists before the first trade accrues anything). */
+  creatorClaimable?: bigint;
+  onClaimCreatorFees?: () => void;
   onBuy: (ethGross: bigint, minTokensOut: bigint) => void;
   onSell: (tokensIn: bigint, minEthOut: bigint) => void;
   onApprove: () => void;
 }
 
+/** The creator's earnings strip — the missing half of the 40% story: the claim
+ *  button. Rendered only for the launch's creator (see creatorClaimable). Fees
+ *  accrued pre-graduation stay claimable forever, so the graduated branch shows
+ *  this too. */
+function CreatorFeesStrip({
+  claimable,
+  pending,
+  nativeSymbol,
+  onClaim,
+}: {
+  claimable: bigint;
+  pending: boolean;
+  nativeSymbol: string;
+  onClaim?: () => void;
+}) {
+  return (
+    <div
+      className="rounded-lg p-3 flex items-center justify-between gap-3"
+      style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}
+    >
+      <div className="min-w-0">
+        <p className="text-emerald-200/90 text-[11px] font-semibold uppercase tracking-wide">Your creator fees</p>
+        <p className="text-white/85 text-[13px] font-mono">
+          {fmt(claimable)} {nativeSymbol}
+          <span className="text-white/45 font-sans text-[11px]"> · 40% of every trade, claimable any time</span>
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={pending || claimable === 0n || !onClaim}
+        onClick={onClaim}
+        className="btn-primary px-3 py-1.5 text-[12px] disabled:opacity-50 shrink-0"
+        aria-label="Claim your accrued creator fees"
+      >
+        {pending ? 'Confirm…' : 'Claim'}
+      </button>
+    </div>
+  );
+}
+
 /** Image-or-monogram identity header. The monogram is the explicit no-image
- *  state (resolving, none, invalid, error, or a broken image URL). */
-function IdentityHeader({
+ *  state (resolving, none, invalid, error, or a broken image URL).
+ *  Exported for the launch-explorer cards, which render the same identity the
+ *  trade panel does — one component, one spoof-filter path, no drift. */
+export function IdentityHeader({
   identity,
   tokenSymbol,
+  socials = true,
 }: {
   identity?: CurveIdentityResolution;
   tokenSymbol: string;
+  /** Explorer cards are one big <button>, and an <a> inside a <button> is
+   *  invalid HTML + a nested-interactive a11y violation — they pass false. */
+  socials?: boolean;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const ok = identity?.status === 'ok' ? identity.identity : null;
@@ -113,7 +165,7 @@ function IdentityHeader({
         {ok?.description && (
           <p className="text-white/55 text-[11px] leading-snug line-clamp-2">{ok.description}</p>
         )}
-        {ok && (ok.website || ok.twitter || ok.telegram) && (
+        {socials && ok && (ok.website || ok.twitter || ok.telegram) && (
           <p className="text-[11px] space-x-2 mt-0.5">
             {ok.website && (
               <a className="text-sky-300/80 hover:text-sky-200" href={ok.website} target="_blank" rel="noopener noreferrer">
@@ -145,6 +197,8 @@ export function CurveTradeView({
   tokenBalance,
   needsApproval,
   pending,
+  creatorClaimable,
+  onClaimCreatorFees,
   onBuy,
   onSell,
   onApprove,
@@ -192,6 +246,14 @@ export function CurveTradeView({
           The curve is closed. Its liquidity is live in the Tegridy pool with the LP burned to
           <span className="font-mono"> 0x…dEaD</span> — trade it on the swap, not here.
         </p>
+        {creatorClaimable !== undefined && (
+          <CreatorFeesStrip
+            claimable={creatorClaimable}
+            pending={pending}
+            nativeSymbol={nativeSymbol}
+            onClaim={onClaimCreatorFees}
+          />
+        )}
       </div>
     );
   }
@@ -225,6 +287,15 @@ export function CurveTradeView({
       style={cardStyle}
     >
       <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} />
+
+      {creatorClaimable !== undefined && (
+        <CreatorFeesStrip
+          claimable={creatorClaimable}
+          pending={pending}
+          nativeSymbol={nativeSymbol}
+          onClaim={onClaimCreatorFees}
+        />
+      )}
 
       {/* Graduation progress */}
       <div>
@@ -399,6 +470,17 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     chainId,
     query: { enabled: Boolean(account) },
   });
+  // The creator's accrued 40% share for this token. Read whenever a wallet is
+  // connected — whether it renders is decided below by the creator match, and
+  // the refetch keeps the strip live as trades land.
+  const { data: creatorFeeRaw, refetch: refetchCreatorFee } = useReadContract({
+    address: launcher,
+    abi: CURVE_LAUNCHER_ABI,
+    functionName: 'creatorFeeOf',
+    args: [token],
+    chainId,
+    query: { enabled: Boolean(account), refetchInterval: 15_000 },
+  });
 
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   // Hook order: resolve identity unconditionally (before the loading return).
@@ -446,6 +528,26 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   // (we approve maxUint256, so once approved this is false forever).
   const needsApproval = tokenBalance !== undefined && currentAllowance < tokenBalance;
 
+  // The claim strip renders only for the launch's creator; the ADDRESS match is
+  // the gate, the amount may honestly be zero. Case-insensitive compare — the
+  // wallet and the chain don't agree on checksum casing.
+  const isCreator =
+    account !== undefined && account.toLowerCase() === launch.creator.toLowerCase();
+  const creatorClaimable =
+    isCreator && typeof creatorFeeRaw === 'bigint' ? creatorFeeRaw : undefined;
+  const onClaimCreatorFees = () => {
+    writeContract(
+      { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'claimCreatorFees', args: [token], chainId },
+      {
+        onSuccess: () => {
+          toast.success('Creator fees claim submitted.');
+          void refetchCreatorFee();
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the claim.'),
+      },
+    );
+  };
+
   return (
     <CurveTradeView
       launch={launch}
@@ -454,6 +556,8 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
       tokenBalance={tokenBalance}
       needsApproval={needsApproval}
       pending={isPending}
+      creatorClaimable={creatorClaimable}
+      onClaimCreatorFees={creatorClaimable !== undefined ? onClaimCreatorFees : undefined}
       onBuy={onBuy}
       onSell={onSell}
       onApprove={onApprove}

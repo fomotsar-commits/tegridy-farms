@@ -11,6 +11,8 @@ import {
   buyCall,
   sellCall,
   createLaunchCall,
+  mcapWei,
+  latestLaunchWindow,
   CURVE_TOTAL_SUPPLY,
   CURVE_LAUNCHER_ABI,
 } from './curve';
@@ -170,5 +172,44 @@ describe('curve rail wiring', () => {
     const cfg = CURVE_LAUNCHER_ABI.find((f) => f.type === 'function' && f.name === 'launchConfig');
     const cfgOut = (cfg as unknown as { outputs: { name: string }[] }).outputs.map((o) => o.name);
     expect(cfgOut).toContain('treasuryFeeShareBps');
+  });
+});
+
+describe('explorer helpers — mcap + newest-first window', () => {
+  it('mcapWei is spot × total supply, exact bigint', () => {
+    // spot = (virtualEth + ethReserve) / tokenReserve; pick numbers where the
+    // division is exact so any rounding drift in the helper shows as a red.
+    const launch = {
+      virtualEth: 2n * 10n ** 17n, //   0.2 ETH
+      ethReserve: 8n * 10n ** 17n, //   0.8 ETH → x = 1 ETH
+      tokenReserve: CURVE_TOTAL_SUPPLY / 2n, // half the supply left on the curve
+    };
+    // mcap = 1 ETH * TOTAL / (TOTAL/2) = 2 ETH exactly.
+    expect(mcapWei(launch)).toBe(2n * 10n ** 18n);
+  });
+
+  it('mcapWei declines a spot price where none exists (empty tokenReserve)', () => {
+    expect(mcapWei({ virtualEth: 1n, ethReserve: 1n, tokenReserve: 0n })).toBeNull();
+  });
+
+  it('latestLaunchWindow returns the exact tail slice, off-by-one pinned', () => {
+    // More launches than the page: start = count - size, count = size.
+    expect(latestLaunchWindow(100n, 12)).toEqual({ start: 88n, count: 12n });
+    // Exactly one page: the whole array, from zero.
+    expect(latestLaunchWindow(12n, 12)).toEqual({ start: 0n, count: 12n });
+    // Fewer than a page: the whole array, count is what exists — never padded.
+    expect(latestLaunchWindow(3n, 12)).toEqual({ start: 0n, count: 3n });
+    // One single launch.
+    expect(latestLaunchWindow(1n, 12)).toEqual({ start: 0n, count: 1n });
+    // Empty chain: a zero-count window the caller must not fetch.
+    expect(latestLaunchWindow(0n, 12)).toEqual({ start: 0n, count: 0n });
+  });
+
+  it('latestLaunchWindow never asks the contract for more than exists', () => {
+    for (const [count, size] of [[5n, 12], [13n, 12], [24n, 12], [25n, 24]] as const) {
+      const w = latestLaunchWindow(count, size);
+      expect(w.start + w.count).toBe(count); // window ends exactly at the array tail
+      expect(w.count <= BigInt(size)).toBe(true);
+    }
   });
 });

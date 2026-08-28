@@ -82,3 +82,42 @@ describe('CurveTradeView', () => {
     expect(onSell).not.toHaveBeenCalled();
   });
 });
+
+describe('CreatorFeesStrip (via CurveTradeView) — the 40% becomes claimable', () => {
+  it('renders NOTHING fee-related for a non-creator (creatorClaimable undefined)', () => {
+    view();
+    expect(screen.queryByText(/your creator fees/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /claim your accrued creator fees/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the strip with an HONEST zero for the creator before any trade', () => {
+    view({ creatorClaimable: 0n, onClaimCreatorFees: vi.fn() });
+    expect(screen.getByText(/your creator fees/i)).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /claim your accrued creator fees/i });
+    expect(btn).toBeDisabled(); // nothing to claim yet — but the surface exists
+  });
+
+  it('claims a non-zero accrual through the wired callback', () => {
+    const onClaimCreatorFees = vi.fn();
+    view({ creatorClaimable: parseEther('0.04'), onClaimCreatorFees });
+    expect(screen.getByText(/0\.04/)).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /claim your accrued creator fees/i });
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(onClaimCreatorFees).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the strip on a GRADUATED launch — accrued fees outlive the curve', () => {
+    const onClaimCreatorFees = vi.fn();
+    view({
+      launch: { ...LAUNCH, graduated: true },
+      creatorClaimable: parseEther('1.5'),
+      onClaimCreatorFees,
+    });
+    // Terminal state and the claim strip coexist.
+    expect(screen.getByText(/has graduated/i)).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /claim your accrued creator fees/i });
+    fireEvent.click(btn);
+    expect(onClaimCreatorFees).toHaveBeenCalledTimes(1);
+  });
+});

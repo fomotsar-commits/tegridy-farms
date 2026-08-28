@@ -165,6 +165,32 @@ export function saleSupplyForReserveBps(reserveBps: number): bigint {
   return CURVE_TOTAL_SUPPLY - reserveAmount;
 }
 
+/**
+ * Fully-diluted market cap in wei: spot price × total supply, where spot on this
+ * curve is (virtualEth + ethReserve) / tokenReserve. Every launch mints exactly
+ * CURVE_TOTAL_SUPPLY, so this is client-computable from getLaunch alone — no
+ * price API, no indexer. Returns null once the curve is empty/graduated
+ * (tokenReserve 0), where a spot price no longer exists on the curve.
+ */
+export function mcapWei(launch: Pick<CurveLaunch, 'virtualEth' | 'ethReserve' | 'tokenReserve'>): bigint | null {
+  if (launch.tokenReserve <= 0n) return null;
+  return ((launch.virtualEth + launch.ethReserve) * CURVE_TOTAL_SUPPLY) / launch.tokenReserve;
+}
+
+/**
+ * The newest-first read window for the launch explorer: which slice of
+ * allLaunches to fetch (via allLaunchesPaginated) so the LAST `pageSize`
+ * launches come back, and the order to display them in is reverse of the
+ * returned page. Pure so the off-by-one at the array head is pinned by a test
+ * instead of discovered on the first busy chain.
+ */
+export function latestLaunchWindow(launchCount: bigint, pageSize: number): { start: bigint; count: bigint } {
+  const size = BigInt(Math.max(1, pageSize));
+  if (launchCount <= 0n) return { start: 0n, count: 0n };
+  const start = launchCount > size ? launchCount - size : 0n;
+  return { start, count: launchCount - start };
+}
+
 // ─────────────────────────── write-call descriptors (for wagmi) ────────────────────────
 
 /**
