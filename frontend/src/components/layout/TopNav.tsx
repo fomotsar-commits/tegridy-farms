@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
+import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 
 export const TopNav = React.memo(function TopNav() {
@@ -170,6 +171,21 @@ export const TopNav = React.memo(function TopNav() {
               <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>
               <span className="text-[15px] font-semibold tracking-tight text-white">FARMS</span>
             </Link>
+            {/* Jungle Bay: the always-visible way back to the bungalow chooser
+                (the footer link alone was undiscoverable). Shows where you are;
+                opens the picker from any page (AppLayout listens for the
+                event). Icon-only below sm to spare the crowded mobile bar. */}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOWS_EVENT))}
+              title="Choose your bungalow"
+              aria-label="Choose your bungalow"
+              className="flex items-center gap-1 px-2 h-7 rounded-full text-[11px] flex-shrink-0 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
+              style={{ border: '1px solid var(--color-purple-25)', color: 'var(--color-kyle, #7fd89d)' }}
+            >
+              <span aria-hidden="true">🏝️</span>
+              <span className="hidden sm:inline">{getActiveBungalow()?.name ?? 'Bungalows'}</span>
+            </button>
           </div>
 
           {/* R038: was hidden below md (768px) so iPad portrait (820px) lost the

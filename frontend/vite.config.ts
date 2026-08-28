@@ -318,9 +318,17 @@ export default defineConfig(({ mode }) => {
             // modulepreloaded all of it on every first paint. Same hazard for
             // @wallet-standard (chain-agnostic wallet plumbing). Pin both to
             // their own tiny chunks so neither graph welds to the other.
+            // Same hazard again 2026-08-27: buffer (+ its deps) is imported by
+            // the entry-chunk Solana polyfill AND by the @solana graph; left
+            // unassigned, the bundler grouped it into vendor-solana, so the
+            // entry's polyfill import modulepreloaded the whole Solana stack
+            // on first paint. Pin it with the other shared plumbing.
             if (
               id.includes('node_modules/eventemitter3/') ||
-              id.includes('node_modules/@wallet-standard/')
+              id.includes('node_modules/@wallet-standard/') ||
+              id.includes('node_modules/buffer/') ||
+              id.includes('node_modules/base64-js/') ||
+              id.includes('node_modules/ieee754/')
             ) {
               return 'vendor-shared-wallet-plumbing';
             }

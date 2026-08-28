@@ -84,6 +84,12 @@ describe('bungalow registry', () => {
     expect(bayla.swapUrl).toContain('jup.ag');
     expect(BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID)!.identity).toBeUndefined();
   });
+
+  it('ships the LIVE lighthouse pool address (created on mainnet 2026-08-26)', () => {
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    // Hardcoded fallback — no env var is load-bearing for the live pool.
+    expect(bayla.stakePool).toBe('4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp');
+  });
 });
 
 describe('Bayla art pool', () => {

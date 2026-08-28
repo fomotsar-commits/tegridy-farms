@@ -94,7 +94,13 @@ try {
       }
       if (name === 'farm') {
         ok('B: farm renders the BAYLA panel', await page.locator('h1:has-text("Stake BAYLA.")').count() === 1);
-        ok('B: farm panel self-gates honestly', await page.locator('text=Not deployed yet').count() === 1);
+        // Since 2026-08-26 the live pool address ships pinned in the registry,
+        // so the pool slot renders the LIVE lighthouse section (its own
+        // loading/outage/live states are all acceptable here — dev has no
+        // /api/solrpc, so the honest outage line is the usual dev state).
+        // The dark "Not deployed yet" card must be GONE.
+        ok('B: farm pool slot is the LIVE lighthouse', await page.locator('text=The lighthouse pool · LIVE').count() === 1);
+        ok('B: the dark card retired with the pin', await page.locator('text=Not deployed yet').count() === 0);
         ok('B: farm drops the TOWELI stack', await page.locator('text=TOWELI Price').count() === 0);
         ok('B: heat oracle card present', await page.locator('text=Check your heat').count() >= 1);
       }
@@ -125,6 +131,15 @@ try {
     const pickerVisible = await page.locator('text=Thirteen bungalows').isVisible({ timeout: 5000 }).catch(() => false);
     ok('B: footer button reopens picker', pickerVisible);
     if (pickerVisible) await page.screenshot({ path: `${OUT}/bayla-picker-reopened.png` });
+    // The TOP-NAV chooser button — the always-visible way back (operator ask
+    // 2026-08-26: the footer link alone was undiscoverable). Names the
+    // current bungalow and opens the picker from anywhere.
+    await page.keyboard.press('Escape'); // close the footer-opened picker first
+    const navBtn = page.locator('header button[title="Choose your bungalow"]');
+    ok('B: top-nav chooser names the bungalow', (await navBtn.textContent() ?? '').includes('Bayla'));
+    await navBtn.click();
+    ok('B: top-nav chooser opens the picker',
+      await page.locator('text=Thirteen bungalows').isVisible({ timeout: 5000 }).catch(() => false));
     await ctx.close();
 
     // Responsive: iPhone 14 Pro + iPad portrait on home/farm.

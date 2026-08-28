@@ -112,6 +112,41 @@ describe("solrpc proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // 2026-08-27: the lighthouse staking page reads Streamflow pools via SDK
+  // program scans. getProgramAccounts stays blocked in general (L-1), but is
+  // allowed when — and only when — params[0] is a Streamflow staking program.
+  it("allows getProgramAccounts against the Streamflow staking programs", async () => {
+    for (const program of [
+      "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH",
+      "RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj",
+      "RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez",
+    ]) {
+      fetchMock.mockClear();
+      const req = makeReq({
+        method: "POST",
+        body: { jsonrpc: "2.0", method: "getProgramAccounts", params: [program, { encoding: "base64" }], id: 1 },
+      });
+      const { res, statusSpy } = makeRes();
+      await handler(req, res);
+      expect(statusSpy).toHaveBeenCalledWith(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("still rejects getProgramAccounts with a non-string or missing program id", async () => {
+    for (const params of [undefined, [], [42], [{ not: "a program" }]]) {
+      fetchMock.mockClear();
+      const req = makeReq({
+        method: "POST",
+        body: { jsonrpc: "2.0", method: "getProgramAccounts", params, id: 1 },
+      });
+      const { res, statusSpy } = makeRes();
+      await handler(req, res);
+      expect(statusSpy).toHaveBeenCalledWith(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  });
+
   it("allows a whitelisted method (sendTransaction) through to upstream", async () => {
     const req = makeReq({ method: "POST", body: { jsonrpc: "2.0", method: "sendTransaction", params: ["base64tx"], id: 1 } });
     const { res, statusSpy } = makeRes();
