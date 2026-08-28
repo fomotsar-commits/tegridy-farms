@@ -135,9 +135,10 @@ interface ITegridyRestaking {
 ///  `epochClaimed`, owner claim-recovery with four separate caps, dust
 ///  auto-reconcile and its retirement, forfeit reclaim, token sweep, pending
 ///  withdrawals. None of it exists here. There is no `treasury` address and no
-///  owner-side ETH exit at all: forfeited accruals recycle to the staker pool via
-///  `totalForfeitedToPool`, never to the protocol. The protocol spends nothing it
-///  has not earned; every wei that enters leaves through `getReward`.
+///  owner-side ETH exit at all, and as of 2026-08-26 no forfeiture either: there is
+///  exactly ONE way for wei to leave this contract, and it is `getReward` paying an
+///  account its own accrual. No path moves value between accounts. The protocol
+///  spends nothing it has not earned, and can take nothing at all.
 ///
 /// ─────────────────────────────────────────────────────────────────────────────
 ///  MIGRATION — handing over from a live v1 with an OPEN EPOCH
@@ -174,10 +175,11 @@ interface ITegridyRestaking {
 ///      v1 and stream from v2. Do NOT point the same fee leg at both — the
 ///      contracts do not know about each other and a split leg silently halves
 ///      both sides.
-///  M7. The 7-day `CLAIM_GRACE_PERIOD` is per-contract. A staker whose lock
-///      expires during the cutover has 7 days from their own `lockEnd` to drain
-///      v1. Publish the cutover at least 7 days ahead of any clustered lock
-///      cliff, or those epochs forfeit inside v1.
+///  M7. v1's 7-day `CLAIM_GRACE_PERIOD` still applies TO v1 — a staker whose lock
+///      expires during the cutover has 7 days from their own `lockEnd` to drain v1,
+///      so publish the cutover at least 7 days ahead of any clustered lock cliff or
+///      those epochs forfeit inside v1. v2 has no such deadline: it dropped the
+///      claim grace along with the forfeit on 2026-08-26, so nothing here expires.
 contract StreamingRevenueDistributor is
     OwnableNoRenounce,
     ReentrancyGuard,
@@ -218,7 +220,6 @@ contract StreamingRevenueDistributor is
     /// @dev Same 7 days as v1. A lock that has expired stops mirroring in (voting
     ///      power is already 0 for an expired position), but crystallised accrual
     ///      stays claimable for this long before `sync` may recycle it.
-    uint256 public constant CLAIM_GRACE_PERIOD = 7 days;
 
     /// @dev `syncMany` iterates external staking reads (~5 calls each, incl. the
     ///      grace-anchor observation). 100 keeps the worst case far inside a block at
@@ -250,13 +251,6 @@ contract StreamingRevenueDistributor is
     mapping(address => uint256) public effectiveBalanceOf;
     uint256 public totalEffectiveSupply;
 
-    /// @notice Grace anchor: the last non-zero staking-side `lockEnd` observed for an
-    ///         account while its position was still readable (see `_observeLockEnd`).
-    ///         Stores the lockEnd VALUE, not the observation time, so a staking-side
-    ///         withdraw/transfer (which zeroes `userTokenId`) cannot reset it and a
-    ///         delayed first observation cannot extend it — the anchor is not
-    ///         selectable or timeable by the account it protects.
-    mapping(address => uint256) public lastObservedLockEnd;
 
     // ─── Reserve accounting (delta D3) ───────────────────────────────
 
@@ -268,7 +262,6 @@ contract StreamingRevenueDistributor is
     uint256 public totalPaidOut;
     /// @notice Crystallised accrual recycled back to the staker pool by `sync` after
     ///         an account's grace period elapsed. Never routed to an owner or treasury.
-    uint256 public totalForfeitedToPool;
 
     // ─── Config state ─────────────────────────────────────────────────
 
@@ -292,8 +285,10 @@ contract StreamingRevenueDistributor is
     event RewardAdded(uint256 newETH, uint256 rewardRate, uint256 periodFinish);
     event RewardPaid(address indexed user, uint256 amount);
     event BalanceSynced(address indexed user, uint256 oldBalance, uint256 newBalance);
-    event RewardsForfeitedToPool(address indexed user, uint256 amount);
     event RewardsForfeitedDuringEmptyPeriod(uint256 amount);
+    /// @notice A sync could not read `account`'s power, so the mirror was left at
+    ///         `keptBalance`. Emitted instead of silently writing a zero.
+    event MirrorReadUnavailable(address indexed account, uint256 keptBalance);
     event StreamingEnableProposed(uint256 executeAfter);
     event StreamingEnabled();
     event StreamingEnableCancelled();
@@ -314,7 +309,6 @@ contract StreamingRevenueDistributor is
     error NotifyCooldownActive();
     error NotifyAmountTooSmall();
     error NothingToClaim();
-    error NoLockedTokens();
     error SyncBatchTooLarge();
     error PreviousPeriodNotComplete();
     /// @dev Post-condition on `notifyRewardAmount`: the schedule it just wrote must be
@@ -415,12 +409,65 @@ contract StreamingRevenueDistributor is
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
 
+            // AN UNREADABLE READ IS NOT A ZERO. (2026-08-26)
+            //
+            // This used to call `_effectivePower`, which discards the `readable`
+            // flag and returns 0 when the escrow or the restaking read reverts.
+            // That zero was then written into the mirror and subtracted from
+            // `totalEffectiveSupply` — so the stream re-priced onto whoever
+            // happened to stay mirrored.
+            //
+            // `sync`/`syncMany` are permissionless BY DESIGN (the accrual is only
+            // correct while the mirror tracks reality, so anyone must be able to
+            // correct anyone). That made the zero a stranger's to write: call
+            // `sync(victim)` while the read is failing, do not sync yourself, and
+            // absorb their share. Accrual is not retroactive, so re-syncing the
+            // victim afterwards does not give the window back. An adversarial
+            // review measured 22x amplification via `syncMany` over 50 victims —
+            // and it bypassed the staking kill switch, which `getReward` and
+            // `notifyRewardAmount` both respect.
+            //
+            // So a read we could not perform now changes NOTHING. The mirror keeps
+            // its last-written value until a readable one replaces it.
+            //
+            // THE COST OF THAT, STATED HONESTLY AND MEASURED. An earlier draft of
+            // this comment said the trade "costs the pool a bounded amount" and
+            // "fails toward the staker rather than away from them". An adversarial
+            // review measured both and both were wrong, so they are corrected here
+            // rather than quietly deleted:
+            //
+            //   * It does not cost THE POOL. A frozen mirror keeps its share of the
+            //     stream, so the cost falls on every OTHER staker — measured at
+            //     ~17.6% of entitlement per frozen peer of equal weight. It fails
+            //     toward the account being read and AWAY from everyone else.
+            //   * The blast radius is wider than "restakers". While
+            //     `restakingContract` is wired, a broken restaking read freezes
+            //     EVERY account whose escrow power reads zero — a set dominated by
+            //     exited and expired PLAIN stakers who never touched restaking.
+            //     `_mirrorPower`'s re-ask does NOT rescue them; it is gated on
+            //     `restakingContract == address(0)`.
+            //
+            // What IS true, also measured: the harm is bounded by outage duration
+            // intersected with the schedule, not open-ended — one ordinary
+            // permissionless `sync` after the dependency heals restores both the
+            // mirror and `totalEffectiveSupply` exactly. And it is not
+            // caller-chosen: a reviewer swept every permissionless entry point
+            // trying to trigger it on demand and could not.
+            //
+            // Why this is still the right side of the trade: the alternative — the
+            // pre-2026-08-26 behaviour — wrote a stranger-chosen zero, which is
+            // caller-triggered, unbounded by any outage, and takes money from the
+            // account that did nothing wrong. This costs peers a bounded amount
+            // during a dependency failure. That is worse than nothing and better
+            // than the thing it replaced, and both halves of that sentence matter.
+            (bool readable, uint256 newEff) = _mirrorPower(account);
             uint256 oldEff = effectiveBalanceOf[account];
-            uint256 newEff = _effectivePower(account);
-            if (oldEff != newEff) {
+            if (readable && oldEff != newEff) {
                 totalEffectiveSupply = totalEffectiveSupply - oldEff + newEff;
                 effectiveBalanceOf[account] = newEff;
                 emit BalanceSynced(account, oldEff, newEff);
+            } else if (!readable) {
+                emit MirrorReadUnavailable(account, oldEff);
             }
         }
     }
@@ -440,6 +487,42 @@ contract StreamingRevenueDistributor is
     ///         future staking-side ABI break must not be fatal.
     /// @dev `votingPowerOf` already excludes expired positions, so an expired lock
     ///      mirrors to 0 without any lockEnd arithmetic on this side.
+    /// @dev What `_updateReward` may WRITE into the mirror, which is a different
+    ///      question from what `isSynced` may CERTIFY, and the difference is exactly
+    ///      one case.
+    ///
+    ///      `isSynced` answers "is the mirror correct?". With no restaking contract
+    ///      wired there may be restakers this contract cannot see, so the honest
+    ///      answer is "cannot verify" and `_tryEffectivePower` returns `(false, 0)`.
+    ///      That is 3acd395b's fix and it stays.
+    ///
+    ///      `_updateReward` answers "what is this account's power right now?". There,
+    ///      an escrow that ANSWERED with zero and no fallback to consult is a real
+    ///      zero — it is what an expired lock looks like. Treating it as unreadable
+    ///      froze every expired plain-staker position at its stale-high mirror,
+    ///      which a test caught immediately.
+    ///
+    ///      ⚠ SCOPE, because reading this next to `_updateReward`'s block invites
+    ///      the wrong conclusion: this re-ask fires ONLY when `restakingContract`
+    ///      is unset. Once restaking is wired, a broken restaking read still
+    ///      freezes every account whose escrow power reads zero, expired plain
+    ///      stakers included. That case is NOT fixed here and is recorded in
+    ///      docs/V2_FORFEIT_ATTEMPT5_REVIEW_2026_08_27.md.
+    ///
+    ///      So: unreadable means the escrow did not answer. It does not mean we had
+    ///      nowhere to double-check.
+    function _mirrorPower(address account) internal view returns (bool writable, uint256 power) {
+        (writable, power) = _tryEffectivePower(account);
+        if (!writable && power == 0 && address(restakingContract) == address(0)) {
+            // Re-ask the primary directly: only its revert makes this unwritable.
+            try votingEscrow.votingPowerOf(account) returns (uint256 p) {
+                return (true, p);
+            } catch {
+                return (false, 0);
+            }
+        }
+    }
+
     function _effectivePower(address account) internal view returns (uint256) {
         (, uint256 power) = _tryEffectivePower(account);
         return power;
@@ -453,23 +536,60 @@ contract StreamingRevenueDistributor is
     ///      an empty account). `_updateReward` deliberately keeps consuming the
     ///      degraded zero (liveness over accuracy, see `_effectivePower`); honesty
     ///      surfaces like `isSynced` MUST consume `readable` instead of trusting it.
+    /// @dev THE TWO POWER LEGS ARE ADDITIVE. (2026-08-27)
+    ///
+    ///      This used to SHORT-CIRCUIT: `if (power > 0) return (true, power);`, so
+    ///      the restaking leg was consulted only when the staking leg read zero. An
+    ///      account holding BOTH a live stake and a restake was therefore mirrored
+    ///      at its staking leg alone and its restaked weight silently discarded.
+    ///
+    ///      That is not an edge case. `TegridyStaking.stake` gates on
+    ///      `userTokenId[msg.sender] == 0`, and restaking transfers the NFT out and
+    ///      clears that pointer — so `stake -> restake -> stake` is a permitted
+    ///      flow that leaves one veNFT owned and one custodied. Measured against
+    ///      the real contracts: staking leg 228.45e18, restaked leg 45,690e18,
+    ///      mirror written 228.45e18 — 99.50% of the account's weight left OUTSIDE
+    ///      the accrual set, while `isSynced` returned true and certified it.
+    ///
+    ///      It was also weaponisable. A stranger can gift a restaker a live veNFT
+    ///      without consent (`StakingRewardLib.afterTokenTransfer` gates only on
+    ///      `userTokenId[to] != 0`, and a restaker's is zero), then call the
+    ///      permissionless `sync(victim)`: the freshly non-zero staking leg
+    ///      short-circuited the real restaked weight away. Reproduced at a 2,816x
+    ///      mirror collapse, moving 31.478 ETH of a 70 ETH schedule to other
+    ///      stakers.
+    ///
+    ///      Summing is what v1 did (its audited additive aggregation) and what this
+    ///      repo's own `lib/VotePowerOracle` does. It cannot double-count: a
+    ///      position is either owned by the account or custodied by the restaking
+    ///      contract, never both, so the legs are disjoint by construction.
+    ///
+    ///      READABILITY IS CONJUNCTIVE, and deliberately stricter than before. A
+    ///      total is only known when EVERY leg that contributes to it answered. If
+    ///      either read reverts or exhausts its gas stipend the total is unknown,
+    ///      `readable` is false, and `_updateReward` preserves the existing mirror
+    ///      rather than writing a number it cannot stand behind. The old code
+    ///      returned `(true, restakedOnly)` when the staking read failed — that is
+    ///      a confident total assembled from one of two legs, and it under-credits
+    ///      exactly the dual-position accounts this fix exists for.
     function _tryEffectivePower(address account) internal view returns (bool readable, uint256 power) {
-        bool primaryReadable = true;
+        bool stakingReadable = true;
+        uint256 stakingPower;
         try votingEscrow.votingPowerOf(account) returns (uint256 p) {
-            power = p;
+            stakingPower = p;
         } catch {
-            primaryReadable = false;
+            stakingReadable = false;
         }
-        if (power > 0) return (true, power);
 
-        // Restakers read 0 above because TegridyRestaking custodies the NFT. Same
-        // fallback as v1's NEW-S1; without it every restaker mirrors in at zero and
-        // is silently paid nothing.
-        if (address(restakingContract) == address(0)) return (false, 0);
+        // With no fallback wired there may be restakers this contract cannot see,
+        // so it cannot certify a zero. `isSynced` depends on that — see
+        // `_mirrorPower` for the one caller that needs the opposite answer, and why.
+        if (address(restakingContract) == address(0)) {
+            return (stakingReadable && stakingPower > 0, stakingPower);
+        }
+
         try restakingContract.boostedAmountAt{gas: RESTAKING_CALL_GAS}(account, block.timestamp) returns (uint256 p) {
-            // A positive restaked balance is real data even during a staking outage;
-            // a zero is only trustworthy when the primary read was also readable.
-            return (p > 0 || primaryReadable, p);
+            return (stakingReadable, stakingPower + p);
         } catch {
             return (false, 0);
         }
@@ -495,7 +615,7 @@ contract StreamingRevenueDistributor is
     ///         in both directions.
     function sync(address account) external nonReentrant whenNotPaused {
         if (account == address(0)) revert ZeroAddress();
-        _syncAndMaybeRecycle(account);
+        _syncMirror(account);
     }
 
     /// @notice Batch form for the keeper that covers the staker set at cutover.
@@ -505,7 +625,7 @@ contract StreamingRevenueDistributor is
         for (uint256 i; i < len; ++i) {
             address a = accounts[i];
             if (a == address(0)) continue;
-            _syncAndMaybeRecycle(a);
+            _syncMirror(a);
         }
     }
 
@@ -515,38 +635,36 @@ contract StreamingRevenueDistributor is
     ///      back to stakers via the next `notifyRewardAmount`, never to a treasury.
     ///      An account still inside grace, still restaked, or still holding power is
     ///      untouched — and every unreadable input REFUSES the forfeit (fail closed).
-    function _syncAndMaybeRecycle(address account) internal {
+    /// @dev Mirror-only. THE FORFEIT USED TO LIVE HERE AND IT IS GONE. (2026-08-26)
+    ///
+    ///      Four attempts were made to make a permissionless confiscation safe by
+    ///      engineering a precise "is this account abandoned" test. Attempts 1, 2
+    ///      and 3 were each refuted by two independent adversarial reviews.
+    ///      Attempt 4 moved the forfeit behind an owner timelock and was refuted
+    ///      too — 9 confirmed defects, because the eligibility input was still
+    ///      built from stale mirrors and a stranger-writable anchor.
+    ///
+    ///      The lesson the fourth refutation finally made unambiguous: the anchor
+    ///      was never the problem, and neither was the caller. THE FORFEIT was the
+    ///      problem. Every version of it had to answer "has this account abandoned
+    ///      its rewards?" from chain state that cannot actually answer it, and each
+    ///      wrong answer took somebody's ETH.
+    ///
+    ///      Synthetix `StakingRewards` — the battle-tested upstream this contract's
+    ///      accrual is modelled on, unhacked since 2019 — has no forfeiture at all.
+    ///      Neither does this now. Unclaimed rewards stay `rewards[account]`
+    ///      forever, claimable only by that account.
+    ///
+    ///      What that costs: a genuinely dead account's ETH is never recycled to
+    ///      the pool and sits here indefinitely. That is the price, it is bounded
+    ///      by what those accounts actually earned, and it is the correct side to
+    ///      err on — the protocol has no claim on user funds it cannot prove were
+    ///      abandoned, and four attempts established that it cannot prove it.
+    ///
+    ///      Nothing reachable from `sync` can now reduce `rewards`, and there is no
+    ///      longer any mechanism by which one account's balance moves to another.
+    function _syncMirror(address account) internal {
         _updateReward(account);
-
-        // Record the durable grace anchor while the position is still observable —
-        // BEFORE any early return, so touching a live account arms its grace window.
-        (bool lockReadable, ) = _observeLockEnd(account);
-
-        if (effectiveBalanceOf[account] != 0) return;
-        uint256 owed = rewards[account];
-        if (owed == 0) return;
-
-        // Forfeiture fails CLOSED (`LaunchRugEscrow._readCovenantBps` posture: seizing
-        // on an unreadable read would convert an outage into a confiscation). Refuse
-        // to recycle when:
-        //   - restaking is unset: the staking side zeroes `userTokenId` on the custody
-        //     transfer, so a restaker in good standing is indistinguishable from a
-        //     fully-exited account until the fallback is wired (48h timelock);
-        //   - the restaking read reverts: the account may be a restaker in standing;
-        //   - the lock read reverts: no proof the grace period has elapsed;
-        //   - the anchor is unset: the position was never observed while it existed
-        //     (e.g. a pre-wire restaker), so `lockEnd + CLAIM_GRACE_PERIOD` cannot be
-        //     computed. "No data" is never treated as "no lock".
-        if (address(restakingContract) == address(0)) return;
-        (bool restakeReadable, bool restaked) = _isRestaked(account);
-        if (!restakeReadable || restaked) return;
-        if (!lockReadable) return;
-        uint256 anchor = lastObservedLockEnd[account];
-        if (anchor == 0 || block.timestamp < anchor + CLAIM_GRACE_PERIOD) return;
-
-        rewards[account] = 0;
-        totalForfeitedToPool += owed;
-        emit RewardsForfeitedToPool(account, owed);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -575,7 +693,9 @@ contract StreamingRevenueDistributor is
             }
         }
 
-        uint256 settled = totalPaidOut + totalForfeitedToPool;
+        // Nothing is ever recycled now (the forfeit is gone), so the only wei that
+        // leaves the pool leaves through `getReward`.
+        uint256 settled = totalPaidOut;
         uint256 outstanding = totalStreamed > settled ? totalStreamed - settled : 0;
         return remaining + pendingWindow + outstanding;
     }
@@ -654,25 +774,25 @@ contract StreamingRevenueDistributor is
         // staking kill-switch is engaged.
         if (_isStakingPaused()) revert StakingPaused();
 
-        // The grace anchor is recorded on every claim too, so a staker whose only
-        // touches are `getReward` calls still arms their grace window before exiting.
-        _observeLockEnd(msg.sender);
-
-        // v1's lock/grace gate, ported: an account with no live position and past its
-        // grace window cannot withdraw. `_syncAndMaybeRecycle` is what eventually
-        // recycles such an account's balance back to the pool.
-        (, bool restaked) = _isRestaked(msg.sender);
-        bool active = effectiveBalanceOf[msg.sender] > 0 || restaked;
-        if (!active) {
-            // Reads the SAME durable anchor the recycle path reads, so the two gates
-            // can no longer contradict each other: an ordinary unstake-before-claim
-            // (staking zeroes `userTokenId` on any outbound veNFT transfer/burn) keeps
-            // the documented 7-day window open here exactly as long as recycling
-            // stays refused there.
-            uint256 anchor = lastObservedLockEnd[msg.sender];
-            bool inGrace = anchor != 0 && block.timestamp < anchor + CLAIM_GRACE_PERIOD;
-            if (!inGrace) revert NoLockedTokens();
-        }
+        // THERE IS NO CLAIM DEADLINE. (2026-08-26)
+        //
+        // This used to refuse `NoLockedTokens()` once an account had no live
+        // position and its 7-day grace had elapsed. That gate only ever existed to
+        // pair with the recycle: "claim within the window or the pool takes it."
+        // The recycle is gone, so refusing a claim now strands a staker's own ETH
+        // for nobody's benefit — no other account can receive it either.
+        //
+        // Removing it also closes the other half of a confirmed defect. The grace
+        // anchor was written by `_observeLockEnd` from whatever veNFT
+        // `userTokenId[account]` pointed at, and `StakingRewardLib.afterTokenTransfer`
+        // lets ANYONE transfer a position in to an account whose pointer is zero.
+        // A stranger could therefore send an expired dust veNFT to a victim (an
+        // ERC-721 transfer needs no consent), call the permissionless `sync`, drive
+        // the anchor BACKWARDS, and slam this gate shut on the victim's whole
+        // crystallised balance. With no deadline there is nothing to slam shut, and
+        // the anchor itself is deleted rather than merely unused.
+        //
+        // Synthetix `StakingRewards.getReward` has no deadline either.
 
         uint256 reward = rewards[msg.sender];
         if (reward == 0) revert NothingToClaim();
@@ -725,9 +845,12 @@ contract StreamingRevenueDistributor is
     ///      non-zero power and never be recycled or grace-gated.
     ///      Two-value, `LaunchRugEscrow._readCovenantBps`-style: `(false, 0)` for a
     ///      reverting read so callers can distinguish "no data" from "no current
-    ///      position" (`(true, 0)`). Collapsing both into a bare 0 was the
-    ///      claim-grace contradiction: fail-OPEN forfeiture in `_syncAndMaybeRecycle`
-    ///      and fail-CLOSED claims in `getReward` from the same undifferentiated zero.
+    ///      position" (`(true, 0)`). Collapsing both into a bare 0 used to be the
+    ///      claim-grace contradiction — fail-OPEN forfeiture and fail-CLOSED claims
+    ///      from the same undifferentiated zero. Both consumers are gone as of
+    ///      2026-08-26; the distinction is kept because `_isForfeitable`'s successor
+    ///      problem (an unreadable read must never read as "absent") still applies to
+    ///      every future caller.
     function _lockEndOf(address account) internal view returns (bool readable, uint256 lockEnd) {
         try votingEscrow.userTokenId(account) returns (uint256 tokenId) {
             if (tokenId == 0) return (true, 0);
@@ -743,19 +866,6 @@ contract StreamingRevenueDistributor is
         } catch {
             return (false, 0);
         }
-    }
-
-    /// @dev Non-view companion to `_lockEndOf`: records the grace anchor whenever the
-    ///      position is still observable. Stores the staking-side `lockEnd` VALUE, not
-    ///      the observation time — a delayed first observation cannot extend the grace
-    ///      window, and a staking-side `withdraw` (which zeroes `userTokenId`) cannot
-    ///      erase it. "Selecting" a different anchor requires actually holding a live
-    ///      position locked until that `lockEnd`, which also makes the account
-    ///      unrecyclable for as long as it holds power — so the anchor is never a free
-    ///      lever for the account it protects.
-    function _observeLockEnd(address account) internal returns (bool readable, uint256 lockEnd) {
-        (readable, lockEnd) = _lockEndOf(account);
-        if (readable && lockEnd != 0) lastObservedLockEnd[account] = lockEnd;
     }
 
     // ═══════════════════════════════════════════════════════════════════
