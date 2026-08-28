@@ -29,7 +29,60 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🟢 2026-08-28 STATE — newest layer; supersedes everything below where they disagree
+## 🟢 2026-08-28 (LATE) — CONSOLIDATION SWEEP — newest layer; supersedes everything below
+
+A wrap-up pass over every parallel session. Full record:
+[`CONSOLIDATION_2026_08_28.md`](CONSOLIDATION_2026_08_28.md).
+
+**Trunk is now 49 commits ahead of `origin/mvp-launch` and UNPUSHED.**
+Ten branches merged, two stranded worktree fixes rescued. Verified before commit:
+**frontend 437 files / 6,126 tests green, tsc clean; contracts 81 tests green across the 8 merged
+suites.** Nothing here is pushed and nothing is deployed.
+
+**Landed this sweep (do not redo):** NativeBuyRouter first coverage · restaking bonus-insolvency
+fix (CONFIRMED HIGH) · nftfi vault seizure-race fix (CONFIRMED) · v4 BoostedLP zero-oracle
+`emergencyWithdraw` · v2 forfeit deletion + additive power legs · row 8 TWAP re-anchor + the
+V2-provenance CI gate (this carries **PR #335**'s commits) · the 08-28 frontend audit (53 findings,
+46 fixed, incl. the `/bayla` infinite-reload) · the components ghost-code guard.
+
+### ⬜ REMAINING — an agent can do these alone
+
+1. **Rebase `prep/island-wave-five`** (1 commit, 25 files — the homepage "arrival inversion").
+   Conflicts with the avantgarde audit on `frontend/index.html` + `frontend/vercel.json`; the CSP
+   header is the only genuinely contested line. Both changes are wanted.
+2. **Reconcile `claude/bungalow-buildout`** (2 commits, 43 files — Base scanner, curve trust strip,
+   dead-end funnels) against the Bayla parity work. Conflicts on `lib/bungalows.ts` and
+   `ArtStudioPage.tsx`: two divergent implementations of the same bungalow surface. **Pick one** —
+   this is the third "two incompatible versions of the same feature" in this repo.
+3. **Retire `claude/curve-discovery-grid`** — superseded by trunk's own curve discovery
+   (`c8bd1a31` + the origin curve commits). Confirm nothing unique is stranded, then delete.
+4. **Prune ~40 April-2026 agent worktrees** that carry dirty trees. They are 4 months and 100+
+   commits stale and they poison every future worktree sweep with false positives.
+   ⚠️ Remove junctions with `cmd /c rmdir`, **never** `rm -rf` — that has already deleted 961
+   vendored-lib files out of the main checkout once.
+5. **Un-pin foundry.** `ci/pin-foundry-toolchain` pinned 1.7.1 because the two reentrancy suites
+   flipped red under 1.8.0. The actual cause is now fixed on trunk (`a04b8a8a`, non-zero sentinel
+   arming). Re-test on 1.8.0 and drop the pin if green.
+
+### 🔴 REMAINING — only you can do these
+
+1. **THE SIGNING SESSION — closes Sept 2–3.** Unchanged and still the top item; see the
+   2026-08-28 layer below and [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md).
+2. **Decide whether to push.** 48 commits sit local. Nothing reaches prod until you push; prod
+   auto-deploys on green trunk, so **pushing this sweep deploys the frontend audit's 46 fixes.**
+3. ⚠️ **The LIVE staking over-mint is pinned but NOT fixed** (`StakingRewardOverMint.t.sol` is a
+   passing `_KNOWN_DEFECT` characterization — it goes red when the bug is fixed). Reward liability
+   inflates ~2× as the pool nears depletion. **Interim, no redeploy: keep the reward pool funded
+   ahead of emission — top up, or cut `rewardRate` — BEFORE the reserve depletes (~2026-10-11).**
+   That keeps the cap from binding. The real fix is the Synthetix funded-period rebase, a migration
+   on a live contract.
+4. **US regulatory decisions** + **distribution** — unchanged, see the layer below.
+5. **Exclude the repo from OneDrive sync.** Now also implicated in wedged `forge` invocations
+   (two builds hung at ~2s CPU and had to be killed this session), not just stale `node_modules`.
+
+---
+
+## 🟢 2026-08-28 STATE — the curve / audit / US-compliance layer
 
 A curve-launchpad + audit + US-compliance session. The launchpad now has a **usable, tested front
 door** (token identity, discovery, honest copy) and the fleet closed a real trapped-NFT bug. What's
