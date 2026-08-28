@@ -246,10 +246,20 @@ export function setActiveBungalow(id: string): boolean {
  * active, the bungalow has no pool yet, or the surface is shared.
  */
 export function bungalowArtPool(pageId: string): ArtPiece[] | null {
+  return bungalowArtContext(pageId)?.pool ?? null;
+}
+
+/**
+ * Same resolution as `bungalowArtPool`, but also hands back WHICH bungalow the
+ * pool belongs to. `pageArt()` needs the id to look up that bungalow's
+ * per-surface overrides (bungalowArtOverrides.ts, written by /bayla-studio);
+ * resolving pool and id together keeps it to a single storage read.
+ */
+export function bungalowArtContext(pageId: string): { id: string; pool: ArtPiece[] } | null {
   if (SHARED_SURFACES.has(pageId)) return null;
   const active = getActiveBungalow();
   if (!active || !active.artPool || active.artPool.length === 0) return null;
-  return active.artPool;
+  return { id: active.id, pool: active.artPool };
 }
 
 /**

@@ -1,6 +1,7 @@
 import type React from 'react';
 import { ART_OVERRIDES } from './artOverrides';
-import { bungalowArtPool } from './bungalows';
+import { bungalowArtContext } from './bungalows';
+import { BUNGALOW_ART_OVERRIDES, bungalowOverrideKey } from './bungalowArtOverrides';
 
 export interface ArtPiece {
   id: string;
@@ -297,10 +298,24 @@ function artById(): Map<string, ArtPiece> {
   return _artById;
 }
 
+// Stamp an override's placement onto a resolved piece. Returns the piece
+// untouched when the override only picks art (no position/zoom), so the
+// common case allocates nothing.
+function applyOverride(piece: ArtPiece, o: { objectPosition?: string; scale?: number }): ArtPiece {
+  if (!o.objectPosition && !o.scale) return piece;
+  return {
+    ...piece,
+    ...(o.objectPosition ? { objectPosition: o.objectPosition } : {}),
+    ...(o.scale ? { scale: o.scale } : {}),
+  };
+}
+
 /**
  * Returns the Nth art piece for a given page.
  *
  * Resolution order:
+ *  0. An active bungalow with its own art pool short-circuits into that pool —
+ *     BUNGALOW_ART_OVERRIDES first (/bayla-studio), then its own rotation.
  *  1. ART_OVERRIDES[`${pageId}:${idx}`] — explicit pick from /art-studio.
  *  2. Deterministic rotation: hash(pageId) → offset into ART_POOL_ALL, then
  *     take consecutive pieces. Guarantees no same-page duplicates as long as
@@ -312,32 +327,36 @@ function artById(): Map<string, ArtPiece> {
  */
 export function pageArt(pageId: string, idx: number): ArtPiece {
   // Jungle Bay bungalows: an active non-default bungalow swaps every
-  // background/card surface to its own pool via the same deterministic
-  // rotation. ART_OVERRIDES are skipped on purpose — they pick classic art
-  // ids that don't exist in bungalow pools. Shared surfaces (nav-logo,
-  // loader) return null from bungalowArtPool and stay classic.
-  const bungalowPool = bungalowArtPool(pageId);
-  if (bungalowPool) {
+  // background/card surface to its own pool. Classic ART_OVERRIDES are skipped
+  // on purpose — they pick classic art ids that don't exist in bungalow pools.
+  // Shared surfaces (nav-logo, loader) return null here and stay classic.
+  //
+  // Resolution inside a bungalow mirrors the classic one:
+  //   1. BUNGALOW_ART_OVERRIDES[`${bungalowId}|${pageId}:${idx}`] — the
+  //      deliberate pick from /bayla-studio, including objectPosition/scale.
+  //   2. the deterministic rotation over the bungalow's own pool.
+  const bungalow = bungalowArtContext(pageId);
+  if (bungalow) {
+    const bOverride = BUNGALOW_ART_OVERRIDES[bungalowOverrideKey(bungalow.id, pageId, idx)];
+    if (bOverride) {
+      // Pool first (the common case), then the classic map so a bungalow can
+      // deliberately borrow a classic piece for one surface.
+      const bPicked = bungalow.pool.find((p) => p.id === bOverride.artId)
+        ?? artById().get(bOverride.artId);
+      if (bPicked) return applyOverride(bPicked, bOverride);
+      // Unknown artId (piece removed from the pool) — fall through to rotation.
+    }
     let bHash = 5381;
     for (let i = 0; i < pageId.length; i++) {
       bHash = ((bHash * 33) ^ pageId.charCodeAt(i)) >>> 0;
     }
-    const bOffset = bHash % bungalowPool.length;
-    return bungalowPool[(bOffset + idx) % bungalowPool.length]!;
+    const bOffset = bHash % bungalow.pool.length;
+    return bungalow.pool[(bOffset + idx) % bungalow.pool.length]!;
   }
   const override = ART_OVERRIDES[`${pageId}:${idx}`];
   if (override) {
     const picked = artById().get(override.artId);
-    if (picked) {
-      if (override.objectPosition || override.scale) {
-        return {
-          ...picked,
-          ...(override.objectPosition ? { objectPosition: override.objectPosition } : {}),
-          ...(override.scale ? { scale: override.scale } : {}),
-        };
-      }
-      return picked;
-    }
+    if (picked) return applyOverride(picked, override);
     // Fall through to rotation if artId is unknown (e.g. file deleted).
   }
   let hash = 5381;

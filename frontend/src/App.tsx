@@ -38,6 +38,11 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const ArtStudioPage = import.meta.env.DEV
   ? lazy(() => import('./pages/ArtStudioPage'))
   : null;
+// Same gate for the bungalow skin studio (/bayla-studio) — it writes source
+// files through a dev-only vite middleware, so it must never ship to prod.
+const BungalowArtStudioPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/BungalowArtStudioPage'))
+  : null;
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
@@ -295,6 +300,18 @@ function AnimatedRoutes() {
         element={
           import.meta.env.DEV && ArtStudioPage
             ? <Suspense fallback={<PageSkeleton />}><ArtStudioPage /></Suspense>
+            : <Navigate to="/" replace />
+        }
+      />
+      {/* Bayla studio — the same tool aimed at the Bayla bungalow's own art
+          pool. Writes src/lib/bungalowArtOverrides.ts. Dev-only, same as above.
+          NOTE: this path must stay OUTSIDE the bungalow-door slugs (a door is
+          /bayla); '/bayla-studio' is not an island slug, so no collision. */}
+      <Route
+        path="bayla-studio"
+        element={
+          import.meta.env.DEV && BungalowArtStudioPage
+            ? <Suspense fallback={<PageSkeleton />}><BungalowArtStudioPage bungalowId="bayla" /></Suspense>
             : <Navigate to="/" replace />
         }
       />

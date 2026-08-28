@@ -565,6 +565,17 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/bayla-studio',
+    owner: 'App.tsx',
+    gate: 'dev-only',
+    why:
+      'The same studio pointed at the Bayla bungalow art pool, under the same R002 gate: the ' +
+      'chunk is tree-shaken out of production builds and the route redirects to / there, so the ' +
+      'e2e suite (which runs against `vite build` output) has nothing to audit.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
     path: '/*',
     owner: 'App.tsx · NotFoundPage',
     gate: null,
