@@ -20,7 +20,7 @@ account, no live database**. Authoring a migration file counts; running it does 
 |---|---|---|---|
 | 134 | 2 h | PARTIAL | Guided first-run onboarding flow |
 | 75 | 2.5 h | PARTIAL | Honesty-debt sweep: addresses.json, README pool figures, PWA wrong-brand manifest, "Last reviewed" dates |
-| 119 | 3 h | PARTIAL | Extend the ghost-code guard to components (its named example, TriggerOrderTab.tsx, is now stale) |
+| ~~119~~ | — | ✅ **DONE 2026-08-26** | Ghost-code guard extended to components — `frontend/src/components/componentsAreMounted.test.ts` |
 | 99 | 3 h | PARTIAL | Fix indexer gaps: factory governance ABI events, env docs, synthetic keys (INDEXER-H1/H2) |
 | 103 | 3 h | PARTIAL | Keyless public scanner API (v1) + docs |
 | 133 | 4 h | PARTIAL | Fiat on-ramp widget (Coinbase Onramp / MoonPay aggregate) |
@@ -471,9 +471,39 @@ OPERATOR: fill the five human rows, then run one scenario from docs/drills/SCENA
 
 VERIFY: no test covers docs/. Check whether frontend/src/lib/docsClaimHonesty.test.ts or docsAddressTruth.test.ts parses INCIDENT_RESPONSE.md before editing addresses in it — docsAddressTruth.test.ts decodes protocol addresses out of markdown and will fail on a malformed one, which is the behaviour you want.
 
-## Line 119 — Extend the ghost-code guard to components (its named example, TriggerOrderTab.tsx, is now stale)
+## Line 119 — ✅ DONE 2026-08-26 — Extend the ghost-code guard to components
 
-**PARTIAL** · buildable: YES · ~3 h
+**SHIPPED** · `frontend/src/components/componentsAreMounted.test.ts`
+
+**What landed.** A path-resolved reachability graph, not a port of the hooks regex — the audit's
+trap was real and the naive form is worthless. Roots are `src/App.tsx`, `src/main.tsx` and every
+file under `src/pages/`; edges are STATIC (`from '…'`), DYNAMIC (`import('…')`) and `require('…')`
+specifiers resolved to real files on disk (extension and `/index` variants, `@/` and `src/` aliases).
+Test files are excluded from the graph entirely, which is what makes a test-only importer count as
+unmounted. Transitive reachability falls out of the walk, so the second tier the audit asked for
+needed no special case.
+
+**Result on trunk: exactly one unexempted ghost**, matching the audit's hand-verification.
+`launcher/FactSheetPricing.tsx` is exempted with its real boundary — there is no per-launch fact
+sheet DETAIL surface to mount it on (the disclosure IS produced by `lib/launcher/collector.ts` and
+attested at `lib/launcher/attestation.ts:208`, but the only launcher surface that ships is
+`LaunchExplorer`, which renders a list and never a single sheet). Mounting it is a feature, not a
+wire-up — **that feature is still owed.** `positionMarket/` is exempted on the deploy gate already
+documented at `lib/constants.ts`. Both exemptions self-invalidate: a test fails the moment anything
+reaches them, and another fails if an exemption stops matching any file.
+
+**Proven non-vacuous**, because this repo has shipped three gates that could not fail: removing the
+`TriggerOrderTab` import and render from `TradePage.tsx` turns the guard red naming
+`swap/TriggerOrderTab.tsx`; restored, it is green. Two sentinels also assert the component list and
+the root list are non-empty, since either being empty would make every check pass over nothing.
+
+**The limit, stated in the file:** it measures IMPORT reachability, so a component imported and
+never rendered still reads as mounted. `@typescript-eslint/no-unused-vars` is an ERROR in this
+repo's eslint config and covers that half. Neither gate closes it alone.
+
+The original analysis, kept because its trap is the reusable part:
+
+**~~PARTIAL~~** · buildable: YES · ~3 h
 
 **Evidence.** The guard is still hooks-only: frontend/src/hooks/hooksAreMounted.test.ts:50-52 enumerates only `readdirSync(HOOKS).filter(f => /^use[A-Z].*\.tsx?$/...)`. No component-reachability guard exists — `git ls-files frontend/src/test/` returns a11yRouteCoverage, ciFuzzInvariantGate, ciGateIntegrity, contractsCoverageFloor, diffScope, npmAdvisoryGate, playwrightDeviceMatrix, requiredCheckSynthesis, setup, typecheckCommand, vitestCollection — none of them. The line's example is OBSOLETE: TriggerOrderTab.tsx is mounted at frontend/src/pages/TradePage.tsx:18 (import) and :706 (render), landed in `7ba46691` "mount: route the three surfaces that were finished but unreachable". I scanned all 169 non-test components and verified each candidate by hand; exactly TWO real ghosts survive: frontend/src/components/positionMarket/PositionMarketPanel.tsx (195 lines, referenced by NOTHING in frontend/src — not even a test; only a comment at frontend/src/lib/constants.ts:163 mentions the directory) and frontend/src/components/launcher/FactSheetPricing.tsx (89 lines, default export, imported only by its own FactSheetPricing.test.tsx:11).
 
