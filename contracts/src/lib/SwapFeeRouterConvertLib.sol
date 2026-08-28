@@ -431,7 +431,12 @@ library SwapFeeRouterConvertLib {
     ///        * pair resolution via the factory (caller cannot lie about the pair);
     ///        * the typed `NoPairForToken` guards, including the empty-reserves reject
     ///          the canonical library does not have (an empty pair cannot be swapped
-    ///          through, and rejecting here beats an opaque inner-router revert);
+    ///          through, and rejecting here beats an opaque inner-router revert).
+    ///          ⚠ The guard and the canonical library each call getReserves() — the
+    ///          2026-08-28 blind equivalence proof holds for CANONICAL pairs whose
+    ///          reserves are stable within a call; a non-canonical pair answering the
+    ///          two reads differently could pass this guard yet DIV_BY_ZERO inside
+    ///          fraction(). Never point this at a non-canonical pair;
     ///        * side selection — the canonical helper returns BOTH cumulatives; the
     ///          token→WETH direction is picked from `token0()`.
     ///      Behaviour is equivalence-tested against the pre-refactor formula in
