@@ -301,13 +301,14 @@ export default function TradePage() {
                                many balances produces an amount ABOVE the wallet
                                balance and disables the Swap button. */
                             onClick={() => { const b = Number(swap.fromBalance) || 0; if (b > 0) swap.setInputAmount(String(floor6(b * 0.5))); }}
-                            className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
+                            /* a11y 2026-08-28: 44px touch floor on mobile (~19x30 before); md keeps the compact desktop chip */
+                            className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
                           >50%</button>
                           <button
                             type="button"
                             /* Reserve a little native ETH for gas so a MAX swap never leaves the user unable to pay for it. */
                             onClick={() => { const b = Number(swap.fromBalance) || 0; const amt = swap.fromToken?.isNative ? Math.max(0, b - 0.002) : b; if (amt > 0) swap.setInputAmount(String(floor6(amt))); }}
-                            className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
+                            className="px-1.5 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded bg-white/10 hover:bg-white/20 text-white/90 transition-colors"
                           >MAX</button>
                         </>
                       )}
@@ -319,7 +320,7 @@ export default function TradePage() {
                       onClick={() => setShowTokenSelect('from')}
                       aria-label={`Change token to pay with (currently ${swap.fromToken?.symbol ?? 'none selected'})`}
                       aria-haspopup="dialog"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
                     >
                       {swap.fromToken?.logoURI && <img src={swap.fromToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.fromToken?.symbol ?? 'Select'}</span>
@@ -367,7 +368,7 @@ export default function TradePage() {
                       onClick={() => setShowTokenSelect('to')}
                       aria-label={`Change token to receive (currently ${swap.toToken?.symbol ?? 'none selected'})`}
                       aria-haspopup="dialog"
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[44px] md:min-h-[36px] hover:bg-white/5 transition-colors"
                     >
                       {swap.toToken?.logoURI && <img src={swap.toToken.logoURI} alt="" className="w-5 h-5 rounded-full" />}
                       <span className="text-white font-medium text-[14px]">{swap.toToken?.symbol ?? 'Select'}</span>
@@ -409,7 +410,7 @@ export default function TradePage() {
                       const active = Math.abs(swap.slippage - pct) < 0.001;
                       return (
                         <button key={pct} onClick={() => swap.setSlippage(pct)} aria-pressed={active}
-                          className="flex-1 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
+                          className="flex-1 py-1.5 min-h-[44px] md:min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
                           style={{
                             background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                             border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',

@@ -249,7 +249,7 @@ export function CurveTradeView({
             key={s}
             type="button"
             onClick={() => setSide(s)}
-            className={`py-1.5 rounded-md text-xs font-semibold transition ${
+            className={`py-1.5 min-h-[44px] md:min-h-0 rounded-md text-xs font-semibold transition ${
               side === s ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white/80'
             }`}
           >
@@ -263,7 +263,7 @@ export function CurveTradeView({
         <div className="flex justify-between text-[11px] text-white/55 mb-1">
           <span>{side === 'buy' ? `Spend (${nativeSymbol})` : `Sell (${tokenSymbol})`}</span>
           {side === 'sell' && tokenBalance !== undefined && (
-            <button type="button" className="hover:text-white/90 font-mono" onClick={() => setAmount(formatEther(tokenBalance))}>
+            <button type="button" className="hover:text-white/90 font-mono px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center" onClick={() => setAmount(formatEther(tokenBalance))}>
               max {fmt(tokenBalance, 4)}
             </button>
           )}
@@ -287,7 +287,7 @@ export function CurveTradeView({
             key={bps}
             type="button"
             onClick={() => setSlippageBps(bps)}
-            className={`px-2 py-0.5 rounded font-mono transition ${
+            className={`px-2 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded font-mono transition ${
               slippageBps === bps ? 'bg-white/15 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'
             }`}
           >
