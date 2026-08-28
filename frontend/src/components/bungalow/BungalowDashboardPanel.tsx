@@ -14,6 +14,8 @@ import {
   readPool,
   readEntries,
   unlockTs,
+  configuredAnnualRate,
+  rateIsPercent,
   type PoolView,
   type StakeEntryView,
 } from '../../lib/bungalowStaking';
@@ -165,6 +167,20 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
     ? poolRead.rewardPools.reduce<bigint | null>((acc, rp) => (acc === null || rp.fundedRaw === null ? null : acc + rp.fundedRaw), 0n)
     : null;
 
+  /**
+   * The pool's two rate facts, stated here exactly as the pool page states
+   * them — the CONFIGURED rate and what it is actually paying. Rendered
+   * together or not at all: a configured rate without the vault beside it is
+   * the half-truth STAKING_LOOK §2.2 exists to stop.
+   */
+  const poolFacts = (() => {
+    const rp = poolRead?.rewardPools[0];
+    if (!poolRead || !rp || vaultRaw === null) return null;
+    const rate = configuredAnnualRate(poolRead, rp, poolRead.minDurationSecs);
+    if (!rateIsPercent(poolRead, rp)) return null;
+    return { vaultRaw, ratePct: rate * 100, decimals: rp.decimals };
+  })();
+
   return (
     <div className="relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -248,6 +264,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     {bungalow.symbol} staking runs on an audited Streamflow pool, non-custodial
                     and readable by anyone. Connect above and your position appears here.
                   </p>
+                  <PoolFacts facts={poolFacts} symbol={bungalow.symbol} />
                   <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
                 </>
               ) : stakeLoading ? (
@@ -260,6 +277,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     lock length, what each one is configured to pay, and what the reward vault
                     actually holds today.
                   </p>
+                  <PoolFacts facts={poolFacts} symbol={bungalow.symbol} />
                   <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
                 </>
               ) : (
@@ -353,5 +371,33 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
         <HeatCard defaultAddress={publicKey?.toBase58()} />
       </div>
     </div>
+  );
+}
+
+/** The pool's rate, never without the vault that has to back it. */
+function PoolFacts({ facts, symbol }: { facts: { vaultRaw: bigint; ratePct: number; decimals: number } | null; symbol: string }) {
+  if (!facts) return null;
+  const empty = facts.vaultRaw === 0n;
+  return (
+    <dl className="text-[12px] space-y-1 mb-3">
+      <div className="flex justify-between gap-3">
+        <dt className="text-white/60">Configured rate</dt>
+        <dd className="text-white font-mono">
+          {facts.ratePct.toLocaleString(undefined, { maximumFractionDigits: 1 })}% APR
+        </dd>
+      </div>
+      <div className="flex justify-between gap-3">
+        <dt className="text-white/60">Reward vault</dt>
+        <dd className="font-mono" style={{ color: empty ? '#e3b341' : '#ffffff' }}>
+          {fmtRaw(facts.vaultRaw, facts.decimals)} {symbol}
+        </dd>
+      </div>
+      {empty && (
+        <p className="text-[11px] pt-1" style={{ color: '#e3b341' }}>
+          Empty vault, so it is paying 0 today — the rate is what the program is set to pay,
+          not what it is paying.
+        </p>
+      )}
+    </dl>
   );
 }
