@@ -82,3 +82,39 @@ describe('CurveTradeView', () => {
     expect(onSell).not.toHaveBeenCalled();
   });
 });
+
+describe('deferred graduation + receipt-window states (2026-08-28 audit)', () => {
+  const DEFERRED = { ...LAUNCH, ethReserve: LAUNCH.graduationEth, graduated: false };
+
+  it('closes Buy with an explanation when the curve is at target but not finalized', () => {
+    const { onBuy } = view({ deferredGraduation: true, launch: DEFERRED });
+    expect(screen.getByText(/graduation hasn't been finalized yet/i)).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: /buys closed/i });
+    expect(btn).toBeDisabled();
+    // typing an amount must NOT re-enable the guaranteed-revert buy
+    fireEvent.change(screen.getByLabelText(/amount to spend/i), { target: { value: '1' } });
+    expect(screen.getByRole('button', { name: /buys closed/i })).toBeDisabled();
+    expect(onBuy).not.toHaveBeenCalled();
+  });
+
+  it('keeps Sell open in the deferred window and offers the permissionless finalize', () => {
+    const onFinalizeGraduation = vi.fn();
+    view({ deferredGraduation: true, launch: DEFERRED, onFinalizeGraduation });
+    fireEvent.click(screen.getByRole('button', { name: /finalize graduation/i }));
+    expect(onFinalizeGraduation).toHaveBeenCalledTimes(1);
+    // sell tab still trades
+    fireEvent.click(screen.getByRole('button', { name: /^sell$/i }));
+    expect(screen.getByLabelText(/amount of twl to sell/i)).toBeInTheDocument();
+  });
+
+  it('labels the submission→receipt window distinctly from the wallet prompt', () => {
+    view({ pending: true, mining: true });
+    expect(screen.getByText(/confirming on-chain/i)).toBeInTheDocument();
+  });
+
+  it('discloses the unlimited allowance next to the Approve action', () => {
+    view({ needsApproval: true, tokenBalance: parseEther('5') });
+    fireEvent.click(screen.getByRole('button', { name: /^sell$/i }));
+    expect(screen.getByText(/unlimited TWL allowance/i)).toBeInTheDocument();
+  });
+});
