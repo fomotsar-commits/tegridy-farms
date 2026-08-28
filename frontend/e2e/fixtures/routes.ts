@@ -189,7 +189,7 @@ export const ROUTES: readonly RouteSpec[] = [
   ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
     (slug) => ({
       path: `/${slug}`,
-      owner: 'pages/HomePage.tsx (BungalowDoor skin — src/App.tsx maps lib/bungalows.ts)',
+      owner: 'pages/HomePage.tsx',
       gate: null,
       knownViolations: ['heading-order'],
     }),
