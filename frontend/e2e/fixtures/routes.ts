@@ -191,7 +191,11 @@ export const ROUTES: readonly RouteSpec[] = [
       path: `/${slug}`,
       owner: 'pages/HomePage.tsx',
       gate: null,
-      knownViolations: ['heading-order'],
+      // CI-measured 2026-08-28 on the sweep's first pass over these routes:
+      // the 13 default-skin doors present HomePage's heading-order violation;
+      // /bayla's token-first identity hero orders its headings correctly and
+      // measures CLEAN — the exact-assertion refused the over-declared pin.
+      knownViolations: slug === 'bayla' ? [] : ['heading-order'],
     }),
   ),
   {
