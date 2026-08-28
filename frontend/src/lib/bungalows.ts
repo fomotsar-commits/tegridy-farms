@@ -69,6 +69,12 @@ export interface Bungalow {
    * empty reward vault; the live section renders that as a labeled zero.
    */
   stakePool?: string;
+  /**
+   * Token decimals for staking/balance surfaces. Bungalow-generic components
+   * must read this instead of hardcoding one token's — a 9-decimal mint
+   * rendered with a hardcoded 6 shows numbers 1000× off.
+   */
+  decimals?: number;
   /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
   /** Picker card thumbnail. */
@@ -142,6 +148,11 @@ export const BUNGALOWS: Bungalow[] = [
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
     stakePool: BAYLA_STAKE_POOL,
+    // 6 per the mint itself — verified 2026-08-28 against mainnet
+    // (getAccountInfo jsonParsed): owner Token-2022, decimals 6, extensions
+    // [metadataPointer, tokenMetadata] only — NO transfer-fee extension, so
+    // staked/claimed amounts are exact.
+    decimals: 6,
     live: true,
     identity: {
       heroTitle: 'BAYLA.',
@@ -150,7 +161,7 @@ export const BUNGALOWS: Bungalow[] = [
         'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
         'Artists Collective, living on Solana, seated at the lighthouse. Her pull ' +
         'reaches every kind of maker. Trade her, hold her for heat, and stake at the ' +
-        'lighthouse when the pool opens. DM+T = Memetic Finance.',
+        'lighthouse — the pool is live on-chain. DM+T = Memetic Finance.',
       museLine: 'The work is yours. The light is hers.',
       museBy: 'Jungle Bay Artists Collective',
     },
@@ -177,7 +188,12 @@ export const BUNGALOWS: Bungalow[] = [
   { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'Someone is building here.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
 ];
 
-/** Storage key — tegridy- prefix keeps it inside the eviction whitelist, same as tegridy-theme. */
+/**
+ * Storage key. ⚠️ The tegridy- prefix makes a key EVICTABLE under quota
+ * pressure (EVICTABLE_PREFIXES is the sweeper's allowlist, not a protection)
+ * — this key survives only because storage.ts lists it in
+ * EVICTION_PROTECTED_KEYS. A new choice-class key needs the same listing.
+ */
 export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
 
 /** Custom event the footer (or anything else) dispatches to reopen the picker. */
@@ -254,19 +270,22 @@ export function bungalowArtPool(pageId: string): ArtPiece[] | null {
 
 /**
  * Preferred trade route for a bungalow's token: the IN-VENUE Solana swap
- * (which captures the platform fee that can tithe back to bungalow pools)
- * when that surface is configured, else the external canon deep link.
- * Returned as { to } (router path) or { href } (external) so callers render
- * <Link> vs <a> correctly.
+ * when that surface is configured (its platform-fee plumbing is live, though
+ * no share-to-bungalow-pools policy exists yet — do not promise one), else
+ * the external canon deep link. Returned as { to } (router path) or
+ * { href, kind } (external) so callers render <Link> vs <a> correctly AND
+ * label honestly: a Dexscreener token page is a CHART, not a swap venue —
+ * calling it "Trade" hands a courted community a button that trades nothing.
  */
 export function bungalowTradeRoute(
   b: Bungalow,
   solanaConfigured: boolean,
-): { to: string } | { href: string } | null {
+): { to: string } | { href: string; kind: 'swap' | 'chart' } | null {
   if (b.chain === 'solana' && b.address && solanaConfigured) {
     return { to: `/solana?out=${b.address}` };
   }
-  return b.swapUrl ? { href: b.swapUrl } : null;
+  if (!b.swapUrl) return null;
+  return { href: b.swapUrl, kind: /dexscreener\.com/.test(b.swapUrl) ? 'chart' : 'swap' };
 }
 
 /** Block-explorer link for a bungalow's token, per its chain. */

@@ -60,7 +60,9 @@ try {
       }
     }
     const srcs = await artSrcs(page);
-    ok('A: toweli mode shows zero bayla art', srcs.every((s) => !s.src?.includes('/art/bayla/')),
+    // srcs.length > 0 matters: .every() on an empty list is vacuously true,
+    // so a page that mounted ZERO art surfaces used to PASS this check.
+    ok('A: toweli mode shows zero bayla art', srcs.length > 0 && srcs.every((s) => !s.src?.includes('/art/bayla/')),
       `${srcs.length} art surfaces checked`);
     await ctx.close();
   }

@@ -24,6 +24,16 @@ describe('bungalow door unfurls (scripts/render-bungalow-doors.mjs)', () => {
     }
   });
 
+  it('covers every SETTLED token bungalow — since 2026-08-28 their doors are landings with their own unfurl', () => {
+    const settled = BUNGALOWS
+      .filter((b) => !b.live && b.address && b.id !== DEFAULT_BUNGALOW_ID)
+      .map((b) => b.id);
+    expect(settled.length).toBeGreaterThan(0);
+    for (const id of settled) {
+      expect(doorPaths, `settled bungalow '${id}' needs a DOORS entry in the postbuild script`).toContain(id);
+    }
+  });
+
   it('never invents a door for an id outside the island registry', () => {
     const ids = new Set(BUNGALOWS.map((b) => b.id));
     for (const p of doorPaths) {

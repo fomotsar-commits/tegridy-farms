@@ -114,8 +114,13 @@ describe("solrpc proxy", () => {
 
   // 2026-08-27: the lighthouse staking page reads Streamflow pools via SDK
   // program scans. getProgramAccounts stays blocked in general (L-1), but is
-  // allowed when — and only when — params[0] is a Streamflow staking program.
-  it("allows getProgramAccounts against the Streamflow staking programs", async () => {
+  // allowed when — and only when — params[0] is a Streamflow staking program
+  // AND the request narrows with filters. 2026-08-28: the filters requirement
+  // was added because these are PUBLIC shared programs — a filterless scan is
+  // unbounded upstream work billed to the keyed RPC even when the oversized
+  // response 502s. The SDK (Anchor .all()) always sends a discriminator
+  // memcmp + narrowing memcmps — wire-captured 2026-08-28.
+  it("allows FILTERED getProgramAccounts against the Streamflow staking programs", async () => {
     for (const program of [
       "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH",
       "RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj",
@@ -124,12 +129,45 @@ describe("solrpc proxy", () => {
       fetchMock.mockClear();
       const req = makeReq({
         method: "POST",
-        body: { jsonrpc: "2.0", method: "getProgramAccounts", params: [program, { encoding: "base64" }], id: 1 },
+        body: {
+          jsonrpc: "2.0",
+          method: "getProgramAccounts",
+          // The exact wire shape the SDK emits (captured from
+          // searchRewardPools against mainnet).
+          params: [program, {
+            encoding: "base64",
+            commitment: "confirmed",
+            filters: [
+              { memcmp: { offset: 0, bytes: "PVanXA8YbR1", encoding: "base58" } },
+              { memcmp: { offset: 10, bytes: "4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp", encoding: "base58" } },
+            ],
+          }],
+          id: 1,
+        },
       });
       const { res, statusSpy } = makeRes();
       await handler(req, res);
       expect(statusSpy).toHaveBeenCalledWith(200);
       expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("refuses FILTERLESS getProgramAccounts even against allowlisted programs (compute-burn hole)", async () => {
+    for (const cfg of [
+      { encoding: "base64" }, // no filters at all
+      { encoding: "base64", filters: [] }, // empty filters
+      { encoding: "base64", filters: [{ neither: "memcmp nor dataSize" }] }, // non-narrowing entries
+      { encoding: "base64", filters: Array.from({ length: 9 }, () => ({ dataSize: 8 })) }, // absurd filter count
+    ]) {
+      fetchMock.mockClear();
+      const req = makeReq({
+        method: "POST",
+        body: { jsonrpc: "2.0", method: "getProgramAccounts", params: ["STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH", cfg], id: 1 },
+      });
+      const { res, statusSpy } = makeRes();
+      await handler(req, res);
+      expect(statusSpy).toHaveBeenCalledWith(403);
+      expect(fetchMock).not.toHaveBeenCalled();
     }
   });
 

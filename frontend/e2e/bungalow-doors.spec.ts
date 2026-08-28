@@ -63,13 +63,45 @@ test.describe('bungalow doors', () => {
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
   });
 
-  test('a door for a not-yet-live bungalow renders home without switching', async ({ page }) => {
+  test('a settled door renders its LANDING — token plaque, no skin switch', async ({ page }) => {
     await seedOverlays(page);
     await page.addInitScript(() => {
       try { localStorage.setItem('tegridy-bungalow', 'toweli'); } catch { /* ignore */ }
     });
     await page.goto('/drb');
-    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+    // The plaque speaks DRB; the venue home is NOT rendered any more (it
+    // used to say "Farm TOWELI." at DRB's own address).
+    await expect(page.locator('h1').first()).toContainText('DRB', { timeout: 20_000 });
+    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
+    // A landing persists nothing — the visitor's skin stays theirs.
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
+    // Honesty pins: the dexscreener fallback is a CHART (not "Trade"), and
+    // Base tokens get no Scan button (the scanner reads eth+solana only).
+    await expect(page.locator('a:has-text("DRB chart")')).toHaveCount(1);
+    await expect(page.locator('a:has-text("Trade DRB")')).toHaveCount(0);
+    await expect(page.locator('a:has-text("Scan DRB"), button:has-text("Scan DRB")')).toHaveCount(0);
+    // Responsive: the landing must never scroll the page horizontally —
+    // this spec runs on desktop + mobile + tablet projects.
+    expect(await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )).toBeLessThanOrEqual(0);
+  });
+
+  test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {
+    await seedOverlays(page);
+    await page.goto('/nb1');
+    await expect(page.locator('h1').first()).toContainText('Unmarked', { timeout: 20_000 });
+    expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBeNull();
+  });
+
+  test('a crafted ?bungalow= param on a door URL cannot reload-loop the tab', async ({ page }) => {
+    await seedOverlays(page);
+    // Pre-fix: the param re-persisted 'toweli' on every read while the door
+    // persisted 'bayla' and reloaded — ping-pong forever. The door now strips
+    // the param before deciding, so ONE switch happens and then it settles.
+    await page.goto('/bayla?bungalow=toweli');
+    await expect(page.locator('h1').first()).toContainText('BAYLA', { timeout: 20_000 });
+    expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('bayla');
+    expect(new URL(page.url()).searchParams.has('bungalow')).toBe(false);
   });
 });

@@ -18,8 +18,9 @@ described is now the app's real flow:
 - **`frontend/src/lib/bungalows.ts`** — the island registry. 13 slots:
   **Toweli** (live, Ethereum, the default — classic art system untouched),
   **Bayla** (live, Solana, mint `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump`,
-  24-piece pool at `/public/art/bayla/`), **DRB** (named, awaiting
-  token/art), and ten reserved slots.
+  24-piece pool at `/public/art/bayla/`), **ten settled residents** with
+  canon addresses (§3 below — superseding this file's original "DRB +
+  reserved slots" phrasing), and the quiet unmarked slot.
 - **`pageArt()` is bungalow-aware** (`frontend/src/lib/artConfig.ts`). An
   active bungalow's pool feeds every background/card/stat-tile art surface
   app-wide through the same deterministic rotation — zero per-surface edits.
@@ -40,9 +41,13 @@ described is now the app's real flow:
   routes exist today via `BungalowDoor`; a door persists the choice and
   reloads in place, so the address bar keeps the bungalow path and shared
   links land inside the right skin. Doors for not-yet-live bungalows render
-  the current skin and light up automatically when the slot flips live.
-  (Per-door social unfurls still serve the venue OG image — the prerender
-  step is an open operator item.)
+  that bungalow's LANDING — plaque, contract card, trade route/chart, heat
+  (2026-08-28; they previously rendered the generic home under whatever skin
+  was active) — and become full skins automatically when the slot flips
+  live. Per-door social unfurls SHIPPED for all 11 token doors
+  (`scripts/render-bungalow-doors.mjs`, postbuild) and every settled door is
+  in the sitemap; the "prerender is an open operator item" note that used to
+  sit here is closed.
 - **Verification harness** — `frontend/scripts/verify-bungalows.mjs`
   (playwright-core, no e2e infra needed):
   `node scripts/verify-bungalows.mjs <outDir> [baseUrl]`. Asserts: art swaps

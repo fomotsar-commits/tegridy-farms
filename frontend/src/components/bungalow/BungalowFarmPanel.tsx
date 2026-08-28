@@ -131,9 +131,18 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           <div className="relative z-10 p-6">
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
+            {/* Bullets are conditional on what is TRUE for this bungalow:
+                pump.fun creator fees only exist for pump-born mints, and the
+                venue swap-fee route only exists on the Solana surface — where
+                the fee plumbing is live but NO share policy is decided and
+                nothing has been routed yet. Candidates, not streams. */}
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
-              <li><strong>Venue swap fees</strong> — the Solana swap surface captures a platform fee that can route a share here.</li>
+              {bungalow.address?.endsWith('pump') && (
+                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
+              )}
+              {bungalow.chain === 'solana' && (
+                <li><strong>Venue swap fees</strong> — the Solana swap surface&apos;s platform-fee plumbing is live, but no share is routed here yet and no split is decided: a candidate, not a stream.</li>
+              )}
               <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way the TOWELI seed was funded.</li>
             </ul>
           </div>
@@ -147,15 +156,19 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           {(() => {
             const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
             if (!trade) return null;
-            return 'to' in trade ? (
-              <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
-                Trade {bungalow.symbol}
-              </Link>
-            ) : (
+            if ('to' in trade) {
+              return (
+                <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
+                  Trade {bungalow.symbol}
+                </Link>
+              );
+            }
+            const label = trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`;
+            return (
               <a href={trade.href} target="_blank" rel="noopener noreferrer"
-                aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
+                aria-label={`${label} (opens in new tab)`}
                 className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
-                Trade {bungalow.symbol} ↗
+                {label} ↗
               </a>
             );
           })()}

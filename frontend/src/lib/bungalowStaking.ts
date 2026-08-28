@@ -51,6 +51,8 @@ export interface PoolView {
   maxDurationSecs: number;
   /** Raw total staked (base units of the stake mint); null = unreadable. */
   totalStakeRaw: bigint | null;
+  /** On-chain weight ceiling, 1e9-scaled ('1000000000' = flat 1x: lock length adds no boost). */
+  maxWeightRaw: string;
   rewardPools: RewardPoolView[];
 }
 
@@ -111,7 +113,10 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
   try {
     const client = await makeClient();
     const pool: any = await client.getStakePool(stakePool);
-    if (!pool) return { ok: false, reason: READ_FAIL };
+    // Account-not-found is NOT RPC weather: the address is wrong or the pool
+    // is gone. Saying "could not be read right now" there disguises a
+    // permanent misconfig as a transient outage.
+    if (!pool) return { ok: false, reason: 'No stake pool exists at this address. If this persists, the configured pool address is wrong.' };
     const rewardAccounts: any[] = await client.searchRewardPools({ stakePool: stakePool as any });
 
     const rewardPools: RewardPoolView[] = [];
@@ -153,6 +158,7 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
         minDurationSecs: bnToNumber(pool?.minDuration),
         maxDurationSecs: bnToNumber(pool?.maxDuration),
         totalStakeRaw: bnToBigint(pool?.totalStake),
+        maxWeightRaw: String(bnToBigint(pool?.maxWeight) ?? ''),
         rewardPools,
       },
     };
@@ -203,6 +209,32 @@ export function nextVacantNonce(entries: StakeEntryView[]): number | null {
 function writeFailure(err: unknown, fallback: string): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   if (/reject|declin|denied/i.test(msg)) return { ok: false, reason: 'You declined the signature — nothing moved.' };
+  // Streamflow custom error 6012 = the reward vault cannot cover the rewards
+  // this action must pay out. PROVEN ON DEVNET (2026-08-28, same program ids
+  // as mainnet): while accrued > vault, claim AND unstake&claim both revert —
+  // principal stays locked until the vault is topped up, and the backlog is
+  // NOT forfeited (a post-funding claim paid the full dry-window accrual).
+  if (/\b6012\b/.test(msg)) {
+    return {
+      ok: false,
+      reason:
+        'The reward vault cannot cover the accrued rewards this action pays out, so it reverted — nothing moved, nothing is lost. ' +
+        'Claims and exits work again once the vault is topped up; rewards keep accruing meanwhile.',
+    };
+  }
+  // A confirmation timeout is NOT "nothing moved": web3's TransactionExpired*
+  // errors fire AFTER the transaction was broadcast, and it may still land.
+  // Asserting "nothing moved" there invites a duplicate stake (a second
+  // 1–365-day lock of real funds). Say the outcome is unknown and carry the
+  // signature when the error object has one, so the user can check first.
+  const sig = (err as { signature?: unknown } | null)?.signature;
+  if (typeof sig === 'string' && sig !== '' || /not confirmed|expired|block ?height exceeded|timed? ?out/i.test(msg)) {
+    const sigNote = typeof sig === 'string' && sig ? ` Signature: ${sig}` : '';
+    return {
+      ok: false,
+      reason: `Outcome unknown — the transaction was sent and may still land. Check your wallet or Solscan before retrying.${sigNote}`,
+    };
+  }
   return { ok: false, reason: `${fallback}${msg ? ` (${msg.slice(0, 140)})` : ''}` };
 }
 
@@ -335,6 +367,63 @@ export async function claimRewards(args: {
   } catch (err) {
     return writeFailure(err, 'The claim did not go through — your rewards are untouched.');
   }
+}
+
+/* ——— Display helpers ———
+ * NOT money math: every transfer stays the SDK's. These only turn the pool's
+ * on-chain rate constants into honest labels, because hiding them proved
+ * worse: the rate lived in announcement channels while the page showed
+ * nothing, and the vault's runway is an EXIT-SAFETY number here — proven on
+ * devnet 2026-08-28 (Streamflow error 6012, same program ids as mainnet):
+ * while accrued rewards exceed the vault, claim AND unstake&claim revert, so
+ * principal is locked until the vault is topped up past accrual (the backlog
+ * itself survives — a post-funding claim paid the full dry window).
+ */
+
+/** Whole reward tokens per staked whole token per DAY (e.g. 0.003) from the pool's raw rate parts; null when unconfigured. */
+export function rewardRatePerTokenPerDay(rp: RewardPoolView): number | null {
+  const amount = Number(rp.rewardAmountRaw); // 1e9-scaled, per effective staked token per period
+  if (!Number.isFinite(amount) || amount <= 0 || rp.rewardPeriodSecs <= 0) return null;
+  return (amount / 1e9) * (86_400 / rp.rewardPeriodSecs);
+}
+
+/**
+ * Days the funded vault covers at the current total stake.
+ * null = an input is unreadable; Infinity = zero burn (no stake / no rate).
+ * Float precision is fine here — this labels a card, it moves no funds.
+ */
+export function runwayDays(
+  fundedRaw: bigint | null,
+  totalStakeRaw: bigint | null,
+  rp: RewardPoolView,
+): number | null {
+  if (fundedRaw === null || totalStakeRaw === null) return null;
+  const rate = rewardRatePerTokenPerDay(rp);
+  if (rate === null) return null;
+  if (totalStakeRaw === 0n) return Infinity;
+  const burnPerDayRaw = Number(totalStakeRaw) * rate;
+  if (!(burnPerDayRaw > 0)) return Infinity;
+  return Number(fundedRaw) / burnPerDayRaw;
+}
+
+/**
+ * True while the vault is too thin to make staking exit-safe: empty, or
+ * below one day of burn at the current stake, or below one whole token when
+ * nothing is staked yet (a first staker's day-one accrual would exceed dust
+ * immediately — the 1-raw-unit "dust defeats the empty banner" grief).
+ */
+export function vaultIsMateriallyEmpty(
+  fundedRaw: bigint | null,
+  totalStakeRaw: bigint | null,
+  rp: RewardPoolView,
+  decimals: number,
+): boolean {
+  if (fundedRaw === null) return false; // unreadable = outage, not a verdict
+  if (fundedRaw === 0n) return true;
+  const oneToken = 10n ** BigInt(decimals);
+  if (fundedRaw < oneToken) return true;
+  const runway = runwayDays(fundedRaw, totalStakeRaw, rp);
+  return runway !== null && runway < 1;
 }
 
 /* eslint-enable @typescript-eslint/no-explicit-any */

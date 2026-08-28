@@ -11,6 +11,7 @@ import {
   hasChosenBungalow,
   setActiveBungalow,
   bungalowArtPool,
+  bungalowTradeRoute,
 } from './bungalows';
 import { pageArt } from './artConfig';
 
@@ -168,6 +169,24 @@ describe('resolution order', () => {
     expect(getBungalowIdentity()?.symbol).toBe('BAYLA');
     setActiveBungalow(DEFAULT_BUNGALOW_ID);
     expect(getBungalowIdentity()).toBeNull();
+  });
+
+  it('labels dexscreener fallbacks CHART, real swap venues swap, and prefers the in-venue Solana preset', () => {
+    const drb = BUNGALOWS.find((b) => b.id === 'drb')!;
+    const bobo = BUNGALOWS.find((b) => b.id === 'bobo')!;
+    // A Dexscreener token page is an info/chart page — calling it "Trade"
+    // hands a courted community a button that trades nothing (JBM/RIZZ had
+    // no indexed pair at all on 2026-08-25).
+    const drbRoute = bungalowTradeRoute(drb, true);
+    expect(drbRoute && 'kind' in drbRoute ? drbRoute.kind : null).toBe('chart');
+    const boboVenue = bungalowTradeRoute(bobo, true);
+    expect(boboVenue && 'to' in boboVenue ? boboVenue.to : null).toBe(`/solana?out=${bobo.address}`);
+    const boboExt = bungalowTradeRoute(bobo, false);
+    expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
+  });
+
+  it('ships BAYLA decimals in the registry (verified against the live mint 2026-08-28: Token-2022, 6dp, no transfer fee)', () => {
+    expect(BUNGALOWS.find((b) => b.id === 'bayla')!.decimals).toBe(6);
   });
 
   it('switching back to the default restores classic art everywhere', () => {

@@ -43,7 +43,16 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
   };
 
   const select = (b: Bungalow) => {
-    if (!b.live) return;
+    // The quiet slot is the only locked card. A settled-but-not-live bungalow
+    // opens its DOOR LANDING (plaque/contract/trade/heat) — the skin itself
+    // still arrives with the community's art drop, so no choice is persisted
+    // and the current skin stays.
+    if (b.chain === 'tbd') return;
+    if (!b.live) {
+      onClose();
+      window.location.assign(`/${b.id}`);
+      return;
+    }
     setActiveBungalow(b.id);
     if (b.id === currentId) {
       onClose();
@@ -65,8 +74,9 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
       art={ART.jungleBus.src}
     >
       <p className="text-white/80 text-[13px] leading-relaxed mb-4">
-        Thirteen bungalows, one island. Pick where you&apos;re staying — each
-        bungalow dresses the app&apos;s backgrounds in its own art. Same farm,
+        Thirteen bungalows, one island. Live bungalows dress the app&apos;s
+        backgrounds in their own art; settled doors are open — plaque,
+        contract and trade route — while their art drops arrive. Same farm,
         same rails, different vibes.
       </p>
 
@@ -76,15 +86,16 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
       >
         {BUNGALOWS.map((b) => {
           const isCurrent = b.id === currentId;
+          const locked = b.chain === 'tbd'; // only the quiet slot stays locked
           return (
             <button
               key={b.id}
               type="button"
-              disabled={!b.live}
+              disabled={locked}
               onClick={() => select(b)}
               aria-current={isCurrent ? 'true' : undefined}
               className={`relative text-left rounded-xl overflow-hidden transition-transform ${
-                b.live ? 'hover:scale-[1.02] cursor-pointer' : 'opacity-55 cursor-not-allowed'
+                locked ? 'opacity-55 cursor-not-allowed' : 'hover:scale-[1.02] cursor-pointer'
               }`}
               style={{
                 background: 'rgba(4,9,18,0.85)',
@@ -100,14 +111,16 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
                   loading="lazy"
                   width={300}
                   height={64}
-                  className={`w-full h-full object-cover ${b.live ? '' : 'grayscale'}`}
+                  className={`w-full h-full object-cover ${locked ? 'grayscale' : ''}`}
                 />
               </div>
               <div className="p-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-white text-[13px] font-semibold tracking-wide">{b.name}</span>
                   <span className="text-white/50 text-[10px] uppercase tracking-wider">
-                    {b.chain !== 'tbd' ? CHAIN_LABEL[b.chain] : ''}{!b.live ? (b.chain !== 'tbd' ? ' · Soon' : 'Soon') : ''}
+                    {locked
+                      ? 'Soon'
+                      : `${CHAIN_LABEL[b.chain]}${b.live ? '' : ' · Door open'}`}
                   </span>
                 </div>
                 <p className="text-white/60 text-[11px] leading-snug mt-0.5">{b.tagline}</p>

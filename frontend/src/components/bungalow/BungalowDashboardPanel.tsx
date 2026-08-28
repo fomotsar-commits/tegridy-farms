@@ -26,8 +26,8 @@ import { HeatCard } from './HeatCard';
  * Honesty rules: the balance is a direct RPC read; the USD figure renders
  * ONLY when the price endpoint actually answered (no cached/invented
  * prices); heat failures read as an outage, never as cold. No yield, no
- * projections — the lighthouse pool doesn't exist yet and this page doesn't
- * pretend otherwise.
+ * projections — deposits live on the farm page's lighthouse section (when
+ * the bungalow has a pool at all), never here.
  */
 export function BungalowDashboardPanel({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
   usePageTitle(`Dashboard — ${bungalow.symbol}`, `Your ${bungalow.symbol} standing on Jungle Bay Island.`);
@@ -50,7 +50,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   const [usdPrice, setUsdPrice] = useState<number | null>(null);
 
   const mint = bungalow.address!;
-  const decimals = 6; // BAYLA per its pump.fun coin record; registry tokens are SPL 6 unless stated
+  // From the registry — this panel is bungalow-generic and must never bake
+  // in one token's decimals (a 9-decimal mint would read 1000× off).
+  const decimals = bungalow.decimals ?? 6;
   const walletKey = publicKey?.toBase58() ?? '';
 
   // Balance — same parsed-token-accounts read the swap page uses.
@@ -125,8 +127,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                 <h2 className="heading-luxury text-xl text-white mb-3">Connect to see your {bungalow.symbol}</h2>
                 <p className="text-white/85 text-[13px] leading-relaxed mb-4 max-w-md">
                   A read-only look at your balance and heat. Connecting signs nothing and
-                  moves nothing — there is no pool to deposit into yet, so nothing here
-                  will ever ask.
+                  moves nothing — {bungalow.stakePool
+                    ? 'deposits happen on the farm page (the lighthouse pool), never here.'
+                    : 'there is no pool to deposit into yet, so nothing here will ever ask.'}
                 </p>
                 <button type="button" onClick={() => setVisible(true)} className="btn-primary px-6 py-2.5 text-[14px]">
                   Connect Solana Wallet
@@ -170,8 +173,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
             <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">Trade {bungalow.symbol}</Link>
           ) : (
             <a href={trade.href} target="_blank" rel="noopener noreferrer"
-              aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
-              className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">Trade {bungalow.symbol} ↗</a>
+              aria-label={`${trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} (opens in new tab)`}
+              className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">{trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} ↗</a>
           ))}
           <Link to="/farm" className="btn-secondary px-6 py-2.5 text-[13px]">The lighthouse pool</Link>
           {bungalow.address && (

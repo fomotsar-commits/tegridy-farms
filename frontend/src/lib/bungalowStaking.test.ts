@@ -59,7 +59,7 @@ beforeEach(() => {
 describe('readPool', () => {
   it('maps pool + reward pools, reads vault balances, and DETECTS the token program', async () => {
     getStakePool.mockResolvedValue({
-      mint: 'MintAddr', minDuration: bn(86400), maxDuration: bn(86400 * 30), totalStake: bn('5000000'),
+      mint: 'MintAddr', minDuration: bn(86400), maxDuration: bn(86400 * 30), totalStake: bn('5000000'), maxWeight: bn('1000000000'),
     });
     searchRewardPools.mockResolvedValue([
       { publicKey: 'Rp1', account: { mint: 'MintAddr', nonce: bn(0), vault: 'Vault1', rewardAmount: bn('3000'), rewardPeriod: bn(86400) } },
@@ -75,6 +75,8 @@ describe('readPool', () => {
     expect(r.pool.minDurationSecs).toBe(86400);
     expect(r.pool.totalStakeRaw).toBe(5_000_000n);
     expect(r.pool.tokenProgram).toBe('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+    // Flat-weight disclosure keys off this raw value ('1000000000' = 1x).
+    expect(r.pool.maxWeightRaw).toBe('1000000000');
     expect(r.pool.rewardPools).toHaveLength(1);
     // FUNDING-LAST: an empty vault is a real 0n, not null/unknown.
     expect(r.pool.rewardPools[0]!.fundedRaw).toBe(0n);
@@ -126,6 +128,7 @@ describe('stake', () => {
     address: POOL, mint: 'MintAddr', tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
     minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
     totalStakeRaw: 0n,
+    maxWeightRaw: '1000000000',
     rewardPools: [{ address: 'Rp1', mint: 'MintAddr', nonce: 3, fundedRaw: 0n, rewardAmountRaw: '1', rewardPeriodSecs: 86400 }],
   };
 
@@ -167,5 +170,80 @@ describe('stake', () => {
     const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe('You declined the signature — nothing moved.');
+  });
+
+  it('NEVER claims "nothing moved" for a post-broadcast confirmation timeout — outcome unknown + signature', async () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    // web3's TransactionExpiredTimeoutError shape: fired AFTER broadcast,
+    // carries the signature. Asserting "nothing moved" here invited a
+    // duplicate stake (a second real lock) — the recorded submit-path lesson.
+    execute.mockRejectedValue(Object.assign(
+      new Error('Transaction was not confirmed in 30.00 seconds. It is unknown if it succeeded or failed.'),
+      { signature: 'S1gnatuRE111' },
+    ));
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain('Outcome unknown');
+      expect(r.reason).toContain('S1gnatuRE111');
+      expect(r.reason).not.toContain('nothing moved');
+    }
+  });
+
+  it('maps Streamflow 6012 (vault cannot cover payout) to the proven dry-vault explanation', async () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    execute.mockRejectedValue(new Error('Raw transaction Xyz failed ({"err":{"InstructionError":[2,{"Custom":6012}]}})'));
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain('vault');
+      expect(r.reason).toContain('topped up');
+    }
+  });
+});
+
+describe('display helpers (label math only — money stays with the SDK)', () => {
+  const rp = (rewardAmountRaw: string, rewardPeriodSecs: number) => ({
+    address: 'Rp', mint: 'M', nonce: 0, fundedRaw: null as bigint | null, rewardAmountRaw, rewardPeriodSecs,
+  });
+
+  it('derives the whole-token daily rate from raw parts (BAYLA: 3000000/1e9 per day-period = 0.003)', async () => {
+    const { rewardRatePerTokenPerDay } = await import('./bungalowStaking');
+    expect(rewardRatePerTokenPerDay(rp('3000000', 86400))).toBeCloseTo(0.003, 9);
+    // Hourly period compounds the per-day figure ×24.
+    expect(rewardRatePerTokenPerDay(rp('3000000', 3600))).toBeCloseTo(0.072, 9);
+    expect(rewardRatePerTokenPerDay(rp('0', 86400))).toBeNull();
+    expect(rewardRatePerTokenPerDay(rp('3000000', 0))).toBeNull();
+  });
+
+  it('computes runway = vault / (stake × rate): the exit-safety number', async () => {
+    const { runwayDays } = await import('./bungalowStaking');
+    // 1,000 tokens staked (6dp) at 0.003/day burns 3 tokens/day; a 9-token
+    // vault covers exactly 3 days.
+    expect(runwayDays(9_000_000n, 1_000_000_000n, rp('3000000', 86400))).toBeCloseTo(3, 6);
+    expect(runwayDays(9_000_000n, 0n, rp('3000000', 86400))).toBe(Infinity);
+    expect(runwayDays(null, 1n, rp('3000000', 86400))).toBeNull();
+    expect(runwayDays(1n, null, rp('3000000', 86400))).toBeNull();
+  });
+
+  it('vaultIsMateriallyEmpty: dust cannot clear the empty banner, and <1 day of burn is still empty', async () => {
+    const { vaultIsMateriallyEmpty } = await import('./bungalowStaking');
+    const r = rp('3000000', 86400);
+    expect(vaultIsMateriallyEmpty(0n, 0n, r, 6)).toBe(true);
+    // The 1-raw-unit grief: a stranger funding dust used to hide the warning.
+    expect(vaultIsMateriallyEmpty(1n, 0n, r, 6)).toBe(true);
+    expect(vaultIsMateriallyEmpty(999_999n, 0n, r, 6)).toBe(true);
+    // ≥1 whole token with zero burn (nothing staked): not "empty".
+    expect(vaultIsMateriallyEmpty(2_000_000n, 0n, r, 6)).toBe(false);
+    // 2 tokens against 3-token/day burn = 0.67 days runway → still empty.
+    expect(vaultIsMateriallyEmpty(2_000_000n, 1_000_000_000n, r, 6)).toBe(true);
+    // 4 tokens = 1.33 days runway → past the floor.
+    expect(vaultIsMateriallyEmpty(4_000_000n, 1_000_000_000n, r, 6)).toBe(false);
+    // Unreadable vault is an OUTAGE, not a verdict.
+    expect(vaultIsMateriallyEmpty(null, 0n, r, 6)).toBe(false);
   });
 });

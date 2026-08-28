@@ -44,15 +44,17 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
             href={trade.href}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
+            aria-label={`${trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} (opens in new tab)`}
             className={tradeClass}
             style={tradeStyle}
           >
-            Trade {bungalow.symbol}
+            {trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`}
           </a>
         ))}
+        {/* "Stake X" is only promised when a stake pool actually exists —
+            without one the farm route is the honest lighthouse status page. */}
         <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
-          Stake {bungalow.symbol}
+          {bungalow.stakePool ? `Stake ${bungalow.symbol}` : 'The lighthouse'}
         </Link>
         {bungalow.address && (
           <Link

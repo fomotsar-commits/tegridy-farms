@@ -384,7 +384,12 @@ export default function HomePage() {
               WrongChainBanner (renders null when disconnected or on-chain — its
               own mt is only applied when it actually renders), so there's no new
               copy surface and behaviour matches Farm/Community. */}
-          <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+          {/* Suppressed in a token-first bungalow like the calculator/stat
+              pills above: this banner talks about Ethereum-mainnet TOWELI
+              reads that a Solana bungalow's home is not showing. */}
+          {!bungalowIdentity && (
+            <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+          )}
 
           {/* Token-first bungalow (Bayla): the TVL/TOWELI-price stat pills and
               the TOWELI contract strip are the wrong token there — the
