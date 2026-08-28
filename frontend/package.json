@@ -56,7 +56,7 @@
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
     "siwe": "^3.0.0",
-    "sonner": "^2.0.7",
+    "sonner": "^2.0.8",
     "viem": "^2.55.19",
     "wagmi": "^3.7.6",
     "web-push": "^3.6.7",
