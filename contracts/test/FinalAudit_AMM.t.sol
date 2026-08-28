@@ -425,6 +425,13 @@ contract FinalAuditAMM is Test {
         emit log_named_uint("Initial reserve0", r0);
         emit log_named_uint("Initial reserve1", r1);
 
+        // The pair sorts tokens by address, so which reserve holds the rebase
+        // token depends on deployment addresses (toolchain-dependent), not on
+        // createPair argument order — resolve the side explicitly.
+        bool rebaseIsToken0 = rPair.token0() == address(rebaseToken);
+        uint112 rRebase = rebaseIsToken0 ? r0 : r1;
+        uint112 rOther = rebaseIsToken0 ? r1 : r0;
+
         // Now simulate a positive rebase (2x)
         rebaseToken.setMultiplier(200);
 
@@ -432,13 +439,15 @@ contract FinalAuditAMM is Test {
         // This means balance > reserves, and skim/sync will see phantom tokens
         uint256 pairBalance = rebaseToken.balanceOf(address(rPair));
         emit log_named_uint("Pair rebase balance after 2x", pairBalance);
-        assertTrue(pairBalance > r0, "Rebase should inflate balance");
+        assertTrue(pairBalance > rRebase, "Rebase should inflate balance");
 
         // sync() would update reserves to the inflated balance
         // This means LPs can redeem more tokens than were actually deposited
         rPair.sync();
         (uint112 r0After, uint112 r1After,) = rPair.getReserves();
-        emit log_named_uint("Reserve0 after sync", r0After);
+        uint112 rRebaseAfter = rebaseIsToken0 ? r0After : r1After;
+        uint112 rOtherAfter = rebaseIsToken0 ? r1After : r0After;
+        emit log_named_uint("Rebase-side reserve after sync", rRebaseAfter);
 
         // FINDING: MEDIUM - Rebase tokens completely break the AMM invariant.
         // After a positive rebase, sync() inflates reserves, allowing LPs to extract
@@ -446,7 +455,8 @@ contract FinalAuditAMM is Test {
         // causing all swaps/burns to revert.
         // DEFENSE: Contract documentation states rebase tokens are not supported.
         // The factory should ideally block known rebase tokens via blockedTokens.
-        assertTrue(r0After > r0, "sync() absorbed rebase phantom tokens");
+        assertTrue(rRebaseAfter > rRebase, "sync() absorbed rebase phantom tokens");
+        assertEq(rOtherAfter, rOther, "non-rebase reserve must stay flat");
     }
 
     // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
