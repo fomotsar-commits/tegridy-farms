@@ -197,6 +197,117 @@ export async function readErc20Distribution(contract, opts = {}) {
   };
 }
 
+const BS_BASE = 'https://base.blockscout.com/api/v2';
+
+/**
+ * The BASE leg of the same read — Blockscout v2, keyless (the flagship Base
+ * instance). Same three-outcome rule as the Ethplorer leg above; the shape
+ * emitted is byte-compatible with it so the client adapter needs no fork.
+ * Advantages over the eth leg: Blockscout reports `is_contract` per holder
+ * natively (no eth_getCode walk), and the info endpoint carries holders_count.
+ * Holders come 50/page largest-first; up to two pages are read (top ≤100),
+ * which is `top-n` coverage exactly like the eth route.
+ *
+ * @param {string} contract lowercased 0x address (validated by the caller)
+ * @param {{ limit?: number }} [opts]
+ * @returns {Promise<
+ *   | { ok: true, data: object }
+ *   | { ok: false, kind: 'auth' | 'not-a-token' | 'upstream' }
+ * >}
+ */
+export async function readBaseErc20Distribution(contract, opts = {}) {
+  const holderLimit = Math.min(Math.max(1, parseInt(opts.limit, 10) || 100), 100);
+  const accept = { headers: { Accept: 'application/json' } };
+
+  const [infoRes, topRes] = await Promise.all([
+    fetch(`${BS_BASE}/tokens/${contract}`, accept),
+    fetch(`${BS_BASE}/tokens/${contract}/holders`, accept),
+  ]);
+  const { text: infoText, truncated: it } = await readBoundedText(infoRes, MAX_RESPONSE_BYTES);
+  const { text: topText, truncated: tt } = await readBoundedText(topRes, MAX_RESPONSE_BYTES);
+  if (it || tt) return { ok: false, kind: 'upstream' };
+
+  // Blockscout answers a non-token (wallet, NFT contract, unindexed address)
+  // with 404 {"message":"Not found"} — it LOOKED. That is an answer about the
+  // address, same semantics as Ethplorer's code 150.
+  if (infoRes.status === 404 || topRes.status === 404) return { ok: false, kind: 'not-a-token' };
+
+  let info = null;
+  let top = null;
+  try { info = JSON.parse(infoText); } catch { info = null; }
+  try { top = JSON.parse(topText); } catch { top = null; }
+
+  const infoOk = !!info && typeof info === 'object' && !Array.isArray(info);
+  // Blockscout types tokens; a non-fungible answer here is "not an ERC-20",
+  // the address-shaped answer, not a failed read.
+  if (infoOk && infoRes.ok && typeof info.type === 'string' && info.type !== 'ERC-20') {
+    return { ok: false, kind: 'not-a-token' };
+  }
+  const infoUnreadable = !infoOk || !infoRes.ok;
+  const rawTotal = infoOk ? info.total_supply : null;
+  const totalSupply = rawTotal == null ? null : baseUnits(rawTotal);
+
+  // Same row discipline as the eth leg: an unreadable balance fails the WHOLE
+  // read (dropping a holder understates concentration — the flattering
+  // direction); a non-address row is attributable to nobody and is dropped.
+  const readPage = (body) => (body && typeof body === 'object' && Array.isArray(body.items) ? body.items : null);
+  let rows = topRes.ok ? readPage(top) : null;
+
+  // Second page only when the caller wants more than one and the first page
+  // says there is one. A FAILED page-2 read fails the read: silently serving
+  // 50-of-100 as if it were the requested coverage is drift.
+  if (rows && rows.length > 0 && holderLimit > rows.length && top.next_page_params && typeof top.next_page_params === 'object') {
+    try {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(top.next_page_params)) {
+        if (v !== null && v !== undefined) qs.set(k, String(v));
+      }
+      const page2Res = await fetch(`${BS_BASE}/tokens/${contract}/holders?${qs}`, accept);
+      const { text: p2Text, truncated: p2t } = await readBoundedText(page2Res, MAX_RESPONSE_BYTES);
+      if (p2t || !page2Res.ok) { rows = null; }
+      else {
+        let p2 = null;
+        try { p2 = JSON.parse(p2Text); } catch { p2 = null; }
+        const more = readPage(p2);
+        if (more === null) rows = null;
+        else rows = rows.concat(more);
+      }
+    } catch {
+      rows = null;
+    }
+  }
+
+  let holders = rows ? [] : null;
+  for (const h of (rows || []).slice(0, holderLimit)) {
+    const address = String(h?.address?.hash || '').toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(address)) continue;
+    const balance = baseUnits(h?.value);
+    if (balance === null) { holders = null; break; }
+    holders.push({ address, balance, isContract: h?.address?.is_contract === true });
+  }
+  if (rows && rows.length > 0 && holders !== null && holders.length === 0) holders = null;
+
+  const unreadable = infoUnreadable || (rawTotal != null && totalSupply === null) || holders === null;
+  if (unreadable) return { ok: false, kind: 'upstream' };
+
+  const decimals = parseInt(info.decimals, 10);
+  const holdersCount = parseInt(info.holders_count, 10);
+  return {
+    ok: true,
+    data: {
+      chain: 'base',
+      contract,
+      name: info.name || null,
+      symbol: info.symbol || null,
+      decimals: Number.isFinite(decimals) ? decimals : null,
+      totalSupply,
+      holdersCount: Number.isFinite(holdersCount) ? holdersCount : null,
+      source: 'blockscout',
+      holders,
+    },
+  };
+}
+
 /** Chains this deployment can scan. `chain` is required so a caller never has to
  *  infer which one answered — a silent default is how a Solana address gets an
  *  Ethereum answer. */

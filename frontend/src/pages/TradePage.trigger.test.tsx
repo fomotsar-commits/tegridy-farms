@@ -66,7 +66,8 @@ vi.mock('framer-motion', () => {
 });
 
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
-vi.mock('../contexts/PriceContext', () => ({ useTOWELIPriceOptional: () => null }));
+// useTOWELIPrice rides for RealYieldProof, mounted on the swap tab since 2026-08-28.
+vi.mock('../contexts/PriceContext', () => ({ useTOWELIPriceOptional: () => null, useTOWELIPrice: () => ({ price: null, loading: false, error: null }) }));
 vi.mock('../hooks/useTowelie', () => ({ useTowelie: () => ({ say: vi.fn() }) }));
 
 // The swap tab's own machinery is not what this file is about, and none of it renders

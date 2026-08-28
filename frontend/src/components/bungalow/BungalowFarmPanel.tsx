@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
 import { isSolanaConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
@@ -172,8 +172,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               </a>
             );
           })()}
-          {bungalow.address && (
-            <Link to={`/scan?token=${bungalow.address}`} className="btn-secondary px-6 py-2.5 text-[13px]">
+          {bungalowScanRoute(bungalow) && (
+            <Link to={bungalowScanRoute(bungalow)!} className="btn-secondary px-6 py-2.5 text-[13px]">
               Scan {bungalow.symbol}
             </Link>
           )}

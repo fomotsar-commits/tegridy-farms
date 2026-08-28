@@ -60,6 +60,8 @@ export interface Bungalow {
   swapUrl?: string;
   /** Live liquidity pools for this token (labels + external pair pages). */
   pools?: { label: string; url: string }[];
+  /** The community's own home (site or X), from the island outreach dossier. */
+  community?: { label: string; url: string };
   /**
    * Streamflow stake-pool address — the lighthouse pool. Env-keyed so the
    * operator lights it up with a Vercel env var + redeploy, no code commit:
@@ -174,15 +176,15 @@ export const BUNGALOWS: Bungalow[] = [
   // Dormant until each slot flips live. Market notes (2026-08-25 reads) live
   // in docs/ISLAND_ROSTER_DOSSIER.md — JBM and RIZZ had no indexed pairs
   // that day, so their swapUrl stays the canon fallback page regardless.
-  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', swapUrl: 'https://dexscreener.com/ethereum/0x6982508145454ce325ddbe47a25d4ec3d2311933', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', swapUrl: 'https://dexscreener.com/base/0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', swapUrl: 'https://dexscreener.com/ethereum/0x6982508145454ce325ddbe47a25d4ec3d2311933', thumb: '/art/jungle-dark.jpg', community: { label: 'pepe.vip', url: 'https://pepe.vip' }, live: false },
+  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', swapUrl: 'https://dexscreener.com/base/0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', thumb: '/art/jungle-dark.jpg', community: { label: 'qrcoin.fun', url: 'https://qrcoin.fun' }, live: false },
   { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', swapUrl: 'https://dexscreener.com/base/0xe3086852a4b125803c815a158249ae468a3254ca', thumb: '/art/mfers-heaven.jpg', live: false },
-  { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', swapUrl: 'https://dexscreener.com/base/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', swapUrl: 'https://dexscreener.com/base/0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', thumb: '/art/boxing-ring.jpg', live: false },
-  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', swapUrl: 'https://jup.ag/swap/SOL-4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', thumb: '/art/jungle-dark.jpg', live: false },
+  { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', swapUrl: 'https://dexscreener.com/base/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', thumb: '/art/jungle-dark.jpg', community: { label: 'bankr.bot', url: 'https://bankr.bot' }, live: false },
+  { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', swapUrl: 'https://dexscreener.com/base/0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', thumb: '/art/boxing-ring.jpg', community: { label: 'drb task force', url: 'https://bio.site/drbtaskforce' }, live: false },
+  { id: 'bobo', name: 'BOBO', symbol: 'BOBO', chain: 'solana', address: '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', status: 'SETTLED · hammers up', tagline: 'Built brick by brick by its people.', accent: '#dcae60', swapUrl: 'https://jup.ag/swap/SOL-4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump', thumb: '/art/jungle-dark.jpg', community: { label: 'bobothebear.io', url: 'https://bobothebear.io' }, live: false },
   { id: 'jbm', name: 'JBM', symbol: 'JBM', chain: 'base', address: '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#ffd078', swapUrl: 'https://dexscreener.com/base/0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d', thumb: '/art/jungle-bus.jpg', live: false },
-  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', swapUrl: 'https://jup.ag/swap/SOL-4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', thumb: '/art/jungle-dark.jpg', live: false },
-  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', swapUrl: 'https://jup.ag/swap/SOL-8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', thumb: '/art/beach-vibes.jpg', live: false },
+  { id: 'soy', name: 'SOY', symbol: 'SOY', chain: 'solana', address: '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b5c95f', swapUrl: 'https://jup.ag/swap/SOL-4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV', thumb: '/art/jungle-dark.jpg', community: { label: 'soyjak.life', url: 'https://soyjak.life' }, live: false },
+  { id: 'brainlet', name: 'Brainlet', symbol: 'BRAINLET', chain: 'solana', address: '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5fc9b0', swapUrl: 'https://jup.ag/swap/SOL-8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF', thumb: '/art/beach-vibes.jpg', community: { label: '@brainletbadger', url: 'https://x.com/brainletbadger' }, live: false },
   { id: 'rizz', name: 'RIZZ', symbol: 'RIZZ', chain: 'base', address: '0x58d6e314755c2668f3d7358cc7a7a06c4314b238', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#7fe0b0', swapUrl: 'https://dexscreener.com/base/0x58d6e314755c2668f3d7358cc7a7a06c4314b238', thumb: '/art/jungle-dark.jpg', live: false },
   // ——— The quiet one ———
   { id: 'nb1', name: 'Unmarked', symbol: '?', chain: 'tbd', status: 'QUIET', tagline: 'Someone is building here.', accent: '#f2ffe9', thumb: '/art/jungle-dark.jpg', live: false },
@@ -285,7 +287,31 @@ export function bungalowTradeRoute(
     return { to: `/solana?out=${b.address}` };
   }
   if (!b.swapUrl) return null;
-  return { href: b.swapUrl, kind: /dexscreener\.com/.test(b.swapUrl) ? 'chart' : 'swap' };
+  return { href: b.swapUrl, kind: isDexscreenerUrl(b.swapUrl) ? 'chart' : 'swap' };
+}
+
+/** Host-anchored check (CodeQL js/regex/missing-regexp-anchor: a bare
+ *  substring/regex test would also match evil.com/dexscreener.com/…). */
+function isDexscreenerUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    return host === 'dexscreener.com' || host.endsWith('.dexscreener.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * In-venue scanner route for a bungalow's token. Every island chain is
+ * scannable since 2026-08-28 (Base rides the erc20scan route's Blockscout
+ * leg); Base must carry the explicit chain param because a 0x address is
+ * format-ambiguous with Ethereum.
+ */
+export function bungalowScanRoute(b: Bungalow): string | null {
+  if (!b.address) return null;
+  if (b.chain === 'base') return `/scan?token=${b.address}&chain=base`;
+  if (b.chain === 'ethereum' || b.chain === 'solana') return `/scan?token=${b.address}`;
+  return null;
 }
 
 /** Block-explorer link for a bungalow's token, per its chain. */

@@ -442,3 +442,120 @@ describe("v1 erc20scan — the numbers it publishes are the numbers it read", ()
     });
   });
 });
+
+// ── The BASE leg (?chain=base → Blockscout v2), added 2026-08-28 ────────────
+// Same three-outcome rule, different upstream. Shapes below mirror the LIVE
+// base.blockscout.com responses captured that day (BNKR).
+describe("v1 erc20scan — chain=base rides Blockscout with the same honesty rules", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    vi.doMock("../_lib/ratelimit.js", () => ({
+      checkRateLimit: vi.fn(async () => true),
+      checkGlobalLimit: vi.fn(async () => true),
+    }));
+    handler = (await import("../v1/index.js")).default;
+  });
+
+  afterEach(() => { delete globalThis.fetch; });
+
+  const BS_INFO = JSON.stringify({
+    name: "BankrCoin", symbol: "BNKR", decimals: "18",
+    total_supply: "100000000000000000000000000000", holders_count: "186989", type: "ERC-20",
+  });
+  const BS_HOLDERS = JSON.stringify({
+    items: [
+      { address: { hash: "0x1172A9b08573dEC93CD53132875046F8e0770CAf", is_contract: true }, value: "403002638944" },
+      { address: { hash: "0x2222222222222222222222222222222222222222", is_contract: false }, value: "1000" },
+    ],
+    next_page_params: null,
+  });
+
+  function serveBase({ info = upstream(BS_INFO), holders = upstream(BS_HOLDERS) } = {}) {
+    globalThis.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("base.blockscout.com") && u.includes("/holders")) return holders;
+      if (u.includes("base.blockscout.com")) return info;
+      throw new Error("unexpected upstream for a base scan: " + u);
+    });
+  }
+
+  async function scanBase(setup) {
+    serveBase(setup);
+    const req = makeReq({ chain: "base" });
+    const { res, headers, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    return { headers, statusSpy, body: jsonSpy.mock.calls.at(-1)?.[0] };
+  }
+
+  it("serves a readable Base payload in the SAME shape, with Blockscout's native contract flags", async () => {
+    const { body, statusSpy, headers } = await scanBase();
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toMatch(/s-maxage/);
+    expect(body).toMatchObject({
+      chain: "base",
+      symbol: "BNKR",
+      decimals: 18,
+      totalSupply: "100000000000000000000000000000",
+      holdersCount: 186989,
+      source: "blockscout",
+      holders: [
+        { address: "0x1172a9b08573dec93cd53132875046f8e0770caf", balance: "403002638944", isContract: true },
+        { address: "0x2222222222222222222222222222222222222222", balance: "1000", isContract: false },
+      ],
+    });
+  });
+
+  it("maps Blockscout's 404 (looked — not an indexed token) to 422, uncached", async () => {
+    const { statusSpy, headers } = await scanBase({
+      info: upstream('{"message":"Not found"}', { ok: false, status: 404 }),
+      holders: upstream('{"message":"Not found"}', { ok: false, status: 404 }),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(422);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("maps a non-ERC-20 type answer (an NFT contract) to 422 — an answer about the address", async () => {
+    const nft = JSON.stringify({ name: "SomeNFT", symbol: "NFT", type: "ERC-721", decimals: null, total_supply: null, holders_count: "5" });
+    const { statusSpy } = await scanBase({ info: upstream(nft) });
+    expect(statusSpy).toHaveBeenCalledWith(422);
+  });
+
+  it("an unreadable holders body is a 502 failed read, never an empty token", async () => {
+    const { statusSpy, headers } = await scanBase({ holders: upstream("<html>gateway</html>") });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("an unreadable balance fails the WHOLE read (dropping a holder flatters concentration)", async () => {
+    const bad = JSON.stringify({ items: [{ address: { hash: "0x2222222222222222222222222222222222222222", is_contract: false }, value: "1e+21" }], next_page_params: null });
+    const { statusSpy } = await scanBase({ holders: upstream(bad) });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+
+  it("rejects an unsupported chain outright", async () => {
+    serveBase();
+    const req = makeReq({ chain: "arbitrum" });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(400);
+  });
+
+  it("omitting chain still reads Ethereum via Ethplorer — the pre-Base contract", async () => {
+    // The base mock THROWS on any non-blockscout URL, so this asserts routing:
+    // reach Ethplorer, not Blockscout.
+    globalThis.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("base.blockscout.com")) throw new Error("default scan must not touch Blockscout");
+      if (u.includes("getTopTokenHolders")) return upstream(JSON.stringify({ holders: [] }));
+      if (u.includes("ethplorer")) return upstream(INFO);
+      return upstream("{}");
+    });
+    const req = makeReq();
+    const { res, jsonSpy } = makeRes();
+    await handler(req, res);
+    expect(jsonSpy.mock.calls.at(-1)?.[0]).toMatchObject({ chain: "ethereum", source: "ethplorer" });
+  });
+});

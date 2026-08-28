@@ -7,7 +7,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
 import { isSolanaConfigured } from '../../lib/solana';
 import { fromBaseUnits, getUsdPrices } from '../../lib/jupiter';
 import { usePageTitle } from '../../hooks/usePageTitle';
@@ -177,8 +177,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
               className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">{trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} ↗</a>
           ))}
           <Link to="/farm" className="btn-secondary px-6 py-2.5 text-[13px]">The lighthouse pool</Link>
-          {bungalow.address && (
-            <Link to={`/scan?token=${bungalow.address}`} className="btn-secondary px-6 py-2.5 text-[13px]">Scan {bungalow.symbol}</Link>
+          {bungalowScanRoute(bungalow) && (
+            <Link to={bungalowScanRoute(bungalow)!} className="btn-secondary px-6 py-2.5 text-[13px]">Scan {bungalow.symbol}</Link>
           )}
         </div>
       </div>

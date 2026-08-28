@@ -12,6 +12,7 @@ import {
   setActiveBungalow,
   bungalowArtPool,
   bungalowTradeRoute,
+  bungalowScanRoute,
 } from './bungalows';
 import { pageArt } from './artConfig';
 
@@ -183,6 +184,17 @@ describe('resolution order', () => {
     expect(boboVenue && 'to' in boboVenue ? boboVenue.to : null).toBe(`/solana?out=${bobo.address}`);
     const boboExt = bungalowTradeRoute(bobo, false);
     expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
+  });
+
+  it('scan routes carry the explicit chain for Base (0x is format-ambiguous) and exist for all island chains', () => {
+    const drb = BUNGALOWS.find((b) => b.id === 'drb')!;
+    const pepe = BUNGALOWS.find((b) => b.id === 'pepe')!;
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const nb1 = BUNGALOWS.find((b) => b.id === 'nb1')!;
+    expect(bungalowScanRoute(drb)).toBe(`/scan?token=${drb.address}&chain=base`);
+    expect(bungalowScanRoute(pepe)).toBe(`/scan?token=${pepe.address}`);
+    expect(bungalowScanRoute(bayla)).toBe(`/scan?token=${bayla.address}`);
+    expect(bungalowScanRoute(nb1)).toBeNull();
   });
 
   it('ships BAYLA decimals in the registry (verified against the live mint 2026-08-28: Token-2022, 6dp, no transfer fee)', () => {

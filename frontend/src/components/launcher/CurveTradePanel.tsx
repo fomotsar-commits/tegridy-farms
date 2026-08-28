@@ -10,6 +10,7 @@
 
 import { useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { useAccount, useReadContract, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { formatEther, maxUint256, type Address } from 'viem';
@@ -35,6 +36,10 @@ const ERC20_MIN_ABI = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'o', type: 'address' }, { name: 's', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { type: 'function', name: 'balanceOf', stateMutability: 'view', inputs: [{ name: 'a', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ name: 's', type: 'address' }, { name: 'v', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
+  // create() stored the real name/symbol IN the token contract — the honest
+  // fallback when the Irys identity is missing (a launch is never "TOKEN").
+  { type: 'function', name: 'name', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'string' }] },
+  { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'string' }] },
 ] as const;
 
 const SLIPPAGE_PRESETS = [50, 100, 300] as const; // 0.5% / 1% / 3%
@@ -57,6 +62,8 @@ function fmt(wei: bigint, dp = 6): string {
 export interface CurveTradeViewProps {
   launch: CurveLaunch;
   tokenSymbol: string;
+  /** On-chain ERC20 name — the honest header fallback when identity is absent. */
+  fallbackName?: string;
   nativeSymbol?: string;
   /** Creator-published identity (image/description/socials), when resolved.
    *  Absent/none renders an honest monogram tile — never a fabricated image. */
@@ -76,9 +83,11 @@ export interface CurveTradeViewProps {
 function IdentityHeader({
   identity,
   tokenSymbol,
+  fallbackName,
 }: {
   identity?: CurveIdentityResolution;
   tokenSymbol: string;
+  fallbackName?: string;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const ok = identity?.status === 'ok' ? identity.identity : null;
@@ -107,7 +116,7 @@ function IdentityHeader({
       )}
       <div className="min-w-0">
         <p className="text-white/90 text-sm font-semibold truncate">
-          {ok ? ok.name : tokenSymbol}
+          {ok ? ok.name : (fallbackName ?? tokenSymbol)}
           {ok && <span className="text-white/45 font-mono font-normal text-[12px]"> · {ok.symbol}</span>}
         </p>
         {ok?.description && (
@@ -140,6 +149,7 @@ function IdentityHeader({
 export function CurveTradeView({
   launch,
   tokenSymbol,
+  fallbackName,
   nativeSymbol = 'ETH',
   identity,
   tokenBalance,
@@ -186,11 +196,15 @@ export function CurveTradeView({
   if (launch.graduated) {
     return (
       <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
-        <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} />
+        <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
         <p className="text-white/90 text-sm font-semibold">This launch has graduated 🎓</p>
         <p className="text-white/60 text-[12px] mt-1 leading-relaxed">
           The curve is closed. Its liquidity is live in the Tegridy pool with the LP burned to
-          <span className="font-mono"> 0x…dEaD</span> — trade it on the swap, not here.
+          <span className="font-mono"> 0x…dEaD</span> —{' '}
+          <Link to="/swap" className="text-sky-300/80 hover:text-sky-200 underline underline-offset-2">
+            trade it on the venue swap
+          </Link>
+          , not here.
         </p>
       </div>
     );
@@ -224,7 +238,7 @@ export function CurveTradeView({
       className="rounded-2xl p-5 space-y-4"
       style={cardStyle}
     >
-      <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} />
+      <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
 
       {/* Graduation progress */}
       <div>
@@ -403,6 +417,18 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   // Hook order: resolve identity unconditionally (before the loading return).
   const identity = useCurveIdentity(token, chainId, launch?.creator);
+  // Honest fallback: create() stored the REAL name/symbol in the token
+  // contract, so a missing/failed Irys identity must never render "TOKEN" —
+  // read them on-chain instead. Enabled only while identity isn't ok.
+  const wantOnChainId = identity.status !== 'ok';
+  const { data: onChainSymbol } = useReadContract({
+    address: token, abi: ERC20_MIN_ABI, functionName: 'symbol', chainId,
+    query: { enabled: wantOnChainId },
+  });
+  const { data: onChainName } = useReadContract({
+    address: token, abi: ERC20_MIN_ABI, functionName: 'name', chainId,
+    query: { enabled: wantOnChainId },
+  });
   if (!launch) {
     return (
       <div className="rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
@@ -449,7 +475,12 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   return (
     <CurveTradeView
       launch={launch}
-      tokenSymbol={identity.status === 'ok' ? identity.identity.symbol : tokenSymbol}
+      tokenSymbol={
+        identity.status === 'ok'
+          ? identity.identity.symbol
+          : (typeof onChainSymbol === 'string' && onChainSymbol ? onChainSymbol : tokenSymbol)
+      }
+      fallbackName={typeof onChainName === 'string' && onChainName ? onChainName : undefined}
       identity={identity}
       tokenBalance={tokenBalance}
       needsApproval={needsApproval}

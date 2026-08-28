@@ -3,6 +3,7 @@ import type { Bungalow } from '../../lib/bungalows';
 import {
   OPEN_BUNGALOWS_EVENT,
   bungalowExplorerUrl,
+  bungalowScanRoute,
   bungalowTradeRoute,
 } from '../../lib/bungalows';
 import { isSolanaConfigured } from '../../lib/solana';
@@ -36,8 +37,9 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
  *    copy.
  *  - A Dexscreener link is labeled "Chart", never "Trade" (it is an info
  *    page, and two residents had no indexed pair at all on 2026-08-25).
- *  - The scanner reads Ethereum + Solana only, so Base tokens get no Scan
- *    button rather than a wrong-chain scan.
+ *  - The scanner reads all three island chains (Base via the erc20scan
+ *    route's Blockscout leg, since 2026-08-28) — the Scan link carries the
+ *    explicit chain so a Base token is never wrong-chain-scanned.
  *  - Nothing here asks for a wallet signature.
  */
 export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
@@ -50,7 +52,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
   );
   const explorer = bungalowExplorerUrl(bungalow);
   const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
-  const scanSupported = bungalow.chain === 'ethereum' || bungalow.chain === 'solana';
+  const scanRoute = bungalowScanRoute(bungalow);
   const accent = bungalow.accent ?? 'var(--color-kyle)';
 
   return (
@@ -110,8 +112,8 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
                       {trade.kind === 'chart' ? `${bungalow.symbol} chart ↗` : `Trade ${bungalow.symbol} ↗`}
                     </a>
                   ))}
-                  {scanSupported && bungalow.address && (
-                    <Link to={`/scan?token=${bungalow.address}`} className="btn-secondary px-6 py-2.5 text-[13px]">
+                  {scanRoute && (
+                    <Link to={scanRoute} className="btn-secondary px-6 py-2.5 text-[13px]">
                       Scan {bungalow.symbol}
                     </Link>
                   )}
@@ -122,6 +124,13 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
                       {p.label} ↗
                     </a>
                   ))}
+                  {bungalow.community && (
+                    <a href={bungalow.community.url} target="_blank" rel="noopener noreferrer"
+                      aria-label={`${bungalow.name}'s community home (opens in new tab)`}
+                      className="btn-secondary px-6 py-2.5 text-[13px]">
+                      {bungalow.community.label} ↗
+                    </a>
+                  )}
                 </div>
                 <div className="inline-flex items-center gap-3 flex-wrap rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid var(--color-kyle-40)' }}>
                   <span className="text-[10px] uppercase tracking-wider" style={{ color: accent }}>

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
 import { isSolanaConfigured } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -56,9 +56,9 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
         <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
           {bungalow.stakePool ? `Stake ${bungalow.symbol}` : 'The lighthouse'}
         </Link>
-        {bungalow.address && (
+        {bungalowScanRoute(bungalow) && (
           <Link
-            to={`/scan?token=${bungalow.address}`}
+            to={bungalowScanRoute(bungalow)!}
             className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
             style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
           >

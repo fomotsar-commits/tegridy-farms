@@ -27,7 +27,7 @@ import { checkRateLimit, checkGlobalLimit } from "../_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
 import { logSafe } from "../_lib/logSafe.js";
 import { fetchAlchemyWithFailover } from "../_lib/alchemy-failover.js";
-import { readErc20Distribution, handleScanRoute } from "../_lib/scannerApi.js";
+import { readErc20Distribution, readBaseErc20Distribution, handleScanRoute } from "../_lib/scannerApi.js";
 import {
   admitKeyedCall,
   extractPresentedKey,
@@ -345,7 +345,18 @@ export default async function handler(req, res) {
           await admission.settle(400);
           return res.status(400).json({ error: "Missing contract" });
         }
-        const result = await readErc20Distribution(contract, { limit });
+        // Base rides the SAME route via ?chain=base (Blockscout v2, keyless);
+        // omitting the param stays the pre-2026-08-28 Ethereum/Ethplorer read,
+        // so existing callers are untouched. One route, one function budget.
+        const scanChain = String(req.query.chain || "ethereum").toLowerCase();
+        if (scanChain !== "ethereum" && scanChain !== "base") {
+          await admission.settle(400);
+          return res.status(400).json({ error: `Unsupported chain "${scanChain}" — ethereum or base` });
+        }
+        const result =
+          scanChain === "base"
+            ? await readBaseErc20Distribution(contract, { limit })
+            : await readErc20Distribution(contract, { limit });
 
         // ── EVERY READ HAS THREE OUTCOMES AND ONLY TWO ARE ANSWERS ────────────
         //   (a) read it, the answer is no   (b) read it, the answer is yes

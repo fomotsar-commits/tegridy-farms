@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useChainId } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -35,6 +35,7 @@ export function CurveHowItWorks() {
     { k: 'Fee split 40 / 25 / 35', v: 'Every trade funds the creator (40%), the Jungle Bay treasury (25%) and the protocol (35%).' },
     { k: 'Graduate to us', v: 'Hitting the raise target seeds the Tegridy pool with all raised ETH + unsold tokens — LP burned to 0x…dEaD, nobody can pull it.' },
     { k: '3.69% survival reserve', v: "Carved from each launch's supply and released to fund that pool's LP incentives, bribes and bounties." },
+    { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
   ];
   return (
     <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
@@ -47,6 +48,23 @@ export function CurveHowItWorks() {
           </li>
         ))}
       </ul>
+      {/* The survival stack, packaged: what a launch (from HERE or anywhere)
+          gets from the venue after the launch moment — the aftermarket pitch.
+          Every link is a live surface; nothing listed is aspirational. */}
+      <div className="pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+        <p className="text-white/90 text-[12px] font-medium mb-1.5">The survival stack — where tokens go to LIVE</p>
+        <p className="text-white/55 text-[12px] leading-relaxed mb-2">
+          Launchpads optimize the launch moment; almost everything they emit dies at the floor.
+          This venue is built for the part AFTER: burned-LP graduation, the survival reserve,
+          and a trust suite anyone can point at any token —{' '}
+          <Link to="/scan" className="text-sky-300/80 hover:text-sky-200 underline">holder scanner</Link>,{' '}
+          <Link to="/deployer" className="text-sky-300/80 hover:text-sky-200 underline">deployer graph</Link>,{' '}
+          <Link to="/exposure" className="text-sky-300/80 hover:text-sky-200 underline">wallet exposure</Link>{' '}
+          — plus <Link to="/trust" className="text-sky-300/80 hover:text-sky-200 underline">the whole trust hub</Link>.
+          Community tokens get full homes on{' '}
+          <Link to="/bayla" className="text-sky-300/80 hover:text-sky-200 underline">Jungle Bay Island</Link>.
+        </p>
+      </div>
     </div>
   );
 }

@@ -76,10 +76,13 @@ test.describe('bungalow doors', () => {
     // A landing persists nothing — the visitor's skin stays theirs.
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
     // Honesty pins: the dexscreener fallback is a CHART (not "Trade"), and
-    // Base tokens get no Scan button (the scanner reads eth+solana only).
+    // the Base scan link carries its explicit chain (0x is format-ambiguous
+    // with Ethereum — a chain-less link would wrong-chain-scan).
     await expect(page.locator('a:has-text("DRB chart")')).toHaveCount(1);
     await expect(page.locator('a:has-text("Trade DRB")')).toHaveCount(0);
-    await expect(page.locator('a:has-text("Scan DRB"), button:has-text("Scan DRB")')).toHaveCount(0);
+    const scanLink = page.locator('a:has-text("Scan DRB")');
+    await expect(scanLink).toHaveCount(1);
+    expect(await scanLink.getAttribute('href')).toContain('chain=base');
     // Responsive: the landing must never scroll the page horizontally —
     // this spec runs on desktop + mobile + tablet projects.
     expect(await page.evaluate(
