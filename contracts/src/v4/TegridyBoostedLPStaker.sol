@@ -92,6 +92,7 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
 
     event Deposited(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
     event Withdrawn(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
+    event EmergencyWithdrawn(address indexed lp, uint256 indexed tokenId, uint256 liquidity);
     event RewardAdded(uint256 amount, uint256 duration);
     event RewardPaid(address indexed lp, uint256 amount);
 
@@ -174,6 +175,43 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
         emit Withdrawn(msg.sender, tokenId, liq);
     }
 
+    /// @notice ZERO-ORACLE emergency exit — the unconditional principal-recovery
+    ///         path. `withdraw` reads the boost source (tolerantly), which survives a
+    ///         plain revert but NOT a no-code target or a malformed/short return: a
+    ///         high-level call to those still reverts (extcodesize precheck / return
+    ///         decode) and re-traps the NFT. This path reads the boost source NOT AT
+    ///         ALL — it clears the position from stored state only — so it holds no
+    ///         matter how that source breaks. This is the repo's pattern of record for
+    ///         principal recovery (cf. `TegridyLPFarming.emergencyWithdraw`,
+    ///         `TegridyHarvestVault.panic`): a hatch that touches no external read,
+    ///         preferred over silently degrading a read in place (R016 M-1 removed
+    ///         exactly such a degraded-read fallback as "actively harmful").
+    /// @dev    Rewards are PRESERVED, not forfeited: the Synthetix reward math is
+    ///         itself oracle-free, so `updateReward` crystallizes the account's earned
+    ///         rewards here and `getReward()` (also oracle-free) pays them out even
+    ///         during the outage. The effective (boosted) balance is reduced in
+    ///         proportion to the liquidity removed using ONLY stored state — the
+    ///         remaining position (if any) keeps its current effective ratio; a full
+    ///         exit clears to zero. Plain `transferFrom` (no `onERC721Received`) so a
+    ///         contract depositor can never brick the exit.
+    function emergencyWithdraw(uint256 tokenId) external nonReentrant updateReward(msg.sender) {
+        if (depositorOf[tokenId] != msg.sender) revert NotDepositor();
+        uint256 liq = positionLiquidity[tokenId];
+        delete depositorOf[tokenId];
+        delete positionLiquidity[tokenId];
+
+        uint256 oldRaw = liquidityOf[msg.sender];
+        // Proportional, stored-state-only impairment of the boosted balance — never a
+        // boost read. On a full exit (oldRaw == liq) this clears the account exactly.
+        uint256 effReduction = oldRaw == 0 ? 0 : effectiveBalanceOf[msg.sender] * liq / oldRaw;
+        effectiveBalanceOf[msg.sender] -= effReduction;
+        totalEffectiveSupply -= effReduction;
+        liquidityOf[msg.sender] -= liq;
+
+        positionManager.transferFrom(address(this), msg.sender, tokenId);
+        emit EmergencyWithdrawn(msg.sender, tokenId, liq);
+    }
+
     /// @notice Re-apply `lp`'s current boost (permissionless poke).
     function refreshBoost(address lp) external updateReward(lp) {
         _resync(lp, false);
@@ -181,17 +219,27 @@ contract TegridyBoostedLPStaker is OwnableNoRenounce, ReentrancyGuard, IERC721Re
 
     /// @dev The active-boost read, made NON-REVERTING. (2026-08-27, principal-trap fix)
     ///
-    ///      A staker's escrowed LP NFT must be withdrawable regardless of the boost
-    ///      oracle's state. Synthetix `StakingRewards.withdraw` touches nothing external
+    ///      A staker's escrowed LP NFT must be recoverable regardless of the boost
+    ///      source's state. Synthetix `StakingRewards.withdraw` touches nothing external
     ///      but the staking-token transfer; here `withdraw` calls `_resync`, and if the
-    ///      boost read reverted (staking paused, a checkpoint bug, a future ABI break)
-    ///      `_resync` reverted and the NFT — the user's own principal — was TRAPPED.
+    ///      boost read REVERTED (a checkpoint bug, or a staking contract whose read
+    ///      reverts) `_resync` reverted and the NFT — the user's own principal — was
+    ///      TRAPPED.
     ///
-    ///      A failed read now degrades to the 1x floor (no boost). That UNDER-credits
-    ///      the account, which is the safe direction (it can never over-pay the pool),
-    ///      and it self-heals: the next `refreshBoost`/`deposit`/`withdraw` re-reads a
-    ///      healthy oracle. The one guarantee that matters — the NFT comes back — now
-    ///      holds unconditionally.
+    ///      A REVERTING read now degrades to the 1x floor (no boost) on the self-exit
+    ///      path. That UNDER-credits the account — the safe direction, it can never
+    ///      over-pay the pool — and self-heals: the next `refreshBoost`/`deposit`/
+    ///      `withdraw` re-reads a healthy source.
+    ///
+    ///      SCOPE — this try/catch covers a plain REVERT only. It does NOT cover a
+    ///      boost source with no code (the high-level call's extcodesize precheck
+    ///      reverts) or one returning malformed/short data (the uint256 decode
+    ///      reverts); both propagate past the catch and would still re-trap `withdraw`
+    ///      (proven in test/v4). Note also that `aggregateActiveBoostBps` carries no
+    ///      `whenNotPaused`, so a paused staking contract does NOT by itself make the
+    ///      read revert. The UNCONDITIONAL principal-recovery guarantee — covering
+    ///      every one of those break modes — is `emergencyWithdraw`, which reads the
+    ///      boost source not at all.
     ///      TOLERANCE IS SCOPED TO THE SELF-EXIT PATH. (2026-08-27, hardened)
     ///      `tolerant` is true ONLY on `withdraw`, where msg.sender is removing THEIR
     ///      OWN position and the guarantee that matters is the NFT coming back. It is

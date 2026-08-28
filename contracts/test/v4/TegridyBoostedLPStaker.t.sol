@@ -14,7 +14,10 @@ import {TegridyBoostedLPStaker} from "../../src/v4/TegridyBoostedLPStaker.sol";
 
 contract MockReward is ERC20 {
     constructor() ERC20("Reward", "RWD") {}
-    function mint(address to, uint256 amt) external { _mint(to, amt); }
+
+    function mint(address to, uint256 amt) external {
+        _mint(to, amt);
+    }
 }
 
 /// @dev The veTOWELI boost source. Reads can be made to revert on demand, to
@@ -23,9 +26,19 @@ contract MockStakingBoost {
     uint256 public boost;
     bool public reverting;
     mapping(address => uint256) public override_;
-    function setBoost(uint256 b) external { boost = b; }
-    function setBoostFor(address who, uint256 b) external { override_[who] = b; }
-    function setReverting(bool r) external { reverting = r; }
+
+    function setBoost(uint256 b) external {
+        boost = b;
+    }
+
+    function setBoostFor(address who, uint256 b) external {
+        override_[who] = b;
+    }
+
+    function setReverting(bool r) external {
+        reverting = r;
+    }
+
     function aggregateActiveBoostBps(address who) external view returns (uint256) {
         require(!reverting, "STAKING_DOWN");
         uint256 o = override_[who];
@@ -47,7 +60,9 @@ contract MockPositionMgr {
         liq = liq_;
     }
 
-    function mintTo(address to, uint256 tokenId) external { ownerOf[tokenId] = to; }
+    function mintTo(address to, uint256 tokenId) external {
+        ownerOf[tokenId] = to;
+    }
 
     function transferFrom(address from, address to, uint256 tokenId) external {
         require(ownerOf[tokenId] == from, "NOT_OWNER");
@@ -65,9 +80,8 @@ contract MockPositionMgr {
 
     function getPoolAndPositionInfo(uint256) external view returns (PoolKey memory, PositionInfo) {
         int24 spacing = key.tickSpacing;
-        PositionInfo info = PositionInfoLibrary.initialize(
-            key, TickMath.minUsableTick(spacing), TickMath.maxUsableTick(spacing)
-        );
+        PositionInfo info =
+            PositionInfoLibrary.initialize(key, TickMath.minUsableTick(spacing), TickMath.maxUsableTick(spacing));
         return (key, info);
     }
 }
@@ -99,9 +113,8 @@ contract TegridyBoostedLPStakerTest is Test {
         pm = new MockPositionMgr(key, LIQ);
         bytes32 poolId = PoolId.unwrap(key.toId());
 
-        staker = new TegridyBoostedLPStaker(
-            IERC20(address(reward)), address(staking), address(pm), poolId, address(this)
-        );
+        staker =
+            new TegridyBoostedLPStaker(IERC20(address(reward)), address(staking), address(pm), poolId, address(this));
 
         pm.mintTo(alice, TOKEN_ID);
         pm.mintTo(bob, TOKEN_ID_2);
@@ -189,6 +202,7 @@ contract TegridyBoostedLPStakerTest is Test {
         staker.deposit(TOKEN_ID);
         assertEq(pm.ownerOf(TOKEN_ID), alice, "NFT not pulled on a failed deposit");
     }
+
     /// @notice RESIDUAL from the review: a mid-outage withdrawer exits tolerantly at
     ///         1x, and this must NOT retroactively cheapen what they already earned at
     ///         their real boost. `updateReward` crystallises BEFORE `_resync` degrades,
@@ -196,7 +210,7 @@ contract TegridyBoostedLPStakerTest is Test {
     ///         Two stakers with DIFFERENT boosts, so the boost actually drives the split.
     function test_WithdrawMidOutagePaysFullBoostedPreOutageAccrual() public {
         staking.setBoostFor(alice, 45_000); // 4.5x
-        staking.setBoostFor(bob, 10_000);   // 1x
+        staking.setBoostFor(bob, 10_000); // 1x
         _depositAs(alice, TOKEN_ID);
         _depositAs(bob, TOKEN_ID_2);
         // alice effective = LIQ*4.5, bob = LIQ*1 → alice's share is 4.5/5.5.
@@ -225,4 +239,68 @@ contract TegridyBoostedLPStakerTest is Test {
         assertEq(reward.balanceOf(alice) - balBefore, earnedBoosted, "did not pay the full boosted accrual");
     }
 
+    // ── ABI-break coverage: emergencyWithdraw is the UNCONDITIONAL exit. ───────────
+    //    The tolerant withdraw() survives a plain revert (test above), but re-traps on
+    //    a no-code or malformed-return boost source — its high-level call reverts past
+    //    the catch (extcodesize precheck / uint256 decode). These pin that limitation
+    //    AND prove emergencyWithdraw (which reads the boost source not at all) recovers
+    //    the NFT in every break mode.
+
+    function test_EmergencyWithdrawReturnsNFTWhenBoostReadReturnsMalformed() public {
+        _deposit();
+        vm.etch(address(staking), hex"60006000f3"); // returns 0 bytes -> uint256 decode fails
+
+        // Documented limitation: the tolerant withdraw() still re-traps here.
+        vm.prank(alice);
+        vm.expectRevert();
+        staker.withdraw(TOKEN_ID);
+
+        // The zero-oracle hatch always recovers the NFT.
+        vm.prank(alice);
+        staker.emergencyWithdraw(TOKEN_ID);
+        assertEq(pm.ownerOf(TOKEN_ID), alice, "NFT recovered via the zero-oracle hatch");
+        assertEq(staker.liquidityOf(alice), 0, "raw liquidity cleared");
+        assertEq(staker.effectiveBalanceOf(alice), 0, "effective balance cleared");
+        assertEq(staker.totalEffectiveSupply(), 0, "total effective supply cleared");
+    }
+
+    function test_EmergencyWithdrawReturnsNFTWhenBoostSourceHasNoCode() public {
+        _deposit();
+        vm.etch(address(staking), ""); // no code -> extcodesize precheck reverts
+
+        vm.prank(alice);
+        vm.expectRevert();
+        staker.withdraw(TOKEN_ID);
+
+        vm.prank(alice);
+        staker.emergencyWithdraw(TOKEN_ID);
+        assertEq(pm.ownerOf(TOKEN_ID), alice, "NFT recovered via the zero-oracle hatch");
+        assertEq(staker.liquidityOf(alice), 0, "raw liquidity cleared");
+        assertEq(staker.totalEffectiveSupply(), 0, "total effective supply cleared");
+    }
+
+    function test_EmergencyWithdrawIsDepositorGated() public {
+        _deposit();
+        vm.prank(bob); // not the depositor
+        vm.expectRevert(TegridyBoostedLPStaker.NotDepositor.selector);
+        staker.emergencyWithdraw(TOKEN_ID);
+    }
+
+    function test_EmergencyWithdrawPreservesRewards() public {
+        _fundRewards(100 ether, 30 days);
+        _deposit();
+        vm.warp(block.timestamp + 10 days);
+        uint256 owed = staker.earned(alice);
+        assertGt(owed, 0, "accrued something");
+
+        vm.etch(address(staking), ""); // boost source breaks
+        vm.prank(alice);
+        staker.emergencyWithdraw(TOKEN_ID);
+
+        // Reward math is oracle-free, so the crystallized rewards still pay out.
+        uint256 balBefore = reward.balanceOf(alice);
+        vm.prank(alice);
+        staker.getReward();
+        assertEq(reward.balanceOf(alice) - balBefore, owed, "rewards preserved through the emergency exit");
+    }
 }
