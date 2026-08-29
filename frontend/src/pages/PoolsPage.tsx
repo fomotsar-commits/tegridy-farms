@@ -72,7 +72,7 @@ export default function PoolsPage() {
     <div className="relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="swap" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.72)' }} />
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.86)' }} />
       </div>
 
       <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
@@ -195,7 +195,7 @@ export default function PoolsPage() {
   );
 }
 
-const CARD = { background: 'rgba(4,9,18,0.78)', border: '1px solid var(--color-purple-25)' } as const;
+const CARD = { background: 'rgba(4,9,18,0.90)', border: '1px solid var(--color-purple-25)' } as const;
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'good' }) {
   return (
@@ -213,8 +213,8 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub?:
  * different facts and a reader deserves to know which one they are looking at.
  */
 function VenueStatusCard({ status, onRefresh }: { status: VenueStatus | null; onRefresh: () => void }) {
-  const amber = { background: 'rgba(227,179,65,0.10)', border: '1px solid rgba(227,179,65,0.40)' };
-  const green = { background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.40)' };
+  const amber = { background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)' };
+  const green = { background: 'rgba(6,24,14,0.92)', border: '1px solid rgba(34,197,94,0.45)' };
 
   if (status === null) {
     return (
