@@ -13,6 +13,7 @@ import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
+import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
 import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import {
   PAY_WITH_TOKENS,
@@ -998,6 +999,16 @@ function SolanaSwapInner() {
               })}
             </div>
           </div>
+
+          {/* Where the trade goes, and why. Shown in EVERY state — including the
+              ones where our own pool loses or does not exist — because a routing
+              disclosure that only appears when the house wins is an advert. */}
+          <SolanaRouteLine
+            inputMint={payToken.mint}
+            outputMint={buyToken.mint}
+            amountInRaw={baseAmount === null ? null : BigInt(baseAmount)}
+            aggregatorQuote={quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct } : null}
+          />
 
           {/* Quote details */}
           <div className="mb-4 text-[11px] space-y-1">

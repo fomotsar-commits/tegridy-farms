@@ -166,6 +166,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
+      // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
+      // is a live chain probe of the venue's status, so while the program is
+      // undeployed it renders that fact rather than an empty market. Hiding it
+      // would hide the one surface that explains where the venue actually is.
+      { to: '/pools', label: 'Liquidity Pools' },
       // The launch rail is LIVE (LAUNCHER_ENABLED=true since 2026-07-22), so the
       // "Soon" pill self-clears — the flag drives it, so this entry stays honest
       // either way: while gated, /launch renders the SOON wall + LauncherExplainer

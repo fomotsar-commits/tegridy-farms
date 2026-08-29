@@ -229,10 +229,20 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/SolanaSwapPage.tsx',
     gate: null,
     why:
-      'isSolanaConfigured() is false in a built e2e run, so this audits the FeatureNotDeployed ' +
-      'gate, not the Jupiter swap surface behind it. The live surface needs a configured Solana ' +
-      'RPC + program and is not reachable from this suite.',
+      'The surface is no longer gated on a fee account (2026-08-29: isSolanaConfigured was split ' +
+      'into isSolanaFeeConfigured / isSolanaSwapLive), so this audits the REAL swap form. Quotes ' +
+      'still need the Jupiter proxy, so the form renders without live prices in this suite.',
     knownViolations: ['page-has-heading-one'],
+  },
+  {
+    path: '/pools',
+    owner: 'pages/PoolsPage.tsx',
+    gate: null,
+    why:
+      'The venue AMM is not deployed (its program id was closed 2026-08-13), so this audits the ' +
+      'live-probe status card and the proposed fee sheet — which is what the page actually shows until ' +
+      'create_amm_config runs, not a placeholder.',
+    knownViolations: [],
   },
   { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx', gate: null, knownViolations: [] },
   { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx', gate: null, knownViolations: [] },
