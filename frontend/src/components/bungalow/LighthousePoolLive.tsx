@@ -438,10 +438,19 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
                   {!publicKey ? (
                     <>
-                      <p className="text-white/80 text-[13px] mb-3 max-w-md leading-relaxed">
+                      <p className="text-white/80 text-[13px] mb-2 max-w-md leading-relaxed">
                         Connect a Solana wallet to stake. Locks run{' '}
                         {labelForDays(minDays).toLowerCase()} to {labelForDays(maxDays).toLowerCase()};
                         your principal comes back to you when the lock opens.
+                      </p>
+                      {/* The no-early-exit fact belongs BEFORE the wallet, not after
+                          it: this is the screen where someone decides whether to take
+                          part at all. It used to appear only under the stake button,
+                          which a disconnected visitor never reaches. */}
+                      <p className="text-[12px] mb-3 max-w-md leading-relaxed" style={{ color: '#e3b341' }}>
+                        There is no early exit. The program refuses an unstake until the
+                        lock you choose opens — not for a fee, not by the venue, not by
+                        anyone. Pick a lock you can wait out.
                       </p>
                       <button type="button" onClick={() => setVisible(true)} className="btn-primary px-6 py-2.5 text-[13px]">
                         Connect Solana Wallet

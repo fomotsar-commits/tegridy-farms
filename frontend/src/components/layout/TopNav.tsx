@@ -184,7 +184,14 @@ export const TopNav = React.memo(function TopNav() {
               style={{ border: '1px solid var(--color-purple-25)', color: 'var(--color-kyle, #7fd89d)' }}
             >
               <span aria-hidden="true">🏝️</span>
-              <span className="hidden sm:inline">{getActiveBungalow()?.name ?? 'Bungalows'}</span>
+              {/* AUDIT 2026-08-29 (tablet re-pass): the label was `sm:inline`, so
+                  between 640-1023px the chip carried a bungalow name AND the full
+                  primary nav was showing (R038) AND the wallet button — 21px more
+                  than 768px fits, which cut "Connect" off at the right edge. The
+                  emoji keeps the control discoverable; the name returns at lg.
+                  Bungalow names vary in length ("Brainlet" > "Bayla"), so hiding
+                  the label removes that variability from the row entirely. */}
+              <span className="hidden lg:inline">{getActiveBungalow()?.name ?? 'Bungalows'}</span>
             </button>
           </div>
 
@@ -267,7 +274,12 @@ export const TopNav = React.memo(function TopNav() {
             </div>
           </nav>
 
-          <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
+          {/* flex-shrink-0: the wallet cluster is this row's critical action, so
+              it must never be the part that gets compressed. (Width is kept in
+              budget by the chip-label rule above; the nav itself is deliberately
+              NOT given min-w-0/overflow-hidden, because that would clip the
+              "More" dropdown, which is absolutely positioned inside it.) */}
+          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
             {/* AUDIT 2026-05-30 (mobile+iPad re-pass): was `hidden md:block` which (a) failed
                 to actually hide at 390 in the wild and (b) collided with the Connect button
                 at the 768 iPad-portrait breakpoint (50px allocated slot vs 85px text width).
