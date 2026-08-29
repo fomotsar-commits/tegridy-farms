@@ -162,6 +162,47 @@ Ranked by how real they are today:
   domain per bungalow, e.g. bayla.memetics.finance), that is a routing +
   branding decision to take deliberately — flagged, not assumed.
 
+## 5b. THE RAIL'S HARD LIMIT — there is no early exit, at any price (2026-08-29)
+
+Operator asked for a TOWELI-style emergency withdraw, then for a penalty-based
+early exit. **Neither is possible on Streamflow.** This is a property of the
+program, not of our UI, and it constrains the product permanently:
+
+- The stake-pool program exposes exactly two staker instructions, `stake` and
+  `unstake`. `unstake` is refused before the chosen duration elapses —
+  error `6013 LockedStake`, "Stake is locked, unstake is not possible".
+- There is **no** early-exit instruction, so there is no code path to attach a
+  penalty or fee to. A penalty model cannot be built on top of a program that
+  simply refuses.
+- There is **no** admin release, pause, or forfeit-and-exit anywhere in the
+  client — **not even for the pool authority**. TOWELI's `emergencyExit`
+  works only because TegridyStaking is our own contract, gated on pause.
+- The position cannot be sold to someone willing to wait, which would have
+  been a market-priced exit: `deriveStakeEntryPDA` hashes in the staker's own
+  wallet (only that wallet can ever unstake it) **and** the live pool has
+  `freezeStakeMint = true`, so the receipt tokens are frozen and
+  non-transferable. Both independently kill a secondary market or a venue
+  buyback desk.
+- `unstakePeriod` is **not** an escape hatch — it is an additional notice
+  period (`6016 UnstakeRequestRequired`, `6017 UnstakeTooEarly`) that makes
+  exits slower, never earlier.
+- Streamflow's own docs state it plainly: "Once staked, your tokens cannot be
+  withdrawn under any circumstances until the staking period you've committed
+  to ends. There is no early unstake option."
+
+**Therefore `--max-days` IS the exit policy** — the longest any staker can be
+stuck with no recourse of any kind. The only failsafe this rail permits is a
+short ceiling, so the ceremony script now defaults to `--max-days 7`, and
+anything above 30 requires `--accept-long-lock`. The live pool's 365-day
+ceiling is the single strongest reason to replace it; the operator's own
+1,000 BAYLA dust test is locked there until ~2027-08-29 and cannot be
+released by anyone, including the authority.
+
+If a genuine mid-lock exit is ever a hard requirement, it means leaving
+Streamflow for a custom staking program (write + audit), which cuts against
+the repo's battle-tested-only rule. Not recommended; recorded as the known
+cost of that requirement.
+
 ## 6b. Ceremony pre-flight (researched 2026-08-25, live reads)
 
 **Streamflow — product verified current** (streamflow.finance/staking, read

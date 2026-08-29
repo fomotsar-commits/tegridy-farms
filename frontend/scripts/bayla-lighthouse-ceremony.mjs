@@ -237,7 +237,11 @@ async function mainnet() {
   const rate = Number(rateStr);
   const mint = val('--mint', BAYLA_MINT);
   const minDays = Number(val('--min-days', '1'));
-  const maxDays = Number(val('--max-days', '365'));
+  // Default 7, NOT 365. Streamflow has no early exit at any price (see the
+  // warning printed below), so --max-days is the longest a staker can be
+  // stuck with no recourse. The safe value is the default; a long lock has
+  // to be asked for explicitly, and above 30d has to be acknowledged.
+  const maxDays = Number(val('--max-days', '7'));
   const periodDays = Number(val('--period-days', '1'));
   const nonce = Number(val('--nonce', '0'));
   // Lock-duration bonus. 1 = flat (every lock earns the same). Anything above
@@ -248,6 +252,17 @@ async function mainnet() {
   // re-rated), so changing it later means a NEW pool at a new --nonce.
   const maxWeightX = Number(val('--max-weight', '1'));
   if (!(maxWeightX >= 1)) throw new Error('--max-weight must be >= 1 (1 = flat, no duration bonus)');
+  // A lock this long is a promise you cannot un-make for someone else: there
+  // is no early unstake, no penalty exit, no admin release, and the position
+  // cannot be sold (owner-derived PDA + frozen stake mint). Make the operator
+  // say it out loud rather than discover it from a stuck holder.
+  if (maxDays > 30 && !has('--accept-long-lock')) {
+    throw new Error(
+      `--max-days ${maxDays} locks stakers for up to ${maxDays} days with NO early exit of any kind ` +
+      '(Streamflow supports none — not for a fee, not by the pool authority). ' +
+      'Re-run with --accept-long-lock if that is genuinely intended.',
+    );
+  }
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
   const rewardAmount = calculateRewardAmountFromRate(rate, 6, 6);
   if (rewardAmount.isZero()) throw new Error('rate too small for 6/6 decimals — SDK computed rewardAmount 0');
