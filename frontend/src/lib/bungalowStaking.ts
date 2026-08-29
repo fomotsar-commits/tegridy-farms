@@ -310,6 +310,23 @@ export function lockPresets(pool: Pick<PoolView, 'minDurationSecs' | 'maxDuratio
   return [...byDays.values()].sort((a, b) => a.days - b.days);
 }
 
+/**
+ * The lock a staker gets if they touch nothing: ALWAYS the shortest the pool
+ * allows.
+ *
+ * This is a safety invariant, not a style choice. The stake program has no
+ * early exit — not for a penalty, not by the pool authority — and a locked
+ * position cannot even be sold (the entry PDA hashes the staker's own wallet
+ * and the stake mint is frozen). So whatever is pre-selected is what an
+ * inattentive staker is held to, with no recourse, for its whole duration.
+ * The longer, better-paying locks stay one click away; they just have to be
+ * chosen deliberately. Do NOT "improve" this into a mid-range default.
+ */
+export function defaultLockDays(presets: LockPreset[], minDays: number): number {
+  if (!presets.length) return minDays;
+  return Math.min(...presets.map((p) => p.days));
+}
+
 /** "30 Days" / "6 Months" / "1 Year" for an arbitrary day count. */
 export function labelForDays(days: number): string {
   if (days >= 365 && days % 365 === 0) {

@@ -12,6 +12,7 @@ import {
   vaultRunwaySecs,
   unlockTs,
   lockPresets,
+  defaultLockDays,
   labelForDays,
   WEIGHT_SCALE,
   SECONDS_PER_YEAR,
@@ -161,6 +162,27 @@ describe('vaultRunwaySecs', () => {
     expect(vaultRunwaySecs(staked, { ...BAYLA_REWARD, fundedRaw: null })).toBe(null);
     expect(vaultRunwaySecs(BAYLA_POOL, { ...BAYLA_REWARD, fundedRaw: 30_000_000n })).toBe(null);
     expect(vaultRunwaySecs(staked, { ...BAYLA_REWARD, fundedRaw: 30_000_000n, rewardAmountRaw: '0' })).toBe(null);
+  });
+});
+
+describe('defaultLockDays', () => {
+  // Safety invariant, not a preference: this program has no early exit at any
+  // price, so whatever the picker pre-selects is what an inattentive staker is
+  // held to with no recourse. If this test ever fails because someone wanted a
+  // "better" default, the default is wrong — not the test.
+  it('pre-selects the SHORTEST lock the pool allows, never a mid-range one', () => {
+    const presets = lockPresets(BAYLA_POOL);
+    expect(presets.map((p) => p.days)).toContain(30);
+    expect(defaultLockDays(presets, 1)).toBe(1);
+  });
+
+  it('honours a pool whose own minimum is longer than a day', () => {
+    const weekMin = { ...BAYLA_POOL, minDurationSecs: 7 * DAY, maxDurationSecs: 90 * DAY };
+    expect(defaultLockDays(lockPresets(weekMin), 7)).toBe(7);
+  });
+
+  it('falls back to the pool minimum when there are no presets', () => {
+    expect(defaultLockDays([], 3)).toBe(3);
   });
 });
 

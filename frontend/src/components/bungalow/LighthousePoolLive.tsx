@@ -14,6 +14,7 @@ import {
   unstakeAndClaim,
   claimRewards,
   lockPresets,
+  defaultLockDays,
   labelForDays,
   stakeWeight,
   isFlatWeight,
@@ -163,7 +164,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const minDays = pool ? Math.max(1, Math.ceil(pool.minDurationSecs / DAY)) : 1;
   const maxDays = pool ? Math.max(minDays, Math.floor(pool.maxDurationSecs / DAY)) : minDays;
   const presets = useMemo(() => (pool ? lockPresets(pool) : []), [pool]);
-  const defaultDays = presets.find((p) => p.days === 30)?.days ?? presets[0]?.days ?? minDays;
+  // SAFE DEFAULT (2026-08-29): the SHORTEST lock the pool allows, never a
+  // pre-selected 30 days — see defaultLockDays() for why this is a safety
+  // invariant rather than a preference.
+  const defaultDays = defaultLockDays(presets, minDays);
   const chosenDays = Math.min(maxDays, Math.max(minDays, days ?? defaultDays));
   const chosenSecs = chosenDays * DAY;
   const amountRaw = toRaw(amount, decimals);
