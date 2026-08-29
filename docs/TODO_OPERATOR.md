@@ -29,6 +29,76 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — newest layer; supersedes everything below
+
+Two sessions' work. Full records: [`SOLANA_LP_VENUE_2026_08_29.md`](SOLANA_LP_VENUE_2026_08_29.md)
+and [`BAYLA_STAKING_SWAP_2026_08_28.md`](BAYLA_STAKING_SWAP_2026_08_28.md).
+
+**Baseline after: frontend 446 files / 6,279 tests green, tsc clean, eslint clean, a11y green on
+`/pools`, `/solana` and `/swap` across chromium + iPhone + iPad + mobile-chrome.** Still unpushed.
+
+**Landed (do not redo):** the BAYLA lighthouse staking module rebuilt on the TOWELI card pattern
+(lock presets as buttons carrying each lock's rate, "paying now 0%" beside "configured 109.5%",
+unstake disabled until the lock opens) · the Solana swap ungated and a `ChainSwitch` on both trade
+surfaces · the Bayla dashboard reworked · **the whole cp-swap client, own-pool router and `/pools`
+surface**, built to the deploy boundary.
+
+### 🔴 THE SOLANA LP VENUE — only you can unblock it, and it is ONE instruction from live
+
+Everything on the client side is written, tested and merged. The venue itself needs five things,
+in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
+
+1. **Generate a fresh keypair** for cp-swap and put its pubkey in `declare_id!`. The old id
+   (`3ZvZXEBr…`) was closed 2026-08-13 and is permanently SPENT — it can never hold a program again.
+2. **`admin::ID` must be a signable, system-owned, FUNDED account.** It is resolved at compile
+   time, so getting it wrong costs another program upgrade. ⚠️ This is exactly what bricked
+   2026-08-08: it was set to the Squads MULTISIG ACCOUNT, which can neither sign a CPI nor pay
+   rent, which made `create_amm_config` permanently uncallable. Fund it above AmmConfig rent —
+   the audit found it holding 0.001 SOL.
+3. **`create_pool_fee_reveiver::ID` must be a WSOL TOKEN ACCOUNT, not a wallet** — the create path
+   deserializes it as `InterfaceAccount<TokenAccount>` and calls `sync_native`. Also compile-time.
+   Create the treasury's WSOL ATA **before** the deploy.
+4. **Deploy, then run `create_amm_config`** — the two-step that has never once run in this
+   program's history. Recommended args (0.25% trade / 12% protocol / 4% fund / 0.15 SOL create /
+   0% creator → trader pays 0.25%, LPs keep 0.21%, venue takes 0.04%):
+   `create_amm_config(0, 2500, 120000, 40000, 150000000, 0)`
+5. **Publish the new id as `VITE_SOLANA_CPSWAP_PROGRAM`.** `/pools` goes live, the fee sheet starts
+   reading off chain, and the swap starts quoting our own pools — no code change, no frontend
+   redeploy needed beyond the env var.
+
+Optional but cheap, and it protects the whole thing: **arm branch protection on `mvp-launch`.**
+`diff-guard` — which proves the AMM is still verbatim Raydium — has **zero required checks**, so it
+is advisory today. Unenforced, it is a comment.
+
+### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
+
+1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
+   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
+   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
+   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
+   builders get their first real execution.
+2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
+3. **Move Jupiter routing to the self-hosted swap API.** The routing ENGINE stays (most volume,
+   longest track record on Solana; swapping to a smaller aggregator is backwards from rule 0). The
+   hosted `lite-api.jup.ag` endpoint is the real dependency — if it rate-limits, our swap dies.
+   ⚠️ The aggregator security-history research was interrupted and never finished; if an engine
+   change is ever considered, finish that first.
+
+### 🔴 Two decisions on the BAYLA lighthouse pool
+
+1. **The pool grants NO duration bonus.** `minWeight == maxWeight == 1e9`, so a 365-day lock earns
+   exactly what a 1-day lock earns — only the exit date changes. `maxWeight` is set at pool
+   CREATION, so a TOWELI-style "lock longer, earn more" curve needs a **new pool and a staker
+   migration**. The UI already implements the program's real weight curve and would light up with
+   zero code changes. Decide; do not assume either way.
+2. **A one-click "top up the reward vault"** is buildable (the reward pool is `permissionless:
+   true`, and the SDK ships `fundPool`) and was left out only because Streamflow takes a protocol
+   fee on funding that must be read and disclosed first. Say the word.
+3. **The vault is still empty**, so the lighthouse pays 0% — unchanged, and the panel says so in
+   four places.
+
+---
+
 ## 🟢 2026-08-28 (LATE) — CONSOLIDATION SWEEP — newest layer; supersedes everything below
 
 A wrap-up pass over every parallel session. Full record:

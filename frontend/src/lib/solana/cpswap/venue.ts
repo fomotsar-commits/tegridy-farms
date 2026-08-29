@@ -1,4 +1,4 @@
-import { ratePercent } from './math';
+import { ratePercent, FEE_RATE_DENOMINATOR as FEE_DENOMINATOR } from './math';
 
 /**
  * The venue's RECOMMENDED AmmConfig — i.e. the arguments the operator passes to
@@ -104,15 +104,17 @@ export function feeSplit(config: {
   protocolFeeRate: bigint;
   fundFeeRate: bigint;
 }): FeeSplit {
+  const venueShare = config.protocolFeeRate + config.fundFeeRate;
+  // Each part is formed as ONE bigint numerator over one exact power of ten,
+  // rather than by subtracting floats. `0.3 - 0.075` is 0.22499999999999998 in
+  // doubles, which a two-decimal display renders as 0.22 — understating what an
+  // LP keeps by half a basis point on a number this page presents as their cut.
+  const DEN = 10_000n * FEE_DENOMINATOR;
   const traderPaysPct = ratePercent(config.tradeFeeRate);
-  const venueShareOfFeePct = ratePercent(config.protocolFeeRate + config.fundFeeRate);
-  const venueTakesPct = traderPaysPct * (venueShareOfFeePct / 100);
-  return {
-    traderPaysPct,
-    venueTakesPct,
-    lpKeepsPct: traderPaysPct - venueTakesPct,
-    venueShareOfFeePct,
-  };
+  const venueShareOfFeePct = ratePercent(venueShare);
+  const venueTakesPct = Number(config.tradeFeeRate * venueShare) / Number(DEN);
+  const lpKeepsPct = Number(config.tradeFeeRate * (FEE_DENOMINATOR - venueShare)) / Number(DEN);
+  return { traderPaysPct, venueTakesPct, lpKeepsPct, venueShareOfFeePct };
 }
 
 /**

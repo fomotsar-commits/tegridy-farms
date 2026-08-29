@@ -72,6 +72,16 @@ describe('feeSplit', () => {
     }
   });
 
+  it('forms each part exactly, rather than by subtracting floats', () => {
+    // 0.3 - 0.075 is 0.22499999999999998 in doubles, which a two-decimal display
+    // renders as 0.22 — understating an LP's cut by half a basis point on the
+    // one number this venue asks them to judge it by.
+    const s = feeSplit({ tradeFeeRate: 3_000n, protocolFeeRate: 250_000n, fundFeeRate: 0n });
+    expect(s.lpKeepsPct).toBe(0.225);
+    expect(s.venueTakesPct).toBe(0.075);
+    expect(s.lpKeepsPct.toFixed(2)).toBe('0.23');
+  });
+
   it('reads a chain config the same way it reads the proposal', () => {
     // The page uses this over `readVenue()` output; if the two disagreed, the
     // disclosure and the proposal would drift the moment the operator retuned.
