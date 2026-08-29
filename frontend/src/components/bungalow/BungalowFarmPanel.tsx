@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
-import { isSolanaSwapLive } from '../../lib/solana';
+import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
@@ -133,7 +133,15 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
               <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
-              <li><strong>Venue swap fees</strong> — the Solana swap surface captures a platform fee that can route a share here.</li>
+              {/* This read "captures a platform fee" while the venue had no fee
+                  recipient configured, i.e. while it captured nothing. The claim
+                  now follows the same gate the swap's own fee line does. */}
+              <li>
+                <strong>Venue swap fees</strong> —{' '}
+                {isSolanaFeeConfigured()
+                  ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
+                  : 'the Solana swap surface is live here, but it takes no platform fee today — there is nothing to share until one is switched on.'}
+              </li>
               <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way the TOWELI seed was funded.</li>
             </ul>
           </div>
