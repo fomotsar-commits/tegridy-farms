@@ -78,7 +78,27 @@ is advisory today. Unenforced, it is a comment.
    no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
    builders get their first real execution.
 2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
-3. **Move Jupiter routing to the self-hosted swap API.** The routing ENGINE stays (most volume,
+3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
+   implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew
+   cp-swap PDA helpers (`cpAmmConfigPda`, `cpAmmAuthorityPda`, `cpLpMintPda`,
+   `cpPoolVaultPda`, `cpObservationPda`) because `migrate_to_amm` has to derive the
+   pool it migrates into; `lib/solana/cpswap/program.ts` (2026-08-29) derived them
+   again. They are pinned EQUAL by `cpswap/pdaAgreement.test.ts`, so the duplication
+   is safe today and any divergence fails loudly — but it should be one home.
+   **Recommendation: `lib/solana/cpswap/` wins** (it is the dedicated client, its
+   seeds are checked against the Rust source, and it refuses to default to the SPENT
+   program id, which the launcher helpers do). Do it AFTER the branch below merges —
+   refactoring under an open branch on the same file is how a divergence becomes an
+   unreviewable conflict.
+4. 🔀 **Review and merge `claude/create-amm-config-builder`** (worktree `C:/tw`,
+   commit `c16191e7`, clean, unmerged). A parallel session built the
+   `create_amm_config` / `update_amm_config` instruction builders — the one thing
+   `/pools` does NOT build (it renders the args for the operator to run by CLI).
+   Its `createAmmConfig` discriminator matches the one derived independently here
+   byte-for-byte, and it documents the same BE-seed / LE-arg asymmetry. It lands in
+   the curve client's `ix.ts`; per item 3 it probably belongs in
+   `lib/solana/cpswap/ix.ts` instead.
+5. **Move Jupiter routing to the self-hosted swap API.** The routing ENGINE stays (most volume,
    longest track record on Solana; swapping to a smaller aggregator is backwards from rule 0). The
    hosted `lite-api.jup.ag` endpoint is the real dependency — if it rate-limits, our swap dies.
    ⚠️ The aggregator security-history research was interrupted and never finished; if an engine
@@ -91,6 +111,12 @@ is advisory today. Unenforced, it is a comment.
    CREATION, so a TOWELI-style "lock longer, earn more" curve needs a **new pool and a staker
    migration**. The UI already implements the program's real weight curve and would light up with
    zero code changes. Decide; do not assume either way.
+   ✅ **The tool for it already exists:** a parallel session added `--max-weight <x>` to
+   `frontend/scripts/bayla-lighthouse-ceremony.mjs` (`d9ab6c92`), which sets the bonus at
+   `--max-days` ramping linearly from 1.00x, and prints the resulting LOCK LADDER (weight,
+   effective daily rate, simple APR per tier) before anything is signed. It independently
+   confirmed the same finding: `maxWeight` is a stake-pool field with **no update
+   instruction**, so it is fixed for the life of a pool.
 2. **A one-click "top up the reward vault"** is buildable (the reward pool is `permissionless:
    true`, and the SDK ships `fundPool`) and was left out only because Streamflow takes a protocol
    fee on funding that must be read and disclosed first. Say the word.
