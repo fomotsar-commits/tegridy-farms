@@ -11,6 +11,11 @@ import { usePageTitle } from '../../hooks/usePageTitle';
 const LighthousePoolLive = lazy(() =>
   import('./LighthousePoolLive').then((m) => ({ default: m.LighthousePoolLive })),
 );
+// The EVM leg (vendored Synthetix StakingRewards; provenance D8). Split the
+// same way — wagmi write plumbing has no business in a Solana bungalow's chunk.
+const EvmLighthousePoolLive = lazy(() =>
+  import('./EvmLighthousePoolLive').then((m) => ({ default: m.EvmLighthousePoolLive })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -96,7 +101,11 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
             </div>
           }>
-            <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            {bungalow.chain === 'solana' ? (
+              <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            ) : (
+              <EvmLighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            )}
           </Suspense>
         ) : (
         <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>

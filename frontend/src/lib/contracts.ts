@@ -392,6 +392,25 @@ export const lpFarmingConfig = {
   abi: LP_FARMING_ABI,
 } as const;
 
+// ─── Island lighthouse (vendored canonical Synthetix StakingRewards) ─────────
+// The EVM bungalow staking pool: contracts/src/vendor/synthetix-staking-rewards/
+// (provenance D8 — verbatim port, so THESE selectors are the canonical set;
+// unlike TegridyLPFarming above, balanceOf/totalSupply DO exist here). One ABI,
+// deployed per token per chain; addresses live in the bungalow registry.
+export const LIGHTHOUSE_STAKING_ABI = [
+  { type: 'function', name: 'stake', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'withdraw', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'getReward', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'exit', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardRate', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'getRewardForDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
 // ─── TegridyLending (P2P NFT-Collateralized Lending) ───────────
 export const TEGRIDY_LENDING_ABI = [
   { type: 'function', name: 'createLoanOffer', inputs: [{ name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_minPositionValue', type: 'uint256' }, { name: '_minPositionETHValue', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },

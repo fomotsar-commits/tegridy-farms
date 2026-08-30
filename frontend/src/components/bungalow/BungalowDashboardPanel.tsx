@@ -32,6 +32,14 @@ import { BungalowHolders } from './BungalowHolders';
  *
  * The classic dashboard is EVM/TOWELI head to toe (wagmi reads, staking
  * position, ETH revenue), none of which describes a Solana bungalow token.
+ *
+ * EVM residents (WO-2 seam, deliberate): this panel is Solana-built to the
+ * bone (SolanaProviders, wallet-adapter). When the FIRST EVM bungalow goes
+ * live (its identity lands with the art drop), build an
+ * EvmBungalowDashboardPanel SIBLING and branch by chain at the mount site —
+ * exactly how BungalowFarmPanel branches to EvmLighthousePoolLive. Do NOT
+ * thread wagmi through SolanaProviders. Until then there is no consumer:
+ * every EVM resident is identity-less and this panel never mounts for them.
  * This panel is the token-first replacement: what you hold, what you have
  * staked, what it has accrued, what the market says, who else holds her, and
  * how long you have held.
