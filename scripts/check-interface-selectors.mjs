@@ -114,6 +114,11 @@ const EXTERNAL_FRONTEND_ABIS = new Set([
 // is a hard failure rather than a silent skip.
 const FRONTEND_ABI_TARGET_OVERRIDES = {
   LP_FARMING_ABI: 'TegridyLPFarming', // export drops the `Tegridy` prefix
+  // The island's EVM lighthouse — the VENDORED canonical Synthetix staker
+  // (contracts/src/vendor/synthetix-staking-rewards/). In-repo artifact, so it
+  // belongs here; the export name carries the island vocabulary, not the
+  // contract's.
+  LIGHTHOUSE_STAKING_ABI: 'StakingRewards',
   // Same shape — the airdrop/vesting surface landed with the prefix dropped, so
   // `normalize(stem)` finds no candidate and the guard fails the whole job. These
   // ARE in-repo contracts (contracts/src/TegridyAirdropDistributor.sol,
