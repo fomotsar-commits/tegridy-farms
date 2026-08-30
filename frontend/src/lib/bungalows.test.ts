@@ -48,7 +48,19 @@ describe('bungalow registry', () => {
     expect(bayla?.artPool).toBe(BAYLA_ART);
   });
 
-  it('marks every unconfirmed bungalow as not live so the picker cannot select it', () => {
+  it('placeholder skins: every settled resident is live, voiced, and wears CLASSIC art', () => {
+    // Owner call 2026-08-30: skins on now, custom art later. The contract:
+    // live + an honest registry identity + NO artPool — pageArt's classic
+    // fallback IS the placeholder, so the community drop later swaps walls,
+    // never rails. Only the quiet unmarked slot stays not-live.
+    const notLive = BUNGALOWS.filter((x) => !x.live).map((b) => b.id);
+    expect(notLive).toEqual(['nb1']);
+    for (const b of BUNGALOWS.filter((x) => x.live && x.id !== 'toweli' && x.id !== 'bayla')) {
+      expect(b.identity, `${b.id} placeholder skin needs a voice`).toBeTruthy();
+      expect(b.identity?.heroTitle).toBe(`${b.symbol}.`);
+      expect(b.artPool, `${b.id} wears classic art until its community's drop`).toBeUndefined();
+      expect(b.identity?.museVoice, `${b.id} bubble speaks as the island, never another resident`).toBe('the island');
+    }
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
       expect(b.artPool, `${b.id} has no art pool until it goes live`).toBeUndefined();
     }
@@ -143,10 +155,15 @@ describe('pageArt() bungalow swap', () => {
   });
 
   it('treats a non-live or unknown stored id as the classic default', () => {
-    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'drb');
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'nb1');
     expect(getActiveBungalow()).toBeNull();
     localStorage.setItem(BUNGALOW_STORAGE_KEY, 'not-a-bungalow');
     expect(getActiveBungalow()).toBeNull();
+    expect(pageArt('farm', 0).src).not.toMatch(/^\/art\/bayla\//);
+    // And the flip's other half: a settled resident now RESOLVES (live
+    // placeholder skin) — with classic art, since it has no pool.
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'drb');
+    expect(getActiveBungalow()?.id).toBe('drb');
     expect(pageArt('farm', 0).src).not.toMatch(/^\/art\/bayla\//);
   });
 });
@@ -162,9 +179,12 @@ describe('resolution order', () => {
   });
 
   it('ignores deep links to bungalows that are not live', () => {
-    window.history.replaceState({}, '', '/?bungalow=drb');
+    window.history.replaceState({}, '', '/?bungalow=nb1');
     expect(getActiveBungalow()).toBeNull();
     expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBeNull();
+    // A settled resident's deep link works since the placeholder-skin flip.
+    window.history.replaceState({}, '', '/?bungalow=drb');
+    expect(getActiveBungalow()?.id).toBe('drb');
   });
 
   it('getBungalowIdentity gates token-first surfaces: bayla yes, default and no-choice no', () => {
