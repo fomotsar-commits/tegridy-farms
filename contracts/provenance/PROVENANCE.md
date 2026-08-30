@@ -164,6 +164,31 @@ under `upstream/` are unmodified reference sources with full attribution here an
 `upstream.lock.json`; the derived port file carries `SPDX-License-Identifier: GPL-3.0-or-later`
 rather than the repo-default MIT.
 
+### D8. StakingRewards family — verbatim 0.8 port of the Synthetix staker (WO-2 EVM lighthouse, 2026-08-30)
+
+Three new targets, pinned from `Uniswap/liquidity-staker@3edce550aeeb` (Synthetix's
+canonical single-asset staker as audited + deployed for the UNI/WETH program; the
+`Synthetixio/synthetix` v2 repo 404s on GitHub — the frozen liquidity-staker copy is
+the highest-value-secured surviving canonical). Full pin story + the same-token
+funding hazard: `contracts/src/vendor/synthetix-staking-rewards/VENDOR.md`.
+
+| target | divergence set (the WHOLE expected diff) |
+|---|---|
+| `StakingRewards` | OZ-2.3.0→OZ-5 import paths (unused `ERC20Detailed` dropped, `IERC20` explicit); `using SafeMath` removed + every `.add/.sub/.mul/.div` call-site → native checked operator (identical revert-on-overflow semantics); `constructor` loses 0.5's `public`; `override` on `notifyRewardAmount` |
+| `RewardsDistributionRecipient` | `abstract` + `virtual` — 0.8's spelling of an implicitly-abstract 0.5 contract |
+| `IStakingRewards` | **zero drift** (its `>=0.4.24` pragma already admits 0.8.26; the SPDX comment line folds) |
+
+**No behavior hunks.** Every require string, event, storage slot and function body is
+canonical. Pinned by: `contracts/test/vendor/StakingRewardsLighthouse.t.sol` — the
+full stake/notify/earn/withdraw cycle, the anti-hostage pin (`withdraw` succeeds with
+ZERO funded rewards — the property the Solana lighthouse's devnet-proven error-6012
+class cannot offer), the canonical `Provided reward too high` guard, and the
+**same-token principal-insolvency hazard** stated as a test (an over-notify that
+counts staked principal as fundable balance lets `getReward` spend principal and
+strands the last withdrawer — which is WHY the funding ceremony must enforce
+`reward ≤ balanceOf(pool) − totalSupply()` before notify; the contract itself stays
+verbatim).
+
 ## Scope limits (what this gate does NOT check)
 
 - **Imported bodies** (OZ ERC20/SafeERC20/ReentrancyGuard/EnumerableSet, solmate
