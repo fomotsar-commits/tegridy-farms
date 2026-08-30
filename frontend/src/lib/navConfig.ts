@@ -11,7 +11,8 @@ import {
   PREMIUM_ACCESS_ADDRESS,
   CURVE_LAUNCHER_ADDRESS,
 } from './constants';
-import { isSolanaConfigured } from './solana';
+import { isSolanaSwapLive } from './solana';
+import { getActiveBungalow } from './bungalows';
 import { isIndexerConfigured } from './indexer/client';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
@@ -93,21 +94,39 @@ export const COMMUNITY_LIVE = PROMOTE_PENDING || COMMUNITY_ADDRESSES_LIVE;
 
 export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 
-// Solana fee-capture surface (Surface A). Gated until the operator sets a fee
-// account (VITE_SOLANA_FEE_ACCOUNT) — hidden from nav until then so we don't
-// promote an inert page. The /solana route stays reachable by URL (it renders
-// the FeatureNotDeployed placeholder while dark).
-export const SOLANA_LIVE = isSolanaConfigured();
+// Solana swap surface (Surface A). Live whenever the aggregator proxy is —
+// which is always, since it is same-origin and deployed. It used to be gated
+// on VITE_SOLANA_FEE_ACCOUNT, i.e. on whether the venue could CHARGE for the
+// swap, which hid a working surface whenever the fee recipient was unset.
+export const SOLANA_LIVE = isSolanaSwapLive();
 
 /**
  * Primary navigation — the core items shown in both TopNav (desktop)
  * and BottomNav (mobile). Order is identical across viewports for
  * symmetric IA. Everything else lives in the Footer.
  */
+/**
+ * Where "Trade" goes. The venue has two swap surfaces — /swap (Ethereum) and
+ * /solana (Jupiter) — and the nav used to hardcode the Ethereum one, so a
+ * visitor inside a Solana bungalow clicked Trade and landed on a swap that
+ * could not touch the token whose page they were standing on. The bungalow's
+ * own chain decides the landing surface; ChainSwitch on both pages makes the
+ * other one one click away, so this is a default, never a trap.
+ *
+ * Resolved at module scope, like every other gate in this file: a bungalow
+ * switch persists + reloads (see bungalows.ts), so there is no live value to
+ * track. Off-browser (`getActiveBungalow` returns null) it is the classic
+ * Ethereum default.
+ */
+export const TRADE_ROUTE: string = (() => {
+  const active = getActiveBungalow();
+  return active?.chain === 'solana' && isSolanaSwapLive() ? '/solana' : '/swap';
+})();
+
 export const PRIMARY_NAV: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/farm', label: 'Farm' },
-  { to: '/swap', label: 'Trade' },
+  { to: TRADE_ROUTE, label: 'Trade' },
   ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'NFT Finance' }] : []),
 ];
 
@@ -147,6 +166,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Tegridy Score' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
+      // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
+      // is a live chain probe of the venue's status, so while the program is
+      // undeployed it renders that fact rather than an empty market. Hiding it
+      // would hide the one surface that explains where the venue actually is.
+      { to: '/pools', label: 'Liquidity Pools' },
       // The launch rail is LIVE (LAUNCHER_ENABLED=true since 2026-07-22), so the
       // "Soon" pill self-clears — the flag drives it, so this entry stays honest
       // either way: while gated, /launch renders the SOON wall + LauncherExplainer
@@ -169,7 +193,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // the program id rather than from a flag. No flag drives this one because
       // there is nothing to flip — a deploy is what changes it, and the page
       // picks that up on its own.
-      { to: '/curve-launch', label: 'Tegridy Curve', soon: true },
+      // 2026-08-28: renamed from the bare "Tegridy Curve" — the dead Solana
+      // rail owned the flagship's plain name while the LIVE EVM curve carried
+      // the qualifier, so the menu read "Tegridy Curve — Soon" first.
+      { to: '/curve-launch', label: 'Tegridy Curve (Solana)', soon: true },
       // Our OWN EVM curve (TegridyCurveLauncher) — zero-toll, graduate-to-us, no
       // Airlock/petition. `soon` clears itself the moment CURVE_LAUNCHER_ADDRESS
       // is filled from the deploy (M.16); no flag, same live-read discipline as

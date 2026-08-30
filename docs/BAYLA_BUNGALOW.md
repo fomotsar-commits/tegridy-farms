@@ -145,6 +145,13 @@ Ranked by how real they are today:
 
 ## 5. What is deliberately NOT promised
 
+- ⚠️ **SUPERSEDED 2026-08-28 for the first bullet only** — see
+  `BAYLA_STAKING_SWAP_2026_08_28.md` §5. The pool now exists and publishes its
+  own rate on-chain, so "no APR anywhere" became "print the rate the chain
+  states, twice, and never conflate the two": the **configured** rate labeled
+  as configuration, the **paying** rate as the real 0 it is while the vault is
+  empty, and runway only when a funded vault and a live stake both exist. No
+  number on the surface is synthesized. Every other bullet below still holds.
 - No APR, no runway, no "coming soon" dates anywhere in the UI — the panel
   states the pool doesn't exist and describes the funding routes as
   evaluation, because that is the truth on 2026-08-24.
@@ -154,6 +161,47 @@ Ranked by how real they are today:
   copy). If the operator wants full white-labeling per bungalow (wordmark,
   domain per bungalow, e.g. bayla.memetics.finance), that is a routing +
   branding decision to take deliberately — flagged, not assumed.
+
+## 5b. THE RAIL'S HARD LIMIT — there is no early exit, at any price (2026-08-29)
+
+Operator asked for a TOWELI-style emergency withdraw, then for a penalty-based
+early exit. **Neither is possible on Streamflow.** This is a property of the
+program, not of our UI, and it constrains the product permanently:
+
+- The stake-pool program exposes exactly two staker instructions, `stake` and
+  `unstake`. `unstake` is refused before the chosen duration elapses —
+  error `6013 LockedStake`, "Stake is locked, unstake is not possible".
+- There is **no** early-exit instruction, so there is no code path to attach a
+  penalty or fee to. A penalty model cannot be built on top of a program that
+  simply refuses.
+- There is **no** admin release, pause, or forfeit-and-exit anywhere in the
+  client — **not even for the pool authority**. TOWELI's `emergencyExit`
+  works only because TegridyStaking is our own contract, gated on pause.
+- The position cannot be sold to someone willing to wait, which would have
+  been a market-priced exit: `deriveStakeEntryPDA` hashes in the staker's own
+  wallet (only that wallet can ever unstake it) **and** the live pool has
+  `freezeStakeMint = true`, so the receipt tokens are frozen and
+  non-transferable. Both independently kill a secondary market or a venue
+  buyback desk.
+- `unstakePeriod` is **not** an escape hatch — it is an additional notice
+  period (`6016 UnstakeRequestRequired`, `6017 UnstakeTooEarly`) that makes
+  exits slower, never earlier.
+- Streamflow's own docs state it plainly: "Once staked, your tokens cannot be
+  withdrawn under any circumstances until the staking period you've committed
+  to ends. There is no early unstake option."
+
+**Therefore `--max-days` IS the exit policy** — the longest any staker can be
+stuck with no recourse of any kind. The only failsafe this rail permits is a
+short ceiling, so the ceremony script now defaults to `--max-days 7`, and
+anything above 30 requires `--accept-long-lock`. The live pool's 365-day
+ceiling is the single strongest reason to replace it; the operator's own
+1,000 BAYLA dust test is locked there until ~2027-08-29 and cannot be
+released by anyone, including the authority.
+
+If a genuine mid-lock exit is ever a hard requirement, it means leaving
+Streamflow for a custom staking program (write + audit), which cuts against
+the repo's battle-tested-only rule. Not recommended; recorded as the known
+cost of that requirement.
 
 ## 6b. Ceremony pre-flight (researched 2026-08-25, live reads)
 
@@ -203,7 +251,45 @@ note the observed rate here for the funding math.
   the wallet fixture pins toweli by design) walks /bayla, the /towelie
   alias, and a not-yet-live door across the four-device matrix.
 
-## 6f. THE MAINNET CEREMONY — DONE (2026-08-26). The lighthouse exists.
+## 6g. THE POOL WAS REPLACED (2026-08-30). Read this before §6f.
+
+§6f below records the FIRST pool. It is retired. It shipped with
+`maxWeight = 1.00x`, so its 1–365 day lock picker bought nothing — every
+duration earned the identical rate (caught by the 2026-08-29 economics review).
+`maxWeight` is a stake-pool field with **no update instruction**, so the only
+fix was a new pool at a fresh nonce.
+
+**THE LIVE POOL (nonce 1), created by the operator with the same ceremony key:**
+
+- **Stake pool: `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`**
+  (tx `5zBxY9wzvg6C3JHVUh2BAK7nVGn3xSo18Hboib2FZRDV4X6J3BQD1c1hicB6spjE9zrT1XXnbRRYyHw8LcwXjz86`)
+  — BAYLA mint, locks 1–365 days, **weight ramps 1.00x → 5.00x**, Token-2022.
+- **Reward pool: `3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf`**
+  (tx `4gVcSQR52Jh3wXyeLpDEBUm6yLKVdkU5Gi8KX5SV6kooWsg8aw6kmB2pCFBjrqK3UoVpTWeWG1JWK85AiYpQuBx1`)
+  — 0.0006 BAYLA per staked BAYLA per day at 1.00x, **permissionless funding**.
+  Reward vault: `5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq`.
+- Verified on-chain post-creation: maxWeight 5x, min 1d, max 365d, rate
+  0.0006, authority `GCCSLE7d…auV9`, totalStake 0, vault **0 — honest zero**.
+
+The ladder the operator chose (pinned by test in `bungalowStakingRates.test.ts`):
+
+| Lock | Weight | Simple APR |
+|---|---|---|
+| 1 day | 1.000x | 21.9% |
+| 7 days | 1.066x | 23.3% |
+| 30 days | 1.319x | 28.9% |
+| 90 days | 1.978x | 43.3% |
+| 180 days | 2.967x | 65.0% |
+| 365 days | 5.000x | **109.5%** |
+
+⚠️ **FUND THIS POOL, NOT THE OLD ONE:**
+`node "<repo>\frontend\scripts\bayla-lighthouse-ceremony.mjs" --fund --pool EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f --amount <whole BAYLA> --keypair <id.json> --broadcast`
+
+The retired pool still holds the operator's own 1,000 BAYLA dust-test stake,
+locked until ~2027-08-29. Nothing can release it early (§5b) — it is ~$0.50
+and is written off deliberately.
+
+## 6f. THE FIRST MAINNET CEREMONY — RETIRED, see §6g (2026-08-26)
 
 Executed by the operator with the designated ceremony key
 (`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, the pool's admin authority
@@ -223,11 +309,12 @@ folder; custody caveat accepted by the operator on 2026-08-26):
 - The address ships **hardcoded in the registry** (env override retained),
   so no Vercel env var is load-bearing for the live pool.
 
-Remaining: the dust-wallet live-fire (first tiny stake/claim/unstake —
-needs any wallet holding a little BAYLA), announce, then **fund last**:
-`node scripts/bayla-lighthouse-ceremony.mjs --fund --pool 4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp --amount <whole BAYLA> --keypair <id.json> --broadcast`
-(the funding wallet must hold the BAYLA; creator fees accrue to
-`G2EHPse…Krbu` on pump.fun).
+⚠️ The `--fund --pool 4WCpdeQ2…GXPp` command that used to live here has been
+removed: funding this retired pool would send BAYLA to a vault nobody is
+staked against. **Use the §6g command instead.** The dust live-fire it called
+for was completed on 2026-08-29 (1,000 BAYLA staked through the live UI with a
+real wallet, read back on prod) — it is what proved the rail end to end, and
+it is also what is now stranded here until ~2027-08-29.
 
 ## 6e. DEVNET REHEARSAL — the entire lifecycle executed (2026-08-26)
 
@@ -304,7 +391,7 @@ plumbing; 7 adapter tests against a mocked SDK (vault 0 vs unreadable is
 pinned: zero is a fact, unreadable is an outage); an env-keyed dev probe
 verified the flip end-to-end (dark card ↔ live section) before commit.
 
-## 6f. DRY-VAULT REHEARSAL — funding-last's missing proof, executed (2026-08-28)
+## 6h. DRY-VAULT REHEARSAL — funding-last's missing proof, executed (2026-08-28)
 
 The normal rehearsal (§6e) funded the vault BEFORE staking, so it never
 exercised the one state funding-last guarantees on mainnet: accrued
@@ -344,6 +431,17 @@ if the round trip must fully complete.
 
 ## 6. Open operator items
 
+0. **NEW 2026-08-28 — the pool has no duration bonus.** It was created with
+   `minWeight == maxWeight == 1e9`, so a 365-day lock earns exactly what a
+   1-day lock earns; only the exit date changes. If TOWELI-style "lock longer,
+   earn more" was the intent, it needs a NEW stake pool (`maxWeight` is set at
+   creation) and a staker migration — the UI already implements the program's
+   real weight curve and would light up with zero changes. Decide.
+   Details: `BAYLA_STAKING_SWAP_2026_08_28.md` §4.1.
+0b. **NEW 2026-08-28 — the reward pool is `permissionless: true`.** A one-click
+   "top up the reward vault" button is buildable (SDK `fundPool`) and was left
+   out only because Streamflow takes a protocol fee on funding that must be
+   read and disclosed first. Say the word.
 1. Streamflow pool ceremony (or veto → fallback order in §3).
 2. First reward-pool funding: source (creator-fee claim vs. top-up) and
    size; the panel flips to live numbers only after this.

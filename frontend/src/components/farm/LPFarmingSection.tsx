@@ -235,7 +235,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
-                      className="text-[10px] text-white/60 hover:text-white"
+                      className="text-[10px] text-white/60 hover:text-white px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center"
                       onClick={() => setLpStakeAmount(lpFarm.walletLPBalanceFormatted)}
                     >MAX</button>
                   </div>
@@ -296,7 +296,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       className="flex-1 bg-black/60 border border-white/25 rounded-lg px-3 py-2 min-h-[44px] text-white text-[16px] font-mono"
                     />
                     <button
-                      className="text-[10px] text-white/60 hover:text-white"
+                      className="text-[10px] text-white/60 hover:text-white px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center"
                       onClick={() => setLpWithdrawAmount(lpFarm.stakedBalanceFormatted)}
                     >MAX</button>
                   </div>

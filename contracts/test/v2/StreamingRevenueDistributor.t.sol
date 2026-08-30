@@ -473,11 +473,12 @@ contract StreamingRevenueDistributorTest is Test {
         assertGt(alice.balance, 0, "in-grace claim refused");
     }
 
-    function test_PastGraceClaimIsRefusedAndRecycledToStakers() public {
+    /// @notice There is no claim deadline any more. This test used to assert that a
+    ///         past-grace claim was REFUSED and the balance recycled to the pool.
+    ///         The forfeit is gone (2026-08-26), so refusing would strand a staker's
+    ///         own ETH for nobody's benefit — no other account can receive it.
+    function test_PastGraceClaimStillPaysTheStaker() public {
         _enableStreaming();
-        // Forfeiture fails CLOSED while the restaking fallback is unset (a custodied
-        // restaker is indistinguishable from an exited account there), so recycling
-        // arms only once the fallback is wired.
         _wireRestaking();
         uint256 aliceEnd = block.timestamp + 2 days;
         ve.setPosition(alice, 500e18, aliceEnd);
@@ -487,26 +488,18 @@ contract StreamingRevenueDistributorTest is Test {
         _fund(7 ether);
         dist.notifyRewardAmount();
 
-        vm.warp(aliceEnd + dist.CLAIM_GRACE_PERIOD() + 1);
-
-        vm.prank(alice);
-        vm.expectRevert(StreamingRevenueDistributor.NoLockedTokens.selector);
-        dist.getReward();
-
-        // Alice never synced her expiry, so her mirror stayed stale-high and she kept
-        // accruing for the whole period. That accrual is real in `earned()` but has not
-        // been crystallised into `rewards[]` by any committed call yet.
-        uint256 owed = dist.earned(alice);
-        assertGt(owed, 0);
-        assertEq(dist.rewards(alice), 0, "accrual crystallised by a reverting claim");
-
-        uint256 recycledBefore = dist.totalForfeitedToPool();
+        // Far past what used to be the 7-day grace.
+        vm.warp(aliceEnd + 30 days);
         dist.sync(alice);
-        assertEq(dist.rewards(alice), 0, "past-grace accrual not recycled");
-        assertEq(dist.totalForfeitedToPool(), recycledBefore + owed);
 
-        // Recycled wei returns to the staker pool, never to an owner.
-        assertGe(dist.distributable(), owed);
+        uint256 owed = dist.rewards(alice);
+        assertGt(owed, 0, "fixture did not crystallise");
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance - before, owed, "past-grace claim was refused");
+        assertEq(dist.rewards(alice), 0);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -574,7 +567,10 @@ contract StreamingRevenueDistributorTest is Test {
         dist.notifyRewardAmount();
     }
 
-    function test_RevertingStakingReadDegradesToZeroNotBrick() public {
+    /// @notice A failing staking read must not brick anyone's accounting. It no longer
+    ///         degrades the mirror to zero either — that was liveness bought with
+    ///         somebody else's money.
+    function test_RevertingStakingReadDoesNotBrickAndDoesNotZero() public {
         _enableStreaming();
         _stake(alice, 1000e18);
         dist.sync(alice);
@@ -583,11 +579,48 @@ contract StreamingRevenueDistributorTest is Test {
         vm.warp(block.timestamp + DURATION / 2);
 
         ve.setReverting(true);
-        // The staking read failing must not brick everyone else's accounting; the
-        // mirror simply drops to zero for the affected account.
-        dist.sync(alice);
-        assertEq(dist.effectiveBalanceOf(alice), 0);
+        dist.sync(alice); // must not revert
+        assertEq(dist.effectiveBalanceOf(alice), 1000e18, "outage zeroed the mirror");
         assertGt(dist.rewards(alice), 0, "accrual before the outage was lost");
+    }
+
+    /// @notice THE ATTACK THIS CHANGE EXISTS TO KILL.
+    ///         A co-staker calls `sync(victim)` while the escrow read is failing and
+    ///         does not sync himself. Before the fix the victim's mirror was written
+    ///         to zero, `totalEffectiveSupply` halved, and the whole stream re-priced
+    ///         onto the attacker — an adversarial review measured 22x amplification
+    ///         via `syncMany` over 50 victims. `rewards[]` was never touched and
+    ///         `totalForfeitedToPool` never moved, so every "cannot reduce rewards"
+    ///         claim stayed technically true while the victim lost real ETH.
+    function test_StrangerSyncDuringAnOutageCannotDivertTheStream() public {
+        _enableStreaming();
+        _stake(alice, 500e18);
+        _stake(bob, 500e18);
+        dist.sync(alice);
+        dist.sync(bob);
+        _fund(7 ether);
+        dist.notifyRewardAmount();
+
+        uint256 supplyBefore = dist.totalEffectiveSupply();
+        vm.warp(block.timestamp + 1 days);
+
+        ve.setReverting(true);
+        vm.prank(bob); // the attacker: not the owner, no privilege, gas only
+        dist.sync(alice);
+
+        assertEq(dist.effectiveBalanceOf(alice), 500e18, "victim mirror zeroed by a stranger");
+        assertEq(dist.totalEffectiveSupply(), supplyBefore, "supply moved on an unreadable read");
+
+        ve.setReverting(false);
+        vm.warp(block.timestamp + 6 days);
+        dist.sync(alice);
+        dist.sync(bob);
+
+        // Equal stake for the whole schedule means an even split, within dust.
+        uint256 a = dist.earned(alice);
+        uint256 b = dist.earned(bob);
+        uint256 diff = a > b ? a - b : b - a;
+        assertLt(diff, 1e15, "stream was diverted between accounts");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -671,20 +704,28 @@ contract StreamingRevenueDistributorTest is Test {
 
     /// @notice [issynced-fabricated-sync] A mirror degraded to zero by a reverting
     ///         staking read must not be reported as synced.
-    function test_IsSyncedIsNotFabricatedDuringAStakingOutage() public {
+    /// @notice An outage PRESERVES the mirror instead of zeroing it, and `isSynced`
+    ///         still refuses to certify. This used to assert the mirror degraded to 0
+    ///         ("liveness over accuracy") — that degradation was the vulnerability:
+    ///         the zero was subtracted from totalEffectiveSupply and the stream
+    ///         re-priced onto whoever stayed mirrored.
+    function test_StakingOutagePreservesTheMirrorAndDoesNotCertify() public {
         _stake(alice, 100e18);
         dist.sync(alice);
         assertTrue(dist.isSynced(alice));
 
         ve.setReverting(true);
-        dist.sync(alice); // outage degrades the mirror to 0 (liveness over accuracy)
-        assertEq(dist.effectiveBalanceOf(alice), 0);
+        dist.sync(alice);
+        assertEq(dist.effectiveBalanceOf(alice), 100e18, "outage zeroed the mirror");
         assertFalse(dist.isSynced(alice), "outage-degraded account reported synced");
     }
 
     /// @notice [issynced-fabricated-sync] Same for the third degradation path: a
     ///         reverting (or over-budget) restaking lookup.
-    function test_IsSyncedIsNotFabricatedWhenTheRestakingLookupReverts() public {
+    /// @notice Same guarantee through the restaking leg: a reverting lookup leaves the
+    ///         restaker's mirror alone rather than zeroing it, and `isSynced` still
+    ///         reports false because it genuinely cannot verify.
+    function test_RestakingLookupRevertPreservesTheMirror() public {
         _wireRestaking();
         restaking.setRestaker(carol, 42, 1000e18);
         dist.sync(carol);
@@ -692,15 +733,17 @@ contract StreamingRevenueDistributorTest is Test {
         assertTrue(dist.isSynced(carol));
 
         restaking.setReverting(true);
-        dist.sync(carol); // lookup revert degrades the mirror to 0
-        assertEq(dist.effectiveBalanceOf(carol), 0);
+        dist.sync(carol);
+        assertEq(dist.effectiveBalanceOf(carol), 1000e18, "revert zeroed the restaker mirror");
         assertFalse(dist.isSynced(carol), "degraded restaker reported synced");
     }
 
     /// @notice [claim-grace-contradiction] An ordinary unstake-before-claim (staking
     ///         zeroes `userTokenId` on any outbound veNFT transfer/burn) must keep the
     ///         documented 7-day grace window OPEN for the victim's own claim.
-    function test_UnstakeBeforeClaimKeepsTheSevenDayGraceOpen() public {
+    /// @notice An ordinary unstake-before-claim is payable, and stays payable — the
+    ///         7-day window this used to pin no longer exists in v2.
+    function test_UnstakeBeforeClaimIsPayableIndefinitely() public {
         _enableStreaming();
         uint256 aliceEnd = block.timestamp + 2 days;
         ve.setPosition(alice, 500e18, aliceEnd);
@@ -717,18 +760,23 @@ contract StreamingRevenueDistributorTest is Test {
 
         ve.clearPosition(alice); // the unstake: userTokenId -> 0
 
-        vm.warp(aliceEnd + 3 days); // still inside CLAIM_GRACE_PERIOD
+        vm.warp(aliceEnd + 365 days); // a year later, not three days
         vm.prank(alice);
         dist.getReward();
-        assertEq(alice.balance, owed, "in-grace claim refused after an ordinary unstake");
+        assertEq(alice.balance, owed, "claim refused long after the old grace window");
     }
 
     /// @notice [v2-distributor-confiscation] The permissionless sync must not forfeit
     ///         an unstaked account while its grace window is still open — and once the
     ///         window HAS elapsed, recycling to the pool must still work.
-    function test_UnstakeBeforeClaimIsNotConfiscatableInsideGrace() public {
+    /// @notice A stranger's `sync` can never reduce another account's rewards — at any
+    ///         point in time. This used to pass only INSIDE a 7-day grace and then
+    ///         assert the recycle became "legitimate pool hygiene" afterwards. There is
+    ///         no afterwards now: the forfeit is deleted, so the guarantee is
+    ///         unconditional rather than time-boxed.
+    function test_StrangerSyncNeverReducesRewards() public {
         _enableStreaming();
-        _wireRestaking(); // forfeiture arms only once the restaking fallback is readable
+        _wireRestaking();
         uint256 aliceEnd = block.timestamp + 2 days;
         ve.setPosition(alice, 500e18, aliceEnd);
         _stake(bob, 500e18);
@@ -744,17 +792,22 @@ contract StreamingRevenueDistributorTest is Test {
 
         ve.clearPosition(alice);
 
-        vm.warp(aliceEnd + 3 days); // inside the 7-day grace
+        // Inside what used to be the grace window.
+        vm.warp(aliceEnd + 3 days);
         vm.prank(bob);
-        dist.sync(alice); // attacker-paid confiscation attempt: one call, gas only
-        assertEq(dist.rewards(alice), owed, "in-grace accrual confiscated by permissionless sync");
-        assertEq(dist.totalForfeitedToPool(), 0);
-
-        // Past the anchor's grace the recycle is legitimate pool hygiene again.
-        vm.warp(aliceEnd + dist.CLAIM_GRACE_PERIOD() + 1);
         dist.sync(alice);
-        assertEq(dist.rewards(alice), 0, "post-grace accrual not recycled");
-        assertEq(dist.totalForfeitedToPool(), owed);
+        assertEq(dist.rewards(alice), owed, "accrual reduced by a permissionless sync");
+
+        // Far past it — the point where the old code recycled the balance.
+        vm.warp(aliceEnd + 60 days);
+        vm.prank(bob);
+        dist.sync(alice);
+        assertEq(dist.rewards(alice), owed, "accrual recycled after the old grace expired");
+
+        // And it is still hers to take.
+        vm.prank(alice);
+        dist.getReward();
+        assertEq(alice.balance, owed);
     }
 
     /// @notice [v2-distributor-confiscation] A restaker is structurally `lockEnd == 0`
@@ -779,7 +832,6 @@ contract StreamingRevenueDistributorTest is Test {
         vm.prank(bob);
         dist.sync(alice);
         assertGt(dist.rewards(alice), 0, "restaker confiscated while restaking was unwired");
-        assertEq(dist.totalForfeitedToPool(), 0);
     }
 
     /// @notice [v2-distributor-confiscation] With the fallback wired, an unreadable
@@ -803,7 +855,6 @@ contract StreamingRevenueDistributorTest is Test {
         vm.prank(bob);
         dist.sync(alice);
         assertGt(dist.rewards(alice), 0, "restaker confiscated during a restaking outage");
-        assertEq(dist.totalForfeitedToPool(), 0);
     }
 
     receive() external payable {}

@@ -5,6 +5,13 @@ import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../src/SwapFeeRouter.sol";
 import "../src/SwapFeeRouterAdmin.sol";
+// ROW-8 re-anchor: the canonical-port equivalence suite at the bottom of this file
+// exercises the library directly against the same mock pair the conversion tests use.
+import {UniswapV2OracleLibrary} from "../src/lib/UniswapV2OracleLibrary.sol";
+// ROW8 side-selection pin: the wrapper's token0()==token ternary is the ONE line
+// that inverts prices if it regresses. Named import — SwapFeeRouter.sol imports
+// these with braces, which does not re-export, so no collision here.
+import {SwapFeeRouterConvertLib, IUniswapV2Router02, ISwapFeeRouterUniFactory} from "../src/lib/SwapFeeRouterConvertLib.sol";
 
 /// @title AUDIT SFR-H-01 â€” TWAP-floor minETHOut prevents permissionless conversion sandwich
 /// @notice Regression test for the senior-recon HIGH finding on
@@ -158,6 +165,20 @@ contract MockUniRouter_SFR {
     }
 
     receive() external payable {}
+}
+
+/// @dev Exposes the internal `_readCurrentCumulative` so its token-side selection
+///      can be pinned directly (the 2026-08-28 fleet critique's one named gap:
+///      the ROW8 tests exercised the canonical library, and the wrapper's
+///      side-pick ternary only end-to-end).
+contract ConvertLibCumulReader {
+    function read(SwapFeeRouterConvertLib.Cfg memory cfg, address token)
+        external
+        view
+        returns (address pair, uint256 currentCum, uint32 currentTs)
+    {
+        return SwapFeeRouterConvertLib._readCurrentCumulative(cfg, token);
+    }
 }
 
 contract Audit_SFR_H01 is Test {
@@ -406,4 +427,144 @@ contract Audit_SFR_H01 is Test {
         (uint32 ts,) = sfr.lastConversionSnapshot(address(toweli));
         assertGt(ts, 0, "snapshot not updated after second conversion");
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    //  ROW-8 re-anchor (docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md):
+    //  SwapFeeRouterConvertLib._readCurrentCumulative now delegates to the
+    //  provenance-pinned 0.8 port of canonical UniswapV2OracleLibrary.
+    //  These tests pin the port to the exact PRE-refactor integral (the
+    //  hand-derived formula this file's fixtures were built around), so a
+    //  drifting port fails here even before the provenance gate sees it.
+    // ═════════════════════════════════════════════════════════════════
+
+    /// @dev Idle-window bridge: library output must equal storedCum + spot×elapsed on
+    ///      BOTH sides, with the uint32-truncated current timestamp — byte-equivalent
+    ///      to the removed hand-derivation.
+    function test_SFR_ROW8_currentCumulativePrices_matchesPairIntegral() public {
+        // _advanceTime pokes FIRST (stamping the pair at the pre-skip timestamp) and
+        // then skips, so after this line the pair is already 45 minutes stale.
+        _advanceTime(45 minutes);
+        uint256 storedCum0 = pair.price0CumulativeLast();
+        uint256 storedCum1 = pair.price1CumulativeLast();
+        skip(30 minutes); // extend the idle window — bridge must now cover 75 minutes
+
+        (uint112 r0, uint112 r1, uint32 pairTs) = pair.getReserves();
+        (uint256 p0, uint256 p1, uint32 ts) = UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+
+        assertEq(ts, uint32(block.timestamp % 2 ** 32), "blockTimestamp must be uint32-truncated now");
+        uint32 elapsed = ts - pairTs;
+        assertEq(uint256(elapsed), 75 minutes, "idle window mis-measured");
+        assertEq(p0, storedCum0 + ((uint256(r1) << 112) / r0) * elapsed, "price0 counterfactual != stored + spot*elapsed");
+        assertEq(p1, storedCum1 + ((uint256(r0) << 112) / r1) * elapsed, "price1 counterfactual != stored + spot*elapsed");
+    }
+
+    /// @dev Same-block read: when the pair was touched in this very block the canonical
+    ///      library skips the bridge (`blockTimestampLast != blockTimestamp` gate) —
+    ///      output must be exactly the stored accumulators.
+    function test_SFR_ROW8_sameBlock_noCounterfactual() public {
+        _advanceTime(45 minutes);
+        // Re-stamp the pair at the CURRENT timestamp with a zero-length poke (adds
+        // nothing to the accumulators), then read in the same block: the canonical
+        // `blockTimestampLast != blockTimestamp` gate must skip the bridge entirely.
+        pair.pokeCumulative(0);
+
+        (uint256 p0, uint256 p1, uint32 ts) = UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+
+        assertEq(ts, uint32(block.timestamp % 2 ** 32), "blockTimestamp");
+        assertEq(p0, pair.price0CumulativeLast(), "same-block read must not add a counterfactual (price0)");
+        assertEq(p1, pair.price1CumulativeLast(), "same-block read must not add a counterfactual (price1)");
+    }
+
+    /// @dev Accumulator wrap: canonical semantics REQUIRE the counterfactual addition to
+    ///      wrap modulo 2^256 ("addition overflow is desired"). Two max-length pokes at
+    ///      an extreme reserve ratio park the stored cumulative at exactly 2^256 - 2^225,
+    ///      so the next bridge addition provably crosses 2^256. If someone strips the
+    ///      port's `unchecked` block, this test dies on Panic(0x11) instead of passing.
+    function test_SFR_ROW8_accumulatorWrap_noPanic() public {
+        bool tokenIs0 = address(toweli) < address(weth);
+        if (tokenIs0) pair.setReserves(1, type(uint112).max);
+        else pair.setReserves(type(uint112).max, 1);
+        // Each poke adds spotMax * (2^32 - 1) = 2^256 - 2^224 (mod 2^256) to the token
+        // side; after two, that side's stored cumulative is exactly 2^256 - 2^225.
+        pair.pokeCumulative(type(uint32).max);
+        pair.pokeCumulative(type(uint32).max);
+        skip(1 hours); // idle window: bridge adds ~2^235.8 >> 2^225 → the add wraps
+
+        (uint112 r0, uint112 r1, uint32 pairTs) = pair.getReserves();
+        (uint256 p0, uint256 p1, uint32 ts) = UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+
+        uint32 elapsed;
+        unchecked {
+            elapsed = ts - pairTs;
+        }
+        uint256 want0;
+        uint256 want1;
+        unchecked {
+            want0 = pair.price0CumulativeLast() + ((uint256(r1) << 112) / r0) * elapsed;
+            want1 = pair.price1CumulativeLast() + ((uint256(r0) << 112) / r1) * elapsed;
+        }
+        assertEq(p0, want0, "price0 must wrap modulo 2^256 (canonical V2 semantics)");
+        assertEq(p1, want1, "price1 must wrap modulo 2^256 (canonical V2 semantics)");
+    }
+
+    /// @dev The inlined FixedPoint.fraction must match the uniswap-lib value + guard:
+    ///      (numerator << 112) / denominator, reverting on a zero denominator.
+    function test_SFR_ROW8_fraction_matchesFixedPoint() public {
+        assertEq(uint256(UniswapV2OracleLibrary.fraction(3, 2)), (uint256(3) << 112) / 2, "fraction value");
+        assertEq(
+            uint256(UniswapV2OracleLibrary.fraction(type(uint112).max, 1)),
+            uint256(type(uint112).max) << 112,
+            "fraction at the uint224 ceiling"
+        );
+        vm.expectRevert(bytes("FixedPoint: DIV_BY_ZERO"));
+        this.fractionExternal(1, 0);
+    }
+
+    /// @dev expectRevert needs an external call frame; internal library calls inline.
+    function fractionExternal(uint112 n, uint112 d) external pure returns (uint224) {
+        return UniswapV2OracleLibrary.fraction(n, d);
+    }
+
+    /// @dev ROW8 (fleet-critique gap): pin the wrapper's side selection under BOTH
+    ///      token orderings. Reserves are asymmetric so price0Cum != price1Cum —
+    ///      a flipped ternary cannot return the right number by coincidence.
+    ///      Same-block read (poke stamps now) => bridge term is zero and the
+    ///      expected value is EXACTLY the stored accumulator for the token side.
+    function test_SFR_ROW8_readCurrentCumulative_picksTokenSide_bothOrderings() public {
+        ConvertLibCumulReader reader = new ConvertLibCumulReader();
+        SwapFeeRouterConvertLib.Cfg memory cfg = SwapFeeRouterConvertLib.Cfg({
+            weth: address(weth),
+            router: IUniswapV2Router02(address(uniRouter)),
+            uniFactory: ISwapFeeRouterUniFactory(address(factory)),
+            sequencerFeed: address(0),
+            owner: address(this)
+        });
+
+        // Case A: token IS token0 of its pair.
+        MockToken_SFR tokA = new MockToken_SFR("SideA", "SDA");
+        MockUniPair_SFR pairA = new MockUniPair_SFR(address(tokA), address(weth));
+        factory.setPair(address(tokA), address(weth), address(pairA));
+        pairA.setReserves(100 ether, 5 ether); // asymmetric on purpose
+        pairA.pokeCumulative(1000);
+        assertTrue(
+            pairA.price0CumulativeLast() != pairA.price1CumulativeLast(),
+            "fixture must make the two sides distinguishable"
+        );
+        (address gotPairA, uint256 cumA, uint32 tsA) = reader.read(cfg, address(tokA));
+        assertEq(gotPairA, address(pairA));
+        assertEq(tsA, uint32(block.timestamp % 2 ** 32));
+        assertEq(cumA, pairA.price0CumulativeLast(), "token==token0 must read the price0 accumulator");
+
+        // Case B: token IS token1 of its pair (constructor order reversed).
+        MockToken_SFR tokB = new MockToken_SFR("SideB", "SDB");
+        MockUniPair_SFR pairB = new MockUniPair_SFR(address(weth), address(tokB));
+        factory.setPair(address(tokB), address(weth), address(pairB));
+        pairB.setReserves(5 ether, 100 ether);
+        pairB.pokeCumulative(1000);
+        assertTrue(pairB.price0CumulativeLast() != pairB.price1CumulativeLast());
+        (address gotPairB, uint256 cumB,) = reader.read(cfg, address(tokB));
+        assertEq(gotPairB, address(pairB));
+        assertEq(cumB, pairB.price1CumulativeLast(), "token==token1 must read the price1 accumulator");
+    }
 }
+

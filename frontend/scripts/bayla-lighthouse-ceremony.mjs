@@ -307,19 +307,54 @@ async function mainnet() {
   const rate = Number(rateStr);
   const mint = val('--mint', BAYLA_MINT);
   const minDays = Number(val('--min-days', '1'));
-  const maxDays = Number(val('--max-days', '365'));
+  // Default 7, NOT 365. Streamflow has no early exit at any price (see the
+  // warning printed below), so --max-days is the longest a staker can be
+  // stuck with no recourse. The safe value is the default; a long lock has
+  // to be asked for explicitly, and above 30d has to be acknowledged.
+  const maxDays = Number(val('--max-days', '7'));
   const periodDays = Number(val('--period-days', '1'));
   const nonce = Number(val('--nonce', '0'));
+  // Lock-duration bonus. 1 = flat (every lock earns the same). Anything above
+  // 1 makes the weight ramp LINEARLY from 1.00x at --min-days to this at
+  // --max-days, and weight multiplies rewards, so the max-lock tier costs
+  // --max-weight times the base rate. IMMUTABLE once created: the stake-pool
+  // program exposes no update instruction for it (only reward pools can be
+  // re-rated), so changing it later means a NEW pool at a new --nonce.
+  const maxWeightX = Number(val('--max-weight', '1'));
+  if (!(maxWeightX >= 1)) throw new Error('--max-weight must be >= 1 (1 = flat, no duration bonus)');
+  // A lock this long is a promise you cannot un-make for someone else: there
+  // is no early unstake, no penalty exit, no admin release, and the position
+  // cannot be sold (owner-derived PDA + frozen stake mint). Make the operator
+  // say it out loud rather than discover it from a stuck holder.
+  if (maxDays > 30 && !has('--accept-long-lock')) {
+    throw new Error(
+      `--max-days ${maxDays} locks stakers for up to ${maxDays} days with NO early exit of any kind ` +
+      '(Streamflow supports none — not for a fee, not by the pool authority). ' +
+      'Re-run with --accept-long-lock if that is genuinely intended.',
+    );
+  }
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
   const rewardAmount = calculateRewardAmountFromRate(rate, 6, 6);
   if (rewardAmount.isZero()) throw new Error('rate too small for 6/6 decimals — SDK computed rewardAmount 0');
+
+  // The SDK's calculateStakeWeight, in the small: linear from 1.00x at
+  // minDuration to maxWeight at maxDuration, clamped to >= 1.00x.
+  const weightAt = (days) => {
+    if (maxDays <= minDays) return 1;
+    const over = Math.max(0, Math.min(days, maxDays) - minDays);
+    return 1 + (over / (maxDays - minDays)) * (maxWeightX - 1);
+  };
+  const ladderDays = [...new Set([minDays, 7, 14, 30, 90, 180, maxDays]
+    .filter((d) => d >= minDays && d <= maxDays))].sort((a, b) => a - b);
 
   const plan = {
     cluster: 'mainnet',
     stakePool: {
       mint, nonce,
       minDuration: `${minDays}d`, maxDuration: `${maxDays}d`,
-      maxWeight: '1x (flat — heat already rewards holding; weight curves are a later choice)',
+      maxWeight: maxWeightX === 1
+        ? '1x (FLAT — every lock earns the same; the duration picker buys nothing)'
+        : `${maxWeightX}x at ${maxDays}d, ramping linearly from 1.00x at ${minDays}d`,
       permissionless: false,
     },
     rewardPool: {
@@ -332,6 +367,25 @@ async function mainnet() {
   };
   log('MAINNET PLAN:');
   console.log(JSON.stringify(plan, null, 2));
+
+  // What each lock ACTUALLY earns, and what it costs the vault. Printed so the
+  // economics are read before they are signed, not discovered afterwards.
+  log('');
+  log('LOCK LADDER (weight → effective daily rate → simple APR):');
+  for (const d of ladderDays) {
+    const w = weightAt(d);
+    const daily = rate * w;
+    log(
+      `  ${String(d).padStart(4)}d  ${w.toFixed(3)}x  ${daily.toFixed(6)}/staked/day  ${(daily * 365 * 100).toFixed(1)}% APR`,
+    );
+  }
+  log('');
+  log('⚠ NO EARLY EXIT. The stake program refuses an unstake until a lock');
+  log('  elapses ("Stake is locked, unstake is not possible") and exposes NO');
+  log('  admin release, pause, or forfeit-and-exit — not even to the pool');
+  log(`  authority. --max-days ${maxDays} is therefore the LONGEST a staker can`);
+  log('  be locked in with no recourse. Choose it as an exit policy, not just');
+  log('  as a yield tier.');
 
   if (!BROADCAST) {
     log('dry run (no --broadcast): nothing signed, nothing sent.');
@@ -352,7 +406,7 @@ async function mainnet() {
     nonce,
     minDuration: new BN(minDays * DAY),
     maxDuration: new BN(maxDays * DAY),
-    maxWeight: new BN(1_000_000_000),
+    maxWeight: new BN(Math.round(maxWeightX * 1_000_000_000)),
     permissionless: false,
     tokenProgramId,
   }, ext);

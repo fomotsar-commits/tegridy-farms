@@ -29,6 +29,216 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — newest layer; supersedes everything below
+
+Two sessions' work. Full records: [`SOLANA_LP_VENUE_2026_08_29.md`](SOLANA_LP_VENUE_2026_08_29.md)
+and [`BAYLA_STAKING_SWAP_2026_08_28.md`](BAYLA_STAKING_SWAP_2026_08_28.md).
+
+**Baseline after: frontend 446 files / 6,279 tests green, tsc clean, eslint clean, a11y green on
+`/pools`, `/solana` and `/swap` across chromium + iPhone + iPad + mobile-chrome.** Still unpushed.
+
+**Landed (do not redo):** the BAYLA lighthouse staking module rebuilt on the TOWELI card pattern
+(lock presets as buttons carrying each lock's rate, "paying now 0%" beside "configured 109.5%",
+unstake disabled until the lock opens) · the Solana swap ungated and a `ChainSwitch` on both trade
+surfaces · the Bayla dashboard reworked · **the whole cp-swap client, own-pool router and `/pools`
+surface**, built to the deploy boundary.
+
+### 🔴 THE SOLANA LP VENUE — only you can unblock it, and it is ONE instruction from live
+
+Everything on the client side is written, tested and merged. The venue itself needs five things,
+in this order. Detail and the traps are in `SOLANA_LP_VENUE_2026_08_29.md` §3.
+
+1. **Generate a fresh keypair** for cp-swap and put its pubkey in `declare_id!`. The old id
+   (`3ZvZXEBr…`) was closed 2026-08-13 and is permanently SPENT — it can never hold a program again.
+2. **`admin::ID` must be a signable, system-owned, FUNDED account.** It is resolved at compile
+   time, so getting it wrong costs another program upgrade. ⚠️ This is exactly what bricked
+   2026-08-08: it was set to the Squads MULTISIG ACCOUNT, which can neither sign a CPI nor pay
+   rent, which made `create_amm_config` permanently uncallable. Fund it above AmmConfig rent —
+   the audit found it holding 0.001 SOL.
+3. **`create_pool_fee_reveiver::ID` must be a WSOL TOKEN ACCOUNT, not a wallet** — the create path
+   deserializes it as `InterfaceAccount<TokenAccount>` and calls `sync_native`. Also compile-time.
+   Create the treasury's WSOL ATA **before** the deploy.
+4. **Deploy, then run `create_amm_config`** — the two-step that has never once run in this
+   program's history. Recommended args (0.25% trade / 12% protocol / 4% fund / 0.15 SOL create /
+   0% creator → trader pays 0.25%, LPs keep 0.21%, venue takes 0.04%):
+   `create_amm_config(0, 2500, 120000, 40000, 150000000, 0)`
+5. **Publish the new id as `VITE_SOLANA_CPSWAP_PROGRAM`.** `/pools` goes live, the fee sheet starts
+   reading off chain, and the swap starts quoting our own pools — no code change, no frontend
+   redeploy needed beyond the env var.
+
+Optional but cheap, and it protects the whole thing: **arm branch protection on `mvp-launch`.**
+`diff-guard` — which proves the AMM is still verbatim Raydium — has **zero required checks**, so it
+is advisory today. Unenforced, it is a comment.
+
+### ⬜ REMAINING — an agent can do these alone, AFTER the deploy above
+
+1. **Wire execution against our own pool.** The instruction builders exist and are source-verified
+   (`lib/solana/cpswap/ix.ts`), but nothing sends them, because the program is not deployed and an
+   unexercised money path is the ledger's most common defect class. Moot until step 4 above: with
+   no venue, the router always picks the aggregator. CI's `migration-rehearsal` job is where these
+   builders get their first real execution.
+2. **The LP forms on `/pools`** — create-pool / deposit / withdraw. Same reason, same unblock.
+3. ⚠️ **PICK ONE HOME for cp-swap client code — this is the repo's THIRD "two
+   implementations of one thing".** `lib/launcher/solana/curve/program.ts` grew
+   cp-swap PDA helpers (`cpAmmConfigPda`, `cpAmmAuthorityPda`, `cpLpMintPda`,
+   `cpPoolVaultPda`, `cpObservationPda`) because `migrate_to_amm` has to derive the
+   pool it migrates into; `lib/solana/cpswap/program.ts` (2026-08-29) derived them
+   again. They are pinned EQUAL by `cpswap/pdaAgreement.test.ts`, so the duplication
+   is safe today and any divergence fails loudly — but it should be one home.
+   **Recommendation: `lib/solana/cpswap/` wins** (it is the dedicated client, its
+   seeds are checked against the Rust source, and it refuses to default to the SPENT
+   program id, which the launcher helpers do). Do it AFTER the branch below merges —
+   refactoring under an open branch on the same file is how a divergence becomes an
+   unreviewable conflict.
+4. 🔀 **Review and merge `claude/create-amm-config-builder`** (worktree `C:/tw`,
+   commit `c16191e7`, clean, unmerged). A parallel session built the
+   `create_amm_config` / `update_amm_config` instruction builders — the one thing
+   `/pools` does NOT build (it renders the args for the operator to run by CLI).
+   Its `createAmmConfig` discriminator matches the one derived independently here
+   byte-for-byte, and it documents the same BE-seed / LE-arg asymmetry. It lands in
+   the curve client's `ix.ts`; per item 3 it probably belongs in
+   `lib/solana/cpswap/ix.ts` instead.
+5. **Move Jupiter routing to the self-hosted swap API.** The routing ENGINE stays (most volume,
+   longest track record on Solana; swapping to a smaller aggregator is backwards from rule 0). The
+   hosted `lite-api.jup.ag` endpoint is the real dependency — if it rate-limits, our swap dies.
+   ⚠️ The aggregator security-history research was interrupted and never finished; if an engine
+   change is ever considered, finish that first.
+
+### 🔴 Two decisions on the BAYLA lighthouse pool
+
+1. **The pool grants NO duration bonus.** `minWeight == maxWeight == 1e9`, so a 365-day lock earns
+   exactly what a 1-day lock earns — only the exit date changes. `maxWeight` is set at pool
+   CREATION, so a TOWELI-style "lock longer, earn more" curve needs a **new pool and a staker
+   migration**. The UI already implements the program's real weight curve and would light up with
+   zero code changes. Decide; do not assume either way.
+   ✅ **The tool for it already exists:** a parallel session added `--max-weight <x>` to
+   `frontend/scripts/bayla-lighthouse-ceremony.mjs` (`d9ab6c92`), which sets the bonus at
+   `--max-days` ramping linearly from 1.00x, and prints the resulting LOCK LADDER (weight,
+   effective daily rate, simple APR per tier) before anything is signed. It independently
+   confirmed the same finding: `maxWeight` is a stake-pool field with **no update
+   instruction**, so it is fixed for the life of a pool.
+2. **A one-click "top up the reward vault"** is buildable (the reward pool is `permissionless:
+   true`, and the SDK ships `fundPool`) and was left out only because Streamflow takes a protocol
+   fee on funding that must be read and disclosed first. Say the word.
+3. **The vault is still empty**, so the lighthouse pays 0% — unchanged, and the panel says so in
+   four places.
+
+---
+
+## 🟢 2026-08-28 (LATE) — CONSOLIDATION SWEEP — newest layer; supersedes everything below
+
+A wrap-up pass over every parallel session. Full record:
+[`CONSOLIDATION_2026_08_28.md`](CONSOLIDATION_2026_08_28.md).
+
+**Trunk is now 49 commits ahead of `origin/mvp-launch` and UNPUSHED.**
+Ten branches merged, two stranded worktree fixes rescued. Verified before commit:
+**frontend 437 files / 6,126 tests green, tsc clean; contracts 81 tests green across the 8 merged
+suites.** Nothing here is pushed and nothing is deployed.
+
+**Landed this sweep (do not redo):** NativeBuyRouter first coverage · restaking bonus-insolvency
+fix (CONFIRMED HIGH) · nftfi vault seizure-race fix (CONFIRMED) · v4 BoostedLP zero-oracle
+`emergencyWithdraw` · v2 forfeit deletion + additive power legs · row 8 TWAP re-anchor + the
+V2-provenance CI gate (this carries **PR #335**'s commits) · the 08-28 frontend audit (53 findings,
+46 fixed, incl. the `/bayla` infinite-reload) · the components ghost-code guard.
+
+### ⬜ REMAINING — an agent can do these alone
+
+1. **Rebase `prep/island-wave-five`** (1 commit, 25 files — the homepage "arrival inversion").
+   Conflicts with the avantgarde audit on `frontend/index.html` + `frontend/vercel.json`; the CSP
+   header is the only genuinely contested line. Both changes are wanted.
+2. **Reconcile `claude/bungalow-buildout`** (2 commits, 43 files — Base scanner, curve trust strip,
+   dead-end funnels) against the Bayla parity work. Conflicts on `lib/bungalows.ts` and
+   `ArtStudioPage.tsx`: two divergent implementations of the same bungalow surface. **Pick one** —
+   this is the third "two incompatible versions of the same feature" in this repo.
+3. **Retire `claude/curve-discovery-grid`** — superseded by trunk's own curve discovery
+   (`c8bd1a31` + the origin curve commits). Confirm nothing unique is stranded, then delete.
+4. **Prune ~40 April-2026 agent worktrees** that carry dirty trees. They are 4 months and 100+
+   commits stale and they poison every future worktree sweep with false positives.
+   ⚠️ Remove junctions with `cmd /c rmdir`, **never** `rm -rf` — that has already deleted 961
+   vendored-lib files out of the main checkout once.
+5. **Un-pin foundry.** `ci/pin-foundry-toolchain` pinned 1.7.1 because the two reentrancy suites
+   flipped red under 1.8.0. The actual cause is now fixed on trunk (`a04b8a8a`, non-zero sentinel
+   arming). Re-test on 1.8.0 and drop the pin if green.
+
+### 🔴 REMAINING — only you can do these
+
+1. **THE SIGNING SESSION — closes Sept 2–3.** Unchanged and still the top item; see the
+   2026-08-28 layer below and [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md).
+2. **Decide whether to push.** 48 commits sit local. Nothing reaches prod until you push; prod
+   auto-deploys on green trunk, so **pushing this sweep deploys the frontend audit's 46 fixes.**
+3. ⚠️ **The LIVE staking over-mint is pinned but NOT fixed** (`StakingRewardOverMint.t.sol` is a
+   passing `_KNOWN_DEFECT` characterization — it goes red when the bug is fixed). Reward liability
+   inflates ~2× as the pool nears depletion. **Interim, no redeploy: keep the reward pool funded
+   ahead of emission — top up, or cut `rewardRate` — BEFORE the reserve depletes (~2026-10-11).**
+   That keeps the cap from binding. The real fix is the Synthetix funded-period rebase, a migration
+   on a live contract.
+4. **US regulatory decisions** + **distribution** — unchanged, see the layer below.
+5. **Exclude the repo from OneDrive sync.** Now also implicated in wedged `forge` invocations
+   (two builds hung at ~2s CPU and had to be killed this session), not just stale `node_modules`.
+
+---
+
+## 🟢 2026-08-28 STATE — the curve / audit / US-compliance layer
+
+A curve-launchpad + audit + US-compliance session. The launchpad now has a **usable, tested front
+door** (token identity, discovery, honest copy) and the fleet closed a real trapped-NFT bug. What's
+left needs YOU — a signature, a decision, or counsel — in unlock-per-minute order.
+
+**CLOSED this session — do not redo (all pushed + prod-verified):**
+- Curve **token identity** (image/description/socials via Irys, no redeploy) + **discovery** (Live
+  Launches grid + permanent `/eth-curve/:token` page + creator claim UI). The launchpad's #1–#3
+  competitive gaps. Live on prod (verified in the deployed chunk).
+- **17/17 L2 contracts verified** on Base (Etherscan) + Robinhood (Blockscout).
+- **v4 BoostedLPStaker**: audit found a REAL trapped-NFT path (oracle ABI-break re-traps under
+  0.8.26, both cases); fixed with a zero-external-call `emergencyWithdraw` hatch, mutation-verified.
+- **US misleading-claims copy fix** (`cdedbc22`): the curve reserve claim now matches what the code
+  enforces ("ecosystem reserve… discretionary, not enforced on-chain"; dropped the "bribes"/"survival"
+  over-promise) + a creator-issuer/securities line at the create point. Live.
+- **First-creator flow now regression-protected** (`0f1ae62b`): 4 mutation-checked container tests
+  pin the upload-before-tx safety ordering, receipt-log parse, and identity-retry path.
+- **CORRECTION to the "redeploy on ask" standing item below:** prod **auto-deploys on green trunk**
+  now — verified this session on multiple commits (Vercel posted success without the CLI). The
+  CLI-redeploy standing item is retired unless a deploy visibly fails.
+
+**WHAT NEEDS YOU — in order:**
+
+1. 🔴 **THE SIGNING SESSION — dated, closes Sept 2–3.** One sitting, 11 transactions, every value
+   read live and every selector derived. Full runbook with paste-ready calldata:
+   [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md).
+   - **Part A — 2-of-2 accept ceremony**, 4 tx per L2 from the multisig Safe `0xBC4E…Be5B`
+     (Base `acceptFeeToSetter` deadline **2026-09-02 07:20 UTC**; RH **2026-09-03 05:02 UTC**). The
+     TWAP `acceptOwnership` is ordered first as each nonce-0 Safe's smoke test — if it fails, STOP,
+     nothing is lost.
+   - **Part B — reserve-recipient → Treasury Safe**, one `setLaunchConfig` per chain (mainnet + both
+     L2s). **FREE while `launchCount` is 0 on all three (verified); permanently impossible for any
+     launch created before it** (recipient is snapshotted per-launch). Do it in the same sitting.
+   - Miss the deadline = re-propose + wait; not fatal, but roles stay on the hot deployer EOA.
+
+2. 🟡 **US regulatory decisions — counsel + operator.** Copy is now honest (done); "within bounds"
+   still needs you. Risk-ranked with cost-to-mitigate: [`US_COMPLIANCE_BRIEF_2026_08_28.md`](US_COMPLIANCE_BRIEF_2026_08_28.md).
+   Cheapest-high-impact, no lawyer needed: **geoblock US/sanctioned jurisdictions** (representation-only
+   today, no geofence in code) and **form an entity before the first fee dollar** (Terms admit none
+   exists). Needs counsel: securities status of the curve tokens + the promoted-earnings model. The
+   pump.fun SDNY docket (all-memecoins-are-securities + RICO/"casino") is the roadmap — your model has
+   MORE ecosystem features, so more exposure, but zero launches = low target profile today.
+
+3. 🟢 **Distribution — the actual Sept-30 bet.** The product is done; the constraint is one external
+   human paying us. Highest-probability path is a NAMED person, not SEO: a BAYLA/island community
+   member launching a sister token, or one of hood.fun's ~68 orphaned creators (hood.fun died —
+   "for sale" — leaving working tokens with no venue). Outreach is operator work; Claude can build
+   the target list + pitch assets on request.
+
+4. ⚙️ **Environment — exclude the repo (or `frontend/node_modules`) from OneDrive sync.** OneDrive
+   keeps reverting the checkout's installed deps to a stale cloud snapshot (~20-min half-life),
+   breaking local tooling repeatedly. A settings change only you can make; zero effect on prod/CI.
+
+**Still moving (fleet, not you):** v2 forfeit-deletion residuals (dead views + a contradictory doc
+comment), NativeBuyRouter test-gaps, and the #336 provenance stack (equivalence independently proven
+bit-identical; its operator half — redeploy the SwapFeeRouter stack to actually LAND row 8 — is
+tracked in this file's row-8 section).
+
+---
+
 ## 🟢 2026-08-25 STATE — this layer supersedes the sections below where they disagree
 
 An 08-24 full scan → same-day fix session → 08-25 go-live + an 8-lane verified sweep moved a lot.
@@ -961,10 +1171,12 @@ labels *"Fund-loss detector class… run loud."*
 **Eight real defects were found underneath the dismissals.** None is what the detector claimed; each
 surfaced while checking whether the detector's claim was false. The three worth naming here:
 
-- **`RestakingMonitorView`** — `_effectivePower` silently degrades to zero **three ways**, one of
-  which is *the default post-deploy state* (`restakingContract` unset). So `isSynced` returns **true
-  for every un-registered restaker** — the house's cardinal sin, sitting in a view contract, and
-  exactly what its own natspec says it exists to prevent.
+- **`StreamingRevenueDistributor` (v2)** — `_effectivePower` silently degrades to zero **three ways**,
+  one of which is *the default post-deploy state* (`restakingContract` unset). So `isSynced` returns
+  **true for every un-registered restaker** — the house's cardinal sin, and exactly what its own natspec
+  says it exists to prevent. (ATTRIBUTION FIX 2026-08-27: `_effectivePower`/`isSynced` live in
+  `src/v2/StreamingRevenueDistributor.sol`, NOT `RestakingMonitorView` — a re-auditor following the old
+  name opened the wrong file.)
 - **`NftfiPooledLendingVault.repay`** is **not** revert-on-failure: it clamps and under-applies
   silently at `:386`, and `NftfiBnpl` has no rescue path. A suppression would have made the gate
   blind to it.
@@ -1176,8 +1388,9 @@ defect list, is in item **8** below.
 The three worth naming here, because they are the same defect class as the distributor work above —
 a silent zero standing in for an unknown:
 
-1. **`RestakingMonitorView`** — `_effectivePower` degrades to zero **three ways**, one of which is
-   the default post-deploy state, so `isSynced` answers **true for every un-registered restaker**.
+1. **`StreamingRevenueDistributor` (v2)** — `_effectivePower` degrades to zero **three ways**, one of
+   which is the default post-deploy state, so `isSynced` answers **true for every un-registered
+   restaker**. (These live in `src/v2/StreamingRevenueDistributor.sol`, not `RestakingMonitorView`.)
 2. **`NftfiPooledLendingVault.repay`** is **not** revert-on-failure: it clamps and under-applies
    silently at `:386`, and `NftfiBnpl` has no rescue path.
 3. **`TegridyHarvestVault:370/:386`** — a **one-wei donation** grieves `harvest` into
@@ -1492,3 +1705,29 @@ test. A sixth was one command from shipping: a Slither triage cleared 54 of 56 f
 line-cited reasoning, and the adversarial pass rejected twelve of them and found eight real defects
 underneath. **Ask of any check: could it fail if the thing it guards broke?** Two of the five were
 found by reading why something *unrelated* was red.
+
+---
+
+## 2026-08-28 — Row 8's OPERATOR half: the live ConvertLib still runs the old bytecode
+
+The row-8 re-anchor (PR #336) replaced `SwapFeeRouterConvertLib._readCurrentCumulative`'s
+hand-derived cumulative-price bridge with a provenance-pinned port of canonical
+`UniswapV2OracleLibrary` — **in source**. The DEPLOYED delegatecall library
+(`0x96A4Ed675eA203c4b4ae02F8Ad6D4f300Ee97295` on mainnet, plus the Base/RH stack copies)
+still executes the old hand-rolled math, which the ROW8 equivalence tests pin as
+behaviorally identical (`Audit_SFR_H01.t.sol` — idle-window integral, same-block no-bridge,
+uint256 wrap; a fleet critique agent is independently re-proving bit-equivalence as of
+2026-08-28). So this is NOT urgent and changes no live behavior — but "row 8 source half
+closed" must not be read as done-done while the money path runs old bytecode.
+
+**Operator item (bundle with the NEXT planned SwapFeeRouter-stack deploy, do not deploy for
+this alone):**
+1. Redeploy `SwapFeeRouterConvertLib` + relink/redeploy the SwapFeeRouter stack on all
+   three chains (mainnet / Base 8453 / Robinhood 4663).
+2. Re-run the ownership + pending-role ceremonies for the fresh addresses (2-of-2 Safe —
+   same shape as the M.2 ceremony; prove-it-signs first, as always).
+3. Update `frontend/scripts/addresses.json` + chains/registry + re-verify sources on the
+   three explorers (the Standard-JSON method from the 08-27 L2 verification is recorded in
+   project_2026_08_20_multichain memory / docs).
+4. Only then may docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md row 8 drop its "live bytecode
+   unchanged" caveat.

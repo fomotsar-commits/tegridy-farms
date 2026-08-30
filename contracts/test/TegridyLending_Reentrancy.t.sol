@@ -59,15 +59,48 @@ contract MockPair_LendReentry {
 
 // ─── Attacker Contracts ────────────────────────────────────────────
 
-/// @dev Attacker that acts as a borrower and tries to re-enter acceptOffer
-///      when receiving the principal ETH.
+/// @dev Attacker that acts as a borrower and tries to re-enter `acceptOffer`
+///      when receiving the principal ETH. Two independent layers are supposed
+///      to stop it: `WETHFallbackLib`'s gas stipend on the raw-ETH leg, and
+///      `acceptOffer`'s own `nonReentrant` guard.
+///
+///      ── Why the arming state is a NON-ZERO sentinel, not a counter ──
+///      `receive()` runs inside `WETHFallbackLib.ETH_TRANSFER_GAS_STIPEND`, so
+///      every slot it touches is charged against that budget. An
+///      `attackCount++` from 0 costs 20,000 gas (SSTORE_SET) by itself —
+///      measured on forge 1.5.1 it was the dominant cost of this `receive()`,
+///      leaving only ~27% headroom against the 32,300 available (30k stipend +
+///      the 2,300 value stipend). That is thin enough that ordinary codegen
+///      drift between toolchain releases can change this test's OUTCOME on
+///      unchanged contract code — which is exactly how the sibling
+///      `TegridyNFTPool_Reentrancy.t.sol` went red under forge 1.8.0. Arming
+///      to a non-zero value first makes the write inside `receive()` a cheap
+///      dirty-slot store (~100 gas).
+///
+///      0 = idle, 1 = armed, 2 = attempted and rejected, 3 = attempted and
+///      SUCCEEDED (i.e. the reentrancy defence failed).
 contract ReentrantBorrower {
     TegridyLending public lending;
     TegridyStaking public staking;
     bool public attacking;
-    uint256 public attackCount;
+    uint8 public attackState;
     uint256 public targetOfferId;
     uint256 public targetTokenId;
+
+    /// @notice True once `receive()` has fired and made its one re-entrancy attempt.
+    function attempted() external view returns (bool) {
+        return attackState >= 2;
+    }
+
+    /// @notice True iff the re-entrant call actually returned successfully — i.e. the
+    ///         reentrancy defence FAILED. Recorded rather than reverted on: a
+    ///         `revert` here would unwind the whole `receive()` frame including the
+    ///         successful re-entry's own state changes, so a broken guard would erase
+    ///         its own evidence and become indistinguishable from a `receive()` that
+    ///         merely ran out of gas.
+    function reentrySucceeded() external view returns (bool) {
+        return attackState == 3;
+    }
 
     constructor(address _lending, address _staking) {
         lending = TegridyLending(_lending);
@@ -81,7 +114,7 @@ contract ReentrantBorrower {
 
     function startAttack() external {
         attacking = true;
-        attackCount = 0;
+        attackState = 1;
     }
 
     function acceptOffer(uint256 offerId, uint256 tokenId) external returns (uint256) {
@@ -92,28 +125,44 @@ contract ReentrantBorrower {
         staking.approve(address(lending), tokenId);
     }
 
-    /// @dev When receiving principal ETH from acceptOffer, try to re-enter
+    /// @dev When receiving principal ETH from acceptOffer, try to re-enter.
+    ///      `acceptOffer` is not payable and this call carries no value, so it
+    ///      reaches `nonReentrant` rather than dying at the callvalue check.
     receive() external payable {
-        if (attacking && attackCount < 1) {
-            attackCount++;
-            // Try to accept another offer - should be blocked by nonReentrant
+        if (attacking && attackState == 1) {
+            attackState = 2; // disarm first: one-shot, and cheap (dirty-slot store)
             try lending.acceptOffer(targetOfferId, targetTokenId) {
-                revert("REENTRANCY_SUCCEEDED");
+                attackState = 3; // re-entrancy SUCCEEDED — the defence failed
             } catch {
-                // Expected: blocked by nonReentrant
+                // Expected: rejected by `nonReentrant` (verified by trace), or
+                // starved by the stipend if the guard were ever removed.
             }
         }
     }
 }
 
-/// @dev Attacker that acts as a lender and tries to re-enter cancelOffer
-///      when receiving the refund ETH. With WETHFallbackLib's 10k gas stipend,
-///      the re-entrant call won't have enough gas, and WETH fallback is used.
+/// @dev Attacker that acts as a lender and tries to re-enter `cancelOffer`
+///      when receiving the refund ETH. Two independent layers are supposed to
+///      stop it: `WETHFallbackLib`'s gas stipend on the raw-ETH leg, and
+///      `cancelOffer`'s own `nonReentrant` guard. See `ReentrantBorrower` above
+///      for why `attackState` is a non-zero sentinel rather than a counter, and
+///      why a successful re-entry is RECORDED rather than reverted on.
 contract ReentrantLender {
     TegridyLending public lending;
     bool public attacking;
-    uint256 public attackCount;
+    uint8 public attackState;
     uint256 public targetOfferId;
+
+    /// @notice True once `receive()` has fired and made its one re-entrancy attempt.
+    function attempted() external view returns (bool) {
+        return attackState >= 2;
+    }
+
+    /// @notice True iff the re-entrant call actually returned successfully — i.e. the
+    ///         reentrancy defence FAILED.
+    function reentrySucceeded() external view returns (bool) {
+        return attackState == 3;
+    }
 
     constructor(address _lending) {
         lending = TegridyLending(_lending);
@@ -140,18 +189,20 @@ contract ReentrantLender {
 
     function startAttack() external {
         attacking = true;
-        attackCount = 0;
+        attackState = 1;
     }
 
-    /// @dev When receiving ETH refund from cancelOffer, try to re-enter
+    /// @dev When receiving the ETH refund from cancelOffer, try to re-enter.
+    ///      `cancelOffer` is not payable and this call carries no value, so it
+    ///      reaches `nonReentrant` rather than dying at the callvalue check.
     receive() external payable {
-        if (attacking && attackCount < 1) {
-            attackCount++;
-            // Try to cancel another offer - should fail (10k gas stipend)
+        if (attacking && attackState == 1) {
+            attackState = 2; // disarm first: one-shot, and cheap (dirty-slot store)
             try lending.cancelOffer(targetOfferId) {
-                revert("REENTRANCY_SUCCEEDED");
+                attackState = 3; // re-entrancy SUCCEEDED — the defence failed
             } catch {
-                // Expected: blocked by gas stipend (falls back to WETH)
+                // Expected: rejected by `nonReentrant` (verified by trace), or
+                // starved by the stipend if the guard were ever removed.
             }
         }
     }
@@ -159,11 +210,26 @@ contract ReentrantLender {
 
 /// @dev Attacker that acts as a lender and tries to re-enter during repayLoan
 ///      when the lender receives their principal + interest via WETHFallbackLib.
+///      Re-entry target is `claimDefaultedCollateral`, which shares the same
+///      `nonReentrant` lock as `repayLoan`. See `ReentrantBorrower` above for
+///      why `attackState` is a non-zero sentinel rather than a counter, and why
+///      a successful re-entry is RECORDED rather than reverted on.
 contract ReentrantRepayLender {
     TegridyLending public lending;
     bool public attacking;
-    uint256 public attackCount;
+    uint8 public attackState;
     uint256 public targetLoanId;
+
+    /// @notice True once `receive()` has fired and made its one re-entrancy attempt.
+    function attempted() external view returns (bool) {
+        return attackState >= 2;
+    }
+
+    /// @notice True iff the re-entrant call actually returned successfully — i.e. the
+    ///         reentrancy defence FAILED.
+    function reentrySucceeded() external view returns (bool) {
+        return attackState == 3;
+    }
 
     constructor(address _lending) {
         lending = TegridyLending(_lending);
@@ -186,21 +252,24 @@ contract ReentrantRepayLender {
 
     function startAttack() external {
         attacking = true;
-        attackCount = 0;
+        attackState = 1;
     }
 
     function claimDefaultedCollateral(uint256 loanId) external {
         lending.claimDefaultedCollateral(loanId);
     }
 
-    /// @dev When receiving repayment ETH, try to re-enter claimDefaultedCollateral
+    /// @dev When receiving repayment ETH, try to re-enter claimDefaultedCollateral.
+    ///      That function is not payable and this call carries no value, so it
+    ///      reaches `nonReentrant` rather than dying at the callvalue check.
     receive() external payable {
-        if (attacking && attackCount < 1) {
-            attackCount++;
+        if (attacking && attackState == 1) {
+            attackState = 2; // disarm first: one-shot, and cheap (dirty-slot store)
             try lending.claimDefaultedCollateral(targetLoanId) {
-                revert("REENTRANCY_SUCCEEDED");
+                attackState = 3; // re-entrancy SUCCEEDED — the defence failed
             } catch {
-                // Expected: blocked by gas stipend (falls back to WETH)
+                // Expected: rejected by `nonReentrant` (verified by trace), or
+                // starved by the stipend if the guard were ever removed.
             }
         }
     }
@@ -336,18 +405,32 @@ contract TegridyLending_ReentrancyTest is Test {
         vm.prank(address(attacker));
         attacker.acceptOffer(offer1, attackerTokenId);
 
-        // FRESH-2026 TEST REALIGN: M-36 — stipend bumped from 10k to 30k. Reentry attempt
-        // now fits the budget but `nonReentrant` blocks the inner call (returns false).
-        // Either path (raw ETH success, WETH fallback) delivers the principal in full.
+        // 0. The attack was actually attempted. Without this the test could pass
+        //    vacuously if `receive()` never fired at all.
+        assertTrue(attacker.attempted(), "re-entrancy must actually have been attempted");
+
+        // 1. The borrower is made whole EXACTLY ONCE, counting ETH and WETH together.
+        //    Asset-type agnostic on purpose: a WETH fallback only moves value from the
+        //    ETH balance to the WETH balance, so the SUM is the invariant while the
+        //    individual legs are not. Which leg delivers is decided by whether this
+        //    attacker's `receive()` fits inside `WETHFallbackLib`'s stipend — a gas
+        //    margin, not a security property.
         uint256 received = address(attacker).balance + weth.balanceOf(address(attacker));
         assertEq(received, 1 ether, "attacker received principal (ETH or WETH via fallback)");
 
-        // attackCount may now reach 1 (the reentrant call's body executes long enough
-        // to bump the counter before nonReentrant reverts). The load-bearing assertion
-        // is offer2 activity below — the reentry's mutation is rolled back on revert.
-        // (Pre-fix: attackCount stayed 0 because OOG on 10k stipend reverted before
-        // the increment. Post-fix: 30k stipend lets the increment write but the
-        // outer revert undoes it. Either way, offer2 stays active.)
+        // 2. The re-entrant `acceptOffer` did not execute. Traced on forge 1.5.1: the
+        //    inner call reaches the dispatcher and reverts with
+        //    `ReentrancyGuardReentrantCall()` — it is rejected by the guard, not
+        //    starved by the stipend and not bounced at a callvalue check.
+        //
+        //    Scope note (mutation-verified, forge 1.5.1): deleting `nonReentrant` from
+        //    `acceptOffer` leaves this test GREEN, because CEI ordering independently
+        //    blocks the re-entry — the collateral NFT is escrowed to the lending
+        //    contract before the principal is paid out, so the inner call dies on
+        //    `NotNFTOwner()` instead. That is defence in depth working as intended,
+        //    not a gap here; `test_reentrancy_cancelOffer_blocked` is the test that
+        //    pins the guard itself.
+        assertFalse(attacker.reentrySucceeded(), "re-entrant acceptOffer must not succeed");
 
         // Offer2 is still active (re-entry was blocked)
         (,,,,,,, bool active,,) = lending.getOffer(offer2);
@@ -358,9 +441,34 @@ contract TegridyLending_ReentrancyTest is Test {
     // TEST: cancelOffer - lender re-entry during refund
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice A malicious lender contract tries to re-enter cancelOffer when
-    ///         receiving the ETH refund. The 10k gas stipend blocks the re-entry
-    ///         and the refund is sent as WETH instead.
+    /// @notice A malicious lender contract tries to re-enter `cancelOffer` while
+    ///         receiving its ETH refund. It is refunded exactly once and the
+    ///         re-entrant call does not execute.
+    ///
+    /// @dev    ASSERT THE SECURITY PROPERTY, NOT THE DELIVERY ASSET. Whether the
+    ///         refund lands as raw ETH or as wrapped WETH is decided by whether
+    ///         this attacker's `receive()` happens to fit inside
+    ///         `WETHFallbackLib.ETH_TRANSFER_GAS_STIPEND` — a gas margin, not an
+    ///         invariant. `safeTransferETHOrWrap` makes ONE
+    ///         `to.call{gas: STIPEND}` and silently wraps to WETH if it fails, so
+    ///         a codegen shift between toolchain releases can move the outcome
+    ///         across that line with zero contract changes. That is exactly how
+    ///         the sibling `TegridyNFTPool_Reentrancy.t.sol` was reddened by
+    ///         forge 1.8.0, and this docstring used to assert the opposite of
+    ///         what the code did: it claimed the refund "is sent as WETH", while
+    ///         the comment 25 lines below claimed raw ETH. Traced on forge 1.5.1
+    ///         the refund is in fact delivered as raw ETH — but that is an
+    ///         outcome, not a promise, so nothing here depends on it.
+    ///
+    ///         The stipend is 30_000 (`ETH_TRANSFER_GAS_STIPEND`, M-36
+    ///         [F-40-WFL-1]), not the 10_000 this file used to name.
+    ///
+    ///         What IS invariant, and what is asserted below:
+    ///           1. the lender is made whole exactly once, counting ETH + WETH
+    ///              together — a WETH fallback only moves value between those two
+    ///              balances, so their sum is what holds;
+    ///           2. the re-entrant `cancelOffer` does not execute — it is
+    ///              recorded as rejected, and offer2 is still active afterwards.
     function test_reentrancy_cancelOffer_blocked() public {
         // Deploy attacker lender
         ReentrantLender attacker = new ReentrantLender(address(lending));
@@ -385,12 +493,34 @@ contract TegridyLending_ReentrancyTest is Test {
         vm.prank(address(attacker));
         attacker.cancelOffer(offer1);
 
-        // FRESH-2026 TEST REALIGN: M-36 [F-40-WFL-1] — gas stipend bumped from 10k to 30k.
-        // The reentrant call now fits the budget but is rejected by `nonReentrant`,
-        // so the inner call returns false and the refund lands as raw ETH (no WETH wrap).
-        // Reentrancy is still defended — by the guard, not the stipend.
+        // 0. The attack was actually attempted, so the assertions below are not
+        //    passing vacuously on a `receive()` that never fired.
+        assertTrue(attacker.attempted(), "re-entrancy must actually have been attempted");
+
+        // 1. Refunded EXACTLY ONCE, whichever leg carried it. See the docstring:
+        //    the ETH-vs-WETH split is a gas-margin outcome, so the sum of the two
+        //    balances is the thing that is actually invariant here.
         uint256 received = address(attacker).balance + weth.balanceOf(address(attacker)) - balBefore;
         assertEq(received, 1 ether, "Refund delivered (ETH or WETH) - reentry blocked by guard");
+
+        // 2. The re-entrant `cancelOffer` did not execute. Traced on forge 1.5.1: the
+        //    inner call reverts with `ReentrancyGuardReentrantCall()` — rejected by the
+        //    guard, not starved by the stipend and not bounced at a callvalue check.
+        //
+        //    MUTATION-VERIFIED (forge 1.5.1), and this test is the one that genuinely
+        //    pins the guard:
+        //      | mutation                     | result                              |
+        //      | ---------------------------- | ----------------------------------- |
+        //      | none                         | GREEN                               |
+        //      | `nonReentrant` removed       | RED — refund paid twice (2 ETH)     |
+        //      | stipend raised to 500_000    | GREEN — guard still rejects         |
+        //      | both                         | RED — refund paid twice (2 ETH)     |
+        //
+        //    Unlike the acceptOffer/repayLoan cases below, no state check stands in
+        //    for the guard here: offer2 is a separate, still-active offer, so a
+        //    re-entrant cancel is perfectly valid business logic and ONLY the lock
+        //    stops it draining a second refund.
+        assertFalse(attacker.reentrySucceeded(), "re-entrant cancelOffer must not succeed");
 
         // Offer2 is still active (re-entry was blocked)
         (,,,,,,, bool active,,) = lending.getOffer(offer2);
@@ -401,9 +531,26 @@ contract TegridyLending_ReentrancyTest is Test {
     // TEST: repayLoan - lender re-entry during repayment payout
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice A malicious lender contract tries to re-enter during repayLoan
-    ///         when receiving the principal + interest. The 10k gas stipend blocks
-    ///         the re-entry and payout is sent as WETH.
+    /// @notice A malicious lender contract tries to re-enter during `repayLoan`
+    ///         while receiving its principal + interest. It is paid once, the
+    ///         re-entrant `claimDefaultedCollateral` does not execute, and the
+    ///         borrower's NFT comes back.
+    ///
+    /// @dev    ASSERT THE SECURITY PROPERTY, NOT THE DELIVERY ASSET — same
+    ///         reasoning as `test_reentrancy_cancelOffer_blocked` above. This
+    ///         docstring used to claim the payout "is sent as WETH"; traced on
+    ///         forge 1.5.1 it is actually delivered as raw ETH. Neither is a
+    ///         promise: `safeTransferETHOrWrap` picks the leg by whether the
+    ///         recipient's `receive()` fits the 30_000-gas stipend
+    ///         (`ETH_TRANSFER_GAS_STIPEND`, M-36 [F-40-WFL-1] — not the 10_000
+    ///         this file used to name), which is a gas margin that toolchain
+    ///         drift can cross on unchanged contract code.
+    ///
+    ///         What IS invariant, and what is asserted below:
+    ///           1. the lender is paid, counting ETH + WETH together;
+    ///           2. the re-entrant `claimDefaultedCollateral` does not execute;
+    ///           3. the loan is marked repaid and the collateral NFT returns to
+    ///              the borrower — a successful re-entry would have seized it.
     function test_reentrancy_repayLoan_blocked() public {
         // Deploy attacker lender
         ReentrantRepayLender attackerLender = new ReentrantRepayLender(address(lending));
@@ -432,11 +579,27 @@ contract TegridyLending_ReentrancyTest is Test {
         vm.prank(alice);
         lending.repayLoan{value: repaymentAmount}(loanId);
 
-        // FRESH-2026 TEST REALIGN: M-36 — stipend bumped to 30k; reentry now fits but
-        // is rejected by `nonReentrant`. Payout lands as ETH, WETH, or both (the lib's
-        // post-failure path may still wrap depending on consumer). Verify total received.
+        // 0. The attack was actually attempted, so the assertions below are not
+        //    passing vacuously on a `receive()` that never fired.
+        assertTrue(attackerLender.attempted(), "re-entrancy must actually have been attempted");
+
+        // 1. The lender was paid, counting ETH and WETH together — asset-agnostic
+        //    for the reason given in the docstring.
         uint256 received = address(attackerLender).balance + weth.balanceOf(address(attackerLender));
         assertGt(received, 0, "Lender payout delivered (ETH or WETH) - reentry blocked by guard");
+
+        // 2. The re-entrant `claimDefaultedCollateral` did not execute. Traced on
+        //    forge 1.5.1: the inner call reverts with `ReentrancyGuardReentrantCall()`.
+        //    This is the assertion that makes the NFT check below meaningful — a
+        //    successful re-entry would have seized alice's collateral mid-repayment.
+        //
+        //    Scope note (mutation-verified, forge 1.5.1): deleting `nonReentrant` from
+        //    `claimDefaultedCollateral` leaves this test GREEN, because CEI ordering
+        //    independently blocks the re-entry — the loan is marked repaid before the
+        //    lender is paid, so the inner call dies on `LoanAlreadyRepaid()` instead.
+        //    Defence in depth working as intended; see
+        //    `test_reentrancy_cancelOffer_blocked` for the case that pins the guard.
+        assertFalse(attackerLender.reentrySucceeded(), "re-entrant claimDefaultedCollateral must not succeed");
 
         // Loan is marked as repaid
         (,,,,,,,,bool repaid,,) = lending.getLoan(loanId);
@@ -554,8 +717,11 @@ contract TegridyLending_ReentrancyTest is Test {
             1000, 30 days, address(staking), 1000 ether, 0
         );
 
-        // Attacker accepts — receives principal as WETH (its receive() reverts
-        // so the 10k stipend fails and WETH fallback delivers the principal).
+        // Attacker accepts — receives principal as WETH. Unlike the gas-margin
+        // cases above, this one IS deterministic: `ETHRejectingBorrower.receive()`
+        // reverts unconditionally, so the raw-ETH leg fails at any stipend and the
+        // WETH fallback is the only path. Asserting the asset here is therefore
+        // legitimate; asserting it on a `receive()` that does real work is not.
         vm.prank(address(attacker));
         uint256 loanId = lending.acceptOffer(offerId, attackerTokenId);
 

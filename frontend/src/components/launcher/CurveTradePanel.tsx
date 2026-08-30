@@ -8,10 +8,10 @@
 // The presentational core (CurveTradeView) is pure and prop-driven so it tests
 // without a wallet; the container wires the reads/writes.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { useAccount, useReadContract, useWriteContract } from 'wagmi';
+import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { toast } from 'sonner';
 import { formatEther, maxUint256, type Address } from 'viem';
 import { sanitizeDecimalInput } from '../../lib/formatting';
@@ -73,6 +73,18 @@ export interface CurveTradeViewProps {
   /** True when a sell needs an ERC-20 approval before it can run. */
   needsApproval: boolean;
   pending: boolean;
+  /** True from tx submission until the RECEIPT lands — the 08-24 receipt-status
+   *  standard: "submitted" is not "done", and a revert must come back as a red
+   *  toast, not silence. The container drives this. */
+  mining?: boolean;
+  /** Deferred graduation (audit find): the contract rejects every buy with
+   *  CurveComplete once ethReserve >= graduationEth even while `graduated` is
+   *  still false (a third party can force this window by LP-minting into the
+   *  pair pre-graduation). Buys must be disabled with an explanation instead of
+   *  inviting guaranteed-revert gas burns; sells stay open; the permissionless
+   *  finalize call gets its first UI surface here. */
+  deferredGraduation?: boolean;
+  onFinalizeGraduation?: () => void;
   onBuy: (ethGross: bigint, minTokensOut: bigint) => void;
   onSell: (tokensIn: bigint, minEthOut: bigint) => void;
   onApprove: () => void;
@@ -155,6 +167,9 @@ export function CurveTradeView({
   tokenBalance,
   needsApproval,
   pending,
+  mining = false,
+  deferredGraduation = false,
+  onFinalizeGraduation,
   onBuy,
   onSell,
   onApprove,
@@ -212,8 +227,9 @@ export function CurveTradeView({
 
   const insufficientBalance =
     side === 'sell' && tokenBalance !== undefined && amountWei !== null && amountWei > tokenBalance;
+  const buyClosedByDeferral = deferredGraduation && side === 'buy';
   const disabled =
-    pending || amountWei === null || quote === null || quote.dust || insufficientBalance;
+    pending || buyClosedByDeferral || amountWei === null || quote === null || quote.dust || insufficientBalance;
 
   const act = () => {
     if (amountWei === null || quote === null) return;
@@ -223,12 +239,16 @@ export function CurveTradeView({
   };
 
   const actionLabel = pending
-    ? 'Confirm in wallet…'
-    : side === 'buy'
-      ? `Buy ${tokenSymbol}`
-      : needsApproval
-        ? `Approve ${tokenSymbol}`
-        : `Sell ${tokenSymbol}`;
+    ? mining
+      ? 'Confirming on-chain…'
+      : 'Confirm in wallet…'
+    : buyClosedByDeferral
+      ? 'Buys closed — curve at target'
+      : side === 'buy'
+        ? `Buy ${tokenSymbol}`
+        : needsApproval
+          ? `Approve ${tokenSymbol}`
+          : `Sell ${tokenSymbol}`;
 
   return (
     <m.div
@@ -256,6 +276,26 @@ export function CurveTradeView({
         </div>
       </div>
 
+      {deferredGraduation && (
+        <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)' }}>
+          <p className="text-emerald-200/90 text-[12px] leading-relaxed">
+            The curve hit its raise target but graduation hasn't been finalized yet. Buys are
+            closed (the contract rejects them); sells still work. Anyone may finalize —
+            it seeds the Tegridy pool and burns the LP.
+          </p>
+          {onFinalizeGraduation && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onFinalizeGraduation}
+              className="btn-primary px-3 py-1.5 min-h-[44px] md:min-h-0 text-[12px] disabled:opacity-50"
+            >
+              {pending ? (mining ? 'Confirming on-chain…' : 'Confirm in wallet…') : 'Finalize graduation'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Buy / Sell toggle */}
       <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-black/40">
         {(['buy', 'sell'] as const).map((s) => (
@@ -263,7 +303,7 @@ export function CurveTradeView({
             key={s}
             type="button"
             onClick={() => setSide(s)}
-            className={`py-1.5 rounded-md text-xs font-semibold transition ${
+            className={`py-1.5 min-h-[44px] md:min-h-0 rounded-md text-xs font-semibold transition ${
               side === s ? 'bg-white/15 text-white' : 'text-white/50 hover:text-white/80'
             }`}
           >
@@ -277,7 +317,7 @@ export function CurveTradeView({
         <div className="flex justify-between text-[11px] text-white/55 mb-1">
           <span>{side === 'buy' ? `Spend (${nativeSymbol})` : `Sell (${tokenSymbol})`}</span>
           {side === 'sell' && tokenBalance !== undefined && (
-            <button type="button" className="hover:text-white/90 font-mono" onClick={() => setAmount(formatEther(tokenBalance))}>
+            <button type="button" className="hover:text-white/90 font-mono px-3 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center" onClick={() => setAmount(formatEther(tokenBalance))}>
               max {fmt(tokenBalance, 4)}
             </button>
           )}
@@ -301,7 +341,7 @@ export function CurveTradeView({
             key={bps}
             type="button"
             onClick={() => setSlippageBps(bps)}
-            className={`px-2 py-0.5 rounded font-mono transition ${
+            className={`px-2 py-0.5 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 inline-flex items-center justify-center rounded font-mono transition ${
               slippageBps === bps ? 'bg-white/15 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'
             }`}
           >
@@ -339,6 +379,12 @@ export function CurveTradeView({
       >
         {actionLabel}
       </button>
+      {side === 'sell' && needsApproval && (
+        <p className="text-white/50 text-[11px] leading-snug">
+          Approval grants the launcher an unlimited {tokenSymbol} allowance (one transaction,
+          never repeated). Revoke any time from your wallet's token approvals.
+        </p>
+      )}
     </m.div>
   );
 }
@@ -389,7 +435,7 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   const { address: account } = useAccount();
   const { writeContract, isPending } = useWriteContract();
 
-  const { data: launchRaw } = useReadContract({
+  const { data: launchRaw, isError: launchReadFailed, refetch: refetchLaunch } = useReadContract({
     address: launcher,
     abi: CURVE_LAUNCHER_ABI,
     functionName: 'getLaunch',
@@ -397,22 +443,51 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     chainId,
     query: { refetchInterval: 15_000 },
   });
-  const { data: balance } = useReadContract({
+  // AUDIT 2026-08-28: balance/allowance used to be read ONCE (no poll, no
+  // post-write invalidation) — after an approve the button kept offering
+  // "Approve" until a stale-window refocus, inviting a double approval, and
+  // after a buy the sell tab's max stayed stale while getLaunch ticked every
+  // 15s. Same cadence as getLaunch + explicit refetch on every confirmed
+  // receipt.
+  const { data: balance, refetch: refetchBalance } = useReadContract({
     address: token,
     abi: ERC20_MIN_ABI,
     functionName: 'balanceOf',
     args: account ? [account] : undefined,
     chainId,
-    query: { enabled: Boolean(account) },
+    query: { enabled: Boolean(account), refetchInterval: 15_000 },
   });
-  const { data: allowance } = useReadContract({
+  const { data: allowance, refetch: refetchAllowance } = useReadContract({
     address: token,
     abi: ERC20_MIN_ABI,
     functionName: 'allowance',
     args: account ? [account, launcher] : undefined,
     chainId,
-    query: { enabled: Boolean(account) },
+    query: { enabled: Boolean(account), refetchInterval: 15_000 },
   });
+
+  // AUDIT 2026-08-28 (receipt-status standard, same as useFarmActions): track
+  // the submitted hash to the RECEIPT. wagmi's fetch-success is not on-chain
+  // success — a reverted tx also has a receipt — so status is checked
+  // explicitly and a revert comes back as a red toast, never silence.
+  const [tx, setTx] = useState<{ hash: `0x${string}`; label: string } | null>(null);
+  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+    hash: tx?.hash,
+    chainId,
+    query: { enabled: tx !== null },
+  });
+  useEffect(() => {
+    if (!tx || !receiptFetched || !receipt) return;
+    if (receipt.status === 'success') {
+      toast.success(`${tx.label} confirmed.`);
+    } else {
+      toast.error(`${tx.label} failed on-chain (reverted) — nothing changed. Check slippage, or whether the curve just closed.`);
+    }
+    setTx(null);
+    void refetchLaunch();
+    void refetchBalance();
+    void refetchAllowance();
+  }, [tx, receiptFetched, receipt, refetchLaunch, refetchBalance, refetchAllowance]);
 
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   // Hook order: resolve identity unconditionally (before the loading return).
@@ -430,6 +505,21 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     query: { enabled: wantOnChainId },
   });
   if (!launch) {
+    // AUDIT 2026-08-28: getLaunch REVERTS (UnknownLaunch) for a non-curve
+    // address — rendering that as eternal "Loading…" dressed a failed read as
+    // progress, against the read-vs-zero honesty rule.
+    if (launchReadFailed) {
+      return (
+        <div className="rounded-2xl p-5" style={cardStyle}>
+          <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
+          <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
+            Nothing launched from this chain&apos;s Tegridy curve lives at{' '}
+            <span className="font-mono break-all">{token}</span>. Double-check the address and the
+            chain.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="rounded-2xl p-5 text-white/60 text-[13px]" style={cardStyle}>
         Loading the curve…
@@ -444,7 +534,10 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     writeContract(
       { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'buy', args: [token, minTokensOut], value: ethGross, chainId },
       {
-        onSuccess: () => toast.success('Buy submitted.'),
+        onSuccess: (hash) => {
+          toast.success('Buy submitted — waiting for confirmation…');
+          setTx({ hash, label: 'Buy' });
+        },
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the buy.'),
       },
     );
@@ -453,7 +546,10 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     writeContract(
       { address: token, abi: ERC20_MIN_ABI, functionName: 'approve', args: [launcher, maxUint256], chainId },
       {
-        onSuccess: () => toast.success('Approval submitted — confirm, then sell.'),
+        onSuccess: (hash) => {
+          toast.success('Approval submitted — waiting for confirmation…');
+          setTx({ hash, label: 'Approval' });
+        },
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the approval.'),
       },
     );
@@ -462,7 +558,10 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     writeContract(
       { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'sell', args: [token, tokensIn, minEthOut], chainId },
       {
-        onSuccess: () => toast.success('Sell submitted.'),
+        onSuccess: (hash) => {
+          toast.success('Sell submitted — waiting for confirmation…');
+          setTx({ hash, label: 'Sell' });
+        },
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the sell.'),
       },
     );
@@ -471,6 +570,21 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
   // A sell needs approval when the allowance can't cover the whole balance
   // (we approve maxUint256, so once approved this is false forever).
   const needsApproval = tokenBalance !== undefined && currentAllowance < tokenBalance;
+
+  // Permissionless recovery for the deferred-graduation window — first UI
+  // caller of finalizeGraduation (audit find: it had none anywhere).
+  const onFinalizeGraduation = () => {
+    writeContract(
+      { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'finalizeGraduation', args: [token], chainId },
+      {
+        onSuccess: (hash) => {
+          toast.success('Finalize submitted — waiting for confirmation…');
+          setTx({ hash, label: 'Finalize graduation' });
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the finalize call.'),
+      },
+    );
+  };
 
   return (
     <CurveTradeView
@@ -484,7 +598,10 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
       identity={identity}
       tokenBalance={tokenBalance}
       needsApproval={needsApproval}
-      pending={isPending}
+      pending={isPending || tx !== null}
+      mining={tx !== null}
+      deferredGraduation={!launch.graduated && launch.ethReserve >= launch.graduationEth}
+      onFinalizeGraduation={onFinalizeGraduation}
       onBuy={onBuy}
       onSell={onSell}
       onApprove={onApprove}

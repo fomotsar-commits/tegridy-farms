@@ -6,7 +6,7 @@ import {
   bungalowScanRoute,
   bungalowTradeRoute,
 } from '../../lib/bungalows';
-import { isSolanaConfigured } from '../../lib/solana';
+import { isSolanaSwapLive } from '../../lib/solana';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -51,7 +51,7 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
       : 'A quiet bungalow on Jungle Bay Island — someone is building here.',
   );
   const explorer = bungalowExplorerUrl(bungalow);
-  const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+  const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
   const scanRoute = bungalowScanRoute(bungalow);
   const accent = bungalow.accent ?? 'var(--color-kyle)';
 

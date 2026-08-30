@@ -87,10 +87,13 @@ describe('bungalow registry', () => {
     expect(BUNGALOWS.find((b) => b.id === DEFAULT_BUNGALOW_ID)!.identity).toBeUndefined();
   });
 
-  it('ships the LIVE lighthouse pool address (created on mainnet 2026-08-26)', () => {
+  it('ships the LIVE lighthouse pool address (replacement pool, mainnet 2026-08-30)', () => {
     const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
     // Hardcoded fallback — no env var is load-bearing for the live pool.
-    expect(bayla.stakePool).toBe('4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp');
+    // This is the nonce-1 pool that actually weights duration (1.00x → 5.00x).
+    // The original (4WCpdeQ2…GXPp) shipped flat and is abandoned.
+    expect(bayla.stakePool).toBe('EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f');
+    expect(bayla.stakePool).not.toBe('4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp');
   });
 });
 

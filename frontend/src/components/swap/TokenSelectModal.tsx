@@ -294,7 +294,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name, symbol, or paste address"
-              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl text-[13px] text-white placeholder-white/25 outline-none"
+              className="w-full px-3.5 py-2.5 min-h-[44px] rounded-xl text-[13px] text-white placeholder:text-white/60 outline-none"
               style={{
                 background: 'var(--color-purple-75)',
                 border: '1px solid var(--color-purple-75)',

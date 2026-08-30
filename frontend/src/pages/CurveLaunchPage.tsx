@@ -821,8 +821,8 @@ function CurveExplainer() {
     <div className="space-y-4">
       <Card title="What this is">
         <p>
-          Our own bonding curve program, and our own AMM to graduate into — as opposed to the Solana launch rail, which
-          runs on Meteora&apos;s curve and migrates into Meteora&apos;s pool.
+          Our own bonding curve program, and our own AMM to graduate into — unlike the retired Solana launch rail, which
+          ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
         </p>
         <p>
           A launch raises SOL along a constant-product curve priced on virtual plus real reserves. When it has raised its

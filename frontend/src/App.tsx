@@ -38,6 +38,11 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const ArtStudioPage = import.meta.env.DEV
   ? lazy(() => import('./pages/ArtStudioPage'))
   : null;
+// Same gate for the bungalow skin studio (/bayla-studio) — it writes source
+// files through a dev-only vite middleware, so it must never ship to prod.
+const BungalowArtStudioPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/BungalowArtStudioPage'))
+  : null;
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
@@ -72,6 +77,10 @@ const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 // Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
 // with this chunk — never the main bundle / EVM surface.
 const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
+// The venue's own Solana AMM: what its pools charge, what an LP keeps, and a
+// LIVE probe of whether the program is actually deployed. Lazy for the same
+// reason as the swap — @solana/* only loads when a Solana surface is opened.
+const PoolsPage = lazy(() => import('./pages/PoolsPage'));
 // Our OWN Solana bonding curve (tegridy-launch), which graduates into our cp-swap
 // fork. Since the Meteora rail was retired 2026-08-23 this is the ONLY Solana launch
 // rail. NOT gated by a flag: the page
@@ -298,6 +307,18 @@ function AnimatedRoutes() {
             : <Navigate to="/" replace />
         }
       />
+      {/* Bayla studio — the same tool aimed at the Bayla bungalow's own art
+          pool. Writes src/lib/bungalowArtOverrides.ts. Dev-only, same as above.
+          NOTE: this path must stay OUTSIDE the bungalow-door slugs (a door is
+          /bayla); '/bayla-studio' is not an island slug, so no collision. */}
+      <Route
+        path="bayla-studio"
+        element={
+          import.meta.env.DEV && BungalowArtStudioPage
+            ? <Suspense fallback={<PageSkeleton />}><BungalowArtStudioPage bungalowId="bayla" /></Suspense>
+            : <Navigate to="/" replace />
+        }
+      />
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
         {/* Jungle Bay bungalow doors — the memetics.finance/<bungalow> URL
@@ -322,6 +343,7 @@ function AnimatedRoutes() {
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
+        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsPage /></Suspense>} />
         {/* /solana-launch (Meteora DBC) was REMOVED 2026-08-23 — it graduated into a
             pool this protocol does not own. /curve-launch below is the surviving Solana
             launch rail. No redirect is added on purpose: the route is gone, so the SPA

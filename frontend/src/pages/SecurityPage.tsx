@@ -108,7 +108,10 @@ const iconMap: Record<string, () => React.ReactNode> = {
 };
 
 export default function SecurityPage() {
-  usePageTitle('Security', 'Smart contract audits, bug bounty program, and security practices.');
+  // 2026-08-28: the meta description claimed "audits" and a "bug bounty
+  // program" — this page's own banner says no paid third-party audit and no
+  // platform bounty exist. Crawlers read the meta; keep it as honest as the page.
+  usePageTitle('Security', 'Internal security reviews, responsible disclosure, and security practices.');
 
   // Live source-verification for the deployed contracts listed below. This page
   // claims "Source code available for independent review" — the badge is the
@@ -365,7 +368,7 @@ export default function SecurityPage() {
         </m.section>
 
         <p className="text-center text-white/85 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-          Last reviewed: July 2026
+          Last reviewed: August 2026
         </p>
 
       </div>

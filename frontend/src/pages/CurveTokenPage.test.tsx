@@ -37,3 +37,12 @@ describe('CurveCreatorClaimView', () => {
     expect(screen.getByRole('button', { name: /confirm in wallet/i })).toBeDisabled();
   });
 });
+
+describe('claim receipt window (2026-08-28 audit)', () => {
+  it('holds the button through mining with a distinct label — no double-claim window', () => {
+    render(<CurveCreatorClaimView claimableWei={1n} pending={true} mining={true} onClaim={vi.fn()} />);
+    const btn = screen.getByRole('button');
+    expect(btn).toBeDisabled();
+    expect(btn.textContent).toMatch(/confirming on-chain/i);
+  });
+});

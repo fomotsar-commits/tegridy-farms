@@ -56,7 +56,34 @@ export const SOLANA_PLATFORM_FEE_BPS = ((): number => {
 export const SOL_MINT = 'So11111111111111111111111111111111111111112';
 export const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-// Gate: the Solana swap surface is live only once the operator sets a fee account.
-export function isSolanaConfigured(): boolean {
+/**
+ * Gate: does the venue TAKE a platform fee on a Solana swap?
+ *
+ * This is a question about revenue, not about capability — Jupiter quotes and
+ * builds a swap perfectly well with no `feeAccount` (jupiter.ts `feeEnabled()`
+ * already keeps `platformFeeBps` and `feeAccount` coupled, sending neither
+ * when this is false). Whichever way it answers, the swap itself works.
+ */
+export function isSolanaFeeConfigured(): boolean {
   return SOLANA_FEE_ACCOUNT.length > 0;
+}
+
+/**
+ * Gate: should the in-venue Solana swap surface be offered?
+ *
+ * It used to be `isSolanaFeeConfigured()`, and that conflation had a real
+ * cost: with no VITE_SOLANA_FEE_ACCOUNT set, /solana rendered "coming soon",
+ * the nav hid it, and `bungalowTradeRoute()` sent every Solana bungalow
+ * OUT to jup.ag — so the venue's own Solana token (BAYLA) had no in-venue
+ * trade route at all and "Trade" in the nav meant the Ethereum swap. The
+ * missing piece was a fee recipient, which is a reason to charge nothing,
+ * not a reason to send traffic away.
+ *
+ * The surface depends on the same-origin Jupiter proxy (/api/jupiter →
+ * api/aggregator.js, deployed) and a Solana RPC proxy (/api/solrpc, deployed)
+ * — both of which exist regardless of the fee account. So: always live, and
+ * the fee line below it tells the truth either way.
+ */
+export function isSolanaSwapLive(): boolean {
+  return true;
 }

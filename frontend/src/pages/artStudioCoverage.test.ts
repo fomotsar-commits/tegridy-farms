@@ -4,7 +4,8 @@ import { join } from 'node:path';
 
 // COVERAGE GUARD for the art-studio surface inventory.
 //
-// The studio's SURFACES list (ArtStudioPage.tsx) is hand-maintained, so it drifts:
+// The studio's SURFACES list (lib/artSurfaces.ts, shared by /art-studio and
+// /bayla-studio) is hand-maintained, so it drifts:
 // a page adds an <ArtImg pageId=".."> or <PageArtBackdrop pageId=".."> and forgets
 // to register it, and that card silently becomes invisible/unadjustable in the tool
 // (found 9 such surfaces on 2026-07-25). This test fails the build if any statically
@@ -16,7 +17,7 @@ import { join } from 'node:path';
 
 // vitest runs from the frontend project root, so cwd/src is the source tree.
 const SRC = join(process.cwd(), 'src');
-const STUDIO_FILE = join(SRC, 'pages', 'ArtStudioPage.tsx');
+const STUDIO_FILE = join(SRC, 'lib', 'artSurfaces.ts');
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];

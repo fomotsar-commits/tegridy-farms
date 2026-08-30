@@ -63,7 +63,7 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
           placeholder="Solana or 0x… wallet address"
           spellCheck={false}
           autoComplete="off"
-          className="flex-1 min-w-[260px] rounded-lg px-3 py-2.5 text-[13px] font-mono text-white placeholder-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
+          className="flex-1 min-w-[260px] rounded-lg px-3 py-2.5 text-[13px] font-mono text-white placeholder:text-white/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
           style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid var(--color-purple-25)' }}
         />
         <button

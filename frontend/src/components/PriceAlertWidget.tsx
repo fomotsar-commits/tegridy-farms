@@ -64,7 +64,7 @@ export function PriceAlertWidget() {
                 value={priceInput}
                 onChange={(e) => setPriceInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                className="flex-1 min-w-[80px] rounded-lg px-2 py-1.5 text-[12px] bg-white/5 border border-white/10 text-white outline-none placeholder:text-white/30"
+                className="flex-1 min-w-[80px] rounded-lg px-2 py-1.5 text-[12px] bg-white/5 border border-white/10 text-white outline-none placeholder:text-white/60"
               />
               <button onClick={handleAdd} className="btn-primary px-3 py-1.5 text-[11px]">
                 Add

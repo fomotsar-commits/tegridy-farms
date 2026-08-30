@@ -156,7 +156,7 @@ export default function TermsPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: July 2026
+            Last updated: August 2026
           </p>
         </m.div>
       </div>

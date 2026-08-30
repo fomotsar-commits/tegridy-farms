@@ -220,7 +220,7 @@ export function LaunchBuyPanel({
         <div className="space-y-3">
           <div className="flex flex-wrap gap-3">
             <label className="flex-1 min-w-[10rem]">
-              <span className="block text-[11px] uppercase tracking-wide text-emerald-200/50 mb-1">
+              <span className="block text-[11px] uppercase tracking-wide text-emerald-200/80 mb-1">
                 Spend ({numeraireLabel})
               </span>
               <input
@@ -236,7 +236,7 @@ export function LaunchBuyPanel({
               />
             </label>
             <label className="w-32">
-              <span className="block text-[11px] uppercase tracking-wide text-emerald-200/50 mb-1">
+              <span className="block text-[11px] uppercase tracking-wide text-emerald-200/80 mb-1">
                 Slippage (bps)
               </span>
               <input
@@ -250,7 +250,7 @@ export function LaunchBuyPanel({
                 aria-label="Slippage tolerance in basis points"
                 className="w-full rounded-lg bg-black/30 border border-white/10 px-3 py-2 text-sm text-white font-mono"
               />
-              <span className="block text-[10px] text-emerald-200/40 mt-1">
+              <span className="block text-[10px] text-emerald-200/75 mt-1">
                 {MIN_LAUNCH_BUY_SLIPPAGE_BPS}–{MAX_LAUNCH_BUY_SLIPPAGE_BPS}
               </span>
             </label>
@@ -260,7 +260,7 @@ export function LaunchBuyPanel({
             <button
               onClick={getQuote}
               disabled={amountWei === null || amountWei <= 0n || phase.k === 'quoting' || phase.k === 'submitting'}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
+              className="px-3 py-1.5 min-h-[44px] md:min-h-0 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
             >
               {phase.k === 'quoting' ? 'Quoting…' : phase.k === 'ready' ? 'Refresh quote' : 'Get quote'}
             </button>
@@ -293,7 +293,7 @@ export function LaunchBuyPanel({
                 <span className="text-emerald-200/60">Slippage encoded</span>
                 <span className="font-mono">{phase.plan.slippageBps} bps</span>
               </div>
-              <p className="text-emerald-200/50 pt-1 leading-relaxed">
+              <p className="text-emerald-200/80 pt-1 leading-relaxed">
                 The minimum above is the exact figure inside the transaction you’ll sign. If the
                 pool can’t deliver it, the whole batch reverts and you keep your {numeraireLabel}.
               </p>
@@ -311,7 +311,7 @@ export function LaunchBuyPanel({
               <button
                 onClick={submit}
                 disabled={stale || phase.plan.tokenOut.toLowerCase() !== tokenAddress.toLowerCase()}
-                className="px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
+                className="px-4 py-2 min-h-[44px] md:min-h-0 rounded-lg text-xs font-semibold bg-emerald-500/90 text-black disabled:opacity-40 hover:bg-emerald-400 transition"
               >
                 Buy {tokenSymbol}
               </button>

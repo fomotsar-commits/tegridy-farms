@@ -34,7 +34,7 @@ export function CurveHowItWorks() {
     { k: 'Zero third-party tolls', v: 'No Airlock, no migrator, no petition. 100% of the 1% trade fee stays in-house.' },
     { k: 'Fee split 40 / 25 / 35', v: 'Every trade funds the creator (40%), the Jungle Bay treasury (25%) and the protocol (35%).' },
     { k: 'Graduate to us', v: 'Hitting the raise target seeds the Tegridy pool with all raised ETH + unsold tokens — LP burned to 0x…dEaD, nobody can pull it.' },
-    { k: '3.69% survival reserve', v: "Carved from each launch's supply and released to fund that pool's LP incentives, bribes and bounties." },
+    { k: '3.69% ecosystem reserve', v: "Carved from each launch's supply and sent to protocol custody at graduation, then used at the protocol's discretion toward that token's ecosystem — liquidity incentives, campaigns and bounties. Discretionary, not enforced on-chain." },
     { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
   ];
   return (
@@ -48,15 +48,17 @@ export function CurveHowItWorks() {
           </li>
         ))}
       </ul>
-      {/* The survival stack, packaged: what a launch (from HERE or anywhere)
-          gets from the venue after the launch moment — the aftermarket pitch.
-          Every link is a live surface; nothing listed is aspirational. */}
+      {/* The aftermarket, packaged: what a launch (from HERE or anywhere)
+          gets from the venue after the launch moment. Every link is a live
+          surface; nothing listed is aspirational. Vocabulary is pinned:
+          "ecosystem reserve … not enforced on-chain", "internally reviewed" —
+          never the retired stronger words. */}
       <div className="pt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-        <p className="text-white/90 text-[12px] font-medium mb-1.5">The survival stack — where tokens go to LIVE</p>
+        <p className="text-white/90 text-[12px] font-medium mb-1.5">Where tokens go to LIVE</p>
         <p className="text-white/55 text-[12px] leading-relaxed mb-2">
           Launchpads optimize the launch moment; almost everything they emit dies at the floor.
-          This venue is built for the part AFTER: burned-LP graduation, the survival reserve,
-          and a trust suite anyone can point at any token —{' '}
+          This venue is built for the part AFTER: burned-LP graduation, the discretionary
+          ecosystem reserve, and a trust suite anyone can point at any token —{' '}
           <Link to="/scan" className="text-sky-300/80 hover:text-sky-200 underline">holder scanner</Link>,{' '}
           <Link to="/deployer" className="text-sky-300/80 hover:text-sky-200 underline">deployer graph</Link>,{' '}
           <Link to="/exposure" className="text-sky-300/80 hover:text-sky-200 underline">wallet exposure</Link>{' '}
@@ -153,7 +155,7 @@ export default function EthCurvePage() {
           <div className="space-y-4">
             <FeatureNotDeployed
               title="The Tegridy curve is coming to Ethereum."
-              subtitle="The contract is audited and ready; it goes live the moment the launcher is broadcast. Here's what it does."
+              subtitle="The contract is internally reviewed and ready; it goes live the moment the launcher is broadcast. Here's what it does."
               pageId={PAGE_ID}
               idx={0}
             />

@@ -62,7 +62,9 @@ describe('the route is registered everywhere a route has to be', () => {
   });
 
   it('has a backdrop the art studio can reach', () => {
-    const studio = read('pages', 'ArtStudioPage.tsx');
+    // The inventory moved to lib/artSurfaces.ts (2026-08-28) so /art-studio
+    // and /bayla-studio share one list — assert against that file.
+    const studio = read('lib', 'artSurfaces.ts');
     expect(studio, "PAGE_ROUTES has no 'yield' entry").toMatch(/yield: '\/yield'/);
     expect(studio, 'SURFACES registers no yield backdrop').toMatch(/pageId: 'yield'/);
     // The page must actually render the surface the studio offers to adjust,

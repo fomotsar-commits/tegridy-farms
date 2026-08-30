@@ -412,7 +412,7 @@ export function TowelieAssistant() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Ask me anything…"
-                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder-white/40 focus:outline-none focus:border-purple-400/60"
+                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
                     aria-label="Ask Towelie a question"
                     maxLength={140}
                   />

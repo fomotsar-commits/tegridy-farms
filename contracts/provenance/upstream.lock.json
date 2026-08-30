@@ -1,0 +1,68 @@
+{
+  "_readme": [
+    "Hash-pins for the canonical Uniswap V2 sources vendored under contracts/provenance/upstream/.",
+    "Consumed by scripts/check-v2-provenance.mjs (run by the Contracts CI v2-provenance job).",
+    "sha256 is over LF-normalized bytes, so line-ending mangling cannot masquerade as drift.",
+    "NEVER edit the vendored files by hand. Pin-bump ritual (mirrors the .gitmodules H-37 header):",
+    "  1. edit commit below   2. --refresh   3. --update-snapshots   4. update PROVENANCE.md   5. commit together.",
+    "UniswapV2OracleLibrary.sol is vendored + pinned but is NOT a diff target yet: it is the",
+    "upstream for remediation row 8 (SwapFeeRouterConvertLib re-anchor) of",
+    "docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md."
+  ],
+  "sources": {
+    "v2-core": {
+      "repo": "Uniswap/v2-core",
+      "commit": "6a9e7c97860676e0992f22a49665760444c1cdf5",
+      "pinnedAt": "2026-08-27",
+      "files": [
+        {
+          "path": "contracts/UniswapV2Pair.sol",
+          "vendored": "upstream/v2-core/UniswapV2Pair.sol",
+          "sha256": "43a5421b31415868367b62bfa161ca10bcee03778873faad905f5a3e2cce9cbd"
+        },
+        {
+          "path": "contracts/UniswapV2Factory.sol",
+          "vendored": "upstream/v2-core/UniswapV2Factory.sol",
+          "sha256": "e0cef3e874a68cbcc5986451b1fec180ba5ff5699f27a256b7c10fafefe36b99"
+        },
+        {
+          "path": "contracts/UniswapV2ERC20.sol",
+          "vendored": "upstream/v2-core/UniswapV2ERC20.sol",
+          "sha256": "b8ce88929ce2c93b8fce385f8d57701b1a64c600a95317ea5f3561d36297be32"
+        },
+        {
+          "path": "contracts/libraries/Math.sol",
+          "vendored": "upstream/v2-core/Math.sol",
+          "sha256": "e4a9d451964a0689be2b244322a353de143ca4248d8736d91aca4ffadca4325f"
+        },
+        {
+          "path": "contracts/libraries/UQ112x112.sol",
+          "vendored": "upstream/v2-core/UQ112x112.sol",
+          "sha256": "6633b57b0723b1d72e08cc3e8b29f0af838294e59863b6cdcce95a141ed02cdb"
+        }
+      ]
+    },
+    "v2-periphery": {
+      "repo": "Uniswap/v2-periphery",
+      "commit": "ed24991304291297c3b4a52818d02f46a17aa9a2",
+      "pinnedAt": "2026-08-27",
+      "files": [
+        {
+          "path": "contracts/UniswapV2Router02.sol",
+          "vendored": "upstream/v2-periphery/UniswapV2Router02.sol",
+          "sha256": "acabe6d6c9c275aa5c27d8ed59b3d23d21616523071043e89eea7bca474babb8"
+        },
+        {
+          "path": "contracts/libraries/UniswapV2Library.sol",
+          "vendored": "upstream/v2-periphery/UniswapV2Library.sol",
+          "sha256": "4f83e9334f833568fa47b36e9ceca435f6c2962760a0596b043c4e538d0fd9f2"
+        },
+        {
+          "path": "contracts/libraries/UniswapV2OracleLibrary.sol",
+          "vendored": "upstream/v2-periphery/UniswapV2OracleLibrary.sol",
+          "sha256": "508b544096f9d916bef314a517a1f3573243272f34d8c4fbacbc7f256523e74f"
+        }
+      ]
+    }
+  }
+}

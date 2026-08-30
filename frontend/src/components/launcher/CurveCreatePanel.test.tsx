@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { parseEther } from 'viem';
 import { CurveCreateView, type CurveCreateStage } from './CurveCreatePanel';
 import { IDENTITY_IMAGE_MAX_BYTES } from '../../lib/launcher/curveIdentity';
@@ -19,14 +20,16 @@ function view(overrides: Partial<{ stage: CurveCreateStage; createdToken: `0x${s
   const onReset = vi.fn();
   const onTrade = vi.fn();
   render(
-    <CurveCreateView
-      stage={overrides.stage ?? 'idle'}
-      createdToken={overrides.createdToken ?? null}
-      onCreate={onCreate}
-      onRetryIdentity={onRetryIdentity}
-      onReset={onReset}
-      onTrade={onTrade}
-    />,
+    <MemoryRouter>
+      <CurveCreateView
+        stage={overrides.stage ?? 'idle'}
+        createdToken={overrides.createdToken ?? null}
+        onCreate={onCreate}
+        onRetryIdentity={onRetryIdentity}
+        onReset={onReset}
+        onTrade={onTrade}
+      />
+    </MemoryRouter>,
   );
   return { onCreate, onRetryIdentity, onReset, onTrade };
 }

@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
-import { isSolanaConfigured } from '../../lib/solana';
+import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
@@ -131,18 +131,21 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           <div className="relative z-10 p-6">
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
-            {/* Bullets are conditional on what is TRUE for this bungalow:
-                pump.fun creator fees only exist for pump-born mints, and the
-                venue swap-fee route only exists on the Solana surface — where
-                the fee plumbing is live but NO share policy is decided and
-                nothing has been routed yet. Candidates, not streams. */}
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
+              {/* pump.fun creator fees only exist for pump-born mints — the
+                  vanity suffix is how those mints identify themselves. */}
               {bungalow.address?.endsWith('pump') && (
                 <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
               )}
-              {bungalow.chain === 'solana' && (
-                <li><strong>Venue swap fees</strong> — the Solana swap surface&apos;s platform-fee plumbing is live, but no share is routed here yet and no split is decided: a candidate, not a stream.</li>
-              )}
+              {/* This read "captures a platform fee" while the venue had no fee
+                  recipient configured, i.e. while it captured nothing. The claim
+                  now follows the same gate the swap's own fee line does. */}
+              <li>
+                <strong>Venue swap fees</strong> —{' '}
+                {isSolanaFeeConfigured()
+                  ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
+                  : 'the Solana swap surface is live here, but it takes no platform fee today — there is nothing to share until one is switched on.'}
+              </li>
               <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way the TOWELI seed was funded.</li>
             </ul>
           </div>
@@ -154,7 +157,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
           {(() => {
-            const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+            const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
             if (!trade) return null;
             if ('to' in trade) {
               return (
