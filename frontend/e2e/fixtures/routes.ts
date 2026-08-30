@@ -611,6 +611,18 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/bungalow-studio/:bungalowId',
+    owner: 'App.tsx',
+    gate: 'dev-only',
+    why:
+      'The generic per-resident leg of the same dev studio (WO-1): any registry id aims the tool ' +
+      'at that bungalow’s art pool. Same R002 gate — tree-shaken in production, redirects to ' +
+      '/ there (and an unknown id redirects even in dev), so the built app the e2e suite runs ' +
+      'against has nothing to audit.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
     path: '/*',
     owner: 'App.tsx · NotFoundPage',
     gate: null,
@@ -643,6 +655,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // Any registry id works; in the built app this leg redirects to / anyway.
+  if (route.path === '/bungalow-studio/:bungalowId') return '/bungalow-studio/bayla';
   // Zero address: every launcher probe fails -> the page's honest not-found
   // state, which still renders the h1 the sweep asserts.
   if (route.path === '/eth-curve/:token') return '/eth-curve/0x0000000000000000000000000000000000000000';

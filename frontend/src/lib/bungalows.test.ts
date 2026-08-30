@@ -214,6 +214,22 @@ describe('resolution order', () => {
     expect(BUNGALOWS.find((x) => x.id === 'nb1')!.market).toBeUndefined();
   });
 
+  it("keeps Bayla's canon voice in the registry (lore + muse pool)", () => {
+    // The HomePage lore card and the MuseBubble are registry-driven now; if
+    // her canon copy is ever dropped from the registry, both surfaces go
+    // silent with no compile error. Pin presence + the load-bearing shape.
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(bayla.identity?.lore?.title).toBe('The muse of Jungle Bay Island');
+    expect(bayla.identity?.lore?.paragraphs.length).toBe(2);
+    expect(bayla.identity?.lore?.links.map((l) => l.href)).toEqual([
+      'https://memetics.wtf/',
+      'https://opensea.io/collection/junglebay',
+      'https://x.com/JungleBayAC',
+    ]);
+    expect(bayla.identity?.museLines?.length).toBe(5);
+    expect(bayla.identity?.museVoice).toBe('the muse');
+  });
+
   it('keeps the sitemap in lock-step with the island registry', () => {
     // The rule, not a snapshot: every non-default bungalow WITH an address
     // has its door in the sitemap (the crawlable landing shipped in WO-4);

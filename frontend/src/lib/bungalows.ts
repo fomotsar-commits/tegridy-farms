@@ -44,6 +44,16 @@ export interface BungalowIdentity {
   museLines?: readonly string[];
   /** MuseBubble byline persona (e.g. 'the muse'). Absent -> museBy. */
   museVoice?: string;
+  /**
+   * The resident's story card on the home page (rendered only in its own
+   * skin). Absent -> no lore card, which is the honest default: the card
+   * holds CANON copy from the community's own material, never invented.
+   */
+  lore?: {
+    title: string;
+    paragraphs: readonly string[];
+    links: readonly { href: string; label: string }[];
+  };
 }
 
 export interface Bungalow {
@@ -213,6 +223,24 @@ export const BUNGALOWS: Bungalow[] = [
         'Dank Memes + Time = Memetic Finance.',
       ],
       museVoice: 'the muse',
+      // Canon copy (pump.fun metadata + the island landing) — moved verbatim
+      // from the HomePage card when the card went registry-driven (WO-1).
+      lore: {
+        title: 'The muse of Jungle Bay Island',
+        paragraphs: [
+          'An island in a sea of rugs, built by the memes — bungalows for token ' +
+          'communities, an artist economy, and time held is what counts. Bayla is ' +
+          'its muse: brought to light by the Jungle Bay Artists Collective, seated ' +
+          'at the lighthouse, the newest name on the island map.',
+          'Her pull reaches every kind of maker. The work is yours. The light is ' +
+          'hers. Dank Memes + Time = Memetic Finance.',
+        ],
+        links: [
+          { href: 'https://memetics.wtf/', label: 'The island' },
+          { href: 'https://opensea.io/collection/junglebay', label: 'Jungle Bay on OpenSea' },
+          { href: 'https://x.com/JungleBayAC', label: '@JungleBayAC' },
+        ],
+      },
     },
   },
   // ——— The settled residents (island canon order) ———
