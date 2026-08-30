@@ -59,6 +59,70 @@ dry-run command with `--keypair … --broadcast`, paste the pool address into th
 --max-weight 5 --accept-long-lock`. ⚠️ Do NOT broadcast a pool for a resident whose community
 has not asked for one — a stake pool is a promise (locks with NO early exit), not a growth hack.
 
+### 🔴 THE LIGHTHOUSE DEPLOY KIT — the ONLY thing between every bungalow and functional staking
+
+**Verified 2026-08-30: no signing key exists anywhere on this machine** (contracts/.env
+PRIVATE_KEY is the literal placeholder `0x`; no Solana keypair in or near the repo), so these
+broadcasts are yours alone. Everything else is built, tested and merged: the vendored
+StakingRewards contract (provenance D8), the deploy + funding scripts, the EVM + Solana farm
+cards, dashboards, and the honest not-deployed states they replace. **Each pool lights up the
+moment its address lands in the registry — paste the printed addresses back to the agent and
+that wiring commit is done for you.**
+
+**Step 0 (once):** `git pull` on trunk, then put your deployer key into `contracts/.env`
+(`PRIVATE_KEY=0x…` — the same EOA that shipped every prior EVM deploy). Never commit it.
+
+**Step 1 — the six Base pools** (pennies of gas each; run from `contracts/`):
+
+```
+# repeat with STAKING_TOKEN swapped per row:
+#   qr    0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf
+#   mfer  0xe3086852a4b125803c815a158249ae468a3254ca
+#   bnkr  0x22af33fe49fd1fa80c7149773dde5890d3c76f3b
+#   drb   0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2
+#   jbm   0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d
+#   rizz  0x58d6e314755c2668f3d7358cc7a7a06c4314b238
+EXPECTED_CHAIN_ID=8453 \
+STAKING_TOKEN=<token-address-from-the-table> \
+REWARDS_DISTRIBUTION=0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1 \
+forge script script/DeployLighthouseStaking.s.sol --rpc-url https://mainnet.base.org --broadcast
+```
+(`REWARDS_DISTRIBUTION` = the Base fee-remittance Safe — code verified on-chain 2026-08-30.
+It can notify rewards and NOTHING else; there is no owner role on this contract at all.)
+
+**Step 2 — PEPE on mainnet** (one deploy, ~$5–15 gas):
+
+```
+EXPECTED_CHAIN_ID=1 \
+STAKING_TOKEN=0x6982508145454ce325ddbe47a25d4ec3d2311933 \
+REWARDS_DISTRIBUTION=0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d \
+forge script script/DeployLighthouseStaking.s.sol --rpc-url $ETH_RPC_URL --broadcast
+```
+(Mainnet's L2-set Safes hold no mainnet code — verified 2026-08-30 — so the notifier role
+goes to the mainnet **treasury Safe** `0x7D26…Bd7d`, the only mainnet Safe with code. The role
+cannot touch funds, so treasury-as-notifier mixes nothing that matters.)
+
+**Step 3 — the three Solana pools** (BAYLA-parity 5× ladder; dry-runs already proven, mints
+verified on-chain; needs your Streamflow-ceremony keypair + a little SOL):
+
+```
+node scripts/bayla-lighthouse-ceremony.mjs --rate 0.0006 --mint 4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump --max-days 365 --max-weight 5 --accept-long-lock --keypair <path-to-id.json> --broadcast   # BOBO
+node scripts/bayla-lighthouse-ceremony.mjs --rate 0.0006 --mint 4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV --max-days 365 --max-weight 5 --accept-long-lock --keypair <path-to-id.json> --broadcast   # SOY
+node scripts/bayla-lighthouse-ceremony.mjs --rate 0.0006 --mint 8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF --max-days 365 --max-weight 5 --accept-long-lock --keypair <path-to-id.json> --broadcast   # BRAINLET
+```
+(Run from `frontend/`. `--rate 0.0006` is BAYLA parity — change it if you want different
+economics; the script prints the full ladder before signing either way. ⚠️ These pools have
+NO early exit at any price and the ladder is immutable — that is what `--accept-long-lock`
+acknowledges.)
+
+**Step 4:** paste all ten printed pool addresses back into the agent chat. The registry
+wiring, tests, verification and push are done for you. **FUND LAST, in public** — EVM funding
+goes through `script/FundLighthouseStaking.s.sol`, which enforces the same-token law
+(`reward ≤ balance − totalSupply`) in the broadcast path; Solana funding stays
+`--fund --pool <addr> --amount <whole>` on the ceremony script. Until funded, every card
+already tells stakers the honest story (EVM: stake works, earns 0, exits always free;
+Solana: staking paused while the vault is dry so principal can never be hostage).
+
 ---
 
 ## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — supersedes everything below
