@@ -226,7 +226,7 @@ export function AppLayout() {
           feed) — muted alongside the assistant in a token-first bungalow,
           where the muse's quiet line takes the corner instead. */}
       {!bungalowIdentity && <LiveActivity />}
-      {bungalowIdentity ? <MuseBubble /> : <TowelieAssistant />}
+      {bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : <TowelieAssistant />}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →

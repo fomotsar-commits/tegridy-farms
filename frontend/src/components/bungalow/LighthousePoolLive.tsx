@@ -46,9 +46,10 @@ import {
  *  - every projection is stamped with the same caveat and reads 0 while the
  *    vault is dry;
  *  - a failed read is an OUTAGE state, never rendered as zero;
- *  - when the pool grants no duration bonus (BAYLA's does not: minWeight ==
- *    maxWeight == 1.00x) the panel SAYS SO, instead of implying that a
- *    longer lock buys a better rate.
+ *  - when a pool grants no duration bonus (minWeight == maxWeight — true of
+ *    the RETIRED first BAYLA pool; the live 5x-ladder pool is NOT this case)
+ *    the panel SAYS SO, instead of implying a boost curve that does not
+ *    exist — and conversely shows the real ladder when one is configured.
  *
  * All writes are the SDK's own grouped flows (stake+entries, unstake+claim)
  * through the connected wallet; every action reports its tx signature or

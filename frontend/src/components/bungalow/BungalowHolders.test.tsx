@@ -14,6 +14,7 @@ import type { Bungalow } from '../../lib/bungalows';
 
 const scan = vi.hoisted(() => ({
   calls: 0,
+  lastChain: undefined as string | undefined,
   state: {
     status: 'idle' as string,
     outcome: null as unknown,
@@ -24,10 +25,10 @@ const scan = vi.hoisted(() => ({
 }));
 
 vi.mock('../../hooks/useTokenScan', () => ({
-  useTokenScan: (address: string) => {
+  useTokenScan: (address: string, chainOverride?: string) => {
     // The card must pass an EMPTY address until armed — that is the whole
     // mechanism by which it issues no RPC on mount.
-    if (address) scan.calls += 1;
+    if (address) { scan.calls += 1; scan.lastChain = chainOverride; }
     return address
       ? scan.state
       : { status: 'idle', outcome: null, errorMessage: null, chain: null, reload: () => {} };
@@ -77,6 +78,7 @@ function mount() {
 
 beforeEach(() => {
   scan.calls = 0;
+  scan.lastChain = undefined;
   scan.state = { status: 'idle', outcome: null, errorMessage: null, chain: 'solana', reload: () => {} };
 });
 
@@ -114,6 +116,29 @@ describe('BungalowHolders', () => {
     // "upper bound" is said twice on purpose — once in the scanner's own
     // coverage note, once in the source line under the figures.
     expect(screen.getAllByText(/upper bound/i).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('scans a Base bungalow on Base, and its Full-scan link carries the chain', () => {
+    // Pre-fix, chain collapsed to `=== 'solana' ? 'solana' : 'ethereum'` and
+    // the link was chain-less — a Base token's 0x address would wrong-chain
+    // scan both ways (0x is format-ambiguous with Ethereum).
+    const DRB = {
+      ...BAYLA,
+      id: 'drb',
+      symbol: 'DRB',
+      chain: 'base',
+      address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2',
+    } as unknown as Bungalow;
+    scan.state = { ...scan.state, status: 'success', outcome: successOutcome() };
+    render(
+      <MemoryRouter>
+        <BungalowHolders bungalow={DRB} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /read distribution/i }));
+    expect(scan.lastChain, "the scan must run on the token's own chain").toBe('base');
+    const full = screen.getByRole('link', { name: /full scan/i });
+    expect(full.getAttribute('href')).toContain('chain=base');
   });
 
   it('renders a failed read as an outage, never as a distribution', () => {

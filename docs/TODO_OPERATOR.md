@@ -29,7 +29,39 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — newest layer; supersedes everything below
+## 🟢 2026-08-30 — ISLAND BUILDOUT (WO-3 dry-runs done) — newest layer; supersedes everything below
+
+Branch `claude/bungalow-buildout` (PR #341). Full plan: [`ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md).
+
+**Decision 1 below (BAYLA duration bonus) is RESOLVED ON-CHAIN — do not re-decide.** The
+replacement lighthouse pool `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f` carries the real
+ladder (1.00x at 1d → 5.00x at 365d, ~21.9% → ~109.5% APR at the funded rate) and the frontend
+is repinned to it. The old flat pool is retired (it still holds the operator's own 1,000 BAYLA
+dust-test stake to ~2027-08; nothing can release it).
+
+**WO-3 — Solana lighthouse dry-runs for the three settled Solana residents: DONE, nothing
+signed.** All three mints verified ON-CHAIN 2026-08-30 through the ceremony script itself
+(it now reads decimals + token program from the chain before planning; `--decimals` is only a
+cross-check and the script refuses on mismatch):
+
+| resident | mint | decimals | program | authorities |
+|---|---|---|---|---|
+| BOBO | `4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump` | 6 | Tokenkeg (classic) | mint+freeze revoked |
+| SOY | `4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV` | 6 | Tokenkeg (classic) | mint+freeze revoked |
+| BRAINLET | `8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF` | 6 | Tokenkeg (classic) | mint+freeze revoked |
+
+No Token-2022, no extensions, no transfer hooks — the BAYLA ceremony flow works for all three
+unmodified. **What broadcasting needs from YOU (per resident, ~10 min each):** pick the rate
+(economics are your call — `--rate` is refused with a default on mainnet), then run the printed
+dry-run command with `--keypair … --broadcast`, paste the pool address into the registry
+`stakePool` slot, and FUND LAST in public. The BAYLA-parity shape used in the dry-runs:
+`node scripts/bayla-lighthouse-ceremony.mjs --rate <yours> --mint <mint> --max-days 365
+--max-weight 5 --accept-long-lock`. ⚠️ Do NOT broadcast a pool for a resident whose community
+has not asked for one — a stake pool is a promise (locks with NO early exit), not a growth hack.
+
+---
+
+## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — supersedes everything below
 
 Two sessions' work. Full records: [`SOLANA_LP_VENUE_2026_08_29.md`](SOLANA_LP_VENUE_2026_08_29.md)
 and [`BAYLA_STAKING_SWAP_2026_08_28.md`](BAYLA_STAKING_SWAP_2026_08_28.md).
@@ -106,7 +138,10 @@ is advisory today. Unenforced, it is a comment.
 
 ### 🔴 Two decisions on the BAYLA lighthouse pool
 
-1. **The pool grants NO duration bonus.** `minWeight == maxWeight == 1e9`, so a 365-day lock earns
+1. ✅ **RESOLVED ON-CHAIN 2026-08-30 — see the 08-30 layer at the top.** The ladder pool exists
+   (`EFWpSpH9…EZ9f`, 1.00x→5.00x) and the frontend points at it; the flat pool is retired.
+   Original text kept for the record:
+   **The pool grants NO duration bonus.** `minWeight == maxWeight == 1e9`, so a 365-day lock earns
    exactly what a 1-day lock earns — only the exit date changes. `maxWeight` is set at pool
    CREATION, so a TOWELI-style "lock longer, earn more" curve needs a **new pool and a staker
    migration**. The UI already implements the program's real weight curve and would light up with

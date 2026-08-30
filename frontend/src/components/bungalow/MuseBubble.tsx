@@ -1,26 +1,32 @@
 import { useEffect, useState } from 'react';
+import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
 
 /**
- * The muse's voice — a quiet floating line in a token-first bungalow,
+ * The resident's voice — a quiet floating line in a token-first bungalow,
  * standing in the corner where the Towelie assistant lives in the default
  * skin. Deliberately smaller than the assistant: one rotating line of
  * canon, a dismiss that lasts the session, no chat, no knowledge base.
  * Rotation pauses in hidden tabs and never runs under reduced motion
  * (same manners as the hero's quote ticker).
+ *
+ * Registry-driven since WO-1: the lines, the byline persona and the accent
+ * all come from the active bungalow's own identity — this component knows
+ * nothing about BAYLA. The dismissal is scoped per bungalow id, so hushing
+ * one resident's voice never silences a different bungalow's.
  */
-const LINES = [
-  'The work is yours. The light is hers.',
-  'The muse was always here.',
-  'Her pull reaches every kind of maker.',
-  'Time held is what counts.',
-  'Dank Memes + Time = Memetic Finance.',
-] as const;
+const FALLBACK_ACCENT = '#8ef0d8';
 
-const DISMISS_KEY = 'tegridy-muse-dismissed';
+const dismissKey = (id: string) => `tegridy-muse-dismissed:${id}`;
 
-export function MuseBubble() {
+export function MuseBubble({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
+  const { identity } = bungalow;
+  const lines: readonly string[] =
+    identity.museLines && identity.museLines.length > 0 ? identity.museLines : [identity.museLine];
+  const byline = identity.museVoice ?? identity.museBy;
+  const accent = bungalow.accent ?? FALLBACK_ACCENT;
+
   const [dismissed, setDismissed] = useState(() => {
-    try { return sessionStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
+    try { return sessionStorage.getItem(dismissKey(bungalow.id)) === '1'; } catch { return false; }
   });
   const [idx, setIdx] = useState(0);
   const [reduceMotion] = useState(() => {
@@ -28,18 +34,18 @@ export function MuseBubble() {
   });
 
   useEffect(() => {
-    if (dismissed || reduceMotion) return;
+    if (dismissed || reduceMotion || lines.length < 2) return;
     const id = window.setInterval(() => {
       if (document.hidden) return;
-      setIdx((i) => (i + 1) % LINES.length);
+      setIdx((i) => (i + 1) % lines.length);
     }, 9000);
     return () => window.clearInterval(id);
-  }, [dismissed, reduceMotion]);
+  }, [dismissed, reduceMotion, lines.length]);
 
   if (dismissed) return null;
 
   const dismiss = () => {
-    try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch { /* noop */ }
+    try { sessionStorage.setItem(dismissKey(bungalow.id), '1'); } catch { /* noop */ }
     setDismissed(true);
   };
 
@@ -49,18 +55,19 @@ export function MuseBubble() {
         className="pointer-events-auto rounded-xl px-3 py-2.5 pr-8 relative text-[12px] leading-snug shadow-lg"
         style={{
           background: 'rgba(4,18,12,0.88)',
-          border: '1px solid rgba(142,240,216,0.35)',
+          // Registry accents are 6-digit hex, so hex-alpha suffixes are safe.
+          border: `1px solid ${accent}59`,
           backdropFilter: 'blur(8px)',
           WebkitBackdropFilter: 'blur(8px)',
         }}
       >
-        <span aria-hidden="true" className="absolute -top-2 -left-2 w-4 h-4 rounded-full" style={{ background: 'radial-gradient(circle, rgba(142,240,216,0.9), rgba(142,240,216,0) 70%)' }} />
-        <p className="text-white/90 italic">&ldquo;{LINES[idx]}&rdquo;</p>
-        <p className="text-[10px] not-italic mt-0.5" style={{ color: '#8ef0d8' }}>&mdash; the muse</p>
+        <span aria-hidden="true" className="absolute -top-2 -left-2 w-4 h-4 rounded-full" style={{ background: `radial-gradient(circle, ${accent}e6, ${accent}00 70%)` }} />
+        <p className="text-white/90 italic">&ldquo;{lines[idx % lines.length]}&rdquo;</p>
+        <p className="text-[10px] not-italic mt-0.5" style={{ color: accent }}>&mdash; {byline}</p>
         <button
           type="button"
           onClick={dismiss}
-          aria-label="Dismiss the muse's line for this session"
+          aria-label={`Dismiss ${byline}'s line for this session`}
           className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none"
         >
           ×

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   BUNGALOWS,
@@ -212,6 +212,23 @@ describe('resolution order', () => {
     }
     // The quiet slot never grows a market.
     expect(BUNGALOWS.find((x) => x.id === 'nb1')!.market).toBeUndefined();
+  });
+
+  it('keeps the sitemap in lock-step with the island registry', () => {
+    // The rule, not a snapshot: every non-default bungalow WITH an address
+    // has its door in the sitemap (the crawlable landing shipped in WO-4);
+    // the quiet no-address slot and the venue-default door (whose home is /)
+    // stay out. A new resident added to the registry without a sitemap entry
+    // fails here instead of silently shipping an unindexed door.
+    const xml = readFileSync(resolve(__dirname, '../../public/sitemap.xml'), 'utf-8');
+    for (const b of BUNGALOWS) {
+      const inMap = xml.includes(`<loc>https://memetic.fun/${b.id}</loc>`);
+      if (b.address && b.id !== DEFAULT_BUNGALOW_ID) {
+        expect(inMap, `${b.id} settled door missing from sitemap.xml`).toBe(true);
+      } else {
+        expect(inMap, `${b.id} should not be in sitemap.xml`).toBe(false);
+      }
+    }
   });
 
   it('scan routes carry the explicit chain for Base (0x is format-ambiguous) and exist for all island chains', () => {

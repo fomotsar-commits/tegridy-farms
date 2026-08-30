@@ -77,9 +77,11 @@ export interface PoolView {
    * Lock-weight bounds, 1e9-scaled: `1e9` = a 1.00x multiplier. When the two
    * are equal the pool grants NO duration bonus — a longer lock earns exactly
    * the same rate as the shortest one, and the UI has to say so rather than
-   * imply a boost curve that does not exist. (The live BAYLA lighthouse is
-   * exactly this case: minWeight = maxWeight = 1e9, read on mainnet
-   * 2026-08-28.)
+   * imply a boost curve that does not exist. (The RETIRED first BAYLA pool
+   * was this case: minWeight = maxWeight = 1e9, read on mainnet 2026-08-28.
+   * The live replacement pool carries a real ladder — 1.00x min to 5.00x max
+   * at 365d, re-pinned 2026-08-29 — so both branches of this UI rule are
+   * exercised in production.)
    */
   minWeightScaled: bigint;
   maxWeightScaled: bigint;

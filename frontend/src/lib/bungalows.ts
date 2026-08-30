@@ -40,6 +40,10 @@ export interface BungalowIdentity {
   /** Quote pill under the CTAs (replaces the Towelie ticker). */
   museLine: string;
   museBy: string;
+  /** MuseBubble rotation pool (canon lines). Absent -> [museLine]. */
+  museLines?: readonly string[];
+  /** MuseBubble byline persona (e.g. 'the muse'). Absent -> museBy. */
+  museVoice?: string;
 }
 
 export interface Bungalow {
@@ -201,6 +205,14 @@ export const BUNGALOWS: Bungalow[] = [
         'lighthouse — the pool is live on-chain. DM+T = Memetic Finance.',
       museLine: 'The work is yours. The light is hers.',
       museBy: 'Jungle Bay Artists Collective',
+      museLines: [
+        'The work is yours. The light is hers.',
+        'The muse was always here.',
+        'Her pull reaches every kind of maker.',
+        'Time held is what counts.',
+        'Dank Memes + Time = Memetic Finance.',
+      ],
+      museVoice: 'the muse',
     },
   },
   // ——— The settled residents (island canon order) ———

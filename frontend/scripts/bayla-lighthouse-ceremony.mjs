@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Connection, Keypair, LAMPORTS_PER_SOL, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
 import {
+  getMint,
   createAssociatedTokenAccountIdempotent,
   createMint,
   mintTo,
@@ -299,6 +300,28 @@ async function rehearse() {
   log(`explorer: https://solscan.io/account/${stakePool}?cluster=devnet`);
 }
 
+
+/**
+ * Read the mint's decimals from the CHAIN, not from a flag. Every raw-amount
+ * and rate computation in a ceremony derives from this number; a wrong value
+ * builds a pool whose economics are off by powers of ten with no error
+ * anywhere. --decimals (optional) is only a cross-check: if the operator
+ * declares one and the chain disagrees, the ceremony refuses to proceed.
+ * (BOBO/SOY/BRAINLET all read 6, classic Tokenkeg, verified 2026-08-30 —
+ * but the read costs one RPC call and never goes stale.)
+ */
+async function readVerifiedDecimals(connection, mint, tokenProgramId) {
+  const info = await getMint(connection, new PublicKey(mint), 'confirmed', new PublicKey(tokenProgramId));
+  const declared = val('--decimals');
+  if (declared !== undefined && Number(declared) !== info.decimals) {
+    throw new Error(
+      `--decimals ${declared} contradicts the chain: mint ${mint} has ${info.decimals} decimals. ` +
+      'The chain wins — re-run without --decimals or with the correct value.',
+    );
+  }
+  return info.decimals;
+}
+
 async function mainnet() {
   const rateStr = val('--rate');
   if (!rateStr || !(Number(rateStr) > 0)) {
@@ -334,8 +357,14 @@ async function mainnet() {
     );
   }
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
-  const rewardAmount = calculateRewardAmountFromRate(rate, 6, 6);
-  if (rewardAmount.isZero()) throw new Error('rate too small for 6/6 decimals — SDK computed rewardAmount 0');
+  // Mint facts come off the chain BEFORE anything is planned or signed — the
+  // dry run needs RPC reachability now, which is the point: a plan printed
+  // against assumed decimals is a plan for a different token.
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const decimals = await readVerifiedDecimals(connection, mint, tokenProgramId);
+  const rewardAmount = calculateRewardAmountFromRate(rate, decimals, decimals);
+  if (rewardAmount.isZero()) throw new Error(`rate too small for ${decimals}/${decimals} decimals — SDK computed rewardAmount 0`);
 
   // The SDK's calculateStakeWeight, in the small: linear from 1.00x at
   // minDuration to maxWeight at maxDuration, clamped to >= 1.00x.
@@ -349,6 +378,12 @@ async function mainnet() {
 
   const plan = {
     cluster: 'mainnet',
+    mintFacts: {
+      mint,
+      decimals,
+      tokenProgram: String(tokenProgramId),
+      source: 'read on-chain by this run (getMint) — not assumed',
+    },
     stakePool: {
       mint, nonce,
       minDuration: `${minDays}d`, maxDuration: `${maxDays}d`,
@@ -398,8 +433,6 @@ async function mainnet() {
   log(`signer ${payer.publicKey.toBase58()}`);
 
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
-  const connection = new Connection(clusterUrl, 'confirmed');
-  const tokenProgramId = await detectTokenProgram(connection, mint);
   const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
   const created = await client.createStakePool({
     mint,
@@ -438,12 +471,19 @@ async function fund() {
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
   if (!pool) throw new Error('--fund requires --pool <stake pool address> (from the ceremony output / VITE_BAYLA_STAKE_POOL)');
   if (!(amountWhole > 0)) throw new Error('--fund requires --amount <whole tokens>, e.g. --amount 50000');
-  const amountRaw = new BN(Math.round(amountWhole * 1e6).toString()); // BAYLA = 6 decimals
+  // Decimals come off the chain (see readVerifiedDecimals) — funding 50,000
+  // "whole" tokens of a 9-decimal mint with a hardcoded 1e6 would deliver
+  // 50 tokens and no error. The dry run performs the same read on purpose.
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const decimals = await readVerifiedDecimals(connection, mint, tokenProgramId);
+  const amountRaw = new BN(Math.round(amountWhole * 10 ** decimals).toString());
+  const tokenLabel = mint === BAYLA_MINT ? 'BAYLA' : `tokens (mint ${mint})`;
 
   log('FUNDING PLAN (task #13 — the deliberately-LAST step):');
   console.log(JSON.stringify({
     cluster: 'mainnet', stakePool: pool, rewardMint: mint,
-    amount: `${amountWhole.toLocaleString()} BAYLA (${amountRaw.toString()} raw)`,
+    amount: `${amountWhole.toLocaleString()} ${tokenLabel} (${amountRaw.toString()} raw, ${decimals} decimals — read on-chain)`,
     rewardPoolNonce: Number(val('--nonce', '0')),
     prerequisite: "Streamflow treasury ATA for the reward mint (created idempotently if missing — devnet-proven)",
     note: 'feeValue: null routes the fee check to the fee-manager default config (devnet-proven).',
@@ -457,16 +497,14 @@ async function fund() {
   if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
   const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
   log(`signer ${payer.publicKey.toBase58()}`);
-  const connection = new Connection(clusterUrl, 'confirmed');
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
   const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
 
-  const tokenProgramId = await detectTokenProgram(connection, mint);
   log('ensuring Streamflow treasury ATA for the reward mint…');
   await createAssociatedTokenAccountIdempotent(
     connection, payer, new PublicKey(mint), STREAMFLOW_TREASURY, undefined, new PublicKey(tokenProgramId),
   );
-  log(`fundPool… ${amountWhole.toLocaleString()} BAYLA`);
+  log(`fundPool… ${amountWhole.toLocaleString()} ${tokenLabel}`);
   const res = await client.fundPool({
     stakePool: pool,
     stakePoolMint: mint,
