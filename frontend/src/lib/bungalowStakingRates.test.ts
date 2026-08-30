@@ -32,31 +32,42 @@ import {
 
 const DAY = 86_400;
 
-/** The live BAYLA lighthouse, read off mainnet 2026-08-28. */
+/**
+ * The live BAYLA lighthouse, read off mainnet 2026-08-30 — the REPLACEMENT
+ * pool (nonce 1). Its predecessor shipped with maxWeight == 1.00x, so its lock
+ * picker bought nothing; this one ramps 1.00x → 5.00x across 1–365 days.
+ */
 const BAYLA_POOL: PoolView = {
-  address: '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp',
+  address: 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f',
   mint: '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump',
   decimals: 6,
   tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
   minDurationSecs: DAY,
   maxDurationSecs: 365 * DAY,
   minWeightScaled: WEIGHT_SCALE,
-  maxWeightScaled: WEIGHT_SCALE,
+  maxWeightScaled: 5n * WEIGHT_SCALE,
   unstakePeriodSecs: 0,
   totalStakeRaw: 0n,
   totalEffectiveStakeRaw: 0n,
   rewardPools: [],
 };
 
+/**
+ * A flat-weight pool. This is not hypothetical — it is the shape the FIRST
+ * BAYLA pool shipped with, and any bungalow can be given one, so the "longer
+ * lock buys nothing" path must keep working and keep saying so.
+ */
+const FLAT_POOL: PoolView = { ...BAYLA_POOL, maxWeightScaled: WEIGHT_SCALE };
+
 const BAYLA_REWARD: RewardPoolView = {
-  address: 'HdapJt3cJ92fBcoCiaeAyACicXGF9m6RGQdWRMX9L9XL',
+  address: '3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf',
   mint: BAYLA_POOL.mint,
   nonce: 0,
-  vault: 'G4WFqZcqtbU6bSEcBEUy884A1K9DSP8YfewfZ9B7uUcV',
+  vault: '5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq',
   decimals: 6,
   fundedRaw: 0n,
   permissionless: true,
-  rewardAmountRaw: '3000000',
+  rewardAmountRaw: '600000',
   rewardPeriodSecs: DAY,
 };
 
@@ -117,18 +128,37 @@ describe('rewardRatePerPeriod matches the SDK exactly', () => {
 });
 
 describe('the live BAYLA pool, priced', () => {
-  it('is 0.003 BAYLA per BAYLA per day = 109.5% a year', () => {
-    expect(rewardRatePerPeriod(BAYLA_POOL, BAYLA_REWARD)).toBeCloseTo(0.003, 12);
-    expect(configuredAnnualRate(BAYLA_POOL, BAYLA_REWARD, 30 * DAY)).toBeCloseTo(1.095, 9);
+  it('is 0.0006 BAYLA per BAYLA per day at 1.00x', () => {
+    expect(rewardRatePerPeriod(BAYLA_POOL, BAYLA_REWARD)).toBeCloseTo(0.0006, 12);
   });
 
-  it('pays the SAME rate at every lock length — the pool has no duration bonus', () => {
-    // minWeight == maxWeight on the live pool. A UI that implied "lock longer,
-    // earn more" here would be inventing a boost curve the program does not have.
-    expect(isFlatWeight(BAYLA_POOL)).toBe(true);
-    const rates = [1, 7, 30, 90, 180, 365].map((d) => configuredAnnualRate(BAYLA_POOL, BAYLA_REWARD, d * DAY));
+  // The ladder the operator chose on 2026-08-30, pinned end to end. These are
+  // the exact numbers the lock buttons print, so a weight-math regression or an
+  // accidental re-flattening of the pool fixture fails HERE rather than
+  // mispricing a button in production.
+  it('ramps 1.00x → 5.00x across the lock range, and prices each rung', () => {
+    expect(isFlatWeight(BAYLA_POOL)).toBe(false);
+    expect(stakeWeight(BAYLA_POOL, DAY)).toBeCloseTo(1, 9);
+    expect(stakeWeight(BAYLA_POOL, 365 * DAY)).toBeCloseTo(5, 9);
+    const apr = (d: number) => configuredAnnualRate(BAYLA_POOL, BAYLA_REWARD, d * DAY);
+    expect(apr(1)).toBeCloseTo(0.219, 3);   // 21.9% liquid
+    expect(apr(30)).toBeCloseTo(0.289, 3);  // 28.9%
+    expect(apr(90)).toBeCloseTo(0.433, 3);  // 43.3%
+    expect(apr(180)).toBeCloseTo(0.650, 3); // 65.0%
+    expect(apr(365)).toBeCloseTo(1.095, 3); // 109.5% for a full year
+    // Every rung must pay strictly more than the one below it, or the picker
+    // is asking for a longer lock in exchange for nothing.
+    const rungs = [1, 7, 14, 30, 90, 180, 365].map(apr);
+    expect(rungs.every((r, i) => i === 0 || r > rungs[i - 1]!)).toBe(true);
+  });
+
+  it('pays the SAME rate at every lock length when a pool is flat', () => {
+    // The shape the first BAYLA pool shipped with. A UI that implied "lock
+    // longer, earn more" here would be inventing a curve the program lacks.
+    expect(isFlatWeight(FLAT_POOL)).toBe(true);
+    const rates = [1, 7, 30, 90, 180, 365].map((d) => configuredAnnualRate(FLAT_POOL, BAYLA_REWARD, d * DAY));
     expect(new Set(rates.map((r) => r.toFixed(9))).size).toBe(1);
-    expect(stakeWeight(BAYLA_POOL, 365 * DAY)).toBe(1);
+    expect(stakeWeight(FLAT_POOL, 365 * DAY)).toBe(1);
   });
 
   it('is quotable as a percentage only because the reward mint IS the stake mint', () => {
@@ -138,22 +168,24 @@ describe('the live BAYLA pool, priced', () => {
     expect(rateIsPercent(BAYLA_POOL, { mint: '' })).toBe(false);
   });
 
-  it('rewards MORE for a longer lock once a pool actually weights duration', () => {
+  it('scales the top rung with whatever cap a pool sets — 2x here, not 5x', () => {
     const weighted = { ...BAYLA_POOL, maxWeightScaled: 2n * WEIGHT_SCALE };
     expect(isFlatWeight(weighted)).toBe(false);
     const short = configuredAnnualRate(weighted, BAYLA_REWARD, DAY);
     const long = configuredAnnualRate(weighted, BAYLA_REWARD, 365 * DAY);
-    expect(short).toBeCloseTo(1.095, 9);
-    expect(long).toBeCloseTo(2.19, 9);
+    expect(short).toBeCloseTo(0.219, 9);
+    expect(long).toBeCloseTo(0.438, 9);
   });
 });
 
 describe('vaultRunwaySecs', () => {
   const staked = { ...BAYLA_POOL, totalStakeRaw: 1_000_000_000n, totalEffectiveStakeRaw: 1_000_000_000n }; // 1,000 BAYLA
   it('answers in real time at TODAY\'s stake and rate', () => {
-    // 1,000 staked x 0.003/day = 3 BAYLA a day; a 30 BAYLA vault lasts 10 days.
+    // 1,000 BAYLA of EFFECTIVE stake x 0.0006/day = 0.6 BAYLA a day, so a
+    // 30 BAYLA vault lasts 50 days. (Effective, not nominal: on the 5x pool a
+    // year-locked 1,000 counts as 5,000 and drains the vault five times faster.)
     const rp = { ...BAYLA_REWARD, fundedRaw: 30_000_000n };
-    expect(vaultRunwaySecs(staked, rp)).toBe(10 * DAY);
+    expect(vaultRunwaySecs(staked, rp)).toBe(50 * DAY);
   });
   it('refuses to answer rather than guess', () => {
     // Empty vault, unreadable vault, and nothing staked are three different

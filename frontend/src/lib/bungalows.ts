@@ -104,20 +104,31 @@ export const DEFAULT_BUNGALOW_ID = 'toweli';
 
 export const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 
-// The lighthouse pool — CREATED ON MAINNET 2026-08-26 by the ceremony script
-// (signer GCCSLE7d…auV9, Token-2022 detected):
-//   stake pool  4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp
-//     (tx 3vDxaGWo9ZrzrNWQumqe9AG2oUxJU4YRCoBBbthf8SykVTTQxmP5s2j1pvcPHZmA7PpET9vXV2s19rvMEFcAzeoB)
-//   reward pool HdapJt3cJ92fBcoCiaeAyACicXGF9m6RGQdWRMX9L9XL — 0.003 BAYLA per
-//     staked BAYLA per day, permissionless public funding
-//     (tx 3dgfyV2EgyxT1pszEc9k1RzBbFi9SNARtVKKDDE6SpBoJDbyuiMSu5EhihM6JXmeNGurKrkgyFiCyiburzBUCSR)
+// The lighthouse pool — REPLACED ON MAINNET 2026-08-30 (signer GCCSLE7d…auV9,
+// Token-2022 detected), nonce 1:
+//   stake pool  EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f
+//     (tx 5zBxY9wzvg6C3JHVUh2BAK7nVGn3xSo18Hboib2FZRDV4X6J3BQD1c1hicB6spjE9zrT1XXnbRRYyHw8LcwXjz86)
+//   reward pool 3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf — 0.0006 BAYLA per
+//     staked BAYLA per day at 1.00x, permissionless public funding
+//     (tx 4gVcSQR52Jh3wXyeLpDEBUm6yLKVdkU5Gi8KX5SV6kooWsg8aw6kmB2pCFBjrqK3UoVpTWeWG1JWK85AiYpQuBx1)
+//
+// WHY IT WAS REPLACED: the first pool (4WCpdeQ2…GXPp, 2026-08-26) was created
+// with maxWeight == 1.00x, so its 1-365 day lock picker bought nothing — every
+// duration earned the same rate. maxWeight is a stake-pool field with no update
+// instruction, so the only fix was a new pool at a fresh nonce. This one ramps
+// 1.00x → 5.00x across 1-365 days, making the ladder real: ~21.9% APR liquid,
+// ~109.5% for a full year. The old pool still holds the operator's own 1,000
+// BAYLA dust-test stake, locked until ~2027-08-29 (nothing can release it —
+// see BAYLA_BUNGALOW.md §5b), and is otherwise abandoned.
+//
 // The address ships hardcoded so no env var is load-bearing; the env override
 // remains for emergencies (pointing staging at a test pool, or dark-switching
 // by setting it to an empty-but-present value is NOT supported — the fallback
-// wins whenever the env is unset/blank).
+// wins whenever the env is unset/blank). ⚠️ If VITE_BAYLA_STAKE_POOL is set in
+// Vercel it WINS over this constant — it must be unset or updated to match.
 const BAYLA_STAKE_POOL =
   (import.meta.env?.VITE_BAYLA_STAKE_POOL as string | undefined)?.trim()
-  || '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp';
+  || 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f';
 
 export const BUNGALOWS: Bungalow[] = [
   {

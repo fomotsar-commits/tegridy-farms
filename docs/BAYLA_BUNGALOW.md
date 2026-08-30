@@ -251,7 +251,45 @@ note the observed rate here for the funding math.
   the wallet fixture pins toweli by design) walks /bayla, the /towelie
   alias, and a not-yet-live door across the four-device matrix.
 
-## 6f. THE MAINNET CEREMONY — DONE (2026-08-26). The lighthouse exists.
+## 6g. THE POOL WAS REPLACED (2026-08-30). Read this before §6f.
+
+§6f below records the FIRST pool. It is retired. It shipped with
+`maxWeight = 1.00x`, so its 1–365 day lock picker bought nothing — every
+duration earned the identical rate (caught by the 2026-08-29 economics review).
+`maxWeight` is a stake-pool field with **no update instruction**, so the only
+fix was a new pool at a fresh nonce.
+
+**THE LIVE POOL (nonce 1), created by the operator with the same ceremony key:**
+
+- **Stake pool: `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`**
+  (tx `5zBxY9wzvg6C3JHVUh2BAK7nVGn3xSo18Hboib2FZRDV4X6J3BQD1c1hicB6spjE9zrT1XXnbRRYyHw8LcwXjz86`)
+  — BAYLA mint, locks 1–365 days, **weight ramps 1.00x → 5.00x**, Token-2022.
+- **Reward pool: `3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf`**
+  (tx `4gVcSQR52Jh3wXyeLpDEBUm6yLKVdkU5Gi8KX5SV6kooWsg8aw6kmB2pCFBjrqK3UoVpTWeWG1JWK85AiYpQuBx1`)
+  — 0.0006 BAYLA per staked BAYLA per day at 1.00x, **permissionless funding**.
+  Reward vault: `5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq`.
+- Verified on-chain post-creation: maxWeight 5x, min 1d, max 365d, rate
+  0.0006, authority `GCCSLE7d…auV9`, totalStake 0, vault **0 — honest zero**.
+
+The ladder the operator chose (pinned by test in `bungalowStakingRates.test.ts`):
+
+| Lock | Weight | Simple APR |
+|---|---|---|
+| 1 day | 1.000x | 21.9% |
+| 7 days | 1.066x | 23.3% |
+| 30 days | 1.319x | 28.9% |
+| 90 days | 1.978x | 43.3% |
+| 180 days | 2.967x | 65.0% |
+| 365 days | 5.000x | **109.5%** |
+
+⚠️ **FUND THIS POOL, NOT THE OLD ONE:**
+`node "<repo>\frontend\scripts\bayla-lighthouse-ceremony.mjs" --fund --pool EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f --amount <whole BAYLA> --keypair <id.json> --broadcast`
+
+The retired pool still holds the operator's own 1,000 BAYLA dust-test stake,
+locked until ~2027-08-29. Nothing can release it early (§5b) — it is ~$0.50
+and is written off deliberately.
+
+## 6f. THE FIRST MAINNET CEREMONY — RETIRED, see §6g (2026-08-26)
 
 Executed by the operator with the designated ceremony key
 (`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, the pool's admin authority
@@ -271,11 +309,12 @@ folder; custody caveat accepted by the operator on 2026-08-26):
 - The address ships **hardcoded in the registry** (env override retained),
   so no Vercel env var is load-bearing for the live pool.
 
-Remaining: the dust-wallet live-fire (first tiny stake/claim/unstake —
-needs any wallet holding a little BAYLA), announce, then **fund last**:
-`node scripts/bayla-lighthouse-ceremony.mjs --fund --pool 4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp --amount <whole BAYLA> --keypair <id.json> --broadcast`
-(the funding wallet must hold the BAYLA; creator fees accrue to
-`G2EHPse…Krbu` on pump.fun).
+⚠️ The `--fund --pool 4WCpdeQ2…GXPp` command that used to live here has been
+removed: funding this retired pool would send BAYLA to a vault nobody is
+staked against. **Use the §6g command instead.** The dust live-fire it called
+for was completed on 2026-08-29 (1,000 BAYLA staked through the live UI with a
+real wallet, read back on prod) — it is what proved the rail end to end, and
+it is also what is now stranded here until ~2027-08-29.
 
 ## 6e. DEVNET REHEARSAL — the entire lifecycle executed (2026-08-26)
 
