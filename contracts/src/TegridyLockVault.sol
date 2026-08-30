@@ -164,6 +164,9 @@ contract TegridyLockVault is OwnableNoRenounce, Pausable, PauseGuardian, Timeloc
         uint256 balanceBefore = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = IERC20(token).balanceOf(address(this)) - balanceBefore;
+        // SLITHER 2026-08-30: measured-delta sentinel, fail-closed under nonReentrant — the
+        // delta (never the caller's `amount`) is what becomes the lock principal
+        // slither-disable-next-line incorrect-equality
         if (received == 0) revert NoFundsReceived();
 
         _locks[id] = Lock({
@@ -201,6 +204,9 @@ contract TegridyLockVault is OwnableNoRenounce, Pausable, PauseGuardian, Timeloc
         uint256 balanceBefore = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = IERC20(token).balanceOf(address(this)) - balanceBefore;
+        // SLITHER 2026-08-30: measured-delta sentinel, fail-closed under nonReentrant — same
+        // shape as lock() above
+        // slither-disable-next-line incorrect-equality
         if (received == 0) revert NoFundsReceived();
 
         uint256 newAmount = l.amount + received;
