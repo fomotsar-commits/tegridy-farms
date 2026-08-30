@@ -233,7 +233,10 @@ export const ROUTES: readonly RouteSpec[] = [
       'The surface is no longer gated on a fee account (2026-08-29: isSolanaConfigured was split ' +
       'into isSolanaFeeConfigured / isSolanaSwapLive), so this audits the REAL swap form. Quotes ' +
       'still need the Jupiter proxy, so the form renders without live prices in this suite.',
-    knownViolations: ['page-has-heading-one'],
+    // Re-measured 2026-08-30 on the reconciled tree: the un-gated page renders
+    // its real <h1> ("Solana Swap", SolanaSwapPage.tsx) during the sweep, so
+    // page-has-heading-one no longer fires — the pin follows the measurement.
+    knownViolations: [],
   },
   {
     path: '/pools',
