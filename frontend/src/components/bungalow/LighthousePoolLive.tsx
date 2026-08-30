@@ -498,7 +498,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       : overBalance ? `Not enough ${bungalow.symbol}`
                       : `Stake & lock for ${labelForDays(chosenDays)}`}
                   </button>
-                  {publicKey && !entriesKnown && entriesForWallet?.reason && (
+                  {!entriesKnown && entriesForWallet?.reason && (
                     <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
                       {entriesForWallet.reason} Staking waits until your existing stakes are
                       readable — a new stake could otherwise collide with one of them.

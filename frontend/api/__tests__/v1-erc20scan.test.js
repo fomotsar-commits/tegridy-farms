@@ -475,10 +475,12 @@ describe("v1 erc20scan — chain=base rides Blockscout with the same honesty rul
 
   function serveBase({ info = upstream(BS_INFO), holders = upstream(BS_HOLDERS) } = {}) {
     globalThis.fetch = vi.fn(async (url) => {
-      const u = String(url);
-      if (u.includes("base.blockscout.com") && u.includes("/holders")) return holders;
-      if (u.includes("base.blockscout.com")) return info;
-      throw new Error("unexpected upstream for a base scan: " + u);
+      // Host-anchored on purpose (CodeQL: a bare substring test also matches
+      // evil.com/base.blockscout.com/…) — same rule the app code follows.
+      const u = new URL(String(url));
+      if (u.hostname === "base.blockscout.com" && u.pathname.endsWith("/holders")) return holders;
+      if (u.hostname === "base.blockscout.com") return info;
+      throw new Error("unexpected upstream for a base scan: " + u.href);
     });
   }
 
@@ -547,10 +549,10 @@ describe("v1 erc20scan — chain=base rides Blockscout with the same honesty rul
     // The base mock THROWS on any non-blockscout URL, so this asserts routing:
     // reach Ethplorer, not Blockscout.
     globalThis.fetch = vi.fn(async (url) => {
-      const u = String(url);
-      if (u.includes("base.blockscout.com")) throw new Error("default scan must not touch Blockscout");
-      if (u.includes("getTopTokenHolders")) return upstream(JSON.stringify({ holders: [] }));
-      if (u.includes("ethplorer")) return upstream(INFO);
+      const u = new URL(String(url));
+      if (u.hostname === "base.blockscout.com") throw new Error("default scan must not touch Blockscout");
+      if (u.pathname.includes("getTopTokenHolders")) return upstream(JSON.stringify({ holders: [] }));
+      if (u.hostname === "api.ethplorer.io") return upstream(INFO);
       return upstream("{}");
     });
     const req = makeReq();

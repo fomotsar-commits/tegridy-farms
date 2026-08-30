@@ -47,22 +47,14 @@ vi.mock('@solana/spl-token', () => ({
   createAssociatedTokenAccountIdempotentInstruction: vi.fn(() => ({ __ix: 'create-receipt-ata' })),
 }));
 
+// The ladder/weight/rate display helpers are exercised in
+// bungalowStakingRates.test.ts against the real SDK — this file pins the
+// adapter seam (reads, writes, failure mapping) and the exit-safety predicate.
 import {
   readPool,
   readEntries,
-  readWalletBalance,
   nextVacantNonce,
   stake,
-  lockPresets,
-  labelForDays,
-  stakeWeightScaled,
-  stakeWeight,
-  isFlatWeight,
-  rewardRatePerPeriod,
-  configuredAnnualRate,
-  rateIsPercent,
-  vaultRunwaySecs,
-  unlockTs,
   WEIGHT_SCALE,
   type PoolView,
   type StakeEntryView,
