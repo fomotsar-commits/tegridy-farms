@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
-import { Routes, Route, Navigate, Link, useLocation, useNavigationType } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation, useNavigationType, useParams } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -288,6 +288,20 @@ function ScrollToTop() {
   return null;
 }
 
+/**
+ * Param leg of the dev studio: validates :bungalowId against the registry so
+ * a typo'd or hostile slug renders the public site, never a broken tool.
+ */
+function BungalowStudioDoor() {
+  const { bungalowId = '' } = useParams();
+  if (!BUNGALOWS.some((b) => b.id === bungalowId)) return <Navigate to="/" replace />;
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      {BungalowArtStudioPage ? <BungalowArtStudioPage bungalowId={bungalowId} /> : null}
+    </Suspense>
+  );
+}
+
 function AnimatedRoutes() {
   return (
     <>
@@ -316,6 +330,19 @@ function AnimatedRoutes() {
         element={
           import.meta.env.DEV && BungalowArtStudioPage
             ? <Suspense fallback={<PageSkeleton />}><BungalowArtStudioPage bungalowId="bayla" /></Suspense>
+            : <Navigate to="/" replace />
+        }
+      />
+      {/* Generic per-resident studio (WO-1): /bungalow-studio/<id> aims the
+          SAME tool at any registry bungalow — the page and the override store
+          were parametric all along, only this route pinned 'bayla'. Dev-only;
+          an unknown id lands home. '/bungalow-studio' is not an island slug,
+          so door routing is untouched. */}
+      <Route
+        path="bungalow-studio/:bungalowId"
+        element={
+          import.meta.env.DEV && BungalowArtStudioPage
+            ? <BungalowStudioDoor />
             : <Navigate to="/" replace />
         }
       />

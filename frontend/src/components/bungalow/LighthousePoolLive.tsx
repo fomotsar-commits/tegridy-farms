@@ -7,6 +7,7 @@ import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
 import {
+  vaultIsMateriallyEmpty,
   readPool,
   readEntries,
   readWalletBalance,
@@ -45,9 +46,10 @@ import {
  *  - every projection is stamped with the same caveat and reads 0 while the
  *    vault is dry;
  *  - a failed read is an OUTAGE state, never rendered as zero;
- *  - when the pool grants no duration bonus (BAYLA's does not: minWeight ==
- *    maxWeight == 1.00x) the panel SAYS SO, instead of implying that a
- *    longer lock buys a better rate.
+ *  - when a pool grants no duration bonus (minWeight == maxWeight — true of
+ *    the RETIRED first BAYLA pool; the live 5x-ladder pool is NOT this case)
+ *    the panel SAYS SO, instead of implying a boost curve that does not
+ *    exist — and conversely shows the real ladder when one is configured.
  *
  * All writes are the SDK's own grouped flows (stake+entries, unstake+claim)
  * through the connected wallet; every action reports its tx signature or
@@ -112,7 +114,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // Entries + balance keyed by wallet: a disconnect/switch is handled by
   // DERIVING the visible values from the key match (never a synchronous
   // setState in an effect — react-hooks/set-state-in-effect).
-  const [entriesRead, setEntriesRead] = useState<{ key: string; list: StakeEntryView[] }>({ key: '', list: [] });
+  // list:null = not loaded or FAILED — an outage, never "no stakes": rendering
+  // a failed read as an empty list makes locked funds look gone and lets a
+  // new stake collide with an unseen open nonce.
+  const [entriesRead, setEntriesRead] = useState<{ key: string; list: StakeEntryView[] | null; reason: string | null }>({ key: '', list: null, reason: null });
   const [balanceRead, setBalanceRead] = useState<{ key: string; raw: bigint | null }>({ key: '', raw: null });
   const [amount, setAmount] = useState('');
   const [days, setDays] = useState<number | null>(null);
@@ -134,7 +139,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     readPool(bungalow.stakePool).then((r) => { if (!cancelled) setPoolRead(r); });
     if (walletKey) {
       readEntries(bungalow.stakePool, walletKey).then((r) => {
-        if (!cancelled && r.ok) setEntriesRead({ key: walletKey, list: r.entries });
+        if (cancelled) return;
+        if (r.ok) setEntriesRead({ key: walletKey, list: r.entries, reason: null });
+        else setEntriesRead({ key: walletKey, list: null, reason: r.reason });
       });
     }
     return () => { cancelled = true; };
@@ -153,13 +160,20 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     return () => { cancelled = true; };
   }, [walletKey, poolMint, action?.tx]);
 
-  const entries = walletKey && entriesRead.key === walletKey ? entriesRead.list : [];
+  const entriesForWallet = walletKey && entriesRead.key === walletKey ? entriesRead : null;
+  const entriesKnown = entriesForWallet?.list !== null && entriesForWallet !== null;
+  const entries = entriesForWallet?.list ?? [];
   const walletRaw = walletKey && balanceRead.key === walletKey ? balanceRead.raw : null;
 
   const pool = poolRead?.ok ? poolRead.pool : null;
-  const decimals = pool?.decimals ?? 6;
-  const funded: bigint | null = pool
-    ? pool.rewardPools.reduce<bigint | null>((acc, rp) => (acc === null || rp.fundedRaw === null ? null : acc + rp.fundedRaw), 0n)
+  const decimals = pool?.decimals ?? bungalow.decimals ?? 6;
+  // Vault headline: ONLY reward pools paying the STAKE mint sum into the
+  // "{symbol}" figure — a foreign-mint reward pool has different decimals,
+  // and adding its raw units would fabricate the number. Zero same-mint
+  // pools reads as null (outage), never as a real zero.
+  const sameMintPools = pool ? pool.rewardPools.filter((rp) => rp.mint === pool.mint) : [];
+  const funded: bigint | null = pool && sameMintPools.length > 0
+    ? sameMintPools.reduce<bigint | null>((acc, rp) => (acc === null || rp.fundedRaw === null ? null : acc + rp.fundedRaw), 0n)
     : null;
   const minDays = pool ? Math.max(1, Math.ceil(pool.minDurationSecs / DAY)) : 1;
   const maxDays = pool ? Math.max(minDays, Math.floor(pool.maxDurationSecs / DAY)) : minDays;
@@ -177,7 +191,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // The reward pool the headline rate speaks for. Multi-reward pools are legal;
   // the venue has never run one, so the strip names the first and the per-entry
   // list still itemises every pool it finds.
-  const primaryRp: RewardPoolView | null = pool?.rewardPools[0] ?? null;
+  const primaryRp: RewardPoolView | null = sameMintPools[0] ?? pool?.rewardPools[0] ?? null;
+  // EXIT SAFETY (devnet-proven 2026-08-28, error 6012, same program ids as
+  // mainnet): while accrued rewards exceed the vault, claim AND unstake&claim
+  // REVERT — principal is locked until the vault is topped up past accrual
+  // (the backlog itself survives). So new stakes PAUSE while the vault is
+  // materially empty: an open deposit form here would invite a lock nothing
+  // can open until someone funds the vault.
+  const vaultDry = pool && primaryRp ? vaultIsMateriallyEmpty(pool, primaryRp) : false;
+  const stakeBlocked = !entriesKnown || funded === null || vaultDry;
   const ratePercent = pool && primaryRp ? rateIsPercent(pool, primaryRp) : false;
   const configuredRate = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, chosenSecs) : 0;
   // "Paying now" is the honest half: a configured rate the vault cannot back
@@ -246,13 +268,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
               />
             </div>
 
-            {funded === 0n && (
+            {vaultDry && (
               <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
-                <strong>Paying now is 0% because the reward vault is empty.</strong>{' '}
+                <strong>Paying now is 0% because the reward vault is {funded === 0n ? 'empty' : 'effectively empty'}.</strong>{' '}
                 {ratePercent ? `The pool is configured to pay ${pct(configuredRate)} a year` : 'The pool has a configured rate'},
-                but a rate only pays out of a funded vault. Deposits are open and your
-                principal is yours to take back at unlock — that is a fact about the pool,
-                not a promise about yield.
+                but a rate only pays out of a funded vault — and (proven against the live
+                program) claims and unstakes <strong>revert</strong> while accrued rewards
+                exceed what the vault holds, even after the lock opens. New stakes are
+                paused here until the vault is funded, so a deposit cannot become
+                principal nothing can release. Accrual is never lost — it pays in full
+                after a top-up.
               </p>
             )}
             {funded === null && (
@@ -460,17 +485,26 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   <>
                   <button
                     type="button"
-                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy}
+                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked}
                     onClick={() => invoker && amountRaw && void run('Stake', () => stake({
                       invoker, pool, amountRaw, durationSecs: chosenSecs, entries,
                     }))}
                     className="btn-primary w-full py-3 text-[14px] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {action?.busy === 'Stake' ? 'Confirm in wallet…'
+                      : vaultDry ? 'Staking paused — vault unfunded'
+                      : !entriesKnown ? 'Waiting for your stakes to load…'
+                      : funded === null ? 'Vault unreadable — staking paused'
                       : !amountRaw || amountRaw === 0n ? 'Enter an amount'
                       : overBalance ? `Not enough ${bungalow.symbol}`
                       : `Stake & lock for ${labelForDays(chosenDays)}`}
                   </button>
+                  {!entriesKnown && entriesForWallet?.reason && (
+                    <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
+                      {entriesForWallet.reason} Staking waits until your existing stakes are
+                      readable — a new stake could otherwise collide with one of them.
+                    </p>
+                  )}
                   <p className="text-white/45 text-[11px] text-center mt-2">
                     Unlocks {new Date((nowSec + chosenSecs) * 1000).toLocaleDateString()} · no early exit and no
                     penalty path — the program simply refuses an unstake until then
@@ -517,39 +551,65 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                             accrued <span className="font-mono">{fmt(entryPending, decimals)}</span> {bungalow.symbol}
                           </span>
                         </div>
+                        {(() => {
+                          // 6012-precise gating: the SDK's own calcRewards gives this
+                          // entry's accrued amount; when it exceeds the vault, claim AND
+                          // the grouped exit are guaranteed to revert (devnet-proven), so
+                          // the buttons say so instead of letting the wallet eat it.
+                          const exceedsVault =
+                            entryPending !== null && funded !== null && entryPending > funded;
+                          const nothingPending = entryPending === 0n;
+                          return (
                         <div className="flex flex-wrap items-center gap-2">
                           {pool.rewardPools.map((rp) => (
                             <button
                               key={rp.address || rp.nonce}
                               type="button"
-                              disabled={!invoker || !!action?.busy}
+                              disabled={!invoker || !!action?.busy || nothingPending || exceedsVault}
+                              title={exceedsVault ? 'The vault cannot cover this claim — it reverts until a top-up; nothing is lost.' : nothingPending ? 'Nothing accrued yet.' : undefined}
                               onClick={() => invoker && void run('Claim', () => claimRewards({ invoker, pool, rewardPool: rp, entryNonce: e.nonce }))}
                               className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
                             >
-                              Claim rewards
+                              {exceedsVault ? 'Nothing claimable yet' : 'Claim rewards'}
                             </button>
                           ))}
                           <button
                             type="button"
-                            disabled={!invoker || !!action?.busy || locked}
-                            title={locked ? 'The program refuses an unstake before the lock opens' : undefined}
+                            disabled={!invoker || !!action?.busy || locked || exceedsVault}
+                            title={locked
+                              ? 'The program refuses an unstake before the lock opens'
+                              : exceedsVault
+                                ? 'The exit pays rewards in the same transaction — it reverts until the vault covers them (nothing is lost).'
+                                : undefined}
                             onClick={() => invoker && void run('Unstake', () => unstakeAndClaim({ invoker, pool, entryNonce: e.nonce }))}
                             className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                           >
-                            {locked ? `Locked · ${humanDuration(opensAt - nowSec)}` : 'Unstake & claim'}
+                            {locked ? `Locked · ${humanDuration(opensAt - nowSec)}`
+                              : exceedsVault ? 'Exit blocked — vault unfunded'
+                              : 'Unstake & claim'}
                           </button>
                         </div>
+                          );
+                        })()}
                       </li>
                     );
                   })}
                 </ul>
-                {funded === 0n && (
+                {vaultDry && (
                   <p className="text-white/45 text-[11px] mt-3">
-                    Accrual keeps counting while the vault is empty, but a claim can only pay
-                    out what the vault actually holds.
+                    Accrual keeps counting while the vault is dry, and nothing is lost — but
+                    claims and exits <strong>revert</strong> until the vault covers what has
+                    accrued (proven against the live program). Both work again the moment it
+                    is topped up, and the backlog pays in full.
                   </p>
                 )}
               </div>
+            )}
+
+            {publicKey && !entriesKnown && entriesForWallet?.reason && (
+              <p className="text-[12px] mt-1" style={{ color: '#f0b26b' }}>
+                Your stakes could not be read right now — that is an outage, not an empty list.
+              </p>
             )}
 
             {action?.busy && <p className="text-white/70 text-[12px] mt-3">{action.busy} — waiting for the wallet…</p>}

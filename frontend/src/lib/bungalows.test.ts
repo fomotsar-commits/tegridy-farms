@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   BUNGALOWS,
@@ -11,6 +11,8 @@ import {
   hasChosenBungalow,
   setActiveBungalow,
   bungalowArtPool,
+  bungalowTradeRoute,
+  bungalowScanRoute,
 } from './bungalows';
 import { pageArt } from './artConfig';
 
@@ -46,7 +48,19 @@ describe('bungalow registry', () => {
     expect(bayla?.artPool).toBe(BAYLA_ART);
   });
 
-  it('marks every unconfirmed bungalow as not live so the picker cannot select it', () => {
+  it('placeholder skins: every settled resident is live, voiced, and wears CLASSIC art', () => {
+    // Owner call 2026-08-30: skins on now, custom art later. The contract:
+    // live + an honest registry identity + NO artPool — pageArt's classic
+    // fallback IS the placeholder, so the community drop later swaps walls,
+    // never rails. Only the quiet unmarked slot stays not-live.
+    const notLive = BUNGALOWS.filter((x) => !x.live).map((b) => b.id);
+    expect(notLive).toEqual(['nb1']);
+    for (const b of BUNGALOWS.filter((x) => x.live && x.id !== 'toweli' && x.id !== 'bayla')) {
+      expect(b.identity, `${b.id} placeholder skin needs a voice`).toBeTruthy();
+      expect(b.identity?.heroTitle).toBe(`${b.symbol}.`);
+      expect(b.artPool, `${b.id} wears classic art until its community's drop`).toBeUndefined();
+      expect(b.identity?.museVoice, `${b.id} bubble speaks as the island, never another resident`).toBe('the island');
+    }
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
       expect(b.artPool, `${b.id} has no art pool until it goes live`).toBeUndefined();
     }
@@ -141,10 +155,15 @@ describe('pageArt() bungalow swap', () => {
   });
 
   it('treats a non-live or unknown stored id as the classic default', () => {
-    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'drb');
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'nb1');
     expect(getActiveBungalow()).toBeNull();
     localStorage.setItem(BUNGALOW_STORAGE_KEY, 'not-a-bungalow');
     expect(getActiveBungalow()).toBeNull();
+    expect(pageArt('farm', 0).src).not.toMatch(/^\/art\/bayla\//);
+    // And the flip's other half: a settled resident now RESOLVES (live
+    // placeholder skin) — with classic art, since it has no pool.
+    localStorage.setItem(BUNGALOW_STORAGE_KEY, 'drb');
+    expect(getActiveBungalow()?.id).toBe('drb');
     expect(pageArt('farm', 0).src).not.toMatch(/^\/art\/bayla\//);
   });
 });
@@ -160,9 +179,12 @@ describe('resolution order', () => {
   });
 
   it('ignores deep links to bungalows that are not live', () => {
-    window.history.replaceState({}, '', '/?bungalow=drb');
+    window.history.replaceState({}, '', '/?bungalow=nb1');
     expect(getActiveBungalow()).toBeNull();
     expect(localStorage.getItem(BUNGALOW_STORAGE_KEY)).toBeNull();
+    // A settled resident's deep link works since the placeholder-skin flip.
+    window.history.replaceState({}, '', '/?bungalow=drb');
+    expect(getActiveBungalow()?.id).toBe('drb');
   });
 
   it('getBungalowIdentity gates token-first surfaces: bayla yes, default and no-choice no', () => {
@@ -171,6 +193,93 @@ describe('resolution order', () => {
     expect(getBungalowIdentity()?.symbol).toBe('BAYLA');
     setActiveBungalow(DEFAULT_BUNGALOW_ID);
     expect(getBungalowIdentity()).toBeNull();
+  });
+
+  it('labels dexscreener fallbacks CHART, real swap venues swap, and prefers the in-venue Solana preset', () => {
+    const drb = BUNGALOWS.find((b) => b.id === 'drb')!;
+    const bobo = BUNGALOWS.find((b) => b.id === 'bobo')!;
+    // A Dexscreener token page is an info/chart page — calling it "Trade"
+    // hands a courted community a button that trades nothing (JBM/RIZZ had
+    // no indexed pair at all on 2026-08-25).
+    const drbRoute = bungalowTradeRoute(drb, true);
+    expect(drbRoute && 'kind' in drbRoute ? drbRoute.kind : null).toBe('chart');
+    const boboVenue = bungalowTradeRoute(bobo, true);
+    expect(boboVenue && 'to' in boboVenue ? boboVenue.to : null).toBe(`/solana?out=${bobo.address}`);
+    const boboExt = bungalowTradeRoute(bobo, false);
+    expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
+  });
+
+  it('pins every settled market pool (GeckoTerminal ids, deepest ACTIVE pool, read 2026-08-30)', () => {
+    // A wrong pool id draws another token's chart under this ticker with no
+    // error anywhere — the exact bug the OHLCV cache-key fix guarded against.
+    const MARKETS: Record<string, [string, string]> = {
+      pepe: ['eth', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f'],
+      qr: ['base', '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0'],
+      mfer: ['base', '0xb08a99ab559e5456907278727a3b0d968c0a313b'],
+      bnkr: ['base', '0xaec085e5a5ce8d96a7bdd3eb3a62445d4f6ce703'],
+      drb: ['base', '0x5116773e18a9c7bb03ebb961b38678e45e238923'],
+      bobo: ['solana', '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX'],
+      jbm: ['base', '0xbc6156458bc948cba71dd0be99bfa472bd636331'],
+      soy: ['solana', 'DtTkLBvYUaYBZ7PC4vCwWfu56Zkgbf7ycEXxLhAP7Xx8'],
+      brainlet: ['solana', 'CW9DFoTWEUiwxyxVGnQFYhbrYEfGkvaqXEgxKZG7d7X1'],
+      rizz: ['base', '0x05cdb532193b8732ebc65aff0ad207186628a3be'],
+    };
+    for (const [id, [network, pool]] of Object.entries(MARKETS)) {
+      const b = BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.market?.network, `${id} market network`).toBe(network);
+      expect(b.market?.pool, `${id} market pool`).toBe(pool);
+      expect(b.market?.label, `${id} market label`).toBeTruthy();
+    }
+    // The quiet slot never grows a market.
+    expect(BUNGALOWS.find((x) => x.id === 'nb1')!.market).toBeUndefined();
+  });
+
+  it("keeps Bayla's canon voice in the registry (lore + muse pool)", () => {
+    // The HomePage lore card and the MuseBubble are registry-driven now; if
+    // her canon copy is ever dropped from the registry, both surfaces go
+    // silent with no compile error. Pin presence + the load-bearing shape.
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    expect(bayla.identity?.lore?.title).toBe('The muse of Jungle Bay Island');
+    expect(bayla.identity?.lore?.paragraphs.length).toBe(2);
+    expect(bayla.identity?.lore?.links.map((l) => l.href)).toEqual([
+      'https://memetics.wtf/',
+      'https://opensea.io/collection/junglebay',
+      'https://x.com/JungleBayAC',
+    ]);
+    expect(bayla.identity?.museLines?.length).toBe(5);
+    expect(bayla.identity?.museVoice).toBe('the muse');
+  });
+
+  it('keeps the sitemap in lock-step with the island registry', () => {
+    // The rule, not a snapshot: every non-default bungalow WITH an address
+    // has its door in the sitemap (the crawlable landing shipped in WO-4);
+    // the quiet no-address slot and the venue-default door (whose home is /)
+    // stay out. A new resident added to the registry without a sitemap entry
+    // fails here instead of silently shipping an unindexed door.
+    const xml = readFileSync(resolve(__dirname, '../../public/sitemap.xml'), 'utf-8');
+    for (const b of BUNGALOWS) {
+      const inMap = xml.includes(`<loc>https://memetic.fun/${b.id}</loc>`);
+      if (b.address && b.id !== DEFAULT_BUNGALOW_ID) {
+        expect(inMap, `${b.id} settled door missing from sitemap.xml`).toBe(true);
+      } else {
+        expect(inMap, `${b.id} should not be in sitemap.xml`).toBe(false);
+      }
+    }
+  });
+
+  it('scan routes carry the explicit chain for Base (0x is format-ambiguous) and exist for all island chains', () => {
+    const drb = BUNGALOWS.find((b) => b.id === 'drb')!;
+    const pepe = BUNGALOWS.find((b) => b.id === 'pepe')!;
+    const bayla = BUNGALOWS.find((b) => b.id === 'bayla')!;
+    const nb1 = BUNGALOWS.find((b) => b.id === 'nb1')!;
+    expect(bungalowScanRoute(drb)).toBe(`/scan?token=${drb.address}&chain=base`);
+    expect(bungalowScanRoute(pepe)).toBe(`/scan?token=${pepe.address}`);
+    expect(bungalowScanRoute(bayla)).toBe(`/scan?token=${bayla.address}`);
+    expect(bungalowScanRoute(nb1)).toBeNull();
+  });
+
+  it('ships BAYLA decimals in the registry (verified against the live mint 2026-08-28: Token-2022, 6dp, no transfer fee)', () => {
+    expect(BUNGALOWS.find((b) => b.id === 'bayla')!.decimals).toBe(6);
   });
 
   it('switching back to the default restores classic art everywhere', () => {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
 import { useTokenScan } from '../../hooks/useTokenScan';
+import { bungalowScanRoute } from '../../lib/bungalows';
 
 /**
  * Who holds the bungalow's token — distribution, in the bungalow.
@@ -29,7 +30,11 @@ import { useTokenScan } from '../../hooks/useTokenScan';
  */
 export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
   const address = bungalow.address ?? '';
-  const chain = bungalow.chain === 'solana' ? 'solana' : 'ethereum';
+  // Pass the chain through — collapsing base to 'ethereum' would scan a Base
+  // token's 0x address on the wrong chain (the scan rail reads all three).
+  // 'tbd' never reaches the hook: a tbd slot has no address, so the empty
+  // address parks the hook in `idle` and the component renders null below.
+  const chain = bungalow.chain === 'tbd' ? 'ethereum' : bungalow.chain;
   const [armed, setArmed] = useState(false);
   // Empty address ⇒ the hook parks in `idle` and issues nothing.
   const { status, outcome, errorMessage, reload } = useTokenScan(armed ? address : '', chain);
@@ -52,7 +57,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
         <h2 className="heading-luxury text-xl text-white">Distribution</h2>
         <div className="flex-1" />
         <Link
-          to={`/scan?token=${address}`}
+          to={bungalowScanRoute(bungalow) ?? `/scan?token=${address}`}
           className="text-[11px] px-3 py-1 rounded border border-white/10 bg-white/5 text-white/70 hover:text-white"
         >
           Full scan →

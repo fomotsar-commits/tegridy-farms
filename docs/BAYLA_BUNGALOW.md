@@ -391,6 +391,44 @@ plumbing; 7 adapter tests against a mocked SDK (vault 0 vs unreadable is
 pinned: zero is a fact, unreadable is an outage); an env-keyed dev probe
 verified the flip end-to-end (dark card ↔ live section) before commit.
 
+## 6h. DRY-VAULT REHEARSAL — funding-last's missing proof, executed (2026-08-28)
+
+The normal rehearsal (§6e) funded the vault BEFORE staking, so it never
+exercised the one state funding-last guarantees on mainnet: accrued
+entitlement > 0 against an empty vault. `--rehearse --dry-vault` (now a
+permanent mode of the ceremony script) ran the whole question on devnet —
+same program ids as mainnet, real transactions, pool
+`4xou7RD99YQvZWhreb9RLpDnjcjv1rBfMCBzs49FNSpD` (devnet):
+
+- **Claim against the empty vault: REVERTS** — Streamflow custom error
+  **6012** (tx `2kb9xBte…3LBT`). It does not pay zero.
+- **Unstake&claim against the empty vault: REVERTS with the same 6012**
+  (tx `5q6G9MsY…ZKLx`) — **principal is HOSTAGE to vault funding**: the
+  grouped exit pays rewards in the same transaction, so a staker cannot
+  withdraw until the vault covers their accrual.
+- **The backlog is NOT forfeited.** After funding, the first claim paid the
+  FULL dry-window accrual (66,000,000 raw vs a 15,000,000-raw post-funding
+  rate control — ~22 periods vs ~5). Patient stakers lose nothing once
+  funding arrives; they just cannot exit before it.
+- Mainnet state at proof time: totalStake **0**, vault **0** — nobody was
+  exposed. The window to ship guardrails before the first staker was open,
+  and they shipped the same day.
+
+**Consequences shipped in code (2026-08-28):** the live panel DISABLES new
+stakes while the vault is materially empty (< 1 whole token, or < 1 day of
+burn at the current stake — dust cannot clear the gate), renders the
+configured rate + the vault's runway as the exit-safety headline, labels
+claims "Nothing claimable yet" during a dry window, and maps error 6012 to
+its proven meaning instead of a generic failure. `writeFailure` also stops
+claiming "nothing moved" on post-broadcast confirmation timeouts (outcome
+unknown + signature instead).
+
+⚠️ **Correction to step 3 above ("claim (0)")**: a dry claim does NOT
+return 0 — it REVERTS with 6012. During the mainnet live-fire, a 6012 on
+claim/unstake before funding is the PROGRAM WORKING AS PROVEN, not an
+integration bug. Fund a sliver first (or run the live-fire after task #13)
+if the round trip must fully complete.
+
 ## 6. Open operator items
 
 0. **NEW 2026-08-28 — the pool has no duration bonus.** It was created with

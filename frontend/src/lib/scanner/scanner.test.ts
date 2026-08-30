@@ -823,3 +823,38 @@ describe('scanToken orchestration', () => {
     expect(outcome.analysis.gate.findings.find((f) => f.id === 'single-holder-majority')?.fired).toBe(true);
   });
 });
+
+describe('base chain support (2026-08-28)', () => {
+  const syntheticAdapter = (recorded: string[]) => async (chain: string, _address: string) => {
+    recorded.push(chain);
+    return {
+      input: {
+        holders: [{ address: '0x' + '1'.repeat(40), balance: 100n, isContract: false }],
+        chain: 'ethereum' as const,
+        totalSupply: 1000n,
+        hardFacts: {},
+        launch: { bundlesResolved: false, snipersResolved: false, tokenAgeSeconds: null },
+      },
+      token: { name: 'T', symbol: 'T', decimals: 18, holdersCount: null },
+      enumeratedHolders: 1,
+      holderCoverage: 'top-n' as const,
+      source: 'test',
+    } as AdapterResult;
+  };
+
+  it('a base chainOverride reaches the adapter as base, keeps outcome.chain=base, and discloses the label gap', async () => {
+    const seen: string[] = [];
+    const outcome = await scanToken('0x' + 'a'.repeat(40), { chainOverride: 'base', fetchFor: syntheticAdapter(seen) });
+    expect(seen).toEqual(['base']);
+    expect(outcome.chain).toBe('base');
+    expect(outcome.coverageNotes.join(' ')).toContain('Ethereum-curated');
+  });
+
+  it('a plain 0x scan stays ethereum and carries no base note', async () => {
+    const seen: string[] = [];
+    const outcome = await scanToken('0x' + 'a'.repeat(40), { fetchFor: syntheticAdapter(seen) });
+    expect(seen).toEqual(['ethereum']);
+    expect(outcome.chain).toBe('ethereum');
+    expect(outcome.coverageNotes.join(' ')).not.toContain('Ethereum-curated');
+  });
+});

@@ -29,6 +29,9 @@ import {
   pickResolvedCurveChain,
 } from '../lib/launcher/curve';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
+import { EvmCurveChart } from '../components/launcher/EvmCurveChart';
+import { CopyButton } from '../components/ui/CopyButton';
+import { getTokenUrl } from '../lib/explorer';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -191,7 +194,7 @@ export default function CurveTokenPage() {
     if (idx === -1) return null;
     const raw = probesRaw?.[idx];
     if (raw?.status !== 'success' || !raw.result || typeof raw.result !== 'object') return null;
-    const launch = raw.result as { creator: Address; virtualEth: bigint; ethReserve: bigint; tokenReserve: bigint; graduated: boolean };
+    const launch = raw.result as { creator: Address; virtualEth: bigint; ethReserve: bigint; tokenReserve: bigint; graduationEth: bigint; graduated: boolean };
     return { chainId: resolvedChainId, launcher: deployed[idx]!.launcher, creator: launch.creator, launch };
   }, [resolvedChainId, deployed, probesRaw]);
 
@@ -257,19 +260,78 @@ export default function CurveTokenPage() {
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
             <WrongChainBanner requiredChainId={resolved.chainId} />
             {!resolved.launch.graduated && (
-              <div className="rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>
-                <div>
-                  <p className="text-white/45 text-[11px]">Market cap</p>
-                  <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveMarketCapWei(resolved.launch), 4)} ETH</p>
+              <>
+                <div className="rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>
+                  <div>
+                    <p className="text-white/45 text-[11px]">Market cap</p>
+                    <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveMarketCapWei(resolved.launch), 4)} ETH</p>
+                  </div>
+                  <div>
+                    <p className="text-white/45 text-[11px]">Spot price</p>
+                    <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveSpotPriceWei(resolved.launch), 9)} ETH</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-white/45 text-[11px]">Spot price</p>
-                  <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveSpotPriceWei(resolved.launch), 9)} ETH</p>
+                <EvmCurveChart
+                  virtualEth={resolved.launch.virtualEth}
+                  ethReserve={resolved.launch.ethReserve}
+                  tokenReserve={resolved.launch.tokenReserve}
+                  graduationEth={resolved.launch.graduationEth}
+                />
+              </>
+            )}
+            <CurveTradePanel launcher={resolved.launcher} token={token} chainId={resolved.chainId} />
+            {resolved.launch.graduated && (
+              <div className="rounded-2xl p-4" style={cardStyle}>
+                <p className="text-white/85 text-sm font-semibold mb-1">Graduated — it lives on the venue now</p>
+                <p className="text-white/55 text-[12px] leading-relaxed mb-3">
+                  The curve closed and its liquidity is live in the Tegridy pool with the LP burned.
+                  This is the aftermarket the island runs on:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Link to="/swap" className="btn-primary px-4 py-2 text-[12px]">Trade it on the venue swap</Link>
+                  <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">The farm (real ETH yield)</Link>
                 </div>
               </div>
             )}
-            <CurveTradePanel launcher={resolved.launcher} token={token} chainId={resolved.chainId} />
             <CurveCreatorClaim launcher={resolved.launcher} chainId={resolved.chainId} token={token} creator={resolved.creator} />
+
+            {/* Trust strip — the venue's whole pitch, placed where buyers decide.
+                Scan is chain-gated (RH 4663 has no holder source yet) and the
+                deployer graph reads mainnet only. */}
+            <div className="rounded-2xl p-4 space-y-3" style={cardStyle}>
+              <p className="text-white/45 text-[11px]">Verify it yourself — every token here is checkable</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-white/45 text-[10px] uppercase tracking-wider">CA</span>
+                <CopyButton text={token} display={`${token.slice(0, 10)}…${token.slice(-8)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
+                <a
+                  href={getTokenUrl(resolved.chainId, token)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="View token on block explorer (opens in new tab)"
+                  className="text-[11px] underline underline-offset-2 text-white/60 hover:text-white"
+                >
+                  explorer ↗
+                </a>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(resolved.chainId === 1 || resolved.chainId === 8453) && (
+                  <Link
+                    to={`/scan?token=${token}${resolved.chainId === 8453 ? '&chain=base' : ''}`}
+                    className="btn-secondary px-4 py-2 text-[12px]"
+                  >
+                    Scan holders
+                  </Link>
+                )}
+                {resolved.chainId === 1 && (
+                  <Link to={`/deployer?address=${resolved.creator}`} className="btn-secondary px-4 py-2 text-[12px]">
+                    Creator&apos;s deploy history
+                  </Link>
+                )}
+                <Link to="/trust" className="btn-secondary px-4 py-2 text-[12px]">
+                  Trust suite
+                </Link>
+              </div>
+            </div>
           </m.div>
         )}
       </div>

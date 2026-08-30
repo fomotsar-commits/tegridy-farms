@@ -184,18 +184,19 @@ export const ROUTES: readonly RouteSpec[] = [
   // "covers every routed path" stayed green. The guard now derives door paths
   // from the same BUNGALOWS map (see a11yRouteCoverage.test.ts), so this
   // literal list CANNOT drift: add a bungalow and the vitest guard fails until
-  // its door is added here. Every door renders HomePage under a BungalowDoor
-  // skin, hence HomePage's known violation set.
+  // its door is added here. LIVE doors render HomePage under the bungalow's
+  // skin; settled-but-not-live doors render BungalowDoorLanding (2026-08-30).
   ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
     (slug) => ({
       path: `/${slug}`,
       owner: 'pages/HomePage.tsx',
       gate: null,
-      // CI-measured 2026-08-28 on the sweep's first pass over these routes:
-      // the 13 default-skin doors present HomePage's heading-order violation;
-      // /bayla's token-first identity hero orders its headings correctly and
-      // measures CLEAN — the exact-assertion refused the over-declared pin.
-      knownViolations: slug === 'bayla' ? [] : ['heading-order'],
+      // Measured per door class (re-measured 2026-08-30 when settled doors
+      // gained LANDINGS): the two TOWELI-skin doors still render HomePage and
+      // carry its heading-order violation; /bayla's token-first hero measures
+      // CLEAN; every settled door (and the quiet slot) now renders
+      // BungalowDoorLanding, whose plaque h1 orders correctly — CLEAN.
+      knownViolations: slug === 'toweli' || slug === 'towelie' ? ['heading-order'] : [],
     }),
   ),
   {
@@ -232,7 +233,10 @@ export const ROUTES: readonly RouteSpec[] = [
       'The surface is no longer gated on a fee account (2026-08-29: isSolanaConfigured was split ' +
       'into isSolanaFeeConfigured / isSolanaSwapLive), so this audits the REAL swap form. Quotes ' +
       'still need the Jupiter proxy, so the form renders without live prices in this suite.',
-    knownViolations: ['page-has-heading-one'],
+    // Re-measured 2026-08-30 on the reconciled tree: the un-gated page renders
+    // its real <h1> ("Solana Swap", SolanaSwapPage.tsx) during the sweep, so
+    // page-has-heading-one no longer fires — the pin follows the measurement.
+    knownViolations: [],
   },
   {
     path: '/pools',
@@ -607,6 +611,18 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/bungalow-studio/:bungalowId',
+    owner: 'App.tsx',
+    gate: 'dev-only',
+    why:
+      'The generic per-resident leg of the same dev studio (WO-1): any registry id aims the tool ' +
+      'at that bungalow’s art pool. Same R002 gate — tree-shaken in production, redirects to ' +
+      '/ there (and an unknown id redirects even in dev), so the built app the e2e suite runs ' +
+      'against has nothing to audit.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
     path: '/*',
     owner: 'App.tsx · NotFoundPage',
     gate: null,
@@ -639,6 +655,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // Any registry id works; in the built app this leg redirects to / anyway.
+  if (route.path === '/bungalow-studio/:bungalowId') return '/bungalow-studio/bayla';
   // Zero address: every launcher probe fails -> the page's honest not-found
   // state, which still renders the h1 the sweep asserts.
   if (route.path === '/eth-curve/:token') return '/eth-curve/0x0000000000000000000000000000000000000000';

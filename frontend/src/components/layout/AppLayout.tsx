@@ -35,7 +35,7 @@ import { OnboardingModal } from '../ui/OnboardingModal';
 import { BungalowPicker } from '../BungalowPicker';
 import { BungalowOnboarding } from '../bungalow/BungalowOnboarding';
 import { MuseBubble } from '../bungalow/MuseBubble';
-import { hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -85,6 +85,12 @@ function RouteGlitch() {
 
 export function AppLayout() {
   const location = useLocation();
+
+  // True when the current path IS a settled (not-live) resident's door — the
+  // landing page speaks for that token, so every other voice stays outside.
+  const onSettledDoorstep = BUNGALOWS.some(
+    (b) => !b.live && location.pathname === `/${b.id}`,
+  );
   const { chainId: walletChainId, isConnected, connector } = useAccount();
   const { switchChain } = useSwitchChain();
   const { isDark } = useTheme();
@@ -225,15 +231,21 @@ export function AppLayout() {
       {/* LiveActivity's ticker is TOWELI-denominated (price pill, protocol
           feed) — muted alongside the assistant in a token-first bungalow,
           where the muse's quiet line takes the corner instead. */}
-      {!bungalowIdentity && <LiveActivity />}
-      {bungalowIdentity ? <MuseBubble /> : <TowelieAssistant />}
+      {!bungalowIdentity && !onSettledDoorstep && <LiveActivity />}
+      {/* NO VOICE ON ANOTHER RESIDENT'S DOORSTEP: a settled door renders that
+          token's landing inside this layout while the visitor's own skin
+          stays active — without this gate, Bayla's welcome modal and muse
+          line (or Towelie's assistant) greeted people arriving at /pepe.
+          Caught live on the 2026-08-30 island sweep; pinned by the doors
+          e2e ("no other resident's voice on a settled doorstep"). */}
+      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : <TowelieAssistant />)}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →
           bungalow choice → onboarding, not all three stacked. In a
           token-first bungalow the TOWELI-scripted tour is replaced by the
           bungalow's own three-step welcome. */}
-      {splashDone && !pickerOpen && (
+      {splashDone && !pickerOpen && !onSettledDoorstep && (
         bungalowIdentity
           ? <BungalowOnboarding bungalow={bungalowIdentity} />
           : <OnboardingModal />

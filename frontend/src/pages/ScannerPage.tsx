@@ -17,32 +17,39 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 // timestamp and correction path — never a fraud accusation — and it self-gates to an
 // explicit unknown/unavailable state whenever real data is missing (never a fake number).
 
-const CHAIN_LABEL: Record<string, string> = { ethereum: 'Ethereum', solana: 'Solana' };
+const CHAIN_LABEL: Record<string, string> = { ethereum: 'Ethereum', base: 'Base', solana: 'Solana' };
 
 export default function ScannerPage() {
   usePageTitle(
     'Token Scanner',
-    'Paste any Ethereum or Solana token address for a holder-concentration and distribution read — a descriptive measurement with a disclosed method, exclusions, and timestamp.',
+    'Paste any Ethereum, Base or Solana token address for a holder-concentration and distribution read — a descriptive measurement with a disclosed method, exclusions, and timestamp.',
   );
 
   const [params, setParams] = useSearchParams();
   const committed = (params.get('token') ?? '').trim();
+  // A 0x address is FORMAT-ambiguous between Ethereum and Base, so the chain
+  // rides the shareable URL (?chain=base) and a toggle under the input;
+  // omitted = Ethereum, the pre-Base behavior. Solana stays auto-detected.
+  const committedChain = params.get('chain') === 'base' ? ('base' as const) : null;
   const [draft, setDraft] = useState(committed);
+  const [draftEvmChain, setDraftEvmChain] = useState<'ethereum' | 'base'>(committedChain ?? 'ethereum');
   const [copiedLink, setCopiedLink] = useState(false);
 
   // Keep the input synced when the URL changes underneath us (shared link, Back/Forward).
   useEffect(() => {
     setDraft(committed);
-  }, [committed]);
+    setDraftEvmChain(committedChain ?? 'ethereum');
+  }, [committed, committedChain]);
 
   const draftDetect = detectChain(draft.trim());
-  const scan = useTokenScan(committed);
+  const scan = useTokenScan(committed, committedChain ?? undefined);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const v = draft.trim();
     const next = new URLSearchParams();
     if (v) next.set('token', v);
+    if (v && detectChain(v).chain === 'ethereum' && draftEvmChain === 'base') next.set('chain', 'base');
     setParams(next);
   }
 
@@ -72,7 +79,7 @@ export default function ScannerPage() {
       <m.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Token Scanner</h1>
         <p className="text-[14px] text-text-secondary max-w-[640px]">
-          Paste an Ethereum or Solana token address for a holder-concentration and distribution read. It is a{' '}
+          Paste an Ethereum, Base or Solana token address for a holder-concentration and distribution read. It is a{' '}
           <span className="text-text-primary font-medium">descriptive measurement</span> — a disclosed method with its
           components, the addresses it excluded, and a timestamp — not a verdict on anyone&apos;s intent.
         </p>
@@ -88,7 +95,7 @@ export default function ScannerPage() {
             id="scan-address"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="0x… (Ethereum) or a Solana mint address"
+            placeholder="0x… (Ethereum / Base) or a Solana mint address"
             spellCheck={false}
             autoComplete="off"
             className="flex-1 rounded-lg px-3 py-2.5 text-[13px] font-mono text-text-primary outline-none"
@@ -103,14 +110,35 @@ export default function ScannerPage() {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 min-h-[18px]">
-          {draft.trim() && draftDetect.valid && (
+          {draft.trim() && draftDetect.valid && draftDetect.chain === 'ethereum' && (
+            <span className="inline-flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--color-success)' }}>
+              0x address — scan on
+              {(['ethereum', 'base'] as const).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={draftEvmChain === c}
+                  onClick={() => setDraftEvmChain(c)}
+                  className="rounded px-1.5 py-0.5 text-[11px] transition-colors"
+                  style={
+                    draftEvmChain === c
+                      ? { background: 'rgba(76,175,80,0.2)', border: '1px solid var(--color-success)', color: 'var(--color-success)' }
+                      : { background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted, #9aa4b2)' }
+                  }
+                >
+                  {CHAIN_LABEL[c]}
+                </button>
+              ))}
+            </span>
+          )}
+          {draft.trim() && draftDetect.valid && draftDetect.chain !== 'ethereum' && (
             <span className="text-[11px]" style={{ color: 'var(--color-success)' }}>
               Detected: {CHAIN_LABEL[draftDetect.chain as string]}
             </span>
           )}
           {draft.trim() && !draftDetect.valid && (
             <span className="text-[11px]" style={{ color: 'var(--color-warning)' }}>
-              Not a recognized Ethereum or Solana address yet
+              Not a recognized Ethereum, Base or Solana address yet
             </span>
           )}
           <button type="button" onClick={loadExample} className="text-[11px] text-text-muted underline underline-offset-2 hover:text-text-secondary">
@@ -185,6 +213,31 @@ export default function ScannerPage() {
               token's deployer here (the scan reads holders, not provenance), so this
               points at the tool rather than pre-filling an address we'd be guessing at.
               Ethereum-only — the deployer graph reads EVM contract-creations. */}
+          {(scan.outcome.chain === 'ethereum' || scan.outcome.chain === 'base') && (
+            <p className="text-[12px] text-text-muted mt-3 leading-relaxed">
+              Launched on our curve? It has a home at{' '}
+              <Link
+                to={`/eth-curve/${scan.outcome.address}${scan.outcome.chain === 'base' ? '?c=8453' : ''}`}
+                className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors"
+              >
+                its token page
+              </Link>{' '}
+              (which answers honestly if it wasn&apos;t) — and the venue swap lives at{' '}
+              <Link to="/swap" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+                /swap
+              </Link>
+              .
+            </p>
+          )}
+          {scan.outcome.chain === 'solana' && (
+            <p className="text-[12px] text-text-muted mt-3 leading-relaxed">
+              Trade it without leaving the venue on the{' '}
+              <Link to={`/solana?out=${scan.outcome.address}`} className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">
+                Solana swap
+              </Link>
+              .
+            </p>
+          )}
           {scan.outcome.chain === 'ethereum' && (
             <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
               Want to know who deployed it? Paste the deployer&apos;s wallet into the{' '}

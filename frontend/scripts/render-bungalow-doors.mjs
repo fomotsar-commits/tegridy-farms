@@ -20,6 +20,19 @@ import { resolve } from 'node:path';
 const SITE = 'https://memetic.fun'; // canonical origin, per index.html's own tags
 const DIST = resolve(process.cwd(), 'dist');
 
+// Settled doors share one honest formula: plaque facts only — no market
+// numbers, no partnership claims. og images are the slots' existing classic
+// thumbs (their own art arrives with the community drop; swap images then).
+// KEPT AS LITERAL OBJECTS on purpose: bungalowDoors.test.ts pins this file
+// with line-shape regexes (path:/image: lines) — a factory would defeat the
+// lock-step and let the registry and this manifest drift silently.
+const settledDesc = (name, chain) =>
+  `${name} has a settled bungalow on Jungle Bay Island — contract, trade route ` +
+  `and held-time heat live today on ${chain}. The full art skin opens with the ` +
+  `community's drop. DM+T = Memetic Finance.`;
+const settledAlt = (name) =>
+  `${name}'s bungalow door on Jungle Bay Island — classic island art until the community's drop`;
+
 const DOORS = [
   {
     path: 'bayla',
@@ -27,15 +40,116 @@ const DOORS = [
     description:
       'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
       'Artists Collective, living on Solana. Trade her, hold her for heat, and stake ' +
-      'at the lighthouse when the pool opens. DM+T = Memetic Finance.',
+      'at the lighthouse — the pool is live on-chain. DM+T = Memetic Finance.',
     image: '/art/bayla/bayla-23.jpg',
     imageType: 'image/jpeg',
     imageWidth: '2048',
     imageHeight: '1152',
     imageAlt: 'BAYLA / SOL on Jungle Bay Island — the muse of the island, on Solana',
   },
+  {
+    path: 'pepe',
+    title: 'PEPE | Jungle Bay Island',
+    description: settledDesc('Pepe', 'Ethereum'),
+    image: '/art/jungle-dark.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '238',
+    imageHeight: '240',
+    imageAlt: settledAlt('Pepe'),
+  },
+  {
+    path: 'qr',
+    title: 'QR | Jungle Bay Island',
+    description: settledDesc('QR', 'Base'),
+    image: '/art/jungle-dark.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '238',
+    imageHeight: '240',
+    imageAlt: settledAlt('QR'),
+  },
+  {
+    path: 'mfer',
+    title: 'MFER | Jungle Bay Island',
+    description: settledDesc('MFER', 'Base'),
+    image: '/art/mfers-heaven.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '1470',
+    imageHeight: '2048',
+    imageAlt: settledAlt('MFER'),
+  },
+  {
+    path: 'bnkr',
+    title: 'BNKR | Jungle Bay Island',
+    description: settledDesc('BNKR', 'Base'),
+    image: '/art/jungle-dark.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '238',
+    imageHeight: '240',
+    imageAlt: settledAlt('BNKR'),
+  },
+  {
+    path: 'drb',
+    title: 'DRB | Jungle Bay Island',
+    description: settledDesc('DRB', 'Base'),
+    image: '/art/boxing-ring.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '1064',
+    imageHeight: '1117',
+    imageAlt: settledAlt('DRB'),
+  },
+  {
+    path: 'bobo',
+    title: 'BOBO | Jungle Bay Island',
+    description: settledDesc('BOBO', 'Solana'),
+    image: '/art/jungle-dark.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '238',
+    imageHeight: '240',
+    imageAlt: settledAlt('BOBO'),
+  },
+  {
+    path: 'jbm',
+    title: 'JBM | Jungle Bay Island',
+    description: settledDesc('JBM', 'Base'),
+    image: '/art/jungle-bus.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '1200',
+    imageHeight: '809',
+    imageAlt: settledAlt('JBM'),
+  },
+  {
+    path: 'soy',
+    title: 'SOY | Jungle Bay Island',
+    description: settledDesc('SOY', 'Solana'),
+    image: '/art/jungle-dark.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '238',
+    imageHeight: '240',
+    imageAlt: settledAlt('SOY'),
+  },
+  {
+    path: 'brainlet',
+    title: 'BRAINLET | Jungle Bay Island',
+    description: settledDesc('Brainlet', 'Solana'),
+    image: '/art/beach-vibes.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '738',
+    imageHeight: '738',
+    imageAlt: settledAlt('Brainlet'),
+  },
+  {
+    path: 'rizz',
+    title: 'RIZZ | Jungle Bay Island',
+    description: settledDesc('RIZZ', 'Base'),
+    image: '/art/jungle-dark.jpg',
+    imageType: 'image/jpeg',
+    imageWidth: '238',
+    imageHeight: '240',
+    imageAlt: settledAlt('RIZZ'),
+  },
   // toweli (and its /towelie alias) intentionally have NO entry: the venue
   // default IS the Toweli identity, so those doors serve the stock shell.
+  // nb1 (the quiet slot) also has none: no token, nothing to unfurl.
 ];
 
 function transform(html, door) {

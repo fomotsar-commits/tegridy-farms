@@ -48,6 +48,10 @@ import { PageSkeleton } from '../components/PageSkeleton';
 const BungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/BungalowDashboardPanel').then((m) => ({ default: m.BungalowDashboardPanel })),
 );
+// The EVM sibling (wagmi, no Solana providers) — split the same way.
+const EvmBungalowDashboardPanel = lazy(() =>
+  import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
+);
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -74,9 +78,14 @@ function dashTabFromQuery(v: string | null): DashTab | null {
 export default function DashboardPage() {
   const bungalow = getBungalowIdentity();
   if (bungalow) {
+    // Chain picks the panel: the Solana one is wallet-adapter-built to the
+    // bone; EVM residents get the wagmi sibling (same seam as the farm
+    // panel's lighthouse branch).
     return (
       <Suspense fallback={<PageSkeleton />}>
-        <BungalowDashboardPanel bungalow={bungalow} />
+        {bungalow.chain === 'solana'
+          ? <BungalowDashboardPanel bungalow={bungalow} />
+          : <EvmBungalowDashboardPanel bungalow={bungalow} />}
       </Suspense>
     );
   }

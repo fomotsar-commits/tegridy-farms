@@ -386,7 +386,12 @@ export default function HomePage() {
               WrongChainBanner (renders null when disconnected or on-chain — its
               own mt is only applied when it actually renders), so there's no new
               copy surface and behaviour matches Farm/Community. */}
-          <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+          {/* Suppressed in a token-first bungalow like the calculator/stat
+              pills above: this banner talks about Ethereum-mainnet TOWELI
+              reads that a Solana bungalow's home is not showing. */}
+          {!bungalowIdentity && (
+            <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+          )}
 
           {/* Token-first bungalow (Bayla): the TVL/TOWELI-price stat pills and
               the TOWELI contract strip are the wrong token there — the
@@ -520,11 +525,12 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Jungle Bay bungalow lore — Bayla's story card, rendered only in her
-            mode, in the slot where the TOWELI fee-economy explainer sits for
-            the default. Canon copy (pump.fun metadata + the island landing);
-            art-first per the house rule. */}
-        {bungalowIdentity && (
+        {/* Jungle Bay bungalow lore — the resident's story card, rendered
+            only in its own skin, in the slot where the TOWELI fee-economy
+            explainer sits for the default. Registry-driven (identity.lore,
+            canon copy only): a resident without lore gets NO card rather
+            than another resident's story. */}
+        {bungalowIdentity?.identity.lore && (
           <div className="pb-16">
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" aria-hidden="true">
@@ -533,23 +539,14 @@ export default function HomePage() {
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.72)' }} />
               <div className="relative z-10 p-6 md:p-10 max-w-2xl">
                 <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)' }}>The lore</p>
-                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">The muse of Jungle Bay Island</h2>
-                <p className="text-white/90 text-[14px] leading-relaxed mb-3">
-                  An island in a sea of rugs, built by the memes — bungalows for token
-                  communities, an artist economy, and time held is what counts. Bayla is
-                  its muse: brought to light by the Jungle Bay Artists Collective, seated
-                  at the lighthouse, the newest name on the island map.
-                </p>
-                <p className="text-white/90 text-[14px] leading-relaxed mb-5">
-                  Her pull reaches every kind of maker. The work is yours. The light is
-                  hers. Dank Memes + Time = Memetic Finance.
-                </p>
+                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">{bungalowIdentity.identity.lore.title}</h2>
+                {bungalowIdentity.identity.lore.paragraphs.map((para, i, all) => (
+                  <p key={i} className={`text-white/90 text-[14px] leading-relaxed ${i === all.length - 1 ? 'mb-5' : 'mb-3'}`}>
+                    {para}
+                  </p>
+                ))}
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { href: 'https://memetics.wtf/', label: 'The island' },
-                    { href: 'https://opensea.io/collection/junglebay', label: 'Jungle Bay on OpenSea' },
-                    { href: 'https://x.com/JungleBayAC', label: '@JungleBayAC' },
-                  ].map((l) => (
+                  {bungalowIdentity.identity.lore.links.map((l) => (
                     <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
                       aria-label={`${l.label} (opens in new tab)`}
                       className="px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { parseEther } from 'viem';
 import { CurveTradeView } from './CurveTradePanel';
 import { previewBuy, withSlippage, saleSupplyForReserveBps, type CurveLaunch } from '../../lib/launcher/curve';
@@ -29,7 +30,8 @@ function view(overrides: Partial<React.ComponentProps<typeof CurveTradeView>> = 
   const onBuy = vi.fn();
   const onSell = vi.fn();
   const onApprove = vi.fn();
-  render(<CurveTradeView launch={LAUNCH} tokenSymbol="TWL" needsApproval={false} pending={false} onBuy={onBuy} onSell={onSell} onApprove={onApprove} {...overrides} />);
+  // MemoryRouter: the graduated card links into the venue (/swap) since 2026-08-28.
+  render(<MemoryRouter><CurveTradeView launch={LAUNCH} tokenSymbol="TWL" needsApproval={false} pending={false} onBuy={onBuy} onSell={onSell} onApprove={onApprove} {...overrides} /></MemoryRouter>);
   return { onBuy, onSell, onApprove };
 }
 
