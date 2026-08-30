@@ -12,6 +12,7 @@ import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 import { HeatCard } from './HeatCard';
+import { BungalowMarket } from './BungalowMarket';
 
 const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
   ethereum: 'Ethereum',
@@ -170,6 +171,16 @@ export function BungalowDoorLanding({ bungalow }: { bungalow: Bungalow }) {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Live market facts — chart, stat strip and trade tape read straight
+            off the token's primary pool (registry `market`; the tape rides
+            inside BungalowMarket). Self-hides when no indexed pool exists,
+            which is the honest state. */}
+        {hasToken && (
+          <div className="mt-6">
+            <BungalowMarket bungalow={bungalow} />
           </div>
         )}
 

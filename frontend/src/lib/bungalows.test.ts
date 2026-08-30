@@ -189,6 +189,31 @@ describe('resolution order', () => {
     expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
   });
 
+  it('pins every settled market pool (GeckoTerminal ids, deepest ACTIVE pool, read 2026-08-30)', () => {
+    // A wrong pool id draws another token's chart under this ticker with no
+    // error anywhere — the exact bug the OHLCV cache-key fix guarded against.
+    const MARKETS: Record<string, [string, string]> = {
+      pepe: ['eth', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f'],
+      qr: ['base', '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0'],
+      mfer: ['base', '0xb08a99ab559e5456907278727a3b0d968c0a313b'],
+      bnkr: ['base', '0xaec085e5a5ce8d96a7bdd3eb3a62445d4f6ce703'],
+      drb: ['base', '0x5116773e18a9c7bb03ebb961b38678e45e238923'],
+      bobo: ['solana', '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX'],
+      jbm: ['base', '0xbc6156458bc948cba71dd0be99bfa472bd636331'],
+      soy: ['solana', 'DtTkLBvYUaYBZ7PC4vCwWfu56Zkgbf7ycEXxLhAP7Xx8'],
+      brainlet: ['solana', 'CW9DFoTWEUiwxyxVGnQFYhbrYEfGkvaqXEgxKZG7d7X1'],
+      rizz: ['base', '0x05cdb532193b8732ebc65aff0ad207186628a3be'],
+    };
+    for (const [id, [network, pool]] of Object.entries(MARKETS)) {
+      const b = BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.market?.network, `${id} market network`).toBe(network);
+      expect(b.market?.pool, `${id} market pool`).toBe(pool);
+      expect(b.market?.label, `${id} market label`).toBeTruthy();
+    }
+    // The quiet slot never grows a market.
+    expect(BUNGALOWS.find((x) => x.id === 'nb1')!.market).toBeUndefined();
+  });
+
   it('scan routes carry the explicit chain for Base (0x is format-ambiguous) and exist for all island chains', () => {
     const drb = BUNGALOWS.find((b) => b.id === 'drb')!;
     const pepe = BUNGALOWS.find((b) => b.id === 'pepe')!;
