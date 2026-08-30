@@ -58,7 +58,7 @@ const fail = (): ReadCell => ({ status: 'failure', error: new Error('rpc') });
 
 const PLACEHOLDER = '0x0000000000000000000000000000000000000001';
 
-function seedReads(over: Partial<Record<string, ReadCell>> = {}) {
+function seedReads(over: Record<string, ReadCell> = {}) {
   const future = BigInt(Math.floor(Date.now() / 1000) + 30 * 86_400);
   const base: Record<string, ReadCell> = {
     'totalSupply:': ok(200n * E18), //                     staked principal

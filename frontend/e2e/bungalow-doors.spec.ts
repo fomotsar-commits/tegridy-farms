@@ -90,6 +90,27 @@ test.describe('bungalow doors', () => {
     )).toBeLessThanOrEqual(0);
   });
 
+  test("no other resident's voice on a settled doorstep", async ({ page }) => {
+    // Caught live 2026-08-30: a visitor wearing the BAYLA skin who followed a
+    // /pepe link met HER welcome modal and muse line on PEPE's landing (and a
+    // toweli visitor would have met the Towelie assistant). The landing
+    // speaks for its own token; every other voice stays outside.
+    await seedOverlays(page);
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('tegridy-bungalow', 'bayla');
+        // Deliberately NOT seeding tegridy-onboarding-bayla-seen — the modal
+        // must stay away because of WHERE we are, not because it was seen.
+        localStorage.removeItem('tegridy-onboarding-bayla-seen');
+      } catch { /* ignore */ }
+    });
+    await page.goto('/pepe');
+    await expect(page.locator('h1').first()).toContainText('PEPE', { timeout: 20_000 });
+    await expect(page.locator('text=Welcome to the Bayla bungalow')).toHaveCount(0);
+    await expect(page.locator('button[aria-label*="Dismiss"]')).toHaveCount(0); // muse bubble
+    await expect(page.locator('text=Ask me')).toHaveCount(0); // Towelie assistant
+  });
+
   test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {
     await seedOverlays(page);
     await page.goto('/nb1');
