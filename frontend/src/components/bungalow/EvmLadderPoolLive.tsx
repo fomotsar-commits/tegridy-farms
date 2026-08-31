@@ -206,6 +206,31 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
               reward side.
             </p>
 
+            {/* THE LADDER IS PUBLIC. TOWELI's farm shows its lock tiers to every
+                visitor, connected or not — a ladder you must connect a wallet
+                to even SEE is a ladder nobody climbs. Only the amount field
+                and the buttons below need a wallet. */}
+            <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {RUNGS.map((r, i) => (
+                <button key={r.label} type="button" onClick={() => setRung(i)}
+                  className="rounded-lg px-2 py-2 text-[12px] border transition-colors"
+                  style={{
+                    background: i === rung ? 'rgba(127,224,176,0.14)' : 'rgba(0,0,0,0.4)',
+                    borderColor: i === rung ? accent : 'rgba(255,255,255,0.12)',
+                    color: i === rung ? '#fff' : 'rgba(255,255,255,0.75)',
+                  }}>
+                  {r.sublabel}
+                  <span className="block text-[10px] text-white/50">{boostLabel(r.secs)}</span>
+                  <span className="block text-[9px] text-white/35 truncate">{r.label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-white/45 mb-4">
+              {boostLabel(chosen.secs)} for {chosen.sublabel} — {chosen.label}. Weight decides your share of the
+              pool&apos;s rate; it is not a multiplier on your own deposit.
+            </p>
+
             {isConnected && user ? !onPoolChain ? (
               <button type="button" onClick={() => switchChain({ chainId: poolChainId })} className="btn-primary px-6 py-2.5 text-[13px]">
                 Switch wallet to {CHAIN_LABEL[poolChainId]}
@@ -217,22 +242,6 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   <Stat label="Claimable" value={`${fmtRaw(earnedRaw, decimals)} ${bungalow.symbol}`} />
                 </div>
 
-                <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
-                <div className="grid grid-cols-3 gap-2 mb-3">
-                  {RUNGS.map((r, i) => (
-                    <button key={r.label} type="button" onClick={() => setRung(i)}
-                      className="rounded-lg px-2 py-2 text-[12px] border transition-colors"
-                      style={{
-                        background: i === rung ? 'rgba(127,224,176,0.14)' : 'rgba(0,0,0,0.4)',
-                        borderColor: i === rung ? accent : 'rgba(255,255,255,0.12)',
-                        color: i === rung ? '#fff' : 'rgba(255,255,255,0.75)',
-                      }}>
-                      {r.sublabel}
-                      <span className="block text-[10px] text-white/50">{boostLabel(r.secs)}</span>
-                      <span className="block text-[9px] text-white/35 truncate">{r.label}</span>
-                    </button>
-                  ))}
-                </div>
 
                 <div className="flex items-center gap-2 mb-2">
                   <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
