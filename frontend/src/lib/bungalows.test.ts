@@ -66,9 +66,14 @@ describe('bungalow registry', () => {
     }
   });
 
-  it('carries the island canon roster (memetics.wtf SPOTS + SIGNSV2, read 2026-08-24)', () => {
+  it('carries the island canon roster (memetics.wtf SPOTS + SIGNSV2, read 2026-08-24; RIZZ owner-corrected 2026-08-30)', () => {
     // Slug → [chain, address]. Addresses are the painter SIGNS canon verbatim —
     // this test exists so a typo'd or "helpfully fixed" address cannot land.
+    // ONE deliberate departure from that 08-24 read: RIZZ. The dossier's Base
+    // row pointed at a different deployment sharing the exact name+symbol;
+    // the owner identified the Solana mint as the island's resident and both
+    // were verified on-chain 2026-08-30. Canon is the island's, but a canon
+    // entry proven to point at the wrong contract gets corrected, not kept.
     const CANON: Record<string, [string, string | undefined]> = {
       toweli: ['ethereum', '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D'],
       bayla: ['solana', '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'],
@@ -81,7 +86,7 @@ describe('bungalow registry', () => {
       jbm: ['base', '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d'],
       soy: ['solana', '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV'],
       brainlet: ['solana', '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF'],
-      rizz: ['base', '0x58d6e314755c2668f3d7358cc7a7a06c4314b238'],
+      rizz: ['solana', '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k'],
       nb1: ['tbd', undefined],
     };
     expect(new Set(BUNGALOWS.map((b) => b.id))).toEqual(new Set(Object.keys(CANON)));
@@ -209,6 +214,56 @@ describe('resolution order', () => {
     expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
   });
 
+  it('pins every deployed lighthouse pool (verified on-chain at deploy time)', () => {
+    // Deployed 2026-08-30 via script/DeployLighthouseStaking.s.sol; each was
+    // read back on-chain before landing here: stakingToken == rewardsToken ==
+    // the resident's own token, notifier == the Base fee-remittance Safe,
+    // real code present. A wrong address here points the staking card at a
+    // stranger's contract — the same class of harm the RIZZ pin guards.
+    const POOLS: Record<string, string> = {
+      qr: '0x820246a4Eb6E1Ad7E571e8581bdb127020adB469',
+      mfer: '0x79fF1BdF7ed6b09c24D4766FB4a82Aa28398b548',
+      bnkr: '0x2a5F65f4C74b1E49E77Ae9a57e20FbdB0CEd11d2',
+      drb: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
+      jbm: '0xF261940cdC04d8F2422345Ff6091d6FA601541fa',
+    };
+    for (const [id, pool] of Object.entries(POOLS)) {
+      expect(BUNGALOWS.find((b) => b.id === id)?.stakePool, `${id} lighthouse`).toBe(pool);
+    }
+    // Bayla keeps her Streamflow (Solana) pool; the rest await their ceremonies.
+    expect(BUNGALOWS.find((b) => b.id === 'bayla')?.stakePool).toBeTruthy();
+  });
+
+  it('pins each resident to its VERIFIED chain + contract (the RIZZ lesson)', () => {
+    // 2026-08-30: the seed dossier put RIZZ on Base at a contract that was a
+    // DIFFERENT deployment carrying the identical name+symbol. Nothing in the
+    // app could have caught it — a stake pool would have been deployed for a
+    // stranger's token. These pairs are the on-chain-verified truth
+    // (cast name()/symbol() for EVM, GeckoTerminal + getAccountInfo for Solana).
+    const VERIFIED: Record<string, [string, string]> = {
+      pepe: ['ethereum', '0x6982508145454ce325ddbe47a25d4ec3d2311933'],
+      qr: ['base', '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf'],
+      mfer: ['base', '0xe3086852a4b125803c815a158249ae468a3254ca'],
+      bnkr: ['base', '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b'],
+      drb: ['base', '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2'],
+      jbm: ['base', '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d'],
+      bobo: ['solana', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'],
+      soy: ['solana', '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV'],
+      brainlet: ['solana', '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF'],
+      rizz: ['solana', '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k'],
+    };
+    for (const [id, [chain, address]] of Object.entries(VERIFIED)) {
+      const b = BUNGALOWS.find((x) => x.id === id)!;
+      expect(b.chain, `${id} chain`).toBe(chain);
+      expect(b.address, `${id} contract`).toBe(address);
+      // A market must live on its token's own chain (eth is GT's slug for ethereum).
+      if (b.market) {
+        const slug = chain === 'ethereum' ? 'eth' : chain;
+        expect(b.market.network, `${id} market must be on its own chain`).toBe(slug);
+      }
+    }
+  });
+
   it('pins every settled market pool (GeckoTerminal ids, deepest ACTIVE pool, read 2026-08-30)', () => {
     // A wrong pool id draws another token's chart under this ticker with no
     // error anywhere — the exact bug the OHLCV cache-key fix guarded against.
@@ -222,7 +277,11 @@ describe('resolution order', () => {
       jbm: ['base', '0xbc6156458bc948cba71dd0be99bfa472bd636331'],
       soy: ['solana', 'DtTkLBvYUaYBZ7PC4vCwWfu56Zkgbf7ycEXxLhAP7Xx8'],
       brainlet: ['solana', 'CW9DFoTWEUiwxyxVGnQFYhbrYEfGkvaqXEgxKZG7d7X1'],
-      rizz: ['base', '0x05cdb532193b8732ebc65aff0ad207186628a3be'],
+      // Solana, not Base: the 08-25 dossier's Base row was a different
+      // deployment of the same brainrot name (owner-corrected + on-chain
+      // verified 2026-08-30). A wrong-chain row here would have charted —
+      // and staked — someone else's token under this ticker.
+      rizz: ['solana', 'dgaDYLCP67MqAzt28WAYtE6pYCHUbRMHtWYLniH1DaL'],
     };
     for (const [id, [network, pool]] of Object.entries(MARKETS)) {
       const b = BUNGALOWS.find((x) => x.id === id)!;
