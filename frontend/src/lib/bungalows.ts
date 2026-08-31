@@ -293,7 +293,7 @@ export const BUNGALOWS: Bungalow[] = [
   // Dormant until each slot flips live. Market notes (2026-08-25 reads) live
   // in docs/ISLAND_ROSTER_DOSSIER.md — JBM and RIZZ had no indexed pairs
   // that day, so their swapUrl stays the canon fallback page regardless.
-  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', swapUrl: 'https://dexscreener.com/ethereum/0x6982508145454ce325ddbe47a25d4ec3d2311933', thumb: '/art/forest-scene.jpg', community: { label: 'pepe.vip', url: 'https://pepe.vip' }, market: { network: 'eth', pool: '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f', label: 'PEPE / WETH · Uniswap' }, live: true, identity: settledIdentity('PEPE', 'PEPE', 'Ethereum') },
+  { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', swapUrl: 'https://dexscreener.com/ethereum/0x6982508145454ce325ddbe47a25d4ec3d2311933', thumb: '/art/forest-scene.jpg', community: { label: 'pepe.vip', url: 'https://pepe.vip' }, market: { network: 'eth', pool: '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f', label: 'PEPE / WETH · Uniswap' }, stakePool: '0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32', live: true, identity: settledIdentity('PEPE', 'PEPE', 'Ethereum') },
   { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', swapUrl: 'https://dexscreener.com/base/0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', thumb: '/art/gallery-collage.jpg', community: { label: 'qrcoin.fun', url: 'https://qrcoin.fun' }, market: { network: 'base', pool: '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0', label: 'QR / WETH' }, stakePool: '0x820246A4eB6e1AD7e571E8581Bdb127020AdB469', live: true, identity: settledIdentity('QR', 'QR', 'Base', 'qrcoin.fun') },
   { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', swapUrl: 'https://dexscreener.com/base/0xe3086852a4b125803c815a158249ae468a3254ca', thumb: '/art/mfers-heaven.jpg', market: { network: 'base', pool: '0xb08a99ab559e5456907278727a3b0d968c0a313b', label: '$MFER / WETH' }, stakePool: '0x79ff1bDf7ed6b09C24d4766fB4A82Aa28398b548', live: true, identity: settledIdentity('MFER', 'MFER', 'Base') },
   { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', swapUrl: 'https://dexscreener.com/base/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', thumb: '/art/boxing-ring.jpg', community: { label: 'bankr.bot', url: 'https://bankr.bot' }, market: { network: 'base', pool: '0xaec085e5a5ce8d96a7bdd3eb3a62445d4f6ce703', label: 'BNKR / WETH' }, stakePool: '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2', live: true, identity: settledIdentity('BNKR', 'BNKR', 'Base') },
@@ -445,6 +445,30 @@ export function bungalowScanRoute(b: Bungalow): string | null {
   if (b.chain === 'base') return `/scan?token=${b.address}&chain=base`;
   if (b.chain === 'ethereum' || b.chain === 'solana') return `/scan?token=${b.address}`;
   return null;
+}
+
+/**
+ * The one sentence that tells a visitor where this resident's token trades.
+ * Shared by the footer and the page meta description so they can never drift.
+ *
+ * 2026-08-30 defect: both hardcoded "Trade <SYM> on Solana" from the days when
+ * BAYLA was the only token-first bungalow. Once six EVM residents went live
+ * that line was FALSE on half the island — and it shipped in the meta
+ * description, so it was the sentence search results and link unfurls carried.
+ *
+ * It also refuses to call a chart a trade: for a resident whose only outbound
+ * route is a Dexscreener page, the honest verb is "lives on", not "trade".
+ */
+export function bungalowTradeBlurb(b: Bungalow, solanaSwapLive: boolean): string {
+  const chainWord =
+    b.chain === 'solana' ? 'Solana' : b.chain === 'base' ? 'Base' : b.chain === 'ethereum' ? 'Ethereum' : '';
+  const route = bungalowTradeRoute(b, solanaSwapLive);
+  if (!route || !chainWord) return `${b.symbol} lives on Jungle Bay Island; scan any token on either chain.`;
+  // An in-venue router path (or a real external swap) is a place you can trade.
+  const tradable = 'to' in route || route.kind === 'swap';
+  return tradable
+    ? `Trade ${b.symbol} on ${chainWord}; scan any token on either chain.`
+    : `${b.symbol} lives on ${chainWord} — chart and contract on its page; scan any token on either chain.`;
 }
 
 /** Block-explorer link for a bungalow's token, per its chain. */

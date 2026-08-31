@@ -252,6 +252,8 @@ describe('resolution order', () => {
       bnkr: '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2',
       drb: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
       jbm: '0xF261940cdC04D8F2422345ff6091D6FA601541fa',
+      // Ethereum mainnet — the last lighthouse (deployed 2026-08-30).
+      pepe: '0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32',
       // Solana lighthouses (Streamflow ceremonies, 2026-08-30). Each was read
       // back through the app's OWN SDK path before landing here: the pool's
       // mint matches the resident's corrected contract, and the ladder is the

@@ -774,6 +774,15 @@
         "type": "contract"
       },
       "evidence": "CONTRACTS.md (External Dependencies, Chainlink ETH/USD Feed); frontend/src/hooks/useToweliPrice.ts:171-175 calls latestRoundData() on it with CHAINLINK_FEED_ABI."
+    },
+    {
+      "id": "lighthouse-pepe",
+      "address": "0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32",
+      "role": "PEPE lighthouse — vendored Synthetix StakingRewards (stake PEPE, earn PEPE). rewardsDistribution = the mainnet treasury Safe (the L2-set Safes hold no mainnet code); no owner role exists. Deployed + read back on-chain 2026-08-30.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
     }
   ],
   "retiredDeploys": {
