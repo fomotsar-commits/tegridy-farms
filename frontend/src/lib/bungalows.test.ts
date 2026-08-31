@@ -69,7 +69,7 @@ describe('bungalow registry', () => {
   it('carries the island canon roster (memetics.wtf SPOTS + SIGNSV2, read 2026-08-24; RIZZ owner-corrected 2026-08-30)', () => {
     // Slug → [chain, address]. Addresses are the painter SIGNS canon verbatim —
     // this test exists so a typo'd or "helpfully fixed" address cannot land.
-    // ONE deliberate departure from that 08-24 read: RIZZ. The dossier's Base
+    // THREE deliberate departures from that 08-24 read: RIZZ, SOY, BRAINLET. The dossier's Base
     // row pointed at a different deployment sharing the exact name+symbol;
     // the owner identified the Solana mint as the island's resident and both
     // were verified on-chain 2026-08-30. Canon is the island's, but a canon
@@ -84,8 +84,8 @@ describe('bungalow registry', () => {
       drb: ['base', '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2'],
       bobo: ['solana', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'],
       jbm: ['base', '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d'],
-      soy: ['solana', '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV'],
-      brainlet: ['solana', '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF'],
+      soy: ['solana', '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump'],
+      brainlet: ['solana', '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump'],
       rizz: ['solana', '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k'],
       nb1: ['tbd', undefined],
     };
@@ -248,8 +248,8 @@ describe('resolution order', () => {
       drb: ['base', '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2'],
       jbm: ['base', '0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d'],
       bobo: ['solana', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'],
-      soy: ['solana', '4G3kNxwaA2UQHDpaQtJWQm1SReXcUD7LkT14v2oEs7rV'],
-      brainlet: ['solana', '8NNXWrWVctNw1UFeaBypffimTdcLCcD8XJzHvYsmgwpF'],
+      soy: ['solana', '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump'],
+      brainlet: ['solana', '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump'],
       rizz: ['solana', '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k'],
     };
     for (const [id, [chain, address]] of Object.entries(VERIFIED)) {
@@ -275,8 +275,8 @@ describe('resolution order', () => {
       drb: ['base', '0x5116773e18a9c7bb03ebb961b38678e45e238923'],
       bobo: ['solana', '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX'],
       jbm: ['base', '0xbc6156458bc948cba71dd0be99bfa472bd636331'],
-      soy: ['solana', 'DtTkLBvYUaYBZ7PC4vCwWfu56Zkgbf7ycEXxLhAP7Xx8'],
-      brainlet: ['solana', 'CW9DFoTWEUiwxyxVGnQFYhbrYEfGkvaqXEgxKZG7d7X1'],
+      soy: ['solana', 'H8yiDq5XaNkiT6J3QXDeBVfsFHNaVwTRNicbWZnibexi'],
+      brainlet: ['solana', '3whYbw26asxFG5Qh9emHA6Mi6uizvduYg1cVKLQ1eetq'],
       // Solana, not Base: the 08-25 dossier's Base row was a different
       // deployment of the same brainrot name (owner-corrected + on-chain
       // verified 2026-08-30). A wrong-chain row here would have charted —
