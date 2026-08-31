@@ -86,6 +86,14 @@ export interface Bungalow {
    */
   stakePool?: string;
   /**
+   * Which staking program `stakePool` is. Solana pools are always Streamflow.
+   * EVM pools come in two shapes and the card must follow the CONTRACT, never
+   * a guess: 'plain' = the vendored no-lock Synthetix staker (the first 2026
+   * -08-30 round), 'ladder' = LighthouseLadder, the locked 0d..4y / 1.00x..
+   * 4.00x build with the always-open emergency hatch. Absent = 'plain'.
+   */
+  poolKind?: 'plain' | 'ladder';
+  /**
    * Token decimals as a PRE-READ fallback for staking/balance surfaces —
    * the live pool read still wins (it reads the mint on-chain); this field
    * covers the window before that read lands, where a bare hardcoded 6

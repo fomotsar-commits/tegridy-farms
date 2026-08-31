@@ -16,6 +16,11 @@ const LighthousePoolLive = lazy(() =>
 const EvmLighthousePoolLive = lazy(() =>
   import('./EvmLighthousePoolLive').then((m) => ({ default: m.EvmLighthousePoolLive })),
 );
+// The LOCKED build (LighthouseLadder). Which card renders is decided by the
+// registry's poolKind, i.e. by what the deployed contract actually IS.
+const EvmLadderPoolLive = lazy(() =>
+  import('./EvmLadderPoolLive').then((m) => ({ default: m.EvmLadderPoolLive })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -103,6 +108,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           }>
             {bungalow.chain === 'solana' ? (
               <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            ) : bungalow.poolKind === 'ladder' ? (
+              <EvmLadderPoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
             ) : (
               <EvmLighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
             )}

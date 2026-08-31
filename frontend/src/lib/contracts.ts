@@ -411,6 +411,39 @@ export const LIGHTHOUSE_STAKING_ABI = [
   { type: 'function', name: 'getRewardForDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
+// ─── Island lighthouse LADDER (contracts/src/LighthouseLadder.sol) ───────────
+// The locked build that supersedes the plain StakingRewards pools: 0d..4y
+// locks, 1.00x..4.00x boost, 25% early-exit penalty, an always-open emergency
+// hatch, and reward payouts capped at balanceOf(pool) - totalSupply() so a
+// payout can never spend principal. `withdraw` is deliberately NOT the
+// canonical selector here — it takes a position id, not an amount, and reusing
+// the name would have been a silent meaning change (a design-review finding).
+export const LIGHTHOUSE_LADDER_ABI = [
+  { type: 'function', name: 'stake', inputs: [{ name: 'amount', type: 'uint256' }, { name: 'duration', type: 'uint256' }], outputs: [{ name: 'id', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'withdrawPosition', inputs: [{ name: 'id', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'earlyExit', inputs: [{ name: 'id', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'emergencyWithdraw', inputs: [{ name: 'id', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'getReward', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalBoosted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'boostedBalanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The honest vault figure, straight from the contract: what it can pay
+  // without touching principal.
+  { type: 'function', name: 'rewardSurplus', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'boostFor', inputs: [{ name: 'duration', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'positionsOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'positions', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: 'owner', type: 'address' }, { name: 'lockEnd', type: 'uint64' }, { name: 'amount', type: 'uint256' }, { name: 'boosted', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardRate', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'stakingToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardsToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'MAX_LOCK_DURATION', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'EARLY_EXIT_PENALTY_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+] as const;
+
 // ─── TegridyLending (P2P NFT-Collateralized Lending) ───────────
 export const TEGRIDY_LENDING_ABI = [
   { type: 'function', name: 'createLoanOffer', inputs: [{ name: '_aprBps', type: 'uint256' }, { name: '_duration', type: 'uint256' }, { name: '_collateralContract', type: 'address' }, { name: '_minPositionValue', type: 'uint256' }, { name: '_minPositionETHValue', type: 'uint256' }], outputs: [{ name: 'offerId', type: 'uint256' }], stateMutability: 'payable' },
