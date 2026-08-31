@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+// Static, not `await import('viem')` inside the test: the dynamic form times
+// out against vitest's 5s default whenever the machine is busy, which made
+// this pin — the one guarding the checksum bug that broke four cards — the
+// flakiest test in the suite. A pin that cries wolf gets ignored.
+import { isAddress } from 'viem';
 import { resolve } from 'node:path';
 import {
   BUNGALOWS,
@@ -214,7 +219,7 @@ describe('resolution order', () => {
     expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
   });
 
-  it('every EVM address in the registry passes viem isAddress (the exact wagmi gate)', async () => {
+  it('every EVM address in the registry passes viem isAddress (the exact wagmi gate)', () => {
     // SHIPPED BUG, 2026-08-30: four Base lighthouse addresses were hand-typed
     // with INVENTED mixed case. Nothing threw at build or in getAddress() —
     // but viem's isAddress rejects a mixed-case address whose EIP-55 checksum
@@ -228,7 +233,6 @@ describe('resolution order', () => {
     // the island's token addresses arrive that way from canon), canonical
     // mixed case is FINE, and mixed case that fails the checksum is REJECTED.
     // Never hand-type mixed case — derive it with getAddress(addr.toLowerCase()).
-    const { isAddress } = await import('viem');
     for (const b of BUNGALOWS) {
       for (const [field, value] of [['address', b.address], ['stakePool', b.stakePool]] as const) {
         if (!value || !value.startsWith('0x')) continue;
