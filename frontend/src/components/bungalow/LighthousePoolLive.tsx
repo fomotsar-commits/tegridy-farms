@@ -203,6 +203,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const stakeBlocked = !entriesKnown || funded === null || vaultDry;
   const ratePercent = pool && primaryRp ? rateIsPercent(pool, primaryRp) : false;
   const configuredRate = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, chosenSecs) : 0;
+  // A weighted pool has no single "configured rate" — it has a RANGE, and the
+  // headline must say so. Keying the top-line stat off the selected lock made
+  // it read 21.9% by default on a pool that reaches 109.5%, which undersells
+  // the ladder to anyone who never touches the picker. The per-lock number
+  // still lives on the buttons, where the choice is actually made.
+  const weighted = pool ? !isFlatWeight(pool) : false;
+  const rateAtMin = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.minDurationSecs) : 0;
+  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.maxDurationSecs) : 0;
+  const maxBoost = pool ? stakeWeight(pool, pool.maxDurationSecs) : 1;
   // "Paying now" is the honest half: a configured rate the vault cannot back
   // pays nothing, and this venue says the zero out loud rather than printing
   // the configuration and hoping nobody checks the vault.
@@ -260,7 +269,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
         {pool && (
           <>
             {/* ── The four numbers that decide whether to stake ───────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className={`grid grid-cols-2 sm:grid-cols-3 ${weighted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 mb-4`}>
               <Stat label="Reward vault" value={fmt(funded, decimals)} unit={bungalow.symbol} />
               <Stat label="Total staked" value={fmt(pool.totalStakeRaw, decimals)} unit={bungalow.symbol} />
               <Stat
@@ -271,21 +280,41 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
               />
               <Stat
                 label="Configured"
-                value={ratePercent ? pct(configuredRate) : configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                value={
+                  !ratePercent
+                    ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                    : weighted
+                      ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
+                      : pct(configuredRate)
+                }
                 unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
+                caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
               />
+              {weighted && (
+                <Stat
+                  label="Max boost"
+                  value={`${maxBoost.toFixed(2)}×`}
+                  unit={`at ${labelForDays(maxDays).toLowerCase()}`}
+                  caption="longer lock, bigger share"
+                />
+              )}
             </div>
 
             {vaultDry && (
               <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
-                <strong>Paying now is 0% because the reward vault is {funded === 0n ? 'empty' : 'effectively empty'}.</strong>{' '}
-                {ratePercent ? `The pool is configured to pay ${pct(configuredRate)} a year` : 'The pool has a configured rate'},
-                but a rate only pays out of a funded vault — and (proven against the live
-                program) claims and unstakes <strong>revert</strong> while accrued rewards
-                exceed what the vault holds, even after the lock opens. New stakes are
-                paused here until the vault is funded, so a deposit cannot become
-                principal nothing can release. Accrual is never lost — it pays in full
-                after a top-up.
+                {/* Lead with the fact that changes what the visitor can DO. The
+                    reason used to arrive first and the consequence fourth, which
+                    buried "staking is paused" inside a paragraph of rate talk. */}
+                <strong>Staking is paused until the reward vault is funded.</strong>{' '}
+                The vault is {funded === 0n ? 'empty' : 'effectively empty'}, so paying now is 0% —
+                {ratePercent ? ` a configured ${pct(rateAtMax)} tops out at nothing` : ' a configured rate pays nothing'}{' '}
+                until someone tops it up.
+                <span className="block mt-1.5 opacity-90">
+                  Deposits stay closed on purpose: while accrued rewards exceed the vault
+                  the program <strong>reverts</strong> claims and unstakes, even after a lock
+                  opens — so a deposit here could become principal nothing can release.
+                  Accrual itself is never lost; it pays in full after a top-up.
+                </span>
               </p>
             )}
             {funded === null && (
@@ -365,7 +394,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               {selected && <span aria-hidden="true" className="mr-1">&#10003;</span>}
                               {opt.label}
                             </span>
+                            {/* Multiplier alongside the rate, so each button is a
+                                row of the boost schedule rather than a bare
+                                percentage — the ladder is legible without having
+                                to click through every option to compare. Hidden
+                                on a flat pool, where every row would read 1.00x. */}
                             <span className="block text-[11px] leading-tight opacity-80 font-mono">
+                              {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}× · `}
                               {ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}
                             </span>
                           </button>
@@ -405,22 +440,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       </p>
                     )}
 
-                    <p className="text-white/45 text-[11px] mt-2 leading-relaxed">
-                      {flatWeight ? (
-                        <>
-                          This pool weights every lock the same (1.00&times;), so a longer lock does
-                          <strong className="text-white/70"> not</strong> raise the rate — it only sets
-                          when you can take your {bungalow.symbol} back.
-                        </>
-                      ) : (
-                        <>
-                          Longer locks carry more weight: {stakeWeight(pool, chosenSecs).toFixed(2)}&times; at{' '}
-                          {labelForDays(chosenDays).toLowerCase()}, up to{' '}
-                          {stakeWeight(pool, pool.maxDurationSecs).toFixed(2)}&times; at{' '}
-                          {labelForDays(maxDays).toLowerCase()}.
-                        </>
-                      )}
-                    </p>
+                    {/* Only the FLAT case needs saying in prose. On a weighted
+                        pool the ladder is already on every button (1.32× · 28.9%)
+                        and in the Max boost stat, so a sentence repeating it was
+                        just one more line to read. */}
+                    {flatWeight && (
+                      <p className="text-white/45 text-[11px] mt-2 leading-relaxed">
+                        This pool weights every lock the same (1.00&times;), so a longer lock does
+                        <strong className="text-white/70"> not</strong> raise the rate — it only sets
+                        when you can take your {bungalow.symbol} back.
+                      </p>
+                    )}
                   </div>
 
                   {/* Projections — the TOWELI card's strip, with the vault caveat
@@ -474,9 +504,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   {!publicKey ? (
                     <>
                       <p className="text-white/80 text-[13px] mb-2 max-w-md leading-relaxed">
-                        Connect a Solana wallet to stake. Locks run{' '}
-                        {labelForDays(minDays).toLowerCase()} to {labelForDays(maxDays).toLowerCase()};
-                        your principal comes back to you when the lock opens.
+                        Connect a Solana wallet to stake. Your principal comes back to you
+                        when the lock opens.
                       </p>
                       {/* The no-early-exit fact belongs BEFORE the wallet, not after
                           it: this is the screen where someone decides whether to take
@@ -663,13 +692,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   );
 }
 
-function Stat({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: 'good' | 'muted' }) {
+function Stat({ label, value, unit, tone, caption }: { label: string; value: string; unit?: string; tone?: 'good' | 'muted'; caption?: string }) {
   const color = tone === 'good' ? '#4ade80' : tone === 'muted' ? 'rgba(255,255,255,0.85)' : '#ffffff';
   return (
     <div className="rounded-lg px-3 py-2" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
       <p className="text-[10px] uppercase tracking-wider text-white/60">{label}</p>
-      <p className="stat-value text-xl leading-tight" style={{ color }}>{value}</p>
+      {/* A range like "21.9%–109.5%" is wider than a single figure — let it step
+          down a size rather than overflow the card on a narrow column. */}
+      <p className={`stat-value leading-tight ${value.length > 9 ? 'text-base' : 'text-xl'}`} style={{ color }}>{value}</p>
       {unit && <p className="text-[10px] text-white/50">{unit}</p>}
+      {caption && <p className="text-[10px] text-white/40 leading-tight mt-0.5">{caption}</p>}
     </div>
   );
 }
