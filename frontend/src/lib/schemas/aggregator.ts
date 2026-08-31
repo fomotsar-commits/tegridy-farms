@@ -1,11 +1,3 @@
-// ⚠️ STATUS 2026-08-28 (frontend audit): these schemas are NOT WIRED — zero
-// import sites outside their own test. R080 shipped the validators but never
-// connected them at the fetch boundaries, so nothing here validates anything
-// in production yet. The load-bearing field is separately inline-guarded
-// (lib/aggregator.ts rejects non-string/non-digit/zero amountOut), which is
-// why this is a documented gap rather than an open hole. Wiring parseOrNull
-// at each provider's res.json() boundary is tracked as its own change — until
-// then, do NOT cite this file as evidence responses are validated.
 // R080: zod schemas for the 7 DEX aggregator response shapes used by
 // `frontend/src/lib/aggregator.ts` — WIRED 2026-08-28 at every provider
 // `res.json()` boundary there. (The 08-28 frontend audit flagged them as
