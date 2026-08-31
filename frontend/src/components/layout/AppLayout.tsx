@@ -39,7 +39,7 @@ import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
-import { isToweliVoice } from '../../lib/arrival';
+import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
@@ -140,10 +140,23 @@ export function AppLayout() {
     window.addEventListener(OPEN_BUNGALOWS_EVENT, openPicker);
     return () => window.removeEventListener(OPEN_BUNGALOWS_EVENT, openPicker);
   }, []);
+  // ARRIVAL FLOW 2026-08-31: the venue welcome opens by invitation only.
+  const [welcomeRequested, setWelcomeRequested] = useState(false);
+  useEffect(() => {
+    const openWelcome = () => setWelcomeRequested(true);
+    window.addEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
+    return () => window.removeEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
+  }, []);
   // Derived, not set in an effect (react-hooks/set-state-in-effect): auto-open
   // exactly once — first real splash, no persisted choice, not yet dismissed.
   const pickerOpen = pickerRequested
-    || (splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
+    // ARRIVAL IDENTITY 2026-08-31: the VENUE arrival never auto-opens the picker.
+    // The venue home carries the hall of doors in the page itself now, so the
+    // first impression is intro → hero → hall, not a modal wall. The picker
+    // stays one click away (hero CTA, footer); inside a bungalow the classic
+    // flow is untouched (a walked door has already persisted its choice, so the
+    // auto-open leg was only ever reachable on venue arrivals anyway).
+    || (isToweliVoice() && splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
   const closePicker = () => { setPickerDismissed(true); setPickerRequested(false); };
   // Token-first bungalow (Bayla): mute the Towelie personality surfaces —
   // the assistant bubble and the TOWELI-scripted onboarding are the wrong
@@ -248,11 +261,17 @@ export function AppLayout() {
           back while the bungalow picker is up so a first visit sees intro →
           bungalow choice → onboarding, not all three stacked. In a
           token-first bungalow the TOWELI-scripted tour is replaced by the
-          bungalow's own three-step welcome. */}
+          bungalow's own three-step welcome.
+          ARRIVAL FLOW 2026-08-31: the venue arrival auto-opens nothing — the
+          intro hands straight to the hero and the hall of doors. The venue's
+          five-step welcome renders in INVITED mode (opens only from the
+          hero's tour pill via OPEN_VENUE_WELCOME_EVENT). */}
       {splashDone && !pickerOpen && !onSettledDoorstep && (
         bungalowIdentity
           ? <BungalowOnboarding bungalow={bungalowIdentity} />
-          : <OnboardingModal />
+          : isToweliVoice()
+            ? <OnboardingModal />
+            : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />
       )}
       {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
           (consent === 'pending'); analytics + error reporting are blocked

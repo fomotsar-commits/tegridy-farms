@@ -12,6 +12,7 @@ import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
+import { isToweliVoice, VENUE } from '../lib/arrival';
 
 type TxStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -231,7 +232,7 @@ function TransactionReceiptOverlay({
 
   const performShare = useCallback(() => {
     const verb = config.verb;
-    const text = `Just ${verb} on @TegridyFarms! \u{1F33F} #TOWELI #DeFi`;
+    const text = `Just ${verb} on @JungleBayAC! \u{1F33F} #TOWELI #DeFi`;
     // F11: fall back to the canonical live origin, not the unowned tegridyfarms.io.
     const url = etherscanUrl ?? SITE_URL;
     window.open(
@@ -336,7 +337,7 @@ function TransactionReceiptOverlay({
                 className="heading-luxury text-white text-[16px] tracking-wide"
                 style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
               >
-                Tegridy Farms
+                {isToweliVoice() ? 'Tegridy Farms' : VENUE.name}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -522,7 +523,7 @@ function buildReceiptText(
   chainId?: number,
 ): string {
   const lines = [
-    '\u{1F33F} Tegridy Farms',
+    `\u{1F33F} ${isToweliVoice() ? 'Tegridy Farms' : VENUE.name}`,
     '━'.repeat(30),
     '',
     config.label,

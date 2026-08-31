@@ -53,17 +53,29 @@ describe('bungalow registry', () => {
     expect(bayla?.artPool).toBe(BAYLA_ART);
   });
 
-  it('placeholder skins: every settled resident is live, voiced, and wears CLASSIC art', () => {
-    // Owner call 2026-08-30: skins on now, custom art later. The contract:
-    // live + an honest registry identity + NO artPool — pageArt's classic
-    // fallback IS the placeholder, so the community drop later swaps walls,
-    // never rails. Only the quiet unmarked slot stays not-live.
+  it('every settled resident is live, voiced, and wears its OWN art', () => {
+    // Owner call 2026-08-30 was: skins on now, custom art later — live + an
+    // honest identity + NO artPool, so pageArt's classic fallback WAS the
+    // placeholder. THE DROP LANDED 2026-08-31: the owner delivered a folder
+    // per community, so each resident now paints from public/art/<id>/ via
+    // the generated manifest. The rails did not move — only the walls, which
+    // is exactly the swap the placeholder contract was designed to allow.
+    // Only the quiet unmarked slot stays not-live.
     const notLive = BUNGALOWS.filter((x) => !x.live).map((b) => b.id);
     expect(notLive).toEqual(['nb1']);
     for (const b of BUNGALOWS.filter((x) => x.live && x.id !== 'toweli' && x.id !== 'bayla')) {
       expect(b.identity, `${b.id} placeholder skin needs a voice`).toBeTruthy();
       expect(b.identity?.heroTitle).toBe(`${b.symbol}.`);
-      expect(b.artPool, `${b.id} wears classic art until its community's drop`).toBeUndefined();
+      // Its own drop, resolved from the real directory. QR has no folder yet,
+      // so it honestly keeps the classic fallback until one arrives.
+      if (b.id === 'qr') {
+        expect(b.artPool, 'qr has no folder yet — classic fallback is the honest state').toBeUndefined();
+      } else {
+        expect(b.artPool?.length, `${b.id} paints from its own drop`).toBeGreaterThan(0);
+        for (const piece of b.artPool!) {
+          expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
+        }
+      }
       expect(b.identity?.museVoice, `${b.id} bubble speaks as the island, never another resident`).toBe('the island');
     }
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
@@ -120,12 +132,23 @@ describe('bungalow registry', () => {
 });
 
 describe('Bayla art pool', () => {
-  it('holds 24 unique pieces under /art/bayla/', () => {
-    expect(BAYLA_ART).toHaveLength(24);
-    expect(new Set(BAYLA_ART.map((p) => p.id)).size).toBe(24);
-    expect(new Set(BAYLA_ART.map((p) => p.src)).size).toBe(24);
+  it('holds her whole drop under /art/bayla/, every piece unique', () => {
+    // Not pinned to a count: the pool is SCANNED from public/art/bayla/, so a
+    // literal here would fail every time the curator adds a piece — the exact
+    // brittleness the generated manifest exists to remove. What must hold is
+    // that ids and sources stay unique (a duplicate id would make two surfaces
+    // fight over one placement) and that every piece comes from her folder.
+    expect(BAYLA_ART.length).toBeGreaterThanOrEqual(24);
+    expect(new Set(BAYLA_ART.map((p) => p.id)).size).toBe(BAYLA_ART.length);
+    expect(new Set(BAYLA_ART.map((p) => p.src)).size).toBe(BAYLA_ART.length);
     for (const p of BAYLA_ART) {
-      expect(p.src).toMatch(/^\/art\/bayla\/bayla-\d{2}\.jpg$/);
+      expect(p.src).toMatch(/^\/art\/bayla\/[^/]+\.(jpe?g|png|webp|avif)$/i);
+    }
+    // The 2026-08-24 drop is still addressable by its original ids — the
+    // curator's saved placements in bungalowArtOverrides.ts key off them.
+    for (let i = 1; i <= 24; i += 1) {
+      const id = `bayla-${String(i).padStart(2, '0')}`;
+      expect(BAYLA_ART.some((p) => p.id === id), `${id} must stay addressable`).toBe(true);
     }
   });
 

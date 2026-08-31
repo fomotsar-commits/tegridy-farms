@@ -70,22 +70,26 @@ describe('OnboardingModal', () => {
     expect(screen.getByText('Welcome to memetics.finance')).toBeInTheDocument();
   });
 
-  it('shows Start Farming button on the last step', () => {
+  // ARRIVAL FLOW 2026-08-31: the venue tour's first move is the island, not the
+  // farm. Start Farming renders only inside the TOWELI bungalow's tour.
+  it('shows Walk the doors + Scan a token on the last step (venue voice)', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
-    expect(screen.getByText('Start Farming')).toBeInTheDocument();
+    expect(screen.getByText('Walk the doors')).toBeInTheDocument();
+    expect(screen.getByText('Scan a token')).toBeInTheDocument();
+    expect(screen.queryByText('Start Farming')).not.toBeInTheDocument();
   });
 
-  it('Start Farming sets localStorage and closes modal', () => {
+  it('Walk the doors sets localStorage and closes modal', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
-    fireEvent.click(screen.getByText('Start Farming'));
+    fireEvent.click(screen.getByText('Walk the doors'));
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
     expect(screen.queryByText('Stay Safe')).not.toBeInTheDocument();
   });

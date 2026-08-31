@@ -67,7 +67,7 @@ describe('the signing surface discloses the venue fee', () => {
   it('shows "None" rather than a claim that the trade is free of charges', async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByText('None')).toBeInTheDocument(), { timeout: 3000 });
-    const note = screen.getByText(/Tegridy adds no fee/i);
+    const note = screen.getByText(/The venue adds no fee/i);
     expect(note.textContent).toMatch(/pool/i);
     expect(note.textContent).toMatch(/gas/i);
   });

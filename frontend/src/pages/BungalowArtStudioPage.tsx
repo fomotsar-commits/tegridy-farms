@@ -31,6 +31,63 @@ import { LivePreview } from '../components/studio/LivePreview';
 
 const STORAGE_KEY = 'bungalow-art-studio:draft';
 
+/**
+ * ISLAND ORDER 2026-08-31: the studio ships to PROD as an unlisted,
+ * export-only room. The dev middleware (`/__bungalow-studio/save`, which
+ * writes source) exists only under vite dev; on the live venue the same
+ * Save action instead EXPORTS the complete `bungalowArtOverrides.ts`
+ * module as a download, so a non-technical curator can place art with
+ * their own eye in a real browser and hand one file back to the repo.
+ * Server-side the prod studio touches nothing.
+ */
+const HAS_SAVE_MIDDLEWARE = import.meta.env.DEV;
+
+/**
+ * Client-side render of the overrides module — KEEP IN LOCK-STEP with
+ * `bungalowStudioPlugin` in vite.config.ts (same header, same sorted-key
+ * entry shape) so an exported file and a middleware-written file are
+ * byte-identical for identical picks.
+ */
+function renderOverridesModule(data: Record<string, ArtOverride>): string {
+  const entries = Object.keys(data).sort().map((k) => {
+    const v = data[k]!;
+    const pos = v.objectPosition ? `, objectPosition: ${JSON.stringify(v.objectPosition)}` : '';
+    const scale = v.scale && v.scale !== 1 ? `, scale: ${v.scale}` : '';
+    return `  ${JSON.stringify(k)}: { artId: ${JSON.stringify(v.artId)}${pos}${scale} },`;
+  }).join('\n');
+  return `/**
+ * Per-bungalow, per-surface art overrides — written by /bayla-studio.
+ *
+ * Key format: \`\${bungalowId}|\${pageId}:\${idx}\`.
+ *   e.g. "bayla|farm:0" — the /farm page background, in the Bayla skin.
+ *
+ * Why a second file instead of reusing ART_OVERRIDES: a bungalow paints every
+ * surface from its OWN pool (see bungalows.ts \`artPool\`), so the classic art
+ * ids in ART_OVERRIDES don't exist in that pool. Keying by bungalow keeps the
+ * two skins from overwriting each other — the classic picks stay exactly as
+ * they are while a bungalow gets its own placement.
+ *
+ * \`artId\` resolves against the active bungalow's pool first, then falls back to
+ * the classic ART map (so a bungalow may deliberately borrow a classic piece).
+ * Unresolvable ids fall through to the deterministic rotation, same as classic.
+ *
+ * Do not hand-edit during a studio session — the studio overwrites this file on save.
+ */
+import type { ArtOverride } from './artOverrides';
+
+export type { ArtOverride };
+
+export const BUNGALOW_ART_OVERRIDES: Record<string, ArtOverride> = {
+${entries}
+};
+
+/** Key builder — keep in lock-step with the studio and the vite save endpoint. */
+export function bungalowOverrideKey(bungalowId: string, pageId: string, idx: number): string {
+  return \`\${bungalowId}|\${pageId}:\${idx}\`;
+}
+`;
+}
+
 /** bungalows.ts keeps these on the classic art system in every skin. */
 const SHARED_PAGE_IDS = new Set(['nav-logo', 'loader']);
 
@@ -97,7 +154,7 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
   const [previewMode, setPreviewMode] = useState<'art' | 'live'>('art');
   const [zen, setZen] = useState(false);
   const [iframeNonce, setIframeNonce] = useState(0);
-  const [autoSave, setAutoSave] = useState(true);
+  const [autoSave, setAutoSave] = useState(HAS_SAVE_MIDDLEWARE);
   // Browse the classic art map too — the resolver falls back to it, so a
   // bungalow surface may deliberately borrow a classic piece.
   const [showClassic, setShowClassic] = useState(false);
@@ -126,6 +183,29 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
 
   const saveToDisk = useCallback(async (data: Record<string, ArtOverride>, silent: boolean): Promise<void> => {
     if (!silent) { setSaving(true); setSaveMsg(null); }
+    // PROD (no dev middleware): Save = export the module as a download.
+    // The curator DMs the file back; it lands in the repo as-is.
+    if (!HAS_SAVE_MIDDLEWARE) {
+      if (silent) { setSaving(false); return; } // nothing to auto-save against in prod
+      try {
+        const file = renderOverridesModule(data);
+        const blob = new Blob([file], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'bungalowArtOverrides.ts';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        setSaveMsg(`Exported ${Object.keys(data).length} placements — send the downloaded file back to the island.`);
+      } catch (err) {
+        setSaveMsg(`Export failed: ${(err as Error).message}`);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     try {
       const res = await fetch('/__bungalow-studio/save', {
         method: 'POST',
@@ -260,16 +340,20 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
         <span className="text-xs text-white/60">
           {mine} override{mine === 1 ? '' : 's'} · {editableSurfaces.length} surfaces · {pool.length} pieces
         </span>
-        <label className="text-[11px] text-white/60 flex items-center gap-1 cursor-pointer select-none" title="When on, every pick and drag saves to disk so the Live page reloads.">
-          <input
-            type="checkbox"
-            checked={autoSave}
-            onChange={(e) => setAutoSave(e.target.checked)}
-            className="accent-emerald-500"
-          />
-          Auto-save picks
-        </label>
-        <a href="/art-studio" className="text-[11px] text-white/50 hover:text-white underline">classic studio →</a>
+        {HAS_SAVE_MIDDLEWARE && (
+          <label className="text-[11px] text-white/60 flex items-center gap-1 cursor-pointer select-none" title="When on, every pick and drag saves to disk so the Live page reloads.">
+            <input
+              type="checkbox"
+              checked={autoSave}
+              onChange={(e) => setAutoSave(e.target.checked)}
+              className="accent-emerald-500"
+            />
+            Auto-save picks
+          </label>
+        )}
+        {HAS_SAVE_MIDDLEWARE && (
+          <a href="/art-studio" className="text-[11px] text-white/50 hover:text-white underline">classic studio →</a>
+        )}
         <div className="flex-1" />
         {saveMsg && <span className="text-xs text-emerald-300">{saveMsg}</span>}
         <button
@@ -280,7 +364,7 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
           onClick={save}
           disabled={saving}
           className="text-xs px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 font-semibold"
-        >{saving ? 'Saving…' : 'Save to disk'}</button>
+        >{saving ? 'Saving…' : HAS_SAVE_MIDDLEWARE ? 'Save to disk' : 'Export placements'}</button>
       </header>
 
       <div className="flex flex-col lg:flex-row gap-4 p-4">

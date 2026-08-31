@@ -88,7 +88,7 @@ export function ReferralWidget({
   // ReferralSplitter pays the REFERRER only (a cut of the referred user's swap
   // fees) — the joiner gets nothing extra. Do not re-add a joiner-side promise.
   const tweetText = encodeURIComponent(
-    "I'm farming on @TegridyFarms \u{1F33F} join me with my referral link"
+    "I'm farming on @JungleBayAC \u{1F33F} join me with my referral link"
   );
   const tweetUrl = `https://twitter.com/intent/tweet?text=${tweetText}&url=${encodeURIComponent(referralLink)}`;
 

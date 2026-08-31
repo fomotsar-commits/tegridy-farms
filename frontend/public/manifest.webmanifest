@@ -1,15 +1,25 @@
 {
-  "name": "Tegridy Farms",
-  "short_name": "Tegridy",
+  "name": "MEMETICS.FINANCE",
+  "short_name": "MEMETICS",
   "id": "/",
-  "description": "Swapping, staking, farming and NFT finance on Ethereum, token launches on the Tegridy Curve across Ethereum, Base and Robinhood Chain, plus Solana token swaps",
+  "description": "The venue of Jungle Bay Island. Bungalows for meme communities, Heat-gated launches, and verifiable staking and swaps on Ethereum, Base and Solana.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#060c1a",
   "theme_color": "#060c1a",
   "icons": [
-    { "src": "/splash/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "/splash/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    {
+      "src": "/splash/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/splash/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
   ]
 }

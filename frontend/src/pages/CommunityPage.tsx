@@ -160,7 +160,7 @@ export default function CommunityPage() {
             </Link>
             <Link to="/gallery" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Gallery →</div>
-              <div className="text-white/60 text-xs mt-1 leading-relaxed">Browse the full Tegridy art collection.</div>
+              <div className="text-white/60 text-xs mt-1 leading-relaxed">Browse the full art collection.</div>
             </Link>
           </div>
           {/* 🔄 2026-08-12: was "On-chain governance · coming with the relaunch",

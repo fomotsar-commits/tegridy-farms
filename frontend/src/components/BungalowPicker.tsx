@@ -1,4 +1,8 @@
 import { Modal } from './ui/Modal';
+import { isToweliVoice } from '../lib/arrival';
+// The island's presentation ruling (which doors count as OPEN) lives in one
+// place — the hall — and the picker reads it so the two can never disagree.
+import { OPEN_DOOR_IDS } from './VenueDoors';
 import {
   BUNGALOWS,
   getActiveBungalow,
@@ -78,16 +82,55 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
       art={ART.jungleBus.src}
     >
       <p className="text-white/80 text-[13px] leading-relaxed mb-4">
-        Thirteen bungalows, one island. Live bungalows dress the app&apos;s
-        backgrounds in their own art; settled doors are open — plaque,
-        contract and trade route — while their art drops arrive. Same farm,
-        same rails, different vibes.
+        {isToweliVoice()
+          ? 'Thirteen bungalows, one island. Live bungalows dress the app\u2019s backgrounds in their own art; settled doors are open \u2014 plaque, contract and trade route \u2014 while their art drops arrive. Same farm, same rails, different vibes.'
+          /* ARRIVAL IDENTITY 2026-08-31: the venue speaks its own law here
+             (island-authored venue strings carry no em dashes, per lane law). */
+          : 'Thirteen bungalows, one island. Open doors show in full color; settled doors are greyed while their people move in, and each still opens to its plaque, contract and trade route. Walk in where you hold.'}
       </p>
 
       <div
         className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-[52vh] overflow-y-auto p-2 rounded-xl"
         style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
       >
+        {/* THE WAY BACK (2026-08-31, found on the lived walk): once any door
+            was entered there was NO path back to the venue's own voice — the
+            island's front page became unreachable without clearing storage.
+            The venue is the island's own hall, so it holds the first card.
+            Selecting it stores the 'venue' sentinel (resolves to no bungalow)
+            and walks home. */}
+        <button
+          type="button"
+          onClick={() => {
+            setActiveBungalow('venue');
+            if (currentId === null) { onClose(); return; }
+            window.location.assign('/');
+          }}
+          aria-current={currentId === null ? 'true' : undefined}
+          className="relative text-left rounded-xl overflow-hidden transition-transform hover:scale-[1.02] cursor-pointer"
+          style={{
+            background: 'rgba(4,9,18,0.85)',
+            border: currentId === null ? '1px solid var(--color-kyle, #2D8B4E)' : '1px solid rgba(255,255,255,0.14)',
+          }}
+        >
+          <div className="h-16 w-full overflow-hidden">
+            <img src="/og.png" alt="" loading="lazy" width={300} height={64}
+              className="w-full h-full object-cover" style={{ objectPosition: '0% 35%' }} />
+          </div>
+          <div className="p-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-white text-[13px] font-semibold tracking-wide">MEMETICS.FINANCE</span>
+              <span className="text-white/50 text-[10px] uppercase tracking-wider">The venue</span>
+            </div>
+            <p className="text-white/60 text-[11px] leading-snug mt-0.5">The island&rsquo;s own hall. Every door in one room.</p>
+            {currentId === null && (
+              <span className="inline-block mt-1.5 text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                style={{ background: 'rgba(45,139,78,0.25)', color: '#7fd89d' }}>
+                You are here
+              </span>
+            )}
+          </div>
+        </button>
         {BUNGALOWS.map((b) => {
           const isCurrent = b.id === currentId;
           const locked = b.chain === 'tbd'; // only the quiet slot stays locked
@@ -115,7 +158,8 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
                   loading="lazy"
                   width={300}
                   height={64}
-                  className={`w-full h-full object-cover ${locked ? 'grayscale' : ''}`}
+                  className={`w-full h-full object-cover ${locked || !OPEN_DOOR_IDS.has(b.id) ? 'grayscale' : ''}`}
+                  style={b.thumbPosition ? { objectPosition: b.thumbPosition } : undefined}
                 />
               </div>
               <div className="p-2.5">
@@ -124,7 +168,7 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
                   <span className="text-white/50 text-[10px] uppercase tracking-wider">
                     {locked
                       ? 'Soon'
-                      : `${CHAIN_LABEL[b.chain]}${b.live ? '' : ' · Door open'}`}
+                      : `${CHAIN_LABEL[b.chain]}${OPEN_DOOR_IDS.has(b.id) ? ' · Live' : ' · Settled'}`}
                   </span>
                 </div>
                 <p className="text-white/60 text-[11px] leading-snug mt-0.5">{b.tagline}</p>

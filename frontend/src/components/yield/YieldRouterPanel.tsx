@@ -111,7 +111,7 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
 
       <div className="glass-card rounded-xl p-3 mt-3">
         <div className="flex justify-between items-baseline gap-3">
-          <span className="text-[12px] text-text-secondary">Tegridy fee on this route</span>
+          <span className="text-[12px] text-text-secondary">Venue fee on this route</span>
           <span className="font-mono text-[12px] text-text-primary">{yieldRouteFeeValue(fee)}</span>
         </div>
         <p className="text-[11px] text-text-muted mt-1 leading-snug">

@@ -33,7 +33,8 @@ const venueSteps = [
   },
   {
     title: 'Heat',
-    body: 'Heat is held time, read from the island\u2019s own instrument. Launches open at a floor of proven holding. No token lists, no calendars, no exceptions \u2014 the gate refuses before anything is broadcast.',
+    // Island voice law: island-authored venue strings carry no em dashes.
+    body: 'Heat is held time, read from the island\u2019s own instrument. Launches open at a floor of proven holding. No token lists, no calendars, no exceptions. The gate refuses before anything is broadcast.',
   },
   {
     title: 'Stay Safe',
@@ -41,7 +42,9 @@ const venueSteps = [
   },
   {
     title: 'Your First Move',
-    body: 'Pick a bungalow, scan any token on either chain, or head to Farm. Your heat already exists \u2014 it started counting at your first buy.',
+    // ARRIVAL FLOW 2026-08-31: the venue's first move is the island itself,
+    // not the farm. The farm is TOWELI's room; its tour says so instead.
+    body: 'Walk a door in the hall below, or scan any token on either chain. Your heat already exists. It started counting at your first buy.',
     cta: true,
   },
 ];
@@ -92,19 +95,33 @@ const variants = {
   exit: (dir: number) => ({ x: dir > 0 ? -120 : 120, opacity: 0 }),
 };
 
-export function OnboardingModal() {
+export function OnboardingModal({
+  invited = false,
+  invitedOpen = false,
+  onInvitedClose,
+}: {
+  /** ARRIVAL FLOW 2026-08-31: invited mode never auto-opens — the venue
+   *  arrival shows no modal wall. The parent opens it on request (the hero's
+   *  tour pill) and owns the open state. Classic mode (default) keeps the
+   *  first-visit auto-open exactly as it always worked. */
+  invited?: boolean;
+  invitedOpen?: boolean;
+  onInvitedClose?: () => void;
+} = {}) {
   // Lazy initializer reads localStorage exactly once on mount, replacing the
   // effect-then-setState pattern that the React Compiler treats as a
   // cascading render.
-  const [open, setOpen] = useState(() => {
+  const [autoOpen, setAutoOpen] = useState(() => {
     try { return localStorage.getItem(STORAGE_KEY) !== '1'; } catch { return true; }
   });
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
+  const open = invited ? invitedOpen : autoOpen;
 
   const close = () => {
-    localStorage.setItem(STORAGE_KEY, '1');
-    setOpen(false);
+    try { localStorage.setItem(STORAGE_KEY, '1'); } catch { /* seen-marker only */ }
+    setAutoOpen(false);
+    onInvitedClose?.();
   };
 
   const isLast = step === steps.length - 1;
@@ -184,10 +201,28 @@ export function OnboardingModal() {
 
         {isLast ? (
           <div className="flex gap-2">
-            <Link to="/farm" onClick={close}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
-              Start Farming
-            </Link>
+            {/* ARRIVAL FLOW 2026-08-31: the primary first move follows the
+                arrival voice. The farm CTA is TOWELI's room; the venue's
+                tour lands the visitor in the hall of doors, on the page,
+                where the island itself is the next click. */}
+            {isToweliVoice() ? (
+              <Link to="/farm" onClick={close}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
+                Start Farming
+              </Link>
+            ) : (
+              <button type="button"
+                onClick={() => {
+                  close();
+                  try {
+                    document.querySelector('section[aria-label="The bungalows of Jungle Bay Island"]')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  } catch { /* no hall on this page: closing is enough */ }
+                }}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
+                Walk the doors
+              </button>
+            )}
             {/* ARRIVAL IDENTITY 2026-08-27: the second CTA follows the
                 arrival voice — Buy TOWELI belongs to the TOWELI bungalow;
                 the venue welcome hands the no-wallet scanner instead. */}

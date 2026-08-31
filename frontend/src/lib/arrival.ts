@@ -43,6 +43,14 @@ export function arrivalVoice(): ArrivalVoice {
   return active.identity ? 'bungalow' : 'venue';
 }
 
+/**
+ * ARRIVAL FLOW 2026-08-31: the venue welcome is INVITED, never automatic.
+ * The hero's tour pill (and anything else that wants to orient a visitor)
+ * dispatches this; OnboardingModal listens. Declared here beside the voice
+ * so the arrival contract lives in one file.
+ */
+export const OPEN_VENUE_WELCOME_EVENT = 'open-venue-welcome';
+
 /** True when the classic Tegridy voice should render (inside its bungalow). */
 export function isToweliVoice(): boolean {
   return arrivalVoice() === 'toweli';
@@ -97,7 +105,7 @@ export interface LoaderIdentity {
 const VENUE_LOADER: LoaderIdentity = {
   main: VENUE.markMain,
   sub: VENUE.markSub,
-  subliminal: ['MEMETICS', 'HEAT', 'DM+T', 'JUNGLE BAY'],
+  subliminal: ['MEMETICS', 'HEAT', 'HELD TIME', 'JUNGLE BAY'],
   // The island's muse leads the venue arrival: Bayla canon pieces
   // (real art, honest titles, already shipped in /public/art/bayla).
   // The last piece shatters into the vortex that forms the venue's name.

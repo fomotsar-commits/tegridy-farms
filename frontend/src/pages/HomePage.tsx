@@ -34,6 +34,7 @@ import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
 import { arrivalVoice, VENUE } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
+import { VenueDoors } from '../components/VenueDoors';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
@@ -252,7 +253,7 @@ export default function HomePage() {
                 aria-label="Live on Ethereum: farm and stake TOWELI"
                 className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
               >
-                ETHEREUM &middot; FARM &amp; LAUNCH
+                ETHEREUM
               </Link>
               {/* FAIL-CLOSED. The Solana swap surface is gated behind
                   VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
@@ -270,7 +271,15 @@ export default function HomePage() {
                 className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
                 style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
               >
-                {isSolanaSwapLive() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
+                SOLANA
+              </Link>
+              <Link
+                to="/eth-curve"
+                aria-label="Live on Base: launch and trade on the curve"
+                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
+                style={{ background: 'rgba(33,81,245,0.78)', color: '#fff', border: '1px solid rgba(33,81,245,0.45)' }}
+              >
+                BASE
               </Link>
             </div>
 
@@ -595,7 +604,21 @@ export default function HomePage() {
           </div>
         )}
 
-        {!bungalowIdentity && (
+        {/* ARRIVAL IDENTITY 2026-08-31: THE HALL OF DOORS. The venue arrival
+            opens onto the island itself — every bungalow door in one hall,
+            the open ones lit and the settled ones greyed while their people
+            move in. Venue voice only: toweli keeps the classic home whole,
+            an identity bungalow keeps its token-first home. */}
+        {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <VenueDoors />}
+
+        {/* ARRIVAL FLOW 2026-08-31 (the noise cut): the farm's body speaks
+            only in the farm's room. Core Loop, By the Numbers, the pulse and
+            the proof strips are TOWELI protocol furniture; on the venue
+            arrival they were three competing how-it-works blocks and one
+            resident's numbers wearing the venue's name. The venue line is
+            now: hero → the hall → Launch & Verify → Ecosystem → the
+            Collection → FAQ. Nothing deleted; it all renders inside /toweli. */}
+        {!bungalowIdentity && IS_TOWELI_ARRIVAL && (
         <>
         {/* Core Loop — the 10-second explainer.
             Directly addresses the critique that new visitors don't grasp
@@ -685,7 +708,11 @@ export default function HomePage() {
         </>
         )}
 
-        {/* Protocol Overview */}
+        {/* Protocol Overview — farm-shaped product grid (Stake TOWELI to earn
+            now…). The venue arrival keeps its clean line; the nav and the
+            hero CTAs carry the product routes there. Toweli and bungalow
+            homes keep the grid exactly as it was. */}
+        {(bungalowIdentity || IS_TOWELI_ARRIVAL) && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
@@ -736,6 +763,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Launch & Verify — ADDITIVE section (2026-07-27).
             The two most-built, most-differentiated surfaces — the token launcher
@@ -820,9 +848,10 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* How It Works — the three-step TOWELI farm walkthrough; default-only
-            (a bungalow's farm story lives on its own /farm panel). */}
-        {!bungalowIdentity && (
+        {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
+            only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
+            the farm; a bungalow's farm story lives on its own /farm panel). */}
+        {!bungalowIdentity && IS_TOWELI_ARRIVAL && (
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             {/* 2026-08-07: "How It Works" -> "How the Farm Works". All three steps are
@@ -832,7 +861,7 @@ export default function HomePage() {
                 told the product is a three-step TOWELI farm. Scoping the title, not the
                 steps. */}
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How the Farm Works</h2>
-            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Three steps, on Ethereum. No bullshit. Real tegridy.</p>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Real tegridy.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {HOW_IT_WORKS_STEPS.map((s, i) => (
@@ -909,10 +938,11 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Ecosystem */}
+        {/* Ecosystem — ARRIVAL FLOW 2026-08-31: the subline places the island
+            ABOVE the venue (the island is the world; the venue lives on it). */}
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
-          <p className="text-white text-[12px] mb-5">The Jungle Bay universe</p>
+          <p className="text-white text-[12px] mb-5">Jungle Bay Island. The world this venue lives on.</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"

@@ -208,7 +208,7 @@ function PauseControls({
 }
 
 export default function AdminPage() {
-  usePageTitle('Admin', 'Tegridy Farms protocol administration.');
+  usePageTitle('Admin', 'memetics.finance protocol administration.');
   const { address, isConnected } = useAccount();
   const walletChainId = useChainId();
   const onCorrectChain = walletChainId === CHAIN_ID;
@@ -420,7 +420,7 @@ export default function AdminPage() {
           </h1>
           <p className="text-white text-sm">
             {isOwner
-              ? 'Timelock overview for all Tegridy Farms contracts.'
+              ? 'Timelock overview for all memetics.finance contracts.'
               : 'Launcher integrator revenue. Contract administration requires the owner wallet.'}
           </p>
           {/* AUDIT ADMIN-SEC: surface current role + chain + wallet so the operator

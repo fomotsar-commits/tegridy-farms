@@ -7,89 +7,93 @@ One row per phase. `status` is one of NOT-STARTED · IN-PROGRESS · DONE · BLOC
 BLOCKED rows name exactly what is needed, and from whom.
 Updated in the same commit as every phase close.
 
-Opened 2026-08-31.
+Opened 2026-08-31. Recut for **v3, the lived-walk recut** (base `15d5458c`, tip `2b8ac393`).
+
+**Two shipments, in order.** v1 (the arrival inversion) landed and deployed as `4ba11618`.
+v3 arrived after, superseding it — its `arrival.ts` is byte-identical to the one already
+shipped apart from two additions, and its `HomePage` diff is the shipped hero work plus the
+hall and the noise cut. So v1 is not a false start; it is v3's first half, already live.
 
 | phase | status | evidence | notes |
 |---|---|---|---|
-| 01 changeset applied | DONE (uncommitted) | `arrival.test.ts` (14) · `OnboardingModal.test.tsx` (14, incl. the TOWELI containment case) · `siteIdentity.test.ts` (9) | All 26 files of the wave's changeset are applied, plus 2 the wave did not know it needed (see **Deviations** 4–5). The choke point `src/lib/arrival.ts` is byte-for-byte the specified 116 lines. Independent confirmation the head landed exactly as designed: `node scripts/csp-hash.mjs` recomputed the JSON-LD pin as `sha256-WR/hd42NyzJ3gQFnlod56e7EhmUcVi4Hj2JOmKk/eC4=` — **identical to the hash in the wave's own diff**, so our index.html inline block matches the author's byte for byte. `og.svg` and `docs/banner.svg` are byte-identical to each other (125 lines) and `og.png`/`banner.png` re-rendered from the shared source. |
-| 02 gates green | DONE | typecheck exit 0 · **vitest 6359/6364** · build green · **e2e 22 passed** | **typecheck:** `tsc -b tsconfig.app.json tsconfig.node.json` exit 0; `tsc --noEmit -p tsconfig.test.json` exit 0. **lint:** 0 errors. **vitest (clean run, machine otherwise idle, `--maxWorkers=4 --testTimeout=30000`): 451/452 files, 6359/6364 tests. The only red is the 5 pre-existing PWA `InstallPrompt` tests**, red on the pre-change baseline too, and they fail on an *assertion* (`<body><div /></body>` — the component renders nothing), not a timeout. **build:** green — dist-graph gate passed (entry closure 29 chunks, vendor-solana lazy), 11 door pages rendered. **e2e:** `arrival-voice` + `smoke` + `bungalow-doors` = 22 passed.<br><br>⚠️ **Read the test count from a QUIET machine.** This checkout lives on OneDrive and the default 5000 ms `testTimeout` sits right on top of its I/O latency. Runs taken while a Playwright suite shared the box reported 8, then 13, then **70** failures across 48 files — including `converts 1 ETH wei to 1.0`, pure arithmetic that cannot regress from a copy change. Re-running the suspects at `--testTimeout=30000` passed 35/35. A red count from a loaded run here is not evidence. |
-| 03 deployed and live-walked both voices | BLOCKED — needs the operator | local walk DONE (`arrival-voice.spec.ts`, both directions, screenshotted) | The code is walked and proven **locally against the production build**, both directions: `/` forms the venue and lands on `VenueHero` (h1 `MEMETICS.FINANCE.` / `Held time counts here.`, nav wordmark `MEMETICS.FINANCE`, footer `© 2026 memetics.finance`, no `Farm TOWELI.` h1, no Towelie assistant); `/toweli` persists the choice, keeps the address, and lands on the classic hero whole (`Farm TOWELI.`, `TEGRIDY FARMS` wordmark, Towelie quote + assistant, the yield calculator and TOWELI contract strip). Served-HTML identity verified in `dist/`: `<title>MEMETICS.FINANCE …`, canonical and `og:url` `https://memetics.finance/`, `og:site_name` `MEMETICS.FINANCE`, and **zero** `memetic.fun` strings left in any built HTML. **Needed from the operator: authorisation to commit.** The branch is `mvp-launch`, which is trunk, and **trunk auto-deploys to production** — so committing this IS the deploy and IS the public identity change (every share unfurl, the canonical domain, the front door). That is the operator's call to make, not Claude's. Nothing here is blocked on code. |
-| 04 domains canonical | PARTIAL — one operator click | live HTTP probe 2026-08-31 | Probed all three directly. **`memetics.finance` — already attached and serving from Vercel** (`Server: Vercel`, `X-Vercel-Id: pdx1::…`), which is why the canonical move is safe: the origin the app is about to declare already answers 200 with the app on it. **`memetic.fun` — attached and serving from Vercel** (same headers); stays as the redirect alias. **`memetics.fun` — NOT on the Vercel project.** It resolves to `76.223.67.189` (not Vercel's `76.76.21.21`), sends no Vercel headers, and serves a registrar parking stub: `<script>window.onload=function(){window.location.href="/lander"}</script>`. That is a GoDaddy-style forwarding rule, not a deployment. **Needed from the operator:** add `memetics.fun` to the Vercel project (one click per message on request), then repoint its DNS off parking. Claude must not change account settings or DNS. |
+| 01 changeset landed | DONE — transport #3 (intent map, §1) | `arrival.test.ts` (14) · `VenueDoors.test.tsx` (6, mutation-verified) · `OnboardingModal.test.tsx` (14) · `siteIdentity.test.ts` (9) · `bungalows.test.ts` (26) | **No `jbi-memetics-wave5.bundle` was supplied** — transport #1 was unavailable, and the §6 diff arrived as PDF text (indentation collapsed, unicode transliterated), so `git apply` was never possible. Applied by **intent at each named anchor**, with an assertion per anchor so a miss failed loudly instead of skipping silently. Every §1 mechanism is in: the choke point, the hall (`VenueDoors`, `OPEN_DOOR_IDS` as the single ruling the picker imports), the invited welcome, the noise cut, the way back, the door-art pass, the studio to prod. |
+| 02 gates green | DONE | typecheck 0 · lint 0 errors · **vitest 6370/6370** · build green · e2e 22 | `tsc -b` and `tsc -p tsconfig.test.json` both exit 0. **vitest: 453/453 files, 6370/6370 tests** on a quiet machine (`--maxWorkers=4 --testTimeout=30000`). The 5 pre-existing PWA `InstallPrompt` failures cleared themselves on trunk `15d5458c`. build green — dist-graph gate holds at **29 static closure chunks** with the studio landing as its own **46.76 kB** lazy chunk, 11 door pages rendered.<br><br>⚠️ **Read the count from a QUIET machine.** This checkout is on OneDrive and the default 5000 ms `testTimeout` sits on top of its I/O latency. Loaded runs reported 8, then 13, then **70** failures across 48 files — including `converts 1 ETH wei to 1.0`, pure arithmetic that cannot regress from a copy change. The same suspects passed 35/35 at 30 s. A red count from a loaded run here is not evidence. |
+| 03 deployed and live-walked all four ways | IN-PROGRESS | v1 live and verified; v3 not yet pushed | **v1 IS live** — `memetics.finance` and `memetic.fun` both serve `<title>MEMETICS.FINANCE …`, canonical and `og:url` on the canonical, `og:site_name` MEMETICS.FINANCE. **v3 is built and locally walked but NOT deployed**, so the hall, the noise cut, the way back, the studio and all 287 new art pieces are absent from production. Proven, not assumed: a new art file returns `text/html`, 11521 bytes on prod — **byte-identical to a deliberately fake control URL** — i.e. the SPA fallback, not the asset. The four-way walk runs against the next deploy. |
+| 04 domains canonical | PARTIAL — one operator click | live HTTP probe 2026-08-31 | **`memetics.finance`** — attached, Vercel-served, primary. **`memetic.fun`** — attached, Vercel-served, correctly minting og/canonical on the canonical origin. **`memetics.fun` — NOT on the project**: resolves to `76.223.67.189` (not Vercel's `76.76.21.21`), no Vercel headers, serves a registrar parking stub (`window.location.href="/lander"`). **Needed from the operator:** add it to the Vercel project, then repoint DNS off parking. Claude must not change account settings or DNS. |
+| 05 studio reachable in prod, export well-formed | DONE in code — proves on deploy | `App.tsx` routes ungated; build shows the lazy chunk | `/bayla-studio` and `/bungalow-studio/<id>` ship unlisted (URL-only, no nav entry). Prod has **no write path**: the `/__bungalow-studio/save` middleware is dev-only, so Save becomes **"Export placements"**, a client-side download. The client renderer is byte-identical to `bungalowStudioPlugin`'s writer — verified at codepoint level (both `U+2014`, not hyphens), so an exported file and a middleware-written file match for identical picks. Every resident now has a real pool to place. |
 
-## Deviations from the changeset, and why
+## The art drop (owner, 2026-08-31)
 
-The wave says: apply exactly; if trunk has moved and a hunk does not land, apply that hunk's
-intent at the same anchor and say so here; do not redesign. Trunk moved **107 commits** since
-the diff's base (`9fbab37`, 2026-08-26 → `5513f0ba`), so this section is the required record.
+Ten folders arrived at the **repo root**, not under `frontend/public/art/`. Copied in whole:
+**287 pieces** across bayla (53), bnkr (14), bobo (39), brainlet (21), drb (17), jbm (64),
+mfer (7), pepe (37), rizz (30), soy (5). QR has no folder and honestly keeps the classic
+fallback until one arrives. `scripts/gen-bungalow-art.mjs` scans the real directory and
+writes `src/lib/bungalowArtPools.ts`, so a pool can never name a file the deploy lacks.
 
-1. **Applied by intent, not by `git apply`.** The changeset arrived as a PDF, so the diff text
-   is not byte-appliable (indentation collapsed, unicode transliterated). Every hunk was applied
-   at its named anchor with an assertion that the anchor matched exactly once — a missed anchor
-   failed the run loudly rather than silently skipping. Anchors that had drifted and were applied
-   by intent: **`AppLayout.tsx`** (trunk added an `onSettledDoorstep` gate and gave `MuseBubble`
-   a `bungalow` prop, so the `isToweliVoice()` gate was folded into the existing conditions rather
-   than replacing them), **`index.html`** (the description line had been rewritten by the launcher
-   wave), **`BungalowDoor.tsx`** (the 2026-08-28 anti-reload-loop guards restructured the
-   initializer; only the `?? DEFAULT_BUNGALOW_ID` → `?? null` intent was applied, both guards left
-   intact), **`HomePage.tsx`** (the contract-strip gate is now one of two `!bungalowIdentity`
-   blocks, so it was anchored on its own comment).
-2. **CSP re-pinned from our own tree**, per §2's instruction — and it came out **identical** to
-   the diff's hash, confirming the JSON-LD block matches the author's exactly.
-3. **Social card badge widened, 214 → 250.** The only visual change made beyond the spec. At the
-   specified width the rendered PNG clipped its own text — "BOUNTY" sat outside the pill (checked
-   by rendering and zooming the actual `og.png`, not by reading the SVG). A badge that clips its
-   text fails the hunk's intent, so the pill was widened to fit; nothing else about the card moved.
-4. **`frontend/scripts/render-bungalow-doors.mjs` — not in the changeset, and it had to be.** It
-   carries its **own** copy of the canonical origin (`const SITE`) because it runs under bare Node
-   at postbuild and cannot import the TS constant. Moving `SITE_URL` to `memetics.finance` without
-   it would have shipped all **11 pre-rendered bungalow doors** declaring `canonical` and `og:url`
-   on the **old** origin while `index.html` declared the new one — the exact two-halves-disagree
-   failure `siteIdentity.test.ts` exists to prevent, one directory outside its reach. Fixed, and
-   verified in the built output (`dist/pepe/index.html` → `https://memetics.finance/pepe`).
-5. **`siteIdentity.test.ts` — one new case**, pinning (4) so the next origin move cannot leave the
-   doors behind. Mutation-verified: reverting the script's origin fails it, and only it.
-6. **`e2e/arrival-voice.spec.ts` — new.** The voice resolves at module scope in six separate files;
-   a regression in any one is a front-door branding leak that typechecks and unit-tests green. This
-   walks both directions in a real browser against the production build.
-7. **`SITE_URL` move is API-safe — checked, not assumed.** All **14** origin-gated `api/` surfaces
-   already allowlist `https://memetics.finance` (verified one by one). Had any been missing, the
-   live venue would have taken `403 Origin not allowed` on every browser-side call — the outage
-   class `api/__tests__/canonical-origin.test.js` was written for.
+**The trap that was one line away.** The curator's placements in `bungalowArtOverrides.ts`
+are keyed by `artId` (`"bayla|home:0"` → `bayla-05`). Building pool ids from the array index
+— the obvious way — would have silently repointed **all 74 saved placements** the moment
+Bayla's folder grew from 24 to 53 files. Ids are derived from the **filename** instead;
+verified afterwards that all 23 distinct artIds still resolve.
 
-## Tegridy strings found on default-arrival surfaces
+**What the owner will and will not see change.** Of 315 studio surfaces, **74 are pinned**
+by saved placements and every pin targets the 08-24 drop; **241 are free** and will rotate
+through the enlarged pools. So the nine residents who had no art at all change completely,
+while Bayla's curated surfaces stay exactly as placed — overrides beating rotation is the
+design, and that is the curator's own work being honoured, not a wiring failure.
 
-§4 asks for any missed string to be contained the same way and listed here. Swept the shared
-chrome and the venue home. Everything found was already inside a voice gate — `TowelieAssistant`
-(only under `isToweliVoice()`), the Footer copyright, the Towelie quote ticker and the
-`@TegridyFarms` share-tweet plus its `aria-label` (all inside the classic hero cluster or the
-TOWELI contract strip, both gated).
+## §4 containment — the strings this wave missed
 
-**Walked all 13 doors to prove it, rather than reasoning about it** (`/toweli` `/bayla` `/pepe`
-`/qr` `/mfer` `/bnkr` `/drb` `/bobo` `/jbm` `/soy` `/brainlet` `/rizz` `/nb1`). All 12 non-TOWELI
-doors render nav `MEMETICS.FINANCE`, footer `© 2026 memetics.finance`, and a title suffixed
-`| MEMETICS.FINANCE`, each over its own resident hero. `/toweli` alone renders `TEGRIDY FARMS`,
-`© 2026 Tegridy Farms` and `Farm TOWELI.` The sweep found exactly **one** Tegridy string on all
-13 doors: `Tegridy Curve`.
+Found on the operator's own lived walk. Two treatments: **voice-gated** where the string is
+classic Tegridy *branding*, **renamed** where "Tegridy" meant the operator and the fact is
+true in every room. **23 sites**: the PWA manifests (static — a manifest cannot be
+voice-gated, so the installed app is now `MEMETICS.FINANCE`), the install prompt, the
+onboarding flow and its steps, the transaction receipt, the referral widget, the bounty
+placeholder, the community gallery line, the venue-fee lines, the yield router fee label,
+the heat card, the DCA pool line, the curve trade panel, and the admin titles.
 
-- **"Tegridy Curve" → "Memetics Curve" — RENAMED 2026-08-31, on the owner's call.** It was first
-  flagged here as a deliberate non-change (the name of a live on-chain product, the same class as
-  the CoW `appCode`); the owner ordered it renamed so nothing outside `/toweli` speaks Tegridy.
-  **27 occurrences across 11 files** — the launch-rails card, both nav entries, every curve page
-  H1 and `usePageTitle`, the contracts page, and Towelie's knowledge base — plus the 2
-  "zero-toll Tegridy bonding curve" meta descriptions that sit on the *same lines* as the renamed
-  H1s and would otherwise have contradicted them. **Copy only: routes (`/eth-curve`,
-  `/curve-launch`), contract names and addresses are untouched.** Guarded during the rename by
-  assertions that `Tegridy Farms` (the CoW `appCode` §4 protects) and `Tegridy pool` counts came
-  out unchanged in every file.
+**A real bug caught in passing:** three prewritten tweets tagged **`@TegridyFarms`**, a
+handle nothing else in the app references — the footer's own link is `x.com/junglebayac`.
+These post under a *visitor's* name, so the wrong tag survives any later correction. Owner
+confirmed 2026-08-31: **`@TegridyFarms` is not theirs, `@JungleBayAC` is.** Repointed. Same
+failure class as the `tegridyfarms.io` fix already recorded two lines away in that file.
 
-**Still saying Tegridy, deliberately:** `Tegridy pool` (17 sites) is the **AMM**, a different
-product from the curve, and was not in scope — flagged, not ordered. `TegridyScore` is a distinct
-shipped feature. `docs/AUDIT_FRONTEND_2026_08_28.md` keeps the old name because it is a historical
-record and must not be rewritten. The CoW `appCode 'Tegridy Farms'` stays untouched per §4.
+**Deliberately not touched**, and why: deployed contract names (`TegridyStaking`,
+`TegridyFactory`, …) and the ContractsPage rows carrying their addresses — on-chain
+identity; `ChangelogPage` — a dated historical record that must not be rewritten;
+`TegridyScore` — a distinct shipped feature, a naming decision of its own; the CoW
+`appCode`; the `tegridy_telemetry_consent` key. **"Tegridy Curve" → "Memetics Curve"** was
+renamed on the owner's explicit call (27 sites, 11 files, display name only — routes and the
+`TegridyCurveLauncher` contract untouched), plus the 9 curve-graduation mentions that would
+otherwise have read "Memetics Curve … graduates into a Tegridy pool".
 
-## Note for the island
+## Deviations from the changeset
 
-`memetics.finance` was already attached to the Vercel project and already serving the app before
-this wave — it was simply declaring `memetic.fun` as its canonical and titling itself
-"Tegridy Farms | TOWELI Yield Farm". So this wave does not point the venue at a new address; it
-makes the venue stop introducing itself as somewhere else.
+1. **`AppLoader.tsx` is not in v3's file list**, but §1 requires the intro's words and gallery
+   to come from `loaderIdentity()`. It hardcoded `TEGRIDY`/`FARMS` in four places; wired in
+   the v1 pass and kept, rather than reverting to a state §1 contradicts.
+2. **Badge pill 214 → 250.** v3 still carries the width whose rendered PNG clips its own
+   text — "BOUNTY" sits outside the pill. Caught by rendering and zooming the actual raster,
+   not by reading the SVG.
+3. **`scripts/render-bungalow-doors.mjs`** carries its own copy of the canonical origin
+   (bare Node at postbuild). Without it, all 11 pre-rendered doors would have declared the
+   old origin while `index.html` declared the new one. Fixed, and pinned by a new
+   mutation-verified case in `siteIdentity.test.ts`.
+4. **`e2e/arrival-voice.spec.ts`** added: the voice resolves at module scope in six files, so
+   a regression is a front-door leak that typechecks and unit-tests green.
+5. **Chain pills** cut to `ETHEREUM · SOLANA · BASE` on the owner's call. Base added (the
+   curve launches there; several lighthouses are Base pools). The fail-closed Solana route —
+   which drops to `/scan` when the swap rail is dark — is untouched; only the words changed.
+6. **`react-refresh/only-export-components`** warns twice on `VenueDoors.tsx` because it
+   exports `OPEN_DOOR_IDS` and `doorState` beside components. That is v3's own design (the
+   picker imports the ruling so the two cannot disagree). 0 errors.
+
+## Wave four
+
+There is **no wave-four directive anywhere in this repo** — only forward references from
+wave three ("we would keep that rail for wave four"). The 08-25 window contains the Bayla
+lighthouse / Streamflow staking go-live (`4adad446` the mainnet pool pinned, `0a787734`
+staking wired, `5d6cb700` the ceremony and four honesty fixes, `129e9479` one-command
+funding). That work is real and on trunk, but mapping it to phase rows would mean inventing
+done-means the island never published. **Needed from the island:** wave four's phase list,
+and the rows will be filled against its own contract rather than a guess.

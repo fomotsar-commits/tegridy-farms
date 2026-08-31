@@ -40,7 +40,11 @@ describe('bungalow art overrides (pageArt bungalow branch)', () => {
   it('falls back to the deterministic rotation when nothing is overridden', async () => {
     const pageArt = await loadPageArt({});
     const piece = pageArt('farm', 0);
-    expect(piece.src).toMatch(/^\/art\/bayla\/bayla-\d\d\.jpg$/);
+    // Her pool is SCANNED from public/art/bayla/ (the 08-24 drop plus the
+    // 08-31 folder), so pinning one drop's filename convention here would
+    // fail the moment the curator adds a piece. The property that matters:
+    // the rotation draws from HER folder and is stable per surface.
+    expect(piece.src).toMatch(/^\/art\/bayla\/[^/]+\.(jpe?g|png|webp|avif)$/i);
     // Deterministic: the same surface resolves to the same piece every time.
     expect(pageArt('farm', 0).id).toBe(piece.id);
   });

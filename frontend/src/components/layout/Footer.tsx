@@ -141,6 +141,11 @@ export function Footer() {
                 {VENUE.tagline}. Bungalows for meme communities, launches that open on Heat, and fees you can read onchain. Ethereum, Base and Solana.
               </p>
             )}
+            {/* ARRIVAL FLOW 2026-08-31: the venue pins no single resident's
+                contract. A bungalow footer shows its own token's CA; the
+                TOWELI card renders inside the TOWELI bungalow. The venue
+                footer stays the island's: name, vow, doors. */}
+            {(bungalowIdentity || isToweliVoice()) && (
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
                 {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'TOWELI contract'}
@@ -158,6 +163,7 @@ export function Footer() {
                 </a>
               )}
             </div>
+            )}
           </div>
 
           {/* Product */}

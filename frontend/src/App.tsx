@@ -38,11 +38,16 @@ const AdminPage = lazy(() => import('./pages/AdminPage'));
 const ArtStudioPage = import.meta.env.DEV
   ? lazy(() => import('./pages/ArtStudioPage'))
   : null;
-// Same gate for the bungalow skin studio (/bayla-studio) — it writes source
-// files through a dev-only vite middleware, so it must never ship to prod.
-const BungalowArtStudioPage = import.meta.env.DEV
-  ? lazy(() => import('./pages/BungalowArtStudioPage'))
-  : null;
+// ISLAND ORDER 2026-08-31: the bungalow skin studio SHIPS TO PROD as an
+// unlisted, export-only room (reached by URL only; no nav entry links it).
+// R002's reasoning still holds for the classic /art-studio above — that one
+// stays dev-only — but the island's curator needs to place door art by eye
+// in a real browser. In prod the page has no write path at all: the
+// dev-only `/__bungalow-studio/save` middleware does not exist there, so
+// Save becomes "Export placements", a client-side download of the same
+// module the middleware would have written. Its own lazy chunk, so a
+// visitor who never opens the studio pays nothing for it.
+const BungalowArtStudioPage = lazy(() => import('./pages/BungalowArtStudioPage'));
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
@@ -322,29 +327,22 @@ function AnimatedRoutes() {
         }
       />
       {/* Bayla studio — the same tool aimed at the Bayla bungalow's own art
-          pool. Writes src/lib/bungalowArtOverrides.ts. Dev-only, same as above.
+          pool. UNLISTED IN PROD (ISLAND ORDER 2026-08-31): reachable by URL
+          only, export-only, no write path off the dev middleware.
           NOTE: this path must stay OUTSIDE the bungalow-door slugs (a door is
           /bayla); '/bayla-studio' is not an island slug, so no collision. */}
       <Route
         path="bayla-studio"
-        element={
-          import.meta.env.DEV && BungalowArtStudioPage
-            ? <Suspense fallback={<PageSkeleton />}><BungalowArtStudioPage bungalowId="bayla" /></Suspense>
-            : <Navigate to="/" replace />
-        }
+        element={<Suspense fallback={<PageSkeleton />}><BungalowArtStudioPage bungalowId="bayla" /></Suspense>}
       />
       {/* Generic per-resident studio (WO-1): /bungalow-studio/<id> aims the
           SAME tool at any registry bungalow — the page and the override store
-          were parametric all along, only this route pinned 'bayla'. Dev-only;
-          an unknown id lands home. '/bungalow-studio' is not an island slug,
+          were parametric all along, only this route pinned 'bayla'. Unlisted in
+          prod alongside /bayla-studio; an unknown id lands home. '/bungalow-studio' is not an island slug,
           so door routing is untouched. */}
       <Route
         path="bungalow-studio/:bungalowId"
-        element={
-          import.meta.env.DEV && BungalowArtStudioPage
-            ? <BungalowStudioDoor />
-            : <Navigate to="/" replace />
-        }
+        element={<BungalowStudioDoor />}
       />
       <Route element={<AppLayout />}>
         <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { VENUE } from '../lib/arrival';
+import { VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { OPEN_BUNGALOWS_EVENT } from '../lib/bungalows';
 
 /**
@@ -55,6 +55,17 @@ export function VenueHero() {
           Scan any token
         </Link>
       </div>
+
+      {/* ARRIVAL FLOW 2026-08-31: orientation by invitation. The venue never
+          auto-opens its welcome; this quiet pill is the door to the tour. */}
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event(OPEN_VENUE_WELCOME_EVENT))}
+        className="mt-3 block text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
+        style={{ color: 'rgba(255,255,255,0.75)' }}
+      >
+        First time on the island? Take the tour
+      </button>
 
       {/* The island line: same pill geometry as the ticker it replaces. */}
       <div className="mt-4 min-h-[48px] md:min-h-[34px] flex items-center">
