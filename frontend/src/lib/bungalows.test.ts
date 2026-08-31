@@ -226,6 +226,16 @@ describe('resolution order', () => {
       bnkr: '0x2a5F65f4C74b1E49E77Ae9a57e20FbdB0CEd11d2',
       drb: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
       jbm: '0xF261940cdC04d8F2422345Ff6091d6FA601541fa',
+      // Solana lighthouses (Streamflow ceremonies, 2026-08-30). Each was read
+      // back through the app's OWN SDK path before landing here: the pool's
+      // mint matches the resident's corrected contract, and the ladder is the
+      // intended 5.00x over 1..365 days (maxWeight 5e9, min 86400, max
+      // 31536000) — the shape whose absence forced BAYLA's first pool to be
+      // abandoned and rebuilt at a new nonce.
+      bobo: 'PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w',
+      soy: '5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj',
+      brainlet: '2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR',
+      rizz: 'BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c',
     };
     for (const [id, pool] of Object.entries(POOLS)) {
       expect(BUNGALOWS.find((b) => b.id === id)?.stakePool, `${id} lighthouse`).toBe(pool);
