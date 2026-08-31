@@ -13,6 +13,7 @@ const OFFERABLE = {
   dismissed: false,
   installed: false,
   onSubAppRoute: false,
+  firstRunPending: false,
 };
 
 describe('shouldOfferInstall', () => {
@@ -37,6 +38,12 @@ describe('shouldOfferInstall', () => {
 
   it('stands down on the sub-app route, which has a banner of its own', () => {
     expect(shouldOfferInstall({ ...OFFERABLE, onSubAppRoute: true })).toBe(false);
+  });
+
+  it('waits out the first run instead of becoming a third stacked dialog', () => {
+    // A first visit already shows the welcome modal and the consent banner.
+    // Adding this on top was three dialogs before any of the page was legible.
+    expect(shouldOfferInstall({ ...OFFERABLE, firstRunPending: true })).toBe(false);
   });
 });
 

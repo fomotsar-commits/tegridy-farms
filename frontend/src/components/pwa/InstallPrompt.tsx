@@ -7,6 +7,7 @@ import {
   readInstallDismissed,
   shouldOfferInstall,
 } from '../../lib/pwa/install';
+import { getConsent } from '../../lib/consent';
 
 // The install offer for the main app.
 //
@@ -70,11 +71,17 @@ export function InstallPrompt() {
     persistInstallDismissed();
   }, []);
 
+  // Read during render (not cached in state) so the offer returns by itself on
+  // the next render once the visitor answers the consent banner.
+  let consentPending = false;
+  try { consentPending = getConsent() === 'pending'; } catch { /* storage denied — treat as answered */ }
+
   const offer = shouldOfferInstall({
     promptAvailable: deferred !== null,
     dismissed,
     installed,
     onSubAppRoute: isSubAppRoute(pathname),
+    firstRunPending: consentPending,
   });
 
   if (!offer) return null;

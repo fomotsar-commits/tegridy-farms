@@ -58,6 +58,16 @@ export interface InstallOfferInputs {
    * one screen is not a worse offer than one, it is a broken-looking page.
    */
   onSubAppRoute: boolean;
+  /**
+   * The visitor has not answered the privacy banner yet, so this is still their
+   * very first screen. Observed 2026-08-30: a first visit stacked the welcome
+   * modal, the consent banner AND this prompt at once — three dialogs before a
+   * single word of the page. That is the same broken-looking page the sub-app
+   * rule above exists to prevent, so the install offer waits until the visitor
+   * is actually in the app. It costs nothing: the deferred event stays held and
+   * the offer returns on the next render once consent has been answered.
+   */
+  firstRunPending: boolean;
 }
 
 export function shouldOfferInstall(inputs: InstallOfferInputs): boolean {
@@ -65,6 +75,7 @@ export function shouldOfferInstall(inputs: InstallOfferInputs): boolean {
   if (inputs.dismissed) return false;
   if (inputs.installed) return false;
   if (inputs.onSubAppRoute) return false;
+  if (inputs.firstRunPending) return false;
   return true;
 }
 
