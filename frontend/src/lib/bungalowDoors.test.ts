@@ -24,6 +24,21 @@ describe('bungalow door unfurls (scripts/render-bungalow-doors.mjs)', () => {
     }
   });
 
+  it('covers every ADDRESSED bungalow, live or not — a door with no unfurl ships no OG card', () => {
+    // 2026-08-28: settled doors were landings, each with its own unfurl.
+    // 2026-08-30 (placeholder-skin flip): every settled resident is LIVE, so
+    // the old !live filter would match nothing and pin nothing. The invariant
+    // that survives both worlds: any bungalow with an ADDRESS — whatever its
+    // live state — has a DOORS entry, so a shared link always unfurls.
+    const addressed = BUNGALOWS
+      .filter((b) => b.address && b.id !== DEFAULT_BUNGALOW_ID)
+      .map((b) => b.id);
+    expect(addressed.length).toBeGreaterThan(0);
+    for (const id of addressed) {
+      expect(doorPaths, `addressed bungalow '${id}' needs a DOORS entry in the postbuild script`).toContain(id);
+    }
+  });
+
   it('never invents a door for an id outside the island registry', () => {
     const ids = new Set(BUNGALOWS.map((b) => b.id));
     for (const p of doorPaths) {

@@ -128,7 +128,7 @@ function expectBaseUnits(label: string, v: unknown): bigint {
  * `json` is `unknown` on purpose: it comes off the wire, and the guards below are
  * the only thing that makes any statement about its shape true.
  */
-export function parseEthereumScan(_contract: string, json: unknown): AdapterResult {
+export function parseEthereumScan(_contract: string, json: unknown, chain: 'ethereum' | 'base' = 'ethereum'): AdapterResult {
   // A body that is not an object cannot carry a holder list, so the guard below is
   // what reports it. This narrowing exists only so a null or primitive body reaches
   // that guard instead of throwing an untyped TypeError on the way.
@@ -211,18 +211,29 @@ export function parseEthereumScan(_contract: string, json: unknown): AdapterResu
     token,
     enumeratedHolders: holders.length,
     holderCoverage: coverage,
-    source: source ? `Ethereum explorer (${source}, top holders)` : 'Ethereum explorer (top holders)',
+    source: source
+      ? `${chain === 'base' ? 'Base' : 'Ethereum'} explorer (${source}, top holders)`
+      : `${chain === 'base' ? 'Base' : 'Ethereum'} explorer (top holders)`,
   };
 }
 
-/** Fetch + parse an ERC-20 scan through the normalized v1 route. */
-export async function fetchEthereumScan(contract: string, signal?: AbortSignal): Promise<AdapterResult> {
-  const url = `${V1_PATH}?route=erc20scan&contract=${encodeURIComponent(contract.toLowerCase())}`;
+/**
+ * Fetch + parse an ERC-20 scan through the normalized v1 route. Base rides the
+ * same route + shape via `?chain=base` (server-side Blockscout leg) — one
+ * adapter, zero forked parsing.
+ */
+export async function fetchEthereumScan(
+  contract: string,
+  signal?: AbortSignal,
+  chain: 'ethereum' | 'base' = 'ethereum',
+): Promise<AdapterResult> {
+  const chainLabel = chain === 'base' ? 'Base' : 'Ethereum';
+  const url = `${V1_PATH}?route=erc20scan&contract=${encodeURIComponent(contract.toLowerCase())}${chain === 'base' ? '&chain=base' : ''}`;
   let res: Response;
   try {
     res = await fetch(url, { headers: { accept: 'application/json' }, signal });
   } catch {
-    throw new ScanError('network', 'Could not reach the Ethereum data proxy.');
+    throw new ScanError('network', `Could not reach the ${chainLabel} data proxy.`);
   }
 
   if (res.status === 429) throw new ScanError('rate-limited', 'Too many scans right now — try again in a moment.');
@@ -249,16 +260,16 @@ export async function fetchEthereumScan(contract: string, signal?: AbortSignal):
   if (res.status === 400 || res.status === 403 || res.status === 404 || res.status === 501) {
     throw new ScanError(
       'unavailable',
-      'Ethereum token scanning is not enabled on this deployment yet — the holder-data source is unconfigured or its key is missing.',
+      `${chainLabel} token scanning is not enabled on this deployment yet — the holder-data source is unconfigured or its key is missing.`,
     );
   }
-  if (!res.ok) throw new ScanError('network', `Ethereum data proxy returned ${res.status}.`);
+  if (!res.ok) throw new ScanError('network', `${chainLabel} data proxy returned ${res.status}.`);
 
   let json: unknown;
   try {
     json = await res.json();
   } catch {
-    throw new ScanError('network', 'Ethereum data proxy returned an invalid response.');
+    throw new ScanError('network', `${chainLabel} data proxy returned an invalid response.`);
   }
-  return parseEthereumScan(contract, json);
+  return parseEthereumScan(contract, json, chain);
 }

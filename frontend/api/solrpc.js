@@ -64,10 +64,25 @@ const ALLOWED_SCAN_PROGRAMS = new Set([
 function isAllowedRpcCall(c) {
   if (!c || typeof c.method !== "string") return false;
   if (c.method === "getProgramAccounts") {
+    // Program allowlist alone re-opened the L-1 hole: these are PUBLIC
+    // shared programs (every Streamflow customer's accounts), so a
+    // filterless scan is unbounded work billed to the keyed upstream even
+    // when the oversized response 502s back. The SDK always narrows with
+    // filters (memcmp/dataSize) — require them, bounded in count.
+    const cfg = c.params?.[1];
+    const filters = cfg && Array.isArray(cfg.filters) ? cfg.filters : null;
+    const filtersNarrow =
+      filters !== null &&
+      filters.length >= 1 &&
+      filters.length <= 8 &&
+      filters.every(
+        (f) => f && typeof f === "object" && ("memcmp" in f || "dataSize" in f),
+      );
     return (
       Array.isArray(c.params) &&
       typeof c.params[0] === "string" &&
-      ALLOWED_SCAN_PROGRAMS.has(c.params[0])
+      ALLOWED_SCAN_PROGRAMS.has(c.params[0]) &&
+      filtersNarrow
     );
   }
   return ALLOWED_SOL_METHODS.has(c.method);

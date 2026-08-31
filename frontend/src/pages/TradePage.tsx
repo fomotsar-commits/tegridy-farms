@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
+import { RealYieldProof } from '../components/RealYieldProof';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { useSwap } from '../hooks/useSwap';
@@ -653,6 +654,25 @@ export default function TradePage() {
             </>
             </div>
           </m.div>
+        )}
+        {tab === 'swap' && (
+          <>
+            {/* The venue story, where a competitor's user first lands: fees here
+                are REAL yield to stakers, and the curve pays creators 0.40% of
+                every trade — a checkable on-chain number, not a superlative
+                (the honesty-vocabulary bar). Both claims link to their
+                checkable surfaces. */}
+            <RealYieldProof />
+            <div className="glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
+              <p className="text-[13px] text-text-secondary leading-relaxed">
+                <span className="text-text-primary font-medium">Launching something?</span>{' '}
+                The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Tegridy Curve</Link>{' '}
+                pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee,
+                on-chain, claimable any time) and graduates into this venue with the LP burned — and every token here is{' '}
+                <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline">scannable</Link>.
+              </p>
+            </div>
+          </>
         )}
 
         {/* Liquidity Tab */}

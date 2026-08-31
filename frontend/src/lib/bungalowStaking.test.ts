@@ -47,22 +47,14 @@ vi.mock('@solana/spl-token', () => ({
   createAssociatedTokenAccountIdempotentInstruction: vi.fn(() => ({ __ix: 'create-receipt-ata' })),
 }));
 
+// The ladder/weight/rate display helpers are exercised in
+// bungalowStakingRates.test.ts against the real SDK — this file pins the
+// adapter seam (reads, writes, failure mapping) and the exit-safety predicate.
 import {
   readPool,
   readEntries,
-  readWalletBalance,
   nextVacantNonce,
   stake,
-  lockPresets,
-  labelForDays,
-  stakeWeightScaled,
-  stakeWeight,
-  isFlatWeight,
-  rewardRatePerPeriod,
-  configuredAnnualRate,
-  rateIsPercent,
-  vaultRunwaySecs,
-  unlockTs,
   WEIGHT_SCALE,
   type PoolView,
   type StakeEntryView,
@@ -209,5 +201,96 @@ describe('stake', () => {
     const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe('You declined the signature — nothing moved.');
+  });
+
+  it('NEVER claims "nothing moved" for a post-broadcast confirmation timeout — outcome unknown + signature', async () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    // web3's TransactionExpiredTimeoutError shape: fired AFTER broadcast,
+    // carries the signature. Asserting "nothing moved" here invited a
+    // duplicate stake (a second real lock) — the recorded submit-path lesson.
+    execute.mockRejectedValue(Object.assign(
+      new Error('Transaction was not confirmed in 30.00 seconds. It is unknown if it succeeded or failed.'),
+      { signature: 'S1gnatuRE111' },
+    ));
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain('Outcome unknown');
+      expect(r.reason).toContain('S1gnatuRE111');
+      expect(r.reason).not.toContain('nothing moved');
+    }
+  });
+
+  it('maps Streamflow 6012 (vault cannot cover payout) to the proven dry-vault explanation', async () => {
+    prepareStakeInstructions.mockResolvedValue({ ixs: [] });
+    prepareCreateRewardEntryInstructions.mockResolvedValue({ ixs: [] });
+    getAccountInfo.mockResolvedValue({ owner: { toBase58: () => 'ReceiptProgram' } });
+    execute.mockRejectedValue(new Error('Raw transaction Xyz failed ({"err":{"InstructionError":[2,{"Custom":6012}]}})'));
+    const r = await stake({ invoker, pool, amountRaw: 1n, durationSecs: 86400, entries: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain('vault');
+      expect(r.reason).toContain('topped up');
+    }
+  });
+});
+
+describe('payingNowRate — the stat must never contradict the banner beside it', () => {
+  it('pays 0 in EVERY dry state, including the two a `funded > 0n` gate misses', async () => {
+    const { payingNowRate } = await import('./bungalowStaking');
+    // The shipped defect: dust and sub-day runway are non-zero `funded`, so the
+    // old gate printed the full configured APR in green directly above a banner
+    // saying paying-now is 0%. vaultDry is the banner's own predicate.
+    expect(payingNowRate(0.219, 0n, true), 'empty vault').toBe(0);
+    expect(payingNowRate(0.219, 1n, true), 'DUST vault — the contradiction').toBe(0);
+    expect(payingNowRate(0.219, 500_000n, true), 'sub-day runway — the contradiction').toBe(0);
+  });
+
+  it('pays the configured rate only when the vault can actually back it', async () => {
+    const { payingNowRate } = await import('./bungalowStaking');
+    expect(payingNowRate(0.219, 5_000_000_000n, false)).toBe(0.219);
+  });
+
+  it('an UNREADABLE vault is an outage, never a paying zero', async () => {
+    const { payingNowRate } = await import('./bungalowStaking');
+    // vaultIsMateriallyEmpty returns false on an unreadable vault, so without
+    // the null guard an outage would render as the full configured rate.
+    expect(payingNowRate(0.219, null, false)).toBe(0);
+  });
+});
+
+describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRunwaySecs)', () => {
+  // 6/6 decimals, 0.003/period, daily periods, 1,000 tokens effectively
+  // staked → burn = 3 tokens/day = 3_000_000 raw/day.
+  const mkPool = (totalEffectiveStakeRaw: bigint) => ({
+    address: 'P', mint: 'M', decimals: 6, tokenProgram: 'T',
+    minDurationSecs: 86400, maxDurationSecs: 86400 * 365,
+    minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
+    totalStakeRaw: totalEffectiveStakeRaw, totalEffectiveStakeRaw,
+    rewardPools: [],
+  });
+  const mkRp = (fundedRaw: bigint | null) => ({
+    address: 'Rp', mint: 'M', nonce: 0, vault: 'V', decimals: 6, permissionless: true,
+    fundedRaw, rewardAmountRaw: '3000000', rewardPeriodSecs: 86400,
+  });
+
+  it('dust cannot clear the empty banner, and <1 day of burn is still empty', async () => {
+    const { vaultIsMateriallyEmpty } = await import('./bungalowStaking');
+    const staked = mkPool(1_000_000_000n);
+    const unstaked = mkPool(0n);
+    expect(vaultIsMateriallyEmpty(unstaked, mkRp(0n))).toBe(true);
+    // The 1-raw-unit grief: a stranger funding dust used to hide the warning.
+    expect(vaultIsMateriallyEmpty(unstaked, mkRp(1n))).toBe(true);
+    expect(vaultIsMateriallyEmpty(unstaked, mkRp(999_999n))).toBe(true);
+    // ≥1 whole token with zero burn (nothing staked): runway unstatable → not "empty".
+    expect(vaultIsMateriallyEmpty(unstaked, mkRp(2_000_000n))).toBe(false);
+    // 2 tokens against 3-token/day burn = 0.67 days of runway → still empty.
+    expect(vaultIsMateriallyEmpty(staked, mkRp(2_000_000n))).toBe(true);
+    // 4 tokens = 1.33 days → past the floor.
+    expect(vaultIsMateriallyEmpty(staked, mkRp(4_000_000n))).toBe(false);
+    // Unreadable vault is an OUTAGE, not a verdict.
+    expect(vaultIsMateriallyEmpty(staked, mkRp(null))).toBe(false);
   });
 });

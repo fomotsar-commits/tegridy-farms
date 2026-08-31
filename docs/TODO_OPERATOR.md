@@ -29,7 +29,85 @@ stop and say so — a surprise is information.
 
 ---
 
-## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — newest layer; supersedes everything below
+## 🟢 2026-08-30 — ISLAND BUILDOUT (WO-3 dry-runs done) — newest layer; supersedes everything below
+
+Branch `claude/bungalow-buildout` (PR #341). Full plan: [`ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md).
+
+**Decision 1 below (BAYLA duration bonus) is RESOLVED ON-CHAIN — do not re-decide.** The
+replacement lighthouse pool `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f` carries the real
+ladder (1.00x at 1d → 5.00x at 365d, ~21.9% → ~109.5% APR at the funded rate) and the frontend
+is repinned to it. The old flat pool is retired (it still holds the operator's own 1,000 BAYLA
+dust-test stake to ~2027-08; nothing can release it).
+
+**WO-3 — Solana lighthouse dry-runs for the three settled Solana residents: DONE, nothing
+signed.** All three mints verified ON-CHAIN 2026-08-30 through the ceremony script itself
+(it now reads decimals + token program from the chain before planning; `--decimals` is only a
+cross-check and the script refuses on mismatch):
+
+| resident | mint | decimals | program | authorities |
+|---|---|---|---|---|
+| BOBO | `4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump` | 6 | Tokenkeg (classic) | mint+freeze revoked |
+| SOY | `8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump` | 6 | Tokenkeg (classic) | mint+freeze revoked |
+| BRAINLET | `4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump` | 6 | Tokenkeg (classic) | mint+freeze revoked |
+
+No Token-2022, no extensions, no transfer hooks — the BAYLA ceremony flow works for all three
+unmodified. **What broadcasting needs from YOU (per resident, ~10 min each):** pick the rate
+(economics are your call — `--rate` is refused with a default on mainnet), then run the printed
+dry-run command with `--keypair … --broadcast`, paste the pool address into the registry
+`stakePool` slot, and FUND LAST in public. The BAYLA-parity shape used in the dry-runs:
+`node scripts/bayla-lighthouse-ceremony.mjs --rate <yours> --mint <mint> --max-days 365
+--max-weight 5 --accept-long-lock`. ⚠️ Do NOT broadcast a pool for a resident whose community
+has not asked for one — a stake pool is a promise (locks with NO early exit), not a growth hack.
+
+### ✅ THE LIGHTHOUSE ROLLOUT — 12 of 13 DONE (2026-08-30)
+
+**⚠ THE OLD DEPLOY KIT THAT STOOD HERE HAS BEEN DELETED ON PURPOSE.** It listed
+the pre-correction RIZZ / SOY / BRAINLET addresses; re-running it would deploy
+pools against TICKER-COLLISION IMPOSTORS — tokens sharing the exact name and
+symbol of the real residents. Nine pools already exist; do not re-deploy any of
+them. Live addresses: `frontend/scripts/addresses.json` (`lighthouse-*`),
+pinned in `bungalows.test.ts`.
+
+**Live pools.** Base (vendored Synthetix StakingRewards; notifier = Base
+fee-remittance Safe `0xfc5D…fbf1`; no owner role exists): QR, MFER, BNKR, DRB,
+JBM. Solana (Streamflow, 1→365d ladder ramping 1.00x→5.00x): BAYLA, BOBO, SOY,
+BRAINLET, RIZZ. Every reward vault is EMPTY and every card says so.
+
+**⬜ THE ONLY DEPLOY LEFT — PEPE on Ethereum mainnet** (~$5-15 gas; the L2-set
+Safes hold no mainnet code, so the notifier is the mainnet treasury Safe):
+
+```powershell
+cd "C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\contracts"; $env:EXPECTED_CHAIN_ID='1'; $env:REWARDS_DISTRIBUTION='0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d'; $env:STAKING_TOKEN='0x6982508145454ce325ddbe47a25d4ec3d2311933'; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployLighthouseStaking.s.sol --rpc-url https://ethereum-rpc.publicnode.com --broadcast --private-key "0xYOUR_KEY"
+```
+
+Hand the printed address to the agent: it derives the EIP-55 form with
+`getAddress(addr.toLowerCase())` — NEVER hand-typed, since a hand-typed
+checksum silently broke four Base cards on 2026-08-30 — wires the registry,
+and pushes.
+
+**⬜ BEFORE FUNDING ANY BASE POOL — prove the notifier Safe can execute.** All
+five Base lighthouses bind `rewardsDistribution` to `0xfc5D…fbf1` PERMANENTLY
+(the vendored contract exposes no setter). The registry records that Safe as
+never having executed a transaction. Do a throwaway Safe transaction from it
+first; if it cannot execute, those five pools can never be funded and would
+have to be redeployed with a working notifier.
+
+**⬜ FUND LAST, IN PUBLIC.** EVM: `contracts/script/FundLighthouseStaking.s.sol`
+enforces the same-token law (`reward <= balanceOf(pool) - totalSupply()`) in the
+broadcast path — but the broadcaster must BE the notifier Safe, so run it with
+`--sender` and execute the printed calls through the Safe UI rather than
+broadcasting an EOA transaction. Solana: `--fund --pool <addr> --amount <whole>`
+on the ceremony script.
+
+**⚠ VERCEL ENV FOOTGUN.** `VITE_BAYLA_STAKE_POOL`, if set in Vercel, OVERRIDES
+the hardcoded BAYLA pool. It must be unset or exactly
+`EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`. The ceremony script's closing
+"set this in Vercel env" line applies to BAYLA ONLY — never point that variable
+at another resident's pool; every other pool is hardcoded in the registry.
+
+---
+
+## 🟢 2026-08-29 — SOLANA LP VENUE + BAYLA SURFACES — supersedes everything below
 
 Two sessions' work. Full records: [`SOLANA_LP_VENUE_2026_08_29.md`](SOLANA_LP_VENUE_2026_08_29.md)
 and [`BAYLA_STAKING_SWAP_2026_08_28.md`](BAYLA_STAKING_SWAP_2026_08_28.md).
@@ -106,7 +184,10 @@ is advisory today. Unenforced, it is a comment.
 
 ### 🔴 Two decisions on the BAYLA lighthouse pool
 
-1. **The pool grants NO duration bonus.** `minWeight == maxWeight == 1e9`, so a 365-day lock earns
+1. ✅ **RESOLVED ON-CHAIN 2026-08-30 — see the 08-30 layer at the top.** The ladder pool exists
+   (`EFWpSpH9…EZ9f`, 1.00x→5.00x) and the frontend points at it; the flat pool is retired.
+   Original text kept for the record:
+   **The pool grants NO duration bonus.** `minWeight == maxWeight == 1e9`, so a 365-day lock earns
    exactly what a 1-day lock earns — only the exit date changes. `maxWeight` is set at pool
    CREATION, so a TOWELI-style "lock longer, earn more" curve needs a **new pool and a staker
    migration**. The UI already implements the program's real weight curve and would light up with

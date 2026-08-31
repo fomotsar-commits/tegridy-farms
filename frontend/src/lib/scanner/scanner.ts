@@ -15,8 +15,15 @@
 
 import { analyzeDistribution, type DistributionAnalysis, type DistributionInput } from '../detection';
 
-/** Chains the scanner can auto-detect and read. Mirrors the core's `ChainKind`. */
-export type ScanChain = 'ethereum' | 'solana';
+/**
+ * Chains the scanner can read. 'ethereum' and 'solana' are auto-detectable
+ * from address FORMAT; 'base' shares the 0x format with Ethereum, so it can
+ * only arrive via an explicit `chainOverride` (UI toggle / caller knowledge).
+ * The pure detection core stays typed to its own `ChainKind`
+ * ('ethereum' | 'solana') — Base runs the core under EVM semantics (see
+ * scanToken), only the outcome keeps the caller's chain for display.
+ */
+export type ScanChain = 'ethereum' | 'base' | 'solana';
 
 /** EVM 0x-prefixed 40-hex address. */
 const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -137,6 +144,9 @@ export function buildCoverageNotes(r: {
   if (!r.snipersResolved) {
     notes.push('Sniper detection was not run for this read (needs launch-window trade history) — the sniper-held signal is a gap, not a zero.');
   }
+  if (r.chain === 'base') {
+    notes.push('Named-entity exclusion labels (CEX wallets, bridges, lockers) are Ethereum-curated and may not match Base addresses — on Base, non-person holders are excluded by their on-chain contract flag only. Unmatched pools can only OVERSTATE concentration, so read this as an upper bound.');
+  }
   return notes;
 }
 
@@ -165,9 +175,15 @@ export async function scanToken(
     throw new ScanError('empty', 'No holder data was returned for this token.');
   }
 
+  // The pure core knows 'ethereum' | 'solana'. Base is an EVM chain and runs
+  // under the core's Ethereum semantics; its Ethereum-curated NAMED-entity
+  // exclusion lists simply won't match Base addresses — the conservative
+  // direction (pools counted as people OVERSTATE concentration, and the
+  // top-n upper-bound framing already owns that), disclosed in the notes.
+  const coreChain: 'ethereum' | 'solana' = chain === 'base' ? 'ethereum' : chain;
   const input: DistributionInput = {
     ...adapter.input,
-    chain,
+    chain: coreChain,
     observedAt: opts.observedAt ?? adapter.input.observedAt,
   };
   const analysis = analyzeDistribution(input);

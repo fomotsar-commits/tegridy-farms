@@ -138,6 +138,47 @@ const TARGETS = [
       ['_calculateLiquidity', '_addLiquidity'],
     ],
   },
+  {
+    // WO-2 EVM lighthouse: a deliberate 0.8 PORT of the canonical Synthetix
+    // StakingRewards design, pinned from Uniswap's audited liquidity-staker
+    // deployment copy (the Synthetixio/synthetix v2 repo 404s — see
+    // upstream.lock.json). Expected diff small by construction: OZ-5 import
+    // paths, SafeMath call-sites -> native checked arithmetic, constructor
+    // visibility. Any other hunk means the port drifted from canonical.
+    name: 'StakingRewards',
+    ours: 'contracts/src/vendor/synthetix-staking-rewards/StakingRewards.sol',
+    upstream: ['upstream/liquidity-staker/StakingRewards.sol'],
+    snapshot: 'expected/StakingRewards.expected.diff',
+    renames: [],
+    minOurs: 80, //      ~110 normalized statements
+    minUpstream: 80, //  same order — this is a port, not a fork
+    minChanged: 8, //    the SafeMath-to-operators hunks alone clear this
+  },
+  {
+    // The 11-line abstract base the staker inherits. 0.8 bridge: `abstract`
+    // + `virtual` are the modern spelling of 0.5's implicitly-abstract
+    // contract; everything else is verbatim.
+    name: 'RewardsDistributionRecipient',
+    ours: 'contracts/src/vendor/synthetix-staking-rewards/RewardsDistributionRecipient.sol',
+    upstream: ['upstream/liquidity-staker/RewardsDistributionRecipient.sol'],
+    snapshot: 'expected/RewardsDistributionRecipient.expected.diff',
+    renames: [],
+    minOurs: 5,
+    minUpstream: 5,
+    minChanged: 1, //    abstract/virtual is the whole diff
+  },
+  {
+    // Byte-identical vendor (its `>=0.4.24` pragma already admits 0.8.26).
+    // Pinned anyway so drift in the interface itself can never be silent.
+    name: 'IStakingRewards',
+    ours: 'contracts/src/vendor/synthetix-staking-rewards/interfaces/IStakingRewards.sol',
+    upstream: ['upstream/liquidity-staker/IStakingRewards.sol'],
+    snapshot: 'expected/IStakingRewards.expected.diff',
+    renames: [],
+    minOurs: 10,
+    minUpstream: 10,
+    minChanged: 0, //    zero drift is the pinned expectation
+  },
 ];
 
 // Floors so this gate can never pass over nothing (a gate that compared two

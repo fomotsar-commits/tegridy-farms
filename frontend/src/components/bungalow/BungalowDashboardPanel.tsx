@@ -7,7 +7,7 @@ import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowTradeRoute, bungalowExplorerUrl } from '../../lib/bungalows';
+import { bungalowTradeRoute, bungalowExplorerUrl, bungalowScanRoute } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { fromBaseUnits, getUsdPrices } from '../../lib/jupiter';
 import {
@@ -32,6 +32,14 @@ import { BungalowHolders } from './BungalowHolders';
  *
  * The classic dashboard is EVM/TOWELI head to toe (wagmi reads, staking
  * position, ETH revenue), none of which describes a Solana bungalow token.
+ *
+ * EVM residents (WO-2 seam, deliberate): this panel is Solana-built to the
+ * bone (SolanaProviders, wallet-adapter). When the FIRST EVM bungalow goes
+ * live (its identity lands with the art drop), build an
+ * EvmBungalowDashboardPanel SIBLING and branch by chain at the mount site —
+ * exactly how BungalowFarmPanel branches to EvmLighthousePoolLive. Do NOT
+ * thread wagmi through SolanaProviders. Until then there is no consumer:
+ * every EVM resident is identity-less and this panel never mounts for them.
  * This panel is the token-first replacement: what you hold, what you have
  * staked, what it has accrued, what the market says, who else holds her, and
  * how long you have held.
@@ -85,7 +93,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   const [stakeRead, setStakeRead] = useState<{ key: string; list: StakeEntryView[] } | null>(null);
 
   const mint = bungalow.address!;
-  const decimals = poolRead?.decimals ?? 6; // BAYLA per its pump.fun coin record, until the pool read lands
+  // Pool read wins (it reads the mint on-chain); the registry field covers
+  // the pre-read window so a 9-decimal bungalow is never shown 1000x off.
+  const decimals = poolRead?.decimals ?? bungalow.decimals ?? 6;
   const walletKey = publicKey?.toBase58() ?? '';
   const stakePool = bungalow.stakePool;
 
@@ -323,12 +333,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                 <Link to={trade.to} className="btn-primary px-4 py-2 text-[12px] inline-block text-center">Trade {bungalow.symbol}</Link>
               ) : (
                 <a href={trade.href} target="_blank" rel="noopener noreferrer"
-                  aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
-                  className="btn-primary px-4 py-2 text-[12px] inline-block text-center">Trade {bungalow.symbol} ↗</a>
+                  aria-label={`${trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} (opens in new tab)`}
+                  className="btn-primary px-4 py-2 text-[12px] inline-block text-center">{trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} ↗</a>
               ))}
               <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">The lighthouse pool</Link>
               {bungalow.address && (
-                <Link to={`/scan?token=${bungalow.address}`} className="btn-secondary px-4 py-2 text-[12px]">Scan {bungalow.symbol}</Link>
+                <Link to={bungalowScanRoute(bungalow)!} className="btn-secondary px-4 py-2 text-[12px]">Scan {bungalow.symbol}</Link>
               )}
               {(bungalow.pools ?? []).map((p) => (
                 <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer"

@@ -77,9 +77,11 @@ export interface PoolView {
    * Lock-weight bounds, 1e9-scaled: `1e9` = a 1.00x multiplier. When the two
    * are equal the pool grants NO duration bonus — a longer lock earns exactly
    * the same rate as the shortest one, and the UI has to say so rather than
-   * imply a boost curve that does not exist. (The live BAYLA lighthouse is
-   * exactly this case: minWeight = maxWeight = 1e9, read on mainnet
-   * 2026-08-28.)
+   * imply a boost curve that does not exist. (The RETIRED first BAYLA pool
+   * was this case: minWeight = maxWeight = 1e9, read on mainnet 2026-08-28.
+   * The live replacement pool carries a real ladder — 1.00x min to 5.00x max
+   * at 365d, re-pinned 2026-08-29 — so both branches of this UI rule are
+   * exercised in production.)
    */
   minWeightScaled: bigint;
   maxWeightScaled: bigint;
@@ -347,7 +349,10 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
   try {
     const client = await makeClient();
     const pool: any = await client.getStakePool(stakePool);
-    if (!pool) return { ok: false, reason: READ_FAIL };
+    // Account-not-found is NOT RPC weather: the address is wrong or the pool
+    // is gone. Saying "could not be read right now" there disguises a
+    // permanent misconfig as a transient outage.
+    if (!pool) return { ok: false, reason: 'No stake pool exists at this address. If this persists, the configured pool address is wrong.' };
     const rewardAccounts: any[] = await client.searchRewardPools({ stakePool: stakePool as any });
 
     const stakeMint = String(pool?.mint ?? '');
@@ -526,6 +531,32 @@ export function nextVacantNonce(entries: StakeEntryView[]): number | null {
 function writeFailure(err: unknown, fallback: string): Failure {
   const msg = err instanceof Error ? err.message : String(err ?? '');
   if (/reject|declin|denied/i.test(msg)) return { ok: false, reason: 'You declined the signature — nothing moved.' };
+  // Streamflow custom error 6012 = the reward vault cannot cover the rewards
+  // this action must pay out. PROVEN ON DEVNET (2026-08-28, same program ids
+  // as mainnet): while accrued > vault, claim AND unstake&claim both revert —
+  // principal stays locked until the vault is topped up, and the backlog is
+  // NOT forfeited (a post-funding claim paid the full dry-window accrual).
+  if (/\b6012\b/.test(msg)) {
+    return {
+      ok: false,
+      reason:
+        'The reward vault cannot cover the accrued rewards this action pays out, so it reverted — nothing moved, nothing is lost. ' +
+        'Claims and exits work again once the vault is topped up; rewards keep accruing meanwhile.',
+    };
+  }
+  // A confirmation timeout is NOT "nothing moved": web3's TransactionExpired*
+  // errors fire AFTER the transaction was broadcast, and it may still land.
+  // Asserting "nothing moved" there invites a duplicate stake (a second
+  // 1–365-day lock of real funds). Say the outcome is unknown and carry the
+  // signature when the error object has one, so the user can check first.
+  const sig = (err as { signature?: unknown } | null)?.signature;
+  if (typeof sig === 'string' && sig !== '' || /not confirmed|expired|block ?height exceeded|timed? ?out/i.test(msg)) {
+    const sigNote = typeof sig === 'string' && sig ? ` Signature: ${sig}` : '';
+    return {
+      ok: false,
+      reason: `Outcome unknown — the transaction was sent and may still land. Check your wallet or Solscan before retrying.${sigNote}`,
+    };
+  }
   return { ok: false, reason: `${fallback}${msg ? ` (${msg.slice(0, 140)})` : ''}` };
 }
 
@@ -658,6 +689,50 @@ export async function claimRewards(args: {
   } catch (err) {
     return writeFailure(err, 'The claim did not go through — your rewards are untouched.');
   }
+}
+
+/**
+ * True while the vault is too thin to make staking EXIT-SAFE: empty, below
+ * one whole reward token (the 1-raw-unit "dust defeats the empty banner"
+ * grief), or covering less than one day at the current stake. PROVEN
+ * LOAD-BEARING (devnet 2026-08-28, Streamflow error 6012, same program ids
+ * as mainnet): while accrued rewards exceed the vault, claim AND
+ * unstake&claim REVERT — principal is locked until the vault is topped up
+ * past accrual (the backlog itself survives; a post-funding claim paid the
+ * full dry window). Built on `vaultRunwaySecs` so there is exactly ONE
+ * runway computation in this file. An unreadable vault is an OUTAGE, not a
+ * verdict — the caller renders the outage state instead.
+ */
+/**
+ * What the pool is ACTUALLY paying right now, as opposed to what it is
+ * configured to pay. The distinction is the whole honesty contract of the
+ * staking card, and it must be decided by ONE predicate everywhere:
+ *
+ *   2026-08-30 defect — the card derived this from `funded > 0n` while its own
+ *   banner, stake gate and projections used `vaultIsMateriallyEmpty`. The two
+ *   disagree in exactly the states that predicate exists for (dust below one
+ *   whole token, or under a day of runway), so a dust-funded pool printed the
+ *   full configured APR in green DIRECTLY ABOVE a banner reading "Paying now
+ *   is 0% because the reward vault is effectively empty."
+ *
+ * `vaultDry` is false when the vault is UNREADABLE, so an outage never lands
+ * in the zero branch — an unreadable vault is an outage, never a real zero.
+ */
+export function payingNowRate(
+  configuredRate: number,
+  fundedRaw: bigint | null,
+  vaultDry: boolean,
+): number {
+  if (fundedRaw === null) return 0;
+  return vaultDry ? 0 : configuredRate;
+}
+
+export function vaultIsMateriallyEmpty(pool: PoolView, rp: RewardPoolView): boolean {
+  if (rp.fundedRaw === null) return false;
+  if (rp.fundedRaw === 0n) return true;
+  if (rp.fundedRaw < 10n ** BigInt(rp.decimals)) return true;
+  const runwaySecs = vaultRunwaySecs(pool, rp);
+  return runwaySecs !== null && runwaySecs < 86_400;
 }
 
 /* eslint-enable @typescript-eslint/no-explicit-any */

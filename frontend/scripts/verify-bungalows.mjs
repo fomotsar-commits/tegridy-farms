@@ -1,6 +1,12 @@
 // Visual verification for the Jungle Bay bungalow system (2026-08-24).
 // Standalone playwright-core script (NOT the e2e runner — no anvil needed):
-//   node scripts/verify-bungalows.mjs <outDir> [baseUrl]
+//   node scripts/verify-bungalows.mjs <outDir> [baseUrl] [--bungalow <id> --symbol <SYM> --name <Name>]
+//
+// Parametrized over the resident under test (WO-1). Defaults to Bayla — the
+// only live token-first skin today — but a future live resident verifies with
+//   node scripts/verify-bungalows.mjs shots http://localhost:4173 --bungalow drb --symbol DRB --name DRB
+// (identity assertions follow the registry conventions: heroTitle "<SYM>.",
+// farm "Stake <SYM>.", dashboard "<SYM> Dashboard.", art under /art/<id>/).
 //
 // Covers:
 //  A) Toweli baseline — desktop home/farm/swap/dashboard (classic art intact)
@@ -14,8 +20,17 @@ import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const OUT = resolve(process.argv[2] ?? 'bungalow-shots');
-const BASE = process.argv[3] ?? 'http://localhost:5173';
+const flagVal = (name, dflt) => {
+  const i = process.argv.indexOf(name);
+  return i > -1 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
+};
+const positional = process.argv.slice(2).filter((a, i, all) => !a.startsWith('--') && all[i - 1]?.startsWith('--') !== true);
+const OUT = resolve(positional[0] ?? 'bungalow-shots');
+const BASE = positional[1] ?? 'http://localhost:5173';
+const B_ID = flagVal('--bungalow', 'bayla');   // registry id + door slug + storage value
+const SYM = flagVal('--symbol', 'BAYLA');      // identity heroTitle prefix
+const NAME = flagVal('--name', 'Bayla');       // picker/footer display name
+const ART_DIR = `/art/${B_ID}/`;
 mkdirSync(OUT, { recursive: true });
 
 const results = [];
@@ -27,6 +42,7 @@ const ok = (name, pass, detail = '') => {
 const SEED_COMMON = `
   localStorage.setItem('tegridy-onboarding-seen', '1');
   localStorage.setItem('tegridy-onboarding-bayla-seen', '1');
+  localStorage.setItem('tegridy-onboarding-${B_ID}-seen', '1');
   localStorage.setItem('tegridy_telemetry_consent', 'denied');
 `;
 
@@ -60,7 +76,9 @@ try {
       }
     }
     const srcs = await artSrcs(page);
-    ok('A: toweli mode shows zero bayla art', srcs.every((s) => !s.src?.includes('/art/bayla/')),
+    // srcs.length > 0 matters: .every() on an empty list is vacuously true,
+    // so a page that mounted ZERO art surfaces used to PASS this check.
+    ok(`A: toweli mode shows zero ${B_ID} art`, srcs.length > 0 && srcs.every((s) => !s.src?.includes(ART_DIR)),
       `${srcs.length} art surfaces checked`);
     await ctx.close();
   }
@@ -68,24 +86,24 @@ try {
   // ---------- B) Bayla mode ----------
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    await ctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','bayla');`);
+    await ctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','${B_ID}');`);
     const page = await ctx.newPage();
     const failedImages = [];
     page.on('response', (r) => {
-      if (r.url().includes('/art/bayla/') && r.status() >= 400) failedImages.push(`${r.status()} ${r.url()}`);
+      if (r.url().includes(ART_DIR) && r.status() >= 400) failedImages.push(`${r.status()} ${r.url()}`);
     });
     for (const [route, name] of [['/', 'home'], ['/farm', 'farm'], ['/swap', 'swap'], ['/dashboard', 'dashboard']]) {
       await page.goto(BASE + route, { waitUntil: 'domcontentloaded' });
       await settle(page);
-      await page.screenshot({ path: `${OUT}/bayla-${name}-desktop.png` });
+      await page.screenshot({ path: `${OUT}/${B_ID}-${name}-desktop.png` });
       const srcs = await artSrcs(page);
       const nonShared = srcs.filter((s) => !s.surface?.startsWith('nav-logo'));
-      const swapped = nonShared.filter((s) => s.src?.includes('/art/bayla/'));
+      const swapped = nonShared.filter((s) => s.src?.includes(ART_DIR));
       ok(`B: ${name} art surfaces swapped to bayla`, nonShared.length > 0 && swapped.length === nonShared.length,
         `${swapped.length}/${nonShared.length}`);
       // Token-first identity assertions (the "no TOWELI focus" contract).
       if (name === 'home') {
-        ok('B: home hero speaks BAYLA', await page.locator('h1:has-text("BAYLA.")').count() === 1);
+        ok('B: home hero speaks BAYLA', await page.locator(`h1:has-text("${SYM}.")`).count() === 1);
         ok('B: home hero drops the TOWELI headline', await page.locator('h1:has-text("Farm TOWELI.")').count() === 0);
         ok('B: the muse line replaces the Towelie ticker',
           await page.locator('text=The work is yours. The light is hers.').count() >= 1
@@ -93,7 +111,7 @@ try {
         ok('B: Towelie assistant is muted in bayla mode', await page.locator('text=Ask me').count() === 0);
       }
       if (name === 'farm') {
-        ok('B: farm renders the BAYLA panel', await page.locator('h1:has-text("Stake BAYLA.")').count() === 1);
+        ok('B: farm renders the BAYLA panel', await page.locator(`h1:has-text("Stake ${SYM}.")`).count() === 1);
         // Since 2026-08-26 the live pool address ships pinned in the registry,
         // so the pool slot renders the LIVE lighthouse section (its own
         // loading/outage/live states are all acceptable here — dev has no
@@ -106,9 +124,9 @@ try {
       }
       if (name === 'dashboard') {
         ok('B: dashboard is her standing page',
-          await page.locator('h1:has-text("BAYLA Dashboard.")').count() === 1
+          await page.locator(`h1:has-text("${SYM} Dashboard.")`).count() === 1
           && await page.locator('button:has-text("Connect Solana Wallet")').count() === 1);
-        await page.screenshot({ path: `${OUT}/bayla-dashboard-desktop.png` });
+        await page.screenshot({ path: `${OUT}/${B_ID}-dashboard-desktop.png` });
       }
       if (name === 'home') {
         ok('B: muse lore section present', await page.locator('text=The muse of Jungle Bay Island').count() >= 1);
@@ -121,22 +139,22 @@ try {
     }
     // The nav-logo replay button is a BUTTON — must keep classic art.
     const navLogo = await page.$eval('button[title^="Replay splash"] img', (i) => i.getAttribute('src'));
-    ok('B: nav-logo button art is NOT bayla', !!navLogo && !navLogo.includes('/art/bayla/'), navLogo ?? 'missing');
+    ok('B: nav-logo button art is NOT bayla', !!navLogo && !navLogo.includes(ART_DIR), navLogo ?? 'missing');
     ok('B: every bayla image request succeeded', failedImages.length === 0, failedImages.join('; ') || 'no 4xx/5xx');
 
     // Footer shows the active bungalow + reopens the picker.
     await page.locator('footer button:has-text("Bungalows")').scrollIntoViewIfNeeded();
-    ok('B: footer names the active bungalow', await page.locator('footer button:has-text("Bayla")').count() > 0);
+    ok('B: footer names the active bungalow', await page.locator(`footer button:has-text("${NAME}")`).count() > 0);
     await page.locator('footer button:has-text("Bungalows")').click();
     const pickerVisible = await page.locator('text=Thirteen bungalows').isVisible({ timeout: 5000 }).catch(() => false);
     ok('B: footer button reopens picker', pickerVisible);
-    if (pickerVisible) await page.screenshot({ path: `${OUT}/bayla-picker-reopened.png` });
+    if (pickerVisible) await page.screenshot({ path: `${OUT}/${B_ID}-picker-reopened.png` });
     // The TOP-NAV chooser button — the always-visible way back (operator ask
     // 2026-08-26: the footer link alone was undiscoverable). Names the
     // current bungalow and opens the picker from anywhere.
     await page.keyboard.press('Escape'); // close the footer-opened picker first
     const navBtn = page.locator('header button[title="Choose your bungalow"]');
-    ok('B: top-nav chooser names the bungalow', (await navBtn.textContent() ?? '').includes('Bayla'));
+    ok('B: top-nav chooser names the bungalow', (await navBtn.textContent() ?? '').includes(NAME));
     await navBtn.click();
     ok('B: top-nav chooser opens the picker',
       await page.locator('text=Thirteen bungalows').isVisible({ timeout: 5000 }).catch(() => false));
@@ -148,15 +166,15 @@ try {
       ['ipad', { width: 820, height: 1180 }, 2, false],
     ]) {
       const mctx = await browser.newContext({ viewport: vp, deviceScaleFactor: scale, isMobile: mobile, hasTouch: mobile });
-      await mctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','bayla');`);
+      await mctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','${B_ID}');`);
       const mp = await mctx.newPage();
       for (const [route, name] of [['/', 'home'], ['/farm', 'farm']]) {
         await mp.goto(BASE + route, { waitUntil: 'domcontentloaded' });
         await settle(mp);
-        await mp.screenshot({ path: `${OUT}/bayla-${name}-${label}.png` });
+        await mp.screenshot({ path: `${OUT}/${B_ID}-${name}-${label}.png` });
       }
       const msrcs = (await artSrcs(mp)).filter((s) => !s.surface?.startsWith('nav-logo'));
-      ok(`B: ${label} art swapped`, msrcs.length > 0 && msrcs.every((s) => s.src?.includes('/art/bayla/')),
+      ok(`B: ${label} art swapped`, msrcs.length > 0 && msrcs.every((s) => s.src?.includes(ART_DIR)),
         `${msrcs.length} surfaces`);
       await mctx.close();
     }
@@ -167,12 +185,12 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
     await ctx.addInitScript(SEED_COMMON); // no tf_loaded, no bungalow choice — a cold shared link
     const page = await ctx.newPage();
-    await page.goto(BASE + '/bayla', { waitUntil: 'domcontentloaded' });
+    await page.goto(BASE + '/' + B_ID, { waitUntil: 'domcontentloaded' });
     await settle(page, 4000); // door persists + reloads in place
     ok('D: /bayla keeps its address', new URL(page.url()).pathname === '/bayla');
-    ok('D: /bayla enters the bungalow', await page.evaluate(() => localStorage.getItem('tegridy-bungalow')) === 'bayla');
-    ok('D: /bayla wears her skin', await page.locator('h1:has-text("BAYLA.")').count() === 1);
-    await page.screenshot({ path: `${OUT}/door-bayla.png` });
+    ok('D: /bayla enters the bungalow', await page.evaluate(() => localStorage.getItem('tegridy-bungalow')) === B_ID);
+    ok('D: /bayla wears her skin', await page.locator(`h1:has-text("${SYM}.")`).count() === 1);
+    await page.screenshot({ path: `${OUT}/door-${B_ID}.png` });
     // The towelie spelling is an alias for the toweli slug.
     await page.goto(BASE + '/towelie', { waitUntil: 'domcontentloaded' });
     await settle(page, 4000);
@@ -199,15 +217,15 @@ try {
       await page.screenshot({ path: `${OUT}/first-visit-picker.png` });
       await Promise.all([
         page.waitForLoadState('domcontentloaded'),
-        page.locator('button:has-text("Bayla")').first().click(),
+        page.locator(`button:has-text("${NAME}")`).first().click(),
       ]);
       await settle(page, 3500);
       const chosen = await page.evaluate(() => localStorage.getItem('tegridy-bungalow'));
-      ok('C: clicking Bayla persists the choice', chosen === 'bayla', String(chosen));
+      ok('C: clicking Bayla persists the choice', chosen === B_ID, String(chosen));
       const srcs = (await artSrcs(page)).filter((s) => !s.surface?.startsWith('nav-logo'));
-      ok('C: post-reload backgrounds are bayla', srcs.length > 0 && srcs.every((s) => s.src?.includes('/art/bayla/')),
+      ok('C: post-reload backgrounds are bayla', srcs.length > 0 && srcs.every((s) => s.src?.includes(ART_DIR)),
         `${srcs.length} surfaces`);
-      await page.screenshot({ path: `${OUT}/first-visit-after-enter-bayla.png` });
+      await page.screenshot({ path: `${OUT}/first-visit-after-enter-${B_ID}.png` });
       // Dismissing must not nag on next load: picker stays closed.
       await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
       await settle(page, 2000);

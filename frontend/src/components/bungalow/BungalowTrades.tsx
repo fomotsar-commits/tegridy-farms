@@ -58,7 +58,7 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
             </thead>
             <tbody>
               {trades.map((t) => (
-                <Row key={t.txHash + t.at} trade={t} />
+                <Row key={t.txHash + t.at} trade={t} network={market.network} />
               ))}
             </tbody>
           </table>
@@ -68,8 +68,22 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
   );
 }
 
-function Row({ trade }: { trade: PoolTrade }) {
+/**
+ * Per-network tx explorer. The tape started life Solana-only (BAYLA) with
+ * solscan hardcoded; the moment the settled EVM doors mounted it, that
+ * hardcode became a wrong-chain link on 8 of 10 landings.
+ */
+type MarketNetwork = NonNullable<Bungalow['market']>['network'];
+
+const TX_EXPLORER: Record<MarketNetwork, { base: string; name: string }> = {
+  solana: { base: 'https://solscan.io/tx/', name: 'Solscan' },
+  eth: { base: 'https://etherscan.io/tx/', name: 'Etherscan' },
+  base: { base: 'https://basescan.org/tx/', name: 'Basescan' },
+};
+
+function Row({ trade, network }: { trade: PoolTrade; network: MarketNetwork }) {
   const isBuy = trade.kind === 'buy';
+  const explorer = TX_EXPLORER[network];
   return (
     <tr className="border-t border-white/5">
       <td className="py-1.5">
@@ -82,10 +96,10 @@ function Row({ trade }: { trade: PoolTrade }) {
       <td className="py-1.5 text-right text-white/55">{ago(trade.at)}</td>
       <td className="py-1.5 text-right">
         <a
-          href={`https://solscan.io/tx/${trade.txHash}`}
+          href={`${explorer.base}${trade.txHash}`}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="View transaction on Solscan (opens in new tab)"
+          aria-label={`View transaction on ${explorer.name} (opens in new tab)`}
           className="text-white/55 hover:text-white underline underline-offset-2"
         >
           {trade.wallet ? `${trade.wallet.slice(0, 4)}…${trade.wallet.slice(-4)}` : 'tx'} ↗

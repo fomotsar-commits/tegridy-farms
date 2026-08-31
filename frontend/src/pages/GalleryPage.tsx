@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { GALLERY_ORDER } from '../lib/artConfig';
+import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT } from '../lib/artConfig';
 import { getBungalowIdentity } from '../lib/bungalows';
 import { ArtLightbox } from '../components/ui/ArtLightbox';
 import { safeSetItem } from '../lib/storage';
@@ -97,9 +97,11 @@ export default function GalleryPage() {
         <m.div className="mb-8" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">The Collection</h1>
           <p className="text-white text-[14px]">
+            {/* F75: count DISTINCT works — GALLERY_ORDER double-counts the
+                .avif+.jpg format pairs; UNIQUE_GALLERY_COUNT exists for this. */}
             {bungalowIdentity?.artPool
-              ? `${collection.length} pieces — the ${bungalowIdentity.name} wing, original hand-drawn Tegridy art and the Nakamigos drop`
-              : `${GALLERY_ORDER.length} pieces — original hand-drawn Tegridy art and the Nakamigos drop`}
+              ? `${bungalowIdentity.artPool.length + UNIQUE_GALLERY_COUNT} pieces — the ${bungalowIdentity.name} wing, original hand-drawn Tegridy art and the Nakamigos drop`
+              : `${UNIQUE_GALLERY_COUNT} pieces — original hand-drawn Tegridy art and the Nakamigos drop`}
           </p>
         </m.div>
 

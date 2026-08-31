@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Connection, Keypair, LAMPORTS_PER_SOL, SystemProgram, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
 import {
+  getMint,
   createAssociatedTokenAccountIdempotent,
   createMint,
   mintTo,
@@ -83,6 +84,15 @@ async function detectTokenProgram(connection, mint) {
 }
 
 async function rehearse() {
+  // --dry-vault: the FUNDING-LAST rehearsal. The mainnet pool goes live with
+  // an EMPTY reward vault by design, so the state "accrued entitlement > 0,
+  // vault = 0" is the expected launch state — and the normal rehearsal never
+  // exercised it (it funds before staking). This mode proves what the
+  // program actually does there: claim against a dry vault (revert? zero-pay?),
+  // unstake&claim against a dry vault (principal hostage?), and whether a
+  // dry-window claim FORFEITS the backlog once funding arrives (claim again
+  // after funding and compare against a post-funding rate control).
+  const DRY_VAULT = has('--dry-vault');
   const clusterUrl = val('--rpc', 'https://api.devnet.solana.com');
   const connection = new Connection(clusterUrl, 'confirmed');
   const payer = Keypair.generate();
@@ -165,20 +175,27 @@ async function rehearse() {
   // — the funder creates it. Idempotent, harmless if it already exists.
   log('creating Streamflow treasury ATA for the reward mint (fund prerequisite)…');
   await createAssociatedTokenAccountIdempotent(connection, payer, mint, STREAMFLOW_TREASURY);
-  log('fundPool… 100,000 tokens into the reward vault');
-  const fund = await client.fundPool({
-    stakePool,
-    stakePoolMint: mint.toBase58(),
-    rewardMint: mint.toBase58(),
-    nonce: 0,
-    amount: new BN('100000000000'),
-    // Explicit null routes the fee check to the fee-manager's DEFAULT config
-    // (which exists, fee 0) instead of a per-funder feeValue PDA that was
-    // never initialized — omitting the field derives the latter and dies
-    // with AccountNotInitialized (proven on devnet, tx 675Dnx…4nvR).
-    feeValue: null,
-  }, ext);
-  log(`✓ funded (tx ${fund.txId})`);
+  const doFund = async (label) => {
+    log(`fundPool… 100,000 tokens into the reward vault${label ? ` (${label})` : ''}`);
+    const fund = await client.fundPool({
+      stakePool,
+      stakePoolMint: mint.toBase58(),
+      rewardMint: mint.toBase58(),
+      nonce: 0,
+      amount: new BN('100000000000'),
+      // Explicit null routes the fee check to the fee-manager's DEFAULT config
+      // (which exists, fee 0) instead of a per-funder feeValue PDA that was
+      // never initialized — omitting the field derives the latter and dies
+      // with AccountNotInitialized (proven on devnet, tx 675Dnx…4nvR).
+      feeValue: null,
+    }, ext);
+    log(`✓ funded (tx ${fund.txId})`);
+  };
+  if (!DRY_VAULT) {
+    await doFund('');
+  } else {
+    log('DRY-VAULT MODE: skipping fundPool — the vault stays at 0, like mainnet launch day.');
+  }
 
   // Second ATA the program expects pre-created (devnet error 3012 on the
   // `to` account, tx 4B8hFc…KJRu): the STAKER's ATA for the stake-mint PDA —
@@ -187,39 +204,93 @@ async function rehearse() {
   log(`creating staker ATA for the stake-mint PDA ${stakeMintPda.toBase58()}…`);
   await createAssociatedTokenAccountIdempotent(connection, payer, stakeMintPda, payer.publicKey);
 
-  log('stakeAndCreateEntries… 1,000 tokens, 2s lock');
-  const stakeRes = await client.stakeAndCreateEntries({
-    stakePool,
-    stakePoolMint: mint.toBase58(),
-    amount: new BN('1000000000'),
-    duration: new BN(2),
-    nonce: 0,
-    rewardPools: [{ nonce: 0, mint: mint.toBase58(), rewardPoolType: 'fixed' }],
-  }, ext);
-  log(`✓ staked (tx ${stakeRes.txId})`);
-
-  log('waiting 5s for the lock + a few reward periods…');
-  await new Promise((r) => setTimeout(r, 5000));
-
-  log('claimRewards…');
-  const claim = await client.claimRewards({
+  const stakeEntry = async (nonce, amountRaw, label) => {
+    log(`stakeAndCreateEntries… ${label}, 2s lock (entry nonce ${nonce})`);
+    const res = await client.stakeAndCreateEntries({
+      stakePool,
+      stakePoolMint: mint.toBase58(),
+      amount: new BN(amountRaw),
+      duration: new BN(2),
+      nonce,
+      rewardPools: [{ nonce: 0, mint: mint.toBase58(), rewardPoolType: 'fixed' }],
+    }, ext);
+    log(`✓ staked (tx ${res.txId})`);
+  };
+  const claimEntry = (depositNonce) => client.claimRewards({
     stakePool,
     stakePoolMint: mint.toBase58(),
     rewardPoolNonce: 0,
-    depositNonce: 0,
+    depositNonce,
     rewardMint: mint.toBase58(),
     rewardPoolType: 'fixed',
   }, ext);
-  log(`✓ claimed (tx ${claim.txId})`);
-
-  log('unstakeAndClaim…');
-  const unstake = await client.unstakeAndClaim({
+  const unstakeEntry = (nonce) => client.unstakeAndClaim({
     stakePool,
     stakePoolMint: mint.toBase58(),
-    nonce: 0,
+    nonce,
     rewardPools: [{ nonce: 0, mint: mint.toBase58(), rewardPoolType: 'fixed' }],
   }, ext);
-  log(`✓ unstaked + claimed + closed (tx ${unstake.txId})`);
+  const walletRaw = async () => BigInt((await connection.getTokenAccountBalance(ata)).value.amount);
+  // Outcome recorder: the experiment cares about revert-vs-success AND the
+  // exact token delta each success moved — log both, never throw.
+  const attempt = async (label, fn) => {
+    const before = await walletRaw();
+    try {
+      const res = await fn();
+      const delta = (await walletRaw()) - before;
+      log(`▶ ${label}: SUCCEEDED (tx ${res.txId}) · wallet delta +${delta} raw`);
+      return { ok: true, delta };
+    } catch (e) {
+      log(`▶ ${label}: FAILED · ${String(e?.message ?? e).slice(0, 220)}`);
+      return { ok: false };
+    }
+  };
+
+  if (!DRY_VAULT) {
+    await stakeEntry(0, '1000000000', '1,000 tokens');
+
+    log('waiting 5s for the lock + a few reward periods…');
+    await new Promise((r) => setTimeout(r, 5000));
+
+    log('claimRewards…');
+    const claim = await claimEntry(0);
+    log(`✓ claimed (tx ${claim.txId})`);
+
+    log('unstakeAndClaim…');
+    const unstake = await unstakeEntry(0);
+    log(`✓ unstaked + claimed + closed (tx ${unstake.txId})`);
+  } else {
+    // ENTRY 0 answers the claim questions; ENTRY 1 answers "is principal
+    // hostage to the vault" via a dry unstake&claim.
+    await stakeEntry(0, '1000000000', '1,000 tokens');
+    await stakeEntry(1, '500000000', '500 tokens');
+
+    log('waiting 6s for the locks + several reward periods to accrue against the EMPTY vault…');
+    await new Promise((r) => setTimeout(r, 6000));
+
+    const dryClaim = await attempt('DRY claim (entry 0, vault=0)', () => claimEntry(0));
+    const dryExit = await attempt('DRY unstake&claim (entry 1, vault=0)', () => unstakeEntry(1));
+
+    await doFund('after the dry window');
+    log('waiting 3s so post-funding periods accrue…');
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const backlogClaim = await attempt('POST-FUND claim (entry 0) — pays the dry-window backlog, or only post-dry-claim periods?', () => claimEntry(0));
+    log('waiting 3s for a rate control…');
+    await new Promise((r) => setTimeout(r, 3000));
+    const controlClaim = await attempt('CONTROL claim (entry 0) — the observed per-3s funded rate', () => claimEntry(0));
+
+    const finalExit = await attempt('POST-FUND unstake&claim (entry 0)', () => unstakeEntry(0));
+
+    log('');
+    log('DRY-VAULT VERDICT (raw deltas above are ground truth):');
+    log(`  dry claim:            ${dryClaim.ok ? `paid ${dryClaim.delta} raw` : 'REVERTED'}`);
+    log(`  dry unstake&claim:    ${dryExit.ok ? `returned ${dryExit.delta} raw (500000000 = principal only)` : 'REVERTED — principal is HOSTAGE to vault funding'}`);
+    log(`  post-fund claim:      ${backlogClaim.ok ? `paid ${backlogClaim.delta} raw` : 'REVERTED'}`);
+    log(`  rate control (3s):    ${controlClaim.ok ? `paid ${controlClaim.delta} raw` : 'REVERTED'}`);
+    log('  If post-fund ≈ control, the dry claim FORFEITED the backlog; if post-fund >> control, backlog survives a dry claim.');
+    if (!finalExit.ok) log('  NOTE: final exit also failed — investigate before mainnet messaging.');
+  }
 
   const pool = await client.getStakePool(stakePool);
   log(`final pool state: totalStake=${pool.totalStake?.toString?.() ?? '?'}`);
@@ -227,6 +298,28 @@ async function rehearse() {
   log('REHEARSAL COMPLETE — every lifecycle call executed on devnet with the');
   log('exact SDK flows the app and the mainnet ceremony use.');
   log(`explorer: https://solscan.io/account/${stakePool}?cluster=devnet`);
+}
+
+
+/**
+ * Read the mint's decimals from the CHAIN, not from a flag. Every raw-amount
+ * and rate computation in a ceremony derives from this number; a wrong value
+ * builds a pool whose economics are off by powers of ten with no error
+ * anywhere. --decimals (optional) is only a cross-check: if the operator
+ * declares one and the chain disagrees, the ceremony refuses to proceed.
+ * (BOBO/SOY/BRAINLET all read 6, classic Tokenkeg, verified 2026-08-30 —
+ * but the read costs one RPC call and never goes stale.)
+ */
+async function readVerifiedDecimals(connection, mint, tokenProgramId) {
+  const info = await getMint(connection, new PublicKey(mint), 'confirmed', new PublicKey(tokenProgramId));
+  const declared = val('--decimals');
+  if (declared !== undefined && Number(declared) !== info.decimals) {
+    throw new Error(
+      `--decimals ${declared} contradicts the chain: mint ${mint} has ${info.decimals} decimals. ` +
+      'The chain wins — re-run without --decimals or with the correct value.',
+    );
+  }
+  return info.decimals;
 }
 
 async function mainnet() {
@@ -264,8 +357,14 @@ async function mainnet() {
     );
   }
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
-  const rewardAmount = calculateRewardAmountFromRate(rate, 6, 6);
-  if (rewardAmount.isZero()) throw new Error('rate too small for 6/6 decimals — SDK computed rewardAmount 0');
+  // Mint facts come off the chain BEFORE anything is planned or signed — the
+  // dry run needs RPC reachability now, which is the point: a plan printed
+  // against assumed decimals is a plan for a different token.
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const decimals = await readVerifiedDecimals(connection, mint, tokenProgramId);
+  const rewardAmount = calculateRewardAmountFromRate(rate, decimals, decimals);
+  if (rewardAmount.isZero()) throw new Error(`rate too small for ${decimals}/${decimals} decimals — SDK computed rewardAmount 0`);
 
   // The SDK's calculateStakeWeight, in the small: linear from 1.00x at
   // minDuration to maxWeight at maxDuration, clamped to >= 1.00x.
@@ -279,6 +378,12 @@ async function mainnet() {
 
   const plan = {
     cluster: 'mainnet',
+    mintFacts: {
+      mint,
+      decimals,
+      tokenProgram: String(tokenProgramId),
+      source: 'read on-chain by this run (getMint) — not assumed',
+    },
     stakePool: {
       mint, nonce,
       minDuration: `${minDays}d`, maxDuration: `${maxDays}d`,
@@ -328,8 +433,6 @@ async function mainnet() {
   log(`signer ${payer.publicKey.toBase58()}`);
 
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
-  const connection = new Connection(clusterUrl, 'confirmed');
-  const tokenProgramId = await detectTokenProgram(connection, mint);
   const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
   const created = await client.createStakePool({
     mint,
@@ -368,12 +471,19 @@ async function fund() {
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
   if (!pool) throw new Error('--fund requires --pool <stake pool address> (from the ceremony output / VITE_BAYLA_STAKE_POOL)');
   if (!(amountWhole > 0)) throw new Error('--fund requires --amount <whole tokens>, e.g. --amount 50000');
-  const amountRaw = new BN(Math.round(amountWhole * 1e6).toString()); // BAYLA = 6 decimals
+  // Decimals come off the chain (see readVerifiedDecimals) — funding 50,000
+  // "whole" tokens of a 9-decimal mint with a hardcoded 1e6 would deliver
+  // 50 tokens and no error. The dry run performs the same read on purpose.
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const decimals = await readVerifiedDecimals(connection, mint, tokenProgramId);
+  const amountRaw = new BN(Math.round(amountWhole * 10 ** decimals).toString());
+  const tokenLabel = mint === BAYLA_MINT ? 'BAYLA' : `tokens (mint ${mint})`;
 
   log('FUNDING PLAN (task #13 — the deliberately-LAST step):');
   console.log(JSON.stringify({
     cluster: 'mainnet', stakePool: pool, rewardMint: mint,
-    amount: `${amountWhole.toLocaleString()} BAYLA (${amountRaw.toString()} raw)`,
+    amount: `${amountWhole.toLocaleString()} ${tokenLabel} (${amountRaw.toString()} raw, ${decimals} decimals — read on-chain)`,
     rewardPoolNonce: Number(val('--nonce', '0')),
     prerequisite: "Streamflow treasury ATA for the reward mint (created idempotently if missing — devnet-proven)",
     note: 'feeValue: null routes the fee check to the fee-manager default config (devnet-proven).',
@@ -387,16 +497,14 @@ async function fund() {
   if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
   const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
   log(`signer ${payer.publicKey.toBase58()}`);
-  const connection = new Connection(clusterUrl, 'confirmed');
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
   const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
 
-  const tokenProgramId = await detectTokenProgram(connection, mint);
   log('ensuring Streamflow treasury ATA for the reward mint…');
   await createAssociatedTokenAccountIdempotent(
     connection, payer, new PublicKey(mint), STREAMFLOW_TREASURY, undefined, new PublicKey(tokenProgramId),
   );
-  log(`fundPool… ${amountWhole.toLocaleString()} BAYLA`);
+  log(`fundPool… ${amountWhole.toLocaleString()} ${tokenLabel}`);
   const res = await client.fundPool({
     stakePool: pool,
     stakePoolMint: mint,
