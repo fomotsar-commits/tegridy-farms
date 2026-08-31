@@ -23,6 +23,10 @@ export const ART = {
   mfersHeaven: { id: 'mfers-heaven', src: '/art/mfers-heaven.jpg', title: 'All MFers Go to Heaven', description: 'In the end God blesses your goofy ass' },
   mumuBull: { id: 'mumu-bull', src: '/art/mumu-bull.jpg', title: 'Mumu the Bull', description: 'COMMUUUUUMU' },
   bobowelie: { id: 'bobowelie', src: '/art/bobowelie.jpg', title: 'Bobowelie', description: 'This towel gets high and thinks it\'s a bear on steroids' },
+  // ISLAND MARK 2026-08-31 (owner): the venue's own emblem, and the piece
+  // pinned to nav-logo in every skin — the island reads at 28px where a
+  // character crop does not.
+  islandMark: { id: 'island-mark', src: '/art/island-mark.png', title: 'Jungle Bay Island', description: 'The island in a sea of rugs' },
   jungleBus: { id: 'jungle-bus', src: '/art/jungle-bus.jpg', title: 'Jungle Bay Island', description: 'Get on the bus' },
   poolParty: { id: 'pool-party', src: '/art/pool-party.jpg', title: 'Pool Party', description: 'Just vibin\'' },
   boxingRing: { id: 'boxing-ring', src: '/art/boxing-ring.jpg', title: 'Fight Night', description: 'Der Bar enters the ring' },

@@ -38,7 +38,7 @@ const ALL_TABS = [
       <path d="M3 10h18M7 15h3" />
     </svg>
   )},
-  { to: '/nakamigos', label: 'Tradermigos', icon: (
+  { to: '/nakamigos', label: 'Marketplace', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <rect x="7" y="8" width="3" height="3" />

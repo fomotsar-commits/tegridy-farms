@@ -300,7 +300,7 @@ export const TopNav = React.memo(function TopNav() {
                 mobile + iPad users still reach Tradermigos via the BottomNav tab. `!` prefix
                 forces the rules through any selector-specificity override. */}
             <NavLink to="/nakamigos" className={({ isActive }) => `nav-link text-[13px] !hidden lg:!flex ${isActive ? 'active' : ''}`}>
-              Tradermigos
+              Marketplace
             </NavLink>
 
             {/* Wallet — placed before the theme toggle so the hamburger has a

@@ -34,7 +34,10 @@ import {
   mintTo,
 } from '@solana/spl-token';
 import BN from 'bn.js';
-import { SolanaStakingClient, calculateRewardAmountFromRate, deriveStakeMintPDA } from '@streamflow/staking';
+import {
+  SolanaStakingClient, calculateRewardAmountFromRate, deriveStakeMintPDA,
+  deriveRewardPoolPDA, deriveRewardVaultPDA, constants as sfConstants,
+} from '@streamflow/staking';
 import { PublicKey } from '@solana/web3.js';
 
 // Streamflow's treasury — the .d.ts names it STREAMFLOW_TREASURY_PUBLIC_KEY
@@ -480,11 +483,34 @@ async function fund() {
   const amountRaw = new BN(Math.round(amountWhole * 10 ** decimals).toString());
   const tokenLabel = mint === BAYLA_MINT ? 'BAYLA' : `tokens (mint ${mint})`;
 
+  // SHOW THE DESTINATION BEFORE SIGNING (2026-08-31). The plan used to print
+  // the STAKE pool and a bare nonce, so an operator could not check where the
+  // tokens would actually land without trusting the flag. Reward pools live
+  // under their OWN program (RWRDdfRb…, not STAKEvGqQ…), and the nonce here is
+  // the REWARD pool's index inside the stake pool — NOT the stake pool's own
+  // nonce, which the runbook also calls "nonce" (the live pool is stake-pool
+  // nonce 1 carrying reward pool nonce 0). Deriving both addresses and reading
+  // the live vault turns "trust the default" into something eyeballable
+  // against the runbook before --broadcast.
+  const nonce = Number(val('--nonce', '0'));
+  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+  const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
+  const rewardVault = deriveRewardVaultPDA(rewardProgram, rewardPool);
+  let vaultNow = 'unreadable';
+  try {
+    const bal = await connection.getTokenAccountBalance(rewardVault);
+    vaultNow = `${bal.value.uiAmountString} ${tokenLabel}`;
+  } catch { vaultNow = 'does not exist yet'; }
+
   log('FUNDING PLAN (task #13 — the deliberately-LAST step):');
   console.log(JSON.stringify({
     cluster: 'mainnet', stakePool: pool, rewardMint: mint,
     amount: `${amountWhole.toLocaleString()} ${tokenLabel} (${amountRaw.toString()} raw, ${decimals} decimals — read on-chain)`,
-    rewardPoolNonce: Number(val('--nonce', '0')),
+    rewardPoolNonce: nonce,
+    rewardPool: rewardPool.toBase58(),
+    rewardVault: rewardVault.toBase58(),
+    vaultBalanceNow: vaultNow,
+    verify: 'rewardPool + rewardVault MUST match docs/BAYLA_BUNGALOW.md §6g before --broadcast',
     prerequisite: "Streamflow treasury ATA for the reward mint (created idempotently if missing — devnet-proven)",
     note: 'feeValue: null routes the fee check to the fee-manager default config (devnet-proven).',
   }, null, 2));
@@ -509,7 +535,7 @@ async function fund() {
     stakePool: pool,
     stakePoolMint: mint,
     rewardMint: mint,
-    nonce: Number(val('--nonce', '0')),
+    nonce,
     amount: amountRaw,
     feeValue: null,
     tokenProgramId,

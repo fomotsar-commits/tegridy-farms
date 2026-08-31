@@ -93,11 +93,13 @@ describe('navConfig', () => {
     expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
-  it('POINTS_NAV is the right-aligned promoted action (Tradermigos)', () => {
+  it('POINTS_NAV is the right-aligned promoted action (Marketplace)', () => {
     // Previously the right-aligned slot was Points; Tradermigos was swapped
     // in from the "More" dropdown so the art marketplace gets top-bar prominence.
     expect(POINTS_NAV.to).toBe('/nakamigos');
-    expect(POINTS_NAV.label).toBe('Tradermigos');
+    // Owner call 2026-08-31: the slot reads Marketplace now — the route is
+    // unchanged (/nakamigos); only the label the visitor sees moved.
+    expect(POINTS_NAV.label).toBe('Marketplace');
   });
 
   it('ALL_NAV is a superset of PRIMARY_NAV', () => {

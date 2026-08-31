@@ -132,7 +132,7 @@ export const PRIMARY_NAV: NavItem[] = [
 
 /** Tradermigos link — right-aligned action, separate from primary nav. Swapped
  *  in from the dropdown so the art gallery is promoted to the top bar. */
-export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Tradermigos' };
+export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Marketplace' };
 
 export interface NavSection {
   heading: string;

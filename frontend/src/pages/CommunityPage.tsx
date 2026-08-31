@@ -156,7 +156,7 @@ export default function CommunityPage() {
             </Link>
             <Link to="/nakamigos" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Community chat →</div>
-              <div className="text-white/60 text-xs mt-1 leading-relaxed">Live chat, P2P trades, and whale intel over in Tradermigos.</div>
+              <div className="text-white/60 text-xs mt-1 leading-relaxed">Live chat, P2P trades, and whale intel over in the Marketplace.</div>
             </Link>
             <Link to="/gallery" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Gallery →</div>

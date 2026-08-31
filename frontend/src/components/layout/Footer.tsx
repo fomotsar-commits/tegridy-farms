@@ -32,7 +32,7 @@ const PRODUCT_LINKS: { to: string; label: string }[] = [
   // Community column below (both gate on COMMUNITY_LIVE).
   ...(PREMIUM_LIVE ? [{ to: '/premium', label: 'Gold Card' }] : []),
   { to: '/leaderboard', label: 'Points' },
-  { to: '/nakamigos', label: 'Tradermigos' },
+  { to: '/nakamigos', label: 'Marketplace' },
 ];
 
 const RESOURCE_LINKS: { to: string; label: string }[] = [
