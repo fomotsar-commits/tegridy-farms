@@ -144,7 +144,7 @@ const GROUPS: ContractGroup[] = [
     // EASIEST one to verify, not the missing one. Addresses come from
     // constants.ts (mainnet) and lib/chains/registry.ts (L2s) — never inline
     // literals here.
-    title: 'Token Launcher — the Tegridy Curve',
+    title: 'Token Launcher — the Memetics Curve',
     description:
       'The zero-toll bonding-curve launcher. One contract per chain, each holding its curves’ ETH reserves; owned by the multisig Safe from deploy on every chain.',
     entries: [

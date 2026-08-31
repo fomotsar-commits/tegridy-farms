@@ -5,6 +5,7 @@ import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navCon
 import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
+import { isToweliVoice, VENUE } from '../../lib/arrival';
 
 /**
  * Footer — four-column IA: Product / Resources / Community / Legal.
@@ -110,8 +111,13 @@ export function Footer() {
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-[18px] font-bold tracking-wide" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
-                <span>TEGRIDY</span>{' '}
-                <span>FARMS</span>
+                {/* ARRIVAL IDENTITY 2026-08-27: wordmark follows the arrival
+                    voice; classic TEGRIDY FARMS lives in the TOWELI bungalow. */}
+                {isToweliVoice() ? (
+                  <><span>TEGRIDY</span>{' '}<span>FARMS</span></>
+                ) : (
+                  <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
+                )}
               </span>
             </div>
             {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
@@ -126,14 +132,18 @@ export function Footer() {
                 {bungalowIdentity.name} bungalow — Jungle Bay Island. {bungalowIdentity.tagline}{' '}
                 {bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}
               </p>
-            ) : (
+            ) : isToweliVoice() ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
                 Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
+              </p>
+            ) : (
+              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
+                {VENUE.tagline}. Bungalows for meme communities, launches that open on Heat, and fees you can read onchain. Ethereum, Base and Solana.
               </p>
             )}
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-                {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'Contract'}
+                {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'TOWELI contract'}
               </p>
               <CopyButton
                 text={bungalowIdentity?.address ?? TOWELI_ADDRESS}
@@ -248,7 +258,7 @@ export function Footer() {
             Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
           </span>
           <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
-            © 2026 Tegridy Farms
+            © 2026 {isToweliVoice() ? 'Tegridy Farms' : 'memetics.finance'}
           </span>
         </div>
       </div>

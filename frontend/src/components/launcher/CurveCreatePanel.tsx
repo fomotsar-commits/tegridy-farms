@@ -280,7 +280,7 @@ export function CurveCreateView({
       </div>
       <p className="text-white/45 text-[11px] leading-relaxed">
         <span className="text-white/70 font-medium">You earn 40% of every trade’s fee while the curve runs — accrued on-chain, claimable only by you.</span>{' '}
-        Fixed supply, no team unlock beyond your opening buy. Graduation seeds the Tegridy pool
+        Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool
         with the LP burned; a 3.69% reserve goes to protocol custody for discretionary ecosystem support.
       </p>
       <p className="text-white/40 text-[11px] leading-relaxed">

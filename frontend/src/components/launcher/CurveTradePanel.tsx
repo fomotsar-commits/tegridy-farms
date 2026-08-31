@@ -214,7 +214,7 @@ export function CurveTradeView({
         <IdentityHeader identity={identity} tokenSymbol={tokenSymbol} fallbackName={fallbackName} />
         <p className="text-white/90 text-sm font-semibold">This launch has graduated 🎓</p>
         <p className="text-white/60 text-[12px] mt-1 leading-relaxed">
-          The curve is closed. Its liquidity is live in the Tegridy pool with the LP burned to
+          The curve is closed. Its liquidity is live in our own pool with the LP burned to
           <span className="font-mono"> 0x…dEaD</span> —{' '}
           <Link to="/swap" className="text-sky-300/80 hover:text-sky-200 underline underline-offset-2">
             trade it on the venue swap
@@ -281,7 +281,7 @@ export function CurveTradeView({
           <p className="text-emerald-200/90 text-[12px] leading-relaxed">
             The curve hit its raise target but graduation hasn't been finalized yet. Buys are
             closed (the contract rejects them); sells still work. Anyone may finalize —
-            it seeds the Tegridy pool and burns the LP.
+            it seeds our own pool and burns the LP.
           </p>
           {onFinalizeGraduation && (
             <button
@@ -364,7 +364,7 @@ export function CurveTradeView({
             </div>
           )}
           {quote.wouldGraduate && (
-            <p className="text-emerald-300/90 text-[11px] pt-1">This buy completes the curve — it graduates into the Tegridy pool.</p>
+            <p className="text-emerald-300/90 text-[11px] pt-1">This buy completes the curve — it graduates into our own pool.</p>
           )}
           {quote.dust && <p className="text-amber-300/90 text-[11px] pt-1">Amount too small to trade.</p>}
           {insufficientBalance && <p className="text-red-300/90 text-[11px] pt-1">Exceeds your balance.</p>}

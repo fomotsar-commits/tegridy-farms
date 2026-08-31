@@ -39,6 +39,7 @@ import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
+import { isToweliVoice } from '../../lib/arrival';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
@@ -231,14 +232,17 @@ export function AppLayout() {
       {/* LiveActivity's ticker is TOWELI-denominated (price pill, protocol
           feed) — muted alongside the assistant in a token-first bungalow,
           where the muse's quiet line takes the corner instead. */}
-      {!bungalowIdentity && !onSettledDoorstep && <LiveActivity />}
+      {!bungalowIdentity && !onSettledDoorstep && isToweliVoice() && <LiveActivity />}
       {/* NO VOICE ON ANOTHER RESIDENT'S DOORSTEP: a settled door renders that
           token's landing inside this layout while the visitor's own skin
           stays active — without this gate, Bayla's welcome modal and muse
           line (or Towelie's assistant) greeted people arriving at /pepe.
           Caught live on the 2026-08-30 island sweep; pinned by the doors
           e2e ("no other resident's voice on a settled doorstep"). */}
-      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : <TowelieAssistant />)}
+      {/* ARRIVAL IDENTITY 2026-08-27: Towelie floats only inside his own
+          bungalow. Identity bungalows keep the muse; the venue default
+          keeps the arrival clean. */}
+      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : isToweliVoice() ? <TowelieAssistant /> : null)}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →

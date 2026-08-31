@@ -33,7 +33,7 @@ export function CurveHowItWorks() {
   const points: { k: string; v: string }[] = [
     { k: 'Zero third-party tolls', v: 'No Airlock, no migrator, no petition. 100% of the 1% trade fee stays in-house.' },
     { k: 'Fee split 40 / 25 / 35', v: 'Every trade funds the creator (40%), the Jungle Bay treasury (25%) and the protocol (35%).' },
-    { k: 'Graduate to us', v: 'Hitting the raise target seeds the Tegridy pool with all raised ETH + unsold tokens — LP burned to 0x…dEaD, nobody can pull it.' },
+    { k: 'Graduate to us', v: 'Hitting the raise target seeds our own pool with all raised ETH + unsold tokens — LP burned to 0x…dEaD, nobody can pull it.' },
     { k: '3.69% ecosystem reserve', v: "Carved from each launch's supply and sent to protocol custody at graduation, then used at the protocol's discretion toward that token's ecosystem — liquidity incentives, campaigns and bounties. Discretionary, not enforced on-chain." },
     { k: 'Creators keep 0.40% of volume', v: 'On-chain, claimable any time from the token page — multiples of the going launchpad creator share.' },
   ];
@@ -100,7 +100,7 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
 }
 
 export default function EthCurvePage() {
-  usePageTitle('Tegridy Curve', 'Launch and trade on the zero-toll Tegridy bonding curve.');
+  usePageTitle('Memetics Curve', 'Launch and trade on the zero-toll Memetics bonding curve.');
   useEffect(() => {
     trackPageView('/eth-curve');
   }, []);
@@ -125,7 +125,7 @@ export default function EthCurvePage() {
       <div className="relative z-10 max-w-xl mx-auto px-4 py-8 space-y-4">
         <div>
           <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="heading-luxury text-2xl">Tegridy Curve</h1>
+            <h1 className="heading-luxury text-2xl">Memetics Curve</h1>
             {availability.status === 'deployed' && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
@@ -135,7 +135,7 @@ export default function EthCurvePage() {
           </div>
           <p className="text-white/60 text-[13px] mt-1 leading-relaxed">
             Our own bonding curve. Launch a token in one signature, trade it as it climbs, and
-            graduate into a Tegridy pool with the liquidity burned — no third party takes a cut.
+            graduate into our own pool with the liquidity burned — no third party takes a cut.
           </p>
         </div>
 

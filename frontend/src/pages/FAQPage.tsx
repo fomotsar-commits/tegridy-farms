@@ -21,7 +21,7 @@ const FAQ_DATA: FAQSection[] = [
       { q: 'What is Tegridy Farms?', a: 'Tegridy Farms is a yield farming protocol on Ethereum. Stake TOWELI tokens to earn rewards from the protocol. Today’s rewards are TOWELI emissions from a fixed launch seed; the ETH fee-share pipeline — protocol swap fees routed on-chain to stakers — is deployed and switches on when the native pool goes live.' },
       { q: 'How do I get TOWELI tokens?', a: 'Buy TOWELI on Uniswap V2. Simply swap ETH for TOWELI at app.uniswap.org. Make sure you are connected to Ethereum Mainnet.' },
       { q: 'What wallets are supported?', a: 'MetaMask, WalletConnect, Coinbase Wallet, and most Ethereum wallets are supported via RainbowKit. Any wallet that supports Ethereum Mainnet should work.' },
-      { q: 'What network does Tegridy Farms run on?', a: 'The core protocol — staking, farming, swap, NFT finance — runs on Ethereum Mainnet. The Tegridy Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens through Jupiter. Your wallet prompts a network switch when a page needs a different chain.' },
+      { q: 'What network does Tegridy Farms run on?', a: 'The core protocol — staking, farming, swap, NFT finance — runs on Ethereum Mainnet. The Memetics Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens through Jupiter. Your wallet prompts a network switch when a page needs a different chain.' },
     ],
   },
   {

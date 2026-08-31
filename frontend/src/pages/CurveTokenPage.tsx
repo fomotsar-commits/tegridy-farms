@@ -147,7 +147,7 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
 // ────────────────────────────────────── the page ──────────────────────────────────────
 
 export default function CurveTokenPage() {
-  usePageTitle('Tegridy Curve', 'A token on the zero-toll Tegridy bonding curve.');
+  usePageTitle('Memetics Curve', 'A token on the zero-toll Memetics bonding curve.');
   useEffect(() => {
     trackPageView('/eth-curve/:token');
   }, []);
@@ -213,7 +213,7 @@ export default function CurveTokenPage() {
       <PageArtBackdrop pageId={PAGE_ID} />
       <div className="relative z-10 max-w-xl mx-auto px-4 py-8 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h1 className="heading-luxury text-2xl">Tegridy Curve</h1>
+          <h1 className="heading-luxury text-2xl">Memetics Curve</h1>
           {resolved && (
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
@@ -284,7 +284,7 @@ export default function CurveTokenPage() {
               <div className="rounded-2xl p-4" style={cardStyle}>
                 <p className="text-white/85 text-sm font-semibold mb-1">Graduated — it lives on the venue now</p>
                 <p className="text-white/55 text-[12px] leading-relaxed mb-3">
-                  The curve closed and its liquidity is live in the Tegridy pool with the LP burned.
+                  The curve closed and its liquidity is live in our own pool with the LP burned.
                   This is the aftermarket the island runs on:
                 </p>
                 <div className="flex flex-wrap gap-2">

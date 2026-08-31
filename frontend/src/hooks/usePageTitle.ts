@@ -5,13 +5,19 @@ import { useEffect } from 'react';
 // instruction alone — only by not existing.
 import { SITE_URL } from '../lib/constants';
 
-const BASE_TITLE = 'Tegridy Farms';
+// ARRIVAL IDENTITY 2026-08-27: the site speaks as the venue. Inside the
+// TOWELI bungalow the per-route titles still carry their own page names;
+// the classic Tegridy identity lives on that bungalow's surfaces, not in
+// the global title suffix.
+const BASE_TITLE = 'MEMETICS.FINANCE';
 const DEFAULT_OG_IMAGE = `${SITE_URL}/art/gallery-collage.jpg`;
 
 // F15: mirror the index.html default description so pages that don't pass one
 // reset the tags instead of inheriting the previous route's description.
 const DEFAULT_DESCRIPTION =
-  'Tegridy Farms — DeFi protocol for swapping, staking, farming, and NFT finance on Ethereum';
+  'memetics.finance is the venue of Jungle Bay Island. Bungalows for meme ' +
+  'communities, Heat-gated launches, and verifiable staking and swaps on ' +
+  'Ethereum, Base and Solana.';
 
 function setMetaTag(attr: 'name' | 'property', key: string, content: string) {
   let el = document.querySelector(`meta[${attr}="${key}"]`) as HTMLMetaElement | null;

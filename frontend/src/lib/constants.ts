@@ -254,7 +254,10 @@ export const CURRENT_SEASON = {
 // halves of the app disagreed about which domain is production. Both hosts still
 // serve, and api/ deliberately keeps BOTH in its origin allowlist — this constant is
 // about declared identity, not access.
-export const SITE_URL = 'https://memetic.fun';
+// ARRIVAL IDENTITY 2026-08-27: the canonical public origin is the venue's
+// own name. memetic.fun and memetics.fun stay attached as redirect aliases
+// in Vercel; share links and og URLs mint on the canonical.
+export const SITE_URL = 'https://memetics.finance';
 
 // External links
 export const ETHERSCAN_TOKEN = `https://etherscan.io/token/${TOWELI_ADDRESS}`;

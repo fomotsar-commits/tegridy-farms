@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 // before the value prop is usable was pure funnel leakage on mobile.
 import { Modal } from './Modal';
 import { pageArt } from '../../lib/artConfig';
+import { isToweliVoice } from '../../lib/arrival';
 
 const STORAGE_KEY = 'tegridy-onboarding-seen';
 
@@ -16,7 +17,36 @@ const STORAGE_KEY = 'tegridy-onboarding-seen';
 // first screen, cycled by step. Resolved through pageArt('onboarding', idx) so
 // each slide is an art-studio surface (seeded to card01–04 in artOverrides).
 
-const steps = [
+// ARRIVAL IDENTITY 2026-08-27: the first-visit welcome follows the arrival
+// voice. The venue speaks as itself by default; the classic TOWELI
+// onboarding (below, byte-identical) runs inside the TOWELI bungalow.
+// Copy rules unchanged from the 2026-08-07 honesty pass: no percentage
+// claims, no unpaid yield, no certification language anywhere.
+const venueSteps = [
+  {
+    title: 'Welcome to memetics.finance',
+    body: 'The venue of Jungle Bay Island. Bungalows for meme communities, launches that open on Heat instead of hype, and staking and swaps with every fee routed on-chain where you can read it.',
+  },
+  {
+    title: 'Bungalows',
+    body: 'Every island community has a door here. Enter one and the whole venue wears its skin. TOWELI keeps the classic Tegridy Farms bungalow; Bayla holds the lighthouse.',
+  },
+  {
+    title: 'Heat',
+    body: 'Heat is held time, read from the island\u2019s own instrument. Launches open at a floor of proven holding. No token lists, no calendars, no exceptions \u2014 the gate refuses before anything is broadcast.',
+  },
+  {
+    title: 'Stay Safe',
+    body: 'This is an experimental DeFi venue. Smart contract risk exists. Never invest more than you can afford to lose. Review our Risk Disclosure and Security pages.',
+  },
+  {
+    title: 'Your First Move',
+    body: 'Pick a bungalow, scan any token on either chain, or head to Farm. Your heat already exists \u2014 it started counting at your first buy.',
+    cta: true,
+  },
+];
+
+const toweliSteps = [
   // 2026-08-07, two corrections in one line — this is the FIRST sentence a new
   // visitor reads, and it was wrong twice:
   //
@@ -53,6 +83,8 @@ const steps = [
     cta: true,
   },
 ];
+
+const steps = isToweliVoice() ? toweliSteps : venueSteps;
 
 const variants = {
   enter: (dir: number) => ({ x: dir > 0 ? 120 : -120, opacity: 0 }),
@@ -156,10 +188,20 @@ export function OnboardingModal() {
               className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 hover:bg-green-500 text-white transition-colors text-center min-h-[44px] flex items-center">
               Start Farming
             </Link>
-            <Link to="/swap" onClick={close}
-              className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors text-center min-h-[44px] flex items-center">
-              Buy TOWELI
-            </Link>
+            {/* ARRIVAL IDENTITY 2026-08-27: the second CTA follows the
+                arrival voice — Buy TOWELI belongs to the TOWELI bungalow;
+                the venue welcome hands the no-wallet scanner instead. */}
+            {isToweliVoice() ? (
+              <Link to="/swap" onClick={close}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors text-center min-h-[44px] flex items-center">
+                Buy TOWELI
+              </Link>
+            ) : (
+              <Link to="/scan" onClick={close}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors text-center min-h-[44px] flex items-center">
+                Scan a token
+              </Link>
+            )}
           </div>
         ) : (
           <button

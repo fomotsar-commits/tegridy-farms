@@ -175,7 +175,7 @@ export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
       </div>
       <div className="relative z-10" style={SHADOW}>
         <div className="flex flex-wrap items-center gap-2 mb-1.5">
-          <h1 className="heading-luxury text-[18px] text-white">Tegridy Curve</h1>
+          <h1 className="heading-luxury text-[18px] text-white">Memetics Curve</h1>
           <span className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-semibold border ${c.tone}`}>{c.badge}</span>
         </div>
         <p className="text-white/60 text-[11px] leading-relaxed">{c.line}</p>
@@ -205,7 +205,7 @@ export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
         {(probe?.kind === 'closed' || probe?.kind === 'not-a-program' || probe?.kind === 'not-deployed') && (
           <div className="mt-3 flex flex-wrap gap-2">
             <Link to="/eth-curve" className="btn-primary px-4 py-2 text-[12px]">
-              The Tegridy Curve is LIVE on Ethereum, Base + Robinhood →
+              The Memetics Curve is LIVE on Ethereum, Base + Robinhood →
             </Link>
             <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px]">
               Swap any Solana token
@@ -934,7 +934,7 @@ function CurveLaunchInner() {
 }
 
 export default function CurveLaunchPage() {
-  usePageTitle('Tegridy Curve', 'Our own Solana bonding curve — not deployed yet, and this page says so from a live read.');
+  usePageTitle('Memetics Curve', 'Our own Solana bonding curve — not deployed yet, and this page says so from a live read.');
   useEffect(() => {
     trackPageView('curve-launch');
   }, []);

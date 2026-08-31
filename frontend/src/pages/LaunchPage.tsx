@@ -1198,7 +1198,7 @@ function LauncherExplainer() {
         The old Solana leg over Meteora&rsquo;s Dynamic Bonding Curve was retired on 2026-08-23. The Solana story now runs
         through our own curve program — no TOWELI on Solana, fee capture only.{' '}
         <Link to="/curve-launch" className="text-white/60 hover:text-white underline transition-colors">
-          See the Tegridy Curve
+          See the Memetics Curve
         </Link>
       </p>
     </div>

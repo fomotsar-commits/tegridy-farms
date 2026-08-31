@@ -666,7 +666,7 @@ export default function TradePage() {
             <div className="glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
               <p className="text-[13px] text-text-secondary leading-relaxed">
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
-                The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Tegridy Curve</Link>{' '}
+                The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
                 pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee,
                 on-chain, claimable any time) and graduates into this venue with the LP burned — and every token here is{' '}
                 <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline">scannable</Link>.

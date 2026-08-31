@@ -196,12 +196,17 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // 2026-08-28: renamed from the bare "Tegridy Curve" — the dead Solana
       // rail owned the flagship's plain name while the LIVE EVM curve carried
       // the qualifier, so the menu read "Tegridy Curve — Soon" first.
-      { to: '/curve-launch', label: 'Tegridy Curve (Solana)', soon: true },
+      // ARRIVAL IDENTITY 2026-08-31: "Tegridy Curve" -> "Memetics Curve" on the
+      // owner's call, so nothing outside the TOWELI bungalow speaks Tegridy.
+      // DISPLAY NAME ONLY — the route and the TegridyCurveLauncher contract are
+      // unchanged. The two lines above are HISTORY and keep the old name on
+      // purpose: they record what the label was renamed FROM in August.
+      { to: '/curve-launch', label: 'Memetics Curve (Solana)', soon: true },
       // Our OWN EVM curve (TegridyCurveLauncher) — zero-toll, graduate-to-us, no
       // Airlock/petition. `soon` clears itself the moment CURVE_LAUNCHER_ADDRESS
       // is filled from the deploy (M.16); no flag, same live-read discipline as
       // the entries above.
-      { to: '/eth-curve', label: 'Tegridy Curve (EVM)', soon: !isDeployed(CURVE_LAUNCHER_ADDRESS), live: isDeployed(CURVE_LAUNCHER_ADDRESS) },
+      { to: '/eth-curve', label: 'Memetics Curve (EVM)', soon: !isDeployed(CURVE_LAUNCHER_ADDRESS), live: isDeployed(CURVE_LAUNCHER_ADDRESS) },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
       { to: '/launch-simulator', label: 'Launch Simulator' },
       // Referrals sits in Engage because it is a recruiting tool, not a stat and not a

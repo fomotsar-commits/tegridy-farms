@@ -8,6 +8,7 @@ import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
+import { isToweliVoice, VENUE } from '../../lib/arrival';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -168,8 +169,20 @@ export const TopNav = React.memo(function TopNav() {
               </span>
             </button>
             <Link to="/" className="flex items-center gap-1" title="Go to home page">
-              <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>
-              <span className="text-[15px] font-semibold tracking-tight text-white">FARMS</span>
+              {/* ARRIVAL IDENTITY 2026-08-27: the wordmark follows the arrival
+                  voice. The venue speaks as itself by default; the classic
+                  TEGRIDY FARMS mark lives inside the TOWELI bungalow. */}
+              {isToweliVoice() ? (
+                <>
+                  <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>
+                  <span className="text-[15px] font-semibold tracking-tight text-white">FARMS</span>
+                </>
+              ) : (
+                <>
+                  <span className="heading-luxury text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+                  <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+                </>
+              )}
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;

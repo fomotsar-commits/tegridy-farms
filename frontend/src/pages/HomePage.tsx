@@ -32,6 +32,8 @@ import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAU
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
+import { arrivalVoice, VENUE } from '../lib/arrival';
+import { VenueHero } from '../components/VenueHero';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
@@ -49,8 +51,15 @@ const SOCIAL_LINKS = [
 // the safe storage wrapper, never overwrites an existing stash.
 const REF_STORAGE_KEY = 'tegridy_ref';
 
+// ARRIVAL IDENTITY 2026-08-27: the loop and how-it-works copy follow the
+// arrival voice. Same mechanics both ways (the fee loop is a venue fact);
+// only the Tegridy personality words are contained to the TOWELI bungalow.
+const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
+
 const CORE_LOOP_STEPS = [
-  { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
+  IS_TOWELI_ARRIVAL
+    ? { label: 'People trade TOWELI', sub: 'on the Tegridy DEX' }
+    : { label: 'People trade here', sub: 'on the venue DEX' },
   // F82: sub no longer just restates the label — it adds the "where" (router,
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
   // rather than hardcode a number that can drift.
@@ -65,7 +74,7 @@ const CORE_LOOP_STEPS = [
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
-const HOW_IT_WORKS_STEPS = [
+const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
   {
     step: '1',
     title: 'Get Some Towelies',
@@ -82,6 +91,25 @@ const HOW_IT_WORKS_STEPS = [
     step: '3',
     title: 'Harvest the Tegridy',
     desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
+    to: '/dashboard',
+  },
+] : [
+  {
+    step: '1',
+    title: 'Get the token',
+    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked.',
+    to: '/swap',
+  },
+  {
+    step: '2',
+    title: 'Lock it down',
+    desc: 'Lock from 7 days to 4 years. Longer lock + NFT boost = up to 4.5x share.',
+    to: '/farm',
+  },
+  {
+    step: '3',
+    title: 'Harvest, verified',
+    desc: 'Emissions pay in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim any time.',
     to: '/dashboard',
   },
 ];
@@ -101,7 +129,9 @@ export default function HomePage() {
     bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
-      : 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.',
+      : IS_TOWELI_ARRIVAL
+        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.'
+        : VENUE.description,
   );
   const { address } = useAccount();
   const stats = useFarmStats();
@@ -251,6 +281,11 @@ export default function HomePage() {
                 is untouched for the Toweli default. */}
             {bungalowIdentity ? (
               <BungalowHero bungalow={bungalowIdentity} />
+            ) : !IS_TOWELI_ARRIVAL ? (
+              /* ARRIVAL IDENTITY 2026-08-27: the venue's own hero is the
+                 default first impression. The classic Tegridy cluster below
+                 is byte-identical and renders inside the TOWELI bungalow. */
+              <VenueHero />
             ) : (
             <>
             {/* H1 2026-07-19: "Yield with Tegridy Farms" was generic — it could have
@@ -374,7 +409,7 @@ export default function HomePage() {
               and Dashboard are the better signal. Suppressed in a token-first
               bungalow: it computes TOWELI staking yield, which is the wrong
               token there (Bayla's farm panel owns that story). */}
-          {!address && !bungalowIdentity && (
+          {!address && !bungalowIdentity && IS_TOWELI_ARRIVAL && (
             <div className="mt-10 max-w-xl">
               <YieldCalculator />
             </div>
@@ -397,7 +432,7 @@ export default function HomePage() {
               the TOWELI contract strip are the wrong token there — the
               BungalowHero carries its own contract chip. Everything inside
               this gate is untouched for the Toweli default. */}
-          {!bungalowIdentity && (
+          {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
           <>
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {([
@@ -719,7 +754,7 @@ export default function HomePage() {
               Protocol Overview for the same tablet-width reason. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              // Tegridy Curve — our OWN zero-toll launch curve, LIVE on mainnet
+              // Memetics Curve — our OWN zero-toll launch curve, LIVE on mainnet
               // 2026-08-24. Placed first because it is the flagship launch surface and
               // the one that just went live. Spread-gated on the SAME live read the
               // page and nav gate on (isDeployed(CURVE_LAUNCHER_ADDRESS)) — if the
@@ -729,8 +764,8 @@ export default function HomePage() {
               ...(isDeployed(CURVE_LAUNCHER_ADDRESS)
                 ? [{
                     to: '/eth-curve',
-                    title: 'Tegridy Curve',
-                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into a Tegridy pool with the LP burned — no Airlock, no petition, no third-party cut.',
+                    title: 'Memetics Curve',
+                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
                     stat: 'Zero-toll',
                     label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),
@@ -965,10 +1000,10 @@ export default function HomePage() {
             viewport={{ once: true }}
           >
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {FAQ_INTRO.headline}
+              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.headline : 'Questions about the venue'}
             </h2>
             <p className="text-white/90 text-[13px] max-w-xl mx-auto mb-5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {FAQ_INTRO.subheading}
+              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.subheading : 'Plain answers, checkable claims. Below are the questions we hear most.'}
             </p>
             <Link to="/faq" className="btn-primary px-6 py-2.5 text-[13px] inline-flex items-center gap-1.5">
               Read the FAQ

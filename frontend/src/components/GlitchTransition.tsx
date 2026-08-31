@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { pageArt } from '../lib/artConfig';
+import { loaderIdentity, isToweliVoice } from '../lib/arrival';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    GLITCH TRANSITION v4
@@ -50,8 +51,12 @@ const ART_IMAGES = [
 ];
 
 const SUBLIMINAL_PHRASES = [
-  'TEGRIDY', 'FAFO', 'DM+T', 'WAGMI',
-  "DON'T FORGET YOUR TOWEL", 'SEIZE THE MEMES',
+  // ARRIVAL IDENTITY 2026-08-27: the flash set follows the arrival voice
+  // (venue words by default, classic set inside the TOWELI bungalow).
+  ...loaderIdentity().subliminal,
+  ...(isToweliVoice()
+    ? ["DON'T FORGET YOUR TOWEL", 'SEIZE THE MEMES']
+    : ['HELD TIME COUNTS', 'SEIZE THE MEMES']),
 ];
 
 export interface GlitchConfig {
@@ -92,7 +97,7 @@ function MobileGlitchTransition({ config }: { config: GlitchConfig }) {
   // about Math.random() being called outside the render path.
   const [seed] = useState(() => Math.floor(Math.random() * 99999));
   const [subliminal] = useState(
-    () => SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)] ?? 'TEGRIDY',
+    () => SUBLIMINAL_PHRASES[Math.floor(Math.random() * SUBLIMINAL_PHRASES.length)] ?? 'MEMETICS',
   );
   const seedRef = useRef(seed);
   const subliminalWord = useRef(subliminal);
@@ -417,7 +422,7 @@ interface SubliminalData {
 
 function generateSubliminal(config: GlitchConfig, rand: () => number): SubliminalData {
   return {
-    text: SUBLIMINAL_PHRASES[Math.floor(rand() * SUBLIMINAL_PHRASES.length)] ?? 'TEGRIDY',
+    text: SUBLIMINAL_PHRASES[Math.floor(rand() * SUBLIMINAL_PHRASES.length)] ?? 'MEMETICS',
     offsetX: (rand() - 0.5) * 80,
     offsetY: (rand() - 0.5) * 50,
     rotation: (rand() - 0.5) * 8,

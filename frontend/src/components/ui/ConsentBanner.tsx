@@ -64,7 +64,7 @@ export function ConsentBanner() {
         <div className="relative z-10 text-sm text-gray-200 leading-relaxed flex-1" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
           <p className="font-semibold text-white mb-1">Privacy &amp; telemetry</p>
           <p className="text-gray-300">
-            We use anonymous analytics and error reports to keep Tegridy Farms healthy.
+            We use anonymous analytics and error reports to keep the venue healthy.
             Nothing is sent until you choose. You can change your mind in your browser&apos;s storage
             (<code className="text-xs px-1 py-0.5 rounded bg-black/40 text-purple-200">tegridy_telemetry_consent</code>).
           </p>

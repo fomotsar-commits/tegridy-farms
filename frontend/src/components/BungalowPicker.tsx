@@ -1,7 +1,6 @@
 import { Modal } from './ui/Modal';
 import {
   BUNGALOWS,
-  DEFAULT_BUNGALOW_ID,
   getActiveBungalow,
   setActiveBungalow,
   type Bungalow,
@@ -34,11 +33,16 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
  * consistently — and it matches the app's existing splash-replay pattern.
  */
 export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const currentId = getActiveBungalow()?.id ?? DEFAULT_BUNGALOW_ID;
+  // ARRIVAL IDENTITY 2026-08-27: no implicit Toweli default. Nothing chosen
+  // means the visitor is at the venue itself, so no card claims "You are
+  // here" until a door has actually been walked.
+  const currentId = getActiveBungalow()?.id ?? null;
 
   const dismiss = () => {
-    // Persist the status quo so dismissal counts as a choice.
-    setActiveBungalow(currentId);
+    // Persist the status quo so dismissal counts as a choice and the picker
+    // does not re-open. With no bungalow active the sentinel 'venue' marks
+    // "seen" while resolving to no bungalow (the venue's own voice).
+    setActiveBungalow(currentId ?? 'venue');
     onClose();
   };
 

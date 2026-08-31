@@ -17,7 +17,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const SITE = 'https://memetic.fun'; // canonical origin, per index.html's own tags
+const SITE = 'https://memetics.finance'; // canonical origin, per index.html's own tags
 const DIST = resolve(process.cwd(), 'dist');
 
 // Settled doors share one honest formula: plaque facts only — no market

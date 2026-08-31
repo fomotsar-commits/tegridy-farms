@@ -50,6 +50,23 @@ describe('index.html static site identity', () => {
     expect(origin(parsed.url ?? '')).toBe(origin(SITE_URL));
   });
 
+  // ARRIVAL IDENTITY 2026-08-27: the per-door unfurls are pre-rendered at build time by
+  // scripts/render-bungalow-doors.mjs, which carries its OWN copy of the canonical origin
+  // (it runs under bare Node and cannot import the TS constant). That copy drifted the
+  // moment SITE_URL moved to memetics.finance: every bungalow door would have declared
+  // canonical/og:url on the old origin while index.html declared the new one — the exact
+  // two-halves-disagree failure this file was written for, one directory over and outside
+  // its reach. Pin it here so the next origin move cannot leave the doors behind.
+  it('the bungalow door pre-render declares the same canonical origin', () => {
+    const script = readFileSync(
+      join(dirname(INDEX_HTML), 'scripts', 'render-bungalow-doors.mjs'),
+      'utf-8',
+    );
+    const m = script.match(/const SITE = '([^']+)'/);
+    expect(m, "no `const SITE = '…'` in scripts/render-bungalow-doors.mjs").toBeTruthy();
+    expect(origin(m![1]!)).toBe(origin(SITE_URL));
+  });
+
   // Not an identity check, but it lives or dies with the block above: the JSON-LD is an
   // INLINE script pinned by a CSP sha256 in vercel.json, and the CSP header only exists
   // on Vercel — so editing index.html without re-running scripts/csp-hash.mjs blocks the

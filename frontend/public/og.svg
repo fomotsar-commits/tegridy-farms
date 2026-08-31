@@ -1,22 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Social preview banner for Tegridy Farms — 1280x640 per docs/SOCIAL_PREVIEW_SPEC.md.
-     This is the repo-root social card that GitHub uses when the link is shared.
-     The matching PNG export lives at frontend/public/og.png for the webapp's
-     og:image meta (SVG works but PNG is safer for wider social-crawler support). -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="Tegridy Farms — DeFi yield protocol on Ethereum">
+<!-- Social preview banner for MEMETICS.FINANCE — 1280x640 per docs/SOCIAL_PREVIEW_SPEC.md.
+     ARRIVAL IDENTITY 2026-08-27: the card speaks as the venue of Jungle Bay
+     Island. Kept byte-identical with docs/banner.svg (the render source for
+     og.png via scripts/render-og-png.mjs) so the two cannot drift.
+     Honesty rules: no third-party audit claim (none exists), no certification
+     claim (the island certifies, the venue reads), no yield numbers. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="MEMETICS.FINANCE — the venue of Jungle Bay Island">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#060c1a" />
-      <stop offset="60%" stop-color="#0c1628" />
-      <stop offset="100%" stop-color="#1a0f2e" />
+      <stop offset="0%" stop-color="#04120b" />
+      <stop offset="60%" stop-color="#071a10" />
+      <stop offset="100%" stop-color="#0b2416" />
     </linearGradient>
-    <radialGradient id="glow" cx="75%" cy="30%" r="70%">
-      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.35" />
-      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0" />
+    <radialGradient id="glow" cx="78%" cy="28%" r="70%">
+      <stop offset="0%" stop-color="#39d980" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#39d980" stop-opacity="0" />
     </radialGradient>
     <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#f5e4b8" />
       <stop offset="100%" stop-color="#d4a843" />
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#8ef0b8" />
+      <stop offset="100%" stop-color="#4ecf82" />
     </linearGradient>
     <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="2" />
@@ -30,80 +36,90 @@
   <rect width="1280" height="640" fill="url(#bg)" />
   <rect width="1280" height="640" fill="url(#glow)" />
 
-  <!-- Geometric subtle accent lines (no image assets needed) -->
-  <g stroke="#8b5cf6" stroke-opacity="0.12" stroke-width="1" fill="none">
+  <!-- Shoreline accent lines -->
+  <g stroke="#39d980" stroke-opacity="0.14" stroke-width="1" fill="none">
     <path d="M0,560 Q320,500 640,560 T1280,560" />
     <path d="M0,600 Q320,540 640,600 T1280,600" />
   </g>
 
-  <!-- Shield badge top-left -->
+  <!-- Badge top-left: only checkable claims -->
   <g transform="translate(68 66)" filter="url(#soft-shadow)">
-    <rect x="0" y="0" width="180" height="34" rx="17"
-          fill="rgba(139,92,246,0.15)" stroke="rgba(245,228,184,0.35)" stroke-width="1" />
+    <rect x="0" y="0" width="250" height="34" rx="17"
+          fill="rgba(57,217,128,0.10)" stroke="rgba(245,228,184,0.35)" stroke-width="1" />
     <g transform="translate(14 9)" stroke="#f5e4b8" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round">
       <path d="M8 0l6 2.25v4.5c0 3.75-2.625 6.375-6 6.75-3.375-0.375-6-3-6-6.75v-4.5L8 0z" />
       <path d="M5.25 7l1.5 1.5 3-3" />
     </g>
     <text x="40" y="22" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
           font-size="12" font-weight="600" fill="#f5e4b8" letter-spacing="0.04em">
-      AUDITED · BUG BOUNTY
+      OPEN SOURCE · BUG BOUNTY
     </text>
   </g>
 
   <!-- Wordmark -->
-  <g transform="translate(68 200)" filter="url(#soft-shadow)">
+  <g transform="translate(68 208)" filter="url(#soft-shadow)">
     <text font-family="'Playfair Display', Georgia, serif"
-          font-size="96" font-weight="700" fill="#ede9fe" letter-spacing="-0.02em">
-      Tegridy Farms
+          font-size="86" font-weight="700" letter-spacing="-0.02em">
+      <tspan fill="#f2ead3">MEMETICS</tspan><tspan fill="url(#mint)">.FINANCE</tspan>
     </text>
   </g>
 
   <!-- Tagline -->
-  <g transform="translate(68 280)">
+  <g transform="translate(68 278)">
     <text font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-          font-size="26" font-weight="500" fill="#ede9fe" opacity="0.92" letter-spacing="-0.005em">
-      Real yield. No inflation tricks. Farm with tegridy.
+          font-size="26" font-weight="500" fill="#f2ead3" opacity="0.92" letter-spacing="-0.005em">
+      The venue of Jungle Bay Island. Held time counts here.
     </text>
   </g>
 
   <!-- Pillars row -->
-  <g transform="translate(68 360)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <g transform="translate(68 372)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
     <g>
-      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">PROTOCOL FEES ON-CHAIN</text>
-      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">stakers, liquidity &amp; ops — in ETH</text>
+      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">BUNGALOWS</text>
+      <text x="0" y="28" font-size="20" font-weight="400" fill="#9fd9b4">a door for every island community</text>
     </g>
-    <g transform="translate(380 0)">
-      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">FIXED SUPPLY</text>
-      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">1B TOWELI, no mint</text>
+    <g transform="translate(400 0)">
+      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">LAUNCHES OPEN ON HEAT</text>
+      <text x="0" y="28" font-size="20" font-weight="400" fill="#9fd9b4">a floor of proven held time</text>
     </g>
-    <g transform="translate(680 0)">
-      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">4.0× BOOST</text>
-      <text x="0" y="28" font-size="20" font-weight="400" fill="#a599c9">on LP rewards, veTOWELI</text>
+    <g transform="translate(800 0)">
+      <text x="0" y="0" font-size="14" font-weight="600" fill="#f5e4b8" letter-spacing="0.12em">FEES ONCHAIN</text>
+      <text x="0" y="28" font-size="20" font-weight="400" fill="#9fd9b4">read every route yourself</text>
     </g>
   </g>
 
-  <!-- Bottom strip: URL + chain chip -->
+  <!-- Bottom strip: URL + chain chips -->
   <g transform="translate(68 564)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
-    <text x="0" y="0" font-size="18" font-weight="600" fill="url(#gold)">memetic.fun</text>
+    <text x="0" y="0" font-size="18" font-weight="600" fill="url(#gold)">memetics.finance</text>
   </g>
 
-  <g transform="translate(1050 556)">
-    <rect x="0" y="0" width="162" height="28" rx="14"
-          fill="rgba(98,126,234,0.15)" stroke="rgba(98,126,234,0.35)" stroke-width="1" />
+  <g transform="translate(880 556)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+    <rect x="0" y="0" width="332" height="28" rx="14"
+          fill="rgba(57,217,128,0.10)" stroke="rgba(57,217,128,0.30)" stroke-width="1" />
     <circle cx="18" cy="14" r="5" fill="#627eea" />
-    <text x="32" y="18" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
-          font-size="12" font-weight="600" fill="#c9d1ff" letter-spacing="0.04em">
-      ETHEREUM MAINNET
-    </text>
+    <text x="30" y="18" font-size="12" font-weight="600" fill="#c9d1ff" letter-spacing="0.04em">ETHEREUM</text>
+    <circle cx="118" cy="14" r="5" fill="#2151f5" />
+    <text x="130" y="18" font-size="12" font-weight="600" fill="#c9d1ff" letter-spacing="0.04em">BASE</text>
+    <circle cx="192" cy="14" r="5" fill="#9a5cf0" />
+    <text x="204" y="18" font-size="12" font-weight="600" fill="#d8c9ff" letter-spacing="0.04em">SOLANA</text>
   </g>
 
-  <!-- Right side: stylised shield mark (protocol identity glyph, abstract) -->
-  <g transform="translate(1020 170)" opacity="0.92">
+  <!-- Right side: the lighthouse, the island's lantern on the venue -->
+  <g transform="translate(1044 150)" opacity="0.92">
     <g stroke="url(#gold)" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M100 0 L200 30 L200 130 C200 195 155 235 100 250 C45 235 0 195 0 130 L0 30 Z" />
-      <path d="M100 40 L160 60 L160 130 C160 170 130 198 100 208 C70 198 40 170 40 130 L40 60 Z"
-            opacity="0.55" />
-      <path d="M60 125 L90 155 L140 95" stroke-width="4" />
+      <!-- beam -->
+      <path d="M78 58 L8 22" opacity="0.55" />
+      <path d="M78 58 L4 58" opacity="0.75" />
+      <path d="M78 58 L8 94" opacity="0.55" />
+      <!-- lantern room -->
+      <rect x="66" y="44" width="26" height="28" rx="4" />
+      <circle cx="79" cy="58" r="5" fill="url(#gold)" stroke="none" />
+      <!-- tower -->
+      <path d="M64 76 L94 76 L104 210 L54 210 Z" />
+      <path d="M60 118 L99 118" opacity="0.55" />
+      <path d="M57 160 L102 160" opacity="0.55" />
+      <!-- rock -->
+      <path d="M34 210 L124 210 M44 226 Q79 214 114 226" opacity="0.75" />
     </g>
   </g>
 </svg>
