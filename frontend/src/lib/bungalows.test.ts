@@ -214,6 +214,32 @@ describe('resolution order', () => {
     expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
   });
 
+  it('every EVM address in the registry passes viem isAddress (the exact wagmi gate)', async () => {
+    // SHIPPED BUG, 2026-08-30: four Base lighthouse addresses were hand-typed
+    // with INVENTED mixed case. Nothing threw at build or in getAddress() —
+    // but viem's isAddress rejects a mixed-case address whose EIP-55 checksum
+    // does not verify, so the wagmi read path refused them and FOUR of five
+    // Base staking cards silently rendered the "could not be read just now"
+    // outage card instead of a live pool. Only the address that happened to
+    // be canonical worked, which is why a spot check missed it.
+    //
+    // The rule this pins is viem's own, verified against the library
+    // 2026-08-30: all-lowercase is FINE (no checksum to verify, and most of
+    // the island's token addresses arrive that way from canon), canonical
+    // mixed case is FINE, and mixed case that fails the checksum is REJECTED.
+    // Never hand-type mixed case — derive it with getAddress(addr.toLowerCase()).
+    const { isAddress } = await import('viem');
+    for (const b of BUNGALOWS) {
+      for (const [field, value] of [['address', b.address], ['stakePool', b.stakePool]] as const) {
+        if (!value || !value.startsWith('0x')) continue;
+        expect(
+          isAddress(value, { strict: true }),
+          `${b.id}.${field} = ${value} fails viem's checksum gate — wagmi will refuse it and the card will show a false outage`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it('pins every deployed lighthouse pool (verified on-chain at deploy time)', () => {
     // Deployed 2026-08-30 via script/DeployLighthouseStaking.s.sol; each was
     // read back on-chain before landing here: stakingToken == rewardsToken ==
@@ -221,11 +247,11 @@ describe('resolution order', () => {
     // real code present. A wrong address here points the staking card at a
     // stranger's contract — the same class of harm the RIZZ pin guards.
     const POOLS: Record<string, string> = {
-      qr: '0x820246a4Eb6E1Ad7E571e8581bdb127020adB469',
-      mfer: '0x79fF1BdF7ed6b09c24D4766FB4a82Aa28398b548',
-      bnkr: '0x2a5F65f4C74b1E49E77Ae9a57e20FbdB0CEd11d2',
+      qr: '0x820246A4eB6e1AD7e571E8581Bdb127020AdB469',
+      mfer: '0x79ff1bDf7ed6b09C24d4766fB4A82Aa28398b548',
+      bnkr: '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2',
       drb: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
-      jbm: '0xF261940cdC04d8F2422345Ff6091d6FA601541fa',
+      jbm: '0xF261940cdC04D8F2422345ff6091D6FA601541fa',
       // Solana lighthouses (Streamflow ceremonies, 2026-08-30). Each was read
       // back through the app's OWN SDK path before landing here: the pool's
       // mint matches the resident's corrected contract, and the ladder is the
