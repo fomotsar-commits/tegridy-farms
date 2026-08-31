@@ -8,6 +8,7 @@ import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
 import {
   vaultIsMateriallyEmpty,
+  payingNowRate,
   readPool,
   readEntries,
   readWalletBalance,
@@ -205,7 +206,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // "Paying now" is the honest half: a configured rate the vault cannot back
   // pays nothing, and this venue says the zero out loud rather than printing
   // the configuration and hoping nobody checks the vault.
-  const payingNow = funded !== null && funded > 0n ? configuredRate : 0;
+  // ONE predicate for "is this vault actually paying", used by the stat, the
+  // banner, the stake gate and the projections alike. The old `funded > 0n`
+  // disagreed with `vaultDry` in exactly the two states vaultIsMateriallyEmpty
+  // exists for — dust (< 1 whole token) and under a day of runway — so a pool
+  // holding dust printed the full configured APR in green DIRECTLY ABOVE a
+  // banner reading "Paying now is 0%". (vaultDry is false when the vault is
+  // unreadable, so this keeps an outage out of the zero branch.)
+  const payingNow = payingNowRate(configuredRate, funded, vaultDry);
   const flatWeight = pool ? isFlatWeight(pool) : true;
   const runwaySecs = pool && primaryRp ? vaultRunwaySecs(pool, primaryRp) : null;
 
@@ -285,7 +293,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 The reward vault could not be read — outage, not a zero.
               </p>
             )}
-            {funded !== null && funded > 0n && runwaySecs !== null && (
+            {funded !== null && !vaultDry && runwaySecs !== null && (
               <p className="text-[12px] mb-4" style={{ color: '#e3b341' }}>
                 At today&rsquo;s stake and today&rsquo;s rate this vault funds about{' '}
                 <strong>{humanDuration(runwaySecs)}</strong> of rewards. Anything past that assumes a top-up.
@@ -388,10 +396,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       <span className="text-white/55 text-[11px]">days ({minDays}–{maxDays})</span>
                     </div>
 
-                    {funded === 0n && (
+                    {vaultDry && (
                       <p className="text-[11px] mt-2" style={{ color: '#e3b341' }}>
                         Every rate on those buttons is the pool&rsquo;s <strong>configured</strong> rate.
-                        With the vault at zero, all six of them pay 0 today.
+                        {funded === 0n
+                          ? ' With the vault at zero, all six of them pay 0 today.'
+                          : ' The vault cannot back them today, so all six pay 0.'}
                       </p>
                     )}
 
@@ -419,7 +429,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   {amountRaw !== null && amountRaw > 0n && primaryRp && (
                     <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
                       <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">
-                        {funded === 0n ? 'What it would earn once funded' : 'Projected rewards'}
+                        {vaultDry ? 'What it would earn once funded' : 'Projected rewards'}
                       </p>
                       <div className="grid grid-cols-3 gap-3">
                         {[
@@ -433,7 +443,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                             <div key={label} className="text-center">
                               <p className="text-white/40 text-[9px] uppercase mb-0.5">{label}</p>
                               <p className="stat-value text-white text-[13px]">
-                                {funded === 0n ? '0' : projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                {vaultDry ? '0' : projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                               </p>
                               <p className="text-white/30 text-[9px]">
                                 {bungalow.symbol}{held < d ? ` · ${held}d locked` : ''}
@@ -443,7 +453,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         })}
                       </div>
                       <p className="text-white/35 text-[9px] mt-2 text-center leading-relaxed">
-                        {funded === 0n ? (
+                        {vaultDry ? (
                           <>
                             Zero, because the vault is empty. At the configured{' '}
                             {ratePercent ? pct(configuredRate) : `${configuredRate.toFixed(3)} per ${bungalow.symbol}`} a

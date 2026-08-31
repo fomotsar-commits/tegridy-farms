@@ -237,6 +237,30 @@ describe('stake', () => {
   });
 });
 
+describe('payingNowRate — the stat must never contradict the banner beside it', () => {
+  it('pays 0 in EVERY dry state, including the two a `funded > 0n` gate misses', async () => {
+    const { payingNowRate } = await import('./bungalowStaking');
+    // The shipped defect: dust and sub-day runway are non-zero `funded`, so the
+    // old gate printed the full configured APR in green directly above a banner
+    // saying paying-now is 0%. vaultDry is the banner's own predicate.
+    expect(payingNowRate(0.219, 0n, true), 'empty vault').toBe(0);
+    expect(payingNowRate(0.219, 1n, true), 'DUST vault — the contradiction').toBe(0);
+    expect(payingNowRate(0.219, 500_000n, true), 'sub-day runway — the contradiction').toBe(0);
+  });
+
+  it('pays the configured rate only when the vault can actually back it', async () => {
+    const { payingNowRate } = await import('./bungalowStaking');
+    expect(payingNowRate(0.219, 5_000_000_000n, false)).toBe(0.219);
+  });
+
+  it('an UNREADABLE vault is an outage, never a paying zero', async () => {
+    const { payingNowRate } = await import('./bungalowStaking');
+    // vaultIsMateriallyEmpty returns false on an unreadable vault, so without
+    // the null guard an outage would render as the full configured rate.
+    expect(payingNowRate(0.219, null, false)).toBe(0);
+  });
+});
+
 describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRunwaySecs)', () => {
   // 6/6 decimals, 0.003/period, daily periods, 1,000 tokens effectively
   // staked → burn = 3 tokens/day = 3_000_000 raw/day.

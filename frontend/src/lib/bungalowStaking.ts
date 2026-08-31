@@ -703,6 +703,30 @@ export async function claimRewards(args: {
  * runway computation in this file. An unreadable vault is an OUTAGE, not a
  * verdict — the caller renders the outage state instead.
  */
+/**
+ * What the pool is ACTUALLY paying right now, as opposed to what it is
+ * configured to pay. The distinction is the whole honesty contract of the
+ * staking card, and it must be decided by ONE predicate everywhere:
+ *
+ *   2026-08-30 defect — the card derived this from `funded > 0n` while its own
+ *   banner, stake gate and projections used `vaultIsMateriallyEmpty`. The two
+ *   disagree in exactly the states that predicate exists for (dust below one
+ *   whole token, or under a day of runway), so a dust-funded pool printed the
+ *   full configured APR in green DIRECTLY ABOVE a banner reading "Paying now
+ *   is 0% because the reward vault is effectively empty."
+ *
+ * `vaultDry` is false when the vault is UNREADABLE, so an outage never lands
+ * in the zero branch — an unreadable vault is an outage, never a real zero.
+ */
+export function payingNowRate(
+  configuredRate: number,
+  fundedRaw: bigint | null,
+  vaultDry: boolean,
+): number {
+  if (fundedRaw === null) return 0;
+  return vaultDry ? 0 : configuredRate;
+}
+
 export function vaultIsMateriallyEmpty(pool: PoolView, rp: RewardPoolView): boolean {
   if (rp.fundedRaw === null) return false;
   if (rp.fundedRaw === 0n) return true;
