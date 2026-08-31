@@ -6,7 +6,7 @@ import { useAccount } from 'wagmi';
 import { isAddress } from 'viem';
 import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/artConfig';
 import { isLauncherEnabled } from '../lib/launcher/config';
-import { isSolanaConfigured } from '../lib/solana';
+import { isSolanaSwapLive } from '../lib/solana';
 import { useFarmStats } from '../hooks/useFarmStats';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
@@ -31,8 +31,10 @@ import { CopyButton } from '../components/ui/CopyButton';
 import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
-import { getBungalowIdentity } from '../lib/bungalows';
+import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
+import { BungalowMarket } from '../components/bungalow/BungalowMarket';
+import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 
 // F91: surfaced from the Footer's community links — keep one source so Home
 // and Footer can't drift. (Footer still owns its own copy; these mirror it.)
@@ -98,7 +100,7 @@ export default function HomePage() {
   usePageTitle(
     bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
-      ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} Trade ${bungalowIdentity.symbol} on Solana; scan any token on either chain.`
+      ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.',
   );
   const { address } = useAccount();
@@ -233,12 +235,12 @@ export default function HomePage() {
                   (scanner/index.ts dispatches to the Solana adapter unconditionally, so
                   it cannot be dark in any deployment). Mirrors navConfig's SOLANA_LIVE. */}
               <Link
-                to={isSolanaConfigured() ? '/solana' : '/scan'}
-                aria-label={isSolanaConfigured() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
+                to={isSolanaSwapLive() ? '/solana' : '/scan'}
+                aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
                 className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
                 style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
               >
-                {isSolanaConfigured() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
+                {isSolanaSwapLive() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
               </Link>
             </div>
 
@@ -384,7 +386,12 @@ export default function HomePage() {
               WrongChainBanner (renders null when disconnected or on-chain — its
               own mt is only applied when it actually renders), so there's no new
               copy surface and behaviour matches Farm/Community. */}
-          <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+          {/* Suppressed in a token-first bungalow like the calculator/stat
+              pills above: this banner talks about Ethereum-mainnet TOWELI
+              reads that a Solana bungalow's home is not showing. */}
+          {!bungalowIdentity && (
+            <WrongChainBanner className="mt-10 max-w-xl" message="Showing Ethereum mainnet data. Switch your wallet to the canonical network to interact." />
+          )}
 
           {/* Token-first bungalow (Bayla): the TVL/TOWELI-price stat pills and
               the TOWELI contract strip are the wrong token there — the
@@ -501,11 +508,29 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Jungle Bay bungalow lore — Bayla's story card, rendered only in her
-            mode, in the slot where the TOWELI fee-economy explainer sits for
-            the default. Canon copy (pump.fun metadata + the island landing);
-            art-first per the house rule. */}
-        {bungalowIdentity && (
+        {/* The bungalow's market — her own pool's chart + numbers, in the slot
+            where the default venue puts its TOWELI stat pills. Renders only
+            when the bungalow declares a `market` pool; self-hides otherwise. */}
+        {bungalowIdentity?.market && (
+          <div className="pb-8">
+            <BungalowMarket bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* Who holds her — the venue's own scanner, run on this bungalow's
+            token, with its coverage limits stated rather than smoothed over. */}
+        {bungalowIdentity?.address && (
+          <div className="pb-16">
+            <BungalowHolders bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* Jungle Bay bungalow lore — the resident's story card, rendered
+            only in its own skin, in the slot where the TOWELI fee-economy
+            explainer sits for the default. Registry-driven (identity.lore,
+            canon copy only): a resident without lore gets NO card rather
+            than another resident's story. */}
+        {bungalowIdentity?.identity.lore && (
           <div className="pb-16">
             <div className="relative rounded-2xl overflow-hidden glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" aria-hidden="true">
@@ -514,23 +539,14 @@ export default function HomePage() {
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.72)' }} />
               <div className="relative z-10 p-6 md:p-10 max-w-2xl">
                 <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)' }}>The lore</p>
-                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">The muse of Jungle Bay Island</h2>
-                <p className="text-white/90 text-[14px] leading-relaxed mb-3">
-                  An island in a sea of rugs, built by the memes — bungalows for token
-                  communities, an artist economy, and time held is what counts. Bayla is
-                  its muse: brought to light by the Jungle Bay Artists Collective, seated
-                  at the lighthouse, the newest name on the island map.
-                </p>
-                <p className="text-white/90 text-[14px] leading-relaxed mb-5">
-                  Her pull reaches every kind of maker. The work is yours. The light is
-                  hers. Dank Memes + Time = Memetic Finance.
-                </p>
+                <h2 className="heading-luxury text-2xl md:text-3xl text-white mb-4">{bungalowIdentity.identity.lore.title}</h2>
+                {bungalowIdentity.identity.lore.paragraphs.map((para, i, all) => (
+                  <p key={i} className={`text-white/90 text-[14px] leading-relaxed ${i === all.length - 1 ? 'mb-5' : 'mb-3'}`}>
+                    {para}
+                  </p>
+                ))}
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { href: 'https://memetics.wtf/', label: 'The island' },
-                    { href: 'https://opensea.io/collection/junglebay', label: 'Jungle Bay on OpenSea' },
-                    { href: 'https://x.com/JungleBayAC', label: '@JungleBayAC' },
-                  ].map((l) => (
+                  {bungalowIdentity.identity.lore.links.map((l) => (
                     <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer"
                       aria-label={`${l.label} (opens in new tab)`}
                       className="px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
@@ -652,12 +668,16 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Ethereum', art: pageArt('home', 6) },
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI or LP tokens across two active pools to earn yield.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
+              // 2026-08-28: "two active pools to earn yield" outlived the LP
+              // pool's funded period (periodFinish 2026-06-15, lpEmissions.ts) —
+              // the exact literal-vs-phase drift dayTwoEconomyPhrase() exists to
+              // prevent. State what pays now without promising the dormant pool.
+              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI to earn now; the LP pool rejoins when its next emissions round is funded.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
               // Spread-gated on the SAME predicate navConfig uses to decide whether
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
               // three. A card advertising a wall is worse than no card.
-              ...(isSolanaConfigured()
+              ...(isSolanaSwapLive()
                 ? [{ to: '/solana', title: 'Solana Swap', desc: 'Buy Solana tokens routed through Jupiter, with limit orders and SOL liquid-staking yield. Trending pairs listed, fee shown before you sign.', stat: 'Jupiter', label: 'Solana', art: pageArt('home', 15) }]
                 : []),
               { to: '/dashboard', title: 'Dashboard', desc: 'Track your portfolio, positions, claimable rewards, and projections.', stat: 'Real-time', label: 'On-chain Data', art: pageArt('home', 8) },
@@ -712,7 +732,7 @@ export default function HomePage() {
                     title: 'Tegridy Curve',
                     desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into a Tegridy pool with the LP burned — no Airlock, no petition, no third-party cut.',
                     stat: 'Zero-toll',
-                    label: 'Live · Ethereum',
+                    label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),
                   }]
                 : []),

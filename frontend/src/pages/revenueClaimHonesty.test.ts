@@ -139,6 +139,13 @@ describe('no surface anywhere in src/ claims fees ARE paid', () => {
     /\bfees flow to stakers\b/i,
     /\bfees (?:are )?distributed to stakers\b/i,
     /\breal yield, paid in\b/i,
+    // 2026-08-28: FAQPage's Gold Card answer said "holders earn ETH from
+    // protocol swap fees" unconditioned (and fed it to crawlers via JSON-LD)
+    // while premiumBenefits.ts conditions the same sentence on a live read —
+    // this phrasing matched none of the regexes above. Static surfaces must
+    // say "in line for"/"none distributed yet"; only read-conditioned render
+    // paths may state it plainly.
+    /\bearn ETH from (?:protocol )?swap fees\b/i,
   ];
 
   // Occurrences that are CORRECT because they render only when a distribution

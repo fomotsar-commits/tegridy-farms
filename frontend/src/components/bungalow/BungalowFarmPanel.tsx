@@ -1,8 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
 import type { Bungalow } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
-import { isSolanaConfigured } from '../../lib/solana';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
+import { isSolanaSwapLive, isSolanaFeeConfigured } from '../../lib/solana';
 import { HeatCard } from './HeatCard';
 import { usePageTitle } from '../../hooks/usePageTitle';
 
@@ -10,6 +10,11 @@ import { usePageTitle } from '../../hooks/usePageTitle';
 // SDK — lazy so those bytes load ONLY when a pool address is configured.
 const LighthousePoolLive = lazy(() =>
   import('./LighthousePoolLive').then((m) => ({ default: m.LighthousePoolLive })),
+);
+// The EVM leg (vendored Synthetix StakingRewards; provenance D8). Split the
+// same way — wagmi write plumbing has no business in a Solana bungalow's chunk.
+const EvmLighthousePoolLive = lazy(() =>
+  import('./EvmLighthousePoolLive').then((m) => ({ default: m.EvmLighthousePoolLive })),
 );
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -96,7 +101,11 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
               <div className="relative z-10 p-6"><p className="text-white/70 text-[13px]">Loading the lighthouse…</p></div>
             </div>
           }>
-            <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            {bungalow.chain === 'solana' ? (
+              <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            ) : (
+              <EvmLighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            )}
           </Suspense>
         ) : (
         <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -132,8 +141,20 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>How the pool gets funded</p>
             <h2 className="heading-luxury text-xl text-white mb-3">Routes under evaluation</h2>
             <ul className="text-white/85 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
-              <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
-              <li><strong>Venue swap fees</strong> — the Solana swap surface captures a platform fee that can route a share here.</li>
+              {/* pump.fun creator fees only exist for pump-born mints — the
+                  vanity suffix is how those mints identify themselves. */}
+              {bungalow.address?.endsWith('pump') && (
+                <li><strong>Creator-fee share</strong> from the graduated pump.fun pool — trading fees the pool already generates.</li>
+              )}
+              {/* This read "captures a platform fee" while the venue had no fee
+                  recipient configured, i.e. while it captured nothing. The claim
+                  now follows the same gate the swap's own fee line does. */}
+              <li>
+                <strong>Venue swap fees</strong> —{' '}
+                {isSolanaFeeConfigured()
+                  ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
+                  : 'the Solana swap surface is live here, but it takes no platform fee today — there is nothing to share until one is switched on.'}
+              </li>
               <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way the TOWELI seed was funded.</li>
             </ul>
           </div>
@@ -145,22 +166,26 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
         <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Live today</p>
         <div className="flex flex-wrap items-center gap-3">
           {(() => {
-            const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+            const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
             if (!trade) return null;
-            return 'to' in trade ? (
-              <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
-                Trade {bungalow.symbol}
-              </Link>
-            ) : (
+            if ('to' in trade) {
+              return (
+                <Link to={trade.to} className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
+                  Trade {bungalow.symbol}
+                </Link>
+              );
+            }
+            const label = trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`;
+            return (
               <a href={trade.href} target="_blank" rel="noopener noreferrer"
-                aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
+                aria-label={`${label} (opens in new tab)`}
                 className="btn-primary px-6 py-2.5 text-[13px] inline-block text-center">
-                Trade {bungalow.symbol} ↗
+                {label} ↗
               </a>
             );
           })()}
-          {bungalow.address && (
-            <Link to={`/scan?token=${bungalow.address}`} className="btn-secondary px-6 py-2.5 text-[13px]">
+          {bungalowScanRoute(bungalow) && (
+            <Link to={bungalowScanRoute(bungalow)!} className="btn-secondary px-6 py-2.5 text-[13px]">
               Scan {bungalow.symbol}
             </Link>
           )}

@@ -21,7 +21,7 @@ const FAQ_DATA: FAQSection[] = [
       { q: 'What is Tegridy Farms?', a: 'Tegridy Farms is a yield farming protocol on Ethereum. Stake TOWELI tokens to earn rewards from the protocol. Today’s rewards are TOWELI emissions from a fixed launch seed; the ETH fee-share pipeline — protocol swap fees routed on-chain to stakers — is deployed and switches on when the native pool goes live.' },
       { q: 'How do I get TOWELI tokens?', a: 'Buy TOWELI on Uniswap V2. Simply swap ETH for TOWELI at app.uniswap.org. Make sure you are connected to Ethereum Mainnet.' },
       { q: 'What wallets are supported?', a: 'MetaMask, WalletConnect, Coinbase Wallet, and most Ethereum wallets are supported via RainbowKit. Any wallet that supports Ethereum Mainnet should work.' },
-      { q: 'What network does Tegridy Farms run on?', a: 'Ethereum Mainnet only. Make sure your wallet is connected to the correct network before interacting with the protocol.' },
+      { q: 'What network does Tegridy Farms run on?', a: 'The core protocol — staking, farming, swap, NFT finance — runs on Ethereum Mainnet. The Tegridy Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens through Jupiter. Your wallet prompts a network switch when a page needs a different chain.' },
     ],
   },
   {
@@ -63,7 +63,7 @@ const FAQ_DATA: FAQSection[] = [
   {
     category: 'Premium',
     items: [
-      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium membership, live now on the Premium page. You pay in TOWELI — the monthly fee is read straight from the PremiumAccess contract and shown on that page — and you can prepay 1, 3, 6 or 12 months at the same flat rate. Like every staker, holders earn ETH from protocol swap fees. The contract is internally reviewed, not third-party audited.' },
+      { q: 'What is the Gold Card?', a: 'The Gold Card is a premium membership, live now on the Premium page. You pay in TOWELI — the monthly fee is read straight from the PremiumAccess contract and shown on that page — and you can prepay 1, 3, 6 or 12 months at the same flat rate. Like every staker, holders are in line for ETH from protocol swap fees; none has been distributed yet, and the Premium page shows the live number. The contract is internally reviewed, not third-party audited.' },
       { q: 'Do JBAC holders get free access?', a: 'Yes. JBAC NFT holders have lifetime Gold Card access at no cost — simply hold a JBAC in your connected wallet and premium unlocks automatically.' },
     ],
   },
@@ -256,7 +256,7 @@ export default function FAQPage() {
         ))}
 
         <p className="text-center text-white/40 text-xs mt-10" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Last reviewed: July 2026
+          Last reviewed: August 2026
         </p>
       </div>
     </div>

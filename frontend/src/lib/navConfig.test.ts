@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   PRIMARY_NAV,
   POINTS_NAV,
@@ -221,5 +221,48 @@ describe('navConfig', () => {
       expect(routed, `${path} must stay reachable by URL`).toContain(path);
       expect(promoted, `${path}'s rails are undeployed — it must not be promoted`).not.toContain(path);
     }
+  });
+});
+
+/**
+ * TRADE_ROUTE — which swap surface "Trade" lands on.
+ *
+ * The venue has two, and the nav hardcoded the Ethereum one. Standing in a
+ * Solana bungalow (BAYLA) and clicking Trade therefore opened a swap that
+ * cannot touch the token whose page you were on. These pin the default per
+ * chain; ChainSwitch.test.tsx pins that the other surface stays one click
+ * away, so the default is never a trap.
+ *
+ * Resolved at module scope, so each case has to re-import the module with the
+ * bungalow already persisted — exactly how the app sees it after a reload.
+ */
+describe('TRADE_ROUTE', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.resetModules();
+  });
+
+  async function loadWithBungalow(id: string | null) {
+    window.localStorage.clear();
+    if (id) window.localStorage.setItem('tegridy-bungalow', id);
+    vi.resetModules();
+    return import('./navConfig');
+  }
+
+  it('is the Ethereum swap by default', async () => {
+    const nav = await loadWithBungalow(null);
+    expect(nav.TRADE_ROUTE).toBe('/swap');
+    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Trade')?.to).toBe('/swap');
+  });
+
+  it('is the Ethereum swap in the classic TOWELI bungalow', async () => {
+    const nav = await loadWithBungalow('toweli');
+    expect(nav.TRADE_ROUTE).toBe('/swap');
+  });
+
+  it('is the Solana swap inside a Solana bungalow', async () => {
+    const nav = await loadWithBungalow('bayla');
+    expect(nav.TRADE_ROUTE).toBe('/solana');
+    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Trade')?.to).toBe('/solana');
   });
 });

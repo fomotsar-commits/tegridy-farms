@@ -8,7 +8,10 @@ interface IRestakingForView {
     function totalRestaked() external view returns (uint256);
     function bonusRewardPerSecond() external view returns (uint256);
     function bonusRewardToken() external view returns (address);
-    function totalUnforwardedBonus() external view returns (uint256);
+    // AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]: the host's accrual cap now subtracts the
+    // full outstanding liability (emitted - distributed), not just crystallized IOUs.
+    function totalBonusEmitted() external view returns (uint256);
+    function totalBonusDistributed() external view returns (uint256);
     function boostedAmountAt(address, uint256) external view returns (uint256);
     function unforwardedBonusRewards(address) external view returns (uint256);
     function monitor() external view returns (address);
@@ -53,8 +56,15 @@ contract RestakingMonitorView {
             uint256 reward = elapsed * r.bonusRewardPerSecond();
             uint256 available;
             try IERC20BalanceView(r.bonusRewardToken()).balanceOf(address(r)) returns (uint256 bal) {
-                uint256 debt = r.totalUnforwardedBonus();
-                available = bal > debt ? bal - debt : 0;
+                // AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]: mirror the host's cap EXACTLY.
+                // The host caps accrual against the outstanding minted-but-unpaid
+                // liability (totalBonusEmitted - totalBonusDistributed), not just the
+                // crystallized IOUs (totalUnforwardedBonus). This view MUST use the same
+                // term or it over-reports pending bonus vs what claimAll actually pays.
+                uint256 emitted = r.totalBonusEmitted();
+                uint256 distributed = r.totalBonusDistributed();
+                uint256 outstanding = emitted > distributed ? emitted - distributed : 0;
+                available = bal > outstanding ? bal - outstanding : 0;
             } catch {
                 available = 0;
             }

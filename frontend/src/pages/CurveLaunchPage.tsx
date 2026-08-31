@@ -3,6 +3,7 @@
 import '../lib/solanaPolyfill';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -197,6 +198,20 @@ export function DeploymentBanner({ probe }: { probe: Deployment | null }) {
         <p className="text-white/35 text-[10px] mt-1 leading-relaxed">
           The badge above is read from the chain each time this page loads. It is not a hardcoded state.
         </p>
+        {/* The dead-end fix (2026-08-28): a dead Solana program is not a dead
+            venue. Same rationale as App.tsx's no-redirect note — we never
+            redirect INTO a dead rail, but a measured link OUT to live ones is
+            exactly what that note leaves open. */}
+        {(probe?.kind === 'closed' || probe?.kind === 'not-a-program' || probe?.kind === 'not-deployed') && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to="/eth-curve" className="btn-primary px-4 py-2 text-[12px]">
+              The Tegridy Curve is LIVE on Ethereum, Base + Robinhood →
+            </Link>
+            <Link to="/solana" className="btn-secondary px-4 py-2 text-[12px]">
+              Swap any Solana token
+            </Link>
+          </div>
+        )}
       </div>
     </m.div>
   );
@@ -806,8 +821,8 @@ function CurveExplainer() {
     <div className="space-y-4">
       <Card title="What this is">
         <p>
-          Our own bonding curve program, and our own AMM to graduate into — as opposed to the Solana launch rail, which
-          runs on Meteora&apos;s curve and migrates into Meteora&apos;s pool.
+          Our own bonding curve program, and our own AMM to graduate into — unlike the retired Solana launch rail, which
+          ran on Meteora&apos;s curve and migrated into Meteora&apos;s pool.
         </p>
         <p>
           A launch raises SOL along a constant-product curve priced on virtual plus real reserves. When it has raised its

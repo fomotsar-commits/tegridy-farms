@@ -17,8 +17,24 @@
 /** AUDIT R045 M4: every key prefix the eviction sweeper is allowed to reclaim. */
 export const EVICTABLE_PREFIXES = ['tegridy_', 'tegridy-'] as const;
 
+/**
+ * Keys that hold a USER CHOICE rather than a cache — never evicted. A cache
+ * re-fetches; evicting a choice silently reverts the user's state. Worse,
+ * these are plain-string values, so the ts-less "oldest first" rule made
+ * them the FIRST entries the sweeper deleted under quota pressure (the
+ * bungalow choice reverting to Towelie mid-session was the symptom).
+ */
+export const EVICTION_PROTECTED_KEYS = new Set<string>([
+  'tegridy-bungalow',
+  'tegridy-theme',
+  'tegridy-onboarding-seen',
+  'tegridy-onboarding-bayla-seen',
+  'tegridy_telemetry_consent',
+]);
+
 /** True if `key` is a Tegridy-namespaced cache entry safe to evict. */
 export function isEvictable(key: string): boolean {
+  if (EVICTION_PROTECTED_KEYS.has(key)) return false;
   for (const p of EVICTABLE_PREFIXES) {
     if (key.startsWith(p)) return true;
   }
@@ -27,8 +43,11 @@ export function isEvictable(key: string): boolean {
 
 /** Rough estimate of remaining localStorage space (returns bytes). */
 function estimateRemainingQuota(): number {
-  if (typeof localStorage === 'undefined') return 5_242_880;
   try {
+    // Inside the try on purpose: with storage access blocked (Chrome "block
+    // all cookies" and kin) even `typeof localStorage` invokes the throwing
+    // window getter — outside a try that turned safeSetItem into a throw.
+    if (typeof localStorage === 'undefined') return 5_242_880;
     let used = 0;
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -49,8 +68,10 @@ function estimateRemainingQuota(): number {
  * Both `tegridy_` (snake_case) and `tegridy-` (kebab-case) prefixes are covered.
  */
 function evictOldEntries(bytesNeeded: number): boolean {
-  if (typeof localStorage === 'undefined') return false;
   try {
+    // Same blocked-storage rule as estimateRemainingQuota: the typeof probe
+    // itself can throw, so it lives inside the try.
+    if (typeof localStorage === 'undefined') return false;
     const entries: { key: string; ts: number }[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);

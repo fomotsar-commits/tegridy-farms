@@ -39,8 +39,10 @@ import {
   TREASURY_ADDRESS,
   JBAC_NFT_ADDRESS,
   JBAY_GOLD_ADDRESS,
+  CURVE_LAUNCHER_ADDRESS,
   isDeployed,
 } from '../lib/constants';
+import { getChainConfig } from '../lib/chains/registry';
 
 // AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
 // `git remote -v` is `fomotsar-commits/tegridy-farms`. All per-contract source
@@ -65,6 +67,14 @@ interface ContractEntry {
   // very same contracts to Etherscan as live — two opposite answers on one site.
   status?: 'pending' | 'deprecated' | 'redeploy' | 'multisig' | 'unwired';
   note?: string; // shown under the label when status is redeploy/multisig/unwired
+  /**
+   * 2026-08-28: non-mainnet entries (the L2 curve launchers) link to their own
+   * explorer instead of etherscan.io, and are EXCLUDED from the mainnet
+   * source-verification query — feeding a Base/Robinhood address to the
+   * Etherscan-mainnet checker would render a false "unverified" badge for
+   * contracts that ARE verified on their chain's explorer.
+   */
+  explorer?: { name: string; href: string };
   /**
    * The real mainnet address, for `unwired` entries only.
    *
@@ -124,6 +134,44 @@ const GROUPS: ContractGroup[] = [
         source: 'contracts/src/TegridyFeeHook.sol',
         status: 'redeploy',
         note: 'Owner stranded on Arachnid CREATE2 proxy. Constructor patched to accept _owner — redeploy queued before activation.',
+      },
+    ],
+  },
+  {
+    // 2026-08-28: this page claimed "every Tegridy Farms contract" while the
+    // ETH-custodying curve launcher — live since 08-24/25 on three chains —
+    // appeared nowhere on it. The flagship fund-holding contract must be the
+    // EASIEST one to verify, not the missing one. Addresses come from
+    // constants.ts (mainnet) and lib/chains/registry.ts (L2s) — never inline
+    // literals here.
+    title: 'Token Launcher — the Tegridy Curve',
+    description:
+      'The zero-toll bonding-curve launcher. One contract per chain, each holding its curves’ ETH reserves; owned by the multisig Safe from deploy on every chain.',
+    entries: [
+      {
+        label: 'Curve Launcher (Ethereum)',
+        address: CURVE_LAUNCHER_ADDRESS,
+        source: 'contracts/src/curve/TegridyCurveLauncher.sol',
+      },
+      {
+        label: 'Curve Launcher (Base)',
+        address: getChainConfig(8453)?.contracts.curveLauncher ?? '0x0000000000000000000000000000000000000000',
+        source: 'contracts/src/curve/TegridyCurveLauncher.sol',
+        explorer: {
+          name: 'Basescan',
+          href: `https://basescan.org/address/${getChainConfig(8453)?.contracts.curveLauncher}#code`,
+        },
+        note: 'Source-verified on Basescan (2026-08-27).',
+      },
+      {
+        label: 'Curve Launcher (Robinhood Chain)',
+        address: getChainConfig(4663)?.contracts.curveLauncher ?? '0x0000000000000000000000000000000000000000',
+        source: 'contracts/src/curve/TegridyCurveLauncher.sol',
+        explorer: {
+          name: 'Blockscout',
+          href: `https://robinhoodchain.blockscout.com/address/${getChainConfig(4663)?.contracts.curveLauncher}?tab=contract`,
+        },
+        note: 'Source-verified on Robinhood Chain Blockscout (2026-08-27).',
       },
     ],
   },
@@ -281,7 +329,7 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
             {entry.source} <span className="text-white/15">↗</span>
           </a>
         )}
-        {entry.note && (isRedeploy || isMultisig || isUnwired) && (
+        {entry.note && (isRedeploy || isMultisig || isUnwired || entry.explorer) && (
           <div
             className={`text-[11px] mt-1 leading-relaxed ${isRedeploy ? 'text-orange-200/75' : isUnwired ? 'text-emerald-200/75' : 'text-sky-200/75'}`}
             style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
@@ -325,13 +373,13 @@ function ContractRow({ entry, verification }: { entry: ContractEntry; verificati
           </span>
         ) : (
           <a
-            href={`https://etherscan.io/address/${entry.address}#code`}
+            href={entry.explorer?.href ?? `https://etherscan.io/address/${entry.address}#code`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[11px] text-white/60 hover:text-white transition-colors whitespace-nowrap inline-flex items-center justify-end min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 px-2 md:px-0"
-            aria-label={`View ${entry.label} on Etherscan (opens in new tab)`}
+            aria-label={`View ${entry.label} on ${entry.explorer?.name ?? 'Etherscan'} (opens in new tab)`}
           >
-            Etherscan ↗
+            {entry.explorer?.name ?? 'Etherscan'} ↗
           </a>
         )}
       </div>
@@ -354,7 +402,10 @@ export default function ContractsPage() {
   const verifiableAddresses = useMemo(
     () =>
       GROUPS.flatMap((g) => g.entries)
-        .filter((e) => !e.source.startsWith('external') && isDeployed(e.address))
+        // `!e.explorer` (2026-08-28): L2 entries would read as falsely
+        // "unverified" through the Etherscan-MAINNET checker; their notes
+        // carry the per-chain verification statement instead.
+        .filter((e) => !e.source.startsWith('external') && !e.explorer && isDeployed(e.address))
         .map((e) => e.address),
     [],
   );
@@ -498,7 +549,7 @@ export default function ContractsPage() {
         <div className="mt-12 text-center text-white/35 text-[11px]">
           Chain ID 1 (Ethereum mainnet). Last regenerated from{' '}
           <code className="font-mono text-white/55">frontend/src/lib/constants.ts</code>.
-          {' '}Last reviewed: July 2026.
+          {' '}Last reviewed: August 2026.
         </div>
       </m.div>
     </div>

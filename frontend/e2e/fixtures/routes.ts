@@ -177,6 +177,28 @@ export async function gotoNakamigos(page: Page): Promise<void> {
  */
 export const ROUTES: readonly RouteSpec[] = [
   { path: '/', owner: 'pages/HomePage.tsx', gate: null, knownViolations: ['heading-order'] },
+  // ── Bungalow doors (2026-08-28 audit) ────────────────────────────────────
+  // App.tsx builds these routes by MAPPING over lib/bungalows.ts (`path={path}`
+  // JSX expressions), which the sync-guard's `path="…"` regex cannot see — so
+  // for months 14 real routes had zero e2e/a11y coverage while the guard's
+  // "covers every routed path" stayed green. The guard now derives door paths
+  // from the same BUNGALOWS map (see a11yRouteCoverage.test.ts), so this
+  // literal list CANNOT drift: add a bungalow and the vitest guard fails until
+  // its door is added here. LIVE doors render HomePage under the bungalow's
+  // skin; settled-but-not-live doors render BungalowDoorLanding (2026-08-30).
+  ...(['toweli', 'bayla', 'pepe', 'qr', 'mfer', 'bnkr', 'drb', 'bobo', 'jbm', 'soy', 'brainlet', 'rizz', 'nb1', 'towelie'] as const).map(
+    (slug) => ({
+      path: `/${slug}`,
+      owner: 'pages/HomePage.tsx',
+      gate: null,
+      // Measured per door class (re-measured 2026-08-30 when settled doors
+      // gained LANDINGS): the two TOWELI-skin doors still render HomePage and
+      // carry its heading-order violation; /bayla's token-first hero measures
+      // CLEAN; every settled door (and the quiet slot) now renders
+      // BungalowDoorLanding, whose plaque h1 orders correctly — CLEAN.
+      knownViolations: slug === 'toweli' || slug === 'towelie' ? ['heading-order'] : [],
+    }),
+  ),
   {
     path: '/farm',
     owner: 'pages/FarmPage.tsx',
@@ -208,10 +230,23 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/SolanaSwapPage.tsx',
     gate: null,
     why:
-      'isSolanaConfigured() is false in a built e2e run, so this audits the FeatureNotDeployed ' +
-      'gate, not the Jupiter swap surface behind it. The live surface needs a configured Solana ' +
-      'RPC + program and is not reachable from this suite.',
-    knownViolations: ['page-has-heading-one'],
+      'The surface is no longer gated on a fee account (2026-08-29: isSolanaConfigured was split ' +
+      'into isSolanaFeeConfigured / isSolanaSwapLive), so this audits the REAL swap form. Quotes ' +
+      'still need the Jupiter proxy, so the form renders without live prices in this suite.',
+    // Re-measured 2026-08-30 on the reconciled tree: the un-gated page renders
+    // its real <h1> ("Solana Swap", SolanaSwapPage.tsx) during the sweep, so
+    // page-has-heading-one no longer fires — the pin follows the measurement.
+    knownViolations: [],
+  },
+  {
+    path: '/pools',
+    owner: 'pages/PoolsPage.tsx',
+    gate: null,
+    why:
+      'The venue AMM is not deployed (its program id was closed 2026-08-13), so this audits the ' +
+      'live-probe status card and the proposed fee sheet — which is what the page actually shows until ' +
+      'create_amm_config runs, not a placeholder.',
+    knownViolations: [],
   },
   { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx', gate: null, knownViolations: [] },
   { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx', gate: null, knownViolations: [] },
@@ -565,6 +600,29 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/bayla-studio',
+    owner: 'App.tsx',
+    gate: 'dev-only',
+    why:
+      'The same studio pointed at the Bayla bungalow art pool, under the same R002 gate: the ' +
+      'chunk is tree-shaken out of production builds and the route redirects to / there, so the ' +
+      'e2e suite (which runs against `vite build` output) has nothing to audit.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
+    path: '/bungalow-studio/:bungalowId',
+    owner: 'App.tsx',
+    gate: 'dev-only',
+    why:
+      'The generic per-resident leg of the same dev studio (WO-1): any registry id aims the tool ' +
+      'at that bungalow’s art pool. Same R002 gate — tree-shaken in production, redirects to ' +
+      '/ there (and an unknown id redirects even in dev), so the built app the e2e suite runs ' +
+      'against has nothing to audit.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
     path: '/*',
     owner: 'App.tsx · NotFoundPage',
     gate: null,
@@ -597,6 +655,8 @@ export const CONNECTED_AUDIT_ROUTES = ROUTES.filter((r) => r.connectedViolations
 export function navigablePath(route: RouteSpec): string {
   if (route.path === '/*') return '/this-path-matches-no-route-a11y-sweep';
   if (route.path === '/launch/:token') return '/launch/0x0000000000000000000000000000000000000000';
+  // Any registry id works; in the built app this leg redirects to / anyway.
+  if (route.path === '/bungalow-studio/:bungalowId') return '/bungalow-studio/bayla';
   // Zero address: every launcher probe fails -> the page's honest not-found
   // state, which still renders the h1 the sweep asserts.
   if (route.path === '/eth-curve/:token') return '/eth-curve/0x0000000000000000000000000000000000000000';

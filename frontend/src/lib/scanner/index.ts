@@ -17,7 +17,10 @@ export { parseEthereumScan, fetchEthereumScan } from './ethereumAdapter';
 
 /** Default adapter dispatcher — picks the live data adapter for a detected chain. */
 export function defaultFetchFor(chain: ScanChain, address: string, signal?: AbortSignal): Promise<AdapterResult> {
-  return chain === 'solana' ? fetchSolanaScan(address, signal) : fetchEthereumScan(address, signal);
+  if (chain === 'solana') return fetchSolanaScan(address, signal);
+  // Base shares the EVM adapter + normalized route; only the server-side
+  // holder source differs (?chain=base → Blockscout leg).
+  return fetchEthereumScan(address, signal, chain === 'base' ? 'base' : 'ethereum');
 }
 
 /** Run a live scan (auto-detect chain, fetch real holders, run the detection core). */

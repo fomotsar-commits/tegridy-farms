@@ -10,10 +10,10 @@
 // honest not-found state, never a guess; the state still renders the page's h1
 // (the a11y sweep loads this route with the zero address).
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { useAccount, useReadContract, useReadContracts, useWriteContract } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { toast } from 'sonner';
 import { formatEther, isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -29,6 +29,9 @@ import {
   pickResolvedCurveChain,
 } from '../lib/launcher/curve';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
+import { EvmCurveChart } from '../components/launcher/EvmCurveChart';
+import { CopyButton } from '../components/ui/CopyButton';
+import { getTokenUrl } from '../lib/explorer';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -49,13 +52,15 @@ function fmtEth(wei: bigint, dp = 6): string {
 export interface CurveCreatorClaimViewProps {
   claimableWei: bigint;
   pending: boolean;
+  /** Submission→receipt window (the 08-24 receipt-status standard). */
+  mining?: boolean;
   onClaim: () => void;
 }
 
 /** Rendered ONLY for the launch's creator — the gating lives in the container,
  *  where it is enforced against the on-chain creator, not a prop a caller can
  *  forget. Never pausable on-chain; never hidden behind a dead control here. */
-export function CurveCreatorClaimView({ claimableWei, pending, onClaim }: CurveCreatorClaimViewProps) {
+export function CurveCreatorClaimView({ claimableWei, pending, mining = false, onClaim }: CurveCreatorClaimViewProps) {
   return (
     <div className="rounded-2xl p-4" style={cardStyle}>
       <div className="flex items-center justify-between gap-3">
@@ -69,7 +74,7 @@ export function CurveCreatorClaimView({ claimableWei, pending, onClaim }: CurveC
           onClick={onClaim}
           className="btn-primary px-4 py-2 text-[13px] disabled:opacity-50"
         >
-          {pending ? 'Confirm in wallet…' : 'Claim'}
+          {pending ? (mining ? 'Confirming on-chain…' : 'Confirm in wallet…') : 'Claim'}
         </button>
       </div>
       <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
@@ -92,6 +97,26 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
     query: { refetchInterval: 15_000 },
   });
 
+  // AUDIT 2026-08-28 (receipt-status): `pending` used to span only the wallet
+  // prompt, and the refetch fired PRE-MINE (returning the old claimable) — so
+  // Claim re-enabled against a stale non-zero while the first claim mined, and
+  // a second click submitted a guaranteed NothingToClaim revert. The button now
+  // holds through the receipt, the refetch runs after it, and a revert comes
+  // back as a red toast instead of silence.
+  const [txHash, setTxHash] = useState<`0x${string}` | null>(null);
+  const { data: receipt, isSuccess: receiptFetched } = useWaitForTransactionReceipt({
+    hash: txHash ?? undefined,
+    chainId,
+    query: { enabled: txHash !== null },
+  });
+  useEffect(() => {
+    if (!txHash || !receiptFetched || !receipt) return;
+    if (receipt.status === 'success') toast.success('Creator fees claimed.');
+    else toast.error('Claim failed on-chain (reverted) — nothing was paid out.');
+    setTxHash(null);
+    void refetch();
+  }, [txHash, receiptFetched, receipt, refetch]);
+
   // The gate: only the on-chain creator ever sees this surface.
   if (!account || account.toLowerCase() !== creator.toLowerCase()) return null;
   const claimableWei = typeof claimableRaw === 'bigint' ? claimableRaw : 0n;
@@ -100,16 +125,23 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
     writeContract(
       { address: launcher, abi: CURVE_LAUNCHER_ABI, functionName: 'claimCreatorFees', args: [token], chainId },
       {
-        onSuccess: () => {
-          toast.success('Claim submitted.');
-          void refetch();
+        onSuccess: (hash) => {
+          toast.success('Claim submitted — waiting for confirmation…');
+          setTxHash(hash);
         },
         onError: (e) => toast.error(e instanceof Error ? e.message : 'The wallet rejected the claim.'),
       },
     );
   };
 
-  return <CurveCreatorClaimView claimableWei={claimableWei} pending={isPending} onClaim={onClaim} />;
+  return (
+    <CurveCreatorClaimView
+      claimableWei={claimableWei}
+      pending={isPending || txHash !== null}
+      mining={txHash !== null}
+      onClaim={onClaim}
+    />
+  );
 }
 
 // ────────────────────────────────────── the page ──────────────────────────────────────
@@ -162,7 +194,7 @@ export default function CurveTokenPage() {
     if (idx === -1) return null;
     const raw = probesRaw?.[idx];
     if (raw?.status !== 'success' || !raw.result || typeof raw.result !== 'object') return null;
-    const launch = raw.result as { creator: Address; virtualEth: bigint; ethReserve: bigint; tokenReserve: bigint; graduated: boolean };
+    const launch = raw.result as { creator: Address; virtualEth: bigint; ethReserve: bigint; tokenReserve: bigint; graduationEth: bigint; graduated: boolean };
     return { chainId: resolvedChainId, launcher: deployed[idx]!.launcher, creator: launch.creator, launch };
   }, [resolvedChainId, deployed, probesRaw]);
 
@@ -228,19 +260,78 @@ export default function CurveTokenPage() {
           <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-4">
             <WrongChainBanner requiredChainId={resolved.chainId} />
             {!resolved.launch.graduated && (
-              <div className="rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>
-                <div>
-                  <p className="text-white/45 text-[11px]">Market cap</p>
-                  <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveMarketCapWei(resolved.launch), 4)} ETH</p>
+              <>
+                <div className="rounded-2xl p-4 grid grid-cols-2 gap-3" style={cardStyle}>
+                  <div>
+                    <p className="text-white/45 text-[11px]">Market cap</p>
+                    <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveMarketCapWei(resolved.launch), 4)} ETH</p>
+                  </div>
+                  <div>
+                    <p className="text-white/45 text-[11px]">Spot price</p>
+                    <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveSpotPriceWei(resolved.launch), 9)} ETH</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-white/45 text-[11px]">Spot price</p>
-                  <p className="text-white/90 text-[13px] font-mono">{fmtEth(curveSpotPriceWei(resolved.launch), 9)} ETH</p>
+                <EvmCurveChart
+                  virtualEth={resolved.launch.virtualEth}
+                  ethReserve={resolved.launch.ethReserve}
+                  tokenReserve={resolved.launch.tokenReserve}
+                  graduationEth={resolved.launch.graduationEth}
+                />
+              </>
+            )}
+            <CurveTradePanel launcher={resolved.launcher} token={token} chainId={resolved.chainId} />
+            {resolved.launch.graduated && (
+              <div className="rounded-2xl p-4" style={cardStyle}>
+                <p className="text-white/85 text-sm font-semibold mb-1">Graduated — it lives on the venue now</p>
+                <p className="text-white/55 text-[12px] leading-relaxed mb-3">
+                  The curve closed and its liquidity is live in the Tegridy pool with the LP burned.
+                  This is the aftermarket the island runs on:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Link to="/swap" className="btn-primary px-4 py-2 text-[12px]">Trade it on the venue swap</Link>
+                  <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px]">The farm (real ETH yield)</Link>
                 </div>
               </div>
             )}
-            <CurveTradePanel launcher={resolved.launcher} token={token} chainId={resolved.chainId} />
             <CurveCreatorClaim launcher={resolved.launcher} chainId={resolved.chainId} token={token} creator={resolved.creator} />
+
+            {/* Trust strip — the venue's whole pitch, placed where buyers decide.
+                Scan is chain-gated (RH 4663 has no holder source yet) and the
+                deployer graph reads mainnet only. */}
+            <div className="rounded-2xl p-4 space-y-3" style={cardStyle}>
+              <p className="text-white/45 text-[11px]">Verify it yourself — every token here is checkable</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-white/45 text-[10px] uppercase tracking-wider">CA</span>
+                <CopyButton text={token} display={`${token.slice(0, 10)}…${token.slice(-8)}`} className="font-mono text-[12px]" style={{ color: 'var(--color-kyle)' }} />
+                <a
+                  href={getTokenUrl(resolved.chainId, token)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="View token on block explorer (opens in new tab)"
+                  className="text-[11px] underline underline-offset-2 text-white/60 hover:text-white"
+                >
+                  explorer ↗
+                </a>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(resolved.chainId === 1 || resolved.chainId === 8453) && (
+                  <Link
+                    to={`/scan?token=${token}${resolved.chainId === 8453 ? '&chain=base' : ''}`}
+                    className="btn-secondary px-4 py-2 text-[12px]"
+                  >
+                    Scan holders
+                  </Link>
+                )}
+                {resolved.chainId === 1 && (
+                  <Link to={`/deployer?address=${resolved.creator}`} className="btn-secondary px-4 py-2 text-[12px]">
+                    Creator&apos;s deploy history
+                  </Link>
+                )}
+                <Link to="/trust" className="btn-secondary px-4 py-2 text-[12px]">
+                  Trust suite
+                </Link>
+              </div>
+            </div>
           </m.div>
         )}
       </div>

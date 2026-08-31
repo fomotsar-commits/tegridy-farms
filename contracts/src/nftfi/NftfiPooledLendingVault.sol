@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {ERC4626} from "solady/tokens/ERC4626.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {EnumerableSetLib} from "solady/utils/EnumerableSetLib.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {OwnableNoRenounce} from "../base/OwnableNoRenounce.sol";
@@ -58,9 +59,13 @@ import {SafeERC721Call} from "../lib/SafeERC721Call.sol";
 ///      zero address makes raising them revert.
 contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pausable {
     using SafeTransferLib for address;
+    using EnumerableSetLib for EnumerableSetLib.Uint256Set;
 
     // ─── Errors ──────────────────────────────────────────────────────
     error ZeroAddress();
+    // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: too many concurrent loans would make
+    // the seizable-loan scan (which gates deposit/withdraw) unbounded.
+    error TooManyActiveLoans();
     error NotContract();
     error NotBorrower();
     error UnknownLoan();
@@ -112,6 +117,11 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
     /// @dev Breathing room between a missed deadline and an irreversible
     ///      seizure, matching the P2P desk's grace posture.
     uint256 public constant SEIZE_GRACE = 1 hours;
+    /// @dev AUDIT FIX 2026-08-27 [SEIZURE-RACE]: hard bound on concurrent active
+    ///      loans. The deposit/withdraw freeze scans active loans for any that are
+    ///      seizable-but-unseized; this caps that scan so the gate can never be
+    ///      griefed into an out-of-gas DoS. Generous for a single-collection pool.
+    uint256 public constant MAX_ACTIVE_LOANS = 256;
 
     // ─── Loan book ───────────────────────────────────────────────────
 
@@ -142,6 +152,18 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
     /// @notice Principal the pool believes it will get back. Counted in
     ///         `totalAssets`.
     uint256 public principalOutstanding;
+
+    /// @notice AUDIT FIX 2026-08-27 [SEIZURE-RACE]: the set of loanIds that are
+    ///         open (neither closed nor seized). Bounded by `MAX_ACTIVE_LOANS`.
+    ///         `_hasSeizableLoan` scans this to freeze deposit/withdraw while any
+    ///         loan is past `deadline + SEIZE_GRACE` and unseized — otherwise
+    ///         `totalAssets` still counts that defaulted loan at par and an
+    ///         informed LP could redeem at the stale price, dumping the pending
+    ///         writedown on the LPs who stay. `seize` (permissionless once
+    ///         seizable) removes the loan here and recognizes the loss in
+    ///         `totalAssets`, clearing the freeze. See
+    ///         docs/NFTFI_VAULT_SEIZURE_RACE_2026_08_27.md.
+    EnumerableSetLib.Uint256Set private _activeLoans;
 
     /// @notice Principal behind seized collateral. Written OFF the balance
     ///         sheet at seizure and written back only by realized proceeds:
@@ -249,13 +271,39 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
     /// @dev Withdrawals are bounded by cash actually sitting here. Lent-out
     ///      principal is not withdrawable and the ceiling says so rather than
     ///      letting the base contract revert on a transfer that cannot settle.
+    /// @notice AUDIT FIX 2026-08-27 [SEIZURE-RACE]: true iff some open loan is past
+    ///         `deadline + SEIZE_GRACE` and not yet seized — a default whose
+    ///         writedown `totalAssets` has NOT recognized (it still counts the loan
+    ///         at par). While true, deposits and withdrawals are frozen so nobody
+    ///         transacts at the stale par NAV: an informed LP could otherwise redeem
+    ///         at par and dump the pending loss on the LPs who stay. Anyone can clear
+    ///         the freeze by calling the permissionless `seize` on the overdue
+    ///         loan(s), which recognizes the loss and lets everyone exit at the
+    ///         correct, shared price. Scan is O(active loans), bounded by
+    ///         MAX_ACTIVE_LOANS. See docs/NFTFI_VAULT_SEIZURE_RACE_2026_08_27.md.
+    function hasSeizableLoan() public view returns (bool) {
+        uint256[] memory ids = _activeLoans.values();
+        uint256 n = ids.length;
+        for (uint256 i; i < n; ++i) {
+            Loan storage loan = loans[ids[i]];
+            if (!loan.seized && !loan.closed && block.timestamp > uint256(loan.deadline) + SEIZE_GRACE) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function maxWithdraw(address owner_) public view override returns (uint256) {
+        // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: no exit at the stale par NAV.
+        if (hasSeizableLoan()) return 0;
         uint256 byShares = super.maxWithdraw(owner_);
         uint256 idle = _asset.balanceOf(address(this));
         return byShares < idle ? byShares : idle;
     }
 
     function maxRedeem(address owner_) public view override returns (uint256) {
+        // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: no exit at the stale par NAV.
+        if (hasSeizableLoan()) return 0;
         uint256 byShares = super.maxRedeem(owner_);
         uint256 idleAsShares = convertToShares(_asset.balanceOf(address(this)));
         return byShares < idleAsShares ? byShares : idleAsShares;
@@ -263,6 +311,9 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
 
     function maxDeposit(address) public view override returns (uint256) {
         if (paused()) return 0;
+        // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: no entry at the stale par NAV either
+        // (a depositor would overpay into an unrecognized loss). Cleared by `seize`.
+        if (hasSeizableLoan()) return 0;
         uint256 assets = totalAssets();
         return assets >= depositCapWei ? 0 : depositCapWei - assets;
     }
@@ -353,6 +404,10 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
             })
         );
         escrowedLoanIdPlus1[tokenId] = loanId + 1;
+        // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: record the open loan (bounded) so
+        // the deposit/withdraw freeze can scan for seizable defaults in O(active).
+        if (_activeLoans.length() >= MAX_ACTIVE_LOANS) revert TooManyActiveLoans();
+        _activeLoans.add(loanId);
         principalOutstanding += requestedWei;
 
         // Pull collateral BEFORE paying out, and verify the pull actually moved
@@ -557,6 +612,10 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
         principalOutstanding -= writtenDown;
         seizedPrincipal += writtenDown;
         escrowedLoanIdPlus1[loan.tokenId] = 0;
+        // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: the loss is now recognized in
+        // totalAssets (principalOutstanding fell); drop it from the active set so
+        // it no longer freezes deposit/withdraw.
+        _activeLoans.remove(loanId);
 
         bool moved = SafeERC721Call.safeTransferFromBounded(collection, address(this), liquidationSink, loan.tokenId);
         if (!moved) revert CollateralTransferFailed();
@@ -573,6 +632,9 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
     function _closeAndRelease(uint256 loanId, Loan storage loan, address to) private {
         loan.closed = true;
         escrowedLoanIdPlus1[loan.tokenId] = 0;
+        // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: fully repaid — drop from the active
+        // set so a late-but-cured loan stops freezing deposit/withdraw.
+        _activeLoans.remove(loanId);
         bool moved = SafeERC721Call.safeTransferFromBounded(collection, address(this), to, loan.tokenId);
         if (!moved) revert CollateralTransferFailed();
         emit LoanClosedOut(loanId, to);

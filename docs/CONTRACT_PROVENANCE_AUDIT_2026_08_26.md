@@ -219,7 +219,7 @@ Curve's is week-aligned epochs, a `time_cursor`, `ve_supply[week]`, one payout t
 
 ### 4.3 `SwapFeeRouter.sol` + `lib/SwapFeeRouterConvertLib.sol` — 1,106 SLOC live
 
-The router itself is BESPOKE-JUSTIFIED (§6). The library is not. `SwapFeeRouterConvertLib` is deployed as a live DELEGATECALL library at `0x96A4Ed675eA203c4b4ae02F8Ad6D4f300Ee97295`, and `_readCurrentCumulative` (:424) **reconstructs `UniswapV2OracleLibrary.currentCumulativePrices` from scratch** — pair-native cumulative plus a spot×elapsed bridge — with `_enforceTWAPMinETHOut` (:471) building a UQ112x112 TWAP floor on top. **uniswap/v2-periphery is MIT and vendorable. It is not vendored.** This is a live slippage floor on a live money path, hand-derived.
+The router itself is BESPOKE-JUSTIFIED (§6). The library is not. `SwapFeeRouterConvertLib` is deployed as a live DELEGATECALL library at `0x96A4Ed675eA203c4b4ae02F8Ad6D4f300Ee97295`, and `_readCurrentCumulative` (:424) **reconstructs `UniswapV2OracleLibrary.currentCumulativePrices` from scratch** — pair-native cumulative plus a spot×elapsed bridge — with `_enforceTWAPMinETHOut` (:471) building a UQ112x112 TWAP floor on top. **uniswap/v2-periphery is GPL-3.0 (this sentence originally said MIT — corrected 2026-08-27) and vendorable. It is not vendored.** This is a live slippage floor on a live money path, hand-derived. *(2026-08-27: vendored + re-anchored in source — see row 8; the deployed lib still runs the equivalent old bytecode until the next deploy.)*
 
 Also actionable now: `recoverCallerCredit()` (`SwapFeeRouter.sol:1829`) is permissionless and has **never been called** — `addresses.json:253` records 2.4e12 of 3e12 lifetime wei parked in `ReferralSplitter.callerCredit`.
 
@@ -350,6 +350,35 @@ RevenueDistributor  0xF993316E2fC079de4358c489A935E01e03E23E17
 
 Treat row 0 as **blocking the first ETH remittance into this contract**, not as blocking today.
 
+## 6c. Row 7, answered 2026-08-27 — and upgraded from "vendor" to "fail on drift"
+
+The row asked for submodules. Vendoring alone would have put canonical V2 on disk without making
+anyone diff against it — the drift-invisibility this document complains about would have survived
+the fix. What shipped is the stronger mechanism:
+
+- **`contracts/provenance/upstream/`** — canonical `Uniswap/v2-core@6a9e7c97` and
+  `Uniswap/v2-periphery@ed249913` sources (Pair, Factory, ERC20, Math, UQ112x112, Router02,
+  UniswapV2Library, UniswapV2OracleLibrary), **sha256-pinned** in `upstream.lock.json` so the
+  copies cannot be quietly edited. Tracked files rather than submodules on purpose: the pin is a
+  content hash instead of a gitlink, no per-worktree clone multiplication (this machine runs many
+  worktrees), and the checker needs no network in CI.
+- **`scripts/check-v2-provenance.mjs`** + the `Contracts CI / v2-provenance` job (pull_request
+  via the scope job; result read explicitly in `all-tests-pass`): normalizes both sides (comments,
+  pragma, formatting, quote style, whole-word rename table, `uint`/`now` aliases, upstream's
+  `"UniswapV2: "` revert prefix) and requires the recomputed diff to **byte-match** the pinned
+  snapshots in `contracts/provenance/expected/`. Any semantic edit to the three contracts goes red
+  until deliberately re-pinned — mutation-verified (a 997→996 fee edit fails with a 2-line delta;
+  a comment-only edit passes; tampering a vendored copy, smuggling an unpinned file, or forging a
+  snapshot all fail).
+- **`contracts/provenance/PROVENANCE.md`** — the named allowlist: every deliberate divergence with
+  a one-line rationale and the pinning test, separately for the fee switch (D1), the
+  **kLast/harvest lifecycle** (D2 — pinned *as shipped*, explicitly not blessed; row 9 stays open),
+  and the guardian hooks (D3), plus full per-contract catalogs (D4-D6).
+
+Rows 8 and 9 are now mechanically startable: `UniswapV2OracleLibrary.sol` is vendored + pinned for
+row 8, and row 9's revert-to-canonical would surface in the snapshot delta as the D2 hunks
+disappearing. §3.4/§3.5/§3.6's "reasoned from memory" caveat no longer applies to future changes.
+
 ## 7. The remediation list
 
 Ordered by (value at risk × novelty) / effort. **Pre-deploy** rows cost a deploy; **Live** rows cost a migration.
@@ -363,8 +392,8 @@ Ordered by (value at risk × novelty) / effort. **Pre-deploy** rows cost a deplo
 | 4 | `TegridyRestaking.sol` | Rebase bonus accrual on `TegridyLPFarming`'s Synthetix port; **delete the mirrored `info.boostedAmount` and read `staking.boostedAmountAt()` live** | Rewrite, **zero migration** | Erases all six hand-written stale-path reconciliations and the root cause behind most of the 53 findings | **Pre-deploy** |
 | 5 | `TegridyTWAP.sol` | Delete the ~400 SLOC policy stack; keep the ring buffer and the correct V2 `currentCumulativePrices` bridge (:601-614); source Chainlink where feeds exist; pin consumers to `_assertSpotNearTWAP`'s 50bps bound | Large deletion, small addition | Removes owner-gated bootstrap, the `bypassed` fail-closed flag, the fee-refund income leg, and the deviation-ratchet DoS. **Do not attempt V3 Oracle.sol — it is not transplantable onto a constant-product pair** | Live |
 | 6 | `base/OwnableNoRenounce.sol` | Drop the 14-day `acceptOwnership` expiry (:50, :182-190); document the zero-address-cancel removal (:170) at every child's call site | ~10 SLOC | Removes a handoff-brick path on every contract in the repo, including the two-address restaking split | Live (inherited — sequence carefully) |
-| 7 | **Vendor `uniswap/v2-core` and `uniswap/v2-periphery` as submodules** | Both MIT | One `git submodule add` each | Makes `TegridyPair`/`Factory`/`Router` reviewable as a **diff** at every future change instead of reasoned from memory. Enables #8 and #9. Cheapest structural win here | Repo-level |
-| 8 | `lib/SwapFeeRouterConvertLib.sol` | Replace `_readCurrentCumulative` (:424) with vendored `UniswapV2OracleLibrary.currentCumulativePrices` | ~40 SLOC, after #7 | Removes a hand-derived slippage floor from a live delegatecall library | Live |
+| 7 | **✅ DONE 2026-08-27 (see §6c)** — canonical V2 vendored hash-pinned + a CI gate that FAILS on any un-pinned drift (`contracts/provenance/`, `scripts/check-v2-provenance.mjs`, `Contracts CI / v2-provenance`) | Both **GPL-3.0** (this doc said MIT — corrected 2026-08-27 from the LICENSE files at the pinned commits) | Shipped | Makes `TegridyPair`/`Factory`/`Router` reviewable as a **diff** at every future change instead of reasoned from memory — and makes un-reviewed drift a red check. Enables #8 and #9 | Repo-level |
+| 8 | `lib/SwapFeeRouterConvertLib.sol` | **✅ SOURCE RE-ANCHORED 2026-08-27** — `_readCurrentCumulative` now delegates to `src/lib/UniswapV2OracleLibrary.sol`, a verbatim 0.8 port that is itself a v2-provenance diff target (see `contracts/provenance/PROVENANCE.md` D7); equivalence + wrap semantics mutation-tested in `Audit_SFR_H01.t.sol` ROW8 suite. ⚠️ The LIVE delegatecall lib at `0x96A4Ed67…` still runs the old (equivalent) bytecode — the re-anchor rides the next SwapFeeRouter-stack deploy | ~40 SLOC, after #7 | Removes a hand-derived slippage floor from a live delegatecall library | Live |
 | 9 | `TegridyPair.sol` | Restore unconditional `if (feeOn) kLast = uint(reserve0)*uint(reserve1)` in `mint`/`burn`; delete `harvest()`; full diff against pinned v2-core | Medium, after #7 | Protocol fee self-heals; deletes ~50 SLOC of bespoke fee lifecycle. **Note: the `harvest()` bootstrap gate is the problem it was invented to solve** | Live |
 | 10 | `SwapFeeRouterAdmin.sol` + `base/TimelockAdmin.sol` | OZ `TimelockController` (already on disk) as owner of `SwapFeeRouter`; Safe as PROPOSER, separate CANCELLER. Keep bounds asserts as `onlyAdmin` guards | Low — upstream is vendored | Splits propose/execute/cancel so a single compromised key cannot self-approve | Live |
 | 11 | `TegridyRestakingAdmin.sol` | Same as #10, fixed at `TimelockAdmin` so all three admins inherit it | Low | Role separation before first deploy | **Pre-deploy** |

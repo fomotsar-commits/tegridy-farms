@@ -50,14 +50,32 @@ function isValidOverridePayload(p: unknown): p is Record<string, { artId: string
   return true;
 }
 
-// Dev-only middleware that lets /art-studio persist picks to
-// src/lib/artOverrides.ts. Disabled in production builds.
-function artStudioPlugin(): Plugin {
+type OverrideSaveOptions = {
+  /** Vite plugin name (shows up in build output / errors). */
+  name: string;
+  /** Dev-only POST route the studio saves to. */
+  route: string;
+  /** Path (relative to the frontend root) of the file to rewrite. */
+  outFile: string;
+  /**
+   * Extra key-shape guard beyond the generic validator. The classic studio
+   * predates it and stays unguarded; the bungalow studio pins its
+   * `bungalowId|pageId:idx` shape so a malformed key can never reach the file.
+   */
+  keyPattern?: RegExp;
+  /** Render the whole module source from the sorted, validated payload. */
+  render: (entries: string) => string;
+};
+
+// Dev-only middleware that lets a studio page persist picks to a source file.
+// Two instances exist: /art-studio → src/lib/artOverrides.ts, and
+// /bayla-studio → src/lib/bungalowArtOverrides.ts. Disabled in prod builds.
+function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
   return {
-    name: 'art-studio-save',
+    name: opts.name,
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/__art-studio/save', (req, res) => {
+      server.middlewares.use(opts.route, (req, res) => {
         if (req.method !== 'POST') {
           res.statusCode = 405;
           res.end('POST only');
@@ -102,6 +120,11 @@ function artStudioPlugin(): Plugin {
             res.end('Bad request: schema validation failed');
             return;
           }
+          if (opts.keyPattern && !Object.keys(parsed).every((k) => opts.keyPattern!.test(k))) {
+            res.statusCode = 400;
+            res.end('Bad request: key shape validation failed');
+            return;
+          }
           try {
             // Stable key order so diffs are clean.
             const keys = Object.keys(parsed).sort();
@@ -111,28 +134,8 @@ function artStudioPlugin(): Plugin {
               const scale = v.scale && v.scale !== 1 ? `, scale: ${v.scale}` : '';
               return `  ${JSON.stringify(k)}: { artId: ${JSON.stringify(v.artId)}${pos}${scale} },`;
             }).join('\n');
-            const file = `/**
- * Per-surface art overrides — written by /art-studio.
- *
- * Key format: \`\${pageId}:\${idx}\` (matches pageArt(pageId, idx) call sites).
- * \`artId\` must match an \`id\` in ART (see artConfig.ts).
- * \`objectPosition\` is a CSS object-position string (e.g. "center 30%", "50% 20%").
- *
- * Surfaces NOT listed here fall back to the deterministic rotation in pageArt().
- *
- * Do not hand-edit during a studio session — the studio overwrites this file on save.
- */
-export type ArtOverride = {
-  artId: string;
-  objectPosition?: string;
-  scale?: number;
-};
-
-export const ART_OVERRIDES: Record<string, ArtOverride> = {
-${entries}
-};
-`;
-            const out = resolve(process.cwd(), 'src/lib/artOverrides.ts');
+            const file = opts.render(entries);
+            const out = resolve(process.cwd(), opts.outFile);
             // Only write when the content actually changed. A no-op rewrite
             // still trips the watcher → HMR remounts ArtStudioPage → its state
             // (fullscreen, selection, scroll) resets and the mount re-saves,
@@ -156,6 +159,78 @@ ${entries}
   };
 }
 
+// The two studio endpoints. Each renders its whole module source so the file
+// on disk stays deterministic (sorted keys, stable header) and diffs cleanly.
+function artStudioPlugin(): Plugin {
+  return overrideSavePlugin({
+    name: 'art-studio-save',
+    route: '/__art-studio/save',
+    outFile: 'src/lib/artOverrides.ts',
+    render: (entries) => `/**
+ * Per-surface art overrides — written by /art-studio.
+ *
+ * Key format: \`\${pageId}:\${idx}\` (matches pageArt(pageId, idx) call sites).
+ * \`artId\` must match an \`id\` in ART (see artConfig.ts).
+ * \`objectPosition\` is a CSS object-position string (e.g. "center 30%", "50% 20%").
+ *
+ * Surfaces NOT listed here fall back to the deterministic rotation in pageArt().
+ *
+ * Do not hand-edit during a studio session — the studio overwrites this file on save.
+ */
+export type ArtOverride = {
+  artId: string;
+  objectPosition?: string;
+  scale?: number;
+};
+
+export const ART_OVERRIDES: Record<string, ArtOverride> = {
+${entries}
+};
+`,
+  });
+}
+
+function bungalowStudioPlugin(): Plugin {
+  return overrideSavePlugin({
+    name: 'bungalow-studio-save',
+    route: '/__bungalow-studio/save',
+    outFile: 'src/lib/bungalowArtOverrides.ts',
+    // `bungalowId|pageId:idx` — lowercase slugs, non-negative index.
+    keyPattern: /^[a-z0-9-]+\|[a-z0-9-]+:\d+$/,
+    render: (entries) => `/**
+ * Per-bungalow, per-surface art overrides — written by /bayla-studio.
+ *
+ * Key format: \`\${bungalowId}|\${pageId}:\${idx}\`.
+ *   e.g. "bayla|farm:0" — the /farm page background, in the Bayla skin.
+ *
+ * Why a second file instead of reusing ART_OVERRIDES: a bungalow paints every
+ * surface from its OWN pool (see bungalows.ts \`artPool\`), so the classic art
+ * ids in ART_OVERRIDES don't exist in that pool. Keying by bungalow keeps the
+ * two skins from overwriting each other — the classic picks stay exactly as
+ * they are while a bungalow gets its own placement.
+ *
+ * \`artId\` resolves against the active bungalow's pool first, then falls back to
+ * the classic ART map (so a bungalow may deliberately borrow a classic piece).
+ * Unresolvable ids fall through to the deterministic rotation, same as classic.
+ *
+ * Do not hand-edit during a studio session — the studio overwrites this file on save.
+ */
+import type { ArtOverride } from './artOverrides';
+
+export type { ArtOverride };
+
+export const BUNGALOW_ART_OVERRIDES: Record<string, ArtOverride> = {
+${entries}
+};
+
+/** Key builder — keep in lock-step with the studio and the vite save endpoint. */
+export function bungalowOverrideKey(bungalowId: string, pageId: string, idx: number): string {
+  return \`\${bungalowId}|\${pageId}:\${idx}\`;
+}
+`,
+  });
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
@@ -163,6 +238,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       artStudioPlugin(),
+      bungalowStudioPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {
@@ -217,10 +293,29 @@ export default defineConfig(({ mode }) => {
         },
         // Solana RPC proxy — mirrors api/solrpc.js. Forwards JSON-RPC POSTs to
         // the configured RPC (server-only SOLANA_RPC_URL, or the keyless default).
+        //
+        // 2026-08-28: this proxy used to forward the browser's `Origin` header
+        // upstream, and api.mainnet-beta.solana.com answers ANY request carrying
+        // an Origin with `403 Access forbidden` — it refuses browser-origin
+        // traffic. So in dev EVERY Solana read failed: the BAYLA lighthouse pool
+        // rendered a permanent "could not be read — outage, not a zero", and so
+        // did balances on the swap surface. Verified by isolation against this
+        // very proxy: Origin+Referer → 403, Referer only → 200, neither → 200.
+        // The PROD function is unaffected — api/solrpc.js builds a clean upstream
+        // request with only Content-Type/Accept. Stripping the browser-only
+        // headers here makes dev behave like prod instead of faking an outage.
         '/api/solrpc': {
           target: env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
           changeOrigin: true,
           rewrite: () => '/',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
+              // Never reflect the dev browser's cookies at a third-party RPC.
+              proxyReq.removeHeader('cookie');
+            });
+          },
         },
         // /api/etherscan is a Vercel serverless function in production.
         // For local dev we forward to the deployed proxy so the API key stays
@@ -328,7 +423,19 @@ export default defineConfig(({ mode }) => {
               id.includes('node_modules/@wallet-standard/') ||
               id.includes('node_modules/buffer/') ||
               id.includes('node_modules/base64-js/') ||
-              id.includes('node_modules/ieee754/')
+              id.includes('node_modules/ieee754/') ||
+              // 2026-08-28 (bundle audit, preemptive): bs58/base-x/bn.js/
+              // safe-buffer are shared between the Irys upload stack (used by
+              // EVM create flows) and @solana/web3.js — the same
+              // unassigned-shared-module shape that captured eventemitter3
+              // (08-25) and buffer (08-27) into vendor-solana. Pinning them
+              // here costs a few KB in the eager plumbing chunk and removes
+              // the class: an EVM-surface Irys upload can never drag
+              // vendor-solana in through a shared dep again.
+              id.includes('node_modules/bs58/') ||
+              id.includes('node_modules/base-x/') ||
+              id.includes('node_modules/bn.js/') ||
+              id.includes('node_modules/safe-buffer/')
             ) {
               return 'vendor-shared-wallet-plumbing';
             }

@@ -52,6 +52,86 @@ export const geckoTerminalOhlcvSchema = z.object({
   }),
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pool market data — `networks/{network}/pools/{address}`.
+//
+// Added 2026-08-28 for the bungalow market strip (BAYLA/SOL on PumpSwap). Every
+// numeric field arrives as a STRING, and several are legitimately absent:
+// `market_cap_usd` is null for a pump.fun token that has no circulating-supply
+// record, which is exactly why the UI must show FDV labelled as FDV rather than
+// quietly printing one number under the other one's name. Absent stays absent
+// here — nothing is defaulted to 0, because 0 and "unknown" are different facts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Signed decimal — price changes are negative about half the time. */
+const signedDecimalStringSchema = z
+  .string()
+  .regex(/^-?\d+(\.\d+)?$/, 'must be a decimal string');
+
+/** A field that may be a decimal string, explicitly null, or missing. */
+const optionalDecimal = decimalStringSchema.nullish();
+
+const windowedDecimals = z
+  .object({
+    h1: signedDecimalStringSchema.nullish(),
+    h6: signedDecimalStringSchema.nullish(),
+    h24: signedDecimalStringSchema.nullish(),
+  })
+  .partial()
+  .nullish();
+
+export const geckoTerminalPoolSchema = z.object({
+  data: z.object({
+    attributes: z.object({
+      name: z.string().nullish(),
+      base_token_price_usd: optionalDecimal,
+      fdv_usd: optionalDecimal,
+      market_cap_usd: optionalDecimal,
+      reserve_in_usd: optionalDecimal,
+      price_change_percentage: windowedDecimals,
+      volume_usd: windowedDecimals,
+      transactions: z
+        .object({
+          h24: z
+            .object({
+              buys: z.number().nullish(),
+              sells: z.number().nullish(),
+              buyers: z.number().nullish(),
+              sellers: z.number().nullish(),
+            })
+            .partial()
+            .nullish(),
+        })
+        .partial()
+        .nullish(),
+    }),
+  }),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pool trades — `networks/{network}/pools/{address}/trades`.
+//
+// Backs the bungalow trade tape (the honest replacement for LiveActivity, which
+// is TOWELI-denominated and muted in a bungalow). Only the fields the tape
+// renders are pinned; `kind` is narrowed to the two values the UI can label,
+// so an unknown third value fails validation rather than rendering unlabelled.
+// ─────────────────────────────────────────────────────────────────────────────
+export const geckoTerminalTradesSchema = z.object({
+  data: z.array(
+    z.object({
+      attributes: z.object({
+        block_timestamp: z.string(),
+        kind: z.enum(['buy', 'sell']),
+        tx_hash: z.string(),
+        tx_from_address: z.string().nullish(),
+        from_token_amount: decimalStringSchema.nullish(),
+        to_token_amount: decimalStringSchema.nullish(),
+        volume_in_usd: decimalStringSchema.nullish(),
+      }),
+    }),
+  ),
+});
+
 /**
  * Convenience helper: run `safeParse` and return the parsed data or null.
  * Mirrors the helper in `aggregator.ts` so consumers can colocate the

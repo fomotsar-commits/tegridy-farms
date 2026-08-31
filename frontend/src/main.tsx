@@ -4,8 +4,14 @@
 // importer that never pulled the polyfill (nakamigos did exactly that:
 // "Buffer is not defined" at vendor-solana top-level, prod-only, 2026-08-27).
 // The entry chunk is the one thing guaranteed to run before every lazy chunk.
-// buffer matches no manualChunks rule, so this does NOT weld vendor-solana
-// into the initial bundle — it adds only the small buffer package itself.
+//
+// ⚠️ THE OTHER HALF OF THIS FIX LIVES IN vite.config.ts and is LOAD-BEARING:
+// `buffer` (+ base64-js/ieee754) is PINNED into vendor-shared-wallet-plumbing
+// there. An earlier version of this comment claimed "buffer matches no
+// manualChunks rule" — backwards: UNassigned buffer is exactly what let Rollup
+// weld it (and therefore vendor-solana) into first paint on 2026-08-27. Do not
+// delete the pin as "redundant", and do not move this import off line one.
+// Both halves are enforced by scripts/check-dist-graph.mjs on every build.
 import './lib/solanaPolyfill';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

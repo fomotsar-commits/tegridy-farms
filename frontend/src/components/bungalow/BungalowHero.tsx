@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowTradeRoute } from '../../lib/bungalows';
-import { isSolanaConfigured } from '../../lib/solana';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
+import { isSolanaSwapLive } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 
@@ -21,7 +21,7 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   const id = bungalow.identity;
   const explorer = bungalowExplorerUrl(bungalow);
   // In-venue swap preset when the Solana surface is live; canon deep link otherwise.
-  const trade = bungalowTradeRoute(bungalow, isSolanaConfigured());
+  const trade = bungalowTradeRoute(bungalow, isSolanaSwapLive());
   const tradeClass = 'px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]';
   const tradeStyle = { background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' } as const;
   return (
@@ -44,19 +44,21 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
             href={trade.href}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label={`Trade ${bungalow.symbol} (opens in new tab)`}
+            aria-label={`${trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`} (opens in new tab)`}
             className={tradeClass}
             style={tradeStyle}
           >
-            Trade {bungalow.symbol}
+            {trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`}
           </a>
         ))}
+        {/* "Stake X" is only promised when a stake pool actually exists —
+            without one the farm route is the honest lighthouse status page. */}
         <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
-          Stake {bungalow.symbol}
+          {bungalow.stakePool ? `Stake ${bungalow.symbol}` : 'The lighthouse'}
         </Link>
-        {bungalow.address && (
+        {bungalowScanRoute(bungalow) && (
           <Link
-            to={`/scan?token=${bungalow.address}`}
+            to={bungalowScanRoute(bungalow)!}
             className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
             style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
           >

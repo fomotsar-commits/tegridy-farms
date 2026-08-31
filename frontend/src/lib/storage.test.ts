@@ -1,5 +1,50 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { safeSetItem, safeGetItem } from './storage';
+import { safeSetItem, safeGetItem, isEvictable, EVICTION_PROTECTED_KEYS } from './storage';
+
+describe('eviction protection for choice keys', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('choice keys are namespaced-but-NOT-evictable; caches are', () => {
+    // Pre-fix, isEvictable('tegridy-bungalow') was true and the sweeper
+    // deleted the plain-string choice keys FIRST (ts-less sorts oldest).
+    for (const k of EVICTION_PROTECTED_KEYS) {
+      expect(isEvictable(k), `${k} must be protected`).toBe(false);
+    }
+    expect(isEvictable('tegridy_price_history_cache')).toBe(true);
+    expect(isEvictable('tegridy-alerts')).toBe(true);
+    expect(isEvictable('foreign-key')).toBe(false);
+  });
+
+  it('quota-pressure eviction spares the bungalow choice and takes the cache', () => {
+    localStorage.setItem('tegridy-bungalow', 'bayla');
+    localStorage.setItem('tegridy_cache_blob', JSON.stringify({ ts: 1, data: 'x' }));
+    // A value large enough that the pre-flight estimate demands eviction
+    // (budget is ~2.6M chars), yet jsdom itself enforces no quota, so the
+    // write succeeds and we can observe exactly what the sweeper chose.
+    expect(safeSetItem('tegridy_big', 'z'.repeat(2_700_000))).toBe(true);
+    expect(localStorage.getItem('tegridy-bungalow'), 'choice must survive eviction').toBe('bayla');
+    expect(localStorage.getItem('tegridy_cache_blob'), 'cache is the evictable mass').toBeNull();
+    localStorage.removeItem('tegridy_big');
+  });
+
+  it('blocked storage access (throwing window.localStorage getter) returns false, never throws', () => {
+    // Chrome "block all cookies": even `typeof localStorage` invokes the
+    // throwing getter. Pre-fix the quota pre-flight sat outside every try
+    // and safeSetItem THREW into door/picker handlers.
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('denied', 'SecurityError'); },
+    });
+    try {
+      expect(() => safeSetItem('k', 'v')).not.toThrow();
+      expect(safeSetItem('k', 'v')).toBe(false);
+      expect(safeGetItem('k')).toBeNull();
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original);
+    }
+  });
+});
 
 describe('safeSetItem', () => {
   beforeEach(() => localStorage.clear());

@@ -28,14 +28,26 @@
   <url><loc>https://memetic.fun/liquidity</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
   <url><loc>https://memetic.fun/nft-finance</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
 
-  <!-- Solana rail — absent from every previous revision of this file -->
   <url><loc>https://memetic.fun/solana</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
-  <url><loc>https://memetic.fun/solana-launch</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <!-- /solana-launch was REMOVED 2026-08-23 (route deliberately 404s, no redirect) — never re-add it here. -->
+  <url><loc>https://memetic.fun/eth-curve</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
 
   <!-- Jungle Bay bungalow doors — only doors with their own rendered head
        (dist/<door>/index.html) are listed; a door serving the stock venue
-       shell would read as a duplicate of / to the index. -->
-  <url><loc>https://memetic.fun/bayla</loc><lastmod>2026-08-25</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+       shell would read as a duplicate of / to the index. All settled doors
+       qualify since 2026-08-28: each has its own unfurl head AND a real
+       landing (plaque/contract/trade/heat), not the stock home. -->
+  <url><loc>https://memetic.fun/bayla</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetic.fun/pepe</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/qr</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/mfer</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/bnkr</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/drb</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/bobo</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/jbm</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/soy</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/brainlet</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetic.fun/rizz</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
 
   <!-- Detection / trust suite — works on any token, needs no wallet -->
   <url><loc>https://memetic.fun/scan</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>

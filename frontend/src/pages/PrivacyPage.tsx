@@ -114,7 +114,7 @@ export default function PrivacyPage() {
           className="text-center mt-12"
         >
           <p className="text-white/70 text-xs">
-            Last updated: <time dateTime="2026-04-19">April 19, 2026</time>
+            Last updated: <time dateTime="2026-06-07">June 7, 2026</time>
           </p>
         </m.div>
       </div>

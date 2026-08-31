@@ -71,6 +71,10 @@
   --color-stan-08: rgba(30, 136, 229, 0.08);
 
   --color-kyle: #4CAF50;
+  /* 2026-08-28: the nav's "kyle green" was a hardcoded #22c55e bypassing the
+     token it names (—color-kyle is #4CAF50). Tokenized so the two greens are a
+     deliberate pair, not silent drift. */
+  --color-kyle-bright: #22c55e;
   --color-kyle-80: rgba(76, 175, 80, 0.80);
   --color-kyle-60: rgba(76, 175, 80, 0.60);
   --color-kyle-40: rgba(76, 175, 80, 0.40);
@@ -418,21 +422,21 @@ body {
   width: 0;
   height: 2px;
   /* Underline swapped from purple → kyle green to match hover/active text. */
-  background: linear-gradient(90deg, #22c55e, #f5e4b8);
+  background: linear-gradient(90deg, var(--color-kyle-bright), #f5e4b8);
   transition: width 0.3s ease;
 }
 .nav-link:hover::after,
 .nav-link.active::after {
   width: 100%;
 }
-/* Hover/active text is kyle green (#22c55e) instead of the brand purple so
-   nav state reads as "go" against the dark top bar. */
+/* Hover/active text is bright kyle green (--color-kyle-bright) instead of the
+   brand purple so nav state reads as "go" against the dark top bar. */
 .nav-link:hover {
-  color: #22c55e;
+  color: var(--color-kyle-bright);
   background-color: rgba(34, 197, 94, 0.08);
 }
 .nav-link.active {
-  color: #22c55e;
+  color: var(--color-kyle-bright);
   background-color: rgba(34, 197, 94, 0.12);
 }
 
@@ -639,6 +643,23 @@ html {
 
 /* ─── Disable border-glow on mobile for performance ─── */
 @media (max-width: 767px) {
+  .card, .glass, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
+    animation: none !important;
+  }
+  /* AUDIT R038: WCAG 2.5.5 Target Size — nav-link must hit at least 44×44px
+     on touch devices. Default padding produced ~32px on iPhone 14, missing
+     the minimum and making mis-taps frequent. (Duplicated in the tablet block
+     below — iPads are touch devices too.) */
+  .nav-link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+}
+/* 2026-08-28 (a11y/battery audit): the infinite border-glow repaint was only
+   disabled under 768px, leaving iPads (768-1024) burning battery on every
+   visible card. Tablets get the same static border; desktop keeps the glow. */
+@media (min-width: 768px) and (max-width: 1024px) {
   .card, .glass, .glass-card, .glass-card-strong, .glass-card-subtle, .glass-card-animated {
     animation: none !important;
   }

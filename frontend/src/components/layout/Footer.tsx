@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
-import { getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
+import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
 
@@ -123,7 +124,7 @@ export function Footer() {
             {bungalowIdentity ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
                 {bungalowIdentity.name} bungalow — Jungle Bay Island. {bungalowIdentity.tagline}{' '}
-                Trade {bungalowIdentity.symbol} on Solana; scan any token on either chain.
+                {bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}
               </p>
             ) : (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
