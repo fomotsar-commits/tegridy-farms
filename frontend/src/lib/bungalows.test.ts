@@ -241,19 +241,24 @@ describe('resolution order', () => {
   });
 
   it('pins every deployed lighthouse pool (verified on-chain at deploy time)', () => {
-    // Deployed 2026-08-30 via script/DeployLighthouseStaking.s.sol; each was
+    // The five Base rows are LADDER pools (LighthouseLadder, 7d..4y /
+    // 0.4x..4.0x, TOWELI parity) deployed 2026-08-30 and verified on-chain:
+    // right token both sides, fee-remittance Safe as notifier, boostFor(7d)
+    // == 4000 and boostFor(4y) == 40000, nothing staked, never funded. The
+    // no-lock pools they replaced were empty, so nobody was migrated.
+    // Deployed via the deploy scripts; each was
     // read back on-chain before landing here: stakingToken == rewardsToken ==
     // the resident's own token, notifier == the Base fee-remittance Safe,
     // real code present. A wrong address here points the staking card at a
     // stranger's contract — the same class of harm the RIZZ pin guards.
     const POOLS: Record<string, string> = {
-      qr: '0x820246A4eB6e1AD7e571E8581Bdb127020AdB469',
-      mfer: '0x79ff1bDf7ed6b09C24d4766fB4A82Aa28398b548',
-      bnkr: '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2',
-      drb: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
-      jbm: '0xF261940cdC04D8F2422345ff6091D6FA601541fa',
+      qr: '0xdcc3a95A0921b83326157132B17770f02094c8E3',
+      mfer: '0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273',
+      bnkr: '0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178',
+      drb: '0xB62BaD165997E95C503044787b2Dcc85DC6D83F1',
+      jbm: '0xA0D43eF39C4940e68b2f81d51E6316a45C136D93',
       // Ethereum mainnet — the last lighthouse (deployed 2026-08-30).
-      pepe: '0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32',
+      pepe: '0xdC0B34cE782029f30382F42097f6b33F0544329c',
       // Solana lighthouses (Streamflow ceremonies, 2026-08-30). Each was read
       // back through the app's OWN SDK path before landing here: the pool's
       // mint matches the resident's corrected contract, and the ladder is the

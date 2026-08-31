@@ -34,6 +34,13 @@ async function offerInstall(): Promise<FakeInstallEvent> {
 
 beforeEach(() => {
   window.localStorage.clear();
+  // The install offer now stands down while the FIRST-RUN consent banner is
+  // still unanswered (5513f0ba: "stop the install offer from becoming a third
+  // stacked first-run dialog"), and `getConsent()` reads 'pending' on a clean
+  // store. Without answering it here every visible-state test renders null and
+  // fails for the wrong reason — the suite would be asserting the first-run
+  // suppression it already covers separately, not the banner it means to test.
+  window.localStorage.setItem('tegridy_telemetry_consent', 'denied');
 });
 
 describe('InstallPrompt before any prompt event', () => {

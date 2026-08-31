@@ -778,7 +778,16 @@
     {
       "id": "lighthouse-pepe",
       "address": "0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32",
-      "role": "PEPE lighthouse — vendored Synthetix StakingRewards (stake PEPE, earn PEPE). rewardsDistribution = the mainnet treasury Safe (the L2-set Safes hold no mainnet code); no owner role exists. Deployed + read back on-chain 2026-08-30.",
+      "role": "RETIRED 2026-08-30 (never funded, never staked) — replaced by the ladder build. PEPE lighthouse — vendored Synthetix StakingRewards (stake PEPE, earn PEPE). rewardsDistribution = the mainnet treasury Safe (the L2-set Safes hold no mainnet code); no owner role exists. Deployed + read back on-chain 2026-08-30.",
+      "status": "retired",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-pepe",
+      "address": "0xdC0B34cE782029f30382F42097f6b33F0544329c",
+      "role": "PEPE lighthouse LADDER — LighthouseLadder.sol on Ethereum mainnet, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, payouts capped at balance-minus-principal. Notifier = mainnet treasury Safe; no owner role exists.",
       "status": "live",
       "expect": {
         "type": "contract"
@@ -1155,8 +1164,8 @@
     {
       "id": "lighthouse-qr",
       "address": "0x820246A4eB6e1AD7e571E8581Bdb127020AdB469",
-      "role": "QR lighthouse — vendored Synthetix StakingRewards (stake QR, earn QR). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
-      "status": "live",
+      "role": "RETIRED 2026-08-30 (never funded, never staked) — replaced by the ladder build. QR lighthouse — vendored Synthetix StakingRewards (stake QR, earn QR). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
+      "status": "retired",
       "expect": {
         "type": "contract"
       }
@@ -1164,8 +1173,8 @@
     {
       "id": "lighthouse-mfer",
       "address": "0x79ff1bDf7ed6b09C24d4766fB4A82Aa28398b548",
-      "role": "MFER lighthouse — vendored Synthetix StakingRewards (stake MFER, earn MFER). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
-      "status": "live",
+      "role": "RETIRED 2026-08-30 (never funded, never staked) — replaced by the ladder build. MFER lighthouse — vendored Synthetix StakingRewards (stake MFER, earn MFER). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
+      "status": "retired",
       "expect": {
         "type": "contract"
       }
@@ -1173,8 +1182,8 @@
     {
       "id": "lighthouse-bnkr",
       "address": "0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2",
-      "role": "BNKR lighthouse — vendored Synthetix StakingRewards (stake BNKR, earn BNKR). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
-      "status": "live",
+      "role": "RETIRED 2026-08-30 (never funded, never staked) — replaced by the ladder build. BNKR lighthouse — vendored Synthetix StakingRewards (stake BNKR, earn BNKR). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
+      "status": "retired",
       "expect": {
         "type": "contract"
       }
@@ -1182,8 +1191,8 @@
     {
       "id": "lighthouse-drb",
       "address": "0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5",
-      "role": "DRB lighthouse — vendored Synthetix StakingRewards (stake DRB, earn DRB). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
-      "status": "live",
+      "role": "RETIRED 2026-08-30 (never funded, never staked) — replaced by the ladder build. DRB lighthouse — vendored Synthetix StakingRewards (stake DRB, earn DRB). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
+      "status": "retired",
       "expect": {
         "type": "contract"
       }
@@ -1191,7 +1200,52 @@
     {
       "id": "lighthouse-jbm",
       "address": "0xF261940cdC04D8F2422345ff6091D6FA601541fa",
-      "role": "JBM lighthouse — vendored Synthetix StakingRewards (stake JBM, earn JBM). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
+      "role": "RETIRED 2026-08-30 (never funded, never staked) — replaced by the ladder build. JBM lighthouse — vendored Synthetix StakingRewards (stake JBM, earn JBM). rewardsDistribution = fee-remittance-safe; there is no owner role. Deployed + read back on-chain 2026-08-30. Wired in bungalows.ts stakePool.",
+      "status": "retired",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-qr",
+      "address": "0xdcc3a95A0921b83326157132B17770f02094c8E3",
+      "role": "QR lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-mfer",
+      "address": "0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273",
+      "role": "MFER lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-bnkr",
+      "address": "0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178",
+      "role": "BNKR lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-drb",
+      "address": "0xB62BaD165997E95C503044787b2Dcc85DC6D83F1",
+      "role": "DRB lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      }
+    },
+    {
+      "id": "ladder-jbm",
+      "address": "0xA0D43eF39C4940e68b2f81d51E6316a45C136D93",
+      "role": "JBM lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
       "expect": {
         "type": "contract"
