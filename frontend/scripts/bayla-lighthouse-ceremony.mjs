@@ -77,6 +77,7 @@ const val = (f, d = undefined) => {
 const REHEARSE = has('--rehearse');
 const FUND = has('--fund');
 const REBALANCE = has('--rebalance');
+const SET_PERIOD = has('--set-period');
 const BROADCAST = has('--broadcast');
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const DAY = 86_400;
@@ -638,7 +639,70 @@ async function rebalance() {
   log(`solscan: https://solscan.io/tx/${res.txId}`);
 }
 
-(REHEARSE ? rehearse() : REBALANCE ? rebalance() : FUND ? fund() : mainnet()).catch((e) => {
+async function setPeriod() {
+  const pool = val('--pool');
+  const newPeriod = Number(val('--set-period', '0'));
+  const mint = val('--mint', BAYLA_MINT);
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+  const nonce = Number(val('--nonce', '0'));
+  if (!pool) throw new Error('--set-period requires --pool <stake pool address>');
+  if (!(newPeriod > 0)) throw new Error('--set-period <seconds>, e.g. --set-period 1 (per-second accrual)');
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+  const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
+
+  const rps = await client.searchRewardPools({ stakePool: pool });
+  const found = (rps ?? []).find((r) => String(r.publicKey ?? r.address ?? '') === rewardPool.toBase58()) ?? rps?.[0];
+  const acct = found?.account ?? found;
+  const curAmount = BigInt(acct?.rewardAmount?.toString() ?? '0');
+  const curPeriod = Number(acct?.rewardPeriod?.toString() ?? '0');
+  if (!(curPeriod > 0)) throw new Error('could not read the current rewardPeriod');
+
+  // Hold the DAILY rate constant and only change how finely it is credited.
+  // rewardAmount is an integer scaled by REWARD_AMOUNT_DECIMALS, so a shorter
+  // period costs precision — the plan prints the resulting drift instead of
+  // hiding it, because a rounded rate is a promise the pool then keeps.
+  const perDayRawNow = Number(curAmount) * (86400 / curPeriod);
+  const exact = perDayRawNow * (newPeriod / 86400);
+  const newAmount = BigInt(Math.max(1, Math.round(exact)));
+  const perDayRawNew = Number(newAmount) * (86400 / newPeriod);
+  const driftPct = ((perDayRawNew - perDayRawNow) / perDayRawNow) * 100;
+
+  log('SET-PERIOD PLAN — change how finely rewards are credited:');
+  console.log(JSON.stringify({
+    rewardPool: rewardPool.toBase58(),
+    currentPeriodSecs: curPeriod,
+    currentRewardAmount: curAmount.toString(),
+    newPeriodSecs: newPeriod,
+    newRewardAmount: newAmount.toString(),
+    exactUnrounded: exact.toFixed(4),
+    dailyRateDrift: `${driftPct >= 0 ? '+' : ''}${driftPct.toFixed(3)}%`,
+    creditsPerDay: Math.floor(86400 / newPeriod).toLocaleString(),
+    note: 'Daily emission is held constant; only the tick granularity changes.',
+    authority: 'updatePool signs as the POOL AUTHORITY — the ceremony key',
+  }, null, 2));
+
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <pool-authority.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-authority.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()} (must be the pool authority)`);
+  const res = await client.updateRewardPool({
+    stakePool: pool,
+    rewardPool: rewardPool.toBase58(),
+    rewardAmount: new BN(newAmount.toString()),
+    rewardPeriod: new BN(newPeriod),
+  }, { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' });
+  log(`✓ period updated (tx ${res.txId})`);
+}
+
+(REHEARSE ? rehearse() : SET_PERIOD ? setPeriod() : REBALANCE ? rebalance() : FUND ? fund() : mainnet()).catch((e) => {
   console.error('[lighthouse] FAILED:', e?.message ?? e);
   // Anchor/web3 simulation errors carry program logs — surface them, they
   // are the only way to see WHY a simulation failed.
