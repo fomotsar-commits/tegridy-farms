@@ -108,7 +108,7 @@ export const PAGE_ROUTES: Record<string, string> = {
 };
 
 export const SURFACES: Surface[] = [
-  // HomePage (15)
+  // HomePage (17)
   { group: 'Home', pageId: 'home', idx: 0, label: 'H1 — Hero bg' },
   { group: 'Home', pageId: 'home', idx: 1, label: 'H2 — Core-loop bg' },
   { group: 'Home', pageId: 'home', idx: 2, label: 'H3 — Core-loop card 1' },
@@ -124,6 +124,10 @@ export const SURFACES: Surface[] = [
   { group: 'Home', pageId: 'home', idx: 12, label: 'H13 — Ecosystem: JBAC' },
   { group: 'Home', pageId: 'home', idx: 13, label: 'H14 — Ecosystem: $JBM' },
   { group: 'Home', pageId: 'home', idx: 14, label: 'H15 — Ecosystem: Story' },
+  // Feature-gated cards — they only mount when their rail is live (idx 16 is
+  // unused), so they were missed by earlier passes that read the page top-down.
+  { group: 'Home', pageId: 'home', idx: 15, label: 'H16 — Protocol: Solana Swap (gated)' },
+  { group: 'Home', pageId: 'home', idx: 17, label: 'H17 — Ecosystem: Memetics Curve (gated)' },
 
   // Dashboard (14)
   { group: 'Dashboard', pageId: 'dashboard', idx: 0, label: 'D1 — BG disconnected' },
@@ -317,6 +321,10 @@ export const SURFACES: Surface[] = [
   { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 1, label: 'PU2 — Onboarding slide 2 (How It Works)' },
   { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 2, label: 'PU3 — Onboarding slide 3 (Stay Safe)' },
   { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 3, label: 'PU4 — Onboarding slide 4 (First Move)' },
+  // The venue voice runs FIVE slides (Welcome · Bungalows · Heat · Stay Safe ·
+  // First Move) against the Toweli voice's four, so slide 5 only ever paints
+  // off the venue copy — and went unregistered when that voice was added.
+  { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 4, label: 'PU4b — Onboarding slide 5 (venue voice only)' },
   { group: 'Pop-ups / Modals', pageId: 'consent-banner', idx: 0, label: 'PU5 — Privacy & telemetry banner' },
   { group: 'Pop-ups / Modals', pageId: 'tx-receipt',     idx: 0, label: 'PU6 — Transaction receipt' },
   { group: 'Pop-ups / Modals', pageId: 'connect-prompt', idx: 0, label: 'PU7 — Connect-wallet gate' },
@@ -356,11 +364,29 @@ export const SURFACES: Surface[] = [
   { group: 'Launch & Solana', pageId: 'curve-launch',     idx: 0, label: 'LS3b — Memetics Curve backdrop' },
   { group: 'Launch & Solana', pageId: 'curve-launch',     idx: 1, label: 'LS3c — Memetics Curve status banner' },
   { group: 'Launch & Solana', pageId: 'swap',             idx: 2, label: 'LS4 — Solana Swap surface' },
+  // The Pools page paints its full-page backdrop off the 'swap' pageId, so this
+  // surface lives on /pools even though PAGE_ROUTES sends 'swap' to /solana —
+  // the Live-page tab will show the Solana route, the Art tab is the true one.
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 0, label: 'LS4b — Pools page bg' },
   { group: 'Contracts',     pageId: 'contracts',        idx: 0, label: 'CO1 — Contracts page bg' },
+  // One card per contract GROUP (idx = groupIdx + 1), so the seven groups on
+  // the page each get their own wall instead of sharing the page backdrop.
+  { group: 'Contracts',     pageId: 'contracts',        idx: 1, label: 'CO2 — Group card: Core' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 2, label: 'CO3 — Group card: DEX' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 3, label: 'CO4 — Group card: Token Launcher' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 4, label: 'CO5 — Group card: Revenue' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 5, label: 'CO6 — Group card: Governance' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 6, label: 'CO7 — Group card: NFT Finance' },
+  { group: 'Contracts',     pageId: 'contracts',        idx: 7, label: 'CO8 — Group card: External deps' },
   { group: 'Treasury',      pageId: 'treasury',         idx: 0, label: 'TR1 — Treasury page bg' },
-  { group: 'Treasury',      pageId: 'treasury',         idx: 5, label: 'TR2 — Treasury surface 5' },
-  { group: 'Treasury',      pageId: 'treasury',         idx: 6, label: 'TR3 — Treasury surface 6' },
-  { group: 'Treasury',      pageId: 'treasury',         idx: 7, label: 'TR4 — Treasury surface 7' },
+  // The four top stat tiles, which carry their own idx on the stats array.
+  { group: 'Treasury',      pageId: 'treasury',         idx: 1, label: 'TR2 — Stat: Total Value Locked' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 2, label: 'TR3 — Stat: Lifetime Fees' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 3, label: 'TR4 — Stat: Treasury Balance' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 4, label: 'TR5 — Stat: POL Holdings' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 5, label: 'TR6 — Treasury surface 5' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 6, label: 'TR7 — Treasury surface 6' },
+  { group: 'Treasury',      pageId: 'treasury',         idx: 7, label: 'TR8 — Treasury surface 7' },
 
   // ArtCard section backgrounds — moved from fixed ART.<piece> onto pageArt so the
   // studio can tune them too (coverage audit 2026-07-25).
