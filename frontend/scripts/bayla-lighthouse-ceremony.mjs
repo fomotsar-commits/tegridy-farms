@@ -646,7 +646,18 @@ async function setPeriod() {
   const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
   const nonce = Number(val('--nonce', '0'));
   if (!pool) throw new Error('--set-period requires --pool <stake pool address>');
-  if (!(newPeriod > 0)) throw new Error('--set-period <seconds>, e.g. --set-period 1 (per-second accrual)');
+  // WHOLE SECONDS ONLY, and this guard is not pedantry: rewardPeriod is a BN,
+  // and `new BN(0.5)` does not throw — it silently becomes 0. Broadcasting a
+  // fractional period would therefore write rewardPeriod = 0 into the pool and
+  // put a divide-by-zero in the reward math. The chain has no sub-second clock
+  // to spend anyway (Clock::unix_timestamp is seconds), so 1 is the floor.
+  if (!Number.isInteger(newPeriod) || newPeriod < 1) {
+    throw new Error(
+      `--set-period takes WHOLE SECONDS >= 1 (got ${val('--set-period')}). `
+      + 'Solana measures time in whole seconds, and a fractional value would be '
+      + 'truncated to 0 by BN — writing a zero period into the pool.',
+    );
+  }
 
   const connection = new Connection(clusterUrl, 'confirmed');
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
