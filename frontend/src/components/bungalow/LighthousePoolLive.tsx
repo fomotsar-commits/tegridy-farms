@@ -101,6 +101,16 @@ function pct(rate: number): string {
 function humanDuration(secs: number): string {
   if (secs <= 0) return 'now';
   const d = Math.floor(secs / DAY);
+  // A well-funded vault against a small stake produces enormous runways — the
+  // first 1M BAYLA top-up rendered as "55555d", which is a five-digit number
+  // nobody can read as 152 years. Roll up past a year (and past a month) so the
+  // figure stays a quantity a person can hold. Below a year the day count is
+  // still the most useful unit, so it is kept.
+  if (d >= 365) {
+    const y = d / 365;
+    return `${y >= 10 ? Math.round(y) : y.toFixed(1)}y`;
+  }
+  if (d >= 60) return `${Math.round(d / 30)}mo`;
   if (d >= 1) return `${d}d`;
   const h = Math.floor(secs / 3600);
   if (h >= 1) return `${h}h`;
