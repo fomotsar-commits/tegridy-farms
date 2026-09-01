@@ -101,6 +101,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   tax: '/tax',
   // pageId 'swap' is the Solana swap page; the EVM one is pageId 'trade'.
   // Modals render over any route; home is just somewhere to load.
+  terminal: '/terminal',
+  developer: '/developers',
   'nav-drawer': '/',
   seasonal: '/',
   'legacy-exit': '/farm',
@@ -312,6 +314,11 @@ export const SURFACES: Surface[] = [
   { group: 'Misc pages', pageId: 'admin-dashboard', idx: 0, label: 'AD2 — Admin dashboard bg' },
 
   // Misc widgets
+  // Pages that rendered NO art surface at all until 2026-09-01 — both studios
+  // were blind to them, so no skin could reach either page.
+  { group: 'Misc pages', pageId: 'terminal', idx: 0, label: 'TM1 — Pro Terminal page bg' },
+  { group: 'Misc pages', pageId: 'developer', idx: 0, label: 'DV1 — Developer API page bg' },
+
   { group: 'Misc widgets', pageId: 'tegridy-score', idx: 0, label: 'TS1 — TegridyScore widget' },
   { group: 'Misc widgets', pageId: 'referral-widget', idx: 0, label: 'RW1 — Referral widget' },
 
@@ -368,6 +375,27 @@ export const SURFACES: Surface[] = [
   // surface lives on /pools even though PAGE_ROUTES sends 'swap' to /solana —
   // the Live-page tab will show the Solana route, the Art tab is the true one.
   { group: 'Launch & Solana', pageId: 'swap',             idx: 0, label: 'LS4b — Pools page bg' },
+  // The Solana Swap page used to paint ONE surface (the swap card at idx 2) —
+  // the staking rail, the trending grid and every margin sat on the bare app
+  // gradient, so no skin could reach the page. idx 1 is the page backdrop, 3-6
+  // the four liquid-staking cards, 7-18 the trending grid (index wraps at 12).
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 1, label: 'LS4c — Solana Swap page bg' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 3, label: 'LS4d — Staking card: JitoSOL' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 4, label: 'LS4e — Staking card: mSOL' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 5, label: 'LS4f — Staking card: bSOL' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 6, label: 'LS4g — Staking card: INF' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 7, label: 'LS4h — Trending card 1' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 8, label: 'LS4i — Trending card 2' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 9, label: 'LS4j — Trending card 3' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 10, label: 'LS4k — Trending card 4' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 11, label: 'LS4l — Trending card 5' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 12, label: 'LS4m — Trending card 6' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 13, label: 'LS4n — Trending card 7' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 14, label: 'LS4o — Trending card 8' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 15, label: 'LS4p — Trending card 9' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 16, label: 'LS4q — Trending card 10' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 17, label: 'LS4r — Trending card 11' },
+  { group: 'Launch & Solana', pageId: 'swap',             idx: 18, label: 'LS4s — Trending card 12' },
   { group: 'Contracts',     pageId: 'contracts',        idx: 0, label: 'CO1 — Contracts page bg' },
   // One card per contract GROUP (idx = groupIdx + 1), so the seven groups on
   // the page each get their own wall instead of sharing the page backdrop.

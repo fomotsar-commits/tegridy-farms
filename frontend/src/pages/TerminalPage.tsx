@@ -15,6 +15,7 @@ import {
 } from '../lib/terminal/rowSafety';
 import { TOWELI_ADDRESS, WETH_ADDRESS } from '../lib/constants';
 import { FeedStatus } from '../components/terminal/FeedStatus';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { PairTable } from '../components/terminal/PairTable';
 import { QuickBuyPanel } from '../components/terminal/QuickBuyPanel';
 import { SafetyInspector } from '../components/terminal/SafetyInspector';
@@ -87,110 +88,115 @@ export default function TerminalPage() {
   const showTable = feed.status === 'ready' || feed.status === 'backfilling';
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-8">
-      <header>
-        <h1 className="text-2xl font-bold text-white">Pro Terminal</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-          Every row here carries a safety read or says that it does not have one. A row that could
-          not be scored is never ranked among the scored ones and never shows a pass — an
-          unreachable scanner is not a clean token.
-        </p>
-      </header>
+    <div className="relative min-h-screen">
+      {/* ART 2026-09-01: this page rendered no art surface at all, so it was
+          invisible to both studios — a skin could not touch it. */}
+      <PageArtBackdrop pageId="terminal" />
+      <div className="relative z-10 mx-auto w-full max-w-7xl px-4 py-8">
+        <header>
+          <h1 className="text-2xl font-bold text-white">Pro Terminal</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
+            Every row here carries a safety read or says that it does not have one. A row that could
+            not be scored is never ranked among the scored ones and never shows a pass — an
+            unreachable scanner is not a clean token.
+          </p>
+        </header>
 
-      <div className="mt-6">
-        <FeedStatus
-          status={feed.status}
-          detail={feed.detail}
-          feed={feed.feed}
-          syncedAt={feed.syncedAt}
-          onRetry={feed.reload}
-        />
-      </div>
-
-      {showTable ? (
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="text-[11px] font-medium uppercase tracking-wide text-white/60">
-                Safety filter
-                <select
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value as SafetyFilter)}
-                  className="mt-1 block rounded-md border border-white/20 bg-black/40 px-2 py-1 text-xs text-white"
-                >
-                  {(Object.keys(SAFETY_FILTER_LABELS) as SafetyFilter[]).map((key) => (
-                    <option key={key} value={key}>
-                      {SAFETY_FILTER_LABELS[key]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="text-[11px] font-medium uppercase tracking-wide text-white/60">
-                Sort
-                <select
-                  value={direction}
-                  onChange={(e) => setDirection(e.target.value as SafetySortDirection)}
-                  className="mt-1 block rounded-md border border-white/20 bg-black/40 px-2 py-1 text-xs text-white"
-                >
-                  <option value="safest-first">Safest first</option>
-                  <option value="riskiest-first">Riskiest first</option>
-                </select>
-              </label>
-
-              <label className="flex items-center gap-2 text-[11px] text-white/70">
-                <input
-                  type="checkbox"
-                  checked={watchedOnly}
-                  onChange={(e) => setWatchedOnly(e.target.checked)}
-                />
-                Watchlist only
-              </label>
-            </div>
-
-            <p className="mt-2 text-[10px] leading-snug text-white/55">
-              Unscored rows are placed after every scored row under either sort direction. They
-              have no measured position, so neither end of the axis would be honest.
-            </p>
-
-            {watchlist.persistError ? (
-              <p className="mt-2 text-[11px] text-amber-200">{watchlist.persistError}</p>
-            ) : null}
-
-            <div className="mt-4">
-              {visible.length === 0 ? (
-                <p className="text-xs text-white/70">
-                  No row matches this filter. {rows.length} pair
-                  {rows.length === 1 ? ' was' : 's were'} read from the indexer.
-                </p>
-              ) : (
-                <PairTable
-                  rows={visible}
-                  safetyOf={safetyOf}
-                  selected={selectedPair}
-                  onSelect={setSelectedPair}
-                  isWatched={watchlist.isWatched}
-                  onToggleWatch={watchlist.toggle}
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <SafetyInspector
-              token={selectedToken ?? ''}
-              safety={selectedToken ? live.safety : SAFETY_NOT_REQUESTED}
-              loading={live.loading}
-              deployer={deployer}
-              onDeployerChange={setDeployer}
-            />
-            <QuickBuyPanel
-              token={selectedToken ?? ''}
-              safety={selectedToken ? live.safety : SAFETY_NOT_REQUESTED}
-            />
-          </div>
+        <div className="mt-6">
+          <FeedStatus
+            status={feed.status}
+            detail={feed.detail}
+            feed={feed.feed}
+            syncedAt={feed.syncedAt}
+            onRetry={feed.reload}
+          />
         </div>
-      ) : null}
+
+        {showTable ? (
+          <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="text-[11px] font-medium uppercase tracking-wide text-white/60">
+                  Safety filter
+                  <select
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value as SafetyFilter)}
+                    className="mt-1 block rounded-md border border-white/20 bg-black/40 px-2 py-1 text-xs text-white"
+                  >
+                    {(Object.keys(SAFETY_FILTER_LABELS) as SafetyFilter[]).map((key) => (
+                      <option key={key} value={key}>
+                        {SAFETY_FILTER_LABELS[key]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-[11px] font-medium uppercase tracking-wide text-white/60">
+                  Sort
+                  <select
+                    value={direction}
+                    onChange={(e) => setDirection(e.target.value as SafetySortDirection)}
+                    className="mt-1 block rounded-md border border-white/20 bg-black/40 px-2 py-1 text-xs text-white"
+                  >
+                    <option value="safest-first">Safest first</option>
+                    <option value="riskiest-first">Riskiest first</option>
+                  </select>
+                </label>
+
+                <label className="flex items-center gap-2 text-[11px] text-white/70">
+                  <input
+                    type="checkbox"
+                    checked={watchedOnly}
+                    onChange={(e) => setWatchedOnly(e.target.checked)}
+                  />
+                  Watchlist only
+                </label>
+              </div>
+
+              <p className="mt-2 text-[10px] leading-snug text-white/55">
+                Unscored rows are placed after every scored row under either sort direction. They
+                have no measured position, so neither end of the axis would be honest.
+              </p>
+
+              {watchlist.persistError ? (
+                <p className="mt-2 text-[11px] text-amber-200">{watchlist.persistError}</p>
+              ) : null}
+
+              <div className="mt-4">
+                {visible.length === 0 ? (
+                  <p className="text-xs text-white/70">
+                    No row matches this filter. {rows.length} pair
+                    {rows.length === 1 ? ' was' : 's were'} read from the indexer.
+                  </p>
+                ) : (
+                  <PairTable
+                    rows={visible}
+                    safetyOf={safetyOf}
+                    selected={selectedPair}
+                    onSelect={setSelectedPair}
+                    isWatched={watchlist.isWatched}
+                    onToggleWatch={watchlist.toggle}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <SafetyInspector
+                token={selectedToken ?? ''}
+                safety={selectedToken ? live.safety : SAFETY_NOT_REQUESTED}
+                loading={live.loading}
+                deployer={deployer}
+                onDeployerChange={setDeployer}
+              />
+              <QuickBuyPanel
+                token={selectedToken ?? ''}
+                safety={selectedToken ? live.safety : SAFETY_NOT_REQUESTED}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

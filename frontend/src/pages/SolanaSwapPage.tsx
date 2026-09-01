@@ -362,28 +362,39 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
           ? Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-[56px] rounded-xl animate-pulse" style={{ background: 'rgba(255,255,255,0.06)' }} />
             ))
-          : tokens.map((t) => {
+          : tokens.map((t, i) => {
               const chg = t.priceChange24h;
               return (
                 <button
                   key={t.mint}
                   type="button"
                   onClick={() => onPick(t)}
-                  className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
+                  className="relative overflow-hidden flex items-center gap-2 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
                   style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}
                 >
-                  <TokenAvatar token={t} size={26} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
-                      <span className="text-white text-[12px] font-medium truncate">{t.symbol}</span>
-                      {t.verified === true && <span className="text-success text-[9px]" aria-label="Verified">✓</span>}
-                    </div>
-                    {typeof chg === 'number' && (
-                      <span className={`text-[10px] font-mono ${chg >= 0 ? 'text-success' : 'text-red-300'}`}>
-                        {chg >= 0 ? '+' : ''}{chg.toFixed(1)}%
+                  {/* The trending list is API-driven and its length varies, so the
+                      surface index WRAPS at 12 rather than running off the end of
+                      the inventory: every card lands on a registered, placeable
+                      surface, and a long list repeats art instead of silently
+                      falling back to the deterministic rotation. */}
+                  <span className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                    <ArtImg pageId="swap" idx={7 + (i % 12)} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    <span className="absolute inset-0 block" style={{ background: 'rgba(6,12,26,0.74)' }} />
+                  </span>
+                  <span className="relative z-10 flex items-center gap-2 w-full">
+                    <TokenAvatar token={t} size={26} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1">
+                        <span className="text-white text-[12px] font-medium truncate">{t.symbol}</span>
+                        {t.verified === true && <span className="text-success text-[9px]" aria-label="Verified">✓</span>}
                       </span>
-                    )}
-                  </div>
+                      {typeof chg === 'number' && (
+                        <span className={`block text-[10px] font-mono ${chg >= 0 ? 'text-success' : 'text-red-300'}`}>
+                          {chg >= 0 ? '+' : ''}{chg.toFixed(1)}%
+                        </span>
+                      )}
+                    </span>
+                  </span>
                 </button>
               );
             })}
@@ -403,19 +414,28 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
         <span className="text-white/40 text-[10px]">liquid staking · no lockup</span>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        {LST_TOKENS.map((t) => (
+        {LST_TOKENS.map((t, i) => (
           <button
             key={t.mint}
             type="button"
             onClick={() => onPick(t)}
-            className="flex items-center gap-2 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
+            className="relative overflow-hidden flex items-center gap-2 p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
             style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}
           >
-            <TokenAvatar token={t} size={26} />
-            <div className="min-w-0 flex-1">
-              <div className="text-white text-[12px] font-medium truncate">{t.symbol}</div>
-              <div className="text-success text-[10px] font-mono">~{t.apy.toFixed(1)}% APY · {t.provider}</div>
-            </div>
+            {/* One surface per staking card, so a skin can give each provider its
+                own wall. LST_TOKENS is a fixed list of four, so the indices are
+                stable and every one is registered. */}
+            <span className="absolute inset-0 pointer-events-none" aria-hidden="true">
+              <ArtImg pageId="swap" idx={3 + i} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <span className="absolute inset-0 block" style={{ background: 'rgba(6,12,26,0.74)' }} />
+            </span>
+            <span className="relative z-10 flex items-center gap-2 w-full">
+              <TokenAvatar token={t} size={26} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-white text-[12px] font-medium truncate">{t.symbol}</span>
+                <span className="block text-success text-[10px] font-mono">~{t.apy.toFixed(1)}% APY · {t.provider}</span>
+              </span>
+            </span>
           </button>
         ))}
       </div>
@@ -852,270 +872,281 @@ function SolanaSwapInner() {
   const actionDisabled = !quote || quoteLoading || swapping || sameToken || (needsAck && !ack) || insufficient;
 
   return (
-    <div className="max-w-md mx-auto px-4 py-8">
-      <ChainSwitch active="solana" />
-      <m.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="rounded-2xl p-5 relative overflow-hidden"
-        style={{ border: '1px solid rgba(255,255,255,0.12)' }}
-      >
-        <div className="absolute inset-0">
-          <ArtImg pageId="swap" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.87)' }} />
-        </div>
-
-        <div className="relative z-10">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="heading-luxury text-[18px] text-white">Solana Swap</h1>
-              <p className="text-white/60 text-[11px]">Buy Solana tokens, routed via Jupiter.</p>
-            </div>
-            {publicKey ? (
-              <span className="text-white/70 text-[11px] font-mono px-2 py-1 rounded-md" style={{ background: 'var(--color-purple-15)' }}>
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-success mr-1.5 align-middle" />
-                {publicKey.toBase58().slice(0, 4)}…{publicKey.toBase58().slice(-4)}
-              </span>
-            ) : null}
+    <div className="relative min-h-screen">
+      {/* PAGE BACKDROP 2026-09-01: this page painted exactly ONE surface (the
+          swap card), so the staking rail, the trending grid and every margin
+          around them sat on the bare app gradient — no bungalow skin could
+          reach the page at all. Fixed rather than absolute, like PoolsPage, so
+          the art holds still while the narrow column scrolls over it. */}
+      <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
+        <ArtImg pageId="swap" idx={1} alt="" loading="lazy" className="w-full h-full object-cover" />
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.86)' }} />
+      </div>
+      <div className="relative z-10 max-w-md mx-auto px-4 py-8">
+        <ChainSwitch active="solana" />
+        <m.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="rounded-2xl p-5 relative overflow-hidden"
+          style={{ border: '1px solid rgba(255,255,255,0.12)' }}
+        >
+          <div className="absolute inset-0">
+            <ArtImg pageId="swap" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.87)' }} />
           </div>
 
-          {/* Mode tabs */}
-          <div className="flex gap-1 mb-4">
-            {(['swap', 'limit'] as const).map((mTab) => (
-              <button
-                key={mTab}
-                type="button"
-                onClick={() => setMode(mTab)}
-                aria-pressed={mode === mTab}
-                className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white transition-colors"
-                style={{
-                  background: mode === mTab ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                  border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                }}
-              >
-                {mTab === 'swap' ? 'Instant swap' : 'Limit order'}
-              </button>
-            ))}
-          </div>
-
-          {mode === 'swap' ? (
-            <>
-          {/* You pay */}
-          <div className="mb-1">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
-              {publicKey && (
-                <span className="text-white/60 text-[10px] font-mono">
-                  Balance: {payBalance.loading ? '…' : payBalance.human ? prettyAmount(payBalance.human) : '0'}
-                  {payBalance.raw !== null && payBalance.raw > 0n && (
-                    <button type="button" onClick={handleMax} className="ml-1.5 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
-                  )}
+          <div className="relative z-10">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h1 className="heading-luxury text-[18px] text-white">Solana Swap</h1>
+                <p className="text-white/60 text-[11px]">Buy Solana tokens, routed via Jupiter.</p>
+              </div>
+              {publicKey ? (
+                <span className="text-white/70 text-[11px] font-mono px-2 py-1 rounded-md" style={{ background: 'var(--color-purple-15)' }}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-success mr-1.5 align-middle" />
+                  {publicKey.toBase58().slice(0, 4)}…{publicKey.toBase58().slice(-4)}
                 </span>
+              ) : null}
+            </div>
+
+            {/* Mode tabs */}
+            <div className="flex gap-1 mb-4">
+              {(['swap', 'limit'] as const).map((mTab) => (
+                <button
+                  key={mTab}
+                  type="button"
+                  onClick={() => setMode(mTab)}
+                  aria-pressed={mode === mTab}
+                  className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white transition-colors"
+                  style={{
+                    background: mode === mTab ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                    border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                  }}
+                >
+                  {mTab === 'swap' ? 'Instant swap' : 'Limit order'}
+                </button>
+              ))}
+            </div>
+
+            {mode === 'swap' ? (
+              <>
+            {/* You pay */}
+            <div className="mb-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
+                {publicKey && (
+                  <span className="text-white/60 text-[10px] font-mono">
+                    Balance: {payBalance.loading ? '…' : payBalance.human ? prettyAmount(payBalance.human) : '0'}
+                    {payBalance.raw !== null && payBalance.raw > 0n && (
+                      <button type="button" onClick={handleMax} className="ml-1.5 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
+                    )}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                <button
+                  type="button"
+                  onClick={() => setPicker('pay')}
+                  aria-haspopup="dialog"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                >
+                  <span className="text-white font-medium text-[14px]">{payToken.symbol}</span>
+                  <span className="text-white/80" aria-hidden="true">▾</span>
+                </button>
+                <input
+                  type="number" inputMode="decimal" placeholder="0.0"
+                  aria-label={`Amount of ${payToken.symbol} to pay`}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
+                />
+              </div>
+              {payUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
+            </div>
+
+            {/* Flip pay/receive */}
+            <div className="flex justify-center -my-1 relative z-10">
+              <button
+                type="button"
+                onClick={() => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); }}
+                aria-label="Flip pay and receive tokens"
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105"
+                style={{ background: 'var(--color-stan)', border: '2px solid rgba(255,255,255,0.95)', boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)' }}
+              >
+                <span className="text-white text-[16px] font-bold leading-none">&#8645;</span>
+              </button>
+            </div>
+
+            {/* You receive */}
+            <div className="mt-3 mb-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                <button
+                  type="button"
+                  onClick={() => setPicker('buy')}
+                  aria-haspopup="dialog"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                >
+                  <span className="text-white font-medium text-[14px]">{buyToken.symbol}</span>
+                  <span className="text-white/80" aria-hidden="true">▾</span>
+                </button>
+                <div className="flex-1 text-right text-white text-[20px] font-mono font-medium" aria-live="polite" aria-atomic="true">
+                  {quoteLoading ? (
+                    <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
+                  ) : outputDisplay}
+                </div>
+              </div>
+              {receiveUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(receiveUsd)}</div>}
+            </div>
+
+            {/* Slippage */}
+            <div className="mb-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {SLIPPAGE_PRESETS.map((bps) => {
+                  const active = slippageBps === bps;
+                  return (
+                    <button
+                      key={bps}
+                      type="button"
+                      onClick={() => setSlippageBps(bps)}
+                      aria-pressed={active}
+                      className="flex-1 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
+                      style={{
+                        background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                        border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                      }}
+                    >
+                      {(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Where the trade goes, and why. Shown in EVERY state — including the
+                ones where our own pool loses or does not exist — because a routing
+                disclosure that only appears when the house wins is an advert. */}
+            <SolanaRouteLine
+              inputMint={payToken.mint}
+              outputMint={buyToken.mint}
+              amountInRaw={baseAmount === null ? null : BigInt(baseAmount)}
+              aggregatorQuote={quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct } : null}
+            />
+
+            {/* Quote details */}
+            <div className="mb-4 text-[11px] space-y-1">
+              <div className="flex items-center justify-between text-white/70">
+                <span>Platform fee</span>
+                <span className="font-mono">{feeMintSymbol ? `${feePct}% · in ${feeMintSymbol}` : 'None on this pair'}</span>
+              </div>
+              {quote && priceImpact !== null && (
+                <div className="flex items-center justify-between text-white/70">
+                  <span>Price impact</span>
+                  <span className="font-mono">{priceImpact < 0.01 ? '<0.01' : priceImpact.toFixed(2)}%</span>
+                </div>
               )}
+              {quote && (
+                <div className="flex items-center justify-between text-white/70">
+                  <span>Minimum received</span>
+                  <span className="font-mono">{prettyAmount(fromBaseUnits(quote.otherAmountThreshold, buyToken.decimals))} {buyToken.symbol}</span>
+                </div>
+              )}
+              {quote && routeLabels(quote).length > 0 && (
+                <div className="flex items-center justify-between text-white/70">
+                  <span>Route</span>
+                  <span className="font-mono truncate ml-2" title={routeLabels(quote).join(' / ')}>via {routeLabels(quote).join(' / ')}</span>
+                </div>
+              )}
+              {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
+              {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
+              {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
+              {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+              {shieldWarnings.map((w, i) => (
+                <p key={`sh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+                  <span aria-hidden="true">⚠</span><span>{w.message}</span>
+                </p>
+              ))}
             </div>
-            <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+
+            {/* Risk acknowledgement — warn, don't block (any pair is allowed). */}
+            {needsAck && (
+              <label
+                className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer"
+                style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}
+              >
+                <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
+                <span className="text-[11px] text-red-200">
+                  This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above).
+                  It could be a scam or have transfer restrictions. I understand and want to swap anyway.
+                </span>
+              </label>
+            )}
+
+            {/* Action */}
+            {!publicKey ? (
               <button
                 type="button"
-                onClick={() => setPicker('pay')}
-                aria-haspopup="dialog"
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                onClick={() => setVisible(true)}
+                disabled={connecting}
+                className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-60"
               >
-                <span className="text-white font-medium text-[14px]">{payToken.symbol}</span>
-                <span className="text-white/80" aria-hidden="true">▾</span>
+                {connecting ? 'Connecting…' : 'Connect Solana Wallet'}
               </button>
-              <input
-                type="number" inputMode="decimal" placeholder="0.0"
-                aria-label={`Amount of ${payToken.symbol} to pay`}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
-              />
-            </div>
-            {payUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
-          </div>
-
-          {/* Flip pay/receive */}
-          <div className="flex justify-center -my-1 relative z-10">
-            <button
-              type="button"
-              onClick={() => { setPayToken(buyToken); setBuyToken(payToken); setAmount(''); }}
-              aria-label="Flip pay and receive tokens"
-              className="w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-105"
-              style={{ background: 'var(--color-stan)', border: '2px solid rgba(255,255,255,0.95)', boxShadow: '0 4px 16px rgba(0,0,0,0.70), 0 0 0 4px rgba(6,12,26,0.85)' }}
-            >
-              <span className="text-white text-[16px] font-bold leading-none">&#8645;</span>
-            </button>
-          </div>
-
-          {/* You receive */}
-          <div className="mt-3 mb-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
-            </div>
-            <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+            ) : (
               <button
                 type="button"
-                onClick={() => setPicker('buy')}
-                aria-haspopup="dialog"
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                onClick={() => void handleSwap()}
+                disabled={actionDisabled}
+                className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
               >
-                <span className="text-white font-medium text-[14px]">{buyToken.symbol}</span>
-                <span className="text-white/80" aria-hidden="true">▾</span>
+                {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
               </button>
-              <div className="flex-1 text-right text-white text-[20px] font-mono font-medium" aria-live="polite" aria-atomic="true">
-                {quoteLoading ? (
-                  <span className="inline-block w-24 h-5 rounded align-middle animate-pulse" style={{ background: 'rgba(255,255,255,0.18)' }} aria-label="Loading quote" />
-                ) : outputDisplay}
-              </div>
-            </div>
-            {receiveUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(receiveUsd)}</div>}
-          </div>
+            )}
 
-          {/* Slippage */}
-          <div className="mb-3 px-3 py-2.5 rounded-lg" style={{ background: 'rgba(0,0,0,0.60)', border: '1px solid rgba(255,255,255,0.12)' }}>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Slippage tolerance</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {SLIPPAGE_PRESETS.map((bps) => {
-                const active = slippageBps === bps;
-                return (
-                  <button
-                    key={bps}
-                    type="button"
-                    onClick={() => setSlippageBps(bps)}
-                    aria-pressed={active}
-                    className="flex-1 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
-                    style={{
-                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
-                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    {(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%
-                  </button>
-                );
-              })}
-            </div>
+            <p className="mt-3 text-center text-white/40 text-[10px]">
+              Swaps route through Jupiter on Solana.{' '}
+              {isSolanaFeeConfigured()
+                ? `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`
+                : 'No platform fee is charged here today — you get Jupiter’s route as quoted.'}
+            </p>
+              </>
+            ) : (
+              <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+            )}
           </div>
+        </m.div>
 
-          {/* Where the trade goes, and why. Shown in EVERY state — including the
-              ones where our own pool loses or does not exist — because a routing
-              disclosure that only appears when the house wins is an advert. */}
-          <SolanaRouteLine
-            inputMint={payToken.mint}
-            outputMint={buyToken.mint}
-            amountInRaw={baseAmount === null ? null : BigInt(baseAmount)}
-            aggregatorQuote={quote ? { outAmount: quote.outAmount, priceImpactPct: quote.priceImpactPct } : null}
+        {mode === 'swap' && (
+          <>
+            <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+            <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+          </>
+        )}
+
+        {picker === 'pay' && (
+          <TokenPicker
+            title="Pay with"
+            featured={PAY_WITH_TOKENS}
+            onClose={() => setPicker(null)}
+            onSelect={(t) => { setPayToken(t); setPicker(null); }}
           />
-
-          {/* Quote details */}
-          <div className="mb-4 text-[11px] space-y-1">
-            <div className="flex items-center justify-between text-white/70">
-              <span>Platform fee</span>
-              <span className="font-mono">{feeMintSymbol ? `${feePct}% · in ${feeMintSymbol}` : 'None on this pair'}</span>
-            </div>
-            {quote && priceImpact !== null && (
-              <div className="flex items-center justify-between text-white/70">
-                <span>Price impact</span>
-                <span className="font-mono">{priceImpact < 0.01 ? '<0.01' : priceImpact.toFixed(2)}%</span>
-              </div>
-            )}
-            {quote && (
-              <div className="flex items-center justify-between text-white/70">
-                <span>Minimum received</span>
-                <span className="font-mono">{prettyAmount(fromBaseUnits(quote.otherAmountThreshold, buyToken.decimals))} {buyToken.symbol}</span>
-              </div>
-            )}
-            {quote && routeLabels(quote).length > 0 && (
-              <div className="flex items-center justify-between text-white/70">
-                <span>Route</span>
-                <span className="font-mono truncate ml-2" title={routeLabels(quote).join(' / ')}>via {routeLabels(quote).join(' / ')}</span>
-              </div>
-            )}
-            {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
-            {quoteError && !sameToken && <p className="text-amber-300">{quoteError}</p>}
-            {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
-            {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
-            {shieldWarnings.map((w, i) => (
-              <p key={`sh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
-                <span aria-hidden="true">⚠</span><span>{w.message}</span>
-              </p>
-            ))}
-          </div>
-
-          {/* Risk acknowledgement — warn, don't block (any pair is allowed). */}
-          {needsAck && (
-            <label
-              className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer"
-              style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}
-            >
-              <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
-              <span className="text-[11px] text-red-200">
-                This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above).
-                It could be a scam or have transfer restrictions. I understand and want to swap anyway.
-              </span>
-            </label>
-          )}
-
-          {/* Action */}
-          {!publicKey ? (
-            <button
-              type="button"
-              onClick={() => setVisible(true)}
-              disabled={connecting}
-              className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-60"
-            >
-              {connecting ? 'Connecting…' : 'Connect Solana Wallet'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void handleSwap()}
-              disabled={actionDisabled}
-              className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50"
-            >
-              {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
-            </button>
-          )}
-
-          <p className="mt-3 text-center text-white/40 text-[10px]">
-            Swaps route through Jupiter on Solana.{' '}
-            {isSolanaFeeConfigured()
-              ? `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`
-              : 'No platform fee is charged here today — you get Jupiter’s route as quoted.'}
-          </p>
-            </>
-          ) : (
-            <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
-          )}
-        </div>
-      </m.div>
-
-      {mode === 'swap' && (
-        <>
-          <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
-          <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
-        </>
-      )}
-
-      {picker === 'pay' && (
-        <TokenPicker
-          title="Pay with"
-          featured={PAY_WITH_TOKENS}
-          onClose={() => setPicker(null)}
-          onSelect={(t) => { setPayToken(t); setPicker(null); }}
-        />
-      )}
-      {picker === 'buy' && (
-        <TokenPicker
-          title="Buy"
-          featured={BUY_TOKENS}
-          onClose={() => setPicker(null)}
-          onSelect={(t) => { setBuyToken(t); setPicker(null); }}
-        />
-      )}
+        )}
+        {picker === 'buy' && (
+          <TokenPicker
+            title="Buy"
+            featured={BUY_TOKENS}
+            onClose={() => setPicker(null)}
+            onSelect={(t) => { setBuyToken(t); setPicker(null); }}
+          />
+        )}
+      </div>
     </div>
   );
 }
