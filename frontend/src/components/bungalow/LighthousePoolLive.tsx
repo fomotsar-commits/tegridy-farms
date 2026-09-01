@@ -591,47 +591,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     }, 0n);
                     return (
                       <li key={e.address || e.nonce} className="rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        {/* LAYOUT 2026-08-31 (owner: "looks so raggedy"): this was one
-                            flex-wrap row of five unlabelled facts, so at narrow widths it
-                            broke mid-thought — "unlocks in 364d" landed under the amount
-                            and "accrued" trailed off alone. Now: a headline (amount +
-                            lock), then a labelled stat grid that wraps by CELL instead of
-                            by word. Accrued gets its own cell because it is the number
-                            people actually come back to read. */}
-                        <div className="flex items-baseline justify-between gap-3 mb-3">
+                        {/* TRIMMED 2026-08-31 (owner): this carried amount, lock,
+                            weight, unlock date and accrued — every one of which is
+                            already on screen within a few hundred pixels. The header
+                            above totals staked and accrued; the lock ladder above that
+                            prints each duration's weight and APR; and the unstake button
+                            below renders "Locked · <countdown>" itself. Only the
+                            per-entry amount is not stated elsewhere, so only it stays.
+                            entryPending is still computed — the buttons gate on it. */}
+                        <div className="mb-3">
                           <span className="stat-value text-white text-[17px] leading-none">
                             {fmt(e.amountRaw, decimals)} <span className="text-white/60 text-[13px]">{bungalow.symbol}</span>
                           </span>
-                          <span className="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap"
-                            style={locked
-                              ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.12)' }
-                              : { background: 'rgba(45,139,78,0.22)', color: '#7fd89d', border: '1px solid rgba(140,240,190,0.35)' }}>
-                            {locked ? `Locked · ${humanDuration(opensAt - nowSec)}` : 'Unlocked'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 mb-3">
-                          <div>
-                            <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Lock</p>
-                            <p className="text-white/90 text-[12.5px]">{labelForDays(Math.round(e.durationSecs / DAY))}</p>
-                          </div>
-                          {!flatWeight && (
-                            <div>
-                              <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Weight</p>
-                              <p className="text-white/90 text-[12.5px]">{stakeWeight(pool, e.durationSecs).toFixed(2)}&times;</p>
-                            </div>
-                          )}
-                          <div>
-                            <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Unlocks</p>
-                            <p className="text-white/90 text-[12.5px] whitespace-nowrap">
-                              {locked ? new Date(opensAt * 1000).toLocaleDateString() : 'now'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Accrued</p>
-                            <p className="font-mono text-[12.5px]" style={{ color: 'var(--color-kyle)' }}>
-                              {fmt(entryPending, decimals)} <span className="text-white/50">{bungalow.symbol}</span>
-                            </p>
-                          </div>
                         </div>
                         {(() => {
                           // 6012-precise gating: the SDK's own calcRewards gives this

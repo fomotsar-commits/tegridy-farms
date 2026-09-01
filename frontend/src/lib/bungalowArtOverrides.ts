@@ -95,6 +95,10 @@ export const BUNGALOW_ART_OVERRIDES: Record<string, ArtOverride> = {
   "bayla|upcoming-pools:2": { artId: "bayla-22", objectPosition: "37% 47%" },
   "bayla|upcoming-pools:3": { artId: "bayla-23", objectPosition: "21% 42%" },
   "bayla|yield:0": { artId: "bayla-09", objectPosition: "42% 21%" },
+  "drb|home:0": { artId: "5A132AF8-4C2E-4DE9-A937-D59CFFC98F5C", objectPosition: "50% 82%" },
+  "drb|home:1": { artId: "76369D7A-506C-4E90-A0E8-AA1E2BE7E054", objectPosition: "50% 48%" },
+  "drb|home:2": { artId: "8BE7282B-8273-473F-8F27-FC79C37AAC7C", objectPosition: "50% 21%" },
+  "drb|home:3": { artId: "90615182-CA83-4898-A118-BEE4EFC88EE8", objectPosition: "50% 21%" },
 };
 
 /** Key builder — keep in lock-step with the studio and the vite save endpoint. */
