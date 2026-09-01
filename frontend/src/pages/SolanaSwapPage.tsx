@@ -87,7 +87,10 @@ const SPEED_LEVELS: { level: PriorityLevel; label: string }[] = [
 // normalize ',' to '.' so toBaseUnits sees what the user meant.
 function acceptAmountInput(v: string, set: (s: string) => void): void {
   const n = v.replace(',', '.');
-  if (/^\d*\.?\d*$/.test(n)) set(n);
+  // Unambiguous shape (the dot is REQUIRED before the second digit run):
+  // `\d*\.?\d*` lets the engine split a long digit run at every position,
+  // which CodeQL rightly flags as polynomial backtracking on library input.
+  if (/^\d*(?:\.\d*)?$/.test(n)) set(n);
 }
 
 function prettyAmount(s: string): string {
@@ -1065,7 +1068,9 @@ function SolanaSwapInner() {
   const [amount, setAmount] = useState(() => {
     try {
       const amt = new URLSearchParams(window.location.search).get('amt')?.trim();
-      if (amt && /^\d*\.?\d+$/.test(amt) && /[1-9]/.test(amt)) return amt;
+      // Same unambiguous-regex rule as acceptAmountInput (query strings are
+      // attacker-length): the dot is anchored, so no polynomial backtracking.
+      if (amt && /^(?:\d*\.)?\d+$/.test(amt) && /[1-9]/.test(amt)) return amt;
     } catch { /* default stands */ }
     return '';
   });

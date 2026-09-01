@@ -93,7 +93,7 @@ export function SolanaRouteLine({
     (async () => {
       const programId = new PublicKey(venue.programId);
       const configAddress = deriveAmmConfig(programId, DEFAULT_AMM_CONFIG_INDEX);
-      let state: 'absent' | 'error' | 'quoted' = 'error';
+      let state: 'absent' | 'error' | 'quoted';
       let candidate: RouteCandidate | null = null;
       try {
         const read = await readPoolForPair(
