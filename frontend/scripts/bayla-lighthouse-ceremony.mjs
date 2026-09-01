@@ -659,7 +659,6 @@ async function setPeriod() {
     );
   }
 
-  const connection = new Connection(clusterUrl, 'confirmed');
   const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
   const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
   const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);

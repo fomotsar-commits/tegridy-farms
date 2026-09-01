@@ -26,7 +26,16 @@ export type RouteGate =
   /** Not a page — asserts a redirect target instead. */
   | 'redirect'
   /** Only exists in a dev build; production redirects to `/`. */
-  | 'dev-only';
+  | 'dev-only'
+  /**
+   * Renders in production, but is absent from every nav, sitemap and link —
+   * reachable by typing the URL and nothing else. NOT a security boundary:
+   * "unlisted" is not "protected". It is acceptable only because the surface
+   * is read/export-only in a production build — the save middleware is a vite
+   * plugin declared `apply: 'serve'`, so no write endpoint is served at all.
+   * Unlike `dev-only` there is no redirect to assert, so no `redirectsTo`.
+   */
+  | 'unlisted';
 
 export interface RouteSpec {
   /** Path as written in App.tsx. */
@@ -602,24 +611,25 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/bayla-studio',
     owner: 'App.tsx',
-    gate: 'dev-only',
+    gate: 'unlisted',
     why:
-      'The same studio pointed at the Bayla bungalow art pool, under the same R002 gate: the ' +
-      'chunk is tree-shaken out of production builds and the route redirects to / there, so the ' +
-      'e2e suite (which runs against `vite build` output) has nothing to audit.',
-    redirectsTo: '/',
+      'ISLAND ORDER 2026-08-31 split this from /art-studio: it is UNLISTED in production rather ' +
+      'than redirected — reachable by URL, export-only, with no write path, because the save ' +
+      'middleware is a `apply: "serve"` vite plugin that production never serves. It is not ' +
+      'audited because it is an internal authoring tool, not a visitor surface; if it is ever ' +
+      'linked from a nav it stops being unlisted and must move to the audited bucket.',
     knownViolations: [],
   },
   {
     path: '/bungalow-studio/:bungalowId',
     owner: 'App.tsx',
-    gate: 'dev-only',
+    gate: 'unlisted',
     why:
-      'The generic per-resident leg of the same dev studio (WO-1): any registry id aims the tool ' +
-      'at that bungalow’s art pool. Same R002 gate — tree-shaken in production, redirects to ' +
-      '/ there (and an unknown id redirects even in dev), so the built app the e2e suite runs ' +
-      'against has nothing to audit.',
-    redirectsTo: '/',
+      'The generic per-resident leg of the same authoring tool (WO-1): any registry id aims it ' +
+      'at that bungalow’s art pool. Unlisted in production alongside /bayla-studio, on the same ' +
+      'export-only footing. Only an UNKNOWN bungalow id redirects (App.tsx guards the id against ' +
+      'the registry); a known id such as /bungalow-studio/bayla renders, which is why this cannot ' +
+      'claim a redirect.',
     knownViolations: [],
   },
   {
