@@ -32,6 +32,12 @@ export interface SolToken {
   usdPrice?: number;
   priceChange24h?: number;
   mcap?: number;
+  // Token-detail extras (rug signals + links the v2 payload already carries).
+  holderCount?: number;
+  /** ISO timestamp of the token's first indexed pool — its trading "birthday". */
+  firstPoolCreatedAt?: string;
+  website?: string;
+  twitter?: string;
 }
 
 // Native SOL (wrapped-SOL mint). Jupiter handles wrap/unwrap automatically.
@@ -127,6 +133,15 @@ interface JupTokenV2 {
   usdPrice?: number;
   mcap?: number;
   stats24h?: { priceChange?: number };
+  holderCount?: number;
+  firstPool?: { createdAt?: string };
+  website?: string;
+  twitter?: string;
+}
+
+/** Only ever hand the UI an http(s) URL — payload link fields are untrusted. */
+function safeHttpUrl(u: unknown): string | undefined {
+  return typeof u === 'string' && /^https?:\/\//i.test(u) ? u : undefined;
 }
 
 function mapV2(t: JupTokenV2): SolToken | null {
@@ -146,6 +161,10 @@ function mapV2(t: JupTokenV2): SolToken | null {
     usdPrice: typeof t.usdPrice === 'number' ? t.usdPrice : undefined,
     priceChange24h: typeof t.stats24h?.priceChange === 'number' ? t.stats24h.priceChange : undefined,
     mcap: typeof t.mcap === 'number' ? t.mcap : undefined,
+    holderCount: typeof t.holderCount === 'number' ? t.holderCount : undefined,
+    firstPoolCreatedAt: typeof t.firstPool?.createdAt === 'string' ? t.firstPool.createdAt : undefined,
+    website: safeHttpUrl(t.website),
+    twitter: safeHttpUrl(t.twitter),
   };
 }
 
@@ -226,4 +245,74 @@ export async function fetchTrending(
 export function iconSrc(url?: string): string {
   if (!url) return '';
   return `https://wsrv.nl/?url=${encodeURIComponent(url)}&w=64&h=64&fit=cover&output=webp`;
+}
+
+// ─── Recents + favorites (localStorage, per-browser convenience) ─────────────
+//
+// Stored as FULL SolToken JSON, not bare mints, so a remembered token resolves
+// instantly with authoritative decimals even offline (decimals are immutable
+// per mint, so storing them is safe). Token metadata only — never balances,
+// never the wallet address. Every read/write is try/catch-wrapped: private
+// windows and cleared site data must degrade to "no recents", never a crash.
+// Risk honesty: entries re-run through the same badge/ack logic as any other
+// token at render time, so a remembered unverified token stays visibly
+// unverified.
+
+const RECENTS_KEY = 'sol.recents';
+const FAVS_KEY = 'sol.favs';
+const MAX_RECENTS = 8;
+
+function readStoredTokens(key: string): SolToken[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (t): t is SolToken =>
+        !!t &&
+        typeof (t as SolToken).mint === 'string' &&
+        typeof (t as SolToken).symbol === 'string' &&
+        typeof (t as SolToken).decimals === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredTokens(key: string, tokens: SolToken[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(tokens));
+  } catch {
+    /* storage unavailable — recents are a convenience, not state */
+  }
+}
+
+/** Record a picked token (front of the recents list, deduped, capped). */
+export function rememberToken(t: SolToken): void {
+  const rest = readStoredTokens(RECENTS_KEY).filter((x) => x.mint !== t.mint);
+  writeStoredTokens(RECENTS_KEY, [t, ...rest].slice(0, MAX_RECENTS));
+}
+
+export function getRecentTokens(): SolToken[] {
+  return readStoredTokens(RECENTS_KEY);
+}
+
+export function getFavoriteTokens(): SolToken[] {
+  return readStoredTokens(FAVS_KEY);
+}
+
+export function isFavoriteToken(mint: string): boolean {
+  return readStoredTokens(FAVS_KEY).some((t) => t.mint === mint);
+}
+
+/** Toggle a favorite; returns the NEW favorite state. */
+export function toggleFavoriteToken(t: SolToken): boolean {
+  const favs = readStoredTokens(FAVS_KEY);
+  if (favs.some((x) => x.mint === t.mint)) {
+    writeStoredTokens(FAVS_KEY, favs.filter((x) => x.mint !== t.mint));
+    return false;
+  }
+  writeStoredTokens(FAVS_KEY, [t, ...favs].slice(0, 24));
+  return true;
 }
