@@ -46,6 +46,19 @@ import { PublicKey } from '@solana/web3.js';
 const STREAMFLOW_TREASURY = new PublicKey('5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw');
 import { ICluster } from '@streamflow/common';
 
+//   REBALANCE (operator): hold DAILY EMISSIONS flat so runway is a straight
+//   line you can plan a reload against.
+//     node scripts/bayla-lighthouse-ceremony.mjs --rebalance --pool <stakePool> \
+//          --target-daily 2739 [--keypair <authority.json> --broadcast]
+//   Streamflow pays a RATE PER STAKED TOKEN, so total emissions scale with TVL
+//   and the runway moves every time someone stakes. This recomputes the rate as
+//   target ÷ current weighted stake and writes it with the program's own
+//   updatePool instruction — no custom program, no custody, just the audited
+//   rail re-pointed. Re-run whenever stake moves materially (or on a schedule);
+//   between runs the emission drifts with TVL exactly as much as stake changed.
+//   ⚠ THE SIGNER MUST BE THE POOL AUTHORITY (updatePool passes `authority:
+//   invoker`) — the ceremony key, not the permissionless funding wallet.
+//
 //   FUNDING (operator, task #13 — deliberately its own mode, run LAST):
 //     node scripts/bayla-lighthouse-ceremony.mjs --fund --pool <stakePool> \
 //          --amount 50000 --keypair C:\path\to\creator.json [--broadcast]
@@ -63,6 +76,7 @@ const val = (f, d = undefined) => {
 
 const REHEARSE = has('--rehearse');
 const FUND = has('--fund');
+const REBALANCE = has('--rebalance');
 const BROADCAST = has('--broadcast');
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const DAY = 86_400;
@@ -545,7 +559,86 @@ async function fund() {
   log('the vault balance on /farm (bayla mode) reflects this within one refresh.');
 }
 
-(REHEARSE ? rehearse() : FUND ? fund() : mainnet()).catch((e) => {
+async function rebalance() {
+  const pool = val('--pool');
+  const targetDaily = Number(val('--target-daily', '0'));
+  const mint = val('--mint', BAYLA_MINT);
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+  const nonce = Number(val('--nonce', '0'));
+  if (!pool) throw new Error('--rebalance requires --pool <stake pool address>');
+  if (!(targetDaily > 0)) throw new Error('--rebalance requires --target-daily <whole tokens/day>, e.g. --target-daily 2739');
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const decimals = await readVerifiedDecimals(connection, mint, tokenProgramId);
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+
+  const sp = await client.getStakePool(pool);
+  // Same normalisation the app uses (bungalowStaking.ts): the program stores
+  // effective stake scaled by WEIGHT_SCALE (1e9).
+  const WEIGHT_SCALE = 1_000_000_000n;
+  const effRaw = sp?.totalEffectiveStake ? BigInt(sp.totalEffectiveStake.toString()) / WEIGHT_SCALE : 0n;
+  const stakedTokens = Number(effRaw) / 10 ** decimals;
+
+  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+  const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
+  const rewardVault = deriveRewardVaultPDA(rewardProgram, rewardPool);
+  let vaultTokens = null;
+  try {
+    const bal = await connection.getTokenAccountBalance(rewardVault);
+    vaultTokens = Number(bal.value.uiAmountString);
+  } catch { /* vault not created yet */ }
+
+  const rps = await client.searchRewardPools({ stakePool: pool });
+  const rp = (rps ?? []).find((r) => String(r?.publicKey ?? r?.address ?? '') === rewardPool.toBase58()) ?? rps?.[0];
+  const periodSecs = rp?.account?.rewardPeriod ? Number(rp.account.rewardPeriod.toString()) : 86400;
+  const perDayFactor = 86400 / periodSecs;
+
+  if (stakedTokens <= 0) {
+    log('NOTHING IS STAKED YET — a per-token rate cannot be solved against zero stake.');
+    log('Fund first, let real stake arrive, then rebalance against it.');
+    return;
+  }
+
+  // rate = tokens paid per staked token per PERIOD, so that
+  // stakedTokens * rate * periodsPerDay === targetDaily
+  const newRatePerPeriod = targetDaily / stakedTokens / perDayFactor;
+  const newRewardAmount = calculateRewardAmountFromRate(newRatePerPeriod, decimals, decimals);
+  const runwayDays = vaultTokens === null ? null : vaultTokens / targetDaily;
+
+  log('REBALANCE PLAN — hold daily emissions flat:');
+  console.log(JSON.stringify({
+    cluster: 'mainnet', stakePool: pool, rewardPool: rewardPool.toBase58(), rewardVault: rewardVault.toBase58(),
+    weightedStake: `${stakedTokens.toLocaleString()} (weight-adjusted)`,
+    vaultBalanceNow: vaultTokens === null ? 'unreadable' : `${vaultTokens.toLocaleString()} tokens`,
+    targetDailyEmission: `${targetDaily.toLocaleString()} tokens/day`,
+    newRatePerStakedTokenPerPeriod: newRatePerPeriod,
+    rewardPeriodSecs: periodSecs,
+    runwayAtTarget: runwayDays === null ? 'unknown' : `${runwayDays.toFixed(1)} days`,
+    caveat: 'Emissions stay flat only until stake moves. Re-run then, or on a schedule.',
+    authority: 'updatePool signs as the POOL AUTHORITY — the ceremony key, not the funding wallet',
+  }, null, 2));
+
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <pool-authority.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-authority.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()} (must be the pool authority)`);
+  const res = await client.updateRewardPool({
+    stakePool: pool,
+    rewardPool: rewardPool.toBase58(),
+    rewardAmount: newRewardAmount,
+    rewardPeriod: null,
+  }, { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' });
+  log(`\u2713 rate updated (tx ${res.txId})`);
+  log(`solscan: https://solscan.io/tx/${res.txId}`);
+}
+
+(REHEARSE ? rehearse() : REBALANCE ? rebalance() : FUND ? fund() : mainnet()).catch((e) => {
   console.error('[lighthouse] FAILED:', e?.message ?? e);
   // Anchor/web3 simulation errors carry program logs — surface them, they
   // are the only way to see WHY a simulation failed.
