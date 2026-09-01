@@ -101,6 +101,17 @@ export function findSolToken(mint: string): SolToken | undefined {
   return [...PAY_WITH_TOKENS, ...BUY_TOKENS, ...LST_TOKENS].find((t) => t.mint === mint);
 }
 
+/**
+ * The single verified/unverified decision for every warning surface. Anything
+ * but an explicit `true` is unverified — the field's own doc says
+ * "false/undefined → show an 'Unverified' warning", and the curated BAYLA
+ * entry deliberately leaves it unset. A strict `=== false` check silently
+ * exempted every unset flag from both the badge and the risk-ack gate.
+ */
+export function isUnverified(t: SolToken): boolean {
+  return t.verified !== true;
+}
+
 // ─── Resolver (Jupiter token API v2 via our proxy) ───────────────────────────
 
 interface JupTokenV2 {

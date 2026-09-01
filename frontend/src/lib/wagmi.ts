@@ -1,4 +1,12 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
+import {
+  baseAccount,
+  metaMaskWallet,
+  phantomWallet,
+  rainbowWallet,
+  safeWallet,
+  walletConnectWallet,
+} from '@rainbow-me/rainbowkit/wallets';
 import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
@@ -25,6 +33,31 @@ function buildConfig() {
       projectId,
       chains: WAGMI_CHAINS as never,
       transports,
+      // getDefaultConfig's default list, verbatim, plus Phantom appended. The
+      // default ships NO Phantom entry, so browsers without the extension never
+      // saw a Phantom option at all (an installed extension only surfaced via
+      // EIP-6963 discovery, and the MOBILE modal renders RainbowKit entries
+      // only — Phantom was invisible there in every state). phantomWallet is a
+      // pure injected connector (namespace phantom.ethereum, rdns app.phantom)
+      // with no optional peer dependency, so it cannot hit the WALLET-03
+      // throwing-stub trap; when the extension is installed, the modal merges
+      // this entry with the EIP-6963 announcement by rdns instead of listing
+      // it twice. NOTE: the third default is baseAccount (id 'base', the Base
+      // Account passkey wallet), NOT coinbaseWallet — swapping it would change
+      // production's connector.
+      wallets: [
+        {
+          groupName: 'Popular',
+          wallets: [
+            safeWallet,
+            rainbowWallet,
+            baseAccount,
+            metaMaskWallet,
+            walletConnectWallet,
+            phantomWallet,
+          ],
+        },
+      ],
     });
   }
 

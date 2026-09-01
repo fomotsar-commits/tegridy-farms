@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useSolanaConnect } from '../components/solana/useSolanaConnect';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
@@ -873,7 +873,10 @@ function CurveExplainer() {
 
 function CurveLaunchInner() {
   const { publicKey, connecting } = useWallet();
-  const { setVisible } = useWalletModal();
+  // Connect-intent goes through useSolanaConnect, not bare setVisible — a
+  // selected-but-uninstalled wallet needs connect() to reach the install page
+  // / iOS deep link (re-picking the same wallet in the modal is a no-op).
+  const openConnect = useSolanaConnect();
 
   // One transport, two views of it: the raw JSON-RPC callable for `readMint`, and
   // the `CurveRpc` adapter every reader in `curve/read.ts` is written against.
@@ -928,7 +931,7 @@ function CurveLaunchInner() {
       onLookup={onLookup}
       loading={loading}
       writeClient={null}
-      wallet={{ address: publicKey?.toBase58() ?? null, connecting, onConnect: () => setVisible(true) }}
+      wallet={{ address: publicKey?.toBase58() ?? null, connecting, onConnect: openConnect }}
     />
   );
 }

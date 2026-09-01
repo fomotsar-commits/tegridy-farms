@@ -2,7 +2,7 @@
 import '../../lib/solanaPolyfill';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useSolanaConnect } from '../solana/useSolanaConnect';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
@@ -109,7 +109,7 @@ function humanDuration(secs: number): string {
 
 function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const { publicKey, wallet } = useWallet();
-  const { setVisible } = useWalletModal();
+  const openConnect = useSolanaConnect();
 
   const [poolRead, setPoolRead] = useState<{ ok: true; pool: PoolView } | { ok: false; reason: string } | null>(null);
   // Entries + balance keyed by wallet: a disconnect/switch is handled by
@@ -522,7 +522,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         lock you choose opens — not for a fee, not by the venue, not by
                         anyone. Pick a lock you can wait out.
                       </p>
-                      <button type="button" onClick={() => setVisible(true)} className="btn-primary px-6 py-2.5 text-[13px]">
+                      <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
                         Connect Solana Wallet
                       </button>
                     </>

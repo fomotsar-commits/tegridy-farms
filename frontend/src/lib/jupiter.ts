@@ -145,6 +145,33 @@ export function toBaseUnits(amount: string, decimals: number): string | null {
   return combined === '' ? null : combined;
 }
 
+/**
+ * Limit-order receive amount in the BUY token's base units, at full typed
+ * precision. The naive shape — toBaseUnits(price, buyDecimals) first, multiply
+ * after — silently truncates every typed price digit beyond the buy token's
+ * decimals, flooring the order rate scaled by order size, and makes any
+ * fractional price on a 0-decimal buy token unrepresentable (null). Parse the
+ * price digits at their own scale instead and apply ONE floor at the end:
+ *   taking = making × priceDigits × 10^buyDec ÷ (10^payDec × 10^priceScale)
+ */
+export function limitTakingAmount(
+  makingAmount: string | null,
+  price: string,
+  payDecimals: number,
+  buyDecimals: number,
+): string | null {
+  if (!makingAmount) return null;
+  const m = price.trim().match(/^(\d*)(?:\.(\d*))?$/);
+  if (!m) return null;
+  const digits = `${m[1] ?? ''}${m[2] ?? ''}`;
+  if (!/[1-9]/.test(digits)) return null;
+  const priceScale = (m[2] ?? '').length;
+  const taking =
+    (BigInt(makingAmount) * BigInt(digits) * 10n ** BigInt(buyDecimals)) /
+    (10n ** BigInt(payDecimals) * 10n ** BigInt(priceScale));
+  return taking === 0n ? null : taking.toString();
+}
+
 /** Convert an integer base-unit string back to a human decimal string. */
 export function fromBaseUnits(raw: string, decimals: number): string {
   if (decimals === 0) return raw;
