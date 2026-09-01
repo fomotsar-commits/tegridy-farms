@@ -43,10 +43,10 @@ export const YIELD_THIRD_PARTY_NOTE =
   'The destination protocol takes its own cut of the yield, and swap, deposit and gas costs are set by whoever you route through. None of that is part of this figure.';
 
 const NO_ROUTE_REASON =
-  'Tegridy adds no fee here. Nothing is submitted from this surface — it compares external venues and does not execute into them — so there is no request for a fee to ride on.';
+  'The venue adds no fee here. Nothing is submitted from this surface — it compares external venues and does not execute into them — so there is no request for a fee to ride on.';
 
 const BLOCKED_LEG_REASON =
-  'Tegridy adds no fee to this route. The provider that would carry it has no confirmed fee mechanism in this build, so none was attached to the request.';
+  'The venue adds no fee to this route. The provider that would carry it has no confirmed fee mechanism in this build, so none was attached to the request.';
 
 /**
  * The fee actually attached to a yield route, or the reason there is none.

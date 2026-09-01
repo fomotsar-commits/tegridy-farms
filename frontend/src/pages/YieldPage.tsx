@@ -59,7 +59,7 @@ export default function YieldPage() {
           <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Yield Routing</h1>
           <p className="text-[14px] text-text-secondary max-w-[680px] leading-relaxed">
             Every destination on this page belongs to{' '}
-            <span className="text-text-primary font-medium">someone else</span>. Tegridy issues no staking token and no
+            <span className="text-text-primary font-medium">someone else</span>. The venue issues no staking token and no
             stablecoin, runs no vault here, and takes no custody — so each row names the counterparty whose solvency you
             would be trusting and the specific way that position loses money, before it shows you a rate.
           </p>
@@ -115,7 +115,7 @@ export default function YieldPage() {
           <YieldRouterPanel
             id="yield-stables"
             heading="Stablecoin lending markets"
-            intro="Tegridy issues no stablecoin and holds no deposits. These are third-party lending markets, and the rate on each is paid by that market's borrowers — it moves, and it is not a promise. Read the counterparty line before the rate."
+            intro="The venue issues no stablecoin and holds no deposits. These are third-party lending markets, and the rate on each is paid by that market's borrowers — it moves, and it is not a promise. Read the counterparty line before the rate."
             kinds={STABLE_KINDS}
             markets={markets}
           />

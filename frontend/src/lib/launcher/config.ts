@@ -95,8 +95,8 @@ export function isExoticLaunchEnabled(): boolean {
  *     the distributor directly would strand the line permanently; LockerClaimer is the
  *     minimal thing that CAN originate the claim and forward the proceeds.
  *     The LABEL stays numeraire-aware because a locker position carries two currencies:
- *     an ETH pair's numeraire leg reaches stakers ("Tegridy stakers"), while an exotic
- *     pair's two ERC20 legs sweep to the Safe ("Tegridy treasury"). NOT split to POL
+ *     an ETH pair's numeraire leg reaches stakers ("venue stakers"), while an exotic
+ *     pair's two ERC20 legs sweep to the Safe ("venue treasury"). NOT split to POL
  *     either: POL is a SEPARATE fee stream (POLAccumulator/SwapFeeRouter), not this 15%.
  *   - Creator + attention 80% — creator-directed. Creators keep the majority (what
  *     actually attracts launches) and can carve part to attention-holders/KOLs at
@@ -109,9 +109,9 @@ export const DEFAULT_FEE_CONSTITUTION: readonly FeeConstitutionLine[] = [
   { recipient: 'Attention beneficiaries', role: 'attention-beneficiary', shareBps: 1000 },
   // Label must match protocolFeeSink()'s. As of the LockerClaimer deploy (2026-08-01) the
   // ETH-pair sink can actually reach veTOWELI stakers, so "stakers" is true again for the
-  // default pair. An exotic (TOWELI) pair still resolves to "Tegridy treasury" at runtime —
+  // default pair. An exotic (TOWELI) pair still resolves to "venue treasury" at runtime —
   // both legs are ERC20 there and sweep to the Safe. protocolFeeSink() is the source of truth.
-  { recipient: 'Tegridy stakers', role: 'protocol-stakers', shareBps: 1500 },
+  { recipient: 'venue stakers', role: 'protocol-stakers', shareBps: 1500 },
   { recipient: 'Doppler', role: 'doppler', shareBps: 500 },
 ] as const;
 

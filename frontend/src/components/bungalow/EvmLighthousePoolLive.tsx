@@ -163,7 +163,13 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   return (
     <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
-      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
+      {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
+          resident's art underneath was barely readable — a dark page scrim
+          plus a dark card scrim stacked into near-black. Lightened hard.
+          Safe because the dense copy inside sits on its OWN panels
+          (rgba(0,0,0,0.4-0.6) blocks), so contrast is carried there and
+          not by drowning the whole card. */}
+      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
       <div className="relative z-10 p-6">
         <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>
           The lighthouse · {CHAIN_LABEL[poolChainId]}

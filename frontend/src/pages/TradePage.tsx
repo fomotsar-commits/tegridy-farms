@@ -83,7 +83,7 @@ export default function TradePage() {
   // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
-    liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
+    liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on memetics.finance native pools.' },
     // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
     dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
     // UPDATED 2026-07-19: CoW is now the PRIMARY path in this tab — a real
@@ -576,7 +576,7 @@ export default function TradePage() {
                             {swap.hasTegridyPair && swap.tegridyOutputFormatted && (
                               <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'tegridy' ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
                                 <span className="text-white/85">
-                                  Tegridy DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}
+                                  Venue DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}
                                   {tegridyIsLowLiquidity && <span className="text-amber-300 ml-1" title="The native pool is thin pre-seed — its quote isn't representative yet.">low liquidity</span>}
                                 </span>
                                 <span className="text-white font-mono">{formatTokenAmountGrouped(swap.tegridyOutputFormatted)}</span>

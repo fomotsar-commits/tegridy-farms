@@ -223,7 +223,7 @@ export async function fetchAddressTxList(
     raw === 'NOTOK' || /api\s*key/i.test(typeof data.result === 'string' ? data.result : '');
   throw new Error(
     looksLikeAuthIssue
-      ? "Tegridy Farms can't reach Etherscan right now."
+      ? "memetics.finance can't reach Etherscan right now."
       : raw || 'Failed to load activity. Try again later.',
   );
 }

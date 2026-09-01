@@ -44,7 +44,7 @@ import {
 export default function PoolsPage() {
   usePageTitle(
     'Liquidity pools — Solana',
-    'Provide liquidity on Tegridy’s own Solana AMM: what it charges, what LPs keep, and its live deployment status.',
+    'Provide liquidity on the venue’s own Solana AMM: what it charges, what LPs keep, and its live deployment status.',
   );
   useEffect(() => { trackPageView('pools'); }, []);
 
@@ -79,7 +79,7 @@ export default function PoolsPage() {
         <ChainSwitch active="solana" />
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Tegridy AMM · Solana</p>
+          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Venue AMM · Solana</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Liquidity pools.
           </h1>

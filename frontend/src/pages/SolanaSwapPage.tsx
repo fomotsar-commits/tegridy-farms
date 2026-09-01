@@ -1121,7 +1121,7 @@ function SolanaSwapInner() {
 }
 
 export default function SolanaSwapPage() {
-  usePageTitle('Solana Swap', 'Buy Solana tokens on Tegridy Farms via Jupiter.');
+  usePageTitle('Solana Swap', 'Buy Solana tokens on memetics.finance via Jupiter.');
   useEffect(() => { trackPageView('solana-swap'); }, []);
 
   // The surface is gated on the SWAP being available, not on the venue having
@@ -1134,7 +1134,7 @@ export default function SolanaSwapPage() {
           pageId="swap"
           idx={2}
           title="Solana swap isn't live yet"
-          subtitle="Buy Solana tokens on Tegridy — coming soon."
+          subtitle="Buy Solana tokens on the venue — coming soon."
         />
       </div>
     );

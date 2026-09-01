@@ -66,7 +66,7 @@ function useVotes() {
 }
 
 export default function GalleryPage() {
-  usePageTitle('Gallery', 'Explore the Tegridy Farms art collection.');
+  usePageTitle('Gallery', 'Explore the memetics.finance art collection.');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const { isConnected } = useAccount();
   const { votes, userVotes, vote, voteCooldown } = useVotes();

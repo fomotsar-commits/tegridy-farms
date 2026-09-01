@@ -21,7 +21,7 @@ const transports = WAGMI_TRANSPORTS;
 function buildConfig() {
   if (projectId) {
     return getDefaultConfig({
-      appName: 'Tegridy Farms',
+      appName: 'memetics.finance',
       projectId,
       chains: WAGMI_CHAINS as never,
       transports,
@@ -43,7 +43,7 @@ function buildConfig() {
   return createConfig({
     connectors: [
       injected({ shimDisconnect: true }),
-      coinbaseWallet({ appName: 'Tegridy Farms' }),
+      coinbaseWallet({ appName: 'memetics.finance' }),
     ],
     chains: WAGMI_CHAINS as never,
     transports,

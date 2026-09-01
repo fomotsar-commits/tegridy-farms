@@ -69,7 +69,7 @@ const toweliSteps = [
   // when governance retunes the split, and does not promise yield that has not been
   // paid (RevenueDistributor still holds 0 wei).
   {
-    title: 'Welcome to Tegridy Farms',
+    title: 'Welcome to the TOWELI bungalow',
     body: 'An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum and protocol swap fees route on-chain to stakers in ETH; on Solana, swap through Jupiter and scan any token on either chain.',
   },
   {

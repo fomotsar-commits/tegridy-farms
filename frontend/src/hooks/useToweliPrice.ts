@@ -151,7 +151,7 @@ export function evaluateEthUsdFeed(
 }
 
 export function useToweliPrice() {
-  const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Tegridy DEX pair (was external Uniswap LP)
+  const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Venue DEX pair (was external Uniswap LP)
   const hasPair = checkDeployed(pairAddr);
 
   const { data: reserves } = useReadContract({

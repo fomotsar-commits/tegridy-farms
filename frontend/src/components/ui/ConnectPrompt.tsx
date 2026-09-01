@@ -25,7 +25,7 @@ interface ConnectPromptProps {
 
 const DEFAULTS: Record<Surface, { title: string; description: string; cta: string }> = {
   farm: {
-    title: 'Connect to farm with tegridy',
+    title: 'Connect to farm with held time',
     description:
       // F109: softened from a hardcoded "100% of protocol swap fees" to a claim
       // that can't drift if governance retunes the on-chain staker fee-share. The
@@ -48,7 +48,7 @@ const DEFAULTS: Record<Surface, { title: string; description: string; cta: strin
     cta: 'Open Lending',
   },
   governance: {
-    title: 'Connect to vote with tegridy',
+    title: 'Connect to vote with held time',
     description:
       'Stakers direct where LP farming emissions flow. Your locked TOWELI is your voting power. Bribers pay you to vote their way — totally not bribes, just donations.',
     cta: 'Open Governance',

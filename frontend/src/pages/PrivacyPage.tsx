@@ -7,12 +7,12 @@ const SECTIONS = [
   {
     id: 'information-we-collect',
     title: '1. Information We Collect',
-    body: 'The Tegridy Farms protocol interacts with publicly available blockchain data. This includes your public wallet address when you connect to the Protocol and transaction data that is permanently recorded on the Ethereum blockchain. User preferences are stored locally in your browser via localStorage (theme settings, slippage tolerance, dismissed notifications, analytics session identifier); these never leave your device. When you choose to use features backed by our servers — on-chain chat, favorites, trade offers, push notifications, Sign-In With Ethereum (SIWE) authentication, or the native orderbook — we additionally store the data needed to make those features work on our Supabase database (see Section 5). We do not associate wallet addresses with personal identities and do not collect names, emails, phone numbers, or government IDs. See Section 3 for the analytics events we emit and Section 5 for the exact server-side tables.',
+    body: 'The memetics.finance protocol interacts with publicly available blockchain data. This includes your public wallet address when you connect to the Protocol and transaction data that is permanently recorded on the Ethereum blockchain. User preferences are stored locally in your browser via localStorage (theme settings, slippage tolerance, dismissed notifications, analytics session identifier); these never leave your device. When you choose to use features backed by our servers — on-chain chat, favorites, trade offers, push notifications, Sign-In With Ethereum (SIWE) authentication, or the native orderbook — we additionally store the data needed to make those features work on our Supabase database (see Section 5). We do not associate wallet addresses with personal identities and do not collect names, emails, phone numbers, or government IDs. See Section 3 for the analytics events we emit and Section 5 for the exact server-side tables.',
   },
   {
     id: 'information-we-dont-collect',
     title: '2. Information We Don\'t Collect',
-    body: 'Tegridy Farms does not collect personally identifiable information. We do not collect or store: email addresses, names, phone numbers, physical addresses, government IDs; browser fingerprints or device identifiers; tracking cookies or cross-site tracking mechanisms; social media profiles or linked accounts; or geolocation data. When your browser makes a request to any web endpoint — ours or a third party\'s — the receiving server necessarily sees the connecting IP as part of standard HTTP. Vercel (our hosting provider) sees that IP in access logs; Upstash (our rate-limit backend) sees it transiently in a hashed sliding-window key. Neither is linked to your wallet address or retained beyond standard operational retention. Third-party RPC providers, aggregators, and block explorers also see your IP when you interact with them from your browser; their policies, not ours, govern what they do with it.',
+    body: 'memetics.finance does not collect personally identifiable information. We do not collect or store: email addresses, names, phone numbers, physical addresses, government IDs; browser fingerprints or device identifiers; tracking cookies or cross-site tracking mechanisms; social media profiles or linked accounts; or geolocation data. When your browser makes a request to any web endpoint — ours or a third party\'s — the receiving server necessarily sees the connecting IP as part of standard HTTP. Vercel (our hosting provider) sees that IP in access logs; Upstash (our rate-limit backend) sees it transiently in a hashed sliding-window key. Neither is linked to your wallet address or retained beyond standard operational retention. Third-party RPC providers, aggregators, and block explorers also see your IP when you interact with them from your browser; their policies, not ours, govern what they do with it.',
   },
   {
     id: 'analytics',
@@ -42,7 +42,7 @@ const SECTIONS = [
   {
     id: 'children',
     title: '8. Children',
-    body: 'The Tegridy Farms protocol is not intended for use by individuals under the age of 18. We do not knowingly facilitate interactions with minors. If you are under 18, you must not use the Protocol. Since we do not collect personal information, we cannot verify ages and rely on users to comply.',
+    body: 'The memetics.finance protocol is not intended for use by individuals under the age of 18. We do not knowingly facilitate interactions with minors. If you are under 18, you must not use the Protocol. Since we do not collect personal information, we cannot verify ages and rely on users to comply.',
   },
   {
     id: 'changes-to-this-policy',
@@ -57,7 +57,7 @@ const SECTIONS = [
 ];
 
 export default function PrivacyPage() {
-  usePageTitle('Privacy Policy', 'How Tegridy Farms handles your data and privacy.');
+  usePageTitle('Privacy Policy', 'How memetics.finance handles your data and privacy.');
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -78,7 +78,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-white/70 text-sm">
-            How Tegridy Farms handles your data — plain English, no dark patterns.
+            How memetics.finance handles your data — plain English, no dark patterns.
           </p>
         </m.div>
 

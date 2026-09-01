@@ -183,7 +183,7 @@ function projectFactSheet(
       '0x0000000000000000000000000000000000000000',
       w.attentionSplits.filter((r) => splitRowStatus(r).valid).map((r) => ({ address: r.address.trim() as Address, shareBps: r.shareBps })),
       // Preview the numeraire-aware protocol sink so a TOWELI launch's Fact Sheet shows the
-      // real "Tegridy treasury" line, not the ETH-pair "Tegridy stakers" it can't pay.
+      // real "venue treasury" line, not the ETH-pair "venue stakers" it can't pay.
       w.numeraire === 'toweli' ? TOWELI_NUMERAIRE : ETH_NUMERAIRE,
       pricing,
     );
@@ -275,7 +275,7 @@ type AttestStatus =
   | { phase: 'error'; message: string };
 
 export default function LaunchPage() {
-  usePageTitle('Launch', 'Launch a token on the verifiable, V4-native Tegridy rail.');
+  usePageTitle('Launch', 'Launch a token on the verifiable, V4-native venue rail.');
   useEffect(() => { trackPageView('/launch'); }, []);
 
   const [step, setStep] = useState(0);
@@ -898,8 +898,8 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
         return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
       }
       // Label the protocol beneficiary by the pair this token ACTUALLY graduated against:
-      // an ETH pool streamed to RevenueDistributor ("Tegridy stakers"), a TOWELI pool to
-      // Treasury ("Tegridy treasury"). Using the numeraire-aware sink keeps the reverse
+      // an ETH pool streamed to RevenueDistributor ("venue stakers"), a TOWELI pool to
+      // Treasury ("venue treasury"). Using the numeraire-aware sink keeps the reverse
       // (disclosure) map consistent with the forward split — otherwise a TOWELI graduation's
       // Treasury beneficiary would be mislabelled as an unknown attention address.
       const sink = protocolFeeSink(stream.numeraire);

@@ -446,7 +446,7 @@ function ToweliDashboard() {
         {tab === 'overview' && (
           <m.div role="tabpanel" id="dash-panel-overview" aria-labelledby="dash-tab-overview" tabIndex={0} className="outline-none" key="overview"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-            {/* Tegridy Score */}
+            {/* Venue Score */}
             <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-6" style={{ border: '1px solid var(--color-purple-75)' }}
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
               <div className="absolute inset-0">

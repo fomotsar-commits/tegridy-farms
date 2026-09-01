@@ -246,7 +246,7 @@ export default function CurveTokenPage() {
           <div className="rounded-2xl p-5" style={cardStyle}>
             <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
             <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
-              Checked every chain the Tegridy curve is deployed on — nothing launched from our
+              Checked every chain the Memetics curve is deployed on — nothing launched from our
               launcher lives at{' '}
               <span className="font-mono break-all">{token}</span>. If it was just created, give
               the RPC a few seconds and reload.{' '}

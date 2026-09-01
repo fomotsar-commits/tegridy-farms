@@ -198,7 +198,7 @@ export function plannedVenueMigrator(): {
     configured: isDeployed(TEGRIDY_V4_MIGRATOR_ADDRESS),
     // Shape A per docs/GRADUATION_VENUE_DECISION.md: the canonical Uniswap V4
     // PoolManager with OUR TegridyV4Hook attached — not the Tegridy V2-fork DEX.
-    // This string previously named the rejected Shape B ("Tegridy DEX
+    // This string previously named the rejected Shape B ("Venue DEX
     // (TegridyFactory …)"), the loose end the decision doc flagged.
     venue: 'a hooked canonical Uniswap V4 pool (TegridyV4Hook — Tegridy fee economics on Uniswap liquidity)',
     preconditions: [
@@ -242,7 +242,7 @@ export function resolveEvmGraduationVenue(opts: EvmVenueOpts = {}): GraduationVe
   const migrator: GraduationMigrator = planned.configured
     ? {
         address: planned.address,
-        label: 'Tegridy graduation migrator',
+        label: 'Venue graduation migrator',
         ownership: 'venue-owned',
       }
     : {
@@ -266,8 +266,8 @@ export function resolveEvmGraduationVenue(opts: EvmVenueOpts = {}): GraduationVe
   const protocolShareBps = feeSplit.reduce((n, l) => n + (l.protocol ? l.shareBps : 0), 0);
 
   const disclosure = planned.configured
-    ? `Launches graduate through the Tegridy migrator at ${planned.address}. Liquidity lands in a pool this protocol operates.`
-    : `Launches currently graduate through Doppler's own migrator at ${DOPPLER_MAINNET.modules.uniswapV4Migrator.address} — an external venue. Venue graduation is NOT live: the Tegridy migrator address is unset, and the protocol earns only its published share of the graduated pool's fee, not the pool itself.`;
+    ? `Launches graduate through the venue migrator at ${planned.address}. Liquidity lands in a pool this protocol operates.`
+    : `Launches currently graduate through Doppler's own migrator at ${DOPPLER_MAINNET.modules.uniswapV4Migrator.address} — an external venue. Venue graduation is NOT live: the venue migrator address is unset, and the protocol earns only its published share of the graduated pool's fee, not the pool itself.`;
 
   return {
     rail: 'evm',
@@ -365,7 +365,7 @@ export function resolveSolanaGraduationVenue(): GraduationVenuePlan {
     feeSplit: [],
     protocolShareBps: 0,
     disclosure:
-      'Solana launches graduate into Tegridy’s own cp-swap pool, and the migrated LP is burned. ' +
+      'Solana launches graduate into the venue’s own cp-swap pool, and the migrated LP is burned. ' +
       'THE RAIL IS NOT LIVE: both programs were closed on 2026-08-13 and their ids are permanently ' +
       'spent, so nothing can be launched or graduated until the redeploy. The graduated pool’s trade ' +
       'fee is not yet determined because its AmmConfig has never been created.',

@@ -113,11 +113,7 @@ export function Footer() {
               <span className="text-[18px] font-bold tracking-wide" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
                 {/* ARRIVAL IDENTITY 2026-08-27: wordmark follows the arrival
                     voice; classic TEGRIDY FARMS lives in the TOWELI bungalow. */}
-                {isToweliVoice() ? (
-                  <><span>TEGRIDY</span>{' '}<span>FARMS</span></>
-                ) : (
-                  <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
-                )}
+                <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
               </span>
             </div>
             {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
@@ -264,7 +260,7 @@ export function Footer() {
             Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
           </span>
           <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
-            © 2026 {isToweliVoice() ? 'Tegridy Farms' : 'memetics.finance'}
+            © 2026 memetics.finance
           </span>
         </div>
       </div>

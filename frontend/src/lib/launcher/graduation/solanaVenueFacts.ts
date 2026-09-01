@@ -36,7 +36,7 @@
  * (`solana/tegridy-amm/programs/tegridy-launch/src/lib.rs`), so the target is not a
  * per-config choice the way Meteora's `migrationOption` was.
  */
-export const SOLANA_MIGRATION_TARGET_LABEL = 'Tegridy cp-swap pool (own venue)';
+export const SOLANA_MIGRATION_TARGET_LABEL = 'our own cp-swap pool';
 
 /**
  * Post-migration pool trade fee in bps.

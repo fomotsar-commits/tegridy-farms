@@ -132,7 +132,7 @@ export const SURFACES: Surface[] = [
   { group: 'Dashboard', pageId: 'dashboard', idx: 3, label: 'D4 — Stat: ETH Balance' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 4, label: 'D5 — Stat: Claimable' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 5, label: 'D6 — Stat: TOWELI Price' },
-  { group: 'Dashboard', pageId: 'dashboard', idx: 6, label: 'D7 — Tegridy Score block' },
+  { group: 'Dashboard', pageId: 'dashboard', idx: 6, label: 'D7 — Venue Score block' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 7, label: 'D8 — ETH Revenue Claim' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 8, label: 'D9 — POL Accumulator' },
   { group: 'Dashboard', pageId: 'dashboard', idx: 9, label: 'D10 — DCA Due Alerts' },

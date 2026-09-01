@@ -164,7 +164,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // PROMOTE_PENDING, not by COMMUNITY_ADDRESSES_LIVE (which is false).
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       { to: '/gallery',     label: 'Gallery' },
-      { to: '/leaderboard', label: 'Tegridy Score' },
+      { to: '/leaderboard', label: 'Venue Score' },
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
       // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
       // is a live chain probe of the venue's status, so while the program is
@@ -193,10 +193,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // the program id rather than from a flag. No flag drives this one because
       // there is nothing to flip — a deploy is what changes it, and the page
       // picks that up on its own.
-      // 2026-08-28: renamed from the bare "Tegridy Curve" — the dead Solana
+      // 2026-08-28: renamed from the bare "Memetics Curve" — the dead Solana
       // rail owned the flagship's plain name while the LIVE EVM curve carried
-      // the qualifier, so the menu read "Tegridy Curve — Soon" first.
-      // ARRIVAL IDENTITY 2026-08-31: "Tegridy Curve" -> "Memetics Curve" on the
+      // the qualifier, so the menu read "Memetics Curve — Soon" first.
+      // ARRIVAL IDENTITY 2026-08-31: "Memetics Curve" -> "Memetics Curve" on the
       // owner's call, so nothing outside the TOWELI bungalow speaks Tegridy.
       // DISPLAY NAME ONLY — the route and the TegridyCurveLauncher contract are
       // unchanged. The two lines above are HISTORY and keep the old name on

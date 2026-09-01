@@ -1,4 +1,4 @@
-// The EVM own-curve surface — create a launch on the zero-toll Tegridy curve and
+// The EVM own-curve surface — create a launch on the zero-toll Memetics curve and
 // trade any live curve token. Distinct from /curve-launch (Solana) and /launch
 // (the Doppler auction rail): this is OUR curve, no Airlock, no petition, 100%
 // of the fee kept in-house.
@@ -39,7 +39,7 @@ export function CurveHowItWorks() {
   ];
   return (
     <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
-      <h2 className="text-white font-semibold text-sm">How the Tegridy curve works</h2>
+      <h2 className="text-white font-semibold text-sm">How the Memetics curve works</h2>
       <ul className="space-y-2">
         {points.map((p) => (
           <li key={p.k} className="text-[12px] leading-relaxed">
@@ -109,7 +109,7 @@ export default function EthCurvePage() {
   // their coin's permanent, shareable page, not a dead-end toast.
   const navigate = useNavigate();
 
-  // Chain-aware: the Tegridy curve is LIVE on Ethereum, Base and Robinhood. Show the
+  // Chain-aware: the Memetics curve is LIVE on Ethereum, Base and Robinhood. Show the
   // launcher for the wallet's chain when it has one; otherwise default to mainnet
   // (a disconnected wallet resolves to mainnet too). A wallet already on a served
   // curve chain then reads + writes on that chain with no wrong-chain banner.
@@ -154,7 +154,7 @@ export default function EthCurvePage() {
         ) : (
           <div className="space-y-4">
             <FeatureNotDeployed
-              title="The Tegridy curve is coming to Ethereum."
+              title="The Memetics curve is coming to Ethereum."
               subtitle="The contract is internally reviewed and ready; it goes live the moment the launcher is broadcast. Here's what it does."
               pageId={PAGE_ID}
               idx={0}

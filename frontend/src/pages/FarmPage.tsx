@@ -65,7 +65,7 @@ export default function FarmPage() {
 }
 
 function ToweliFarm() {
-  usePageTitle('Farm', 'Stake TOWELI and provide liquidity to earn boosted yield on Tegridy Farms.');
+  usePageTitle('Farm', 'Stake TOWELI and provide liquidity to earn boosted yield on memetics.finance.');
   const { isConnected } = useAccount();
   // Wrong-chain display delegated to <WrongChainBanner/>; button-level chain
   // checks still happen inside useFarmActions / useRestaking before any write.

@@ -157,7 +157,7 @@ function SourceLink({ chainId, address, label }: { chainId: number | undefined; 
 }
 
 export default function TreasuryPage() {
-  usePageTitle('Treasury', 'On-chain Tegridy Farms treasury holdings and protocol revenue flows.');
+  usePageTitle('Treasury', 'On-chain memetics.finance treasury holdings and protocol revenue flows.');
 
   // F390: all reads on this page are mainnet (treasury balance, fee router,
   // /api/etherscan feed) — pin the canonical chain so explorer links never

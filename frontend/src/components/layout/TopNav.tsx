@@ -8,7 +8,8 @@ import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
-import { isToweliVoice, VENUE } from '../../lib/arrival';
+import { VENUE } from '../../lib/arrival';
+import { setActiveBungalow } from '../../lib/bungalows';
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -168,21 +169,34 @@ export const TopNav = React.memo(function TopNav() {
                 <span className="text-white text-[11px] leading-none">&#9658;</span>
               </span>
             </button>
-            <Link to="/" className="flex items-center gap-1" title="Go to home page">
+            {/* THE WAY BACK (owner, 2026-08-31): the wordmark is the ONLY way
+                to the venue besides the arrival itself — the picker no longer
+                lists it. A plain <Link to="/"> could not do this: with a
+                bungalow stored, "/" renders THAT bungalow's home, so the
+                island's own front page was unreachable without clearing
+                storage. Persisting the 'venue' sentinel first makes the mark
+                mean what it looks like it means. Full assign, not client
+                routing: the voice resolves at module scope, so the document
+                must be new for the venue skin to take. */}
+            <Link
+              to="/"
+              className="flex items-center gap-1"
+              title="Back to memetics.finance"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveBungalow('venue');
+                window.location.assign('/');
+              }}
+            >
               {/* ARRIVAL IDENTITY 2026-08-27: the wordmark follows the arrival
                   voice. The venue speaks as itself by default; the classic
                   TEGRIDY FARMS mark lives inside the TOWELI bungalow. */}
-              {isToweliVoice() ? (
-                <>
-                  <span className="heading-luxury text-[16px] tracking-wide text-white">TEGRIDY</span>
-                  <span className="text-[15px] font-semibold tracking-tight text-white">FARMS</span>
-                </>
-              ) : (
-                <>
-                  <span className="heading-luxury text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-                  <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
-                </>
-              )}
+              {/* RETIRED 2026-08-31 (owner): the wordmark no longer forks by voice.
+                  The venue's name is the only one the app speaks, in every room
+                  including the TOWELI bungalow. Towelie keeps his farm and his
+                  voice; the brand word is gone. */}
+              <span className="heading-luxury text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;

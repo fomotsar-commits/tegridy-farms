@@ -18,7 +18,7 @@ import {
 const deployStatus = (addr: string): 'Live' | 'Not yet deployed' =>
   isDeployed(addr) ? 'Live' : 'Not yet deployed';
 
-// Protocol-specific risks that reflect the actual current state of Tegridy Farms
+// Protocol-specific risks that reflect the actual current state of memetics.finance
 // (as of the last RisksPage refresh). Distinct from the generic DeFi risks
 // below. Each item names the specific exposure and the honest mitigation status.
 const PROTOCOL_RISKS: Array<{
@@ -59,7 +59,12 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'Satirical brand exposure',
     status: 'Active',
-    body: 'The "Tegridy Farms" / "Towelie" brand is a parody reference to a third-party IP (South Park). The NOTICE.md file invokes fair-use and parody defences, but the protocol has not sought or received any clearance. A takedown request or rebrand instruction from the IP holder at any point would affect domain, branding, and front-end surfaces.',
+    // The blanket 2026-08-31 rename would have made this claim FALSE — the
+    // venue's own name is not the parody; Towelie is. Reworded by hand, and
+    // deliberately NOT deleted: retiring the Tegridy name narrows the
+    // exposure but the character and the art still ship, so the disclosure
+    // still has something to disclose.
+    body: 'The "Towelie" character, his voice and the accompanying art are a parody reference to a third-party IP (South Park). The "Tegridy Farms" name was retired from the app on 2026-08-31 and the venue now speaks as memetics.finance, which narrows this exposure without removing it: the character and the art still ship. The NOTICE.md file invokes fair-use and parody defences, but the protocol has not sought or received any clearance. A takedown request or rebrand instruction from the IP holder at any point would affect branding and front-end surfaces.',
   },
   {
     title: 'Single maintainer',
@@ -145,7 +150,7 @@ const PROTOCOL_LIMITS: Array<{
 const RISKS = [
   {
     title: '1. Smart Contract Risk',
-    body: 'The Tegridy Farms protocol relies on smart contracts deployed on the Ethereum blockchain. While these contracts have undergone testing and auditing, no audit can guarantee the absence of all vulnerabilities. Undiscovered bugs, logic errors, or exploits in the smart contract code could result in partial or total loss of funds deposited into the Protocol. Smart contract risk is inherent to all DeFi protocols and cannot be fully eliminated.',
+    body: 'The memetics.finance protocol relies on smart contracts deployed on the Ethereum blockchain. While these contracts have undergone testing and auditing, no audit can guarantee the absence of all vulnerabilities. Undiscovered bugs, logic errors, or exploits in the smart contract code could result in partial or total loss of funds deposited into the Protocol. Smart contract risk is inherent to all DeFi protocols and cannot be fully eliminated.',
   },
   {
     title: '2. Market Risk',
@@ -165,7 +170,7 @@ const RISKS = [
   },
   {
     title: '6. Oracle Risk',
-    body: 'While the Tegridy Farms core protocol does not currently rely on external price oracles, partner protocols and integrations may use oracle services for pricing data. Oracle manipulation, downtime, or inaccurate data feeds in these third-party protocols could indirectly affect your positions or the value of assets within the Tegridy Farms ecosystem.',
+    body: 'While the memetics.finance core protocol does not currently rely on external price oracles, partner protocols and integrations may use oracle services for pricing data. Oracle manipulation, downtime, or inaccurate data feeds in these third-party protocols could indirectly affect your positions or the value of assets within the memetics.finance ecosystem.',
   },
   {
     title: '7. Regulatory Risk',
@@ -185,7 +190,7 @@ const RISKS = [
   },
   {
     title: '11. No Insurance',
-    body: 'Deposits, stakes, and liquidity positions in the Tegridy Farms protocol are not insured by any government agency, insurance fund, or guarantee scheme. There is no equivalent of FDIC, SIPC, or any other deposit protection. If funds are lost due to smart contract exploits, market crashes, or any other reason, there is no insurance mechanism to compensate you. You bear the full risk of any losses incurred.',
+    body: 'Deposits, stakes, and liquidity positions in the memetics.finance protocol are not insured by any government agency, insurance fund, or guarantee scheme. There is no equivalent of FDIC, SIPC, or any other deposit protection. If funds are lost due to smart contract exploits, market crashes, or any other reason, there is no insurance mechanism to compensate you. You bear the full risk of any losses incurred.',
   },
   {
     title: '12. No Guarantee of Returns',
@@ -193,12 +198,12 @@ const RISKS = [
   },
   {
     title: '13. Acknowledgment of Risks',
-    body: 'By using the Tegridy Farms protocol, you acknowledge that you have read, understood, and accepted all risks described in this disclosure. You confirm that you are using the Protocol voluntarily and at your own risk. You agree that neither the Protocol, its contributors, developers, nor community members shall be held liable for any losses you may incur. DeFi is experimental technology — please exercise caution and never risk more than you can afford to lose.',
+    body: 'By using the memetics.finance protocol, you acknowledge that you have read, understood, and accepted all risks described in this disclosure. You confirm that you are using the Protocol voluntarily and at your own risk. You agree that neither the Protocol, its contributors, developers, nor community members shall be held liable for any losses you may incur. DeFi is experimental technology — please exercise caution and never risk more than you can afford to lose.',
   },
 ];
 
 export default function RisksPage() {
-  usePageTitle('Risk Disclosure', 'Important risk factors for using Tegridy Farms DeFi protocol.');
+  usePageTitle('Risk Disclosure', 'Important risk factors for using memetics.finance DeFi protocol.');
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -258,7 +263,7 @@ export default function RisksPage() {
               What can actually go wrong — as of today
             </h2>
             <p className="text-white/60 text-sm">
-              Protocol-specific risks that reflect the current state of Tegridy Farms. Not legalese — read them.
+              Protocol-specific risks that reflect the current state of memetics.finance. Not legalese — read them.
             </p>
           </div>
 

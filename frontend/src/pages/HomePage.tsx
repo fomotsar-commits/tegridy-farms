@@ -59,7 +59,7 @@ const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
 
 const CORE_LOOP_STEPS = [
   IS_TOWELI_ARRIVAL
-    ? { label: 'People trade TOWELI', sub: 'on the Tegridy DEX' }
+    ? { label: 'People trade TOWELI', sub: 'on the venue DEX' }
     : { label: 'People trade here', sub: 'on the venue DEX' },
   // F82: sub no longer just restates the label — it adds the "where" (router,
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
@@ -79,7 +79,7 @@ const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
   {
     step: '1',
     title: 'Get Some Towelies',
-    desc: 'Swap ETH for TOWELI on the Tegridy DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
+    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
     to: '/swap',
   },
   {
@@ -90,7 +90,7 @@ const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
   },
   {
     step: '3',
-    title: 'Harvest the Tegridy',
+    title: 'Harvest the Yield',
     desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
@@ -193,7 +193,7 @@ export default function HomePage() {
   // later correction we make to the site. So it describes what the protocol IS rather
   // than what it has paid.
   const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
+    'Fee-routed staking, on-chain and in ETH, on @JungleBayAC \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
@@ -320,7 +320,7 @@ export default function HomePage() {
               Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
               liquidity engine, and operations. Every core contract is source-verified on Etherscan,
               so you can read the code that holds your stake. On Solana we swap through Jupiter and
-              scan any token &mdash; same tegridy, second chain.
+              scan any token &mdash; same rails, second chain.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -539,7 +539,7 @@ export default function HomePage() {
               GeckoTerminal <span className="text-white/40">↗</span>
             </a>
             <a href={shareTweetUrl} target="_blank" rel="noopener noreferrer"
-              aria-label="Share Tegridy Farms on X (opens in new tab)"
+              aria-label="Share MEMETICS.FINANCE on X (opens in new tab)"
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
               style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -861,7 +861,7 @@ export default function HomePage() {
                 told the product is a three-step TOWELI farm. Scoping the title, not the
                 steps. */}
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How the Farm Works</h2>
-            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Real tegridy.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Held time counts.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {HOW_IT_WORKS_STEPS.map((s, i) => (

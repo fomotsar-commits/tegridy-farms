@@ -12,7 +12,7 @@ import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
-import { isToweliVoice, VENUE } from '../lib/arrival';
+import { VENUE } from '../lib/arrival';
 
 type TxStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -337,7 +337,7 @@ function TransactionReceiptOverlay({
                 className="heading-luxury text-white text-[16px] tracking-wide"
                 style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
               >
-                {isToweliVoice() ? 'Tegridy Farms' : VENUE.name}
+                {VENUE.name}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -523,7 +523,7 @@ function buildReceiptText(
   chainId?: number,
 ): string {
   const lines = [
-    `\u{1F33F} ${isToweliVoice() ? 'Tegridy Farms' : VENUE.name}`,
+    `\u{1F33F} ${VENUE.name}`,
     '━'.repeat(30),
     '',
     config.label,

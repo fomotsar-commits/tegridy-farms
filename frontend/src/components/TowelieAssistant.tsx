@@ -32,10 +32,10 @@ const COPY = {
     "Connected. I have no idea what just happened, but cool.",
   ],
   txSuccess: [
-    "Locked it down. With tegridy.",
+    "Locked it down. Nice.",
     "Done. Easy money.",
     "Boom. That worked.",
-    "Tegridy preserved.",
+    "Held time preserved.",
   ],
   txFail: [
     "Eh, shit happens. Try again.",
@@ -92,22 +92,22 @@ const ROUTE_TIPS: Record<string, string> = {
   '/farm':        "4× boost at max lock. Math checks out, I think.",
   '/swap':        "Trade TOWELI here. Or whatever — I'm just a towel.",
   '/liquidity':   "Add liquidity, earn fees. Easy money. Probably.",
-  '/community':   "Vote, post bounties, propose grants. Tegridy demands it.",
+  '/community':   "Vote, post bounties, propose grants. The island demands it.",
   '/nft-finance': "Lend, borrow, trade NFTs. No oracles, no rugs.",
-  '/lore':        "The story of how Tegridy was lost and found.",
+  '/lore':        "The story of how the island was found.",
   '/tokenomics':  "1B supply. 100% of fees flow back to stakers.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
   '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
-  '/changelog':   "Every shipped feature, with Tegridy.",
+  '/changelog':   "Every shipped feature, receipts and all.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
   '/gallery':     "All the art. Look, don't lick.",
-  '/history':     "Your tx receipts. Tegridy keeps the books.",
+  '/history':     "Your tx receipts. The chain keeps the books.",
   '/faq':         "Got questions? I probably have shrugs.",
-  '/risks':       "Read this. Seriously. With tegridy.",
+  '/risks':       "Read this. Seriously.",
   '/terms':       "Legal stuff. Required by grown-ups.",
   '/privacy':     "We don't track much. Towels respect privacy.",
   '/contracts':   "Where the magic happens. On-chain.",
-  '/treasury':    "Watch the funds. Transparency, with tegridy.",
+  '/treasury':    "Watch the funds. Transparency, on-chain.",
 };
 
 // F34: three routes (nft-finance/community/premium) are promoted in the nav
@@ -139,7 +139,7 @@ function tipIsLive(pathname: string): boolean {
 
 const COMING_SOON_TIPS: Record<string, string> = {
   '/nft-finance': "NFT lending lands here soon. Contracts aren't live yet — sit tight.",
-  '/community':   "Grants, bounties, votes — coming once governance ships. Patience, with tegridy.",
+  '/community':   "Grants, bounties, votes — coming once governance ships. Patience, with held time.",
   '/premium':     "Randy's Gold Card isn't open yet. I'll holler when it drops.",
 };
 
