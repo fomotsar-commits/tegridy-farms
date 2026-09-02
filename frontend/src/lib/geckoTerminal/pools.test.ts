@@ -333,3 +333,56 @@ describe('readGeckoPools', () => {
       .resolves.toMatchObject({ status: 'unread' });
   });
 });
+
+describe('readGeckoPools — the deadline', () => {
+  // A hung upstream is indistinguishable from a slow one, and without a ceiling the
+  // surface sits on "Reading the market feed…" forever. An endless spinner is the
+  // same lie as a fabricated zero, told more slowly — so the wait is bounded and
+  // the timeout gets its OWN reason, distinct from a caller's abort.
+  it('gives up on an upstream that never answers, and says so as a timeout', async () => {
+    const neverAnswers: typeof fetch = (_u, init) =>
+      new Promise((_resolve, reject) => {
+        (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+
+    const read = await readGeckoPools(geckoPoolsUrl('eth', 'new'), {
+      fetchImpl: neverAnswers,
+      timeoutMs: 10,
+    });
+
+    expect(read.status).toBe('unread');
+    if (read.status !== 'unread') throw new Error('unreachable');
+    // NOT 'aborted': nobody cancelled this. Reporting a deadline as a cancellation
+    // would hide an outage behind a word that means "you asked me to stop".
+    expect(read.reason).toBe('timeout');
+    expect(read.detail).toMatch(/did not answer in time/);
+  });
+
+  it('reports a CALLER abort as aborted, not as a timeout', async () => {
+    const ac = new AbortController();
+    const neverAnswers: typeof fetch = (_u, init) =>
+      new Promise((_resolve, reject) => {
+        (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+
+    const pending = readGeckoPools(geckoPoolsUrl('eth', 'new'), {
+      fetchImpl: neverAnswers,
+      signal: ac.signal,
+      timeoutMs: 10_000,
+    });
+    ac.abort();
+    const read = await pending;
+
+    expect(read.status).toBe('unread');
+    if (read.status !== 'unread') throw new Error('unreachable');
+    expect(read.reason).toBe('aborted');
+  });
+});

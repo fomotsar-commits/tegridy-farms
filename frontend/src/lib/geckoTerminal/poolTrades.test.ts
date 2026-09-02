@@ -260,3 +260,30 @@ describe('the cache', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('readPoolTrades — the deadline', () => {
+  // Same rule as the pool-list reader: an unanswered read is bounded, and a
+  // deadline is reported as its own state rather than as an empty tape or as a
+  // cancellation nobody asked for.
+  it('gives up on an upstream that never answers, and says so as a timeout', async () => {
+    const neverAnswers: typeof fetch = (_u, init) =>
+      new Promise((_resolve, reject) => {
+        (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+          const err = new Error('aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      });
+
+    const read = await readPoolTrades('eth', '0x1111111111111111111111111111111111111111', {
+      fetchImpl: neverAnswers,
+      timeoutMs: 10,
+    });
+
+    expect(read.status).toBe('unread');
+    if (read.status !== 'unread') throw new Error('unreachable');
+    expect(read.reason).toBe('timeout');
+    // The tape must never read as quiet because the read hung.
+    expect(read.detail).toMatch(/not an empty tape/);
+  });
+});

@@ -36,7 +36,7 @@ export const NOT_A_ZERO =
 /** Views backed by the GeckoTerminal read. 'indexer' has its own banner. */
 export type MarketView = Exclude<TerminalView, 'indexer'>;
 
-export type MarketFeedUnreadReason = 'network' | 'http' | 'rate-limited' | 'malformed';
+export type MarketFeedUnreadReason = 'network' | 'http' | 'rate-limited' | 'malformed' | 'timeout';
 
 export type MarketFeedState =
   | { status: 'idle' }
@@ -103,6 +103,12 @@ const REASON_SENTENCE: Record<MarketFeedUnreadReason, string> = {
     'GeckoTerminal answered in a shape this build does not recognise, so nothing was read rather than half-read.',
   http: 'GeckoTerminal refused this request, so nothing was read.',
   network: 'The request to GeckoTerminal did not complete, so nothing was read.',
+  // Distinct from `network` on purpose: a request that was answered by nobody
+  // within the deadline is a different thing to tell a reader than one that
+  // failed outright, and it is the state that would otherwise show as an
+  // endless spinner.
+  timeout:
+    'GeckoTerminal did not answer within this venue’s time limit, so nothing was read. Re-read to try again — this is a limit on the read, not a statement about the market.',
 };
 
 export interface FeedBannerContext {

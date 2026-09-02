@@ -288,7 +288,23 @@ function networkFromUrl(url: string): GeckoNetwork | null {
 
 // ─── Reader ──────────────────────────────────────────────────────────────────
 
-export type GeckoPoolsUnreadReason = 'http' | 'rate-limited' | 'schema' | 'network' | 'aborted';
+export type GeckoPoolsUnreadReason =
+  | 'http'
+  | 'rate-limited'
+  | 'schema'
+  | 'network'
+  | 'aborted'
+  | 'timeout';
+
+/**
+ * Hard ceiling per request, matching lib/indexer/client.ts's INDEXER_TIMEOUT_MS.
+ *
+ * Without one, a hung upstream is indistinguishable from a slow one and the
+ * surface sits on "Reading the market feed..." forever — a spinner with no end,
+ * which is the same lie as a fabricated zero told more slowly. A caller's own
+ * signal still aborts sooner; this only bounds the wait.
+ */
+export const GECKO_TIMEOUT_MS = 8000;
 
 export type GeckoPoolsRead =
   | { status: 'read'; rows: MarketRow[]; dropped: number; fetchedAt: number }
@@ -298,6 +314,8 @@ export interface ReadGeckoPoolsOptions {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   now?: () => number;
+  /** Overrides GECKO_TIMEOUT_MS. Tests pass a small value; nothing else should. */
+  timeoutMs?: number;
 }
 
 function unread(reason: GeckoPoolsUnreadReason, detail: string): GeckoPoolsRead {
@@ -325,19 +343,46 @@ export async function readGeckoPools(
   const doFetch = opts.fetchImpl ?? fetch;
   const clock = opts.now ?? Date.now;
 
+  // The caller's signal and our own deadline both have to be able to abort the
+  // request, so they are merged into one controller. `timedOut` distinguishes the
+  // two afterwards: an abort the READER caused is a timeout the visitor should be
+  // told about and offered a retry for, while an abort the CALLER caused (an
+  // unmounting view, a newer request) is not a fact about the feed at all.
+  const ac = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ac.abort();
+  }, opts.timeoutMs ?? GECKO_TIMEOUT_MS);
+  const onCallerAbort = () => ac.abort();
+  opts.signal?.addEventListener('abort', onCallerAbort);
+  const done = () => {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onCallerAbort);
+  };
+
   let res: Response;
   try {
-    res = await doFetch(url, { headers: { Accept: 'application/json' }, signal: opts.signal });
+    res = await doFetch(url, { headers: { Accept: 'application/json' }, signal: ac.signal });
   } catch (err) {
+    done();
+    if (timedOut) {
+      return unread(
+        'timeout',
+        'The market feed did not answer in time, so no pools are listed. That is a fact about the read, not about the market.',
+      );
+    }
     return isAbort(err, opts.signal)
       ? unread('aborted', 'The pool list request was cancelled before it finished.')
       : unread('network', 'The market feed could not be reached, so no pools are listed.');
   }
 
   if (res.status === 429) {
+    done();
     return unread('rate-limited', 'The market feed is rate-limiting right now. Give it a moment and try again.');
   }
   if (!res.ok) {
+    done();
     return unread('http', `The market feed refused this request (HTTP ${res.status}).`);
   }
 
@@ -345,10 +390,18 @@ export async function readGeckoPools(
   try {
     body = await res.json();
   } catch (err) {
+    done();
+    if (timedOut) {
+      return unread(
+        'timeout',
+        'The market feed did not answer in time, so no pools are listed. That is a fact about the read, not about the market.',
+      );
+    }
     return isAbort(err, opts.signal)
       ? unread('aborted', 'The pool list request was cancelled before it finished.')
       : unread('schema', 'The market feed returned something unreadable.');
   }
+  done();
 
   const parsed = parseGeckoPoolList(body, network);
   if (!parsed) {

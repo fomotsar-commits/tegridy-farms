@@ -54,7 +54,17 @@ export type PoolTradesUnreadReason =
   | 'schema'
   | 'network'
   | 'aborted'
+  | 'timeout'
   | 'not-attempted';
+
+/**
+ * Hard ceiling per request, matching pools.ts and lib/indexer/client.ts.
+ *
+ * Without one, a hung upstream is indistinguishable from a slow one and the tape
+ * sits on "reading" forever. A spinner with no end is the same lie as a
+ * fabricated zero, told more slowly.
+ */
+export const POOL_TRADES_TIMEOUT_MS = 8000;
 
 export type PoolTradesRead =
   | { status: 'read'; trades: PoolTrade[]; fetchedAt: number }
@@ -70,6 +80,8 @@ export interface ReadPoolTradesOptions {
    * different one.
    */
   now?: () => number;
+  /** Overrides POOL_TRADES_TIMEOUT_MS. Tests pass a small value; nothing else should. */
+  timeoutMs?: number;
 }
 
 /**
@@ -135,13 +147,37 @@ export async function readPoolTrades(
   const doFetch = opts.fetchImpl ?? fetch;
   const clock = opts.now ?? Date.now;
 
+  // Caller signal and our own deadline merged into one controller; `timedOut`
+  // tells them apart afterwards. A timeout is a fact about the read and earns a
+  // retry; a caller-driven abort (unmounting view, newer request) is not a fact
+  // about the feed and must not be reported as one.
+  const ac = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ac.abort();
+  }, opts.timeoutMs ?? POOL_TRADES_TIMEOUT_MS);
+  const onCallerAbort = () => ac.abort();
+  opts.signal?.addEventListener('abort', onCallerAbort);
+  const done = () => {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onCallerAbort);
+  };
+  const timeoutRead = () =>
+    unread(
+      'timeout',
+      'The trades feed did not answer in time — that is an outage of the read, not an empty tape.',
+    );
+
   let res: Response;
   try {
     res = await doFetch(poolTradesUrl(network, pool), {
       headers: { Accept: 'application/json' },
-      signal: opts.signal,
+      signal: ac.signal,
     });
   } catch (err) {
+    done();
+    if (timedOut) return timeoutRead();
     return isAbort(err, opts.signal)
       ? unread('aborted', 'The trades request was cancelled before it finished.')
       : unread('network', 'The trades feed could not be reached — that is an outage, not an empty tape.');
@@ -151,9 +187,11 @@ export async function readPoolTrades(
   // under load and gets its own wording: nothing is wrong with the pool, and
   // trying again in a moment actually works.
   if (res.status === 429) {
+    done();
     return unread('rate-limited', 'The trades feed is rate-limiting right now. Give it a moment and try again.');
   }
   if (!res.ok) {
+    done();
     return unread('http', `The trades feed refused this pool (HTTP ${res.status}).`);
   }
 
@@ -161,10 +199,13 @@ export async function readPoolTrades(
   try {
     body = await res.json();
   } catch (err) {
+    done();
+    if (timedOut) return timeoutRead();
     return isAbort(err, opts.signal)
       ? unread('aborted', 'The trades request was cancelled before it finished.')
       : unread('schema', 'The trades feed returned something unreadable.');
   }
+  done();
 
   const parsed = parseOrNull(geckoTerminalTradesSchema, body);
   if (!parsed) {
