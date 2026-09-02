@@ -825,3 +825,72 @@ cannot ACCEPT a Token-2022 stake.**
 **So the decision the report frames — give up the ladder, or give up the rule —
 is only the decision for four of the five. For BAYLA the choice is narrower and
 worse: keep Streamflow's no-exit rail, or break the rule.**
+
+---
+
+# ADDENDUM 2 — the LP route WORKS for BAYLA. Verified end to end, 2026-09-01.
+
+Addendum 1 concluded BAYLA could not use kfarms. That conclusion was right about
+SINGLE-SIDED staking and wrong as a general statement. There is a route that
+gives BAYLA the full TOWELI shape on battle-tested code with no custom program.
+
+## The dead end first, so nobody retries it
+
+The obvious LP — **PumpSwap BAYLA/SOL** (`8z52phbc…pK2n`) — is NOT usable. Its
+pool account decodes (base_mint = BAYLA, quote_mint = wSOL, which validates the
+offsets) to **lp_mint `8qJs53HCeFbfHJ5QPbuQAX4nhh3ECUeggv3nbjunAUU9`, owned by
+Token-2022.** pump.fun's AMM issues Token-2022 LP mints, so kfarms refuses it
+for exactly the same reason it refuses BAYLA itself.
+
+## The route that works
+
+**Raydium CP-swap issues a LEGACY SPL LP mint even when a pool side is
+Token-2022.** Verified in `raydium-io/raydium-cp-swap`,
+`programs/cp-swap/src/instructions/initialize.rs`:
+
+- lines 55 / 61 — `mint::token_program = token_0_program` / `token_1_program`:
+  each POOL SIDE carries its own token program, so a Token-2022 base mint is
+  accepted.
+- line 76 — `mint::token_program = token_program` on `lp_mint`.
+- line 151 — `pub token_program: Program<'info, Token>` — **`Token` is the
+  LEGACY program.** So the LP mint is legacy SPL regardless of the sides.
+
+And kfarms can PAY BAYLA. `handler_harvest_reward.rs` line 7 imports
+`token_interface::{Mint as MintInterface, TokenAccount as TokenAccountInterface,
+TokenInterface}` and line 122 declares `reward_mint: Box<InterfaceAccount<
+MintInterface>>` — Token-2022 capable.
+
+Line 26 calls `validate_reward_token_extensions`, so the reward mint's
+extensions must pass. **BAYLA's do**: read from mainnet, its only extensions are
+`metadataPointer` and `tokenMetadata` — the inert pump.fun metadata pair. No
+transfer fee, no transfer hook, no permanent delegate, no confidential
+transfer. (Also: `mintAuthority` and `freezeAuthority` are both `None` — fixed
+supply, and no one can freeze a holder's account.)
+
+## The resulting product
+
+1. Liquidity providers deposit into a **Raydium CP-swap BAYLA/SOL** pool and
+   receive a **legacy SPL** LP token.
+2. They stake that LP token in a **kfarms** farm — legal, because the staked
+   mint is legacy.
+3. They earn **BAYLA** — legal, because the reward path is `token_interface`
+   and BAYLA's extensions are inert.
+
+That yields, natively and with zero custom code: **fixed daily emissions**
+(`RewardType::Proportional`, TVL-independent), a **per-user penalized exit**
+(`apply_early_withdrawal_penalty`, decaying, swept to a `has_one`-pinned
+treasury), and **lock durations** (farm-level; the ladder is still N farms plus
+the RPS rebalancer from §4.3).
+
+## What this costs, honestly
+
+- **It is an LP product, not single-sided staking.** Holders take impermanent
+  loss. That is a different risk profile and must be said plainly in the UI.
+- **It needs a new pool.** BAYLA's liquidity is on PumpSwap today; a CP-swap
+  pool either splits it or requires a migration. That is a liquidity decision,
+  not a technical one.
+- Raydium's protocol has been exploited twice historically (2022 key
+  compromise; a 2026 legacy-AMM incident) — neither in CP-swap, but "never
+  hacked" is not a claim that survives contact with the organisation's record.
+- The kfarms lock+penalty path still has ~$0 mainnet exposure and has never
+  been audited. That caveat from §5 is unchanged.
