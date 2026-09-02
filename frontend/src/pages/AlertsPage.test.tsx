@@ -1,35 +1,26 @@
 // THE MOUNT, PROVEN AT THE ROUTE.
 //
-// AlertsPanel and its three children were written, unit-tested, and reachable from
-// nowhere: no route, no nav entry, no test that rendered them together. So the thing this
-// file pins is not the panel's copy (NotificationInbox.test.tsx and
-// DeliveryChannelNotice.test.tsx own that) — it is that /alerts composes the real store
-// hook, the real evaluation loop and the real inbox, and that the two states this
-// deployment can actually be in reach the screen instead of throwing.
+// What this file used to pin was a page that could not be used: with no wallet the
+// builder was greyed out under "connect and sign in", and with a wallet every call
+// answered 503 because `016_alert_rules.sql` had not been applied by hand. Both
+// states were honestly disclosed and neither could be left, because the venue has
+// no sign-in control at all.
 //
-// Both states are gated states, and neither is hidden:
+// The store now lives in this browser, so the state a visitor lands in is the
+// WORKING one, and that is what is pinned here: the form accepts a rule with no
+// wallet, the SIWE-gated store is never called, and the copy no longer promises a
+// wallet-bound store nobody can reach.
 //
-//   signed out     — rules are per-wallet, so there is nothing to read. Said as itself.
-//   schema-missing — `016_alert_rules.sql` has not been applied by hand, so every alerts
-//                    call answers 503 and the surface prints the server's sentence AND the
-//                    operator's next step. This is the state production is in today; a
-//                    flag that hid the page to avoid showing it would have been the bug.
-//
-// The panel is rendered REAL — only wagmi, the art backdrop and framer-motion are stubbed
-// — because a test that mocked useAlerts would prove the page renders a mock.
+// The panel is rendered REAL — only wagmi, the art backdrop and framer-motion are
+// stubbed — because a test that mocked useAlerts would prove the page renders a mock.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const wallet = vi.hoisted(() => ({ isConnected: false, address: undefined as string | undefined }));
-
 vi.mock('wagmi', () => ({
-  useAccount: () => ({ isConnected: wallet.isConnected, address: wallet.address }),
+  useAccount: () => ({ isConnected: false, address: undefined }),
   useChainId: () => 1,
-  // usePremiumAccess (read through useAlerts for the rule ceiling) is left REAL, so these
-  // are the shapes it destructures. Every read answers "no data", which is what an
-  // undeployed PremiumAccess answers, so the free-tier limit is what the builder shows.
   useReadContract: () => ({ data: undefined }),
   useReadContracts: () => ({ data: undefined, refetch: vi.fn(), isLoading: false, isError: false, error: null }),
   useWriteContract: () => ({ writeContract: vi.fn(), data: undefined, isPending: false, reset: vi.fn(), error: null }),
@@ -41,56 +32,17 @@ vi.mock('../components/PageArtBackdrop', () => ({ PageArtBackdrop: () => null })
 
 import AlertsPage from './AlertsPage';
 
-/**
- * Wrapped in a router so any descendant that grows a link keeps working. The real
- * subtree includes TelegramLinkPanel, which reads its link code straight off
- * `window.location` for exactly this reason — a leaf that demanded a Router would
- * make one a hard requirement of every ancestor's tests. Nothing here is stubbed
- * out: stubbing that panel would make this file's central claim — that /alerts
- * composes the REAL surface — quietly untrue, which is the failure the header
- * warns about one level up.
- */
 const renderPage = () =>
   render(<AlertsPage />, { wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter> });
 
-/**
- * The rule store's own copy of a message, not any other panel's.
- *
- * The 503 stub below answers EVERY fetch, so both the rule store and the Telegram
- * link store receive the same body and both print it — which is each panel
- * correctly reporting the fact it owns, and would be a false duplicate-match if
- * asserted page-wide. In production they differ (one names `alert_rules`, the other
- * `telegram_links`); scoping is what keeps this test about the rule store.
- */
 const inRules = () => within(screen.getByRole('region', { name: 'Alert rules' }));
-
-/** The 503 the aggregator answers until migration 016 is applied. */
-const SCHEMA_MISSING_DETAIL =
-  'The alert-rule table does not exist on this deployment, so no rules could be read or saved.';
-const OPERATOR_STEP = 'Apply supabase/migrations/016_alert_rules.sql, then reload.';
-
-function stubSchemaMissing() {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({
-      ok: false,
-      status: 503,
-      json: async () => ({
-        code: 'schema-missing',
-        error: SCHEMA_MISSING_DETAIL,
-        operatorStep: OPERATOR_STEP,
-      }),
-    })),
-  );
-}
+const EVM = '0x420698cfdeddea6bc78d59bc17798113ad278f9d';
 
 beforeEach(() => {
-  wallet.isConnected = false;
-  wallet.address = undefined;
   localStorage.clear();
-  // Nothing in either gated state may reach the network: with no wallet the store is
-  // never asked, and with no rules the evaluation loop is parked. A call arriving here
-  // means one of those two claims stopped being true.
+  // The store is local and the loop is parked until a rule exists, so NOTHING on
+  // this page may reach the network in the state a visitor lands in. A call
+  // arriving here is the claim failing, not the stub.
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
@@ -105,19 +57,15 @@ afterEach(() => {
 });
 
 describe('the route renders the whole alerts surface', () => {
-  it('mounts the page and all three panels without throwing', async () => {
+  it('mounts the page and all three panels without throwing', () => {
     renderPage();
-
     expect(screen.getByRole('heading', { level: 1, name: 'Alerts' })).toBeInTheDocument();
-    // One region per honest state, each owned by the component that holds the fact.
     expect(screen.getByRole('region', { name: 'Alert rules' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Notification inbox' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Alert delivery' })).toBeInTheDocument();
   });
 
   it('keeps a heading level between the page h1 and the panels’ h3s', () => {
-    // The panels ship <h3>; a page whose only other heading is the <h1> would step
-    // h1 → h3, which is the `heading-order` finding the route table declares as empty.
     const { container } = renderPage();
     const levels = [...container.querySelectorAll('h1,h2,h3,h4,h5,h6')].map((h) => Number(h.tagName[1]));
     expect(levels[0]).toBe(1);
@@ -129,63 +77,90 @@ describe('the route renders the whole alerts surface', () => {
   });
 });
 
-describe('signed out is stated as itself, not as an empty rule list', () => {
-  it('says the rules live against the wallet, and asks for a sign-in', () => {
+describe('a visitor with no wallet can actually use it', () => {
+  it('offers an enabled form and a store that says where it lives', () => {
     renderPage();
-    // Scoped to the builder: the inbox has its own role="status" for its own kind of
-    // empty, and the two must not be read as one message.
-    const builder = within(screen.getByRole('region', { name: 'Alert rules' })).getByRole('status');
-    expect(builder.textContent).toMatch(/stored against your wallet/i);
-    expect(builder.textContent).toMatch(/Connect and sign in/i);
+    expect(screen.getByRole('button', { name: 'Add rule' })).toBeEnabled();
+    expect(inRules().getByText(/Saved in this browser/)).toBeInTheDocument();
   });
 
-  it('never reports calm — the empty inbox says nothing is being watched', () => {
+  it('accepts a rule with no wallet, and never asks a server to store it', async () => {
     renderPage();
-    const text = document.body.textContent ?? '';
-    expect(text).toMatch(/nothing is being watched/i);
-    expect(text).not.toMatch(/none of them matched/i);
+    fireEvent.change(inRules().getByRole('combobox'), { target: { value: 'heat-tier' } });
+    fireEvent.change(inRules().getByPlaceholderText(/address/i), { target: { value: EVM } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }));
+
+    await waitFor(() => expect(inRules().getByText(/Saved in this browser — 1 of 10/)).toBeInTheDocument());
+    expect(localStorage.getItem('tegridy-alert-rules-v1')).toContain('heat-tier');
+    // The rule now EXISTS, so the evaluation loop un-parks and reads its source —
+    // that traffic is the surface working. What must never happen is a call to
+    // the SIWE-gated rule store, which is the request that used to answer 401
+    // and then 503 and left the page dead.
+    const urls = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('resource=alerts'))).toBe(false);
   });
 
-  it('asks the store for nothing while there is no session', () => {
+  it('a rule whose source is dark becomes a gap row, not silence', async () => {
     renderPage();
-    expect(fetch).not.toHaveBeenCalled();
+    fireEvent.change(inRules().getByRole('combobox'), { target: { value: 'whale-move' } });
+    fireEvent.change(inRules().getByPlaceholderText(/address/i), { target: { value: EVM } });
+    fireEvent.change(inRules().getByPlaceholderText(/USD threshold/i), { target: { value: '1000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }));
+
+    const inbox = within(screen.getByRole('region', { name: 'Notification inbox' }));
+    // The indexer is unhosted, so this rule cannot be evaluated — and that must
+    // arrive as a visible row saying so, never as an empty, calm-looking inbox.
+    await waitFor(() => expect(inbox.getByText(/Could not evaluate/)).toBeInTheDocument());
+    expect(document.body.textContent).not.toMatch(/none of them matched/i);
   });
 });
 
-describe('the 503 the deployment answers today reaches the screen', () => {
-  beforeEach(() => {
-    wallet.isConnected = true;
-    wallet.address = '0x1111111111111111111111111111111111111111';
-    stubSchemaMissing();
-  });
-
-  it('prints the server’s sentence verbatim, and the operator step with it', async () => {
+describe('the copy promises only what this build can keep', () => {
+  it('never says the rules are stored against a wallet', () => {
     renderPage();
-    await waitFor(() => expect(inRules().getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
-    // AlertsPanel prints the rule store's operator step as a sibling of the
-    // regions, so this one cannot be scoped with `inRules()`. Everything outside
-    // the Telegram region is the alerts surface, and there must be EXACTLY one —
-    // the count still matters, it just cannot be taken page-wide while a second
-    // panel is being handed the same stubbed 503.
+    // TelegramLinkPanel owns its OWN signed-out sentence, and that one is true:
+    // binding a chat really does need a session. Scoping keeps this assertion
+    // about the rule store.
     const telegram = screen.getByRole('region', { name: 'Telegram' });
-    const stepMatches = screen
-      .getAllByText(new RegExp(OPERATOR_STEP.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
-      .filter((el) => !telegram.contains(el));
-    expect(stepMatches).toHaveLength(1);
+    const outside = [...document.querySelectorAll('p, li, span')].filter((el) => !telegram.contains(el));
+    for (const el of outside) {
+      expect(el.textContent ?? '').not.toMatch(/stored against your wallet/i);
+    }
   });
 
-  it('disables the form rather than accepting a rule nothing can store', async () => {
+  it('says rules need no sign-in — and does NOT say the page needs none', () => {
     renderPage();
-    await waitFor(() => expect(inRules().getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Add rule' })).toBeDisabled();
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/saved in this browser and need no sign-in/i);
+    // Wallet sync and Telegram binding still do need one. A blanket "no sign-in
+    // needed" would be a promise the Telegram panel immediately contradicts.
+    expect(text).toMatch(/does not offer a sign-in yet/i);
   });
 
-  it('does not claim the user has no rules, and does not claim the market is quiet', async () => {
+  it('the empty inbox says nothing is being watched, and never reports calm', () => {
     renderPage();
-    await waitFor(() => expect(inRules().getByText(SCHEMA_MISSING_DETAIL)).toBeInTheDocument());
     const text = document.body.textContent ?? '';
     expect(text).toMatch(/nothing is being watched/i);
     expect(text).not.toMatch(/none of them matched/i);
-    expect(text).not.toMatch(/real negative/i);
+  });
+
+  it('the meta description names no rule kind this build cannot read', () => {
+    renderPage();
+    const description = document.querySelector('meta[name="description"]')?.getAttribute('content') ?? '';
+    expect(description.length).toBeGreaterThan(0);
+    // Whale moves and LP unlocks are dark: naming them in the page's own
+    // description advertises coverage the engine does not have.
+    expect(description).not.toMatch(/whale/i);
+    expect(description).not.toMatch(/LP unlock/i);
+  });
+
+  it('every control in the three alert regions is a 44px target', () => {
+    renderPage();
+    for (const name of ['Alert rules', 'Notification inbox', 'Alert delivery']) {
+      const region = screen.getByRole('region', { name });
+      for (const control of region.querySelectorAll('button, input, select')) {
+        expect(control.className, `${name}: ${control.textContent || control.tagName}`).toContain('min-h-11');
+      }
+    }
   });
 });

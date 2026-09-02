@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { showNotification } from '../lib/alerts/webNotification';
 import { toast } from 'sonner';
 
 export interface PriceAlert {
@@ -45,15 +46,13 @@ function saveAlerts(alerts: PriceAlert[]) {
   } catch { /* ignore */ }
 }
 
+// One shared notification site (lib/alerts/webNotification.ts), and NO permission
+// request from here any more. Asking at the moment an alert fires is asking
+// without a user gesture: browsers deny it, and Chrome penalises the origin for
+// having asked — so the prompt that was meant to rescue this notification was
+// costing the ability to prompt at all. The alerts surface asks from a button.
 function sendNotification(title: string, body: string) {
-  if (typeof Notification === 'undefined') return;
-  if (Notification.permission === 'granted') {
-    try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* Notification API unavailable */ }
-  } else if (Notification.permission !== 'denied') {
-    Notification.requestPermission().then((perm) => {
-      if (perm === 'granted') { try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* Notification API unavailable */ } }
-    });
-  }
+  void showNotification(title, body, `price-alert:${title}`);
 }
 
 export function usePriceAlerts(currentPrice: number) {

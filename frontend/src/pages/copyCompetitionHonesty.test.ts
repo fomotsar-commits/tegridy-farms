@@ -23,6 +23,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALL_NAV } from '../lib/navConfig';
 import { isIndexerConfigured } from '../lib/indexer/client';
+import { islandPools } from '../lib/copytrade/tape';
+import { cupPools } from '../lib/competitions/islandCup';
 
 const SRC = join(process.cwd(), 'src');
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), 'utf8');
@@ -158,15 +160,41 @@ describe('nothing in the slice reaches a server or holds a key', () => {
 });
 
 describe('the nav entries describe what the pages can actually do', () => {
-  it('pills both while there is no indexer to read', () => {
-    // Asserted as a concrete value with its precondition pinned first, so a
-    // configured indexer in some future environment fails the precondition
-    // loudly instead of silently inverting the expectation.
-    expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
+  // REWRITTEN 2026-09-02. This used to assert that BOTH entries were pilled because
+  // neither could read anything without VITE_INDEXER_URL. That stopped being true when
+  // both pages moved onto the island tape — GeckoTerminal's trade feed for the resident
+  // pools the registry already names, which needs no env var, no key and no proxy.
+  //
+  // The precondition is asserted FIRST and is the registry, not the indexer: if the
+  // registry is ever emptied, THAT fails here by name instead of silently inverting the
+  // pill expectations two lines down.
+  it('does not pill either page: both read the island tape, which the registry supplies', () => {
+    expect(
+      islandPools().length,
+      'no island pool is registered, so the tape has nothing to read and the pills are right to be on',
+    ).toBeGreaterThan(0);
+    expect(
+      cupPools().length,
+      'no cup pool is registered, so no board can be scored',
+    ).toBeGreaterThan(0);
+
     for (const path of ['/copy-trading', '/competitions']) {
       const entry = ALL_NAV.find((n) => n.to === path);
       expect(entry, `${path} missing from nav`).toBeTruthy();
-      expect(entry?.soon, `${path} cannot do what it names without an indexer`).toBe(true);
+      expect(
+        entry?.soon,
+        `${path} reads the island tape, which needs no operator step — it must not read as SOON`,
+      ).toBeFalsy();
+    }
+  });
+
+  // The independence claim, which is the half that would rot silently. Neither pill may
+  // track the unhosted indexer any more; /competitions may still USE one when present
+  // (its predicate is an OR), but its absence must not pill the entry.
+  it('neither pill tracks the indexer', () => {
+    expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
+    for (const path of ['/copy-trading', '/competitions']) {
+      expect(ALL_NAV.find((n) => n.to === path)?.soon).toBeFalsy();
     }
   });
 });

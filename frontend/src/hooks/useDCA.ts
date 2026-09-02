@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { notificationPermission, requestWebNotificationPermission, showNotification } from '../lib/alerts/webNotification';
 import { useAccount, useWriteContract, usePublicClient, useChainId } from 'wagmi';
 import { parseUnits } from 'viem';
 import { toast } from 'sonner';
@@ -208,16 +209,20 @@ function buildPath(fromToken: DCASchedule['fromToken'], toToken: DCASchedule['to
   return [fromAddr, WETH_ADDRESS, toAddr];
 }
 
+// One shared notification site (lib/alerts/webNotification.ts): `new Notification()`
+// is an illegal constructor in page context on Android Chrome, so the private
+// copy this used to hold showed nothing there while reporting success.
 function sendNotification(title: string, body: string) {
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-  try { new Notification(title, { body, icon: '/favicon.ico' }); } catch { /* ignore */ }
+  void showNotification(title, body, `dca:${title}`);
 }
 
 function requestNotificationPermission() {
-  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-    Notification.requestPermission().catch(() => {});
-  }
+  // User-gesture-adjacent and permission-gated inside the helper. Kept here
+  // because this hook asks once when a wallet's schedules load, which is a
+  // reasonable moment; the alerts surface asks from its own button instead.
+  if (notificationPermission() === 'default') void requestWebNotificationPermission();
 }
+
 
 export function useDCA() {
   const chainId = useChainId();

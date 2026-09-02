@@ -11,7 +11,7 @@ vi.mock('../lib/storage', async (importOriginal) => {
   return { ...actual, safeSetItem: safeSetItemMock };
 });
 
-import { useCopyFollows } from './useCopyFollows';
+import { useCopyFollows, useSolanaFollowerAddress } from './useCopyFollows';
 import { loadFollows, type MirrorIntent } from '../lib/copytrade/follows';
 
 const LEADER = '0xabcdef0123456789abcdef0123456789abcdef01';
@@ -21,6 +21,10 @@ const OUT = '0x2222222222222222222222222222222222222222';
 const NOW = 1_780_000_000;
 
 const draft = {
+  // Every follow now names its venue: the island spans three chains and the
+  // quote-token table is per-chain, so an address without a venue cannot be
+  // validated against anything.
+  venue: 'evm' as const,
   leader: LEADER,
   quoteToken: QUOTE,
   maxNotionalWei: 10n ** 17n,
@@ -97,6 +101,7 @@ describe('useCopyFollows', () => {
 
   it('records a mirror as an intent, and a second confirmation as the same one', () => {
     const intent: MirrorIntent = {
+      venue: 'evm',
       leader: LEADER,
       leaderTxHash: `0x${'ab'.repeat(32)}`,
       leaderTimestamp: NOW - 60,
@@ -105,6 +110,7 @@ describe('useCopyFollows', () => {
       quoteToken: QUOTE,
       tokenOut: OUT,
       notionalWei: 10n ** 16n,
+      poolKey: null,
     };
     const { result } = renderHook(() => useCopyFollows());
     act(() => {
@@ -115,5 +121,50 @@ describe('useCopyFollows', () => {
     });
     expect(result.current.intents).toHaveLength(1);
     expect(result.current.intents[0]!.confirmedAt).toBe(NOW + 5);
+  });
+});
+
+describe('useSolanaFollowerAddress', () => {
+  const REAL = '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k';
+
+  it('accepts a 32-byte key, keeps its case, and survives a remount', () => {
+    const first = renderHook(() => useSolanaFollowerAddress());
+    act(() => {
+      expect(first.result.current.save(` ${REAL} `)).toBe('ok');
+    });
+    expect(first.result.current.address).toBe(REAL);
+    first.unmount();
+
+    const second = renderHook(() => useSolanaFollowerAddress());
+    expect(second.result.current.address).toBe(REAL);
+  });
+
+  it('refuses a string that is base58-shaped but not a key, and stores nothing', () => {
+    // 44 base58 characters decoding to 33 bytes. A regex-only guard would store
+    // it, render it, and then never match a fill.
+    const { result } = renderHook(() => useSolanaFollowerAddress());
+    act(() => {
+      expect(result.current.save('z'.repeat(44))).toBe('invalid');
+    });
+    expect(result.current.address).toBeNull();
+    expect(safeSetItemMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a refused write rather than pretending the address stuck', () => {
+    safeSetItemMock.mockReturnValue(false);
+    const { result } = renderHook(() => useSolanaFollowerAddress());
+    act(() => {
+      expect(result.current.save(REAL)).toBe('persist-failed');
+    });
+    // In memory it still applies, so the session behaves; the caller says so.
+    expect(result.current.address).toBe(REAL);
+  });
+
+  it('ignores a stored value that is not a key any more', () => {
+    localStorage.setItem('tegridy-own-copytrade-solana-wallet', 'not-a-key');
+    const { result } = renderHook(() => useSolanaFollowerAddress());
+    // Storage is editable by anything on this origin, so it is re-validated on
+    // read rather than trusted because it is ours.
+    expect(result.current.address).toBeNull();
   });
 });

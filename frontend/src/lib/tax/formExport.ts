@@ -76,12 +76,23 @@ export function capitalGainsFormExport(report: TaxReport): string {
         `${description}${suffix}`,
         earliest === null ? '' : iso(earliest),
         iso(d.disposedAt),
-        d.proceeds === null ? '' : formatScaled(d.proceeds, 2),
-        d.costBasis === null ? '' : formatScaled(d.costBasis, 2),
-        d.gain === null ? '' : formatScaled(d.gain, 2),
+        d.proceeds === null ? '' : formatScaled(d.proceeds, report.quoteScale),
+        d.costBasis === null ? '' : formatScaled(d.costBasis, report.quoteScale),
+        d.gain === null ? '' : formatScaled(d.gain, report.quoteScale),
         d.heldDays === null ? '' : String(d.heldDays),
         d.gain === null ? 'incomplete' : 'complete',
-        d.incompleteReasons.map((r) => INCOMPLETE_REASON_TEXT[r]).join(' '),
+        [
+          d.incompleteReasons.map((r) => INCOMPLETE_REASON_TEXT[r]).join(' '),
+          // Provenance travels in the notes rather than in a tenth column: the
+          // first six positions are what an importer reads, and a filer
+          // transcribing a row onto a form needs to know whether a figure came
+          // out of the chain or out of their own paste.
+          d.proceedsSource === undefined ? '' : `Proceeds source: ${d.proceedsSource}.`,
+          d.costBasisSource === undefined ? '' : `Cost-basis source: ${d.costBasisSource}.`,
+          d.initiator === undefined ? '' : `Transaction sent by: ${d.initiator}.`,
+        ]
+          .filter((part) => part.length > 0)
+          .join(' '),
       ]
         .map(csvField)
         .join(','),
@@ -91,9 +102,9 @@ export function capitalGainsFormExport(report: TaxReport): string {
   lines.push('#');
   lines.push(
     `# Subtotal of the ${report.capitalGains.totals.countedRows} complete row(s): proceeds ` +
-      `${formatScaled(report.capitalGains.totals.proceeds, 2)}, cost basis ` +
-      `${formatScaled(report.capitalGains.totals.costBasis, 2)}, gain or loss ` +
-      `${formatScaled(report.capitalGains.totals.realisedGain, 2)} ${report.quoteCurrency}.`,
+      `${formatScaled(report.capitalGains.totals.proceeds, report.quoteScale)}, cost basis ` +
+      `${formatScaled(report.capitalGains.totals.costBasis, report.quoteScale)}, gain or loss ` +
+      `${formatScaled(report.capitalGains.totals.realisedGain, report.quoteScale)} ${report.quoteCurrency}.`,
   );
   if (!report.capitalGains.totals.complete) {
     lines.push(

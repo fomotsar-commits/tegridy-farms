@@ -127,7 +127,88 @@ export const geckoTerminalTradesSchema = z.object({
         from_token_amount: decimalStringSchema.nullish(),
         to_token_amount: decimalStringSchema.nullish(),
         volume_in_usd: decimalStringSchema.nullish(),
+        // The two token legs and the block. Added for the shared trades reader
+        // (lib/geckoTerminal/poolTrades.ts): a tape that only knows "buy" cannot
+        // say WHICH pair was traded, and a copy-trading surface has to match a
+        // fill to a token address rather than to a label. All three are
+        // `.nullish()` so nothing that already parses stops parsing.
+        from_token_address: z.string().nullish(),
+        to_token_address: z.string().nullish(),
+        block_number: z.number().nullish(),
       }),
+    }),
+  ),
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pool LISTS — `networks/{network}/new_pools`, `.../trending_pools`,
+// `.../pools/multi/{a,b,c}`.
+//
+// ONE SCHEMA COVERS ALL OF THEM, and that is a measured fact rather than an
+// assumption: live responses from `new_pools`, `trending_pools` (on eth, base
+// AND solana), `pools/multi` and `search/pools` were captured on 2026-09-02 and
+// carry the identical JSON:API item shape. The trimmed captures live in
+// lib/geckoTerminal/fixtures/ and are what pools.test.ts parses — a hand-written
+// object only ever proves the parser agrees with its author.
+//
+// The shape is strict about STRUCTURE (a `data` array of objects) and loose
+// about everything else, because the field SET genuinely varies by endpoint:
+// `pools/multi` adds `pool_name`, `pool_fee_percentage` and
+// `locked_liquidity_percentage` that the list endpoints omit. Nothing here is
+// invented — every key named below appears in a captured response.
+//
+// The numeric fields are `string | number` for TWO reasons. The upstream is
+// genuinely inconsistent — `reserve_in_usd` came back as a JSON number from
+// `pools/multi` and as a decimal string from the list endpoints in the same
+// capture session — and a single pool quoting a price this schema dislikes must
+// not void the whole page. Values are coerced in lib/geckoTerminal/pools.ts,
+// where an implausible one is WITHHELD (rendered as unknown) rather than
+// silently dropped or printed.
+//
+// A 429 body is `{ "status": { "error_code": 429, … } }` with NO `data` key, so
+// it fails this schema outright and can never parse into "zero pools". The
+// reader checks the status code first regardless — see readGeckoPools.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A number as GeckoTerminal sends it — usually a decimal string, sometimes a number. */
+const numericLike = z.union([z.string(), z.number()]).nullish();
+
+/** JSON:API relationship stub: `{ data: { id } }`, any part of which may be absent. */
+const relationshipRef = z
+  .looseObject({ data: z.looseObject({ id: z.string().nullish() }).nullish() })
+  .nullish();
+
+/** One `transactions` window — only the two counts any surface here shows. */
+const txWindow = z
+  .looseObject({ buys: z.number().nullish(), sells: z.number().nullish() })
+  .nullish();
+
+export const geckoTerminalPoolListSchema = z.object({
+  data: z.array(
+    z.looseObject({
+      id: z.string().nullish(),
+      attributes: z
+        .looseObject({
+          address: z.string().nullish(),
+          name: z.string().nullish(),
+          /** ISO-8601 in `new_pools`. Absent is a real state — see pools.ts. */
+          pool_created_at: z.union([z.string(), z.number()]).nullish(),
+          base_token_price_usd: numericLike,
+          reserve_in_usd: numericLike,
+          fdv_usd: numericLike,
+          market_cap_usd: numericLike,
+          volume_usd: z.looseObject({ h24: numericLike }).nullish(),
+          price_change_percentage: z.looseObject({ h24: numericLike }).nullish(),
+          transactions: z.looseObject({ m5: txWindow, h24: txWindow }).nullish(),
+        })
+        .nullish(),
+      relationships: z
+        .looseObject({
+          base_token: relationshipRef,
+          quote_token: relationshipRef,
+          dex: relationshipRef,
+        })
+        .nullish(),
     }),
   ),
 });

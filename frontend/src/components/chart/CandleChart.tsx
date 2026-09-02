@@ -28,6 +28,17 @@ export interface CandleChartProps {
   baseSymbol: string;
   /** e.g. "WETH" — the token a candle's price is quoted IN. */
   quoteSymbol: string;
+  /**
+   * The newest bucket may still be accumulating at the source.
+   *
+   * True for a server-aggregated feed (GeckoTerminal returns the current bucket
+   * with whatever has traded so far), false for the indexed path, which builds
+   * its buckets out of swaps it has already read. The difference matters because
+   * the newest candle's CLOSE is the one number a reader acts on, and on a live
+   * bucket it is "the last trade so far", not "where this bucket closed". It is
+   * marked with a dashed body and said in words rather than left to be assumed.
+   */
+  newestMayBeOpen?: boolean;
 }
 
 const UP = 'var(--color-success)';
@@ -42,7 +53,20 @@ function utcLabel(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
-export function CandleChart({ series, baseSymbol, quoteSymbol }: CandleChartProps) {
+/**
+ * The trade-count clause, or nothing at all.
+ *
+ * `trades` is null when the SOURCE reports no count (every GeckoTerminal
+ * bucket). Printing "0 trades" there would turn "nobody told us" into "nothing
+ * traded" on a candle that demonstrably has four prices behind it, so the clause
+ * is omitted entirely rather than filled with a number nobody measured.
+ */
+function tradeClause(trades: number | null): string {
+  if (trades === null) return '';
+  return ` · ${trades} trade${trades === 1 ? '' : 's'}`;
+}
+
+export function CandleChart({ series, baseSymbol, quoteSymbol, newestMayBeOpen = false }: CandleChartProps) {
   const layout = useMemo(() => buildLayout(series.slots, DEFAULT_VIEWPORT), [series.slots]);
   const ticks = useMemo(() => (layout ? priceTicks(layout) : []), [layout]);
 
@@ -62,13 +86,27 @@ export function CandleChart({ series, baseSymbol, quoteSymbol }: CandleChartProp
   const first = series.from;
   const last = series.to;
 
+  // Which body carries the open-bucket marker. Found by walking back to the last
+  // CANDLE rather than taking the last box, because a series can end on a gap —
+  // in which case the newest candle is not the newest slot and marking the box
+  // at the end would put the dashed body on the wrong bucket.
+  let newestCandleStart: number | null = null;
+  for (let i = layout.boxes.length - 1; i >= 0; i -= 1) {
+    const box = layout.boxes[i];
+    if (box && box.kind === 'candle') {
+      newestCandleStart = box.slot.startSec;
+      break;
+    }
+  }
+
   const description =
     `Candlestick chart of ${baseSymbol} priced in ${quoteSymbol}. ` +
     `${series.candleCount} bucket${series.candleCount === 1 ? '' : 's'} traded` +
     (series.emptyBuckets > 0
       ? `, and ${series.emptyBuckets} bucket${series.emptyBuckets === 1 ? '' : 's'} had no trade at all and are drawn as gaps rather than filled in`
       : ' with no empty buckets in between') +
-    `. Price range ${formatAxisPrice(layout.band.min)} to ${formatAxisPrice(layout.band.max)} ${quoteSymbol}.`;
+    `. Price range ${formatAxisPrice(layout.band.min)} to ${formatAxisPrice(layout.band.max)} ${quoteSymbol}.` +
+    (newestMayBeOpen ? ' The newest bucket may still be open.' : '');
 
   return (
     <figure className="m-0">
@@ -144,9 +182,16 @@ export function CandleChart({ series, baseSymbol, quoteSymbol }: CandleChartProp
                   height={box.bodyHeight}
                   fill={colorOf(box.direction)}
                   opacity={box.direction === 'flat' ? 0.9 : 0.85}
+                  {...(newestMayBeOpen && box.slot.startSec === newestCandleStart
+                    ? { stroke: 'rgba(255,255,255,0.85)', strokeWidth: 1, strokeDasharray: '2 2' }
+                    : {})}
                 >
                   <title>
-                    {`${utcLabel(box.slot.startSec)} · O ${formatAxisPrice(box.slot.open)} H ${formatAxisPrice(box.slot.high)} L ${formatAxisPrice(box.slot.low)} C ${formatAxisPrice(box.slot.close)} ${quoteSymbol} · ${box.slot.trades} trade${box.slot.trades === 1 ? '' : 's'}`}
+                    {`${utcLabel(box.slot.startSec)} · O ${formatAxisPrice(box.slot.open)} H ${formatAxisPrice(box.slot.high)} L ${formatAxisPrice(box.slot.low)} C ${formatAxisPrice(box.slot.close)} ${quoteSymbol}${tradeClause(box.slot.trades)}${
+                      newestMayBeOpen && box.slot.startSec === newestCandleStart
+                        ? ' · bucket may still be open'
+                        : ''
+                    }`}
                   </title>
                 </rect>
               </g>
@@ -200,6 +245,62 @@ export function CandleChart({ series, baseSymbol, quoteSymbol }: CandleChartProp
           {baseSymbol} priced in {quoteSymbol}
         </span>
       </figcaption>
+
+      {/* THE PLOT IN WORDS. An `aria-label` on the svg says what the chart is
+          about; it cannot say what any individual bucket did, and a shape with
+          no reachable numbers is a chart only a sighted mouse user can read.
+          The same slots are listed here in the same order, with the gaps kept
+          as gaps — a table that quietly omitted the empty buckets would be a
+          more convincing version of the lie the plot refuses to draw. */}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-[11px] text-white/60 hover:text-white/85">
+          Read these candles as a table
+        </summary>
+        <div className="mt-2 max-h-72 overflow-auto">
+          <table className="w-full min-w-[320px] border-collapse text-left text-[11px] text-white/75">
+            <caption className="sr-only">
+              {`Every bucket in this chart, oldest first. ${baseSymbol} priced in ${quoteSymbol}.`}
+            </caption>
+            <thead className="text-white/55">
+              <tr>
+                <th scope="col" className="py-1 pr-3 font-medium">Bucket opened (UTC)</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Open</th>
+                <th scope="col" className="py-1 pr-3 font-medium">High</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Low</th>
+                <th scope="col" className="py-1 pr-3 font-medium">Close</th>
+                <th scope="col" className="py-1 font-medium">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {series.slots.map((slot) =>
+                slot.kind === 'gap' ? (
+                  <tr key={`row-gap-${slot.startSec}`} className="border-t border-white/10">
+                    <th scope="row" className="py-1 pr-3 font-normal">{utcLabel(slot.startSec)}</th>
+                    <td className="py-1 pr-3" colSpan={4}>
+                      Not returned by the source — no price is claimed
+                    </td>
+                    <td className="py-1">{`gap, ${slot.buckets} bucket${slot.buckets === 1 ? '' : 's'}`}</td>
+                  </tr>
+                ) : (
+                  <tr key={`row-candle-${slot.startSec}`} className="border-t border-white/10">
+                    <th scope="row" className="py-1 pr-3 font-normal">{utcLabel(slot.startSec)}</th>
+                    <td className="py-1 pr-3 tabular-nums">{formatAxisPrice(slot.open)}</td>
+                    <td className="py-1 pr-3 tabular-nums">{formatAxisPrice(slot.high)}</td>
+                    <td className="py-1 pr-3 tabular-nums">{formatAxisPrice(slot.low)}</td>
+                    <td className="py-1 pr-3 tabular-nums">{formatAxisPrice(slot.close)}</td>
+                    <td className="py-1">
+                      {slot.trades === null ? '' : `${slot.trades} trade${slot.trades === 1 ? '' : 's'}`}
+                      {newestMayBeOpen && slot.startSec === newestCandleStart
+                        ? `${slot.trades === null ? '' : ' · '}may still be open`
+                        : ''}
+                    </td>
+                  </tr>
+                ),
+              )}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </figure>
   );
 }

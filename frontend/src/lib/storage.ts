@@ -30,11 +30,51 @@ export const EVICTION_PROTECTED_KEYS = new Set<string>([
   'tegridy-onboarding-seen',
   'tegridy-onboarding-bayla-seen',
   'tegridy_telemetry_consent',
+  // The terminal watchlist is a LIST the user built by hand, not a cache. It
+  // stores as a ts-less JSON array, which put it at the very front of the
+  // sweeper's "oldest first" queue: the first quota-pressured write of any
+  // price cache silently emptied it. Nothing re-derives a watchlist.
+  'tegridy-terminal-watchlist',
+  // Alert rules are a CHOICE and the inbox is the ONLY record that an alert was
+  // ever delivered; the priors blob is the engine's watermark. None of the three
+  // is re-derivable, and all three store as ts-less JSON, which put them at the
+  // front of the "oldest first" queue — a watch that silently stopped watching.
+  'tegridy-alert-rules-v1',
+  'tegridy-alert-inbox-v1',
+  'tegridy-alert-priors-v1',
+  // A follow list and its per-trade CAP. These carry a top-level `ts`, so unlike
+  // the keys above they look like ordinary caches to the sweeper — which makes
+  // them worse, not better: the one control bounding a mirror's size can vanish
+  // under quota pressure and leave a cap that is purely decorative. They predate
+  // the `tegridy-own-` namespace and keep their names, because renaming them now
+  // would orphan every follow already saved in a real browser.
+  'tegridy_copytrade_follows',
+  'tegridy_copytrade_mirrors',
 ]);
+
+/**
+ * Whole NAMESPACES of user-authored data, protected by prefix.
+ *
+ * The exact-key set above cannot scale to data that is one entry PER THING —
+ * an alert rule per pool, a follow per wallet — because the key is only known
+ * at runtime. Anything a user typed, drew or chose belongs under
+ * `tegridy-own-`; anything the app can re-fetch does not.
+ *
+ * The rule is the same one the exact-key set encodes: a cache that is evicted
+ * re-fetches and the user never knows, whereas a saved thing that is evicted
+ * is GONE, and it goes silently at the exact moment the user is doing enough
+ * to be near quota. Keep this list short — every protected byte is a byte the
+ * sweeper cannot reclaim, and a storage full of unevictable entries turns
+ * `safeSetItem` into a function that always returns false.
+ */
+export const EVICTION_PROTECTED_PREFIXES = ['tegridy-own-'] as const;
 
 /** True if `key` is a Tegridy-namespaced cache entry safe to evict. */
 export function isEvictable(key: string): boolean {
   if (EVICTION_PROTECTED_KEYS.has(key)) return false;
+  for (const p of EVICTION_PROTECTED_PREFIXES) {
+    if (key.startsWith(p)) return false;
+  }
   for (const p of EVICTABLE_PREFIXES) {
     if (key.startsWith(p)) return true;
   }

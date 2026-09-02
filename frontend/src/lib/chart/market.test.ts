@@ -40,3 +40,22 @@ describe('chart market parameterisation', () => {
     expect(url).toContain(TOWELI_MARKET.pool);
   });
 });
+
+// `currency` became a parameter (2026-09-02) so a SOL-denominated chart of a SOL
+// pair is possible: USD candles fold the quote token's own move into the token's,
+// which on a volatile quote is a chart of two things at once. The default is the
+// value that was hardcoded, so every pre-existing call site must be untouched —
+// that is the half worth pinning, because a defaulted-away parameter lands in the
+// URL as `currency=undefined` and GeckoTerminal answers it as a 404, silently.
+describe('ohlcv currency', () => {
+  it('defaults to usd, byte-identically to the hardcoded form', () => {
+    expect(ohlcvUrl(BAYLA, '1d')).toBe(ohlcvUrl(BAYLA, '1d', 'usd'));
+    expect(ohlcvUrl(BAYLA, '1d')).toContain('&currency=usd');
+    expect(ohlcvUrl(BAYLA, '1d')).not.toContain('undefined');
+  });
+
+  it('asks for the quote token when told to', () => {
+    expect(ohlcvUrl(BAYLA, '1d', 'token')).toContain('&currency=token');
+    expect(ohlcvUrl(BAYLA, '1d', 'token')).not.toContain('currency=usd');
+  });
+});

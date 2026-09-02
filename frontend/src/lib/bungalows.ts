@@ -1,4 +1,5 @@
 import type { ArtPiece } from './artConfig';
+import type { GeckoNetwork } from './geckoTerminal/pools';
 import { BUNGALOW_ART_FILES } from './bungalowArtPools';
 import { safeGetItem, safeSetItem } from './storage';
 import { TOWELI_ADDRESS } from './constants';
@@ -116,9 +117,11 @@ export interface Bungalow {
    *
    * `network` is GeckoTerminal's API slug, NOT this registry's `chain` word:
    * Ethereum is `eth` here (interpolated verbatim into GT URLs, where a wrong
-   * slug is a silent 404). The union is closed so a typo'd entry cannot compile.
+   * slug is a silent 404). The union is closed so a typo'd entry cannot compile
+   * — and it is now the SHARED `GeckoNetwork`, so a resident's pool can be
+   * handed to the market readers with no adapter in between.
    */
-  market?: { network: 'eth' | 'base' | 'solana'; pool: string; label: string };
+  market?: { network: GeckoNetwork; pool: string; label: string };
   /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
   /** Picker card thumbnail. */
@@ -504,6 +507,33 @@ export function bungalowTradeBlurb(b: Bungalow, solanaSwapLive: boolean): string
   return tradable
     ? `Trade ${b.symbol} on ${chainWord}; scan any token on either chain.`
     : `${b.symbol} lives on ${chainWord} — chart and contract on its page; scan any token on either chain.`;
+}
+
+/**
+ * The island resident behind a market pool, or null if the pool is a stranger's.
+ *
+ * The market surfaces read pools from GeckoTerminal, which knows a pool by
+ * address and by whatever name the pair carries ("BOBO / SOL"). This registry
+ * knows which of those addresses is a resident of the island. Joining them here
+ * — rather than in each surface — means a row for a bungalow's own pool can say
+ * so once, consistently, and a row for any other pool says nothing rather than
+ * guessing.
+ *
+ * Matching follows each chain's own rules: EVM addresses compare
+ * case-insensitively (the same address is written both ways all over this repo),
+ * Solana keys compare EXACTLY, because base58 is case-sensitive and a
+ * lowercased key is a different, valid-looking, wrong address.
+ */
+export function residentLabelForPool(network: GeckoNetwork, pool: string): string | null {
+  const target = network === 'solana' ? pool.trim() : pool.trim().toLowerCase();
+  if (!target) return null;
+  for (const b of BUNGALOWS) {
+    const m = b.market;
+    if (!m || m.network !== network) continue;
+    const known = network === 'solana' ? m.pool : m.pool.toLowerCase();
+    if (known === target) return b.name;
+  }
+  return null;
 }
 
 /** Block-explorer link for a bungalow's token, per its chain. */
