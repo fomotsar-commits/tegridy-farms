@@ -318,10 +318,32 @@ export function describeSubject(rule: AlertRule): string {
   return short(rule.subject);
 }
 
+/**
+ * A threshold as it reads in a sentence.
+ *
+ * `toLocaleString()` with no options caps at three fraction digits, so a pool
+ * price of 0.000025 renders as "0" — and the rule then DESCRIBES ITSELF AS A
+ * DIFFERENT RULE than the one that was saved and is being evaluated. On a venue
+ * whose pools are priced in millionths of a dollar that is not an edge case; it
+ * is nearly every price rule.
+ *
+ * Below 1 the fraction digits ARE the number, so significant digits carry it.
+ * At or above 1 the value is a size (a USD amount, a count of hours) where
+ * grouping reads better and two decimals is plenty. Neither branch invents
+ * precision the user did not type.
+ */
+export function formatThreshold(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  if (value === 0) return '0';
+  return Math.abs(value) < 1
+    ? value.toLocaleString(undefined, { maximumSignificantDigits: 6 })
+    : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 /** Short human description of a rule, used in the inbox and the rule list. */
 export function describeRule(rule: AlertRule): string {
   const subject = describeSubject(rule);
-  const amount = rule.threshold?.toLocaleString() ?? '—';
+  const amount = formatThreshold(rule.threshold);
   switch (rule.kind) {
     case 'whale-move':
       return `Transfers of ${subject} over $${amount}`;

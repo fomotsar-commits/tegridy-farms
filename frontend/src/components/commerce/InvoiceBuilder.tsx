@@ -283,7 +283,16 @@ export function InvoiceBuilder({ fetchImpl }: { fetchImpl?: typeof fetch }) {
               disabled={assets.length === 0}
               className={FIELD}
             >
-              {assets.length === 0 ? <option value="">No verified asset on this chain</option> : null}
+              {/* Two different states, and collapsing them tells a disconnected
+                  visitor their chain is unsupported when no chain has been named
+                  yet. `walletChainId` is undefined until a wallet connects. */}
+              {assets.length === 0 ? (
+                <option value="">
+                  {walletChainId === undefined
+                    ? 'Connect a wallet to choose an asset'
+                    : 'No verified asset on this chain'}
+                </option>
+              ) : null}
               {assets.map((t) => (
                 <option key={t.address} value={t.address}>
                   {t.symbol}

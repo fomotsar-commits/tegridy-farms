@@ -17,6 +17,7 @@ import {
   THRESHOLD_LABEL,
   canonicalSubject,
   describeRule,
+  formatThreshold,
   isChangeDetectionKind,
   isDuplicateRule,
   parsePoolSubject,
@@ -239,5 +240,44 @@ describe('descriptions', () => {
       createdAt: 0,
     };
     expect(describeRule(rule)).toContain('12,500');
+  });
+});
+
+describe('formatThreshold — a rule must not describe itself as a different rule', () => {
+  // The bug this pins was found in the running app: a pool-price rule saved with a
+  // threshold of 0.000025 rendered as "above $0" in both the rule list and the inbox,
+  // because toLocaleString() with no options caps at three fraction digits. On a venue
+  // whose pools trade in millionths of a dollar that is nearly every price rule.
+  it('keeps a sub-cent pool price legible instead of rounding it to zero', () => {
+    expect(formatThreshold(0.000025)).toBe('0.000025');
+    expect(formatThreshold(0.0000001234)).toContain('0.000000123');
+    // The whole point: it must not read as the number zero, which is a different rule.
+    expect(formatThreshold(0.000025)).not.toBe('0');
+  });
+
+  it('reads a saved sub-cent rule back in its own words', () => {
+    const rule = {
+      kind: 'pool-price-above',
+      subject: 'solana:31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX',
+      threshold: 0.000025,
+      enabled: true,
+      id: 'local:test',
+      createdAt: 1788365712,
+    } as AlertRule;
+    expect(describeRule(rule)).toContain('0.000025');
+    expect(describeRule(rule)).not.toContain('above $0 ');
+  });
+
+  it('still groups a size at or above one, and never invents precision', () => {
+    expect(formatThreshold(50000)).toBe((50000).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    expect(formatThreshold(24)).toBe('24');
+    expect(formatThreshold(0)).toBe('0');
+  });
+
+  it('renders an absent or unusable threshold as an em dash, never as a number', () => {
+    expect(formatThreshold(null)).toBe('—');
+    expect(formatThreshold(undefined)).toBe('—');
+    expect(formatThreshold(Number.NaN)).toBe('—');
+    expect(formatThreshold(Number.POSITIVE_INFINITY)).toBe('—');
   });
 });

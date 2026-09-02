@@ -190,3 +190,24 @@ describe('accessibility and touch targets', () => {
     expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
   });
 });
+
+describe('the settlement-asset select distinguishes no-wallet from no-asset', () => {
+  // Found in the running app: disconnected, the select read "No verified asset on
+  // this chain" — telling a visitor their chain is unsupported when they had not
+  // named a chain at all. Two states with different fixes must not share a sentence.
+  it('asks a disconnected visitor to connect rather than blaming their chain', () => {
+    h.address = undefined;
+    h.chain = undefined;
+    render(<InvoiceBuilder />);
+    expect(screen.getByText('Connect a wallet to choose an asset')).toBeTruthy();
+    expect(screen.queryByText('No verified asset on this chain')).toBeNull();
+  });
+
+  it('still names the chain when one is connected and carries no verified asset', () => {
+    // 4663 is a served chain with no verified settlement asset in the table.
+    h.chain = { id: 4663 };
+    render(<InvoiceBuilder />);
+    expect(screen.getByText('No verified asset on this chain')).toBeTruthy();
+    expect(screen.queryByText('Connect a wallet to choose an asset')).toBeNull();
+  });
+});
