@@ -1,5 +1,5 @@
 // Vercel Serverless Function — proxies OpenSea requests to hide API key
-import { checkRateLimit } from "./_lib/ratelimit.js";
+import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
 
@@ -182,6 +182,21 @@ export default async function handler(req, res) {
     limit: 30, windowSec: 60, identifier: "opensea",
   });
   if (!allowed) return;
+
+  // AUDIT FIX TF-019: global circuit-breaker, the same one alchemy.js and
+  // etherscan.js already carry. The per-IP cap above stops ONE abusive source
+  // but not a distributed flood — many IPs each under 30/min still burn the
+  // paid OpenSea key, and CORS headers bound browsers only, never curl. This
+  // proxy was the last paid-key surface without an aggregate ceiling.
+  // Raise OPENSEA_GLOBAL_RPM via env (no redeploy) if a real spike hits it.
+  const underGlobalCap = await checkGlobalLimit(res, {
+    // Deliberately below alchemy's 2400: OpenSea's paid tier is the tighter
+    // quota of the two, and checkout bursts are the only legitimate peak.
+    limit: Number(process.env.OPENSEA_GLOBAL_RPM) || 600,
+    windowSec: 60,
+    identifier: "opensea",
+  });
+  if (!underGlobalCap) return;
 
   // Body size guard (POST only)
   if (req.method === "POST") {
