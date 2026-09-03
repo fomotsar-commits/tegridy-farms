@@ -2,6 +2,7 @@
 // write the browser refused is reported rather than swallowed.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { StrictMode, createElement, type ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 
 const { safeSetItemMock } = vi.hoisted(() => ({ safeSetItemMock: vi.fn() }));
@@ -121,6 +122,58 @@ describe('useCopyFollows', () => {
     });
     expect(result.current.intents).toHaveLength(1);
     expect(result.current.intents[0]!.confirmedAt).toBe(NOW + 5);
+  });
+
+  // PERF-13. `removeFollow` and `recordMirror` did their localStorage write and
+  // a second setState INSIDE the updater handed to setState. StrictMode
+  // double-invokes updaters ON PURPOSE, so each of these performed its durable
+  // write twice per action in development — and a render React discarded would
+  // have written for a state change that never happened. The app mounts under
+  // StrictMode (src/main.tsx), so this wrapper is the real environment, not a
+  // contrived one.
+  describe('under StrictMode, one action is one durable write', () => {
+    // `createElement` rather than JSX: this file is `.ts`, and renaming it to
+    // `.tsx` would move it out of whatever glob the collection guard pins it under.
+    const wrapper = ({ children }: { children: ReactNode }) => createElement(StrictMode, null, children);
+
+    it('writes once when a follow is removed', () => {
+      const { result } = renderHook(() => useCopyFollows(), { wrapper });
+      act(() => {
+        result.current.addFollow(draft);
+      });
+      safeSetItemMock.mockClear();
+
+      act(() => {
+        result.current.removeFollow(LEADER, QUOTE);
+      });
+
+      expect(safeSetItemMock).toHaveBeenCalledTimes(1);
+      expect(result.current.follows).toHaveLength(0);
+    });
+
+    it('writes once when a mirror is recorded', () => {
+      const intent: MirrorIntent = {
+        venue: 'evm',
+        leader: LEADER,
+        leaderTxHash: `0x${'cd'.repeat(32)}`,
+        leaderTimestamp: NOW - 60,
+        confirmedAt: NOW,
+        follower: FOLLOWER,
+        quoteToken: QUOTE,
+        tokenOut: OUT,
+        notionalWei: 10n ** 16n,
+        poolKey: null,
+      };
+      const { result } = renderHook(() => useCopyFollows(), { wrapper });
+      safeSetItemMock.mockClear();
+
+      act(() => {
+        result.current.recordMirror(intent);
+      });
+
+      expect(safeSetItemMock).toHaveBeenCalledTimes(1);
+      expect(result.current.intents).toHaveLength(1);
+    });
   });
 });
 

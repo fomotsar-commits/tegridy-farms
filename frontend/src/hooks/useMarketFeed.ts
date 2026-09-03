@@ -57,9 +57,44 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
+/**
+ * PERF-08 (2026-09-03): this cache had no ceiling and no eviction — it was only
+ * ever written. Its `multi:` keys are derived from the VISITOR'S WATCHLIST, so
+ * the key space is user-controlled: every distinct set of starred pools the
+ * reader passes through left a permanent entry holding up to 30 parsed rows for
+ * the life of the tab. Starring and unstarring across a session is a normal
+ * thing to do and it grew the map without bound.
+ *
+ * `Map` iterates in insertion order, so `keys().next()` is the oldest entry.
+ * ONE entry goes, not the whole map: clearing everything means a reader who
+ * crosses the ceiling then pays a fresh GeckoTerminal read — from a keyless
+ * budget shared with every other surface in the tab — for every view they
+ * switch back to, which is the bug this file's TTL exists to avoid.
+ */
+export const MARKET_FEED_CACHE_MAX = 16;
+
 /** Test seam. A module-level cache that survives between tests is a flake farm. */
 export function __resetMarketFeedCacheForTests(): void {
   cache.clear();
+}
+
+function cacheSet(key: string, entry: CacheEntry): void {
+  // Re-inserting an existing key must not evict anything: delete-then-set also
+  // refreshes its position, so a key the reader keeps coming back to stays.
+  if (cache.delete(key)) {
+    cache.set(key, entry);
+    return;
+  }
+  if (cache.size >= MARKET_FEED_CACHE_MAX) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  cache.set(key, entry);
+}
+
+/** Test seam for the bound above; the hook itself is a React effect. */
+export function __marketFeedCacheSizeForTests(): number {
+  return cache.size;
 }
 
 function requestUrl(req: MarketFeedRequest): string | null {
@@ -157,7 +192,7 @@ export function useMarketFeed(req: MarketFeedRequest | null): MarketFeedResult {
 
       if (read.status === 'read') {
         const readAt = Math.floor(read.fetchedAt / 1000);
-        cache.set(key, {
+        cacheSet(key, {
           rows: read.rows,
           dropped: read.dropped,
           readAt,

@@ -67,6 +67,19 @@ describe('MuseBubble', () => {
     expect(screen.getByText(/New pond\./)).toBeTruthy();
   });
 
+  // A11Y-R12: 24x24px on a control that floats over every page of a bungalow.
+  // The painted glyph must NOT grow (it sits inside a ~40px bubble); the tap
+  // target must. Fails on the pre-change component, which had neither.
+  it('gives the dismiss control a 44px tap target without repainting it', () => {
+    render(<MuseBubble bungalow={resident()} />);
+    const dismiss = screen.getByRole('button', { name: /dismiss/i });
+    expect(dismiss.className).toContain('w-6');
+    expect(dismiss.className).toContain('h-6');
+    expect(dismiss.className).toContain("before:content-['']");
+    // 24px painted + 10px of transparent overlay on each side = 44.
+    expect(dismiss.className).toContain('before:-inset-[10px]');
+  });
+
   it('stays dismissed for a resident whose key is already set', () => {
     sessionStorage.setItem('tegridy-muse-dismissed:frogtown', '1');
     render(<MuseBubble bungalow={resident()} />);

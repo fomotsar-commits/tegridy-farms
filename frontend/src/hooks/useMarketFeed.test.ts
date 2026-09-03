@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { __resetMarketFeedCacheForTests, useMarketFeed } from './useMarketFeed';
+import {
+  MARKET_FEED_CACHE_MAX,
+  __marketFeedCacheSizeForTests,
+  __resetMarketFeedCacheForTests,
+  useMarketFeed,
+} from './useMarketFeed';
 
 // THE HOOK'S ONE JOB IS TO KEEP FOUR OUTCOMES APART, and three of them look
 // identical from a component that only reads `rows`:
@@ -263,5 +268,62 @@ describe('the read time is stamped once, not read from a clock', () => {
       readAt,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+// ─── PERF-08 ─────────────────────────────────────────────────────────────────
+//
+// The cache was only ever WRITTEN. Its `multi:` key is built from the visitor's
+// own watchlist, so the key space is user-controlled: every distinct set of
+// starred pools they pass through left a permanent entry holding up to 30 parsed
+// rows, for the life of the tab. Starring and unstarring is normal use.
+//
+// Driven through the hook rather than a private helper, so this also proves the
+// bound is on the path the app actually takes.
+
+describe('the cache is bounded', () => {
+  it('never grows past the ceiling, however many watchlists the reader passes through', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(ETH_NEW));
+
+    // One more distinct watchlist than the map is allowed to hold. Every one is
+    // a valid eth pool address, so each is a real, differently-keyed request.
+    for (let i = 0; i <= MARKET_FEED_CACHE_MAX; i += 1) {
+      const pool = `0x${String(i).padStart(40, '0')}`;
+      const { result, unmount } = renderHook(() =>
+        useMarketFeed({ view: 'multi', network: 'eth', pools: [pool] }),
+      );
+      await waitFor(() => expect(result.current.state.status).toBe('ready'));
+      unmount();
+    }
+
+    expect(__marketFeedCacheSizeForTests()).toBeLessThanOrEqual(MARKET_FEED_CACHE_MAX);
+  });
+
+  it('evicts the oldest entry, so a view the reader keeps returning to stays warm', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(ETH_NEW));
+    const pool = (i: number) => `0x${String(i).padStart(40, '0')}`;
+
+    const read = async (i: number) => {
+      const { result, unmount } = renderHook(() =>
+        useMarketFeed({ view: 'multi', network: 'eth', pools: [pool(i)] }),
+      );
+      await waitFor(() => expect(result.current.state.status).toBe('ready'));
+      unmount();
+    };
+
+    for (let i = 0; i <= MARKET_FEED_CACHE_MAX; i += 1) await read(i);
+    const spent = fetchMock.mock.calls.length;
+
+    // The SECOND-inserted watchlist is still cached: only the oldest was dropped.
+    // Under a clear-the-whole-map policy this is a fresh read from a keyless
+    // budget shared with every other surface in the tab.
+    await read(1);
+    expect(fetchMock).toHaveBeenCalledTimes(spent);
+
+    // ...and the one that WAS evicted is re-read, so the map is really bounded
+    // rather than merely never evicting.
+    await read(0);
+    expect(fetchMock).toHaveBeenCalledTimes(spent + 1);
   });
 });

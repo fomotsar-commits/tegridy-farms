@@ -96,17 +96,22 @@
     <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/fonts/fonts.css">
-    <!-- F19: the splash picks 4 random art pieces from a 41-entry pool, so
-         preloading specific splash JPGs was <10% likely to be used (and repeat
-         visitors skip the splash entirely yet still paid the bytes). Keep only
-         bobowelie — it's the TopNav replay button and the Towelie avatar, so
-         it's genuinely warmed on every page. -->
-    <link rel="preload" as="image" href="/art/bobowelie.jpg">
-    <!-- F66: the home hero (home:0 → /art/iphone/IMG_0148.jpg) is the LCP image,
-         rendered full-viewport. Preload it at high priority so the browser
-         fetches it ahead of below-the-fold art instead of discovering it late.
-         Keep this in lock-step with the home:0 override in src/lib/artOverrides.ts. -->
-    <link rel="preload" as="image" href="/art/iphone/IMG_0148.jpg" fetchpriority="high">
+    <!-- PERF-14 (2026-09-03): there were two unconditional image preloads here,
+         463,341 bytes fetched ahead of the entry chunk on EVERY route — the eight
+         SOON routes and every bungalow door included, where neither image is
+         rendered at all.
+
+         bobowelie (189,398 B) is gone outright: it is the TopNav replay button
+         and the Towelie avatar, both rendered small and neither ever the LCP
+         element, so it was buying a warm cache with first-paint bandwidth.
+
+         The home hero (274 KB) IS the LCP element — but only on `/`, and only
+         when the classic skin is active; a bungalow visitor's home:0 resolves
+         into that bungalow's own pool, so the tag was fetching an image they
+         never see. It is emitted from /theme-init.js now, which already runs
+         synchronously above and can read both conditions. That is EARLIER than
+         this tag was, not later.
+         Lock-step with pageArt('home', 0) is pinned by src/lib/heroPreload.test.ts. -->
     <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"WebApplication","name":"MEMETICS.FINANCE","description":"The venue of Jungle Bay Island. Memetic finance on Ethereum, Base and Solana.","url":"https://memetics.finance","applicationCategory":"DeFi","operatingSystem":"Web"}
     </script>

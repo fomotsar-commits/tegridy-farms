@@ -507,23 +507,35 @@ function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, cur
 }
 
 // ─── Leaderboard controls ──────────────────────────────────────────
-function LeaderboardControls({ search, setSearch, sort, setSort, hideEmpty, setHideEmpty, total, shown }: {
+// Exported for VoteIncentivesSection.controls.test.tsx: this row only mounts
+// once the gauge contracts are wired, so it is unreachable from a render of the
+// section itself and its defects went unreported for exactly that reason.
+export function LeaderboardControls({ search, setSearch, sort, setSort, hideEmpty, setHideEmpty, total, shown }: {
   search: string; setSearch: (v: string) => void; sort: SortKey; setSort: (v: SortKey) => void;
   hideEmpty: boolean; setHideEmpty: (v: boolean) => void; total: number; shown: number;
 }) {
   return (
     <div className="flex items-center gap-3 flex-wrap px-5 py-3 border-b border-white/10">
+      {/* A11Y-R10: the search box was named by its placeholder alone and the
+          sort <select> had no accessible name of any kind — a screen reader
+          announced it as an unlabelled combobox. None of this was reported by
+          the route sweep because the whole leaderboard only mounts once the
+          gauge contracts are wired, which they are not on the audited build. */}
       <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search gauge…"
+        aria-label="Search gauges"
         className="flex-1 min-w-[140px] bg-black/50 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] focus:border-purple-500 outline-none transition-colors" />
       <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}
+        aria-label="Sort gauges by"
         className="bg-black/50 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] focus:border-purple-500 outline-none transition-colors">
         <option value="bribe" className="bg-[#0a0f1a]">Sort: Bribe TVL</option>
         <option value="votes" className="bg-[#0a0f1a]">Sort: Total Votes</option>
         <option value="yours" className="bg-[#0a0f1a]">Sort: Your Allocation</option>
         <option value="claimable" className="bg-[#0a0f1a]">Sort: Your Claimable</option>
       </select>
-      <label className="flex items-center gap-1.5 text-white/70 text-[11.5px] cursor-pointer select-none">
-        <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="w-3.5 h-3.5 accent-purple-500" />
+      {/* 14px box in a label with no height: the whole row is the target, so it
+          carries the 44px floor and the box itself goes to 16px. */}
+      <label className="flex items-center gap-1.5 min-h-[44px] text-white/70 text-[11.5px] cursor-pointer select-none">
+        <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="w-4 h-4 accent-purple-500" />
         Hide empty
       </label>
       <span className="text-[11px] text-white/45 ml-auto">{shown} / {total}</span>

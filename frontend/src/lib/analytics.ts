@@ -72,13 +72,21 @@ async function flush(useBeacon = false) {
   const batch = queue;
   queue = [];
 
-  if (IS_DEV || !ENDPOINT) {
-    // In development or when no endpoint is configured, log to console
+  // PERF-09 (2026-09-03): these two conditions used to share one branch, so a
+  // PRODUCTION build with no VITE_ANALYTICS_ENDPOINT configured — the likely
+  // state — printed every batched event to the visitor's console every ten
+  // seconds: swap token pairs and amounts, stake amounts, NFT purchase prices,
+  // wallet-connect events. "Nowhere to send this" and "show me what would be
+  // sent" are different decisions and must not collapse into one.
+  if (IS_DEV) {
     for (const evt of batch) {
       console.log('[analytics]', evt.event, evt.properties);
     }
-    return;
   }
+  // Dev never posts, and with no endpoint there is nowhere to post to. Either
+  // way the batch is DROPPED rather than re-queued: re-queuing would grow a list
+  // nothing will ever drain.
+  if (IS_DEV || !ENDPOINT) return;
 
   const body = JSON.stringify({ events: batch });
 

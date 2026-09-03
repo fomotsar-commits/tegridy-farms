@@ -345,106 +345,12 @@ function FilterPill({
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// COMING SOON STATE
-// ═══════════════════════════════════════════════════════════════════
-/** @internal Reserved for future use */
-export function ComingSoonState() {
-  const features = [
-    'P2P fixed-term loans',
-    'No oracles required',
-    'Pro-rata interest',
-    'NFT collateral',
-  ];
-
-  const mockOffers = [
-    { id: 1, principal: '1.5000', apr: '8.50', duration: '30d', min: '2.0000', lender: '0x1a2b...9c0d' },
-    { id: 2, principal: '5.0000', apr: '12.00', duration: '90d', min: '8.0000', lender: '0x3e4f...1a2b' },
-    { id: 3, principal: '0.5000', apr: '6.25', duration: '14d', min: '0.8000', lender: '0x5c6d...3e4f' },
-    { id: 4, principal: '10.0000', apr: '15.00', duration: '180d', min: '15.0000', lender: '0x7a8b...5c6d' },
-  ];
-
-  return (
-    <div className="relative">
-      <div className="filter blur-[2px] opacity-40 pointer-events-none select-none" aria-hidden="true">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          {['12', '3', '1.50', '24.5000'].map((val, i) => (
-            <ArtPanel key={i} art={pageArt('lending-section', 0)} opacity={1}>
-              <div className="p-4">
-                <div className="text-[11px] uppercase tracking-wider label-pill text-white mb-1">
-                  {['Total Offers', 'Active Loans', 'Protocol Fee', 'TVL (ETH)'][i] ?? ''}
-                </div>
-                <div className="font-mono text-xl text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                  {i === 2 ? `${val}%` : val}
-                </div>
-              </div>
-            </ArtPanel>
-          ))}
-        </div>
-
-        <div className="flex gap-6 mb-6 border-b" style={{ borderColor: ROW_BORDER }}>
-          {['Lend', 'Borrow', 'My Loans'].map((t, i) => (
-            <div
-              key={t}
-              className={`pb-3 text-sm font-medium ${i === 1 ? 'text-white' : 'text-white/50'}`}
-            >
-              {t}
-            </div>
-          ))}
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="text-[11px] uppercase tracking-wider label-pill text-white">
-                <th className="py-2 pr-4 font-medium">Offer #</th>
-                <th className="py-2 pr-4 font-medium">Principal</th>
-                <th className="py-2 pr-4 font-medium">APR</th>
-                <th className="py-2 pr-4 font-medium">Duration</th>
-                <th className="py-2 pr-4 font-medium">Min Collateral</th>
-                <th className="py-2 pr-4 font-medium">Lender</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mockOffers.map((o) => (
-                <tr key={o.id} style={{ borderTop: `1px solid ${ROW_BORDER}` }}>
-                  <td className="py-3 pr-4 font-mono text-white">#{o.id}</td>
-                  <td className="py-3 pr-4 font-mono text-white">{o.principal} ETH</td>
-                  <td className="py-3 pr-4 font-mono text-white/60">{o.apr}%</td>
-                  <td className="py-3 pr-4 text-white">{o.duration}</td>
-                  <td className="py-3 pr-4 font-mono text-white">{o.min} ETH</td>
-                  <td className="py-3 pr-4 font-mono text-white">{o.lender}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <div className="text-center">
-          <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-purple-500/50 text-white border border-purple-500/30 mb-4">
-            Coming Soon
-          </span>
-          <h3 className="text-2xl font-bold text-white mb-2">NFT-Backed P2P Lending</h3>
-          <p className="text-white text-sm mb-6 max-w-md">
-            Institutional-grade peer-to-peer lending using staked TOWELI positions as collateral.
-          </p>
-          <ul className="space-y-2 text-left inline-block">
-            {features.map((f) => (
-              <li key={f} className="flex items-center gap-2 text-sm text-white">
-                <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                {f}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-}
+// DELETED 2026-09-03 — `ComingSoonState()`. Exported, imported by nothing, and it
+// rendered four INVENTED lender offers (principals, APRs, durations, lender
+// addresses) behind a blur, under a "Coming Soon" gate for NFT lending, which has
+// been live since 2026-07-21. Re-importing it would have shipped a fabricated order
+// book plus a false gate in one line. The undeployed case is already covered
+// honestly and from constants by LendingPage's per-section <FeatureNotDeployed>.
 
 // ═══════════════════════════════════════════════════════════════════
 // STATS BAR

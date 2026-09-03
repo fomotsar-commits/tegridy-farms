@@ -384,10 +384,38 @@ function byId(id: string | null): Bungalow | null {
  *  2. the persisted choice;
  *  3. null (= default Towelie / classic art, and "no choice made yet").
  */
+/**
+ * `?bungalow=` from the current URL, parsing the query string at most once per
+ * distinct query string.
+ *
+ * PERF-01 (2026-09-03): `getActiveBungalow()` is called from inside React render
+ * bodies — `pageArt()` reaches it for every art surface, up to 18 per page render
+ * across 192 call sites — and each call built a fresh `URLSearchParams` from
+ * `window.location.search`.
+ *
+ * The cache key IS the whole input: `window.location.search` is the only thing
+ * this function reads, so a hit is provably the same answer rather than a
+ * plausible one. The storage read below is deliberately NOT memoised — three
+ * places write that key without going through `setActiveBungalow`
+ * (BungalowArtStudioPage's reset, the e2e harness, and the test suite), and
+ * `BungalowDoor` depends on reading its own write back synchronously, so a memo
+ * there would render one bungalow's art under another's name to save a
+ * `localStorage.getItem`.
+ */
+let queryCache: { search: string; bungalow: string | null } | null = null;
+
+function bungalowFromQuery(): string | null {
+  const search = window.location.search;
+  if (queryCache === null || queryCache.search !== search) {
+    queryCache = { search, bungalow: new URLSearchParams(search).get('bungalow') };
+  }
+  return queryCache.bungalow;
+}
+
 export function getActiveBungalow(): Bungalow | null {
   if (typeof window === 'undefined') return null;
   try {
-    const fromUrl = byId(new URLSearchParams(window.location.search).get('bungalow'));
+    const fromUrl = byId(bungalowFromQuery());
     if (fromUrl) {
       if (safeGetItem(BUNGALOW_STORAGE_KEY) !== fromUrl.id) {
         safeSetItem(BUNGALOW_STORAGE_KEY, fromUrl.id);

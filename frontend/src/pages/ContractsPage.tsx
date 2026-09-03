@@ -40,17 +40,21 @@ import {
   JBAC_NFT_ADDRESS,
   JBAY_GOLD_ADDRESS,
   CURVE_LAUNCHER_ADDRESS,
+  GITHUB_BLOB_BASE,
   isDeployed,
 } from '../lib/constants';
 import { getChainConfig } from '../lib/chains/registry';
 
+// Source links come from GITHUB_BLOB_BASE (lib/constants.ts).
 // AUDIT R035: org was previously `tegridyfarms` (404). Source of truth per
-// `git remote -v` is `fomotsar-commits/tegridy-farms`. All per-contract source
-// links and the tracked-issues badge below now resolve.
-// F452: point at the default/deploy branch `mvp-launch` (the repo ships from it
-// and it is hundreds of commits ahead of `main`) so source links serve current
-// content rather than a stale snapshot.
-const GITHUB_BASE = 'https://github.com/fomotsar-commits/tegridy-farms/blob/mvp-launch';
+// `git remote -v` is `fomotsar-commits/tegridy-farms`.
+// F452: the base points at the deploy branch `mvp-launch` — the repo ships from
+// it and it is over a thousand commits ahead of `main` — so source links serve
+// current content rather than a stale snapshot.
+// 2026-09-03: that literal used to live HERE, and this was the only page that
+// had the branch right; /security and /risks each carried their own `main`
+// literal, so the app disagreed with itself about which branch is authoritative.
+// One constant now, no per-page branch literals.
 
 interface ContractEntry {
   label: string;
@@ -262,7 +266,7 @@ const GROUPS: ContractGroup[] = [
 
 function ContractRow({ entry, verification }: { entry: ContractEntry; verification: VerificationState }) {
   const isExternal = entry.source.startsWith('external');
-  const sourceHref = isExternal ? undefined : `${GITHUB_BASE}/${entry.source}`;
+  const sourceHref = isExternal ? undefined : `${GITHUB_BLOB_BASE}/${entry.source}`;
   // Our own contracts with an unset (zero) address aren't part of the current
   // deployment — route them through the clean "pending deploy" path so we never
   // surface a 0x0 as live or render a stale "redeploy live / awaiting multisig"
@@ -391,7 +395,7 @@ export default function ContractsPage() {
   // T3/F374: "verified" could imply Etherscan source-verification, which is still
   // pending (invalid key at deploy). Soften to "deployed" — the addresses are live
   // on mainnet and source is linked; we don't assert source-verification we can't back yet.
-  usePageTitle('Contracts', 'Tegridy Farms smart contract addresses, deployed on Ethereum mainnet.');
+  usePageTitle('Contracts', 'memetics.finance smart contract addresses, deployed on Ethereum mainnet.');
 
   // Live Etherscan source-verification — one batched, throttled query for the
   // whole page. Only OUR OWN deployed contracts are queried: external deps
@@ -428,10 +432,10 @@ export default function ContractsPage() {
         <header className="mb-8 md:mb-12">
           <h1 className="heading-luxury text-3xl md:text-5xl text-white mb-3" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.9)' }}>Contract Index</h1>
           <p className="text-white/75 text-[13px] md:text-[14px] max-w-[720px] leading-relaxed mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-            Canonical, on-chain addresses for every Tegridy Farms contract, grouped by role. Source
+            Canonical, on-chain addresses for every memetics.finance contract, grouped by role. Source
             for every contract is linked below. Source mirrored from the repo{' '}
             <a
-              href={`${GITHUB_BASE}/CONTRACTS.md`}
+              href={`${GITHUB_BLOB_BASE}/CONTRACTS.md`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-white underline hover:text-white/70 transition-colors"

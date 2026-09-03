@@ -400,7 +400,13 @@ export function TowelieAssistant() {
               <button
                 onClick={dismissBubble}
                 aria-label="Dismiss Towelie"
-                className="absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none"
+                /* A11Y-R12: 20x20px, on a control that is rendered on literally
+                   every route. The painted square stays 20px — growing the box
+                   would grow the hover fill and crowd a bubble that is only ~40px
+                   tall — and a transparent ::before carries the TAP target to
+                   44x44. The bubble body has no click handler of its own, so the
+                   overlay steals nothing. */
+                className="absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none before:absolute before:content-[''] before:-inset-[12px]"
               >
                 ×
               </button>

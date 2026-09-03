@@ -60,23 +60,35 @@ export function useCopyFollows(): CopyFollowsState {
     [follows],
   );
 
-  const removeFollow = useCallback((leader: string, quoteToken: string) => {
-    const target = leader.toLowerCase();
-    const quote = quoteToken.toLowerCase();
-    setFollows((current) => {
-      const next = current.filter((f) => !(f.leader === target && f.quoteToken === quote));
+  // PERF-13 (2026-09-03): both of these used to do their storage write and their
+  // second setState INSIDE the updater passed to setState. React requires an
+  // updater to be pure, and this app renders under StrictMode, which
+  // deliberately double-invokes them — so every removal and every mirror record
+  // wrote to localStorage TWICE in development, and any render React chose to
+  // discard would have produced a write for a state change that never happened.
+  //
+  // Hoisted to the shape `addFollow` already uses: derive `next` from the
+  // current state VALUE in the callback body, write, then set. The value is a
+  // dependency now, which is exactly what makes the derivation honest.
+  const removeFollow = useCallback(
+    (leader: string, quoteToken: string) => {
+      const target = leader.toLowerCase();
+      const quote = quoteToken.toLowerCase();
+      const next = follows.filter((f) => !(f.leader === target && f.quoteToken === quote));
+      setFollows(next);
       setPersistError(saveFollows(next, Math.floor(Date.now() / 1000)) ? null : PERSIST_FAILED);
-      return next;
-    });
-  }, []);
+    },
+    [follows],
+  );
 
-  const recordMirror = useCallback((intent: MirrorIntent) => {
-    setIntents((current) => {
-      const next = addMirrorIntent(current, intent);
+  const recordMirror = useCallback(
+    (intent: MirrorIntent) => {
+      const next = addMirrorIntent(intents, intent);
+      setIntents(next);
       setPersistError(saveMirrorIntents(next, intent.confirmedAt) ? null : PERSIST_FAILED);
-      return next;
-    });
-  }, []);
+    },
+    [intents],
+  );
 
   return { follows, intents, addFollow, removeFollow, recordMirror, persistError };
 }

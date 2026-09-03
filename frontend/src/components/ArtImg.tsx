@@ -22,6 +22,22 @@ type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
  * AVIFs in /splash/new/ are not currently served; see docs for the
  * follow-up task.
  *
+ * PERF-05 (2026-09-03): `loading` is defaulted HERE rather than repeated at
+ * every call site. 119 of the 120 `<ArtImg>` sites already passed
+ * `loading="lazy"` by hand; the 120th is the home hero, which is the LCP element
+ * and passes `fetchPriority="high"` instead. So the rule the codebase already
+ * follows is "lazy unless this is the priority image", and it is written down
+ * once now — a new surface cannot forget it, and defaulting it can never
+ * de-prioritise the hero, because the default reads `fetchPriority` first.
+ *
+ * WHAT THIS DOES NOT DO: emit `srcset`. 135 of the 423 files under public/art
+ * exceed 300 KB (largest 1.29 MB) and a 390px phone still downloads what a
+ * 1280px desktop does. Fixing that needs 480/960/1600-wide derivatives generated
+ * at build time, and there is no image encoder in this project's dependency tree
+ * — adding one is a separate change with its own review. A `sizes` attribute
+ * without a `srcset` is inert, so none is emitted: a hint the browser cannot act
+ * on would only look like the problem had been addressed.
+ *
  * R041 + R072 hardening:
  * - `width` / `height` defaults reserve layout to prevent CLS when an
  *   override URL 404s. Caller props still win.
@@ -41,6 +57,8 @@ export function ArtImg({
   width,
   height,
   decoding,
+  loading,
+  fetchPriority,
   onError,
   ...rest
 }: ArtImgProps) {
@@ -68,6 +86,8 @@ export function ArtImg({
       width={width ?? 1200}
       height={height ?? 800}
       decoding={decoding ?? 'async'}
+      loading={loading ?? (fetchPriority === 'high' ? 'eager' : 'lazy')}
+      {...(fetchPriority ? { fetchPriority } : {})}
       onError={handleError}
       style={merged}
       {...rest}

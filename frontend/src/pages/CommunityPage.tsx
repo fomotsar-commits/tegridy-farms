@@ -196,7 +196,10 @@ export default function CommunityPage() {
               aria-controls={`community-panel-${key}`}
               tabIndex={tabKeys.tabIndex(key)}
               ref={tabKeys.ref(key)}
-              className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
+              /* A11Y-R07: `px-3 py-2 text-xs` is a ~32px tap target. The
+                 structurally identical tab strip on /swap already carries the
+                 repo's 44px floor (TradePage.tsx); these are the same control. */
+              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
                 section === key ? 'text-white' : 'text-white/60 hover:text-white'
               }`}
               onClick={() => handleSectionChange(key)}

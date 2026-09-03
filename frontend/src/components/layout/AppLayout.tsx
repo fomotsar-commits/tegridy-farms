@@ -27,7 +27,14 @@ const GlitchTransition = lazy(() =>
 );
 import type { GlitchConfig } from '../GlitchTransition';
 import { LiveActivity } from '../LiveActivity';
-import { TowelieAssistant } from '../TowelieAssistant';
+// PERF-15 (2026-09-03): the floating assistant (20,823 B) and its answer corpus
+// (lib/towelieKnowledge, 28,495 B) rode the always-loaded layout chunk — ~49 KB
+// of source on the critical path for a component that is conditionally rendered,
+// purely supplementary, and never part of first paint. It is also the ONLY
+// importer of that corpus, so lazying it moves both.
+const TowelieAssistant = lazy(() =>
+  import('../TowelieAssistant').then((m) => ({ default: m.TowelieAssistant })),
+);
 import { TowelieProvider } from '../../hooks/useTowelie';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { PageTransition } from '../motion';
@@ -191,32 +198,6 @@ export function AppLayout() {
       <SeasonalEventBanner />
       <RouteGlitch />
 
-      {/* #82 audit + R039: wrong-network banner. `top` clears the 56px header
-          AND respects safe-area-inset-top so notched iPhones don't render the
-          banner under the notch. */}
-      {wrongNetwork && (
-        <div
-          className="fixed left-0 right-0 z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
-          style={{
-            top: 'calc(56px + env(safe-area-inset-top, 0px))',
-            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-            paddingRight: 'max(1rem, env(safe-area-inset-right))',
-          }}
-        >
-          You are connected to <strong>{unconfiguredChainLabel(walletChainId)}</strong>,
-          which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
-          {switchChain && (
-            <button
-              onClick={() => switchChain({ chainId: mainnet.id })}
-              className="ml-3 underline underline-offset-2 hover:text-white transition-colors"
-            >
-              Switch now
-            </button>
-          )}
-        </div>
-      )}
-
-
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices.
           F13: drop the reserved band at `sm:` (640px) to match BottomNav's
           `sm:hidden` — `md:pb-0` left dead padding at 640-767px where the nav
@@ -228,6 +209,36 @@ export function AppLayout() {
         className="min-h-screen relative z-10 pb-20 sm:pb-0 safe-area-content-bottom"
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
       >
+        {/* #82 audit + R039: wrong-network banner.
+            A11Y-R08: this was `position: fixed` directly under the header while
+            the content wrapper's paddingTop stayed at the header height alone —
+            so the banner sat ON TOP of the first ~40px of whatever page the user
+            had navigated to (three wrapped lines at 390px), covering the h1 and
+            the top of the hero. As the first child INSIDE the wrapper it
+            reserves its own height in flow, with no magic number to keep in sync
+            with the copy, and `sticky` at the same header offset keeps what made
+            it fixed in the first place: it stays visible as the page scrolls. */}
+        {wrongNetwork && (
+          <div
+            className="sticky z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
+            style={{
+              top: 'calc(56px + env(safe-area-inset-top, 0px))',
+              paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+              paddingRight: 'max(1rem, env(safe-area-inset-right))',
+            }}
+          >
+            You are connected to <strong>{unconfiguredChainLabel(walletChainId)}</strong>,
+            which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
+            {switchChain && (
+              <button
+                onClick={() => switchChain({ chainId: mainnet.id })}
+                className="ml-3 underline underline-offset-2 hover:text-white transition-colors"
+              >
+                Switch now
+              </button>
+            )}
+          </div>
+        )}
         {/* F29: tabIndex={-1} so the skip-link target reliably receives focus —
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
@@ -255,7 +266,11 @@ export function AppLayout() {
       {/* ARRIVAL IDENTITY 2026-08-27: Towelie floats only inside his own
           bungalow. Identity bungalows keep the muse; the venue default
           keeps the arrival clean. */}
-      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : isToweliVoice() ? <TowelieAssistant /> : null)}
+      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : isToweliVoice() ? (
+        <Suspense fallback={null}>
+          <TowelieAssistant />
+        </Suspense>
+      ) : null)}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →
