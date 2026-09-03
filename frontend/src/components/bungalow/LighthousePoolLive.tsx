@@ -20,7 +20,10 @@ import {
   defaultLockDays,
   labelForDays,
   stakeWeight,
+  stakeWeightScaled,
   isFlatWeight,
+  quotesAConfiguredRate,
+  WEIGHT_SCALE,
   configuredAnnualRate,
   rateIsPercent,
   vaultRunwaySecs,
@@ -251,6 +254,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const flatWeight = pool ? isFlatWeight(pool) : true;
   const runwaySecs = pool && primaryRp ? vaultRunwaySecs(pool, primaryRp) : null;
 
+  /**
+   * DYNAMIC-POOL MODE. A dynamic reward pool has no rate fields at all, so
+   * every rate helper above returns a bare 0 for it. Printing that as "0% APR"
+   * would report an ABSENT number as a measured one — the same lie as
+   * rendering a failed read as a zero balance — so in this mode the panel does
+   * not quote a rate AT ALL.
+   *
+   * Instead it shows the two things that are actually true and checkable right
+   * now: what is in the budget, and what SHARE of it a position holds. The
+   * share is a present fact and needs no forecast. It is also the shape the
+   * venue's US regulatory review asked for — a computed observation with its
+   * inputs beside it, never a forward-looking yield on a number the operator
+   * sets.
+   */
+  const dynamicPool = primaryRp ? !quotesAConfiguredRate(primaryRp) : false;
+  const myEffectiveRaw = openEntries.reduce((a, e) => a + e.effectiveAmountRaw, 0n);
+  const poolEffectiveRaw = pool?.totalEffectiveStakeRaw ?? null;
+  // Share of everything the pool distributes while these positions stay open.
+  const myShare = poolEffectiveRaw !== null && poolEffectiveRaw > 0n && myEffectiveRaw > 0n
+    ? Number(myEffectiveRaw) / Number(poolEffectiveRaw)
+    : null;
+
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
   const pendingTotal = openEntries.reduce<bigint | null>((acc, e) => {
     if (acc === null) return null;
@@ -312,26 +337,55 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
           <>
             {/* ── The four numbers that decide whether to stake ───────────── */}
             <div className={`grid grid-cols-2 sm:grid-cols-3 ${weighted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 mb-4`}>
-              <Stat label="Reward vault" value={fmt(funded, decimals)} unit={bungalow.symbol} />
+              <Stat
+                label={dynamicPool ? 'Reward budget' : 'Reward vault'}
+                value={fmt(funded, decimals)}
+                unit={bungalow.symbol}
+                caption={dynamicPool ? 'what is left to distribute' : undefined}
+              />
               <Stat label="Total staked" value={fmt(pool.totalStakeRaw, decimals)} unit={bungalow.symbol} />
-              <Stat
-                label="Paying now"
-                value={ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                tone={payingNow > 0 ? 'good' : 'muted'}
-              />
-              <Stat
-                label="Configured"
-                value={
-                  !ratePercent
-                    ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
-                    : weighted
-                      ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
-                      : pct(configuredRate)
-                }
-                unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
-              />
+              {dynamicPool ? (
+                <>
+                  {/* No rate exists on this program, so none is invented. What
+                      a position holds is its SHARE — a present fact, not a
+                      forecast — and it is the number that actually determines
+                      the payout. */}
+                  <Stat
+                    label="Your share"
+                    value={myShare === null ? '–' : pct(myShare)}
+                    unit={myShare === null ? 'nothing staked' : 'of each payout'}
+                    tone={myShare === null ? 'muted' : 'good'}
+                    caption={myShare === null ? undefined : 'moves as others stake'}
+                  />
+                  <Stat
+                    label="How it pays"
+                    value="Budget"
+                    unit="not a fixed rate"
+                    caption="split by weighted stake"
+                  />
+                </>
+              ) : (
+                <>
+                  <Stat
+                    label="Paying now"
+                    value={ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
+                    tone={payingNow > 0 ? 'good' : 'muted'}
+                  />
+                  <Stat
+                    label="Configured"
+                    value={
+                      !ratePercent
+                        ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                        : weighted
+                          ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
+                          : pct(configuredRate)
+                    }
+                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
+                    caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
+                  />
+                </>
+              )}
               {weighted && (
                 <Stat
                   label="Max boost"
@@ -341,6 +395,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 />
               )}
             </div>
+
+            {/* The whole model in two sentences, stated before anyone signs.
+                A dynamic pool cannot honestly advertise an APR: what a staker
+                earns depends on how much is funded and how many others are in,
+                and BOTH move. Saying so plainly is the only accurate option —
+                and the safest one. */}
+            {dynamicPool && (
+              <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)', color: '#bfdbfe' }}>
+                <strong>This pool pays out a funded budget, not a fixed rate.</strong>{' '}
+                Whatever is funded gets split across everyone staked, in proportion to
+                weighted stake — so a longer lock still earns a bigger share
+                {weighted ? ` (up to ${maxBoost.toFixed(2)}×)` : ''}, but the amount per
+                {' '}{bungalow.symbol} falls as more people stake and rises as fewer do.
+                There is no APR to quote here, and this venue will not invent one:
+                the honest figures are the budget above and your share of it.
+              </p>
+            )}
 
             {vaultDry && (
               <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
@@ -440,10 +511,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                 row of the boost schedule rather than a bare
                                 percentage — the ladder is legible without having
                                 to click through every option to compare. Hidden
-                                on a flat pool, where every row would read 1.00x. */}
+                                on a flat pool, where every row would read 1.00x.
+                                On a DYNAMIC pool the multiplier is the whole
+                                story: there is no rate to print, and printing
+                                the helpers' bare 0 would read as "this lock
+                                earns 0%", which is false. */}
                             <span className="block text-[11px] leading-tight opacity-80 font-mono">
-                              {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}× · `}
-                              {ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+                              {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}×`}
+                              {dynamicPool
+                                ? (weighted ? ' share' : '—')
+                                : `${weighted ? ' · ' : ''}${ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
                             </span>
                           </button>
                         );
@@ -495,10 +572,37 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     )}
                   </div>
 
+                  {/* On a DYNAMIC pool the honest answer to "what will I earn"
+                      is a share, not an amount: the payout depends on future
+                      funding and on who else stakes, and neither is knowable.
+                      So the projection strip is replaced by the one figure that
+                      IS computable — the share this stake would take. */}
+                  {dynamicPool && amountRaw !== null && amountRaw > 0n && poolEffectiveRaw !== null && (() => {
+                    const addedEffective = (amountRaw * stakeWeightScaled(pool, chosenSecs)) / WEIGHT_SCALE;
+                    const after = poolEffectiveRaw + addedEffective;
+                    const share = after > 0n ? Number(addedEffective) / Number(after) : 0;
+                    return (
+                      <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.18)' }}>
+                        <p className="text-[11px] font-semibold mb-1 uppercase tracking-wider" style={{ color: '#93c5fd' }}>
+                          What this stake would take
+                        </p>
+                        <p className="stat-value text-2xl leading-tight" style={{ color: '#bfdbfe' }}>{pct(share)}</p>
+                        <p className="text-white/45 text-[11px] mt-1 leading-relaxed">
+                          of every payout, at a {stakeWeight(pool, chosenSecs).toFixed(2)}× weight on{' '}
+                          {labelForDays(chosenDays).toLowerCase()} — computed against the stake in the pool
+                          right now. It falls as others stake and rises as they leave. No amount is
+                          projected here because the payout depends on future funding, which is not a
+                          number this page can know.
+                        </p>
+                      </div>
+                    );
+                  })()}
+
                   {/* Projections — the TOWELI card's strip, with the vault caveat
                       welded on. Renders even at zero, because "0" IS the answer
-                      today and hiding it would be the softer lie. */}
-                  {amountRaw !== null && amountRaw > 0n && primaryRp && (
+                      today and hiding it would be the softer lie. FIXED pools
+                      only: a dynamic pool has no rate to project from. */}
+                  {!dynamicPool && amountRaw !== null && amountRaw > 0n && primaryRp && (
                     <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
                       <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">
                         {vaultDry ? 'What it would earn once funded' : 'Projected rewards'}
