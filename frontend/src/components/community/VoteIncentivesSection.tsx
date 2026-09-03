@@ -364,7 +364,7 @@ function VotingPowerBanner({ userPower, userUsed, deadline, now, voteEpoch, isCo
 
 // ─── Pending withdrawals panel (ETH + ERC20) ───────────────────────
 function PendingWithdrawalsPanel({ pendingETH, tokens, onWithdrawETH, onWithdrawToken, isBusy }: {
-  pendingETH: bigint;
+  pendingETH: bigint | null;
   tokens: WhitelistedToken[];
   onWithdrawETH: () => void;
   onWithdrawToken: (addr: Address) => void;
@@ -379,7 +379,16 @@ function PendingWithdrawalsPanel({ pendingETH, tokens, onWithdrawETH, onWithdraw
         <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold">Pull-Pattern Refunds</p>
         <InfoTooltip text="If a claim ever fails to transfer (e.g. FoT / paused token), the amount is parked here. Click Withdraw to pull it to your wallet." />
       </div>
-      {pendingETH > 0n && (
+      {pendingETH === null && (
+        <div className="rounded-lg p-3" style={{ background: 'rgba(13,21,48,0.7)' }}>
+          <p className="text-[10px] uppercase tracking-wider text-white/55">Pending ETH</p>
+          <p className="text-amber-300 text-[13px]">
+            Could not be read — the network did not answer. Any refund parked here is
+            still yours and still withdrawable; reload before assuming there is none.
+          </p>
+        </div>
+      )}
+      {pendingETH !== null && pendingETH > 0n && (
         <div className="rounded-lg p-3 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(13,21,48,0.7)' }}>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-white/55">Pending ETH</p>
@@ -1275,7 +1284,10 @@ export function VoteIncentivesSection() {
       : [],
     query: { enabled: !!address && bribes.isDeployed, refetchInterval: 30_000 },
   });
-  const pendingETH = pendingETHData?.[0]?.status === 'success' ? (pendingETHData[0]!.result as bigint) : 0n;
+  // OUTAGE-AS-ZERO. Defaulting this to 0n hid the refunds panel entirely on a
+  // failed read, so ETH the contract owes the user became invisible. Unknown
+  // is not zero: pass null through and let the panel say so.
+  const pendingETH = pendingETHData?.[0]?.status === 'success' ? (pendingETHData[0]!.result as bigint) : null;
 
   // ── Rescue countdown (for the current deposit epoch) ────────
   const { data: firstDepositData } = useReadContract({
