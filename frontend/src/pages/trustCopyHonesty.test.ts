@@ -58,7 +58,7 @@ describe('the retired brand does not reach the reader', () => {
     it(`${what} names the venue, not the retired brand`, () => {
       const hits = rendered(source)
         .split('\n')
-        .filter((l) => /Tegridy Farms|Tegridy Score|hand-drawn Tegridy|>\s*Tegridy\s*$/.test(l));
+        .filter((l) => /Tegridy Farms|Tegridy Score|hand-drawn Tegridy|(?:>\s*Tegridy\s*$)/.test(l));
       expect(hits, `retired brand in rendered copy:\n${hits.join('\n')}`).toEqual([]);
     });
   }

@@ -37,6 +37,7 @@ vi.mock('../lib/alerts/webNotification', () => ({
 import { useNotifications } from './useNotifications';
 import { INBOX_STORAGE_KEY } from '../lib/alerts/inbox';
 import type { Evaluation } from '../lib/alerts/evaluate';
+import { dispatchStorageEvent } from '../test-utils/storageEvent';
 
 const NOW = 1_760_000_000;
 
@@ -207,7 +208,7 @@ describe('two tabs share one inbox', () => {
       ],
     });
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: INBOX_STORAGE_KEY, newValue: foreign }));
+      dispatchStorageEvent(INBOX_STORAGE_KEY, foreign);
     });
     // A row marked read in one tab must not look unread in the other.
     expect(result.current.entries.map((e) => e.id)).toEqual(['other']);

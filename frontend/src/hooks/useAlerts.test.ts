@@ -21,6 +21,7 @@ import {
   serializeRuleStore,
 } from '../lib/alerts/ruleStore';
 import type { AlertRule } from '../lib/alerts/rules';
+import { dispatchStorageEvent } from '../test-utils/storageEvent';
 
 const EVM = '0x420698cfdeddea6bc78d59bc17798113ad278f9d';
 const SOLANA_POOL = '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n';
@@ -168,7 +169,7 @@ describe('a write that did not land is disclosed, not hidden', () => {
 describe('two tabs are one store, and a delete propagates', () => {
   function fireStorage(newValue: string | null) {
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: RULES_STORAGE_KEY, newValue }));
+      dispatchStorageEvent(RULES_STORAGE_KEY, newValue);
     });
   }
 
@@ -198,7 +199,7 @@ describe('two tabs are one store, and a delete propagates', () => {
     localStorage.setItem(RULES_STORAGE_KEY, serializeRuleStore([storedRule()]));
     const { result } = renderHook(() => useAlerts());
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'tegridy-theme', newValue: 'dark' }));
+      dispatchStorageEvent('tegridy-theme', 'dark');
     });
     expect(result.current.rules).toHaveLength(1);
   });

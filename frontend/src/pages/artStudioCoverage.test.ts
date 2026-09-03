@@ -98,7 +98,7 @@ describe('art-studio surface coverage', () => {
     expect(
       missing,
       `surfaces rendered by app code but NOT registered in SURFACES — the studio cannot see or place these cards:\n${
-        missing.map((k) => `  ${k.replace('|', ' idx ')}  (${used.get(k)})`).join('\n') || '  (none)'
+        missing.map((k) => `  ${k.replaceAll('|', ' idx ')}  (${used.get(k)})`).join('\n') || '  (none)'
       }`,
     ).toEqual([]);
   });

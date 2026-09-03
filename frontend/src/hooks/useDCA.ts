@@ -434,7 +434,13 @@ export function useDCA() {
     // AUDIT FIX FE-HIGH-4: per-schedule slippage (clamped to [MIN, MAX] bps) —
     // see clampSlippageBps. Pre-fix used a single hard-coded 5% for every
     // scheduled swap with no UI to tighten it.
-    let minOut = 0n;
+    // No initialiser ON PURPOSE. Every path below either assigns minOut from a
+    // quote or returns, so `0n` was already unreachable — but `0n` means "accept
+    // any output", i.e. no slippage protection at all, so it is the worst
+    // possible default for a value that reaches a swap. Leaving it undeclared
+    // makes TypeScript's definite-assignment check the guard: a future branch
+    // that forgets to set it is a compile error, not a silent zero floor.
+    let minOut: bigint;
     let venue: 'tegridy' | 'uniswap' = 'tegridy';
     const slippageBps = BigInt(clampSlippageBps(schedule.slippageBps));
     // isFromNative gates both the approval path below AND whether we may shop
