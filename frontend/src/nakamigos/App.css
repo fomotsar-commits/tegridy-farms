@@ -409,10 +409,18 @@
   line-height: 1.7; max-width: 520px; margin-bottom: 20px; margin-top: 0;
 }
 .stats-row { display: flex; gap: 16px; flex-wrap: wrap; }
-.stat-value {
+/* SCOPED 2026-09-03. These two were unscoped, and this stylesheet is imported
+   GLOBALLY at main.tsx:30 — after index.css (main.tsx:19). At equal specificity
+   source order wins, so they beat index.css:385's .stat-value and flattened
+   EVERY stat in the app to 14px Inter: measured identically on text-lg, text-xl,
+   text-2xl and text-[26px] (31 elements on /farm alone). `var(--display)` is
+   only defined on .nakamigos-app, so outside the marketplace it also resolved to
+   nothing and wiped the mono face. Keep the .nakamigos-app prefix on anything
+   added here whose class name is not marketplace-specific. */
+.nakamigos-app .stat-value {
   font-family: var(--display); font-size: 14px; font-weight: 700; color: var(--text);
 }
-.stat-label {
+.nakamigos-app .stat-label {
   font-family: var(--mono); font-size: 9px; color: var(--text-muted);
   letter-spacing: 0.08em; margin-top: 4px;
 }
@@ -4203,9 +4211,12 @@
   .whale-card:hover {
     transform: none;
   }
-  /* Disable hover lift on buttons */
-  .btn-primary:hover,
-  .btn-secondary:hover,
+  /* Disable hover lift on buttons.
+     SCOPED 2026-09-03: .btn-primary/.btn-secondary are app-wide class names
+     (index.css:273), not marketplace-only, and this file leaks globally.
+     .wallet-btn stays unprefixed — that one really is marketplace-only. */
+  .nakamigos-app .btn-primary:hover,
+  .nakamigos-app .btn-secondary:hover,
   .wallet-btn.disconnected:hover,
   .wallet-btn.connected:hover {
     transform: none;
@@ -4261,8 +4272,11 @@
   .card-last { font-size: 9px; }
   .card-price { font-size: 11px; }
   .card-rank-badge { font-size: 7px; padding: 4px 8px; }
-  .btn-primary { font-size: 10px; padding: 12px; }
-  .btn-secondary { font-size: 10px; padding: 12px; }
+  /* SCOPED 2026-09-03: unscoped, these shrank EVERY primary/secondary button in
+     the app to 10px on phones — including the header Connect button — and fought
+     index.css's own 44px minimum tap target for the same elements. */
+  .nakamigos-app .btn-primary { font-size: 10px; padding: 12px; }
+  .nakamigos-app .btn-secondary { font-size: 10px; padding: 12px; }
   .search-input { font-size: 10px; }
   .sort-select { font-size: 10px; }
   .hero-subtitle { font-size: 9px; }
@@ -4433,10 +4447,12 @@
   .stats-row {
     gap: 10px;
   }
-  .stat-value {
+  /* SCOPED 2026-09-03 — see the note at the base .stat-value rule. Unscoped,
+     this took every app stat down to 12px on phones. */
+  .nakamigos-app .stat-value {
     font-size: 12px;
   }
-  .stat-label {
+  .nakamigos-app .stat-label {
     font-size: 8px;
   }
   /* Gallery grid: 2-col with reduced gap */
