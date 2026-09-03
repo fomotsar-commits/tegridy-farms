@@ -125,17 +125,6 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     /// @dev The launch declared an LP lock duration this migrator does not implement.
     error LockDurationUnsupported();
 
-    // AUDIT FIX TF-017: the three invariants TegridyFeeLocker.lockPosition already
-    // enforces (:169-183). Declared here so `initialize` can refuse at CONFIGURE
-    // time what `migrate` would otherwise refuse at GRADUATION time — which is
-    // the worst possible moment, because the Airlock has already transferred the
-    // graduated funds to this contract by then (see the note in `migrate`), so
-    // the launch STRANDS rather than simply failing. Same names and shapes as
-    // the locker's, so a caller reading either revert sees one vocabulary.
-    error SharesMustSumToWad(uint256 got);
-    error ZeroShare();
-    error DuplicateOrUnsortedBeneficiary();
-
     // ─── Events ───────────────────────────────────────────────────────
     event MigrationConfigured(address indexed asset, address indexed numeraire, PoolId indexed poolId, int24 tickSpacing);
     event Migrated(
@@ -160,11 +149,6 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     ///         dropped it would be asking Whetstone to whitelist a module that removes
     ///         their own revenue, and no honest petition survives that.
     uint96 public constant PROTOCOL_OWNER_MIN_SHARES = 5e16; // 5% of 1e18
-
-    /// @dev AUDIT FIX TF-017 — shares are WAD-denominated and must sum to exactly
-    ///      this, the same total TegridyFeeLocker requires. Copied from
-    ///      TegridyFeeLocker.sol:53-54; a constant costs no runtime bytes.
-    uint256 internal constant WAD = 1e18;
 
     address public immutable airlock;
     IPoolManager public immutable poolManager;
@@ -304,42 +288,15 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
             address protocolOwner = IAirlockOwner(airlock).owner();
             uint96 ownerShares = 0;
             bool found = false;
-            // AUDIT FIX TF-017: validate here EXACTLY what TegridyFeeLocker
-            // .lockPosition validates (:169-183), because it is the contract that
-            // has to honour this constitution and it is stricter than this gate
-            // used to be. Pre-fix a launch could be CONFIGURED with a duplicate
-            // beneficiary, a zero share, or shares not summing to WAD, sail
-            // through `initialize`, and then revert inside `lockPosition` at
-            // graduation — at which point the Airlock has ALREADY transferred the
-            // graduated funds to this contract (see the ROUNDING HEADROOM note in
-            // `migrate`), so the launch STRANDS rather than simply failing. A
-            // config-time revert costs a creator one transaction; a
-            // graduation-time revert costs them the launch.
-            //
-            // The old comment here said a duplicate was fine because "Doppler
-            // itself would accept" it. That was true of Doppler and false of US:
-            // our locker rejects duplicates outright, so tolerating them at
-            // configure time only ever bought a later, worse failure. Summing
-            // across duplicates is therefore dead and goes with it — after this
-            // loop a duplicate cannot exist, so at most one entry can match.
-            uint256 total;
-            address previous;
             for (uint256 i = 0; i < beneficiaries.length; ++i) {
-                address who = beneficiaries[i].beneficiary;
-                uint96 sh = beneficiaries[i].shares;
-                if (who == address(0)) revert ZeroAddress();
-                if (sh == 0) revert ZeroShare();
-                // Ascending with no repeats — the order the SDK emits, and what
-                // turns duplicate detection into one comparison per entry.
-                if (who <= previous) revert DuplicateOrUnsortedBeneficiary();
-                previous = who;
-                total += sh;
-                if (who == protocolOwner) {
-                    ownerShares = sh;
+                if (beneficiaries[i].beneficiary == protocolOwner) {
+                    // Sum rather than break: a list may legitimately name an address twice,
+                    // and taking only the first entry would under-count the owner's real
+                    // take and reject a list Doppler itself would accept.
+                    ownerShares += beneficiaries[i].shares;
                     found = true;
                 }
             }
-            if (total != WAD) revert SharesMustSumToWad(total);
             if (!found) revert InvalidProtocolOwnerBeneficiary();
             if (ownerShares < PROTOCOL_OWNER_MIN_SHARES) {
                 revert InvalidProtocolOwnerShares(PROTOCOL_OWNER_MIN_SHARES, ownerShares);

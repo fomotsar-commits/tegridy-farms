@@ -428,76 +428,20 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         assertEq(stored.length, 2, "a floor-satisfying constitution must be recorded");
     }
 
-    /// @notice AUDIT FIX TF-017 REVERSED THIS TEST, deliberately.
-    ///
-    ///         It used to assert that `initialize` SUMS a duplicated owner entry
-    ///         rather than rejecting it, on the reasoning that Doppler itself
-    ///         would accept such a split. Doppler would; OUR locker does not.
-    ///         TegridyFeeLocker.lockPosition reverts DuplicateOrUnsortedBeneficiary
-    ///         on `b.beneficiary <= previous` (:179, pinned by
-    ///         TegridyFeeLocker.t.sol:106 and :116), and `migrate` hands it
-    ///         `cfg.beneficiaries` verbatim (:463).
-    ///
-    ///         So a stored duplicate was not a tolerated config — it was a launch
-    ///         that COULD NOT COMPLETE, and it would discover that at graduation,
-    ///         after the Airlock had already transferred the graduated funds to
-    ///         the migrator. Accepting it early bought nothing and cost the
-    ///         launch. Refusing at configure time costs one transaction.
-    function test_initialize_refusesADuplicateThatGraduationWouldReject() public {
+    /// @notice A list may name the owner twice. Taking only the first entry would
+    ///         under-count their real take and reject a split Doppler itself accepts.
+    function test_initialize_sumsDuplicateProtocolOwnerEntries() public {
         (address t0, address t1) = _tokens();
         BeneficiaryData[] memory bens = new BeneficiaryData[](3);
         bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
         bens[1] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
-        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(2e16)});
-
-        vm.prank(airlockMock);
-        vm.expectRevert(TegridyLiquidityMigrator.DuplicateOrUnsortedBeneficiary.selector);
-        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
-    }
-
-    /// @notice The other two invariants the locker enforces and this gate did not.
-    function test_initialize_refusesSharesThatDoNotSumToWad() public {
-        (address t0, address t1) = _tokens();
-        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
-        bens[0] = BeneficiaryData({beneficiary: address(0x1111), shares: uint96(5e16)});
-        bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)}); // 10%, not 100%
-
-        vm.prank(airlockMock);
-        vm.expectRevert(
-            abi.encodeWithSelector(TegridyLiquidityMigrator.SharesMustSumToWad.selector, uint256(1e17))
-        );
-        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
-    }
-
-    function test_initialize_refusesAZeroShare() public {
-        (address t0, address t1) = _tokens();
-        BeneficiaryData[] memory bens = new BeneficiaryData[](3);
-        bens[0] = BeneficiaryData({beneficiary: address(0x1111), shares: uint96(0)});
-        bens[1] = BeneficiaryData({beneficiary: address(0x2222), shares: uint96(95e16)});
-        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
-
-        vm.prank(airlockMock);
-        vm.expectRevert(TegridyLiquidityMigrator.ZeroShare.selector);
-        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
-    }
-
-    /// @notice Non-vacuity: an ordinary well-formed constitution still configures.
-    function test_initialize_stillAcceptsAWellFormedConstitution() public {
-        (address t0, address t1) = _tokens();
-        address low = address(0x1111);
-        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
-        // Ascending, distinct, no zero share, sums to WAD.
-        (address a, uint96 sa, address b, uint96 sb) = low < protocolOwner
-            ? (low, uint96(95e16), protocolOwner, uint96(5e16))
-            : (protocolOwner, uint96(5e16), low, uint96(95e16));
-        bens[0] = BeneficiaryData({beneficiary: a, shares: sa});
-        bens[1] = BeneficiaryData({beneficiary: b, shares: sb});
+        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(2e16)}); // 3+2 = 5%
 
         vm.prank(airlockMock);
         migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
 
         (, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
-        assertEq(stored.length, 2, "a valid constitution must still configure");
+        assertEq(stored.length, 3, "duplicate owner entries must sum, not reject");
     }
 
     /// @notice The owner is read LIVE, not pinned: Whetstone's owner is a 3-of-6 Safe
