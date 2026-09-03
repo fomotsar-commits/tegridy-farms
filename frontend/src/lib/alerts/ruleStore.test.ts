@@ -9,7 +9,7 @@
 //   - a write that did not land must be reported as not landed
 //   - a Solana pool id must come back byte-for-byte, because case IS the value
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import {
   LOCAL_CEILING_DETAIL,
   MAX_LOCAL_RULES,
@@ -181,5 +181,52 @@ describe('the ceilings are quota arithmetic, and say a number', () => {
   it('never parses back more rules than the ceiling allows', () => {
     const many = Array.from({ length: MAX_LOCAL_RULES + 5 }, (_, i) => rule({ id: `local:${i}` }));
     expect(parseRuleStore(JSON.stringify({ rules: many }))).toHaveLength(MAX_LOCAL_RULES);
+  });
+});
+
+describe('newLocalRuleId uses the platform CSPRNG', () => {
+  // CodeQL flagged the old Math.random() fallback (js/insecure-randomness) and it was
+  // worth fixing rather than suppressing: this id is the delete/toggle target for a
+  // stored rule and the cross-tab de-duplication key, so a collision silently makes two
+  // rules address each other.
+  const realRandomUUID = globalThis.crypto.randomUUID;
+
+  afterEach(() => {
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: realRandomUUID,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it('prefixes local: so an id can never be mistaken for a server row', () => {
+    expect(newLocalRuleId().startsWith('local:')).toBe(true);
+  });
+
+  it('falls back to getRandomValues, not Math.random, when randomUUID is absent', () => {
+    // The real reachable case: a page served over plain http has getRandomValues but
+    // no randomUUID, because randomUUID requires a secure context.
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const spy = vi.spyOn(globalThis.crypto, 'getRandomValues');
+    const mathSpy = vi.spyOn(Math, 'random');
+
+    const id = newLocalRuleId();
+
+    expect(spy).toHaveBeenCalled();
+    expect(mathSpy, 'the id generator must not reach for Math.random').not.toHaveBeenCalled();
+    // A real v4 UUID, not merely 16 random bytes shaped like one.
+    expect(id).toMatch(/^local:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+    spy.mockRestore();
+    mathSpy.mockRestore();
+  });
+
+  it('does not repeat an id across many draws', () => {
+    const seen = new Set(Array.from({ length: 500 }, () => newLocalRuleId()));
+    expect(seen.size).toBe(500);
   });
 });

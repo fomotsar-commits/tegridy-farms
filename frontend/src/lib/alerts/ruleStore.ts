@@ -69,11 +69,39 @@ export const POOL_CEILING_DETAIL = `This browser watches up to ${MAX_POOL_SUBJEC
  * server minted.
  */
 export function newLocalRuleId(): string {
-  const uuid =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return `local:${uuid}`;
+  return `local:${randomUuidV4()}`;
+}
+
+/**
+ * A v4 UUID from the platform CSPRNG, never from `Math.random()`.
+ *
+ * The fallback exists because `crypto.randomUUID` is only exposed in a SECURE
+ * context — a browser on plain http has `crypto.getRandomValues` but no
+ * `randomUUID`. So the branch is about where the page is served from, not about
+ * how old the browser is, and it is genuinely reachable.
+ *
+ * It used to fall back to `Date.now()` + `Math.random()`, which CodeQL flagged
+ * (js/insecure-randomness) and which was worth fixing rather than suppressing:
+ * ids here are the delete/toggle target for a stored rule and the de-duplication
+ * key across tabs, so two colliding ids silently address one another's rule.
+ * `Math.random()` is seeded per-realm and is not required to be uniform, and the
+ * `Date.now()` half is *predictable by construction* — two rules created in the
+ * same millisecond start from the same prefix. getRandomValues has neither
+ * problem and is available anywhere `crypto` is.
+ */
+function randomUuidV4(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  // RFC 4122 §4.4: pin the version to 4 and the variant to 10xx, so the string
+  // is a real v4 UUID and not merely 16 random bytes wearing the shape of one.
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
