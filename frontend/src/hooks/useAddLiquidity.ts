@@ -111,6 +111,16 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // existing pool. Note the read legitimately fails when there is no pair at
   // all (pairAddr is a placeholder then), so this is scoped to pairExists.
   const reservesUnread = pairExists && !!data && data[0]?.status !== 'success';
+
+  // lpTotalSupply and lpBalance feed CLAIMS, not just figures: "You don't
+  // hold any LP for this pair", and the "Your liquidity is safe / it didn't
+  // disappear" panel whose entire job is to tell people their position is
+  // still there. Both collapse to 0n on a failed read, so an outage made the
+  // UI assert precisely what that panel exists to deny, and disabled the
+  // remove controls of someone who does hold LP. Same gating as reserves:
+  // with no pair, pairAddr is a placeholder and these fail legitimately.
+  const lpUnread = pairExists && !!data
+    && (data[2]?.status !== 'success' || data[3]?.status !== 'success');
   const isEmptyPool = !pairExists || (!reservesUnread && reserveA === 0n && reserveB === 0n);
 
   // Calculate price ratio (B per A)
@@ -382,6 +392,7 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     pairExists,
     isEmptyPool,
     reservesUnread,
+    lpUnread,
     involvesETH,
     // Balances
     tokenABalance,

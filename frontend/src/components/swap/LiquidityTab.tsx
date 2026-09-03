@@ -273,6 +273,14 @@ export function LiquidityTab() {
         {/* "Where did my LP go?" reassurance — shown whenever the user holds LP in this
             pair, in both Add and Remove modes. Directly answers the most common support
             question: the position is a token in your wallet, not lost. */}
+        {isConnected && liq.lpUnread && (
+          <div className="mb-4 rounded-xl p-3 text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
+            We could not read your LP balance for this pair just now. If you hold a
+            position it is still in your wallet as TGLP and still redeemable — this
+            panel failing to load says nothing about whether it is there.
+          </div>
+        )}
+
         {isConnected && hasLP && (
           <div className="mb-4 rounded-xl p-3" style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.22)' }}>
             <div className="flex items-center justify-between mb-1.5">
@@ -543,6 +551,12 @@ export function LiquidityTab() {
             {!liq.pairExists ? (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-400" style={{ background: 'rgba(255,178,55,0.08)', border: '1px solid rgba(255,178,55,0.25)' }}>
                 No pool exists for this pair yet. Switch to Grow the Crop to plant one.
+              </div>
+            ) : liq.lpUnread ? (
+              <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
+                Your LP balance could not be read — the network did not answer. This is not
+                a statement that you hold none. Reload before concluding anything about
+                this position; the controls stay disabled until the balance is known.
               </div>
             ) : !hasLP ? (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-white/60" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)' }}>
