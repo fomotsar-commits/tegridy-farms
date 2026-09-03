@@ -51,7 +51,7 @@ including the only one an external party (Whetstone) must approve. See §9.
 cd contracts
 forge build                                          # exit 0 (lint_on_build=false — see below)
 forge test --match-contract TegridyV4HookTest        # 39 tests
-forge test --match-contract TegridyLiquidityMigrator # 21 tests
+forge test --match-contract TegridyLiquidityMigrator # 25 tests
 forge test --match-contract TegridyFeeLocker         # 19 tests
 ```
 
@@ -184,7 +184,7 @@ non-hook-coupled — and VerifyV4 asserts their wiring incl. the staker's allowe
   routing + conservation, pause (halt swaps / exit open / guardian-pause-only), trusted
   router (output/slippage/deadline/exact-output-maxIn/discount-path), NFT-staker
   (deposit/withdraw + C-1 foreign-pool & non-full-range rejection + notify-cooldown).
-- **21 tests** (`test/v4/TegridyLiquidityMigrator.t.sol`). Covers: full-range mint, the
+- **25 tests** (`test/v4/TegridyLiquidityMigrator.t.sol`). Covers: full-range mint, the
   migrator retaining nothing, the pool carrying the hook, `onlyAirlock` on both
   entrypoints, unconfigured-pair revert, tick-spacing bounds, the SDK payload shape,
   beneficiary routing to the locker, `FeeConstitutionUnsupported` when no locker is wired,
