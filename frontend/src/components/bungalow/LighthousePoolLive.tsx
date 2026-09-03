@@ -82,6 +82,29 @@ function fmt(raw: bigint | null, decimals: number, maxFrac = 2): string {
   return neg ? `-${out}` : out;
 }
 
+/**
+ * Raw base units -> a plain, LOCALE-FREE decimal string.
+ *
+ * AUDIT (2026-09-01). MAX used to round-trip `fmt()` — a DISPLAY string — back
+ * through `toRaw()` after stripping commas. `fmt` groups with
+ * `toLocaleString()`, so in any dot-grouping locale (de-DE, pt-BR, it-IT,
+ * nl-NL) a balance of 1234 with no fraction renders as "1.234", survives the
+ * comma-strip untouched, and parses as **1.234 tokens instead of 1234** — a
+ * silent factor-of-1000 under-stake, with the wallet showing the right number
+ * the whole way. In space-grouping locales (fr-FR, es-ES) it instead fails to
+ * parse and the button dead-ends.
+ *
+ * The rule this encodes: a value that will be parsed again must never be built
+ * by a formatter whose job is to be readable. Display and data are different
+ * strings.
+ */
+function toPlain(raw: bigint, decimals: number): string {
+  const s = raw.toString().padStart(decimals + 1, '0');
+  const whole = s.slice(0, -decimals) || '0';
+  const frac = decimals > 0 ? s.slice(-decimals).replace(/0+$/, '') : '';
+  return frac ? `${whole}.${frac}` : whole;
+}
+
 function toRaw(human: string, decimals: number): bigint | null {
   const t = human.trim();
   if (!/^\d+(\.\d+)?$/.test(t)) return null;
@@ -456,7 +479,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       <button
                         type="button"
                         disabled={walletRaw === null || walletRaw === 0n}
-                        onClick={() => walletRaw !== null && setAmount(fmt(walletRaw, decimals, decimals).replace(/,/g, ''))}
+                        onClick={() => walletRaw !== null && setAmount(toPlain(walletRaw, decimals))}
                         className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer disabled:cursor-default disabled:hover:text-white/60"
                       >
                         Balance: {walletRaw === null ? '–' : fmt(walletRaw, decimals)}{walletRaw !== null && walletRaw > 0n ? ' · MAX' : ''}

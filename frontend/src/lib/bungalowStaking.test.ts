@@ -124,7 +124,7 @@ describe('readPool', () => {
 });
 
 describe('readEntries + nextVacantNonce', () => {
-  it('maps entries and picks the lowest nonce not used by an OPEN entry', async () => {
+  it('maps entries and picks the lowest nonce no entry occupies, open OR closed', async () => {
     searchStakeEntries.mockResolvedValue([
       { publicKey: 'E0', account: { nonce: bn(0), amount: bn('100'), duration: bn(86400), createdTs: bn(1_700_000_000), closedTs: bn(0), effectiveAmount: bn('150') } },
       { publicKey: 'E1', account: { nonce: bn(1), amount: bn('200'), duration: bn(86400), createdTs: bn(1_700_000_100), closedTs: bn(1_700_000_500) } },
@@ -141,8 +141,14 @@ describe('readEntries + nextVacantNonce', () => {
     // priced (a closed entry accrues nothing more).
     expect(r.entries[0]!.pendingRaw[0]).toBe(42n);
     expect(r.entries[1]!.pendingRaw).toEqual({});
-    // nonce 0 is open, nonce 1 is CLOSED (freed) → next vacant is 1.
-    expect(nextVacantNonce(r.entries)).toBe(1);
+    // AUDIT (2026-09-01): this used to assert 1, on the belief that closing an
+    // entry frees its nonce. It does not — the entry is still an ACCOUNT (that
+    // is why `closedTs` is readable at all), and the entry PDA is derived from
+    // (stakePool, authority, nonce), so re-using nonce 1 would try to
+    // initialise an address already in use and the stake would revert. nonce 0
+    // is open and nonce 1 is closed, so BOTH are taken and the next free slot
+    // is 2.
+    expect(nextVacantNonce(r.entries)).toBe(2);
   });
 
   it('returns null when all 256 slots are open', () => {

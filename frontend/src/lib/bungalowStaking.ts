@@ -614,7 +614,19 @@ export async function readEntries(
 
 /** Lowest nonce in [0,255] not used by an OPEN entry (closed entries free theirs). */
 export function nextVacantNonce(entries: StakeEntryView[]): number | null {
-  const used = new Set(entries.filter((e) => e.closedTs === 0).map((e) => e.nonce));
+  // AUDIT (2026-09-01): this used to skip CLOSED entries, on the assumption
+  // that closing frees the nonce. It does not. A closed entry is still an
+  // ACCOUNT — StakeEntryView carries `closedTs` precisely because the record
+  // survives its close — and the entry PDA is derived from
+  // (stakePool, authority, nonce). Re-using the nonce therefore tries to
+  // initialise an address that is already in use, and the stake reverts. Left
+  // as it was, a returning staker's second position could never be opened.
+  //
+  // So EVERY entry the search returns occupies its nonce, open or closed. The
+  // asymmetry makes this the safe direction: wrongly skipping a free nonce
+  // costs nothing out of 256, while wrongly re-using a taken one is a failed
+  // transaction the user pays for and cannot diagnose.
+  const used = new Set(entries.map((e) => e.nonce));
   for (let n = 0; n < 256; n++) {
     if (!used.has(n)) return n;
   }
