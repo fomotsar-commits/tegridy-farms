@@ -1,6 +1,7 @@
-import { getDefaultConfig } from '@rainbow-me/rainbowkit';
+import { getDefaultConfig, getDefaultWallets } from '@rainbow-me/rainbowkit';
 import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
+import { phantomWallet, trustWallet } from './rainbowkitWallets';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -25,6 +26,54 @@ function buildConfig() {
       projectId,
       chains: WAGMI_CHAINS as never,
       transports,
+      // getDefaultConfig's own default list (getDefaultWallets(): safe /
+      // rainbow / baseAccount / metaMask / walletConnect — taken from the
+      // library so it can never drift), plus the two wallets its default
+      // omits: Phantom and Trust. Neither shipped an entry, so a browser
+      // without the extension never saw the option at all (an installed
+      // extension only surfaced via EIP-6963 discovery, and the MOBILE modal
+      // renders RainbowKit entries only — both were invisible there in every
+      // state). When an extension IS installed the modal merges our entry
+      // with the EIP-6963 announcement by rdns rather than listing it twice.
+      //
+      // Both are VENDORED (see lib/rainbowkitWallets.ts): the package's
+      // /wallets barrel is unbuildable against wagmi 3.7.6
+      // (portoWallet/geminiWallet chunks import named exports wagmi doesn't
+      // ship — rolldown MISSING_EXPORT at build time, green everywhere else).
+      // Phantom is injected-only; Trust falls back to WalletConnect (QR on
+      // desktop, trust:// deep link on mobile), whose optional peer
+      // @walletconnect/ethereum-provider is already installed and guarded by
+      // walletConnectorDeps.test.ts — so neither can hit the WALLET-03
+      // throwing-stub trap.
+      wallets: (() => {
+        const { wallets } = getDefaultWallets();
+        const popular = wallets[0]!;
+        // ORDER IS LOAD-BEARING ON MOBILE. RainbowKit's MobileOptions renders
+        // the wallets in a horizontally-scrolling strip that shows about four
+        // before you have to swipe, so anything appended to the end is
+        // effectively invisible on a phone (that is exactly how Trust ended up
+        // unreachable on an iPhone: 5th of 5). Lead with the wallets this
+        // venue's users actually reach for, and let the long tail scroll.
+        //
+        // The SET still comes from getDefaultWallets() so it cannot drift; only
+        // the display order is ours. walletConnectorOrder.test.ts pins the
+        // upstream default list by id, so a RainbowKit change that reorders or
+        // renames these fails loudly instead of silently reshuffling the strip.
+        const [safe, rainbow, base, metaMask, walletConnect] = popular.wallets;
+        return [
+          {
+            ...popular,
+            // Both vendored wallets go in BARE, exactly like the defaults:
+            // connectorsForWallets calls each factory with the projectId AND
+            // the app metadata it computes (walletConnectParameters). Wrapping
+            // Trust to pass our own projectId would drop that metadata and
+            // leave its users approving a nameless WalletConnect session.
+            wallets: [safe, metaMask, phantomWallet, trustWallet, walletConnect, rainbow, base].filter(
+              (w): w is NonNullable<typeof w> => Boolean(w),
+            ),
+          },
+        ];
+      })(),
     });
   }
 
