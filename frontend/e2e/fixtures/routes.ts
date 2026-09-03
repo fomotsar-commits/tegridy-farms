@@ -179,6 +179,59 @@ export async function gotoNakamigos(page: Page): Promise<void> {
 }
 
 /**
+ * THE MEASUREMENT BEHIND THE FOUR GECKOTERMINAL ROWS.
+ *
+ * /terminal, /chart, /copy-trading and /competitions each read
+ * api.geckoterminal.com browser-direct and keyless, and nothing stubs it. So
+ * their audited DOM depends on whether a third party answered — which is
+ * exactly the shape that flakes an EQUALITY assertion, if the ready branch and
+ * the degraded branch violate different rules. The obvious fix is a route stub;
+ * the honest first step is to find out whether one is needed.
+ *
+ * It is not. Measured 2026-09-02/03 against the production build under
+ * `vite preview` (what playwright.config.ts's webServer serves), on all four
+ * device projects, in three branches per route:
+ *
+ *   ready     — every GeckoTerminal path fulfilled from a real capture, so the
+ *               table/plot is actually drawn;
+ *   degraded  — `page.route('**api.geckoterminal.com/**', r => r.abort())`,
+ *               which really intercepts because `use.serviceWorkers: 'block'`
+ *               is set (without it public/sw.js answers first and the stub is
+ *               a no-op — see the comment on that setting);
+ *   rate-limited — every read fulfilled 429, the state the keyless API really
+ *               produces around the fifth rapid read from one address.
+ *
+ * The block was confirmed per run rather than assumed: request/response/
+ * requestfailed counters on the page showed 0 succeeded and N failed under the
+ * abort, and the pages rendered their unavailable copy.
+ *
+ * ALL 60 MEASUREMENTS RETURNED THE EMPTY VIOLATED-RULE SET — 48 of them the
+ * four routes × three branches × four projects at the sweep's own timing, plus
+ * 12 more for /copy-trading with the tape given 45s to settle first, because
+ * that is the one route whose feed can still be in flight when the sweep's
+ * quiescence wait gives up. (Unstubbed live reads were measured too, and are
+ * described per row below; they are not counted here because their DOM depends
+ * on the runner's remaining quota.) The DOM difference
+ * is enormous — /copy-trading is a 154-row table of ~31.8k chars when the feed
+ * answers and a ~5.5k-char list of per-pool "could not be read" notices when it
+ * does not; /competitions 77 rows / ~9.3k vs no table / ~3.4k; /chart an SVG
+ * plot plus a 117-row candle table vs neither — and the audit finds nothing
+ * either way, because both branches are built from the same landmarks: one h1,
+ * captioned tables with scoped headers, labelled controls, named buttons.
+ *
+ * That is why there is no GeckoTerminal fixture in e2e/fixtures/. One was
+ * written (geckoTerminalPools.ts) and deleted unused on 2026-09-03: it would
+ * have bought determinism these rows do not need, at the cost of auditing a
+ * captured DOM instead of the one the app really renders. Re-measure before
+ * adding one back — the reason to add it is a route whose two branches DO
+ * differ, not the fact that a network read exists.
+ */
+const BOTH_BRANCHES_MEASURED =
+  'BOTH BRANCHES MEASURED (2026-09-03, all four device projects): with the feed answering, with it ' +
+  'aborted at the browser, and with it 429ing, this route violated NOTHING in every case — see the ' +
+  'BOTH_BRANCHES_MEASURED block above for the numbers and for why no stub fixture exists. ';
+
+/**
  * Every path App.tsx routes, in App.tsx order.
  *
  * KEEP IN SYNC WITH src/App.tsx. You do not have to remember to: the vitest
@@ -344,7 +397,14 @@ export const ROUTES: readonly RouteSpec[] = [
       'follow form and the pasted-Solana-address field are the only live controls — both write to ' +
       'localStorage and need no chain. The sized mirror plans, their refusals and the realised entry-lag ' +
       'figures need a connected wallet and a live feed this sweep cannot guarantee, and are pinned ' +
-      'deterministically by src/components/copytrade/TapeLeaderBoard.test.tsx and the lib/copytrade tests.',
+      'deterministically by src/components/copytrade/TapeLeaderBoard.test.tsx and the lib/copytrade tests. ' +
+      BOTH_BRANCHES_MEASURED +
+      'This is the widest spread of the four: the settled ready DOM is a 154-row leaderboard of ~31.8k ' +
+      'chars, the aborted one a ~5.5k-char list of per-pool outage notices with no table, the 429 one a ' +
+      '~6.3k-char list that also names the pools it never asked. A fourth state was measured too, because ' +
+      'the sweep can genuinely audit it: the tape reads each pool in turn and can still say "Reading the ' +
+      'island tape…" when waitForQuiescence gives up at its 15s cap. That in-flight DOM violates nothing ' +
+      'either, which is why this row does not need a longer wait to be stable.',
     knownViolations: [],
   },
   {
@@ -359,7 +419,13 @@ export const ROUTES: readonly RouteSpec[] = [
       'src/components/competitions/CupBoard.test.tsx. Season 1 is the router season and is always unread ' +
       'here — it is scored from an indexer this build does not configure — so its notice renders and its ' +
       'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
-      'are fully audited either way.',
+      'are fully audited either way. ' +
+      BOTH_BRANCHES_MEASURED +
+      'Here the ready DOM is a 77-row Cup board of ~9.3k chars and the degraded one has no table at all ' +
+      '(~3.4k). This route also happens to be the one that proves the concern was worth measuring rather ' +
+      'than assuming: a live unstubbed read of its 13 pools rate-limits part-way through on a real run ' +
+      '(5 answered, 8 refused), so a THIRD, partial DOM is reachable in CI — 227 rows on the pass that ' +
+      'was measured. It violates nothing either.',
     knownViolations: [],
   },
   {
@@ -541,7 +607,10 @@ export const ROUTES: readonly RouteSpec[] = [
       'MarketFeedStatus reporting a failed or rate-limited read with no table drawn. A rule id pinned here ' +
       'has to hold for both. The tab strips, the safety filter and sort controls, the safety inspector and ' +
       'the quick-buy panel render either way. The "Venue pairs" tab is absent by design (VITE_INDEXER_URL ' +
-      'unset, lib/terminal/feedSources.ts) and its PairTable is covered by unit tests.',
+      'unset, lib/terminal/feedSources.ts) and its PairTable is covered by unit tests. ' +
+      BOTH_BRANCHES_MEASURED +
+      'Here the ready DOM is a drawn table (3 rows from the captures, 20 from a live read, ~2.1k chars of ' +
+      'main) and the degraded DOM has no <table> element at all (~1.6k chars) — and both violate nothing.',
     knownViolations: [],
   },
   {
@@ -556,7 +625,10 @@ export const ROUTES: readonly RouteSpec[] = [
       'candles-as-a-table view inside it — is drawn when that read lands, and ChartStatus prints the ' +
       'not-a-zero sentence with no SVG when it does not. A rule id pinned here has to hold for both. The ' +
       'gap columns, the open-bucket marker and the coverage lines are pinned against a stubbed envelope in ' +
-      'the unit tests.',
+      'the unit tests. ' +
+      BOTH_BRANCHES_MEASURED +
+      'Here the ready DOM adds an <svg> plot AND a 117-row candles-as-a-table view that the degraded DOM ' +
+      'does not have at all (~1.97k chars of main vs ~1.29k) — and neither draws a finding.',
     knownViolations: [],
   },
   {
