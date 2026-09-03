@@ -48,7 +48,9 @@ const BAYLA_POOL_RETIRED = '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp';
 /**
  * Every env var whose absence turns off something that is already built and shipped.
  * `severity`: 'revenue' = money is not being collected; 'features' = finished surfaces
- * present themselves to users as unfinished.
+ * present themselves to users as unfinished; 'disclosure' = something true is not being
+ * SAID to users, and the value cannot be guessed here because it must match a setting
+ * held outside this repo.
  */
 const GATES = [
   {
@@ -65,9 +67,18 @@ const GATES = [
   },
   {
     vars: ['VITE_ONRAMP_PARTNER_FEE_BPS'],
-    severity: 'revenue',
-    darkens: 'the fiat on-ramp',
-    effect: 'on-ramp referral revenue is OFF, silently.',
+    // NOT a revenue switch, and calling it one was wrong. This var COLLECTS NOTHING —
+    // it is a DISCLOSURE mirror of a partner fee configured in the provider's own
+    // dashboard (lib/onramp/partnerFee.ts). Unset means the fee is not DISCLOSED to the
+    // user, not that it is not charged, so the honest reading of an unset value is the
+    // opposite of the one this file first gave: money may be moving and going unsaid.
+    // Setting it to a figure that does not match the provider is worse than leaving it
+    // unset — that module's own docstring calls a mismatched rate "a false statement
+    // about somebody's money". Note `0` is a valid DECLARATION of no partner fee and is
+    // deliberately distinct from unset.
+    severity: 'disclosure',
+    darkens: 'the fiat on-ramp fee disclosure',
+    effect: 'the partner fee is not disclosed to the user. Only the operator can supply this number, because it must equal what is configured at the provider — do not guess it.',
   },
   {
     vars: ['VITE_SOLANA_FEE_ACCOUNT'],
@@ -137,7 +148,11 @@ console.log('  (run this against the DEPLOY environment — a bare laptop report
 const dark = [];
 for (const gate of GATES) {
   const missing = gate.vars.filter((v) => !isSet(v));
-  const status = missing.length === 0 ? 'OK  ' : gate.severity === 'revenue' ? 'DARK' : 'soon';
+  const status = missing.length === 0
+    ? 'OK  '
+    : gate.severity === 'revenue' ? 'DARK'
+    : gate.severity === 'disclosure' ? 'MUTE'
+    : 'soon';
   const mark = missing.length === 0 ? '  ' : gate.severity === 'revenue' ? '!!' : ' *';
   console.log(`${mark} [${status}] ${gate.vars.join(' + ')}`);
   if (missing.length > 0) {
@@ -176,6 +191,7 @@ console.log('');
 
 const revenueDark = dark.filter((d) => d.severity === 'revenue');
 const featureDark = dark.filter((d) => d.severity === 'features');
+const disclosureDark = dark.filter((d) => d.severity === 'disclosure');
 
 console.log('─'.repeat(72));
 if (dark.length === 0 && !baylaBad) {
@@ -186,6 +202,10 @@ if (dark.length === 0 && !baylaBad) {
   }
   if (featureDark.length > 0) {
     console.log(` * ${featureDark.length} FEATURE gate(s) dark — built surfaces present as "Soon" to users.`);
+  }
+  if (disclosureDark.length > 0) {
+    console.log(` * ${disclosureDark.length} DISCLOSURE gate(s) unset — a fee may be charged without being shown.`);
+    console.log('   That value must MATCH a setting held outside this repo. Ask for it; do not guess it.');
   }
   if (baylaBad) {
     console.log('!! VITE_BAYLA_STAKE_POOL points somewhere it should not.');
