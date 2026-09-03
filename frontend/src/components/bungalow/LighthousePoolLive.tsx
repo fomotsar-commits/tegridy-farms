@@ -148,6 +148,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
   const walletKey = publicKey?.toBase58() ?? '';
   const poolMint = poolRead?.ok ? poolRead.pool.mint : '';
+  // AUDIT FIX TF-035: prove this pool really stakes THIS bungalow's mint before
+  // any figure is trusted. The EVM sibling has carried this guard since its
+  // design review (EvmLadderPoolLive.tsx:100); the Solana card read the pool
+  // and rendered its numbers without ever comparing the mint. A mispasted
+  // base58 in one of the four sibling `stakePool` literals (bungalows.ts:336-346
+  // — four one-liners edited in one batch, the classic mispaste shape), or a
+  // stale VITE_BAYLA_STAKE_POOL, which bungalows.ts:182-183 warns "WINS over
+  // this constant", would render a stranger pool's figures under our symbol and
+  // point the stake button at a stranger's token.
+  // base58 is case-SENSITIVE — no case folding here, unlike the EVM sibling.
+  const identityMismatch = poolMint !== '' && poolMint !== (bungalow.address ?? '');
 
   const refresh = useCallback(() => {
     let cancelled = false;
@@ -286,7 +297,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
           <p className="text-[13px]" style={{ color: '#f0b26b' }}>{poolRead.reason}</p>
         )}
 
-        {pool && (
+        {/* AUDIT FIX TF-035: a configuration error, not a network problem — so
+            no figures, and nothing below can send a transaction. Same shape and
+            styling as EvmLadderPoolLive.tsx:175-180. */}
+        {identityMismatch && (
+          <p className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
+            This pool does not stake {bungalow.symbol} — it reports {poolMint.slice(0, 6)}…{poolMint.slice(-4)} as its
+            staking mint. That is a configuration error, not a network problem, so no figures are shown and nothing
+            here will send a transaction.
+          </p>
+        )}
+
+        {pool && !identityMismatch && (
           <>
             {/* ── The four numbers that decide whether to stake ───────────── */}
             <div className={`grid grid-cols-2 sm:grid-cols-3 ${weighted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 mb-4`}>

@@ -60,6 +60,14 @@ export interface DistributionRead {
   confidence: ConfidenceLevel;
   /** Ids of hard-fact gates that actually fired (mint authority live, LP unlocked, …). */
   firedGateIds: string[];
+  /**
+   * AUDIT FIX TF-026: share of TOTAL supply removed BEFORE the concentration
+   * math ran. A read taken over a minority of supply is not a claim about the
+   * token, and this row's binary green used to state one anyway — the scanner
+   * page discloses the exclusion set beside its verdict, and the terminal
+   * dropped exactly that qualifier while keeping the verdict.
+   */
+  excludedShareOfTotal: number;
 }
 
 /** Deployer-history facts, narrowed. Counts only — never a verdict about a person. */
@@ -145,6 +153,19 @@ export type RowSafety =
  */
 const SCORING_COMPONENTS: readonly SafetyComponentId[] = ['distribution', 'deployer'];
 
+/**
+ * AUDIT FIX TF-026: above this share of total supply removed before the
+ * concentration math, the band describes the remainder rather than the token,
+ * and the row says so instead of rendering an unqualified green.
+ *
+ * Deliberately generous. Excluding most of supply is NORMAL and healthy for an
+ * established token — a deep pool plus a real burn easily clears half — so this
+ * is not a suspicion threshold. It is the line past which the number stops
+ * being a statement about the whole token, and the terminal is the one surface
+ * that had dropped the exclusion disclosure the scanner page renders.
+ */
+const MOSTLY_EXCLUDED = 0.75;
+
 function worse(a: SafetyVerdict, b: SafetyVerdict): SafetyVerdict {
   return VERDICT_RANK[a] >= VERDICT_RANK[b] ? a : b;
 }
@@ -208,6 +229,17 @@ export function assessRowSafety(inputs: SafetyInputs): RowSafety {
   if (dep.confidence === 'low') {
     gaps.push(
       'The deployer read came back with low data confidence, so its history is not a basis for a claim.',
+    );
+  }
+  // AUDIT FIX TF-026: the concentration math runs on what SURVIVES exclusion.
+  // When most of the supply was set aside — pools, burns, and the low-confidence
+  // `contract` heuristic — a clean band describes the remainder, not the token.
+  // The scanner page shows the exclusion set next to its verdict; this row
+  // rendered a binary green with that qualifier dropped.
+  if (dist.excludedShareOfTotal > MOSTLY_EXCLUDED) {
+    gaps.push(
+      `${(dist.excludedShareOfTotal * 100).toFixed(1)}% of supply was set aside before the concentration math ` +
+        'ran (pools, burns, contract holders), so this reads the remainder rather than the token.',
     );
   }
   if (dep.unobserved > 0) {
@@ -428,6 +460,7 @@ export function distributionReadFrom(analysis: DistributionAnalysis): ComponentR
     band: analysis.band,
     confidence: analysis.confidence.level,
     firedGateIds: analysis.gate.findings.filter((f) => f.fired).map((f) => f.id),
+    excludedShareOfTotal: analysis.excludedSupplyShareOfTotal, // AUDIT FIX TF-026
   });
 }
 
