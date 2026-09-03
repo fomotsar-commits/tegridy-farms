@@ -160,7 +160,7 @@ describe('stake', () => {
     minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
     minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n,
-    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400 }],
+    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0 }],
   };
 
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
@@ -272,8 +272,10 @@ describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRu
     rewardPools: [],
   });
   const mkRp = (fundedRaw: bigint | null) => ({
-    address: 'Rp', mint: 'M', nonce: 0, vault: 'V', decimals: 6, permissionless: true,
+    address: 'Rp', mint: 'M', kind: 'fixed' as const, nonce: 0, vault: 'V', decimals: 6,
+    permissionless: true,
     fundedRaw, rewardAmountRaw: '3000000', rewardPeriodSecs: 86400,
+    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
   });
 
   it('dust cannot clear the empty banner, and <1 day of burn is still empty', async () => {
