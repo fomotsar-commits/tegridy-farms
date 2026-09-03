@@ -114,12 +114,18 @@ describe('when the venue AMM is live', () => {
     expect(screen.getByText(/Checked 2 venues/)).toBeInTheDocument();
   });
 
-  it('keeps the trade in-house when our pool pays more', async () => {
+  it('renders an own-pool win as a COMPARISON, never as execution — the page only submits the Jupiter tx', async () => {
     readPoolForPair.mockResolvedValue({ kind: 'ok', value: { pool: { address: 'PooL1' } } });
     quoteOwnPool.mockReturnValue({ outAmount: 1_010_000n, poolAddress: 'PooL1' });
 
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
     await waitFor(() => expect(screen.getByText(/more output than Jupiter/)).toBeInTheDocument());
+    // The load-bearing half: no execution claim for a venue nothing executes
+    // against. handleSwap sends the Jupiter transaction unconditionally, so
+    // "Routed to the venue pool" would tell the trader they are getting a fill
+    // they are not. (This pinned the OLD verbatim reason before the fix.)
+    expect(screen.queryByText(/Routed to the venue pool/)).not.toBeInTheDocument();
+    expect(screen.getByText(/still executes via Jupiter/)).toBeInTheDocument();
   });
 
   it('falls back to the aggregator when no pool exists for the pair', async () => {
@@ -131,10 +137,46 @@ describe('when the venue AMM is live', () => {
     expect(screen.queryByRole('link', { name: /why/i })).not.toBeInTheDocument();
   });
 
-  it('does not let a failed own-pool read block the trade', async () => {
+  it('reports a FAILED own-pool read as unquotable, never as pool-absent', async () => {
     readPoolForPair.mockRejectedValue(new Error('rpc down'));
     await mount({ aggregatorQuote: { outAmount: '1000000' } });
-    await waitFor(() => expect(screen.getByText(/Routed to Jupiter/)).toBeInTheDocument());
+    // Pre-fix this rendered "This venue has no pool for this pair" — a
+    // fabricated finding from a degraded read. (Wait on the SETTLED copy: the
+    // in-flight state also says "Routed to Jupiter".)
+    await waitFor(() => expect(screen.getByText(/could not be quoted this time/i)).toBeInTheDocument());
+    expect(screen.getByText(/Routed to Jupiter/)).toBeInTheDocument();
+    expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
+  });
+
+  it('says it is still checking while the own-pool read is in flight, not that no pool exists', async () => {
+    // A read that never resolves = the in-flight window on every keystroke.
+    readPoolForPair.mockReturnValue(new Promise(() => {}));
+    await mount({ aggregatorQuote: { outAmount: '1000000' } });
+    await waitFor(() => expect(screen.getByText(/Checking our own pool/i)).toBeInTheDocument());
+    expect(screen.queryByText(/no pool for this pair/i)).not.toBeInTheDocument();
+  });
+
+  it('does not cache an unreadable venue read for the rest of the session', async () => {
+    // First probe fails, second succeeds — the module-scope cache must retry
+    // after an 'unreadable', so a transient RPC failure cannot pin "could not
+    // be checked" until the next full page load. Both mounts share ONE module
+    // instance (no vi.resetModules between them) so the real cache is on trial.
+    readVenue
+      .mockResolvedValueOnce({ kind: 'unreadable', detail: 'boom' })
+      .mockResolvedValue(LIVE_VENUE);
+    vi.resetModules();
+    const { SolanaRouteLine } = await import('./SolanaRouteLine');
+    const el = (
+      <MemoryRouter>
+        <SolanaRouteLine inputMint={SOL} outputMint={BAYLA} amountInRaw={null} aggregatorQuote={null} />
+      </MemoryRouter>
+    );
+    const first = render(el);
+    await waitFor(() => expect(screen.getByText(/could not be checked/i)).toBeInTheDocument());
+    first.unmount();
+    render(el);
+    await waitFor(() => expect(screen.getByText(/our own pools and Jupiter, whichever pays more/i)).toBeInTheDocument());
+    expect(readVenue).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -14,6 +14,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { pageArt } from '../../lib/artConfig';
+import { OpenInPhantom } from './OpenInPhantom';
 
 type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
@@ -149,6 +150,11 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
           New to DeFi? Read the FAQ
         </Link>
       </div>
+
+      {/* Mobile-only, and only outside Phantom's own browser: Phantom cannot
+          connect from mobile Safari/Chrome at all, so the modal above will not
+          list it. This is the hop Phantom documents instead. */}
+      <OpenInPhantom />
 
       <p className="text-white/40 text-[11px] mt-10 max-w-[420px] mx-auto">
         By connecting, you confirm you've read the{' '}

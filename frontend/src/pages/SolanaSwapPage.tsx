@@ -6,12 +6,12 @@ import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { SolanaProviders } from '../components/solana/SolanaProviders';
+import { SolanaConnectButton } from '../components/solana/SolanaConnectButton';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
 import { SolanaRouteLine } from '../components/swap/SolanaRouteLine';
 import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
@@ -20,14 +20,21 @@ import {
   BUY_TOKENS,
   SOL,
   USDC,
+  USDT,
   LEGACY_TOKEN_PROGRAM,
   LST_TOKENS,
   findSolToken,
+  isUnverified,
   searchTokens,
   looksLikeMint,
   resolveMint,
   fetchTrending,
   iconSrc,
+  rememberToken,
+  getRecentTokens,
+  getFavoriteTokens,
+  toggleFavoriteToken,
+  isFavoriteToken,
   type SolToken,
   type TrendingCategory,
   type TrendingInterval,
@@ -44,14 +51,47 @@ import {
   getTriggerOrders,
   cancelTriggerOrder,
   orderKeyOf,
+  createRecurringOrder,
+  getRecurringOrders,
+  cancelRecurringOrder,
+  recurringOrderKeyOf,
+  type RecurringOrder,
   toBaseUnits,
   fromBaseUnits,
+  limitTakingAmount,
+  MAX_PRIORITY_LAMPORTS,
+  type PriorityLevel,
   type JupiterQuote,
   type ShieldWarning,
   type TriggerOrder,
 } from '../lib/jupiter';
+import { TokenDetail } from '../components/solana/TokenDetail';
+import { PairChart } from '../components/solana/PairChart';
+import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
+
+// Priority-fee levels for the swap build ("Speed"). The lamport ceiling is
+// hard-capped in lib/jupiter.ts and disclosed under the chips.
+const SPEED_LEVELS: { level: PriorityLevel; label: string }[] = [
+  { level: 'medium', label: 'Normal' },
+  { level: 'high', label: 'Fast' },
+  { level: 'veryHigh', label: 'Turbo' },
+];
+
+// Amount fields are type="text" + inputMode="decimal", never type="number":
+// an iOS locale keypad emits ',' which type=number surfaces as an EMPTY value
+// (the field looks full while baseAmount stays null and the CTA is stuck on
+// "Enter an amount"), and desktop wheel-scroll over a focused number input
+// silently mutates a financial amount. Accept only a plain decimal string and
+// normalize ',' to '.' so toBaseUnits sees what the user meant.
+function acceptAmountInput(v: string, set: (s: string) => void): void {
+  const n = v.replace(',', '.');
+  // Unambiguous shape (the dot is REQUIRED before the second digit run):
+  // `\d*\.?\d*` lets the engine split a long digit run at every position,
+  // which CodeQL rightly flags as polynomial backtracking on library input.
+  if (/^\d*(?:\.\d*)?$/.test(n)) set(n);
+}
 
 function prettyAmount(s: string): string {
   if (!s.includes('.')) return s;
@@ -61,6 +101,13 @@ function prettyAmount(s: string): string {
 
 function shortSig(sig: string): string {
   return `${sig.slice(0, 6)}…${sig.slice(-6)}`;
+}
+
+function intervalLabel(secs: number): string {
+  if (secs === 3_600) return 'every hour';
+  if (secs === 86_400) return 'every day';
+  if (secs === 604_800) return 'every week';
+  return `every ${secs}s`;
 }
 
 // Confirm by polling signature status — deliberately avoids a WS subscription
@@ -88,7 +135,7 @@ interface TokenPickerProps {
 
 function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
   const out: { label: string; tone: 'amber' | 'red' }[] = [];
-  if (t.verified === false) out.push({ label: 'Unverified', tone: 'amber' });
+  if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
   if (t.audit?.freezeAuthorityDisabled === false) out.push({ label: 'Can freeze', tone: 'red' });
   return out;
@@ -137,33 +184,48 @@ function TokenAvatar({ token, size = 28 }: { token: SolToken; size?: number }) {
 
 function TokenRow({ t, onSelect }: { t: SolToken; onSelect: (t: SolToken) => void }) {
   const badges = riskBadges(t);
+  // Sibling buttons, never nested (invalid HTML): the row selects, the star
+  // toggles the localStorage favorite.
+  const [fav, setFav] = useState(() => isFavoriteToken(t.mint));
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(t)}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white/5 transition-colors text-left"
-    >
-      <TokenAvatar token={t} size={28} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-white text-[13px] font-medium truncate">{t.symbol}</span>
-          {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
-        </div>
-        <div className="text-white/50 text-[11px] truncate">{t.name}</div>
-        {badges.length > 0 && (
-          <div className="flex gap-1 flex-wrap mt-0.5">
-            {badges.map((b) => (
-              <span
-                key={b.label}
-                className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${b.tone === 'red' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'}`}
-              >
-                {b.label}
-              </span>
-            ))}
+    <div className="w-full flex items-center rounded-lg hover:bg-white/5 transition-colors">
+      <button
+        type="button"
+        onClick={() => onSelect(t)}
+        className="flex-1 flex items-center gap-3 px-3 py-2.5 text-left min-w-0"
+      >
+        <TokenAvatar token={t} size={28} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-white text-[13px] font-medium truncate">{t.symbol}</span>
+            {t.verified === true && <span className="text-success text-[10px]" title="Verified on Jupiter" aria-label="Verified">✓</span>}
           </div>
-        )}
-      </div>
-    </button>
+          <div className="text-white/50 text-[11px] truncate">{t.name}</div>
+          {badges.length > 0 && (
+            <div className="flex gap-1 flex-wrap mt-0.5">
+              {badges.map((b) => (
+                <span
+                  key={b.label}
+                  className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${b.tone === 'red' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-300'}`}
+                >
+                  {b.label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </button>
+      <button
+        type="button"
+        onClick={() => setFav(toggleFavoriteToken(t))}
+        aria-pressed={fav}
+        aria-label={fav ? `Remove ${t.symbol} from favorites` : `Add ${t.symbol} to favorites`}
+        className="px-3 py-2.5 text-[15px] flex-shrink-0"
+        style={{ color: fav ? 'var(--color-stan)' : 'rgba(255,255,255,0.35)' }}
+      >
+        {fav ? '★' : '☆'}
+      </button>
+    </div>
   );
 }
 
@@ -181,6 +243,12 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
+    // Lock the page under the dialog — without this, scroll chaining past the
+    // results list (or a swipe on the backdrop) scrolls the page, and closing
+    // returns focus to a trigger that may have scrolled off-screen. Mirrors
+    // the wallet-adapter modal's own body lock.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { onClose(); return; }
       if (e.key !== 'Tab' || !panelRef.current) return;
@@ -200,6 +268,7 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
       prevFocus?.focus();
     };
   }, [onClose]);
@@ -228,19 +297,44 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
   }, [query]);
 
   const list = results ?? featured;
+  // Empty state renders three labeled groups instead of a flat "Popular"
+  // list: Favorites, then Recent, then Popular — deduped by mint in that
+  // priority order. localStorage reads are cheap and the empty state only
+  // re-renders on open/query-clear, so no memo. Remembered/favorited tokens
+  // re-run through riskBadges like any other row — an unverified token stays
+  // visibly unverified no matter where it renders from.
+  const groups = results
+    ? null
+    : (() => {
+        const favs = getFavoriteTokens();
+        const seen = new Set(favs.map((t) => t.mint));
+        const recents = getRecentTokens().filter((t) => !seen.has(t.mint));
+        for (const t of recents) seen.add(t.mint);
+        const popular = featured.filter((t) => !seen.has(t.mint));
+        return [
+          { label: 'Favorites', tokens: favs },
+          { label: 'Recent', tokens: recents },
+          { label: 'Popular', tokens: popular },
+        ].filter((g) => g.tokens.length > 0);
+      })();
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+      {/* max-h + own scroll: iPhone landscape gives ~340px of height, and a
+          centered fixed-height panel clips the title and close button off the
+          top with no way to reach them. The 16px search font is deliberate —
+          anything smaller makes iOS Safari zoom the whole page on the
+          programmatic focus above, and it never zooms back out. */}
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="relative z-10 w-full max-w-sm rounded-2xl p-4 outline-none"
+        className="relative z-10 w-full max-w-sm rounded-2xl p-4 outline-none max-h-[calc(100dvh-2rem)] overflow-y-auto"
         style={{ background: 'var(--color-bg-elevated)', border: '1px solid rgba(255,255,255,0.14)' }}
       >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-white text-[14px] font-semibold">{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Close token list" className="text-white/60 hover:text-white p-1 text-[14px]">✕</button>
+          <button type="button" onClick={onClose} aria-label="Close token list" className="text-white/60 hover:text-white p-3 -m-2 text-[14px]">✕</button>
         </div>
         <input
           ref={inputRef}
@@ -251,13 +345,19 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
           aria-label="Search tokens"
           spellCheck={false}
           autoComplete="off"
-          className="w-full mb-3 px-3 py-2 rounded-lg bg-black/50 text-white text-[13px] outline-none"
+          className="w-full mb-3 px-3 py-2 rounded-lg bg-black/50 text-white text-[16px] sm:text-[13px] outline-none"
           style={{ border: '1px solid rgba(255,255,255,0.14)' }}
         />
-        {!results && <p className="text-white/40 text-[10px] uppercase tracking-wide mb-1 px-1">Popular</p>}
-        <div className="space-y-1 max-h-[300px] overflow-y-auto">
+        <div className="space-y-1 max-h-[min(300px,45dvh)] overflow-y-auto overscroll-contain">
           {loading && <div className="px-3 py-2.5 text-white/50 text-[12px]">Searching…</div>}
-          {!loading && list.map((t) => <TokenRow key={t.mint} t={t} onSelect={onSelect} />)}
+          {!loading && groups
+            ? groups.map((g) => (
+                <div key={g.label}>
+                  <p className="text-white/55 text-[10px] uppercase tracking-wide mb-1 px-1">{g.label}</p>
+                  {g.tokens.map((t) => <TokenRow key={t.mint} t={t} onSelect={onSelect} />)}
+                </div>
+              ))
+            : !loading && list.map((t) => <TokenRow key={t.mint} t={t} onSelect={onSelect} />)}
           {!loading && error && <p className="px-3 py-2 text-amber-300 text-[12px]">{error}</p>}
         </div>
       </div>
@@ -277,6 +377,11 @@ function useTokenBalance(token: SolToken): { raw: bigint | null; human: string |
   useEffect(() => {
     if (!publicKey) { setRaw(null); setLoading(false); return; }
     let cancelled = false;
+    // Reset on EVERY re-run, not just disconnect: between a token switch and
+    // the RPC response the old token's raw balance would otherwise feed MAX
+    // and the insufficient guard in the NEW token's decimals (5 SOL raw ->
+    // "5000" USDC). null hides MAX and skips the guard until the read lands.
+    setRaw(null);
     setLoading(true);
     (async () => {
       try {
@@ -346,7 +451,7 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
               type="button"
               onClick={() => setCategory(c.key)}
               aria-pressed={category === c.key}
-              className="px-2 py-1 rounded-md text-[10px] font-medium text-white transition-colors"
+              className="px-2.5 py-2 rounded-md text-[10px] font-medium text-white transition-colors"
               style={{
                 background: category === c.key ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                 border: category === c.key ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -388,7 +493,7 @@ function TrendingRail({ onPick }: { onPick: (t: SolToken) => void }) {
               );
             })}
       </div>
-      <p className="text-white/30 text-[9px] mt-1.5">Trending data from Jupiter. Not an endorsement — verify before buying.</p>
+      <p className="text-white/55 text-[11px] mt-1.5">Trending data from Jupiter. Not an endorsement — verify before buying.</p>
     </div>
   );
 }
@@ -400,7 +505,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
     <div className="mt-6">
       <div className="flex items-baseline justify-between mb-2">
         <h2 className="text-white text-[13px] font-semibold">Earn SOL staking yield</h2>
-        <span className="text-white/40 text-[10px]">liquid staking · no lockup</span>
+        <span className="text-white/60 text-[10px]">liquid staking · no lockup</span>
       </div>
       <div className="grid grid-cols-2 gap-2">
         {LST_TOKENS.map((t) => (
@@ -419,12 +524,287 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
           </button>
         ))}
       </div>
-      <p className="text-white/30 text-[9px] mt-1.5">
+      <p className="text-white/55 text-[11px] mt-1.5">
         Buy a liquid-staking token to earn ~validator APY automatically — its value grows each epoch, no lockup, sell
         back to SOL anytime. APY is variable.{' '}
         {isSolanaFeeConfigured() ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies on the SOL buy.` : 'No platform fee is charged on the buy.'}
       </p>
     </div>
+  );
+}
+
+// "Your recent activity" — what THIS venue submitted for the connected wallet,
+// read from the per-wallet localStorage record at render time (any re-render
+// after a new trade re-reads it). Venue-side record only, and says so.
+function ActivityRail() {
+  const { publicKey } = useWallet();
+  const [open, setOpen] = useState(false);
+  if (!publicKey) return null;
+  const rows = open ? getActivity(publicKey.toBase58()) : [];
+  return (
+    <div className="mt-6">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left min-h-[40px]"
+        style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.10)' }}
+      >
+        <span className="text-white text-[13px] font-semibold">Your recent activity</span>
+        <span className="text-white/60 text-[11px]" aria-hidden="true">{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1.5">
+          {rows.length === 0 ? (
+            <p className="text-white/60 text-[11px] px-1">Nothing yet — trades you make here will be listed.</p>
+          ) : (
+            rows.map((e) => (
+              <div key={e.sig} className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.10)' }}>
+                <div className="min-w-0">
+                  <div className="text-white/85 text-[11px] truncate">{e.summary}</div>
+                  <div className="text-white/50 text-[9px]">{timeAgo(e.ts)} · this venue</div>
+                </div>
+                <a
+                  href={`https://solscan.io/tx/${e.sig}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/60 text-[10px] hover:text-white flex-shrink-0 px-2 py-2.5 -my-2 underline underline-offset-2"
+                >
+                  Solscan
+                </a>
+              </div>
+            ))
+          )}
+          <p className="text-white/55 text-[9px] px-1">
+            Stored in this browser only — trades this venue submitted for this wallet, not full on-chain history.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// DCA — Jupiter Recurring (time-based): deposit once, keepers buy the pair on a
+// fixed cadence, no tab to keep open. Same winning shape as the Trigger
+// integration. v1 ships fee-off (integrator fees need a referral-account
+// setup) and time-based only. Jupiter enforces roughly a $100-total minimum
+// deposit — surfaced as a hint, and their API refuses smaller honestly.
+function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onPickPay, onPickBuy }: {
+  payToken: SolToken; buyToken: SolToken;
+  shieldWarnings: ShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
+  onPickPay: () => void; onPickBuy: () => void;
+}) {
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction } = useWallet();
+
+  const [totalAmount, setTotalAmount] = useState('');
+  const [numBuys, setNumBuys] = useState(4);
+  const [intervalSecs, setIntervalSecs] = useState(86_400);
+  const [placing, setPlacing] = useState(false);
+  const [orders, setOrders] = useState<RecurringOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const payBalance = useTokenBalance(payToken);
+
+  const sameToken = payToken.mint === buyToken.mint;
+  const totalBase = useMemo(() => toBaseUnits(totalAmount, payToken.decimals), [totalAmount, payToken.decimals]);
+  // Per-buy display: the deposit is spent as inAmount/numberOfOrders per cycle.
+  const perBuyHuman = useMemo(() => {
+    if (!totalBase) return null;
+    const per = BigInt(totalBase) / BigInt(numBuys);
+    return per > 0n ? fromBaseUnits(per.toString(), payToken.decimals) : null;
+  }, [totalBase, numBuys, payToken.decimals]);
+  const insufficient = payBalance.raw !== null && totalBase !== null && BigInt(totalBase) > payBalance.raw;
+
+  const loadOrders = useCallback(() => {
+    if (!publicKey) { setOrders([]); return; }
+    setOrdersLoading(true);
+    getRecurringOrders(publicKey.toBase58())
+      .then((o) => setOrders(o))
+      .catch(() => setOrders([]))
+      .finally(() => setOrdersLoading(false));
+  }, [publicKey]);
+
+  useEffect(() => { loadOrders(); }, [loadOrders]);
+
+  async function signSend(b64: string): Promise<string> {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const tx = VersionedTransaction.deserialize(bytes);
+    const sig = await sendTransaction(tx, connection);
+    await pollConfirm(connection, sig);
+    return sig;
+  }
+
+  async function handlePlace() {
+    if (!publicKey || !totalBase || sameToken) return;
+    setPlacing(true);
+    try {
+      const b64 = await createRecurringOrder({
+        user: publicKey.toBase58(),
+        inputMint: payToken.mint,
+        outputMint: buyToken.mint,
+        inAmount: totalBase,
+        numberOfOrders: numBuys,
+        intervalSeconds: intervalSecs,
+      });
+      const sig = await signSend(b64);
+      toast.success('DCA started', {
+        description: shortSig(sig),
+        action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
+      });
+      recordActivity(publicKey.toBase58(), {
+        sig,
+        ts: Date.now(),
+        kind: 'dca-place',
+        summary: `DCA: ${prettyAmount(totalAmount)} ${payToken.symbol} → ${buyToken.symbol}, ${numBuys} buys ${intervalLabel(intervalSecs)}`,
+      });
+      setTotalAmount('');
+      loadOrders();
+    } catch (err) {
+      toast.error('Could not start the DCA', { description: (err as Error).message });
+    } finally {
+      setPlacing(false);
+    }
+  }
+
+  async function handleCancel(o: RecurringOrder) {
+    const key = recurringOrderKeyOf(o);
+    if (!publicKey || !key) return;
+    setCancelling(key);
+    try {
+      const sig = await signSend(await cancelRecurringOrder(publicKey.toBase58(), key));
+      toast.success('DCA cancelled — unspent funds return to your wallet', { description: shortSig(sig) });
+      recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'dca-cancel', summary: 'Cancelled a DCA' });
+      loadOrders();
+    } catch (err) {
+      toast.error('Could not cancel', { description: (err as Error).message });
+    } finally {
+      setCancelling(null);
+    }
+  }
+
+  const canPlace = !!publicKey && !!totalBase && !!perBuyHuman && !sameToken && !placing && !insufficient && !(needsAck && !ack);
+
+  return (
+    <>
+      <div className="mb-1">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Total to invest</span>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+          <button type="button" onClick={onPickPay} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors">
+            <span className="text-white font-medium text-[14px]">{payToken.symbol}</span>
+            <span className="text-white/80" aria-hidden="true">▾</span>
+          </button>
+          <input type="text" inputMode="decimal" autoComplete="off" placeholder="0.0" aria-label={`Total ${payToken.symbol} to invest`} value={totalAmount} onChange={(e) => acceptAmountInput(e.target.value, setTotalAmount)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
+        </div>
+      </div>
+
+      <div className="mt-3 mb-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Buying</span>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
+          <button type="button" onClick={onPickBuy} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors">
+            <span className="text-white font-medium text-[14px]">{buyToken.symbol}</span>
+            <span className="text-white/80" aria-hidden="true">▾</span>
+          </button>
+          <div className="flex-1 flex items-center justify-end gap-2 text-[11px] text-white/70">
+            <select value={numBuys} onChange={(e) => setNumBuys(Number(e.target.value))} aria-label="Number of buys" className="bg-black/40 text-white font-mono text-[16px] sm:text-[12px] outline-none rounded-md px-2 py-1.5" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
+              {[2, 4, 6, 12, 24].map((n) => <option key={n} value={n}>{n} buys</option>)}
+            </select>
+            <select value={intervalSecs} onChange={(e) => setIntervalSecs(Number(e.target.value))} aria-label="Buy interval" className="bg-black/40 text-white font-mono text-[16px] sm:text-[12px] outline-none rounded-md px-2 py-1.5" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
+              <option value={3_600}>hourly</option>
+              <option value={86_400}>daily</option>
+              <option value={604_800}>weekly</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-3 text-[11px] space-y-1">
+        {perBuyHuman && (
+          <div className="flex items-center justify-between text-white/70">
+            <span>Per buy</span>
+            <span className="font-mono">{prettyAmount(perBuyHuman)} {payToken.symbol} {intervalLabel(intervalSecs)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-white/70">
+          <span>Platform fee</span>
+          <span className="font-mono">None on DCA orders</span>
+        </div>
+        {sameToken && <p className="text-amber-300">Pick two different tokens.</p>}
+        {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
+        {totalAmount.trim() !== '' && totalBase && !perBuyHuman && <p className="text-amber-300">Per-buy amount rounds to zero — increase the total or reduce the buys.</p>}
+        {shieldWarnings.map((w, i) => (
+          <p key={`dsh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+            <span aria-hidden="true">⚠</span><span>{w.message}</span>
+          </p>
+        ))}
+      </div>
+
+      {needsAck && (
+        <label className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-lg cursor-pointer" style={{ background: 'rgba(150,40,40,0.20)', border: '1px solid rgba(255,90,90,0.35)' }}>
+          <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5 flex-shrink-0" />
+          <span className="text-[11px] text-red-200">
+            This pair carries a risk warning (an unverified token, or flagged by Jupiter Shield above). I understand and want to DCA into it anyway.
+          </span>
+        </label>
+      )}
+
+      {!publicKey ? (
+        <SolanaConnectButton />
+      ) : (
+        <button type="button" onClick={() => void handlePlace()} disabled={!canPlace} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50">
+          {placing ? 'Starting…' : !totalBase ? 'Enter a total amount' : insufficient ? `Insufficient ${payToken.symbol}` : !perBuyHuman ? 'Amount too small' : 'Start the DCA'}
+        </button>
+      )}
+
+      <p className="mt-3 text-center text-white/60 text-[10px]">
+        The full amount is deposited up front and spent automatically by Jupiter keepers, {numBuys} buys {intervalLabel(intervalSecs)} —
+        no tab to keep open. Cancel anytime; unspent funds come back. Jupiter requires roughly a $100 total minimum.
+      </p>
+
+      {publicKey && (
+        <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-white text-[12px] font-semibold">Active DCAs</span>
+            <button type="button" onClick={loadOrders} className="text-white/60 text-[10px] hover:text-white px-2 py-2.5 -my-2">Refresh</button>
+          </div>
+          {ordersLoading ? (
+            <p className="text-white/50 text-[11px]">Loading…</p>
+          ) : orders.length === 0 ? (
+            <p className="text-white/60 text-[11px]">No active DCAs.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {orders.map((o, i) => {
+                const key = recurringOrderKeyOf(o);
+                const inTok = findSolToken(String(o.inputMint ?? ''));
+                const outTok = findSolToken(String(o.outputMint ?? ''));
+                // Human amounts only with KNOWN decimals — unknown tokens fall
+                // back to the order key, never a guessed magnitude.
+                const perCycle = o.inAmountPerCycle && inTok ? prettyAmount(fromBaseUnits(String(o.inAmountPerCycle), inTok.decimals)) : null;
+                const freq = Number(o.cycleFrequency);
+                const keyShort = key ? `${key.slice(0, 4)}…${key.slice(-4)}` : 'order';
+                return (
+                  <div key={key ?? i} className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.10)' }}>
+                    <div className="min-w-0">
+                      <div className="text-white/80 text-[11px] truncate">
+                        {perCycle ? `Buy with ${perCycle} ${inTok?.symbol ?? '?'} ${Number.isFinite(freq) ? intervalLabel(freq) : ''} → ${outTok?.symbol ?? '?'}` : keyShort}
+                      </div>
+                      {perCycle && <div className="text-white/50 text-[9px] font-mono truncate">{keyShort}</div>}
+                    </div>
+                    <button type="button" onClick={() => void handleCancel(o)} disabled={!key || cancelling === key} className="text-red-300 text-[11px] hover:text-red-200 disabled:opacity-50 flex-shrink-0 px-2 py-2.5 -my-2">
+                      {cancelling === key ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -437,8 +817,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction, connecting } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { publicKey, sendTransaction } = useWallet();
 
   const [sellAmount, setSellAmount] = useState('');
   const [price, setPrice] = useState('');
@@ -452,13 +831,13 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   const sameToken = payToken.mint === buyToken.mint;
   const makingAmount = useMemo(() => toBaseUnits(sellAmount, payToken.decimals), [sellAmount, payToken.decimals]);
   // takingAmount = makingAmount × price in BigInt fixed-point (no float / no
-  // exponential round-trip). price is the buyToken-per-1-payToken rate.
-  const takingAmount = useMemo(() => {
-    const priceBase = toBaseUnits(price, buyToken.decimals);
-    if (!makingAmount || !priceBase) return null;
-    const taking = (BigInt(makingAmount) * BigInt(priceBase)) / (10n ** BigInt(payToken.decimals));
-    return taking === 0n ? null : taking.toString();
-  }, [makingAmount, price, payToken.decimals, buyToken.decimals]);
+  // exponential round-trip). price is the buyToken-per-1-payToken rate,
+  // multiplied at FULL typed precision — see limitTakingAmount for why the
+  // truncate-then-multiply shape silently floored the order rate.
+  const takingAmount = useMemo(
+    () => limitTakingAmount(makingAmount, price, payToken.decimals, buyToken.decimals),
+    [makingAmount, price, payToken.decimals, buyToken.decimals],
+  );
   const insufficient = payBalance.raw !== null && makingAmount !== null && BigInt(makingAmount) > payBalance.raw;
 
   const loadOrders = useCallback(() => {
@@ -498,6 +877,12 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
       });
+      recordActivity(publicKey.toBase58(), {
+        sig,
+        ts: Date.now(),
+        kind: 'limit-place',
+        summary: `Limit: sell ${prettyAmount(sellAmount)} ${payToken.symbol} → ≈${prettyAmount(fromBaseUnits(takingAmount, buyToken.decimals))} ${buyToken.symbol}`,
+      });
       setSellAmount(''); setPrice('');
       loadOrders();
     } catch (err) {
@@ -514,6 +899,12 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
     try {
       const sig = await signSend(await cancelTriggerOrder(publicKey.toBase58(), key));
       toast.success('Order cancelled', { description: shortSig(sig) });
+      recordActivity(publicKey.toBase58(), {
+        sig,
+        ts: Date.now(),
+        kind: 'limit-cancel',
+        summary: 'Cancelled a limit order',
+      });
       loadOrders();
     } catch (err) {
       toast.error('Could not cancel', { description: (err as Error).message });
@@ -531,11 +922,11 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
           <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Sell</span>
         </div>
         <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
-          <button type="button" onClick={onPickPay} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
+          <button type="button" onClick={onPickPay} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors">
             <span className="text-white font-medium text-[14px]">{payToken.symbol}</span>
             <span className="text-white/80" aria-hidden="true">▾</span>
           </button>
-          <input type="number" inputMode="decimal" placeholder="0.0" aria-label={`Amount of ${payToken.symbol} to sell`} value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
+          <input type="text" inputMode="decimal" autoComplete="off" placeholder="0.0" aria-label={`Amount of ${payToken.symbol} to sell`} value={sellAmount} onChange={(e) => acceptAmountInput(e.target.value, setSellAmount)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
         </div>
       </div>
 
@@ -544,11 +935,11 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
           <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>When 1 {payToken.symbol} =</span>
         </div>
         <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
-          <button type="button" onClick={onPickBuy} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
+          <button type="button" onClick={onPickBuy} aria-haspopup="dialog" className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors">
             <span className="text-white font-medium text-[14px]">{buyToken.symbol}</span>
             <span className="text-white/80" aria-hidden="true">▾</span>
           </button>
-          <input type="number" inputMode="decimal" placeholder="0.0" aria-label={`Target price in ${buyToken.symbol}`} value={price} onChange={(e) => setPrice(e.target.value)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
+          <input type="text" inputMode="decimal" autoComplete="off" placeholder="0.0" aria-label={`Target price in ${buyToken.symbol}`} value={price} onChange={(e) => acceptAmountInput(e.target.value, setPrice)} className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0" />
         </div>
       </div>
 
@@ -561,7 +952,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
         )}
         <div className="flex items-center justify-between text-white/70">
           <span>Expires</span>
-          <select value={expiryDays} onChange={(e) => setExpiryDays(Number(e.target.value))} className="bg-black/40 text-white font-mono text-[11px] outline-none rounded-md px-1.5 py-0.5" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
+          <select value={expiryDays} onChange={(e) => setExpiryDays(Number(e.target.value))} aria-label="Order expiry" className="bg-black/40 text-white font-mono text-[16px] sm:text-[12px] outline-none rounded-md px-2 py-1.5" style={{ border: '1px solid rgba(255,255,255,0.12)' }}>
             <option value={1}>1 day</option>
             <option value={7}>7 days</option>
             <option value={30}>30 days</option>
@@ -588,16 +979,14 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
       )}
 
       {!publicKey ? (
-        <button type="button" onClick={() => setVisible(true)} disabled={connecting} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-60">
-          {connecting ? 'Connecting…' : 'Connect Solana Wallet'}
-        </button>
+        <SolanaConnectButton />
       ) : (
         <button type="button" onClick={() => void handlePlace()} disabled={!canPlace} className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-50">
           {placing ? 'Placing…' : !makingAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !price ? 'Enter a price' : !takingAmount ? 'Amount too small' : 'Place limit order'}
         </button>
       )}
 
-      <p className="mt-3 text-center text-white/40 text-[10px]">
+      <p className="mt-3 text-center text-white/60 text-[10px]">
         Real on-chain order, filled automatically by Jupiter keepers — no tab to keep open. Funds are reserved until fill, cancel, or expiry.
       </p>
 
@@ -605,12 +994,12 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
         <div className="mt-4 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.10)' }}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-white text-[12px] font-semibold">Open orders</span>
-            <button type="button" onClick={loadOrders} className="text-white/50 text-[10px] hover:text-white">Refresh</button>
+            <button type="button" onClick={loadOrders} className="text-white/60 text-[10px] hover:text-white px-2 py-2.5 -my-2">Refresh</button>
           </div>
           {ordersLoading ? (
             <p className="text-white/50 text-[11px]">Loading…</p>
           ) : orders.length === 0 ? (
-            <p className="text-white/40 text-[11px]">No open orders.</p>
+            <p className="text-white/60 text-[11px]">No open orders.</p>
           ) : (
             <div className="space-y-1.5">
               {orders.map((o, i) => {
@@ -632,7 +1021,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
                       </div>
                       {sell && buy && <div className="text-white/40 text-[9px] font-mono truncate">{keyShort}</div>}
                     </div>
-                    <button type="button" onClick={() => void handleCancel(o)} disabled={!key || cancelling === key} className="text-red-300 text-[11px] hover:text-red-200 disabled:opacity-50 flex-shrink-0">
+                    <button type="button" onClick={() => void handleCancel(o)} disabled={!key || cancelling === key} className="text-red-300 text-[11px] hover:text-red-200 disabled:opacity-50 flex-shrink-0 px-2 py-2.5 -my-2">
                       {cancelling === key ? 'Cancelling…' : 'Cancel'}
                     </button>
                   </div>
@@ -648,10 +1037,19 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
 
 function SolanaSwapInner() {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction, connecting } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { publicKey, sendTransaction } = useWallet();
 
-  const [payToken, setPayToken] = useState<SolToken>(SOL);
+  // ?in=<mint> presets the PAY side (share links). Same rules as ?out= below.
+  const [payToken, setPayToken] = useState<SolToken>(() => {
+    try {
+      const inp = new URLSearchParams(window.location.search).get('in')?.trim();
+      if (inp && looksLikeMint(inp)) {
+        const known = findSolToken(inp);
+        if (known) return known;
+      }
+    } catch { /* URL APIs unavailable — default stands */ }
+    return SOL;
+  });
   // ?out=<mint> presets the BUY side (Jungle Bay bungalow trade links:
   // /solana?out=<BAYLA mint>). A curated mint resolves synchronously in this
   // initializer; unknown mints resolve async below.
@@ -665,34 +1063,71 @@ function SolanaSwapInner() {
     } catch { /* URL APIs unavailable — default stands */ }
     return USDC;
   });
-  const [amount, setAmount] = useState('');
+  // ?amt=<decimal> presets the pay amount (token-denominated). Malformed
+  // values fall back silently — a bad deep link must never break the page.
+  const [amount, setAmount] = useState(() => {
+    try {
+      const amt = new URLSearchParams(window.location.search).get('amt')?.trim();
+      // Same unambiguous-regex rule as acceptAmountInput (query strings are
+      // attacker-length): the dot is anchored, so no polynomial backtracking.
+      if (amt && /^(?:\d*\.)?\d+$/.test(amt) && /[1-9]/.test(amt)) return amt;
+    } catch { /* default stands */ }
+    return '';
+  });
   const [slippageBps, setSlippageBps] = useState(50);
+  // "Buy $50 of it" is the mental model most traders arrive with — usdMode
+  // makes the pay input dollar-denominated, converted through the live
+  // price/v3 quote (refreshed every 30s while the mode is on).
+  const [usdMode, setUsdMode] = useState(false);
+  // Priority-fee level for the swap build ("Speed"). Persisted per browser;
+  // storage failures fall back to Fast (try/catch — private windows).
+  const [speed, setSpeed] = useState<PriorityLevel>(() => {
+    try {
+      const s = localStorage.getItem('sol.speed');
+      if (s === 'medium' || s === 'high' || s === 'veryHigh') return s;
+    } catch { /* default stands */ }
+    return 'high';
+  });
+  const [detailToken, setDetailToken] = useState<SolToken | null>(null);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
-  const [mode, setMode] = useState<'swap' | 'limit'>('swap');
+  const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
   const [ack, setAck] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
   const payBalance = useTokenBalance(payToken);
 
-  const baseAmount = useMemo(() => toBaseUnits(amount, payToken.decimals), [amount, payToken.decimals]);
+  const payPrice = prices[payToken.mint];
+  // In USD mode the input holds dollars; derive the token amount through the
+  // live price. toFixed keeps the float out of base-unit math — toBaseUnits
+  // parses the resulting plain decimal string, exactly like typed input.
+  const tokenAmount = useMemo(() => {
+    if (!usdMode) return amount;
+    const usd = Number(amount);
+    if (!amount || !Number.isFinite(usd) || usd <= 0 || !payPrice) return '';
+    return (usd / payPrice).toFixed(Math.min(payToken.decimals, 9));
+  }, [usdMode, amount, payPrice, payToken.decimals]);
+  const baseAmount = useMemo(() => toBaseUnits(tokenAmount, payToken.decimals), [tokenAmount, payToken.decimals]);
   const sameToken = payToken.mint === buyToken.mint;
   const canQuote = baseAmount !== null && !sameToken;
 
-  // ?out= continued: a NON-curated mint needs the Jupiter lookup for
+  // ?in=/?out= continued: a NON-curated mint needs the Jupiter lookup for
   // authoritative decimals (never invent them). Mount-once; a failed lookup
   // leaves the honest default in place — a bad deep link must never break
-  // the page. The curated case was already handled in the state initializer.
+  // the page. The curated cases were already handled in the state initializers.
   useEffect(() => {
-    const out = new URLSearchParams(window.location.search).get('out')?.trim();
-    if (!out || !looksLikeMint(out) || findSolToken(out)) return;
+    const search = new URLSearchParams(window.location.search);
     const ctrl = new AbortController();
-    resolveMint(out, ctrl.signal)
-      .then((t) => { if (t) setBuyToken(t); })
-      .catch(() => { /* honest default stands */ });
+    for (const [param, set] of [['out', setBuyToken], ['in', setPayToken]] as const) {
+      const mint = search.get(param)?.trim();
+      if (!mint || !looksLikeMint(mint) || findSolToken(mint)) continue;
+      resolveMint(mint, ctrl.signal)
+        .then((t) => { if (t) set(t); })
+        .catch(() => { /* honest default stands */ });
+    }
     return () => ctrl.abort();
   }, []);
 
@@ -710,6 +1145,12 @@ function SolanaSwapInner() {
     const ctrl = new AbortController();
     setQuoteLoading(true);
     setQuoteError(null);
+    // A quote for a DIFFERENT pair must not survive into the fetch window:
+    // the details rows format its raw base units with the NEW buy token's
+    // decimals and symbol ("min received 149250000" USDC-units rendered as
+    // 1492.5 BONK). Same-pair re-quotes (amount/slippage edits) keep the old
+    // numbers to avoid blanking the panel on every keystroke.
+    setQuote((q) => (q && (q.inputMint !== payToken.mint || q.outputMint !== buyToken.mint) ? null : q));
     const t = setTimeout(() => {
       getQuote({
         inputMint: payToken.mint,
@@ -732,14 +1173,25 @@ function SolanaSwapInner() {
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [baseAmount, canQuote, payToken.mint, buyToken.mint, slippageBps]);
 
-  // USD prices for the pay + receive legs (one call, refreshed on pair change).
+  // USD prices for the pay + receive legs (one call, refreshed on pair change
+  // — and every 30s while USD-denominated input is on, so a stale price can't
+  // mis-size the trade).
   useEffect(() => {
     let cancelled = false;
-    getUsdPrices([payToken.mint, buyToken.mint])
-      .then((p) => { if (!cancelled) setPrices(p); })
-      .catch(() => { /* USD context is best-effort */ });
-    return () => { cancelled = true; };
-  }, [payToken.mint, buyToken.mint]);
+    const load = () => {
+      getUsdPrices([payToken.mint, buyToken.mint])
+        .then((p) => { if (!cancelled) setPrices(p); })
+        .catch(() => { /* USD context is best-effort */ });
+    };
+    load();
+    const iv = usdMode ? setInterval(load, 30_000) : null;
+    return () => { cancelled = true; if (iv) clearInterval(iv); };
+  }, [payToken.mint, buyToken.mint, usdMode]);
+
+  // Persist the speed choice (best-effort — private windows just don't keep it).
+  useEffect(() => {
+    try { localStorage.setItem('sol.speed', speed); } catch { /* convenience only */ }
+  }, [speed]);
 
   // Jupiter Shield risk warnings for the pair (once per pair). Fail OPEN.
   useEffect(() => {
@@ -765,7 +1217,9 @@ function SolanaSwapInner() {
   const hasBlockingShield =
     dangerousShield(shield[payToken.mint] ?? [], payToken.mint) ||
     dangerousShield(shield[buyToken.mint] ?? [], buyToken.mint);
-  const needsAck = payToken.verified === false || buyToken.verified === false || hasBlockingShield;
+  // isUnverified matches riskBadges: an unset flag (curated BAYLA, anything
+  // not resolved through Jupiter) is unverified and must require the ack.
+  const needsAck = isUnverified(payToken) || isUnverified(buyToken) || hasBlockingShield;
   const insufficient = payBalance.raw !== null && baseAmount !== null && BigInt(baseAmount) > payBalance.raw;
 
   const payUsd = (() => {
@@ -790,7 +1244,22 @@ function SolanaSwapInner() {
       const reserve = 10_000_000n;
       usable = usable > reserve ? usable - reserve : 0n;
     }
+    // MAX is token-denominated by definition — flip USD mode off so the
+    // amount lands in the units the balance is actually held in.
+    setUsdMode(false);
     setAmount(usable > 0n ? fromBaseUnits(usable.toString(), payToken.decimals) : '');
+  }
+
+  function handleShare() {
+    // Mint + amount only — never the wallet address or a signature (no
+    // personal data in query strings).
+    const params = new URLSearchParams({ in: payToken.mint, out: buyToken.mint });
+    if (tokenAmount && baseAmount) params.set('amt', tokenAmount);
+    const url = `${window.location.origin}/solana?${params.toString()}`;
+    navigator.clipboard.writeText(url).then(
+      () => toast.success('Trade link copied', { description: `${payToken.symbol} → ${buyToken.symbol}` }),
+      () => toast.error('Could not copy the link'),
+    );
   }
 
   async function handleSwap() {
@@ -821,7 +1290,7 @@ function SolanaSwapInner() {
           return;
         }
       } catch { /* unparseable amount — the pre-sign simulation below still guards */ }
-      const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58() });
+      const b64 = await buildSwapTransaction({ quote: fresh, userPublicKey: publicKey.toBase58(), priorityLevel: speed });
       // Pre-sign simulation — refuse to send a swap that would revert (honeypot /
       // freeze / slippage / insufficient). FAIL OPEN if simulation itself errors.
       try {
@@ -839,6 +1308,12 @@ function SolanaSwapInner() {
       toast.success(`Bought ${buyToken.symbol}`, {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
+      });
+      recordActivity(publicKey.toBase58(), {
+        sig,
+        ts: Date.now(),
+        kind: 'swap',
+        summary: `Bought ≈${prettyAmount(fromBaseUnits(fresh.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}`,
       });
       setAmount('');
       setQuote(null);
@@ -883,19 +1358,19 @@ function SolanaSwapInner() {
 
           {/* Mode tabs */}
           <div className="flex gap-1 mb-4">
-            {(['swap', 'limit'] as const).map((mTab) => (
+            {(['swap', 'limit', 'dca'] as const).map((mTab) => (
               <button
                 key={mTab}
                 type="button"
                 onClick={() => setMode(mTab)}
                 aria-pressed={mode === mTab}
-                className="flex-1 py-1.5 rounded-lg text-[12px] font-medium text-white transition-colors"
+                className="flex-1 py-2.5 rounded-lg text-[12px] font-medium text-white transition-colors"
                 style={{
                   background: mode === mTab ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                   border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
                 }}
               >
-                {mTab === 'swap' ? 'Instant swap' : 'Limit order'}
+                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : 'DCA'}
               </button>
             ))}
           </div>
@@ -905,12 +1380,25 @@ function SolanaSwapInner() {
           {/* You pay */}
           <div className="mb-1">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Pay</span>
+              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+                You Pay
+                <button
+                  type="button"
+                  onClick={() => { setUsdMode((v) => !v); setAmount(''); }}
+                  disabled={!payPrice}
+                  aria-pressed={usdMode}
+                  title={payPrice ? 'Enter the amount in US dollars' : 'Price unavailable for this token'}
+                  className="ml-1.5 px-2 py-2.5 -my-2 rounded font-semibold text-[11px] disabled:opacity-40"
+                  style={{ color: usdMode ? 'var(--color-stan)' : 'rgba(255,255,255,0.6)' }}
+                >
+                  $ USD
+                </button>
+              </span>
               {publicKey && (
                 <span className="text-white/60 text-[10px] font-mono">
                   Balance: {payBalance.loading ? '…' : payBalance.human ? prettyAmount(payBalance.human) : '0'}
                   {payBalance.raw !== null && payBalance.raw > 0n && (
-                    <button type="button" onClick={handleMax} className="ml-1.5 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
+                    <button type="button" onClick={handleMax} className="ml-1 px-2 py-2.5 -my-2 font-semibold" style={{ color: 'var(--color-stan)' }}>MAX</button>
                   )}
                 </span>
               )}
@@ -920,20 +1408,41 @@ function SolanaSwapInner() {
                 type="button"
                 onClick={() => setPicker('pay')}
                 aria-haspopup="dialog"
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors"
               >
-                <span className="text-white font-medium text-[14px]">{payToken.symbol}</span>
+                <span className="text-white font-medium text-[14px]">{usdMode ? `$ → ${payToken.symbol}` : payToken.symbol}</span>
                 <span className="text-white/80" aria-hidden="true">▾</span>
               </button>
               <input
-                type="number" inputMode="decimal" placeholder="0.0"
-                aria-label={`Amount of ${payToken.symbol} to pay`}
+                type="text" inputMode="decimal" autoComplete="off" placeholder="0.0"
+                aria-label={usdMode ? `US dollars of ${payToken.symbol} to pay` : `Amount of ${payToken.symbol} to pay`}
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => acceptAmountInput(e.target.value, setAmount)}
                 className="flex-1 bg-transparent text-right text-white text-[20px] font-mono outline-none min-w-0"
               />
             </div>
-            {payUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>}
+            {usdMode ? (
+              <div className="flex items-center justify-between mt-1">
+                <span className="flex gap-1">
+                  {['10', '25', '100'].map((usd) => (
+                    <button
+                      key={usd}
+                      type="button"
+                      onClick={() => setAmount(usd)}
+                      className="px-2 py-2 -my-1 rounded-md text-[10px] font-medium text-white"
+                      style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.12)' }}
+                    >
+                      ${usd}
+                    </button>
+                  ))}
+                </span>
+                <span className="text-right text-white/55 text-[10px] font-mono">
+                  {tokenAmount && baseAmount ? `≈ ${prettyAmount(tokenAmount)} ${payToken.symbol}` : ''}
+                </span>
+              </div>
+            ) : (
+              payUsd !== null && <div className="text-right text-white/55 text-[10px] mt-1 font-mono">{fmtUsd(payUsd)}</div>
+            )}
           </div>
 
           {/* Flip pay/receive */}
@@ -953,13 +1462,32 @@ function SolanaSwapInner() {
           <div className="mt-3 mb-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>You Receive</span>
+              <span className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setDetailToken(buyToken)}
+                  aria-haspopup="dialog"
+                  aria-label={`About ${buyToken.symbol}: age, holders, authorities`}
+                  className="text-white/60 text-[11px] hover:text-white px-2 py-2.5 -my-2"
+                >
+                  ⓘ {buyToken.symbol}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  aria-label="Copy a link to this trade"
+                  className="text-white/60 text-[10px] hover:text-white px-2 py-2.5 -my-2"
+                >
+                  Share
+                </button>
+              </span>
             </div>
             <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.18)' }}>
               <button
                 type="button"
                 onClick={() => setPicker('buy')}
                 aria-haspopup="dialog"
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg min-h-[40px] hover:bg-white/5 transition-colors"
               >
                 <span className="text-white font-medium text-[14px]">{buyToken.symbol}</span>
                 <span className="text-white/80" aria-hidden="true">▾</span>
@@ -987,7 +1515,7 @@ function SolanaSwapInner() {
                     type="button"
                     onClick={() => setSlippageBps(bps)}
                     aria-pressed={active}
-                    className="flex-1 py-1.5 min-h-[34px] rounded-lg text-[11px] font-medium transition-all text-white"
+                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
                     style={{
                       background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
                       border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
@@ -998,6 +1526,32 @@ function SolanaSwapInner() {
                 );
               })}
             </div>
+            <div className="flex items-center justify-between mb-1.5 mt-3">
+              <span className="text-white text-[11px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Speed</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              {SPEED_LEVELS.map(({ level, label }) => {
+                const active = speed === level;
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setSpeed(level)}
+                    aria-pressed={active}
+                    className="flex-1 py-1.5 min-h-[40px] rounded-lg text-[11px] font-medium transition-all text-white"
+                    style={{
+                      background: active ? 'var(--color-stan)' : 'rgba(0,0,0,0.45)',
+                      border: active ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-white/55 text-[10px] mt-1.5">
+              Priority fee up to {(MAX_PRIORITY_LAMPORTS / 1_000_000_000).toLocaleString('en-US', { maximumFractionDigits: 3 })} SOL — helps the swap land during congestion.
+            </p>
           </div>
 
           {/* Where the trade goes, and why. Shown in EVERY state — including the
@@ -1061,14 +1615,7 @@ function SolanaSwapInner() {
 
           {/* Action */}
           {!publicKey ? (
-            <button
-              type="button"
-              onClick={() => setVisible(true)}
-              disabled={connecting}
-              className="btn-primary w-full py-2.5 text-[14px] disabled:opacity-60"
-            >
-              {connecting ? 'Connecting…' : 'Connect Solana Wallet'}
-            </button>
+            <SolanaConnectButton />
           ) : (
             <button
               type="button"
@@ -1080,23 +1627,32 @@ function SolanaSwapInner() {
             </button>
           )}
 
-          <p className="mt-3 text-center text-white/40 text-[10px]">
+          <p className="mt-3 text-center text-white/60 text-[10px]">
             Swaps route through Jupiter on Solana.{' '}
             {isSolanaFeeConfigured()
               ? `A ${feePct}% platform fee applies on pairs that include SOL or USDC.`
               : 'No platform fee is charged here today — you get Jupiter’s route as quoted.'}
           </p>
             </>
-          ) : (
+          ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
+          ) : (
+            <DcaTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={setAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           )}
         </div>
       </m.div>
 
       {mode === 'swap' && (
         <>
+          {/* Skip the chart for stablecoin buys — a $1.00 flatline is noise. */}
+          {buyToken.mint !== USDC.mint && buyToken.mint !== USDT.mint && (
+            <div className="mt-6">
+              <PairChart key={buyToken.mint} mint={buyToken.mint} symbol={buyToken.symbol} />
+            </div>
+          )}
           <EarnRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
           <TrendingRail onPick={(t) => { setPayToken(SOL); setBuyToken(t); }} />
+          <ActivityRail />
         </>
       )}
 
@@ -1105,7 +1661,7 @@ function SolanaSwapInner() {
           title="Pay with"
           featured={PAY_WITH_TOKENS}
           onClose={() => setPicker(null)}
-          onSelect={(t) => { setPayToken(t); setPicker(null); }}
+          onSelect={(t) => { rememberToken(t); setPayToken(t); setPicker(null); }}
         />
       )}
       {picker === 'buy' && (
@@ -1113,9 +1669,10 @@ function SolanaSwapInner() {
           title="Buy"
           featured={BUY_TOKENS}
           onClose={() => setPicker(null)}
-          onSelect={(t) => { setBuyToken(t); setPicker(null); }}
+          onSelect={(t) => { rememberToken(t); setBuyToken(t); setPicker(null); }}
         />
       )}
+      {detailToken && <TokenDetail token={detailToken} onClose={() => setDetailToken(null)} />}
     </div>
   );
 }
