@@ -58,14 +58,81 @@ contract LadderOrderingPoC is Test {
         assertGt(pool.earned(bob), pool.rewardSurplus(), "bob alone is owed more than the surplus");
     }
 
-    function test_00_precondition_isReachable() public {
-        _reachOvercommittedState();
+    /// AFTER THE FIX (audit C2, 2026-09-01) this state is UNREACHABLE.
+    /// The second notify carries no fresh funding and is now refused, because
+    /// notifyRewardAmount reserves rewardsOutstanding() before offering a
+    /// budget — so period-1's accrued-but-unclaimed rewards can no longer be
+    /// pledged a second time. This test was written to prove the door was
+    /// open; it is kept, flipped, to prove it stays shut.
+    function test_00_precondition_isNowUNREACHABLE() public {
+        vm.prank(alice); pool.stake(1_000e18, 7 days);
+        vm.prank(bob);   pool.stake(5_000e18, 7 days);
+
+        vm.prank(dist); token.transfer(address(pool), 60e18);
+        vm.prank(dist); pool.notifyRewardAmount(60e18);          // funded: fine
+        vm.warp(vm.getBlockTimestamp() + DURATION + 1);          // all of it accrues
+
+        // Everything emitted is now owed, so nothing is fundable. Note the
+        // LIVE view is deliberately larger than the raw banked counter here:
+        // `rewardsEmitted` is only written by a checkpoint, and no transaction
+        // has touched the pool since the warp — which is precisely why the view
+        // adds the un-banked window rather than reading storage alone.
+        assertEq(pool.rewardsEmitted(), 0, "nothing banked yet: no tx since the warp");
+        assertApproxEqRel(pool.rewardsOutstanding(), 60e18, 1e12, "but the debt is real and visible");
+        // Not exactly zero, and it should not be: `rewardRate = 60e18 / 60 days`
+        // truncates, so a few hundred thousand wei genuinely never got emitted
+        // and IS fundable. What matters is that the ~60e18 of accrued rewards
+        // is NOT in the budget, and that the dust is far too small to fund a
+        // period — rewardRate would round to 0, so the notify still reverts
+        // (test_01). Asserting an exact 0 here would be asserting a rounding
+        // artefact, not the property.
+        assertLt(pool.fundableBudget(), 1e9, "accrued rewards are not free budget; only truncation dust remains");
+
+        // …and the un-funded second notify is refused at the door.
+        vm.prank(dist);
+        vm.expectRevert("Provided reward too high");
+        pool.notifyRewardAmount(60e18);
+    }
+
+    /// The liability is retired when it is actually paid, so a LEGITIMATE
+    /// second period (with real money behind it) is still accepted.
+    function test_00b_fundedSecondPeriodIsStillAllowed() public {
+        vm.prank(alice); pool.stake(1_000e18, 7 days);
+        vm.prank(dist); token.transfer(address(pool), 60e18);
+        vm.prank(dist); pool.notifyRewardAmount(60e18);
+        vm.warp(vm.getBlockTimestamp() + DURATION + 1);
+
+        vm.prank(alice); pool.getReward();                        // liability retired
+        vm.prank(dist); token.transfer(address(pool), 60e18);     // real new budget
+        vm.prank(dist); pool.notifyRewardAmount(60e18);           // accepted
+        assertGt(pool.rewardRate(), 0, "a genuinely funded period still works");
     }
 
     // ─────────────────────────────────────────────────────────────────
     // THE EXPLOIT against the SHIPPED contract.
     // ─────────────────────────────────────────────────────────────────
-    function test_01_EXPLOIT_shippedOrderBreaksSolvency() public {
+    /// The exploit, re-aimed at the FIXED contract. It cannot even set itself
+    /// up any more: `_reachOvercommittedState` needs the un-funded second
+    /// notify, and C2 refuses it. Kept as the regression guard — if either fix
+    /// is ever reverted, this reverts to a real exploit and fails loudly.
+    function test_01_EXPLOIT_isRefusedAtTheDoor() public {
+        vm.prank(alice); pool.stake(1_000e18, 7 days);
+        vm.prank(bob);   pool.stake(5_000e18, 7 days);
+        vm.prank(dist); token.transfer(address(pool), 60e18);
+        vm.prank(dist); pool.notifyRewardAmount(60e18);
+        vm.warp(vm.getBlockTimestamp() + DURATION + 1);
+
+        // The un-funded second notify — the step the whole exploit rested on.
+        vm.prank(dist);
+        vm.expectRevert("Provided reward too high");
+        pool.notifyRewardAmount(60e18);
+    }
+
+    /// @dev The original exploit body, preserved for the record. It is not run
+    ///      against the fixed contract because its precondition is now
+    ///      unreachable; `test_02` proves the same attack is harmless even if
+    ///      an overcommitted state were somehow reached.
+    function skip_test_01_EXPLOIT_shippedOrderBreaksSolvency() internal {
         (uint256 bobId, uint256 aliceId) = _reachOvercommittedState();
 
         uint256 trueSurplus = pool.rewardSurplus();
