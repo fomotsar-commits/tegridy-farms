@@ -1,7 +1,7 @@
 import { getDefaultConfig, getDefaultWallets } from '@rainbow-me/rainbowkit';
 import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
-import { phantomWallet } from './rainbowkitPhantomWallet';
+import { phantomWallet, trustWallet } from './rainbowkitWallets';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -28,24 +28,34 @@ function buildConfig() {
       transports,
       // getDefaultConfig's own default list (getDefaultWallets(): safe /
       // rainbow / baseAccount / metaMask / walletConnect — taken from the
-      // library so it can never drift), plus Phantom appended. The default
-      // ships NO Phantom entry, so browsers without the extension never saw a
-      // Phantom option at all (an installed extension only surfaced via
-      // EIP-6963 discovery, and the MOBILE modal renders RainbowKit entries
-      // only — Phantom was invisible there in every state). phantomWallet is
-      // VENDORED (see lib/rainbowkitPhantomWallet.ts): the package's /wallets
-      // barrel is unbuildable against wagmi 3.7.6 (portoWallet/geminiWallet
-      // chunks import named exports wagmi doesn't ship — rolldown
-      // MISSING_EXPORT at build time, green everywhere else). It is a pure
-      // injected connector (namespace phantom.ethereum, rdns app.phantom)
-      // with no optional peer dependency, so it cannot hit the WALLET-03
-      // throwing-stub trap; when the extension is installed, the modal merges
-      // this entry with the EIP-6963 announcement by rdns instead of listing
-      // it twice.
+      // library so it can never drift), plus the two wallets its default
+      // omits: Phantom and Trust. Neither shipped an entry, so a browser
+      // without the extension never saw the option at all (an installed
+      // extension only surfaced via EIP-6963 discovery, and the MOBILE modal
+      // renders RainbowKit entries only — both were invisible there in every
+      // state). When an extension IS installed the modal merges our entry
+      // with the EIP-6963 announcement by rdns rather than listing it twice.
+      //
+      // Both are VENDORED (see lib/rainbowkitWallets.ts): the package's
+      // /wallets barrel is unbuildable against wagmi 3.7.6
+      // (portoWallet/geminiWallet chunks import named exports wagmi doesn't
+      // ship — rolldown MISSING_EXPORT at build time, green everywhere else).
+      // Phantom is injected-only; Trust falls back to WalletConnect (QR on
+      // desktop, trust:// deep link on mobile), whose optional peer
+      // @walletconnect/ethereum-provider is already installed and guarded by
+      // walletConnectorDeps.test.ts — so neither can hit the WALLET-03
+      // throwing-stub trap.
       wallets: (() => {
         const { wallets } = getDefaultWallets();
         const popular = wallets[0]!;
-        return [{ ...popular, wallets: [...popular.wallets, phantomWallet] }];
+        // Both go in BARE, exactly like the defaults: connectorsForWallets
+        // calls each factory with the projectId AND the app metadata it
+        // computes (walletConnectParameters). Wrapping Trust to pass our own
+        // projectId would drop that metadata and leave its users approving a
+        // nameless WalletConnect session.
+        return [
+          { ...popular, wallets: [...popular.wallets, phantomWallet, trustWallet] },
+        ];
       })(),
     });
   }
