@@ -525,6 +525,46 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
         migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
     }
 
+    /// @notice THE MERGE IS SAFE EVEN IF A PRODUCER'S SORT IS BROKEN, and this pins
+    ///         it. The linear merge only collapses ADJACENT duplicates, so its
+    ///         correctness looks like it rests on the caller having sorted. It does
+    ///         not, and the reason is a property of the ordering check rather than
+    ///         a promise from the caller:
+    ///
+    ///           in a non-descending list, equal elements are NECESSARILY contiguous
+    ///           (if a[i] == a[j] for i < j, then every a[k] between them satisfies
+    ///            a[i] <= a[k] <= a[j] == a[i], so a[k] == a[i] too)
+    ///
+    ///         So every list `initialize` ACCEPTS has its duplicates adjacent, and
+    ///         every list with a NON-adjacent duplicate necessarily descends
+    ///         somewhere and is refused. There is no input that merges wrongly —
+    ///         only inputs that merge correctly and inputs that revert.
+    ///
+    ///         Written after the frontend's sort comparator was found to be
+    ///         inconsistent for equal addresses (fixed in 9c74a1b7): ECMAScript
+    ///         leaves the order implementation-defined for such a comparator, which
+    ///         is unobservable until the list contains duplicates — exactly the case
+    ///         this merge handles. The worst that bug could ever have caused here is
+    ///         a launch that would not CONFIGURE, never one that mis-split fees.
+    function test_initialize_refusesANonAdjacentDuplicateRatherThanMisMergingIt() public {
+        (address t0, address t1) = _tokens();
+        address high = address(type(uint160).max); // sorts above any makeAddr result
+        // A, B, A — the shape a broken comparator can emit. Every OTHER invariant
+        // is deliberately satisfied so the non-adjacency is the only defect: the
+        // owner is present with 50% (over the 5% floor) and the shares sum to WAD.
+        // Without the ordering check this would be STORED as two separate entries
+        // for the owner, which is exactly the duplicate the locker refuses at
+        // graduation — the failure this whole ticket exists to move earlier.
+        BeneficiaryData[] memory bens = new BeneficiaryData[](3);
+        bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
+        bens[1] = BeneficiaryData({beneficiary: high, shares: uint96(50e16)});
+        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(47e16)});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.DuplicateOrUnsortedBeneficiary.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
     /// @notice A genuinely DISORDERED list is still refused. The locker would refuse
     ///         it too, so accepting it here would only move the failure to
     ///         graduation - and no producer emits one, because both sort.
