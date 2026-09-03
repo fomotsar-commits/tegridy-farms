@@ -36,6 +36,9 @@ vi.mock('../../hooks/useIrysUpload', () => ({ useIrysUpload: () => ({ uploadFile
 vi.mock('wagmi', () => ({
   useWriteContract: () => ({ writeContractAsync, isPending: false }),
   usePublicClient: () => ({ waitForTransactionReceipt }),
+  // AUDIT TF-023: the panel now READS the launch terms it displays. Undefined
+  // data is the in-flight case, which the view renders as "still reading".
+  useReadContract: () => ({ data: undefined }),
 }));
 vi.mock('viem', async (importOriginal) => ({ ...(await importOriginal<typeof import('viem')>()), parseEventLogs }));
 
