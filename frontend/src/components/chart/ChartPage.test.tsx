@@ -63,7 +63,10 @@ describe('ChartPage when GeckoTerminal cannot be reached', () => {
 
   async function renderOffline() {
     vi.useFakeTimers();
-    const fetchMock = vi.fn(async () => {
+    // Typed as the real `fetch` so the URL assertions below read a genuine
+    // request argument; an untyped vi.fn() has an empty argument tuple, which
+    // makes `calls[0][0]` unreachable rather than merely unchecked.
+    const fetchMock = vi.fn<typeof fetch>(async () => {
       throw new TypeError('offline');
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -179,7 +182,9 @@ describe('ChartPage when GeckoTerminal answers', () => {
   };
 
   function stubOk(bars = BARS, meta: unknown = META) {
-    const fetchMock = vi.fn(async () => response(envelope(bars, meta)));
+    // Same reason as renderOffline: the URL a pool switch produces is the thing
+    // under test, so the mock has to keep fetch's argument list.
+    const fetchMock = vi.fn<typeof fetch>(async () => response(envelope(bars, meta)));
     vi.stubGlobal('fetch', fetchMock);
     return fetchMock;
   }

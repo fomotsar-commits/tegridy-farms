@@ -16,9 +16,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { StrictMode, createElement, type ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
+import type { showNotification, requestWebNotificationPermission } from '../lib/alerts/webNotification';
 
-const show = vi.hoisted(() => vi.fn(async () => true));
-const request = vi.hoisted(() => vi.fn(async () => 'granted' as NotificationPermission));
+// The mocks carry the REAL signatures of the functions they stand in for, so a
+// change to the notification contract (a fourth argument, a different return)
+// reds this file instead of letting it keep asserting against a shape the app no
+// longer uses — and so `show.mock.calls[0][2]` below is the tag, checked.
+const show = vi.hoisted(() => vi.fn<typeof showNotification>(async () => true));
+const request = vi.hoisted(() =>
+  vi.fn<typeof requestWebNotificationPermission>(async () => 'granted' as NotificationPermission),
+);
 
 vi.mock('../lib/alerts/webNotification', () => ({
   showNotification: show,

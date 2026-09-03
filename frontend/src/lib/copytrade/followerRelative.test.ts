@@ -22,6 +22,11 @@ const NOW = 1_780_000_000;
 
 function intent(over: Partial<MirrorIntent> = {}): MirrorIntent {
   return {
+    // Defaulted HERE rather than left to the spread: `Partial<MirrorIntent>`
+    // makes every override optional, so a field the base literal omits arrives
+    // as `T | undefined` and no longer satisfies the required intent. Naming
+    // both defaults keeps a case free to override either one.
+    venue: 'evm',
     leader: LEADER,
     leaderTxHash: `0x${'ab'.repeat(32)}`,
     // Old enough that the match window has closed, so an unmatched intent in
@@ -32,6 +37,8 @@ function intent(over: Partial<MirrorIntent> = {}): MirrorIntent {
     quoteToken: QUOTE,
     tokenOut: OUT,
     notionalWei: 10n ** 16n,
+    // These intents are reconciled against indexer swaps, which name no pool.
+    poolKey: null,
     ...over,
   };
 }

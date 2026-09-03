@@ -40,7 +40,10 @@ describe('useGeckoCandles', () => {
   });
 
   it('reads one pool once and reports the source\'s own symbols', async () => {
-    const fetchMock = vi.fn(async () =>
+    // Typed as the real `fetch`: the URL this hook builds is asserted below, and
+    // an untyped vi.fn() has an empty argument tuple, so `calls[0][0]` would not
+    // be reachable at all.
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       response(
         envelope(
           [

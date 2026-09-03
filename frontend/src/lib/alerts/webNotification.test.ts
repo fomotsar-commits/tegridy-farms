@@ -11,9 +11,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { hasNotificationApi, notificationPermission, requestWebNotificationPermission, showNotification } from './webNotification';
 
+/** What the module is expected to pass `new Notification(...)`. */
+type NotificationCall = (title: string, options?: NotificationOptions) => void;
+
 /** jsdom ships no Notification, so every test builds the browser it wants. */
 function stubNotification(permission: NotificationPermission, impl?: () => void) {
-  const ctor = vi.fn(impl ?? (() => undefined));
+  // The spy carries the constructor's argument list, so the title/tag/body
+  // assertions read real arguments. Left untyped it would spy on a zero-argument
+  // call, and the checks below could only be written as casts.
+  const ctor = vi.fn<NotificationCall>(impl ?? (() => undefined));
   const Fake = function (this: unknown, title: string, options?: NotificationOptions) {
     ctor(title, options);
   } as unknown as typeof Notification;
@@ -27,7 +33,7 @@ function stubNotification(permission: NotificationPermission, impl?: () => void)
 }
 
 function stubServiceWorker(registration: unknown) {
-  const getRegistration = vi.fn(async () => registration);
+  const getRegistration = vi.fn<() => Promise<unknown>>(async () => registration);
   const register = vi.fn();
   vi.stubGlobal('navigator', { serviceWorker: { getRegistration, register } });
   return { getRegistration, register };
@@ -50,12 +56,18 @@ describe('the page-context path, when the browser allows it', () => {
     return showNotification('Title', 'Body', 'event-key-1').then((shown) => {
       expect(shown).toBe(true);
       expect(ctor).toHaveBeenCalledTimes(1);
-      const [title, options] = ctor.mock.calls[0] as [string, NotificationOptions];
+      // The call is guaranteed by the assertion above, but the compiler cannot
+      // see that under noUncheckedIndexedAccess, and a cast here would hide a
+      // real regression instead of failing on one.
+      const call = ctor.mock.calls[0];
+      if (!call) throw new Error('the Notification constructor was not called');
+      const [title, options] = call;
       expect(title).toBe('Title');
       // The tag is the event's idempotency key, so the OS tray's dedup and the
-      // inbox's dedup agree instead of stacking duplicates.
-      expect(options.tag).toBe('event-key-1');
-      expect(options.body).toBe('Body');
+      // inbox's dedup agree instead of stacking duplicates. Reading through `?.`
+      // still fails the assertion if the module ever stops passing options.
+      expect(options?.tag).toBe('event-key-1');
+      expect(options?.body).toBe('Body');
     });
   });
 
@@ -82,13 +94,15 @@ describe('the Android Chrome path', () => {
     const ctor = stubNotification('granted', () => {
       throw new TypeError('Illegal constructor');
     });
-    const showViaWorker = vi.fn(async () => undefined);
+    const showViaWorker = vi.fn<(title: string, options?: NotificationOptions) => Promise<void>>(
+      async () => undefined,
+    );
     const sw = stubServiceWorker({ showNotification: showViaWorker });
 
     expect(await showNotification('Title', 'Body', 'tag-1')).toBe(true);
     expect(ctor).toHaveBeenCalledTimes(1);
     expect(showViaWorker).toHaveBeenCalledTimes(1);
-    expect((showViaWorker.mock.calls[0] as unknown as [string, NotificationOptions])[1].tag).toBe('tag-1');
+    expect(showViaWorker.mock.calls[0]?.[1]?.tag).toBe('tag-1');
     // Registering one here would collide with the app's own worker scope
     // (lib/pwa/serviceWorker.ts), so this path only ever USES an existing one.
     expect(sw.register).not.toHaveBeenCalled();

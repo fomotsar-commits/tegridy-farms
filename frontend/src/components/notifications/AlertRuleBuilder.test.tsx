@@ -11,11 +11,16 @@
 //     the step where a Solana subject gets a character wrong.
 
 import { describe, it, expect, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { AlertRuleBuilder } from './AlertRuleBuilder';
 import type { AlertRule } from '../../lib/alerts/rules';
 
-const BASE_PROPS = {
+// Annotated with the component's own props rather than left to inference: the
+// nulls below would otherwise be inferred as the literal type `null`, so a case
+// that overrides one with a real message — the store-warning test — could not be
+// written at all.
+const BASE_PROPS: ComponentProps<typeof AlertRuleBuilder> = {
   rules: [] as readonly AlertRule[],
   limit: 10,
   writeError: null,
