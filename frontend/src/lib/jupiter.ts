@@ -150,7 +150,15 @@ export function fromBaseUnits(raw: string, decimals: number): string {
   if (decimals === 0) return raw;
   const s = raw.padStart(decimals + 1, '0');
   const whole = s.slice(0, s.length - decimals);
-  const frac = s.slice(s.length - decimals).replace(/0+$/, '');
+  // Trailing zeros stripped by index, NOT by /0+$/. That regex backtracks
+  // quadratically on a long run of zeros (CodeQL js/polynomial-redos), and the
+  // run length here is not ours to bound: `decimals` comes off the token, so a
+  // hostile mint declaring a large value makes this string as long as it likes.
+  // Walking back from the end is linear and cannot backtrack at all.
+  const fracRaw = s.slice(s.length - decimals);
+  let end = fracRaw.length;
+  while (end > 0 && fracRaw[end - 1] === '0') end -= 1;
+  const frac = fracRaw.slice(0, end);
   return frac ? `${whole}.${frac}` : whole;
 }
 

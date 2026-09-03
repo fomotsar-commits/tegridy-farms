@@ -9,6 +9,7 @@
 
 import { hasConsent } from './consent';
 import { sanitize } from './errorReporting';
+import { randomUuidV4 } from './randomId';
 
 const FLUSH_INTERVAL_MS = 10_000;
 const ENDPOINT = import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined;
@@ -20,15 +21,16 @@ const MAX_QUEUE = 200;
 // ---------------------------------------------------------------------------
 // Session ID (persisted per browser tab session)
 // ---------------------------------------------------------------------------
-// Generate a random session id without requiring a secure context (where
-// crypto.randomUUID is unavailable). Mirrors the crypto-guard style in useDCA.
+// A session id without requiring a secure context (where crypto.randomUUID is
+// unavailable). The old fallback was `Date.now()` + `Math.random()`, which CodeQL
+// flags as js/insecure-randomness: this id is what joins a visitor's events
+// together, so a collision merges two people's sessions into one. Now the shared
+// CSPRNG helper — see lib/randomId.ts for why the fallback branch is reachable.
 function randomId(): string {
-  try {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-  } catch { /* fall through to Math.random fallback */ }
-  return `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  // Bare UUID, no prefix. The old code returned a bare uuid from randomUUID and a
+  // `sess-…` string only from the Math.random fallback, so the id SHAPE silently
+  // told you whether the page was on a secure context. One shape either way.
+  return randomUuidV4();
 }
 
 function getSessionId(): string {
