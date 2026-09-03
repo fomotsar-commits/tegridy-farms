@@ -150,8 +150,31 @@ export function fromBaseUnits(raw: string, decimals: number): string {
   if (decimals === 0) return raw;
   const s = raw.padStart(decimals + 1, '0');
   const whole = s.slice(0, s.length - decimals);
-  const frac = s.slice(s.length - decimals).replace(/0+$/, '');
-  return frac ? `${whole}.${frac}` : whole;
+  const frac = s.slice(s.length - decimals);
+
+  // TRAILING ZEROS ARE TRIMMED BY INDEX, NOT BY `/0+$/`.
+  //
+  // That regex is a polynomial ReDoS - CodeQL js/polynomial-redos, alert #1748,
+  // open against this exact line since 2026-06-19. `0+` is ambiguous about where
+  // inside a run of zeros it may START matching, and `$` only rejects at the end,
+  // so on a fractional part that does NOT end in '0' the engine re-attempts the
+  // match from every zero in the run and the cost becomes quadratic in that run's
+  // length. It is the same shape as the `/\s+$/` example in CodeQL's own writeup.
+  //
+  // It is reachable, not academic: `raw` arrives here from an on-chain balance
+  // read (BungalowDashboardPanel), so its length is not ours to bound. Measured:
+  // with the regex, the 200k-zero case in jupiter.test.ts blows a 5s timeout; with
+  // the scan it is sub-millisecond.
+  //
+  // A backwards scan is linear and total. The obvious regex repair - a negative
+  // lookbehind, `/(?<!0)0+$/` - is deliberately NOT used: Safari only gained
+  // lookbehind in 16.4, and this app is required to work on older iOS, where it
+  // is a SyntaxError at parse time and would take the whole module down.
+  let end = frac.length;
+  while (end > 0 && frac.charCodeAt(end - 1) === 0x30 /* '0' */) end--;
+  const trimmed = frac.slice(0, end);
+
+  return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
 // ─── Conversion polish: USD prices + route transparency ─────────────────────

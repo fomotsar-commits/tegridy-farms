@@ -62,4 +62,35 @@ describe('fromBaseUnits', () => {
     expect(fromBaseUnits('35064544', 6)).toBe('35.064544');
     expect(fromBaseUnits('1', 0)).toBe('1');
   });
+
+  // The trailing-zero trim moved off `/0+$/` onto an index scan (ReDoS, see the
+  // comment on the function). These pin that the TRIMMING RULE is unchanged, so
+  // the rewrite cannot quietly alter a displayed balance. They pass on both the
+  // old and the new implementation, on purpose - they guard the refactor, not
+  // the vulnerability. The vulnerability is guarded by the case below them.
+  it('trims only TRAILING zeros, and never a significant one', () => {
+    expect(fromBaseUnits('1000001', 6)).toBe('1.000001');   // interior zeros kept
+    expect(fromBaseUnits('1000000', 6)).toBe('1');          // whole fraction is zeros -> no point
+    expect(fromBaseUnits('0', 6)).toBe('0');                // zero stays a bare zero
+    expect(fromBaseUnits('1500000', 6)).toBe('1.5');        // trailing run collapses
+    expect(fromBaseUnits('100', 6)).toBe('0.0001');         // leading pad kept, trailing trimmed
+  });
+
+  // THE REGRESSION THIS FILE EXISTS FOR.
+  //
+  // `/0+$/` is quadratic on a fraction whose zeros do NOT reach the end: the
+  // engine starts a match at every zero in the run and backtracks the whole run
+  // each time. The adversarial shape is therefore a long run of zeros followed
+  // by ONE significant digit - which is a real balance, not a contrived string.
+  //
+  // Deliberately NO wall-clock assertion: a millisecond budget is exactly the
+  // kind of threshold that flakes on a loaded CI box. The guard is vitest's own
+  // 5s test timeout. A linear scan of 200k characters is sub-millisecond even on
+  // a busy runner; the old regex is ~4e10 steps and cannot finish inside it. So
+  // this test is instant when the fix is present and times out when it is not.
+  it('stays linear on a long run of zeros that does not reach the end', () => {
+    const decimals = 200_000;
+    const raw = `1${'0'.repeat(decimals - 1)}7`;
+    expect(fromBaseUnits(raw, decimals)).toBe(`1.${'0'.repeat(decimals - 1)}7`);
+  });
 });
