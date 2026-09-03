@@ -305,6 +305,9 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     error InvalidPair();
     error PairAlreadyMapped();
     error CommitWindowClosed();
+    /// @notice Legacy `vote()` was called at or after the commit cutoff.
+    ///         AUDIT FIX TF-013 — voting late is voting informed.
+    error VoteWindowClosed();
     error RevealWindowNotOpen();
     error NoCommitment();
     error CommitmentMismatch();
@@ -378,6 +381,28 @@ contract GaugeController is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
         // Previously used `lastVotedEpoch[tokenId] == epoch` which collided on epoch 0
         // (default mapping value == default epoch value), rejecting legitimate first votes.
         uint256 epoch = currentEpoch();
+        // AUDIT FIX TF-013: close the legacy path before the reveal window opens.
+        //
+        // `commitVote` / `revealVote` exist to stop a voter reading everyone
+        // else's allocation and then placing their own with that knowledge
+        // (H-2). But this legacy `vote()` had NO timing window at all: it was
+        // callable at any point in the epoch, INCLUDING during the reveal
+        // window, while other voters' reveals were landing in public. A voter
+        // who simply never commits could watch the reveals and then call this
+        // with perfect information — so the commit-reveal scheme was opt-in for
+        // the honest and bypassable by everyone else, which is no scheme.
+        //
+        // This is also the step the design doc always intended and never got:
+        // DESIGN_H2_COMMIT_REVEAL_VOTING.md §3.7 recommends the versioned-flag
+        // rollout and says the legacy path is to be sunset after a grace
+        // window. Full deprecation is a governance call; refusing the
+        // INFORMED-vote window is the safety half, and it needs no vote.
+        //
+        // Deliberately the SAME expression `commitVote` uses (line ~548), so
+        // both paths shut at the same instant and the REVEAL_GRACE buffer that
+        // absorbs validator clock drift applies identically to each.
+        uint256 revealOpens = epochStartTime(epoch) + EPOCH_DURATION - REVEAL_WINDOW;
+        if (block.timestamp + REVEAL_GRACE >= revealOpens) revert VoteWindowClosed();
         if (hasVotedInEpoch[tokenId][epoch]) revert AlreadyVotedThisEpoch();
         // AUDIT C2: per-user epoch guard. Closes the multi-NFT amplification vector
         // where a contract holding N staking NFTs could vote N times per epoch, each

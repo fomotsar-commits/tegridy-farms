@@ -860,8 +860,26 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // (advance flips both atomically); explicit guard defends future code.
         if (!epochBribesFinalized[epoch]) revert EpochNotFinalized();
         if (pair == address(0)) revert InvalidPair();
-        // AUDIT FIX: DEEP-GOV-08 — refuse claims for disabled pairs.
-        _validatePair(pair);
+        // AUDIT FIX TF-006: claiming is an EXIT path, and exits must NOT be
+        // gated on `factory.disabledPairs`. DEEP-GOV-08 added `_validatePair`
+        // here as well as on the entry paths, which opened a FOURTH leg of the
+        // refund trap that BATCH-A C1 closed the other three of. Disable a pair
+        // after its epoch finalized with votes at or above quorum and every
+        // route out is shut at once: claimBribes reverts PairDisabled here,
+        // refundOrphanedBribe requires the epoch NOT be snapshotted,
+        // refundUnvotedBribe requires totalGaugeVotes == 0, and
+        // refundSubQuorumBribe requires votes strictly BELOW quorum. The bribe
+        // is then locked forever — by an ordinary governance action, with no
+        // attacker involved.
+        //
+        // This is the rule TegridyPair already follows: mint()/swap() gate on
+        // disabledPairs, and burn() "intentionally remains callable on disabled
+        // pairs (LP exit)" (TegridyPair.sol:236-238). The gate stays on all four
+        // ENTRY paths (vote :682, depositBribe, depositBribeETH, revealVote
+        // :1707). Re-checking it here was redundant besides: gaugeVotes and
+        // epochBribes are only ever written after a passing `_validatePair`, so
+        // every value this function reads was already pair-validated when it
+        // was written.
 
         // AUDIT FIX (BATCH-H M14): gate claim on post-VOTE_DEADLINE so early
         // claimers cannot over-share against an in-flight `totalGaugeVotes`
@@ -983,8 +1001,8 @@ contract VoteIncentives is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function claimBribesBatch(uint256 epochStart, uint256 epochEnd, address pair) external nonReentrant whenNotPaused {
         if (_isStakingPaused()) revert StakingPaused();
         if (pair == address(0)) revert InvalidPair();
-        // AUDIT FIX: DEEP-GOV-08 — refuse batch claims for disabled pairs.
-        _validatePair(pair);
+        // AUDIT FIX TF-006: exit path — see claimBribes. The disabled-pair gate
+        // stays on the entry paths only.
         if (epochEnd > epochs.length) epochEnd = epochs.length;
         if (epochStart >= epochEnd) revert NothingToClaim();
         if (epochEnd - epochStart > MAX_CLAIM_EPOCHS) revert TooManyUnclaimedEpochs();
