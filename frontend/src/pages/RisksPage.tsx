@@ -49,7 +49,12 @@ const PROTOCOL_RISKS: Array<{
   {
     title: 'No paid human audit by a recognised firm',
     status: 'Active',
-    body: 'The protocol has one external review (Spartan, April 2026) and one pre-release external doc (March 2026). Everything else is internal AI-agent sweeps. We do not claim those substitute for a paid audit by OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena. Engaging one is on the roadmap and not yet scheduled.',
+    // HONESTY PASS 2026-09-02 (audit TF-030 / TF-065): this used to say "one
+    // external review (Spartan, April 2026)". SPARTAN_AUDIT.txt's own Appendix C
+    // says "The reviewer is an AI assistant (Claude, Anthropic) acting at the
+    // direction of the repository owner" — so the methodology was external, the
+    // reviewer was not, and "external review" read as an independent party.
+    body: 'The protocol has NO third-party audit. It has one review run to an external methodology (Spartan, April 2026) which its own closing appendix states was written by an AI assistant at the owner\u2019s direction, and one pre-release document (March 2026). Everything else is internal AI-agent sweeps. None of these substitute for a paid audit by OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena. Engaging one is on the roadmap and not yet scheduled.',
   },
   {
     title: 'Thin market / low on-chain liquidity',
