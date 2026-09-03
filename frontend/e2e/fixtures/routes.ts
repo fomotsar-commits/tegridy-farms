@@ -319,10 +319,15 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/YieldPage.tsx',
     gate: null,
     why:
-      'Audited with no yield feed configured, which is this build\'s resting state: every rate, peg and ' +
-      'exit-liquidity cell renders its unavailable branch and the route controls are disabled because no ' +
-      'deposit address is wired. The read/stale branches need a hosted feed this sweep cannot produce and ' +
-      'are covered by unit tests instead.',
+      'Audited with no wallet. Every rate, NAV, market-price and exit cell is read live from Ethereum ' +
+      'mainnet over the keyless public RPC roster — a mock-mode run installs no page.route stubs at all ' +
+      '(e2e/fixtures/wallet.ts routes the RPC hosts only when ANVIL_RPC_URL is set), so nothing intercepts ' +
+      'those reads and each cell renders either its read value or the sentence saying it could not be read. ' +
+      'The route buttons are ENABLED: lib/yield/venues.ts now carries real deposit targets, so the audited ' +
+      'surface is a routable comparison table, not the all-disabled page this row used to describe. Each ' +
+      'deposit panel stays COLLAPSED — YieldRouterPanel opens one only on click and this sweep never clicks ' +
+      '— and the signing branches need a funded wallet; both are covered by src/lib/yield/deposit.test.ts ' +
+      'and src/hooks/useYieldDeposit.test.ts instead.',
     knownViolations: [],
   },
   {
@@ -330,12 +335,16 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/CopyTradingPage.tsx',
     gate: null,
     why:
-      'Audited with no indexer configured and no wallet, which is this build\'s resting state: all three ' +
-      'panels render their "could not be read" notice and NO table is drawn — the follow board, the mirror ' +
-      'queue and the personal fill history are each absent rather than empty. The follow form is the only ' +
-      'live control (it writes to localStorage and needs no chain). The ready/backfilling boards, the mirror ' +
-      'plans and their refusals, and the realised entry-lag figures need a hosted indexer this sweep cannot ' +
-      'produce and are covered by unit tests instead.',
+      'Audited with no wallet and no indexer. The island tape reads api.geckoterminal.com live and keyless ' +
+      'and nothing stubs it, so the tape read-ledger renders whichever answer the feed gives and the leader ' +
+      'board is drawn ONLY when that read lands — a refused or rate-limited read leaves every pool unread ' +
+      'and draws no board. A rule id pinned here therefore has to hold for both answers. The venue-router ' +
+      'section below is always in its unread state (VITE_INDEXER_URL is unset and the Ponder indexer is ' +
+      'hosted nowhere), so its three "could not be read" notices render and none of them draws a table. The ' +
+      'follow form and the pasted-Solana-address field are the only live controls — both write to ' +
+      'localStorage and need no chain. The sized mirror plans, their refusals and the realised entry-lag ' +
+      'figures need a connected wallet and a live feed this sweep cannot guarantee, and are pinned ' +
+      'deterministically by src/components/copytrade/TapeLeaderBoard.test.tsx and the lib/copytrade tests.',
     knownViolations: [],
   },
   {
@@ -343,10 +352,14 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/CompetitionsPage.tsx',
     gate: null,
     why:
-      'Audited with no indexer configured, so the standings notice is the page and the table is not rendered ' +
-      'at all. The season picker and the scoring rules render from lib/competitions and are fully audited; ' +
-      'the ranked board, the wash-strike counts and the truncation banner need a hosted indexer this sweep ' +
-      'cannot produce and are covered by unit tests instead.',
+      'Two halves with two different answers. The Island Cup reads api.geckoterminal.com live and keyless ' +
+      'and nothing stubs it, so it renders either the ranked board or its coverage notice depending on what ' +
+      'the feed answers at run time; both states carry the same landmarks (one h1, a captioned table with ' +
+      'scoped headers, a labelled select and input, named buttons) and both are pinned deterministically by ' +
+      'src/components/competitions/CupBoard.test.tsx. Season 1 is the router season and is always unread ' +
+      'here — it is scored from an indexer this build does not configure — so its notice renders and its ' +
+      'standings table does not. The season picker and the scoring rules render from lib/competitions and ' +
+      'are fully audited either way.',
     knownViolations: [],
   },
   {
@@ -522,9 +535,13 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/TerminalPage.tsx',
     gate: null,
     why:
-      'Audited with no indexer configured, which is this build\'s only reachable state: the feed ' +
-      'banner is the page and the table is not rendered at all. The ready/backfilling surfaces ' +
-      'need a hosted indexer this sweep cannot produce and are covered by unit tests.',
+      'Audited with no indexer configured, on the default view (Ethereum · new pools). The market feed ' +
+      'reads api.geckoterminal.com browser-direct and keyless and nothing stubs it, so the audited surface ' +
+      'is whichever answer the live feed gives: the ready market table with its safety column, or ' +
+      'MarketFeedStatus reporting a failed or rate-limited read with no table drawn. A rule id pinned here ' +
+      'has to hold for both. The tab strips, the safety filter and sort controls, the safety inspector and ' +
+      'the quick-buy panel render either way. The "Venue pairs" tab is absent by design (VITE_INDEXER_URL ' +
+      'unset, lib/terminal/feedSources.ts) and its PairTable is covered by unit tests.',
     knownViolations: [],
   },
   {
@@ -532,10 +549,14 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'components/chart/ChartPage.tsx',
     gate: null,
     why:
-      'Audited with no indexer configured, which is this build\'s only reachable state: the pool ' +
-      'picker and the chart status banner both say they could not read, and no SVG plot is ' +
-      'rendered at all. The ready surface (candles, gap columns, coverage lines) needs a hosted ' +
-      'indexer this sweep cannot produce and is covered by unit tests.',
+      'Audited on the registry\'s default market with no wallet. The pool picker is a REGISTRY read, not a ' +
+      'network one, so it renders every island market as a 44px pressed/unpressed button under its network ' +
+      'heading whether or not any host answers, and the timeframe buttons render beside it. The candles ' +
+      'come from api.geckoterminal.com live and keyless with nothing stubbing them, so the plot — and the ' +
+      'candles-as-a-table view inside it — is drawn when that read lands, and ChartStatus prints the ' +
+      'not-a-zero sentence with no SVG when it does not. A rule id pinned here has to hold for both. The ' +
+      'gap columns, the open-bucket marker and the coverage lines are pinned against a stubbed envelope in ' +
+      'the unit tests.',
     knownViolations: [],
   },
   {
@@ -543,10 +564,12 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/AlertsPage.tsx',
     gate: null,
     why:
-      'Audited with no wallet, which is the signed-out branch: the builder is disabled with its ' +
-      'reason, the inbox says nothing is being watched, and the delivery panel reports the ' +
-      'channels this build actually has. The store-side states (schema-missing / not-configured / ' +
-      'unreachable) need a server answer this sweep cannot produce and are covered by unit tests.',
+      'Audited with no wallet, which is now the LIVE branch rather than a gate: the rule store is this ' +
+      'browser\'s localStorage, so the builder is enabled and empty, the inbox says nothing is being ' +
+      'watched, and the delivery panel reports the channels this build actually has. No network call is ' +
+      'made in this state — the evaluation loop parks itself while no rule is stored ' +
+      '(hooks/useAlertsEvaluation.ts). The unwritable-storage branch needs a quota failure this sweep ' +
+      'cannot produce and is covered by unit tests.',
     knownViolations: [],
   },
   {
@@ -567,12 +590,17 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/CheckoutPage.tsx',
     gate: null,
     why:
-      'Audited on the "Get paid" tab with no wallet and no invoice on the URL, which is where a merchant ' +
-      'arriving cold lands: the publish form renders with its validation reasons and the callback ' +
-      'no-retry notice, and the publish button is disabled because there is no signed-in wallet to name as ' +
-      'payee. The buyer-side surfaces — the pre-sign disclosure, every refusal in buildSettlementPlan, and ' +
-      'the store\'s schema-missing / not-found branches — need a published invoice and a live quote this ' +
-      'sweep cannot produce and are covered by unit tests instead.',
+      'Audited on the "Get paid" tab with no wallet, no ?invoice= and no #i= fragment, which is where a ' +
+      'merchant arriving cold lands: the invoice form renders with its validation reasons, the ' +
+      'settlement-asset select is populated from the verified settle-token table, and "Sign the invoice" is ' +
+      'disabled because there is no connected wallet to name as payee. The link states — unreadable, ' +
+      'verifying, verified, forged, unverifiable and the two-invoices refusal — each need a real signature, ' +
+      'a real RPC or a crafted fragment, and are covered by CheckoutWidget.test, CheckoutPage.test, ' +
+      'usePaymentLink.test and lib/commerce/paymentLink.test instead. The two states a stranger CAN force ' +
+      'with no wallet at all (#i=garbage, and ?invoice= together with #i=) have their own spec at ' +
+      'e2e/checkout-link.spec.ts. The buyer-side surfaces — the pre-sign disclosure, every refusal in ' +
+      'buildSettlementPlan, the settle-token re-read and the receipt judge — need a published or signed ' +
+      'invoice and a live quote this sweep cannot produce.',
     knownViolations: [],
   },
   {
@@ -580,10 +608,13 @@ export const ROUTES: readonly RouteSpec[] = [
     owner: 'pages/TaxPage.tsx',
     gate: null,
     why:
-      'Audited with no indexer configured and no wallet, which is this build\'s resting state: the report ' +
-      'renders its INCOMPLETE standing line, the whole requested period as a single coverage gap, and no ' +
-      'disposal or income table at all. The priced surfaces (matched lots, per-method totals, the three ' +
-      'exports) need either a hosted indexer or a pasted lot sheet, and both are covered by unit tests.',
+      'Audited with no wallet, which is the resting state: the ledger card reads idle, the report renders ' +
+      'its INCOMPLETE standing line with the whole requested period as a declared not-read gap, and no ' +
+      'disposal or income table. With a wallet the page reads Ethereum mainnet history through ' +
+      '/api/etherscan and prices trades from both legs of the same transaction (unit-tested in ' +
+      'lib/txHistory, lib/tax/ledger and hooks/useWalletLedger); a keyless proxy renders the operator step ' +
+      'and a whole-period explorer-unavailable gap (pages/TaxPage.test.tsx). The pasted lot sheet, the ' +
+      'matched lots, the per-method totals and the three exports need input this sweep does not supply.',
     knownViolations: [],
   },
   { path: '/developers', owner: 'pages/DeveloperPage.tsx', gate: null, knownViolations: [] },

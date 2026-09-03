@@ -10,15 +10,15 @@
 //      contract cannot pass review by looking plausible;
 //   3. no address is the zero address, which would be a live-looking row wired
 //      to nothing;
-//   4. every address is either registered in scripts/addresses.json or listed
-//      here as awaiting registration — and nothing may be listed as awaiting
-//      registration once it IS registered, so the list cannot rot.
+//   4. every address is registered in scripts/addresses.json, with the
+//      expect.type and the evidence a registry entry is required to carry.
 //
-// Rule 4 is written this way because scripts/addresses.json is serialised across
-// several lanes and this lane may not edit it directly; the exact entries are
-// filed in scratchpad/shared-edits/yield.md. The pending list is the seam, and
-// it is a real pin: adding an address without either registering it or declaring
-// it pending fails this file.
+// Rule 4 used to allow a second answer — an AWAITING_REGISTRATION list, because
+// addresses.json was serialised across several lanes and this one could not edit
+// it. All twenty-seven entries landed on 2026-09-03, so the list is gone and the
+// assertion is the plain one: an address here that is not in the registry fails,
+// with no escape hatch to add a name to. scripts/verify-addresses.mjs now walks
+// this file too, so the same omission fails from the other direction as well.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -39,20 +39,6 @@ const ALL: [string, string][] = [
   ...Object.entries(YIELD_ADDRESSES),
   ...Object.entries(YIELD_FEEDS).map(([k, f]) => [k, f.address] as [string, string]),
 ];
-
-/**
- * Addresses verified on-chain and filed in shared-edits/yield.md, but not yet
- * merged into scripts/addresses.json by the lane that owns that file. Empty this
- * list as the entries land; an address here that IS registered fails below.
- */
-const AWAITING_REGISTRATION = new Set(
-  [
-    'usdc', 'stETH', 'lidoWithdrawalQueue', 'lidoLegacyOracle', 'rocketStorage', 'rocketDepositPool',
-    'rocketSettingsDeposit', 'rETH', 'cbETH', 'weETH', 'eETH', 'etherfiLiquidityPool', 'ezETH',
-    'renzoRestakeManager', 'aaveV3Pool', 'aEthUSDC', 'cUSDCv3', 'sUSDS', 'USDS', 'multicall3',
-    'stethEth', 'rethEth', 'cbethEth', 'weethEth', 'ezethEth', 'usdcUsd', 'usdsUsd',
-  ],
-);
 
 describe('every address a deposit could reach is checksummed, unique and real', () => {
   it.each(ALL)('%s is EIP-55 and non-zero', (name, address) => {
@@ -78,29 +64,20 @@ describe('every address a deposit could reach is checksummed, unique and real', 
   });
 });
 
-describe('the registry knows about every address, or this file says it is pending', () => {
-  it.each(ALL)('%s is registered or declared pending', (name, address) => {
+describe('the registry knows about every address', () => {
+  it.each(ALL)('%s is registered, asserted as a contract, and carries evidence', (name, address) => {
     const entry = registered.get(address.toLowerCase());
-    if (entry === undefined) {
-      expect(
-        AWAITING_REGISTRATION.has(name),
-        `${name} (${address}) is in neither scripts/addresses.json nor AWAITING_REGISTRATION. ` +
-          'Verify it with scripts/verify-yield-protocols.mjs and file the registry entry before wiring it.',
-      ).toBe(true);
-      return;
-    }
-    expect(entry.expect?.type, `${name} is registered without expect.type 'contract'`).toBe('contract');
-    expect((entry.evidence ?? '').length, `${name} is registered with no evidence`).toBeGreaterThan(20);
-  });
-
-  it('carries no stale pending entry', () => {
-    for (const [name, address] of ALL) {
-      if (!AWAITING_REGISTRATION.has(name)) continue;
-      expect(
-        registered.has(address.toLowerCase()),
-        `${name} is registered now — remove it from AWAITING_REGISTRATION`,
-      ).toBe(false);
-    }
+    expect(
+      entry,
+      `${name} (${address}) is not in scripts/addresses.json. Verify it with ` +
+        'scripts/verify-yield-protocols.mjs and register it with a role, custody and evidence ' +
+        'before wiring it.',
+    ).toBeDefined();
+    // An entry with no expect.type is READ by the --onchain pass and asserted
+    // about by nothing, which prints the same green line as a real check. For an
+    // address a deposit can reach that is not good enough.
+    expect(entry?.expect?.type, `${name} is registered without expect.type 'contract'`).toBe('contract');
+    expect((entry?.evidence ?? '').length, `${name} is registered with no evidence`).toBeGreaterThan(20);
   });
 });
 

@@ -238,8 +238,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // navConfig.test.ts pins), and the link this page mints is `/?ref=0x…`, which
       // resolves in the visitor's browser with no server, no database and no migration.
       //
-      // Contrast /yield above, which IS pilled: nothing there can be routed at all
-      // until a venue carries a verified deposit address. The comparable dependency here —
+      // Contrast /curve-launch above, which IS pilled and cannot self-clear: its Solana
+      // program is deployed on no cluster, so no flag or config can make it launchable.
+      // (/yield used to be the example here and no longer is — it now carries verified
+      // deposit addresses and its pill cleared.) The comparable dependency here —
       // `019_referral_codes.sql` — buys only the shorter `/?r=code` form, so its absence
       // degrades one optional affordance instead of the feature. Pilling this entry
       // would tell a visitor the referral programme is not live when it is paying.
@@ -253,17 +255,25 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // is choose between other people's protocols, which is an action, not a metric
       // about ours.
       //
-      // PILLED, and keyed to the only condition the label is about. The entry names
-      // ROUTING, and `hasRoutableYieldVenue()` is false because every deposit target
-      // in lib/yield/venues.ts is the zero address — so the pill is a computed fact,
-      // not a hardcoded one, and it self-clears the moment an operator wires a
-      // destination. navConfig.test.ts pins the precondition separately so wiring one
-      // fails that assertion first and forces this comment to be re-read.
+      // NO LONGER PILLED, and the expression did not change — what it computes did.
+      // The entry names ROUTING, and `hasRoutableYieldVenue()` reads whether any venue
+      // carries a real, on-chain-verified deposit target. Every one of them used to be
+      // the zero address, so the pill was on; seven now hold the protocol's own
+      // canonical permissionless entry point (Lido submit, Rocket Pool deposit,
+      // ether.fi, Renzo, Aave v3 supply, Compound v3 supply, sUSDS deposit), each
+      // registered in scripts/addresses.json and re-read on chain, so it is off. That
+      // is the pill working exactly as designed — a computed fact that turned over on
+      // its own the moment the destinations became real.
       //
-      // Deliberately NOT keyed to the yield feed. A configured feed with no wired
+      // cbETH deliberately stays unroutable and does NOT hold the pill on: Coinbase
+      // mints it only for its own custody customers, so there is no public contract to
+      // wire, and its row says so instead of offering a button that cannot fire.
+      //
+      // Deliberately NOT keyed to a rate feed. A readable feed with no wired
       // destination is a working comparison table and a router that cannot route,
       // which is exactly the /solana-launch bug — a pill that clears on a flag while
-      // the advertised action stays impossible.
+      // the advertised action stays impossible. Rates are now read on chain anyway;
+      // an unread rate degrades one cell, and never this entry.
       { to: '/yield', label: 'Yield Routing', soon: !hasRoutableYieldVenue() },
       // Copy Trading and Competitions. Both were keyed to VITE_INDEXER_URL when the
       // venue's own Ponder indexer was the only thing either could read. Neither is

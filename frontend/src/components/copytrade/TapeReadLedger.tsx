@@ -76,7 +76,12 @@ export function TapeReadLedger({
   return (
     <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-white">{title(status, readCount, reads.length)}</h3>
+        {/* h2, not h3: this ledger is a top-level section of /copy-trading, mounted
+            directly after the page's h1 and sibling to the "Venue router" h2. As an h3
+            it skipped a level — the a11y route sweep caught it on the loading state,
+            where this is the first heading a screen reader meets after the title. The
+            size here is a type choice, not a document level. */}
+        <h2 className="text-sm font-semibold text-white">{title(status, readCount, reads.length)}</h2>
         {status === 'ready' || status === 'partial' || status === 'unavailable' ? (
           <button
             type="button"

@@ -11,13 +11,19 @@
     "  1. Addresses are stored in FULL. Never a '…', never a '0x1234…abcd' shorthand.",
     "  2. Every address is structurally validated — EVM to EIP-55 checksum, Solana to exactly 32 bytes.",
     "  3. Nothing in this file may collide with the denylist below.",
-    "  4. Every non-zero address literal in src/lib/constants.ts must appear here, so a new deploy",
-    "     cannot enter the codebase without being registered and explained.",
+    "  4. Every non-zero address literal in src/lib/constants.ts AND in src/lib/yield/protocols.ts",
+    "     must appear here, so an address cannot enter the codebase without being registered and",
+    "     explained. The rule names files, and the files it names are the whole of its reach: a file",
+    "     carrying live mainnet addresses that is not named here is not clean, it is unlooked-at.",
+    "     protocols.ts was exactly that until 2026-09-03 — twenty-seven third-party mainnet addresses,",
+    "     seven of them the destination of a real deposit from /yield, none of them in constants.ts,",
+    "     all of them passing a check that had never opened the file.",
     "  5. Every contract this repo has actually CREATED on mainnet — read out of the Foundry",
     "     broadcast receipts, not out of the source — must appear here or in 'retiredDeploys'.",
     "",
-    "WHY RULE 5 EXISTS. Rule 4 alone is one-directional: it walks constants.ts and asks the registry",
-    "about each address it finds. Anything the frontend never names is INVISIBLE to it, and so is",
+    "WHY RULE 5 EXISTS. Rule 4 alone is one-directional: it walks the files it was told to open and",
+    "asks the registry about each address it finds. Anything the frontend never names is INVISIBLE",
+    "to it, so is anything in a file the list forgot, and so is",
     "anything written in a shape its regex does not match. Both holes were live. Seven live mainnet",
     "contracts sat unregistered underneath a green CI: the four DELEGATECALL libraries linked into",
     "TegridyStaking / TegridyFactory / SwapFeeRouter, the JBAC vault, and the two retired staking",
@@ -792,6 +798,306 @@
       "expect": {
         "type": "contract"
       }
+    },
+    {
+      "$comment": "── /yield: the eight third-party DeFi protocols the surface reads, plus the seven canonical permissionless deposits it wires. None of these is ours, and one of them is where a visitor’s ETH goes when they press a button, so an address remembered slightly wrong is money handed to a stranger. They all live in frontend/src/lib/yield/protocols.ts — a file check 5 did NOT scan until this change, which is exactly the one-directional hole rule 4 exists to warn about, with live mainnet addresses on the wrong side of it. Check 5 now walks protocols.ts as well as constants.ts, so every one of these must stay registered. Each `evidence` line below is the verbatim output of frontend/scripts/verify-yield-protocols.mjs at mainnet block 25893998 (2026-09-03 UTC), which sees bytecode AND reads a canonical view off each address — symbol(), description(), asset(), baseToken(), eETH(), ezETH(), getPool(), getChainId() — so identity here is read, never remembered. That run’s only failures were HTTP 429 from GeckoTerminal on an off-chain market-depth lookup, which touches none of these addresses; every on-chain read passed."
+    },
+    {
+      "id": "multicall3",
+      "address": "0xcA11bde05977b3631167028862bE2a173976CA11",
+      "role": "Canonical Multicall3. /yield batches every read through its aggregate3 and takes getBlockNumber()/getCurrentBlockTimestamp() as legs 0 and 1 of the same call, so every figure on the page is dated by the block it came from.",
+      "custody": "third-party (canonical CREATE2 deployment)",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: getChainId()=1, getCurrentBlockTimestamp()=1788404975 at block 25893998"
+    },
+    {
+      "id": "usdc",
+      "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "role": "Circle USDC. Supplied to Aave v3 and Compound v3 from /yield; also the underlying of those rows' market leg.",
+      "custody": "Circle",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='USDC', decimals()=6 at block 25893998"
+    },
+    {
+      "id": "lido-steth",
+      "address": "0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84",
+      "role": "Lido stETH. /yield calls submit(address) on it with ETH as value. Third-party protocol entry point read AND written by /yield - not ours.",
+      "custody": "Lido DAO",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='stETH', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "lido-legacy-oracle",
+      "address": "0x442af784A788A5bd6F42A01Ebe9F287a871243fb",
+      "role": "Lido LegacyOracle. Verified and pinned in protocols.ts, but NOTHING in src/ reads it — the only other reference is scripts/verify-yield-protocols.mjs. /yield deliberately does not turn getLastCompletedReportDelta() into a displayed Lido rate; frontend/src/lib/yield/reads.ts states that refusal instead (\"Lido publishes its APR off-chain\").",
+      "custody": "Lido DAO",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: getLastCompletedReportDelta()=(post 9712033027760740633827249, pre 9750705483524764079948551, timeElapsed 86400s); stETH.totalSupply()=9662274402418856322307485 at block 25893998"
+    },
+    {
+      "id": "lido-withdrawal-queue",
+      "address": "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+      "role": "Lido WithdrawalQueue (unstETH). /yield reads unfinalizedStETH() as the stETH BACKLOG - stETH queued ahead of a new request, never rendered as available liquidity.",
+      "custody": "Lido DAO",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='unstETH', unfinalizedStETH()=7470488033393307957641 wei at block 25893998"
+    },
+    {
+      "id": "rocket-storage",
+      "address": "0x1d8f8f00cfa6758d7bE78336684788Fb0ee0Fa46",
+      "role": "Rocket Pool RocketStorage. /yield reads getAddress(bytes32) to CHECK the pinned deposit pool and settings contracts against the live registry. That answer can only disable the button; it can never choose a destination.",
+      "custody": "Rocket Pool protocol",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: getAddress(keccak256(\"contract.address\"+\"rocketDepositPool\"))=0xCE15294273CFb9D9b628F4D61636623decDF4fdC, +\"rocketDAOProtocolSettingsDeposit\"=0x227BE8dD01DF8ad9BED0178e4F8cEC2996C5c365, +\"rocketTokenRETH\"=0xae78736Cd615f374D3085123A210448E74Fc6393 at block 25893998"
+    },
+    {
+      "id": "rocket-deposit-pool",
+      "address": "0xCE15294273CFb9D9b628F4D61636623decDF4fdC",
+      "role": "RocketDepositPool, resolved through RocketStorage and PINNED here. /yield calls deposit() on it with ETH as value, and only while RocketStorage still resolves to this exact address. Third-party entry point written by /yield - not ours.",
+      "custody": "Rocket Pool protocol",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: resolved through RocketStorage.getAddress(\"contract.addressrocketDepositPool\"); getBalance()=19739140722506135779 wei, getExcessBalance()=0 wei at block 25893998"
+    },
+    {
+      "id": "rocket-settings-deposit",
+      "address": "0x227BE8dD01DF8ad9BED0178e4F8cEC2996C5c365",
+      "role": "RocketDAOProtocolSettingsDeposit, resolved through RocketStorage and PINNED here. /yield reads getDepositEnabled/getMinimumDeposit/getMaximumDepositPoolSize/getDepositFee as live gates; any unreadable gate disables the button.",
+      "custody": "Rocket Pool protocol",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: resolved through RocketStorage; getDepositEnabled()=true, getMinimumDeposit()=10000000000000000 wei, getMaximumDepositPoolSize()=6000000000000000000000000 wei, getDepositFee()=500000000000000 (1e18 scale) at block 25893998"
+    },
+    {
+      "id": "rocket-reth",
+      "address": "0xae78736Cd615f374D3085123A210448E74Fc6393",
+      "role": "Rocket Pool rETH. /yield reads getExchangeRate() as the protocol NAV leg; it is also the receipt token of the Rocket Pool route.",
+      "custody": "Rocket Pool protocol",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='rETH', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "coinbase-cbeth",
+      "address": "0xBe9895146f7AF43049ca1c1AE358B0541Ea49704",
+      "role": "Coinbase cbETH. READ ONLY on /yield (exchangeRate()). There is no permissionless mint, so this row is comparison-only and its button is permanently disabled with that reason stated.",
+      "custody": "Coinbase",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='cbETH', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "etherfi-weeth",
+      "address": "0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee",
+      "role": "ether.fi weETH. /yield reads getRate() as the NAV leg and calls wrap(uint256) as step 3 of the ether.fi route. This is the ONLY approval spender on the surface that is not the venue's own depositTarget.",
+      "custody": "ether.fi",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='weETH', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "etherfi-eeth",
+      "address": "0x35fA164735182de50811E8e2E824cFb9B6118ac2",
+      "role": "ether.fi eETH, minted by step 1 of the ether.fi route. /yield reads balanceOf at two named blocks to size the wrap, and approves exactly that amount to weETH.",
+      "custody": "ether.fi",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='eETH', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "etherfi-liquidity-pool",
+      "address": "0x308861A430be4cce5502d0A12724771Fc6DaF216",
+      "role": "ether.fi LiquidityPool. /yield calls deposit() on it with ETH as value. Third-party entry point written by /yield - not ours.",
+      "custody": "ether.fi",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: eETH()=0x35fA164735182de50811E8e2E824cFb9B6118ac2, getTotalPooledEther()=2138602089280139180941648 wei at block 25893998"
+    },
+    {
+      "id": "renzo-ezeth",
+      "address": "0xbf5495Efe5DB9ce00f80364C8B423567e58d2110",
+      "role": "Renzo ezETH, the receipt token of the Renzo route. /yield reads no rate off it - Renzo publishes none cheaply on-chain, which the row states.",
+      "custody": "Renzo protocol",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='ezETH', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "renzo-restake-manager",
+      "address": "0x74a09653A083691711cF8215a6ab074BB4e99ef5",
+      "role": "Renzo RestakeManager. /yield calls depositETH() on it with ETH as value. Third-party entry point written by /yield - not ours.",
+      "custody": "Renzo protocol",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: ezETH()=0xbf5495Efe5DB9ce00f80364C8B423567e58d2110 at block 25893998"
+    },
+    {
+      "id": "aave-v3-pool",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "role": "Aave v3 Pool. /yield reads getReserveData(USDC).currentLiquidityRate as the rate leg and calls supply(asset,amount,onBehalfOf,0) on it. Third-party entry point read AND written by /yield - not ours.",
+      "custody": "Aave DAO governance",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: PoolAddressesProvider(0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e).getPool() resolves here; getReserveData(USDC).currentLiquidityRate=33681094116939942876847883 ray/yr, aToken=0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c at block 25893998"
+    },
+    {
+      "id": "aave-v3-ausdc",
+      "address": "0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c",
+      "role": "Aave aEthUSDC, the receipt token of the Aave route. /yield reads USDC.balanceOf(this) as the withdrawable-now exit figure.",
+      "custody": "Aave DAO governance",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='aEthUSDC', decimals()=6 at block 25893998"
+    },
+    {
+      "id": "compound-v3-cusdc",
+      "address": "0xc3d688B66703497DAA19211EEdff47f25384cdc3",
+      "role": "Compound v3 Comet (cUSDCv3). /yield reads getUtilization()/getSupplyRate() as the rate leg and calls supply(asset,amount) on it. Third-party entry point read AND written by /yield - not ours.",
+      "custody": "Compound DAO governance",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='cUSDCv3', decimals()=6 at block 25893998; baseToken()=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48, getUtilization()=901175362935989934, getSupplyRate(util)=1146513822 per second (×31,536,000/1e18 = 3.62% APR) at block 25893998"
+    },
+    {
+      "id": "sky-susds",
+      "address": "0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD",
+      "role": "Sky sUSDS, an ERC-4626 vault. /yield reads ssr() and convertToAssets(1e18), and calls deposit(assets,receiver) on it. Third-party entry point read AND written by /yield - not ours.",
+      "custody": "Sky governance",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='sUSDS', decimals()=18 at block 25893998; asset()=0xdC035D45d973E3EC169d2276DDab16f1e407384F, convertToAssets(1e18)=1108288506968236377, ssr()=1000000001096988989836188433 at block 25893998"
+    },
+    {
+      "id": "sky-usds",
+      "address": "0xdC035D45d973E3EC169d2276DDab16f1e407384F",
+      "role": "Sky USDS, the asset deposited into sUSDS from /yield and the underlying of that row's market leg.",
+      "custody": "Sky governance",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: symbol()='USDS', decimals()=18 at block 25893998"
+    },
+    {
+      "id": "steth-eth-feed",
+      "address": "0x86392dC19c0b719886221c78AB11eb8Cf5c52812",
+      "role": "Chainlink STETH / ETH feed, class 'market', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='STETH / ETH', decimals()=18, latestRoundData()=(round 36893488147419104116, answer 999416369099818200, updatedAt 1788324335); class 'market' per Chainlink docs, 1960.31 bps from the protocol rate read in the same run, at block 25893998"
+    },
+    {
+      "id": "reth-eth-feed",
+      "address": "0x536218f9E9Eb48863970252233c8F271f554C2d0",
+      "role": "Chainlink RETH / ETH feed, class 'market', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='RETH / ETH', decimals()=18, latestRoundData()=(round 36893488147419104024, answer 1167433982304503200, updatedAt 1788377951); class 'market' per Chainlink docs, 29.45 bps from the protocol rate read in the same run, at block 25893998"
+    },
+    {
+      "id": "cbeth-eth-feed",
+      "address": "0xF017fcB346A1885194689bA23Eff2fE6fA5C483b",
+      "role": "Chainlink CBETH / ETH feed, class 'market', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='CBETH / ETH', decimals()=18, latestRoundData()=(round 36893488147419104021, answer 1138293000000000000, updatedAt 1788378395); class 'market' per Chainlink docs, 2.56 bps from the protocol rate read in the same run, at block 25893998"
+    },
+    {
+      "id": "weeth-eth-feed",
+      "address": "0x5c9C449BbC9a6075A2c061dF312a35fd1E05fF22",
+      "role": "Chainlink weETH / ETH feed, class 'exchange-rate', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='weETH / ETH', decimals()=18, latestRoundData()=(round 36893488147419104052, answer 1102580930735330000, updatedAt 1788323063); class 'exchange-rate' per Chainlink docs, 2.27 bps from the protocol rate read in the same run, at block 25893998"
+    },
+    {
+      "id": "ezeth-eth-feed",
+      "address": "0x636A000262F6aA9e1F094ABF0aD8f645C44f641C",
+      "role": "Chainlink ezETH / ETH feed, class 'exchange-rate', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='ezETH / ETH', decimals()=18, latestRoundData()=(round 36893488147419104051, answer 1081546937469586650, updatedAt 1788322979); class 'exchange-rate' per Chainlink docs, no on-chain protocol rate exists to cross-check it, at block 25893998"
+    },
+    {
+      "id": "usdc-usd-feed",
+      "address": "0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6",
+      "role": "Chainlink USDC / USD feed, class 'market', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='USDC / USD', decimals()=8, latestRoundData()=(round 55340232221128656016, answer 99981920, updatedAt 1788336047); class 'market' per Chainlink docs, 1.81 bps from the protocol rate read in the same run, at block 25893998"
+    },
+    {
+      "id": "usds-usd-feed",
+      "address": "0xfF30586cD0F29eD462364C7e81375FC0C71219b1",
+      "role": "Chainlink USDS / USD feed, class 'market', 86400s heartbeat. /yield uses a market-class feed as a PRICE (it can show a discount) and an exchange-rate-class feed as the protocol's own NAV (it can never show one); the two are never interchanged.",
+      "custody": "Chainlink",
+      "status": "live, external",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "frontend/scripts/verify-yield-protocols.mjs, re-run for this registration at mainnet block 25893998: description()='USDS / USD', decimals()=8, latestRoundData()=(round 18446744073709554196, answer 99994824, updatedAt 1788323651); class 'market' per Chainlink docs, 0.52 bps from the protocol rate read in the same run, at block 25893998"
     }
   ],
   "retiredDeploys": {

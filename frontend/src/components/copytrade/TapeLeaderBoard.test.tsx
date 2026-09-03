@@ -185,3 +185,18 @@ describe('TapeReadLedger', () => {
     expect(screen.getByText(/reads at most once a minute/)).toBeTruthy();
   });
 });
+
+describe('TapeReadLedger heading level', () => {
+  // The a11y route sweep caught this as a real heading skip: the ledger is a top-level
+  // section of /copy-trading, mounted right after the page's h1 and sibling to the
+  // "Venue router" h2, but its title was an h3. In the loading state it is the FIRST
+  // heading after the title, so a screen reader jumped h1 -> h3. The visual size is a
+  // type choice; the level is a document fact.
+  it('titles itself at h2, the level its position on the page actually is', () => {
+    render(
+      <TapeReadLedger status="loading" tape={null} board={null} onRefresh={() => {}} refreshAvailableAt={null} />,
+    );
+    const heading = screen.getByRole('heading', { name: /Reading the island tape/ });
+    expect(heading.tagName).toBe('H2');
+  });
+});
