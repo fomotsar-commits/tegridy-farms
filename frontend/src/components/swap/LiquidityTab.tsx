@@ -390,6 +390,13 @@ export function LiquidityTab() {
               </div>
             )}
 
+            {liq.reservesUnread && (
+              <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
+                This pair exists but its reserves could not be read, so the price and your
+                share cannot be shown. Reload before adding — do not treat this as an empty pool.
+              </div>
+            )}
+
             {liq.isEmptyPool && amountA && amountB && (
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-400" style={{ background: 'rgba(255,178,55,0.08)', border: '1px solid rgba(255,178,55,0.25)' }}>
                 New field — you're the first farmer. You set the initial price and own 100% of the crop.
