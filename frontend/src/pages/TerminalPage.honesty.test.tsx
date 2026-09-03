@@ -146,7 +146,12 @@ function readyFeed(): TerminalFeed {
 }
 
 const CLEAN = assessRowSafety({
-  distribution: componentRead({ band: 'well-distributed', confidence: 'high', firedGateIds: [] }),
+  // excludedShareOfTotal was added to DistributionRead by TF-026 (the share of
+  // supply removed before the concentration math ran) and this fixture was not
+  // updated, which broke the typecheck for the whole repo. 0 is the right value
+  // for a fixture named CLEAN: nothing excluded, so the verdict carries no
+  // hidden qualifier.
+  distribution: componentRead({ band: 'well-distributed', confidence: 'high', firedGateIds: [], excludedShareOfTotal: 0 }),
   deployer: componentRead({ created: 3, noMarket: 0, unobserved: 0, confidence: 'medium' }),
   heat: componentUnread('no heat'),
 });

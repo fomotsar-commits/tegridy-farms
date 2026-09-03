@@ -409,6 +409,14 @@ export const LIGHTHOUSE_STAKING_ABI = [
   { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getRewardForDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The identity guard (TF-035) reads this to prove a pool really stakes the
+  // token the registry claims, before any figure is trusted. It was missing
+  // here while present on the LADDER abi, so EvmLighthousePoolLive failed to
+  // typecheck and blocked every build. It is a real selector: the vendored
+  // StakingRewards declares `IERC20 public stakingToken` (line 28), and a
+  // public state variable has a getter — so this is an omission from the ABI,
+  // not a capability the deployed pools lack.
+  { type: 'function', name: 'stakingToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
 ] as const;
 
 // ─── Island lighthouse LADDER (contracts/src/LighthouseLadder.sol) ───────────
