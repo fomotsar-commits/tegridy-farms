@@ -155,10 +155,11 @@
 }
 
 /* Main content bottom padding for bottom nav + safe area on mobile (#87).
-   F13: the BottomNav hides at `sm:` (≥640px), so the reserved bottom band must
-   end at 639px too — at 640-767px the nav isn't rendered and the old 767px
-   breakpoint left ~80px of dead padding. */
-@media (max-width: 639px) {
+   F13, CORRECTED 2026-09-03: the BottomNav hides at `min-[800px]:` so the
+   reserved bottom band must end at 799px to match. It previously ended at 639px,
+   tracking a BottomNav that hid at 640px — the same boundary that created the
+   640-790px dead band (see TopNav.tsx). Move this only with the other six sites. */
+@media (max-width: 799px) {
   .safe-area-content-bottom {
     padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
   }
@@ -622,7 +623,9 @@ body,
 html {
   scroll-padding-top: 64px;
 }
-@media (max-width: 639px) {
+/* Tracks the BottomNav's own breakpoint (min-[800px]:hidden) — see index.css's
+   safe-area-content-bottom note and TopNav.tsx. */
+@media (max-width: 799px) {
   html {
     scroll-padding-bottom: 80px;
   }

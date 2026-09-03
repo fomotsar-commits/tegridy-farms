@@ -225,7 +225,7 @@ export function AppLayout() {
           (calc(3.5rem + env(safe-area-inset-top))) so nothing tucks under the
           fixed header on a notched standalone launch. */}
       <div
-        className="min-h-screen relative z-10 pb-20 sm:pb-0 safe-area-content-bottom"
+        className="min-h-screen relative z-10 pb-20 min-[800px]:pb-0 safe-area-content-bottom"
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
       >
         {/* F29: tabIndex={-1} so the skip-link target reliably receives focus —
