@@ -44,6 +44,8 @@ import {
   TWAP_CONSUMERS,
   buildPlan,
   encodeAddressArg,
+  decodeWordAt,
+  isWordAligned,
   renderCrashOutput,
   renderGithubOutput,
   renderPlan,
@@ -74,17 +76,38 @@ let rpc;
  * report with faults that are not faults, and the report is only useful if every
  * line in its failure list is worth chasing.
  */
+/**
+ * AUDIT FIX TF-037: a conforming eth_call return is a whole number of 32-byte
+ * words. The sibling decoder in contracts/monitoring/lib/arbLinkage.mjs:67-74
+ * checks that; `wordAt` below did not, and the guard here rejected only the
+ * exact string '0x'. So a SHORT return — 1 to 63 hex chars — was sliced to
+ * fewer than 64 characters and `BigInt` happily decoded it into a valid but
+ * WRONG number. This consumer turns those words into authorized-caller
+ * addresses and pause targets, so a wrong decode is a wrong verdict about who
+ * can halt the protocol, printed with the same confidence as a right one.
+ * Unreadable must read as unreadable.
+ */
 async function call(label, to, data, { optional = false } = {}) {
   try {
     const hex = await rpc('eth_call', [{ to, data }, 'latest']);
-    return typeof hex === 'string' && hex !== '0x' ? hex : null;
+    if (typeof hex !== 'string' || hex === '0x') return null;
+    if (!isWordAligned(hex)) {
+      // Not a crash and not a revert: a malformed reading, which this file
+      // already has a channel for.
+      if (!optional) {
+        unreadable.push(`${label}: return is not 32-byte aligned (${hex.length - 2} hex chars)`);
+      }
+      return null;
+    }
+    return hex;
   } catch (e) {
     if (!optional) unreadable.push(`${label}: ${e.message || e}`);
     return null;
   }
 }
 
-const wordAt = (hex, i) => (hex ? BigInt(`0x${hex.slice(2 + i * 64, 2 + (i + 1) * 64)}`) : null);
+/** Second line of defence: refuse to decode a word that is not fully present. */
+const wordAt = decodeWordAt;
 const toAddress = (w) => (w === null ? null : `0x${w.toString(16).padStart(40, '0')}`);
 const ZERO = '0x0000000000000000000000000000000000000000';
 

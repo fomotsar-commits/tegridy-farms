@@ -89,7 +89,7 @@
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { getAddress, isAddress } from 'viem';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -99,6 +99,48 @@ const CURVE_PROGRAM = join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'curv
 const BROADCAST = join(HERE, '..', '..', 'contracts', 'broadcast');
 /** Ethereum mainnet. Foundry files broadcasts under broadcast/<script>/<chainId>/. */
 const MAINNET_CHAIN_DIR = '1';
+
+/**
+ * AUDIT FIX TF-058: pick the newest receipt by its OWN `timestamp`, not by the
+ * filename `run-latest.json`.
+ *
+ * Foundry writes `run-latest.json` as a COPY of the run it just performed. A
+ * later re-broadcast of a *different* script, an interrupted run, or a manual
+ * file shuffle can leave `run-latest` pointing at a superseded deploy — and
+ * three scripts in this repo are in exactly that state, so this check has been
+ * reading addresses that were replaced. A receipt naming a bricked contract
+ * reads identically to one naming the live one; only the timestamp separates
+ * them.
+ *
+ * Returns the parsed receipt with the greatest `timestamp` across every
+ * `run-*.json` in the directory, falling back to `run-latest.json` when no
+ * timestamped sibling parses.
+ */
+function newestReceipt(dir) {
+  let best = null;
+  let bestPath = null;
+  let entries = [];
+  try {
+    entries = readdirSync(dir).filter((f) => /^run-.*\.json$/.test(f));
+  } catch {
+    return null;
+  }
+  for (const f of entries) {
+    const p = join(dir, f);
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(p, 'utf-8'));
+    } catch {
+      continue; // an unparseable sibling is reported by the caller's own guard
+    }
+    const ts = Number(parsed?.timestamp ?? 0);
+    if (!best || ts > Number(best.timestamp ?? 0)) {
+      best = parsed;
+      bestPath = p;
+    }
+  }
+  return best ? { parsed: best, path: bestPath } : null;
+}
 
 const reg = JSON.parse(readFileSync(REGISTRY, 'utf-8'));
 const failures = [];
@@ -393,6 +435,17 @@ try {
       } catch (e) {
         fail(`${script}/1/run-latest.json is unreadable (${e.message}) — a broadcast receipt that cannot be parsed is an UNCHECKED deploy, not an absent one`);
         continue;
+      }
+      // AUDIT FIX TF-058: prefer the newest receipt BY TIMESTAMP. `run-latest`
+      // is a copy of whichever run happened last in this directory, which is
+      // not necessarily the newest deploy of this script.
+      const newest = newestReceipt(join(BROADCAST, script, MAINNET_CHAIN_DIR));
+      if (newest && Number(newest.parsed.timestamp ?? 0) > Number(parsed.timestamp ?? 0)) {
+        warn(
+          `${script}/1/run-latest.json is STALE — ${basename(newest.path)} is newer ` +
+            `(${newest.parsed.timestamp} > ${parsed.timestamp}); reading the newer receipt`,
+        );
+        parsed = newest.parsed;
       }
       for (const tx of parsed.transactions ?? []) {
         if (tx.transactionType !== 'CREATE' && tx.transactionType !== 'CREATE2') continue;

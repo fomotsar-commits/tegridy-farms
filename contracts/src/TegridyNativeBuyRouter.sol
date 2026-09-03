@@ -259,6 +259,18 @@ contract TegridyNativeBuyRouter is OwnableNoRenounce, ReentrancyGuard {
     ///      listing start==end; this reads startAmount (the price at/after startTime
     ///      for a static order). Dynamic (Dutch) native listings are NOT supported by
     ///      this exact-value guard and must not be routed here.
+    /// @dev AUDIT TF-048 — and "must not be routed here" is the whole guard, so be
+    ///      precise about what happens if one is. This does NOT fail safe: on a
+    ///      decaying order the router sends the START price, Seaport requires the
+    ///      lower current price and REFUNDS the difference to the caller (this
+    ///      router), and the excess is swept as protocol fee instead of returned
+    ///      to the buyer. The buy succeeds and the buyer silently overpays.
+    ///      What blocks it today is off-chain: the orderbook API refuses any
+    ///      order whose consideration startAmount != endAmount (TF-021), so no
+    ///      listing this app creates can reach here. A caller arriving with a
+    ///      Dutch order from elsewhere still can. The on-chain fix is a
+    ///      start==end check in the loop below; not applied because this router
+    ///      is live and the API gate covers every path we originate.
     function _nativeTotal(AdvancedOrder calldata order) internal pure returns (uint256 total) {
         ConsiderationItem[] calldata cons = order.parameters.consideration;
         for (uint256 i = 0; i < cons.length; i++) {

@@ -68,8 +68,14 @@
 --      #    reader and this DROP breaks nothing.
 --
 -- IDEMPOTENCY
---   This database has no migration ledger; statements are applied by hand and
---   get re-run. Both DROPs are `IF EXISTS`, so re-running is safe.
+--   Statements here are applied by hand and get re-run. Both DROPs are
+--   `IF EXISTS` and the ledger insert is `ON CONFLICT DO NOTHING`, so
+--   re-running is safe.
+--
+--   (There IS a ledger — `public.schema_migrations`, created by 000 §0 and
+--   written by 9 of the 25 migrations. Earlier files, 015 included, say there
+--   is none; that was true before 000 was rewritten and is not true now. This
+--   file writes its row, per audit TF-020.)
 -- ============================================================
 
 BEGIN;
@@ -80,6 +86,18 @@ BEGIN;
 
 DROP POLICY IF EXISTS "Anyone can read watchlist"  ON public.user_watchlist;
 DROP POLICY IF EXISTS "Anyone can read favorites"  ON public.user_favorites;
+
+-- ── Record this file in the ledger ────────────────────────────────────
+-- AUDIT FIX TF-020: `public.schema_migrations` exists (000 §0) and 9 of the 25
+-- migrations write to it. A migration that applies silently is a migration
+-- nobody can prove ran, and this one is order-sensitive against a frontend
+-- deploy — exactly the case the ledger is for.
+INSERT INTO public.schema_migrations (filename, note)
+VALUES (
+  '024_personal_tables_read_lockdown.sql',
+  'anon SELECT revoked on user_watchlist + user_favorites; the SIWE proxy is the only read path. votes/user_profiles deliberately untouched.'
+)
+ON CONFLICT (filename) DO NOTHING;
 
 COMMIT;
 

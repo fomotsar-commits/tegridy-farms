@@ -578,6 +578,46 @@
       "evidence": "contracts/broadcast/DeployNFTLending.s.sol/1/run-1784178212767.json CREATE TegridyNFTLending, receipt status 0x1, block 0x185c15c; CONTRACTS.md read-back paused()==false. Note run-latest.json for that script still points at the retired V1 0x05409880 - the timestamped receipt is the one that created THIS address."
     },
     {
+      "id": "gauge-controller",
+      "address": "0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054",
+      "role": "Gauge weight voting (commit-reveal). Governance.",
+      "status": "live, deployed + verified 2026-07-16, APP-GATED (GAUGE_CONTROLLER_ADDRESS in constants.ts is zeroed)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "AUDIT FIX TF-058 — created on mainnet and recorded NOWHERE, which verify-addresses.mjs could not see because run-latest.json for its script points at an older run. Source: contracts/broadcast/DeployGaugeController.s.sol/1/run-1784176781587.json CREATE GaugeController at this address, deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E, 2026-07-16. Supersedes 0xb93264aB0AF377F7C0485E64406bE9a9b1df0Fdb, already in retiredDeploys. README records governance as 'deployed on-chain + verified (2026-07-16) but app-gated until a revenue line funds their emissions', which is exactly this state. CORROBORATED by an on-chain readback recorded in an earlier session: frontend/src/pages/ContractsPage.tsx:194-198 states this 2026-07-16 batch is \"DEPLOYED AND UNPAUSED on mainnet ... verified on-chain 2026-08-12 by eth_getCode + paused()\", and lists this address with status 'unwired'. constants.ts:60-62 independently records gaugeCount()==0 on the GaugeController, and CommunityPage.tsx ships both governance addresses in DEPLOYED_NOT_WIRED. 'APP-GATED' here and 'unwired' there are the same claim."
+    },
+    {
+      "id": "vote-incentives",
+      "address": "0x6e1dCB7EBD16E09edb574F414aDc664B2A5E21AF",
+      "role": "Bribe market for gauge votes. Governance.",
+      "status": "live, deployed + verified 2026-07-16, APP-GATED (VOTE_INCENTIVES_ADDRESS in constants.ts is zeroed)",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "AUDIT FIX TF-058 — created on mainnet and recorded NOWHERE, which verify-addresses.mjs could not see because run-latest.json for its script points at an older run. Source: contracts/broadcast/DeployVoteIncentives.s.sol/1/run-1784176955420.json CREATE VoteIncentives at this address, deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E, 2026-07-16. Supersedes 0x417F44aee21Cc709262e71A7fdF6028cc17eCf1A, already in retiredDeploys. CORROBORATED by an on-chain readback recorded in an earlier session: frontend/src/pages/ContractsPage.tsx:194-198 states this 2026-07-16 batch is \"DEPLOYED AND UNPAUSED on mainnet ... verified on-chain 2026-08-12 by eth_getCode + paused()\", and lists this address with status 'unwired'. constants.ts:60-62 independently records gaugeCount()==0 on the GaugeController, and CommunityPage.tsx ships both governance addresses in DEPLOYED_NOT_WIRED. 'APP-GATED' here and 'unwired' there are the same claim."
+    },
+    {
+      "id": "vote-incentives-admin",
+      "address": "0xf87Ec231BA7FA3975619309bc16C698B2ea3B300",
+      "role": "Timelocked admin sister for VoteIncentives (EIP-170 split).",
+      "status": "live, deployed + verified 2026-07-16, APP-GATED with its principal",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "AUDIT FIX TF-058 — created on mainnet and recorded NOWHERE, which verify-addresses.mjs could not see because run-latest.json for its script points at an older run. Source: contracts/broadcast/DeployVoteIncentives.s.sol/1/run-1784176955420.json CREATE VoteIncentivesAdmin at this address, deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E, 2026-07-16. Created by the SAME receipt as vote-incentives; the principal was recorded and this sibling was not. NOT independently read back on-chain in this session — the receipt and the repo's own cross-references are the evidence."
+    },
+    {
+      "id": "nft-lending-admin",
+      "address": "0x693787831e9C36A98aFEDAd39f8728491F580a9C",
+      "role": "Timelocked admin sister for TegridyNFTLending.",
+      "status": "live",
+      "expect": {
+        "type": "contract"
+      },
+      "evidence": "AUDIT FIX TF-058 — created on mainnet and recorded NOWHERE, which verify-addresses.mjs could not see because run-latest.json for its script points at an older run. Source: contracts/broadcast/DeployNFTLending.s.sol/1/run-1784178212767.json CREATE TegridyNFTLendingAdmin at this address, deployer 0x14898258122C0740106391E6e8E4F17F3b6d456E, 2026-07-16. Created by the SAME receipt as the registered nft-lending entry (0x89BeB6cc...), whose own evidence note already flags that this script's run-latest.json points at the retired V1. The principal was recorded and this sibling was not. NOT independently read back on-chain in this session — the receipt and the repo's own cross-references are the evidence."
+    },
+    {
       "id": "tegridy-twap",
       "address": "0xdFdd6D72539A425dC917F49FB834901105cA98c9",
       "role": "TWAP oracle. DEFAULT_MIN_RESERVE_FLOOR_WEI is 10 ether per side.",

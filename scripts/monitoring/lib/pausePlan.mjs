@@ -376,6 +376,30 @@ export function summarise(linkage, plan) {
  * them would let an outage read as an incident or, far worse, the reverse.
  */
 /**
+ * AUDIT FIX TF-037 — is this eth_call return a whole number of 32-byte words?
+ *
+ * `arbLinkage.word()` has always checked this; the pause consumer's own decoder
+ * did not, and its `call()` guard rejected only the exact string '0x'. So a
+ * SHORT return (1-63 hex chars) was sliced to fewer than 64 characters and
+ * `BigInt` decoded it into a valid but WRONG number. Those words become
+ * authorized-caller addresses and pause targets, so a wrong decode is a wrong
+ * verdict about who can halt the protocol, printed as confidently as a right one.
+ *
+ * Lives here, not in the consumer, so `node --test` actually covers it.
+ */
+export function isWordAligned(hex) {
+  return typeof hex === 'string' && /^0x([0-9a-fA-F]{64})+$/.test(hex);
+}
+
+/** Decode word `i`, or null when it is not fully present. Never a wrong number. */
+export function decodeWordAt(hex, i) {
+  if (!hex) return null;
+  const slice = hex.slice(2 + i * 64, 2 + (i + 1) * 64);
+  if (slice.length !== 64) return null;
+  return BigInt(`0x${slice}`);
+}
+
+/**
  * AUDIT FIX TF-005 — the GITHUB_OUTPUT block for a consumer that CRASHED.
  *
  * The consumer's `--probe` mode used to exit 0 having written nothing at all

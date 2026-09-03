@@ -17,7 +17,9 @@ import {
   classifyCaller,
   dedupeCallers,
   encodeAddressArg,
+  decodeWordAt,
   fingerprint,
+  isWordAligned,
   renderCrashOutput,
   renderGithubOutput,
   renderPlan,
@@ -340,6 +342,47 @@ test('the consumer\'s crash handler is wired to the crash renderer', () => {
   assert.notEqual(catchBlock, '', 'main().catch handler not found');
   assert.match(catchBlock, /renderCrashOutput\(/, 'crash handler no longer renders a crash output');
   assert.match(catchBlock, /appendFileSync\(\s*process\.env\.GITHUB_OUTPUT/, 'crash output is never written to GITHUB_OUTPUT');
+});
+
+// AUDIT TF-037. The words this consumer decodes become authorized-caller
+// addresses and pause targets. A SHORT return used to be sliced to fewer than
+// 64 characters and BigInt decoded it anyway — a valid but WRONG number,
+// printed as confidently as a right one. The property: a reading that is not a
+// whole number of 32-byte words is REFUSED, never guessed at.
+test('a short eth_call return is refused, not silently decoded wrong', () => {
+  const short = '0x' + 'ab'.repeat(8); // 16 hex chars — half a word
+  assert.equal(isWordAligned(short), false);
+  assert.equal(decodeWordAt(short, 0), null, 'a partial word must not decode');
+});
+
+test('a ragged multi-word return is refused', () => {
+  // One full word plus a fragment: the fragment must not become word 1.
+  const ragged = '0x' + '11'.repeat(32) + 'beef';
+  assert.equal(isWordAligned(ragged), false);
+  assert.equal(decodeWordAt(ragged, 1), null);
+});
+
+test('a well-formed return still decodes, at every word index', () => {
+  // Non-vacuity: the guard must not have broken the ordinary path.
+  const hex = '0x' + '00'.repeat(31) + '2a' + '00'.repeat(31) + 'ff';
+  assert.equal(isWordAligned(hex), true);
+  assert.equal(decodeWordAt(hex, 0), 42n);
+  assert.equal(decodeWordAt(hex, 1), 255n);
+  assert.equal(decodeWordAt(hex, 2), null, 'reading past the end is null, not a throw');
+});
+
+test('non-hex and empty returns are refused', () => {
+  assert.equal(isWordAligned('0xzz'), false);
+  assert.equal(isWordAligned('0x'), false);
+  assert.equal(isWordAligned(null), false);
+  assert.equal(decodeWordAt(null, 0), null);
+});
+
+test('the consumer decodes through the checked helper', () => {
+  // A checked decoder nobody calls fixes nothing.
+  const src = readFileSync(new URL('../arbPauseConsumer.mjs', import.meta.url), 'utf-8');
+  assert.match(src, /wordAt = decodeWordAt/, 'consumer no longer uses the checked decoder');
+  assert.match(src, /isWordAligned\(hex\)/, 'consumer no longer checks alignment on the way in');
 });
 
 test('address arguments encode to a left-padded word', () => {
