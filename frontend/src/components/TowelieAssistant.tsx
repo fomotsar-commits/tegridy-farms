@@ -373,7 +373,12 @@ export function TowelieAssistant() {
 
   return (
     <div
-      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 md:bottom-4"
+      // `bottom-20` lifts the assistant over <BottomNav>. That bar is `sm:hidden`,
+      // so the lift has to end where the bar does - at 639px. `md:bottom-4` held
+      // the lift 128px too far, reserving clearance for a nav that is not rendered
+      // anywhere in 640-767px and widening the dead band over page content there.
+      // InstallPrompt.tsx already pairs the same `bottom-20` with `sm:`.
+      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 sm:bottom-4"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >
       <AnimatePresence>
@@ -384,7 +389,26 @@ export function TowelieAssistant() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.9 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-auto max-w-[260px] mb-1 relative"
+            // THE BUBBLE IS SOMETHING TO READ, NOT SOMETHING TO PRESS.
+            //
+            // On a phone it sits at `bottom-20` to clear the bottom nav, which parks a
+            // ~150px opaque panel squarely over page content. While it was
+            // `pointer-events-auto`, every tap landing on it was a tap the page never
+            // received - and the panel is at its widest exactly when it is showing
+            // unprompted (a route tip, an idle nudge), i.e. when the user is not
+            // looking at it at all.
+            //
+            // MEASURED, not theorised: `e2e/heat-gate.spec.ts` on `mobile-chrome` lost
+            // 3 of 15 runs to this, Playwright naming this element as the interceptor
+            // of a click aimed at the audit toggle underneath. Footer.tsx had already
+            // routed around it - the Bungalows button lives in a column instead of the
+            // bottom bar because the bubble "intercepts clicks there". A user gets the
+            // same swallow with no error message and no way to name it.
+            //
+            // So the panel is inert and each CONTROL re-arms itself below. Nothing in
+            // here carries an onClick except those controls, so this removes no
+            // behaviour the bubble ever had - only the interception.
+            className="pointer-events-none max-w-[260px] mb-1 relative"
             role="status"
             aria-live="polite"
           >
@@ -400,7 +424,7 @@ export function TowelieAssistant() {
               <button
                 onClick={dismissBubble}
                 aria-label="Dismiss Towelie"
-                className="absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none"
+                className="pointer-events-auto absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none"
               >
                 ×
               </button>
@@ -412,7 +436,7 @@ export function TowelieAssistant() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Ask me anything…"
-                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
+                    className="pointer-events-auto flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
                     aria-label="Ask Towelie a question"
                     maxLength={140}
                   />
@@ -420,7 +444,7 @@ export function TowelieAssistant() {
                     type="submit"
                     disabled={!chatInput.trim()}
                     aria-label="Send question"
-                    className="text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
+                    className="pointer-events-auto text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
                   >
                     ↩
                   </button>
@@ -429,13 +453,13 @@ export function TowelieAssistant() {
               <div className="mt-1.5 flex items-center gap-3">
                 <button
                   onClick={toggleChat}
-                  className="text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
+                  className="pointer-events-auto text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
                 >
                   {chatOpen ? 'Close chat' : '💬 Ask me'}
                 </button>
                 <button
                   onClick={disablePermanently}
-                  className="text-[10px] text-white/40 hover:text-white/70 transition-colors"
+                  className="pointer-events-auto text-[10px] text-white/40 hover:text-white/70 transition-colors"
                 >
                   Don't show again
                 </button>

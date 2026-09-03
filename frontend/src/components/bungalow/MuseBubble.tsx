@@ -50,9 +50,15 @@ export function MuseBubble({ bungalow }: { bungalow: Bungalow & { identity: Bung
   };
 
   return (
-    <div className="fixed right-4 bottom-20 md:bottom-4 z-[60] max-w-[280px] pointer-events-none select-none">
+    // `bottom-20` lifts the line over <BottomNav>, which is `sm:hidden` - so the
+    // lift ends at 639px too, not at md:. Same correction as TowelieAssistant.
+    <div className="fixed right-4 bottom-20 sm:bottom-4 z-[60] max-w-[280px] pointer-events-none select-none">
+      {/* ONE LINE TO READ, AND ONE CONTROL. The panel sits over page content on a
+          phone, so it stays inert and only the dismiss re-arms itself - the same
+          tap-swallow TowelieAssistant was measured losing e2e runs to. Nothing in
+          here is clickable but the button, so nothing is lost. */}
       <div
-        className="pointer-events-auto rounded-xl px-3 py-2.5 pr-8 relative text-[12px] leading-snug shadow-lg"
+        className="pointer-events-none rounded-xl px-3 py-2.5 pr-8 relative text-[12px] leading-snug shadow-lg"
         style={{
           background: 'rgba(4,18,12,0.88)',
           // Registry accents are 6-digit hex, so hex-alpha suffixes are safe.
@@ -68,7 +74,7 @@ export function MuseBubble({ bungalow }: { bungalow: Bungalow & { identity: Bung
           type="button"
           onClick={dismiss}
           aria-label={`Dismiss ${byline}'s line for this session`}
-          className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none"
+          className="pointer-events-auto absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none"
         >
           ×
         </button>
