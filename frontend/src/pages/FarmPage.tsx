@@ -326,7 +326,7 @@ function ToweliFarm() {
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
-            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} reserveEmpty={pool.isDry} />
+            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
               stats={stats}
@@ -408,7 +408,7 @@ function ToweliFarm() {
         </m.div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} reserveEmpty={pool.isDry} />
+        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
         {/* Stats */}
         <FarmStatsRow

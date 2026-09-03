@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { useReadContracts, useChainId } from 'wagmi';
 import { formatEther } from 'viem';
-import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI } from '../lib/contracts';
-import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, CHAIN_ID, TEGRIDY_LP_CREATED_AT, isDeployed as checkDeployed } from '../lib/constants';
+import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
+import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID, TEGRIDY_LP_CREATED_AT, isDeployed as checkDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
 
 const MAX_APR = 500;
@@ -15,6 +15,7 @@ const POOL_LAUNCH_TIMESTAMP = TEGRIDY_LP_CREATED_AT;
 export function usePoolTVL() {
   const price = useTOWELIPrice();
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
+  const hasReferralSplitter = checkDeployed(REFERRAL_SPLITTER_ADDRESS);
   const chainId = useChainId();
   const onMainnet = chainId === CHAIN_ID;
 
@@ -31,6 +32,13 @@ export function usePoolTVL() {
         // F109: live staker fee-share so the "100% to stakers" chip derives from
         // chain truth instead of a hardcoded literal that drifts on a re-tune.
         { address: SWAP_FEE_ROUTER_ADDRESS, abi: SWAP_FEE_ROUTER_ABI, functionName: 'stakerShareBps' as const, chainId: CHAIN_ID },
+      ] : []),
+      // The referrer's cut comes off the top BEFORE the distributor sees a wei
+      // (ReferralSplitter.sol:400), so stakerShareBps alone is 100% *of what
+      // arrives*, not 100% of the fee. Both reads are needed to state what a
+      // staker actually receives. Index 6, and only when index 3-5 are present.
+      ...(hasFeeRouter && hasReferralSplitter ? [
+        { address: REFERRAL_SPLITTER_ADDRESS, abi: REFERRAL_SPLITTER_ABI, functionName: 'referralFeeBps' as const, chainId: CHAIN_ID },
       ] : []),
     // useReadContracts expects a discriminated-tuple type for `contracts`, which
     // conditional spread breaks. The runtime shape is correct; we widen with an
@@ -53,8 +61,17 @@ export function usePoolTVL() {
       ? Number(data[5].result as bigint) / 100
       : undefined;
 
+    // The referral cut, needed to turn stakerShareBps into what a staker really
+    // gets. `null` means "not read" and is NOT interchangeable with 0 — 0 is a
+    // meaningful live value (no referral cut at all) and would make the chip
+    // claim the full router share. feeShareLabel refuses to quote a number
+    // unless BOTH reads landed; see its header.
+    const referralFeeBps = (hasFeeRouter && hasReferralSplitter && data?.[6]?.status === 'success')
+      ? Number(data[6].result as bigint)
+      : null;
+
     if (!reserves || !token0 || price.ethUsd <= 0) {
-      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply: 0n, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded };
+      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply: 0n, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps };
     }
 
     const isToken0Toweli = token0 === TOWELI_ADDRESS.toLowerCase();
@@ -140,6 +157,7 @@ export function usePoolTVL() {
       isLoaded: true,
       stakerSharePct,
       stakerShareLoaded,
+      referralFeeBps,
     };
-  }, [data, price.ethUsd, hasFeeRouter]);
+  }, [data, price.ethUsd, hasFeeRouter, hasReferralSplitter]);
 }

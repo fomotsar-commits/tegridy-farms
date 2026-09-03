@@ -226,6 +226,13 @@ export const REFERRAL_SPLITTER_ABI = [
   { type: 'function', name: 'pendingETH', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getReferralInfo', inputs: [{ name: '_referrer', type: 'address' }], outputs: [{ name: 'referred', type: 'uint256' }, { name: 'earned', type: 'uint256' }, { name: 'pending', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalReferralsPaid', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The referrer's cut, taken off the top of every fee BEFORE anything reaches
+  // the staking distributor (ReferralSplitter.sol:400). Needed by the Farm
+  // strip's "Fee Share" chip: SwapFeeRouter.stakerShareBps is 100% *of what
+  // arrives*, so quoting it alone overstates what a staker actually receives.
+  // Settable up to MAX_REFERRAL_FEE (3000) behind a timelock, so it must be
+  // READ, never hardcoded.
+  { type: 'function', name: 'referralFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyFactory (Native DEX Factory) ───────────────────────
