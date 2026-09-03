@@ -14,6 +14,7 @@ import {
   readWalletBalance,
   stake,
   unstakeAndClaim,
+  unstakeAndCloseForfeitingRewards,
   claimRewards,
   lockPresets,
   defaultLockDays,
@@ -134,6 +135,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const [days, setDays] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [action, setAction] = useState<{ busy?: string; note?: string; tx?: string } | null>(null);
+  // Two-step confirm for the principal-rescue exit, keyed by entry nonce. It
+  // forfeits accrued rewards, so it must never be a single mis-click.
+  const [rescueFor, setRescueFor] = useState<number | null>(null);
   // One tick a minute keeps every "unlocks in 12d" countdown honest without a
   // render loop — same cadence the TOWELI staking card uses.
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
@@ -641,6 +645,51 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               : exceedsVault ? 'Exit blocked — vault unfunded'
                               : 'Unstake & claim'}
                           </button>
+
+                          {/* PRINCIPAL RESCUE. Only offered in the one state
+                              where the normal exit is impossible: the lock has
+                              OPENED but the reward vault cannot cover what is
+                              owed, so unstakeAndClaim reverts (6012) and the
+                              principal is otherwise stuck behind a funding gap.
+                              It closes the reward entry instead of claiming it,
+                              which is why it works — and why it costs the
+                              accrued rewards. Two-step on purpose. */}
+                          {!locked && exceedsVault && (
+                            rescueFor === e.nonce ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={!invoker || !!action?.busy}
+                                  onClick={() => {
+                                    setRescueFor(null);
+                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce }));
+                                  }}
+                                  className="px-3 py-1.5 text-[12px] rounded-lg disabled:opacity-50"
+                                  style={{ background: 'rgba(227,179,65,0.18)', border: '1px solid #e3b341', color: '#e3b341' }}
+                                >
+                                  Forfeit rewards &amp; take principal
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRescueFor(null)}
+                                  className="btn-secondary px-2.5 py-1.5 text-[12px]"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!invoker || !!action?.busy}
+                                title="Withdraws your principal WITHOUT claiming rewards. It closes the reward entry rather than paying it, so it cannot be blocked by the vault — and the accrued rewards are given up."
+                                onClick={() => setRescueFor(e.nonce)}
+                                className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
+                                style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
+                              >
+                                Take principal without rewards
+                              </button>
+                            )
+                          )}
                         </div>
                           );
                         })()}

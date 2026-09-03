@@ -664,6 +664,59 @@ export async function unstakeAndClaim(args: {
   }
 }
 
+/**
+ * PRINCIPAL RESCUE — unstake a MATURED entry WITHOUT claiming rewards.
+ *
+ * WHY THIS EXISTS. `unstakeAndClaim` above settles rewards in the same
+ * transaction, so when accrued rewards exceed the reward vault the program
+ * reverts the WHOLE transaction with error 6012 (`RewardPoolDrained`) — and a
+ * funding gap therefore holds *principal* hostage even after the lock has
+ * fully expired. That is the failure this function exists to defeat. The SDK
+ * always had it; the venue simply never wired it (found 2026-09-02, with
+ * 2,022,682 BAYLA and eight stakers live on the pool).
+ *
+ * WHAT IT COSTS, and it must be said in the UI, not buried here: the SDK's
+ * `unstakeAndClose` is `unstake(shouldClose: true)` + `closeRewardEntry` — it
+ * CLOSES the reward entry rather than claiming it, which is exactly why it
+ * never touches the reward vault and so cannot hit 6012. Closing the entry
+ * abandons whatever had accrued. This is a way to get PRINCIPAL out of a pool
+ * whose reward vault is short; it is not a free alternative to a normal exit.
+ *
+ * WHAT IT IS NOT. It is not an early exit. The lock is still enforced by
+ * `unstake` (error 6013 `LockedStake`) exactly as before, so this cannot be
+ * used to leave before maturity. Streamflow has no early exit at any price and
+ * this does not add one.
+ */
+export async function unstakeAndCloseForfeitingRewards(args: {
+  invoker: SignerWalletAdapter;
+  pool: PoolView;
+  entryNonce: number;
+}): Promise<Result<{ txId: string }> | Failure> {
+  try {
+    const client = await makeClient();
+    // Same argument shape as unstakeAndClaim — the SDK aliases
+    // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
+    const res: any = await client.unstakeAndClose(
+      {
+        stakePool: args.pool.address as any,
+        stakePoolMint: args.pool.mint as any,
+        nonce: args.entryNonce,
+        tokenProgramId: args.pool.tokenProgram as any,
+        rewardPools: args.pool.rewardPools.map((rp) => ({
+          nonce: rp.nonce,
+          mint: rp.mint as any,
+          rewardPoolType: 'fixed' as const,
+          tokenProgramId: args.pool.tokenProgram as any,
+        })),
+      },
+      { invoker: args.invoker },
+    );
+    return { ok: true, txId: String(res?.txId ?? '') };
+  } catch (err) {
+    return writeFailure(err, 'The rescue unstake did not go through — your stake is untouched.');
+  }
+}
+
 /** Claim rewards from one reward pool for one stake entry. */
 export async function claimRewards(args: {
   invoker: SignerWalletAdapter;
