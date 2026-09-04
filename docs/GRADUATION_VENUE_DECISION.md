@@ -83,7 +83,7 @@ is still an Airlock module.
 | --- | --- | --- |
 | `ILiquidityMigrator` implementations in the tree | **1** — `TegridyLiquidityMigrator.sol`, 548 lines | **0**. No contract in `contracts/src/` targets `TegridyFactory` from a migration path. |
 | Supporting contracts written | `TegridyFeeLocker.sol` (324), `TegridyV4Hook.sol` (467), `TegridyV4HookAdmin.sol` | none |
-| Tests | **83** across three Foundry files — 25 migrator, 19 locker, 39 hook | none |
+| Tests | **84** across three Foundry files — 26 migrator, 19 locker, 39 hook | none |
 | AMM code we would be responsible for | none — canonical PoolManager, audited upstream, treated as trusted | a V2 fork we already own, plus a new migration path into it |
 | Afterlife farming | works today: `TegridyBoostedLPStaker` escrows V4 PositionManager NFTs and binds one immutable `allowedPoolId` per instance — **any** V4 pool, canonical or hooked | would need a V2-LP-shaped equivalent |
 | Needs the Whetstone whitelist | **yes** | **yes** — same gate, no advantage |

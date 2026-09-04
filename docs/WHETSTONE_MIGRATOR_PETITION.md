@@ -40,7 +40,7 @@ than retractions. Recorded so nobody re-introduces them.
 | --- | --- | --- |
 | Pointed at branch `claude/launcher-own-venue` as the place to read the code | **No branch or commit is named.** §4 gives file paths; §13 gives a command the reader runs against whatever commit we hand them | The branch tip did **not** contain `PROTOCOL_OWNER_MIN_SHARES`. We would have pointed Whetstone at a tree missing the exact fix the document claims. That is worse than sending nothing. |
 | §9 item 1: the on-chain 5% floor is "Not started" — while §4 said "RESOLVED" | §6 states it is implemented, with constant name, error selectors and the five test names; §12 no longer lists it | The document contradicted itself in two places. A reader resolves that against us. |
-| §9 item 2: the migrator's test file "has 16 tests and none is about your beneficiary" | 25 tests, five of them the floor (§5) | Same drift, opposite direction. |
+| §9 item 2: the migrator's test file "has 16 tests and none is about your beneficiary" | 26 tests, five of them the floor (§5) | Same drift, opposite direction. |
 | Named the hook's `paramAdmin` as one of the two things a Safe must sit on | `paramAdmin` is **`TegridyV4HookAdmin`** and is immutable on the hook. The Safe's control point is that **admin contract's owner**; the other is the migrator's `rescueRecipient` (§12) | A reviewer who read `hook.paramAdmin()` and compared it to a Safe address would find a contract instead, and read the mismatch as a lie. |
 | Cited POL and fee parameters by `DeployV4.s.sol:52-56` | Cited by constant **name** (§7) | Line numbers drift on every edit; names do not. |
 | "an in-repo comment calls the integrator address a Tegridy multisig" — stated as one open defect | Two sites; **one already corrected**, one still wrong (§3) | Half-fixed is not fixed, and claiming it whole would be false either way. |
@@ -182,7 +182,7 @@ Foundry, `contracts/test/v4/`. Counted from the working tree 2026-08-19.
 
 | File | `test*` functions | Covers |
 | --- | --- | --- |
-| `TegridyLiquidityMigrator.t.sol` | **25** | full-range mint, migrator retains nothing, pool carries the hook, `onlyAirlock` on both entrypoints, unconfigured-pair revert, tick-spacing bounds, the SDK payload shape, beneficiary routing to the locker, lock-duration rejection, `sweepStuck` destination, initializer-grant load-bearing, and the five floor tests below |
+| `TegridyLiquidityMigrator.t.sol` | **26** | full-range mint, migrator retains nothing, pool carries the hook, `onlyAirlock` on both entrypoints, unconfigured-pair revert, tick-spacing bounds, the SDK payload shape, beneficiary routing to the locker, lock-duration rejection, `sweepStuck` destination, initializer-grant load-bearing, and the five floor tests below |
 | `TegridyFeeLocker.t.sol` | **19** | write-once `bindMigrator`, only-migrator lock, shares-sum-to-WAD, duplicate/unsorted/zero-share rejection, double-lock, permanent lock never releases, timed lock blocks before expiry, exact split with no dust, hostile beneficiary cannot block others, collect + claim are reentrancy-guarded (donate-mid-collect cannot corrupt the delta) |
 | `TegridyV4Hook.t.sol` | **39** | pool-key allowlist, dynamic-fee gate, admin timelock flows, POL accrual/redeem/conservation fuzz, fee bounds fuzz, fee-split conservation, pause semantics, trusted-router paths |
 
@@ -501,7 +501,7 @@ fix is actually in it:
 grep -n 'PROTOCOL_OWNER_MIN_SHARES' contracts/src/v4/TegridyLiquidityMigrator.sol
 
 # The five floor tests §5 names.
-grep -c '^    function test' contracts/test/v4/TegridyLiquidityMigrator.t.sol   # 25
+grep -c '^    function test' contracts/test/v4/TegridyLiquidityMigrator.t.sol   # 26
 grep -n 'ProtocolOwner\|acceptsExactlyTheFloor' contracts/test/v4/TegridyLiquidityMigrator.t.sol
 
 # Run them.
