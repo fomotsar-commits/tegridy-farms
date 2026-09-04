@@ -36,6 +36,30 @@ beforeEach(() => { vi.stubGlobal('fetch', mockFetch(BAYLA_POOL)); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('usePoolMarket', () => {
+  // THE ENDPOINT IS THE FIX, so it is pinned here rather than left to the mock.
+  // This hook used to fetch api.geckoterminal.com directly from the browser,
+  // twice per bungalow page view with no cache anywhere, and the 2026-09-04
+  // field review found the consequence: a reload minutes later showed dashes
+  // across the whole strip because each visitor had spent their own keyless
+  // budget. What fixes that is the edge cache on the same-origin proxy, and a
+  // silent revert to the direct host would restore the bug while every other
+  // assertion in this file kept passing — the mock answers any URL.
+  it('reads same-origin through the cached proxy, never the upstream host directly', async () => {
+    const spy = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => BAYLA_POOL } as Response);
+    vi.stubGlobal('fetch', spy);
+    renderHook(() => usePoolMarket('solana', 'PoolIdHere'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+
+    const url = String(spy.mock.calls[0]![0]);
+    expect(url, 'the browser must not spend its own keyless budget on the upstream')
+      .not.toContain('api.geckoterminal.com');
+    expect(url).toContain('/api/aggregator?resource=pool-market');
+    // The pool identity still has to survive the hop, or the strip reads the
+    // wrong pool while looking perfectly healthy.
+    expect(url).toContain('network=solana');
+    expect(url).toContain('pool=PoolIdHere');
+  });
+
   it('reads the live pool figures', async () => {
     const { result } = renderHook(() => usePoolMarket('solana', 'pool'));
     await waitFor(() => expect(result.current.market).toBeTruthy());

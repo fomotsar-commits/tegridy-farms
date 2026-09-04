@@ -23,6 +23,22 @@ function renderHall() {
   );
 }
 
+/**
+ * Is this door's art desaturated?
+ *
+ * Asks about the RESULT rather than the mechanism. These assertions used to read
+ * `toHaveClass('grayscale')`, which pinned Tailwind's utility class specifically
+ * — so when the 2026-09-04 luminance pass moved the desaturation into an inline
+ * `filter` (it had to combine with a per-image `brightness()`, and a utility class
+ * and an inline filter overwrite each other rather than composing), a test whose
+ * subject was unchanged went red. "The settled doors are greyed" is the island
+ * ruling worth pinning; which CSS expresses it is not.
+ */
+function isDesaturated(img: HTMLImageElement | null): boolean {
+  if (!img) return false;
+  return img.classList.contains('grayscale') || /grayscale\(/u.test(img.style.filter);
+}
+
 describe('VenueDoors — the hall of doors', () => {
   it('shows one door per registry entry', () => {
     const { container } = renderHall();
@@ -41,7 +57,7 @@ describe('VenueDoors — the hall of doors', () => {
     expect(toweli.className).not.toContain('opacity-75');
     expect(within(toweli).queryByText('LIVE')).toBeTruthy();
     // alt="" makes the art presentational — query the element, not the role.
-    expect(toweli.querySelector('img')).not.toHaveClass('grayscale');
+    expect(isDesaturated(toweli.querySelector('img'))).toBe(false);
   });
 
   it('exactly two doors are LIVE; every other resident door is SETTLED and greyed', () => {
@@ -54,7 +70,16 @@ describe('VenueDoors — the hall of doors', () => {
       // Greyed but still a walkable door to the plaque landing.
       expect(door).toHaveAttribute('href', `/${b.id}`);
       expect(door.className).toContain('opacity-75');
-      expect(door.querySelector('img')).toHaveClass('grayscale');
+      const img = door.querySelector('img');
+      expect(isDesaturated(img), `${b.id} door is not greyed`).toBe(true);
+      // And it carries its OWN measured brightness, so the settled doors land at
+      // one lightness instead of wherever each painting's exposure happened to
+      // put it (measured spread before this: 3.1x). A tile that lost its
+      // multiplier would still be grey and would still look broken.
+      expect(
+        img!.style.filter,
+        `${b.id} door has no per-image brightness — re-run \`npm run prebuild\``,
+      ).toMatch(/brightness\([0-9.]+\)/u);
     }
   });
 

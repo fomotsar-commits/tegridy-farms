@@ -52,6 +52,7 @@ into the 404.
 |---|---|---|
 | `launcher-outcomes` | `_lib/launcher-outcomes.js` | LaunchExplorer market + chain stats |
 | `launch-radar` | `_lib/launch-radar.js` | Market-wide GeckoTerminal `new_pools` |
+| `pool-market` | `_lib/pool-market.js` | ONE pool's market facts for the bungalow strip. Exists for its `s-maxage`, not for the proxying — the browser read the same keyless host directly before, and a proxy without the cache header would be WORSE (one origin IP instead of each visitor's own budget). Do not remove the header |
 | `launch-cohort` | `_lib/launch-cohort.js` | Airlock `Create` enumeration |
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
