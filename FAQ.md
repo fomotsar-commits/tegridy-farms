@@ -1,50 +1,193 @@
-# Tegridy Farms FAQ
+# FAQ
+
+**Last reconciled against the tree and the chain: 2026-09-04.**
+
+> Four answers in this file used to describe features that do not exist — a creator portal,
+> a governance forum, weekly referral payouts, and airdrops that have never run — and one
+> said nothing was deployed on Base ten days after Base went live. They are corrected below
+> rather than quietly deleted, because a FAQ is the surface a stranger trusts most and the
+> record of what it got wrong is the reason to trust the rest.
+
+## What am I looking at — Tegridy Farms, or memetics.finance?
+
+Both, and the distinction is worth thirty seconds.
+
+**memetics.finance** (also served at **memetic.fun**) is the venue: a hall of thirteen
+bungalows on Jungle Bay Island, one per resident token, each with its own walls, market and
+staking lighthouse. That is what you land on.
+
+**Tegridy Farms** is the protocol and its code — this repository, the Solidity contracts,
+and the TOWELI token. Since 2026-08-31 the venue no longer speaks in that name; the classic
+Tegridy Farms surface lives whole behind its own door at
+[`/toweli`](https://memetics.finance/toweli). Nothing was deleted.
 
 ## What is TOWELI?
-TOWELI is the native utility and governance token of the Tegridy Farms ecosystem. It powers staking, LP farming, NFT lending collateral, gauge voting, fee discounts, and access to creator features across the protocol.
+
+The protocol's token: fixed supply (1,000,000,000), on **Ethereum only** — no bridge, no
+wrapped version on any other chain, and none is planned. It is the input to staking, LP
+farming, the boost curve, NFT-lending collateral and (once un-gated) gauge voting.
+
+Note what that means on the other three chains: **the Base, Robinhood and Solana surfaces do
+not pay TOWELI and do not stake it.** They earn fees, and those fees land in a remittance
+Safe or a fee account, not in a staker's balance.
 
 ## How do I get it?
-TOWELI can be acquired by swapping on the native AMM, earned through LP farming rewards, staking boosts, creator royalties, or referral rebates. Airdrops and grant distributions also seed initial supply to early participants.
+
+Swap for it — on the venue's front door, or on the Uniswap V2 pool where the deep liquidity
+actually is. You can also earn it from LP farming rewards.
+
+**What will not get you any:** there has never been an airdrop, and no grant has ever been
+distributed. The airdrop and vesting rails exist in the repo and are **deployed nowhere**.
+(This answer previously listed airdrops, grants, creator royalties and referral rebates as
+ways to acquire TOWELI. Referral rewards pay in **ETH**, not TOWELI, and the other three have
+never happened.)
 
 ## Is it audited?
-Internally, not externally. The core contracts (TegridyLPFarming, TegridyNFTLending, GaugeController, TegridyDropV2) have been reviewed in-house and findings are tracked in AUDIT_FINDINGS.md and SPARTAN_AUDIT.txt. **No third-party audit has been commissioned or completed.** The contracts are live on Ethereum mainnet today, so treat that as an unaudited deployment, not as an audit that is still pending.
+
+**Not by a third party.** No professional firm review has been commissioned or completed, and
+it is not scheduled.
+
+Internal adversarial review is continuous and every wave runs find → *independent
+refute-by-default* verify — most recently the launch-program audit (2026-08-15, 43 findings,
+0 critical), the Slither triage (2026-08-25, where the adversarial pass rejected twelve of
+the first pass's false-positive verdicts and all twelve were then fixed), a 45-agent island
+gap scan (2026-08-30), and a four-lane sweep plus an external field review (2026-09-03).
+
+**About `SPARTAN_AUDIT.txt`:** it applies an external *methodology*, but its own Appendix C
+names the reviewer as an AI assistant acting at the repository owner's direction. It is not a
+third-party audit and is not claimed as one.
+
+The contracts are live on four chains today. Treat that as an **unaudited deployment**, not as
+an audit that is still pending.
 
 ## How are fees distributed?
-Swap fees are aimed at veTOWELI stakers, but **not the whole fee, and not yet.** On the live `SwapFeeRouter`, `stakerShareBps` is `10000` and `polShareBps` is `0`, so nothing is split off to the treasury or to protocol-owned liquidity *at that step*. Those levers are timelocked and would need a governance change to move; the floor is `MIN_STAKER_SHARE_BPS = 5000`, so the staker share can never drop below 50%.
 
-The step before it is the one that matters. `_recordReferralFee` hands the **entire** fee to `ReferralSplitter` at swap time, and the splitter keeps `referralFeeBps` — **20% today** — for the swapper's referrer, or for the treasury when there is no qualified referrer. Either way that slice is not staker yield, and it is not a knob that can be turned off: `proposeReferralFee` rejects `0` (`FEE_CANNOT_BE_ZERO`) and `SwapFeeRouter.applyReferralSplitter(address(0))` reverts `ReferralFeeNonZero()` while the share is above zero, so the splitter cannot be unwired either. The other ~80% is credited back to the router as `callerCredit` and moves only when someone calls the **permissionless** `recoverCallerCredit()`.
+Aimed at veTOWELI stakers — but **not the whole fee, and not yet.**
 
-Two things to be clear about. First, **the rail has collected and has still distributed nothing**: fees have accrued, the whole balance is sitting in `ReferralSplitter` because `recoverCallerCredit()` has never been called, and `RevenueDistributor.totalDistributed()` reads `0`. No staker has ever been paid. (That is a statement about the mechanism on purpose — a wei figure would be stale after the next swap.) Second, **the protocol burns nothing** — but the live token *can* be burned: `burn(uint256)` and `burnFrom(address,uint256)` are both present in the deployed bytecode, so any holder may destroy their own TOWELI. 1,000,000,000 is the ceiling, not a constant. A *protocol* burn or buyback path would still need governance and new code. See [TOKENOMICS.md](TOKENOMICS.md) for the canonical breakdown of where each fee surface routes today.
+On the live `SwapFeeRouter`, `stakerShareBps` is `10000` and `polShareBps` is `0`, so nothing
+is split off to the treasury or to protocol-owned liquidity *at that step*. Those levers are
+timelocked, and the floor is `MIN_STAKER_SHARE_BPS = 5000`.
+
+**The step before it is the one that matters.** `_recordReferralFee` hands the entire fee to
+`ReferralSplitter` at swap time, and the splitter keeps `referralFeeBps` — **20% today** — for
+the swapper's referrer, or for the treasury when there is no qualified referrer. Either way
+that slice is not staker yield, and it cannot be turned off: `proposeReferralFee` rejects `0`,
+and `applyReferralSplitter(address(0))` reverts while the share is above zero, so the splitter
+cannot be unwired either. The remaining ~80% is credited back to the router as `callerCredit`
+and moves only when someone calls the **permissionless** `recoverCallerCredit()`.
+
+Two things to be clear about:
+
+1. **The rail has collected and has still paid nobody.** Fees have accrued; the balance sits in
+   `ReferralSplitter` because `recoverCallerCredit()` has never been called; and
+   `RevenueDistributor.totalDistributed()` reads `0`. No epoch has ever opened. (That is a
+   statement about the mechanism on purpose — a wei figure is stale after the next swap.)
+2. **The protocol burns nothing** — but the live token *can* be burned: `burn(uint256)` and
+   `burnFrom(address,uint256)` are both in the deployed bytecode, so any holder may destroy
+   their own TOWELI. One billion is the ceiling, not a constant.
+
+See [TOKENOMICS.md](TOKENOMICS.md) for where each fee surface routes.
 
 ## What's the boost?
-Stakers who lock TOWELI earn a 0.4×–4.0× boost on LP rewards depending on lock duration, plus an additional +0.5× if they hold a JBAC NFT (ceiling 4.5×). Boost magnitude scales with lock duration and veTOWELI balance, rewarding long-term aligned participants. See [TOKENOMICS.md](TOKENOMICS.md) for the full boost curve.
+
+Lock TOWELI for 7 days → 4 years and earn a **0.4×–4.0×** boost, plus **+0.5×** if you hold a
+JBAC NFT (ceiling 4.5×). Longer locks earn more.
+
+Since 2026-08-30 that same ladder is the shape of every **EVM bungalow lighthouse** — the six
+`LighthouseLadder` pools use TOWELI's exact curve, line for line.
+
+## Can I stake a bungalow token?
+
+Yes — all thirteen bungalows stake, at their own door (`memetics.finance/<bungalow>`). The two
+rails are genuinely different and the app never blurs them:
+
+- **The six EVM pools** (`LighthouseLadder` on Ethereum and Base) use the TOWELI ladder and
+  have an **exit hatch**.
+- **The five Solana pools** run on Streamflow, which has **no early exit at all** — verified
+  three ways: the program has only stake/unstake, unstake is refused before the duration
+  elapses, and the position cannot be sold. The ceremony therefore defaults to a 7-day ceiling
+  and gates longer locks behind an explicit acknowledgement. **Read the lock warning before you
+  sign; there is no way out and no penalty exit.**
 
 ## What happens if I unstake early?
-You pay a **flat 25% penalty on the principal you withdraw**, and the full penalty is transferred to the protocol treasury. It does not shrink as your lock approaches maturity, and it is not recycled to the stakers who stayed. Source: `EARLY_WITHDRAWAL_PENALTY_BPS = 2500` in `contracts/src/TegridyStaking.sol`, with the penalty sent by `safeTransfer(treasury, penalty)`. If your lock has already expired, use `withdraw()` instead — that path charges nothing.
+
+On TOWELI staking: a **flat 25% penalty on the principal you withdraw**, transferred in full to
+the protocol treasury. It does not shrink as your lock matures and it is **not** recycled to the
+stakers who stayed (`EARLY_WITHDRAWAL_PENALTY_BPS = 2500`). If your lock has already expired,
+use `withdraw()` — that path charges nothing.
+
+Also worth knowing: **Auto-Max Lock is not reversible.** Enabling it sets your lock end to
+four years from that instant, and disabling it does not restore your original duration.
 
 ## Is lending liquidation-free?
-Tegridy NFT Lending uses fixed-term loans with no margin-call liquidations. If a borrower defaults at maturity, the NFT transfers to the lender — there are no surprise liquidations from oracle volatility mid-loan.
 
-## Who controls the multisig?
-It depends on the contract, and it is not one multisig. Read back on-chain 2026-08-06:
+Fixed-term loans with no margin-call liquidations. If a borrower defaults at maturity the NFT
+transfers to the lender — no surprise liquidations from oracle volatility mid-loan. There is a
+short post-deadline grace window, plus separate sequencer-aware and pause-extended grace.
 
-- **Treasury** `0x7D26…Bd7d` is a Safe with `getThreshold() == 2` over **2 owners** — a 2-of-2, not a 4-of-7. It is what `SwapFeeRouter.treasury()` and `TegridyStaking.treasury()` both point at.
-- **Most protocol contracts** (staking, LP farming, gauge controller, vote incentives, NFT lending, launchpad, premium access) are owned by `0x1489…456E`, which has **no code** — it is a plain EOA, not a Safe. On-chain timelock delays gate the privileged actions on those contracts (24–48h depending on the contract — see `DEPLOY_RUNBOOK.md`), but a single key can still initiate all of them.
-- **TegridyNFTPoolFactory** is the exception: owner `0xA360…b7F8` is a 2-of-3 Safe.
+## Which chains is this on?
 
-Migrating the remaining EOA-owned contracts to a Safe is outstanding work tracked in `NEXT_SESSION.md` and `FIX_STATUS.md`. Note that Safe signer rotations and threshold changes are Safe-internal operations — the GaugeController does not and cannot gate them.
+Four, and they do different jobs:
 
-## Is there a mobile app?
-No. The web app is fully responsive and optimized for iPhone 14+ and iPad. A dedicated iOS and Android app is an aspiration on the roadmap — no work has started on one.
+| Chain | What runs there | Where fees land |
+|---|---|---|
+| **Ethereum** | Everything — staking, the DEX, revenue distribution, NFT finance, both launchers | The staker rail (which has never paid) and the treasury Safe |
+| **Base 8453** | The DEX + fee stack + curve launcher, live 2026-08-25 | A **remittance** Safe — queued for the bridge, *not* staker yield |
+| **Robinhood 4663** | The same stack, live 2026-08-25 | The same remittance Safe |
+| **Solana** | The Jupiter-routed swap (Instant / Limit / DCA) and five Streamflow lighthouses | A Solana fee account |
 
-## Is there a Base L2 plan?
-Nothing is deployed on Base today. The only chains this repo has ever broadcast to are Ethereum mainnet (chainId 1) and Sepolia — there is no Base contract, no bridge and no cross-chain gauge voting, and no dated commitment to build them.
+*(This answer used to read "Nothing is deployed on Base today… no dated commitment to build
+them." That was written before the 2026-08-25 deploy and stayed wrong for ten days.)*
+
+## Who controls the keys?
+
+It is not one multisig, and on mainnet it is **still not a multisig at all**.
+
+- **Most mainnet protocol contracts** — staking, LP farming, gauge controller, vote incentives,
+  NFT lending, launchpad, premium access — are owned by a plain **EOA with no code**. On-chain
+  timelocks gate the privileged actions, but a single key can still initiate all of them.
+  **This is the single largest unresolved risk in the project.**
+- **Treasury** `0x7D26…Bd7d` is a **2-of-2** Safe (not a 4-of-7).
+- **TegridyNFTPoolFactory** is owned by a 2-of-3 Safe.
+- **The Base / Robinhood legs** deployed with their role Safes in place, but those Safes sit at
+  `nonce() == 0` — no ceremony has executed yet, and an N-of-M is unproven until something has
+  actually executed at the new threshold.
+
+The re-home is tracked in [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) and
+[`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md). *(This answer used to point at
+`NEXT_SESSION.md`, which was retired on 2026-08-19.)*
+
+## How do I refer someone?
+
+Generate a link in the app — but read this first, because the app now says it before you share
+rather than after:
+
+**If your voting power is below `MIN_REFERRAL_STAKE_POWER`, you earn nothing.** Your referee's
+carve routes to the treasury in full, they pay exactly the same fee either way, and nothing
+on-chain tells you it happened — `getReferralInfo` reports the same zeroes it would report for
+someone with no referrals at all. There is also a **7-day minimum referral age**.
+
+Rewards accrue in **ETH** and are claimed from `pendingETH(address)` when there is something to
+claim. *(This answer used to promise rebates "claimable weekly from the dashboard", which
+describes a cadence that does not exist.)*
 
 ## How do I become a creator?
-Creators apply via the in-app creator portal with a sample collection, social links, and a short pitch. Approved creators can mint drops via the V2 launchpad (TegridyDropV2), earn royalties, and qualify for grant matching from the treasury.
 
-## How do I refer?
-Generate a referral link from your profile page. Referees who stake, farm, or mint earn you a share of protocol fees from their activity for a fixed term. Referral rebates are claimable weekly from the dashboard.
+By launching. There is **no creator portal and no application process** — that answer described
+a feature that has never existed.
+
+What is real: two token launchers (our own bonding curve on Ethereum/Base/Robinhood, and the
+Doppler rail) and an NFT launchpad, all permissionless. A curve launch gets a permanent page and
+the creator can claim their fees.
 
 ## What's the grant program?
-The Tegridy Grants program allocates treasury funds quarterly to builders, creators, and community contributors. Apply via the governance forum with scope, milestones, and budget. Approved grants vest on milestone completion verified by the multisig.
+
+**There isn't one running.** `CommunityGrants` is deployed and Etherscan-verified but its
+frontend address is still zeroed, so the UI is gated — and there is **no governance forum** to
+apply through. House law forbids funding grants out of capital the protocol has not earned, and
+the protocol has not yet earned any, which makes the fee rail the real precondition.
+
+## Is there a mobile app?
+
+No. The web app is responsive and targeted at iPhone 14+ and iPad. A native app is an
+aspiration; no work has started.

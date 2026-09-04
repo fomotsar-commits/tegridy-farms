@@ -650,8 +650,9 @@ tegriddy-farms/
 │   │   │                chain's capabilities and its fee-sink KIND (distributor vs remittance)
 │   │   ├── launcher/    Doppler config + airlock, Fact Sheet/gate, locker stream, curve
 │   │   └── detection/   Shared holder-distribution core behind the trust surfaces
-│   ├── api/             Vercel serverless — 11 of a 12-function cap, so new surfaces
-│   │                    branch on ?resource= rather than adding a file
+│   ├── api/             Vercel serverless — 8 functions. The 12-function Hobby cap was
+│   │                    LIFTED 2026-09-04 (Pro plan); the ?resource= catchall stays as a
+│   │                    design choice, not a forced one — see api/SERVERLESS_BUDGET.md
 │   ├── scripts/         Build/operator CLIs — incl. addresses.json + verify-addresses.mjs
 │   │                    (the registry every live address must appear in), the lighthouse
 │   │                    ceremony scripts, and render-bungalow-doors.mjs

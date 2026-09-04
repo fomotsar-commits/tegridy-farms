@@ -1,7 +1,8 @@
 # Tegriddy Farms Roadmap
 
-Reconciled against the repo on 2026-08-19. Each item carries a one-sentence scope, a
-success metric, and a **Status** line that says what the tree actually contains.
+Reconciled against the repo and the chain on **2026-09-04**. Each item carries a
+one-sentence scope, a success metric, and a **Status** line that says what the tree
+actually contains.
 
 Status vocabulary, used the same way in [`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md):
 
@@ -12,9 +13,32 @@ Status vocabulary, used the same way in [`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN
 
 Two horizons feed this file: [`docs/YEAR_PLAN_2026_2027.md`](docs/YEAR_PLAN_2026_2027.md)
 is the operational plan for Sep 2026 → Aug 2027, and
-[`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md) carries per-item build instructions. Where
-this file and either of those disagree, they are newer. `V2_ROADMAP.md` remains the
-backlog of technical issues feeding these quarters.
+[`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md) carries per-item build instructions. The
+single canonical to-do list is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md). Where
+this file and any of those disagree, they are newer. `V2_ROADMAP.md` remains the backlog
+of technical issues feeding these quarters.
+
+---
+
+## What shipped that this roadmap never contemplated
+
+Between 2026-08-19 and 2026-09-04 the venue grew three things that had no roadmap item,
+which is worth stating plainly rather than folding into the quarters below — a roadmap
+that silently absorbs unplanned work stops being a record of what was intended.
+
+- **Multichain.** Base 8453 and Robinhood Chain 4663 went live on **2026-08-25** with the
+  full factory / router / TWAP / fee stack. This *is* item 10 below, arriving five months
+  early and with a second chain nobody had scoped. See the corrected status there.
+- **Jungle Bay Island.** Thirteen bungalow doors (2026-08-24), then **ten lighthouse
+  staking pools across three chains** (2026-08-26 → 08-30), then the venue taking its own
+  name and relocating the classic surface behind `/toweli` (2026-08-31). None of this was
+  on any roadmap; it came from the island's own published canon and a sequence of owner
+  decisions.
+- **Our own EVM bonding curve.** `TegridyCurveLauncher` is live on all three EVM chains
+  and graduates into a pool the protocol owns. Its counterpart decision — deleting the
+  Meteora rail on **2026-08-23** because it graduated into a pool we do not own — is the
+  clearest statement of venue strategy the project has made, and it retired a rail that
+  was armed on mainnet.
 
 ---
 
@@ -72,17 +96,46 @@ Push the product out. Marketing, automation, and a credible L2 story.
 8. **Launchpad bundle marketing**
    - Scope: Coordinated campaign packaging TegridyDropV2 + LP farming + lending as a one-stop launchpad for new tokens, with case studies and paid creator content.
    - Metric: At least 5 external projects launch via the bundle in Q4, with a combined drop TVL of $1M+.
-   - **Status: not started.** Community channels are not registered yet (`docs/COMMUNITY_LAUNCH.md` is written; the registrations are operator work in `docs/OPERATOR_NEXT.md`), and no external project has launched through the venue.
+   - **Status: not started — but the product it would market now exists.** Community
+     channels are still not registered (`docs/COMMUNITY_LAUNCH.md` is written; the
+     registrations are operator work), and **no external project has launched through the
+     venue.** What changed since this was written is the thing being sold: two token
+     launchers rather than one — our own `TegridyCurveLauncher` on three EVM chains, with
+     token identity through Irys, a permanent per-token page and creator fee claim — plus
+     thirteen bungalow staking pools. The bundle is real; the campaign is not.
 
 9. **Keeper for DCA / LimitOrders**
    - Scope: Deploy an automated keeper (Gelato or Chainlink Automation) that executes DCA schedules and limit orders created through the UI.
    - Metric: 99% on-time execution rate across a rolling 1,000-order sample; median execution delay under 2 blocks past trigger.
-   - **Status: not built.** Limit/TWAP/DCA and the newer trigger orders are expressed as CoW conditional orders and executed by CoW's watchtower, which only serves ERC-1271 wallets and only the shapes its handlers can express. Everything else — every EOA, every trailing stop, all Solana — has no executor, and `frontend/src/lib/triggers/armState.ts` renders those cases as explicitly unarmed rather than pretending. The venue keeper is track F4 in `docs/BATTLE_PLAN.md`.
+   - **Status: partly shipped, on somebody else's keepers — corrected 2026-09-04.** The EVM
+     side is unchanged: limit/TWAP/DCA and trigger orders are CoW conditional orders executed
+     by CoW's watchtower, which serves only ERC-1271 wallets and only the shapes its handlers
+     express; every EOA and every trailing stop still has no executor, and
+     `frontend/src/lib/triggers/armState.ts` renders those cases explicitly unarmed rather
+     than pretending. **What changed is Solana.** Since 2026-09-03 the swap surface offers
+     time-based **DCA through Jupiter Recurring** — deposit once, *Jupiter's* keepers execute
+     on a cadence, cancel returns the unspent remainder — so "all Solana has no executor" is
+     no longer true for that one shape. Be precise about what that bought: the venue still
+     runs **no keeper of its own**, this is time-based only (the price-based recurring
+     strategy is not wired), and the 99%-execution metric is Jupiter's to hit, not ours to
+     claim. The venue keeper remains track F4 in `docs/BATTLE_PLAN.md`.
 
 10. **Base L2 deployment consideration**
     - Scope: Full deploy scripts, chain-specific router/WETH config, and a go/no-go review (gas + user demand) for launching core contracts on Base.
     - Metric: Ship-ready deploy scripts merged and a published decision memo; if launched, $500K+ TVL within 60 days of Base mainnet deploy.
-    - **Status: not started.** No memo, no Base deploy scripts. Carried forward as year-plan Q4 and as `docs/BATTLE_PLAN.md` #37.
+    - **Status: SHIPPED, and wider than scoped — corrected 2026-09-04.** This item read
+      "not started. No memo, no Base deploy scripts" for ten days after the deploy. Both
+      halves of the ship-ready metric are met: the go/no-go memo is
+      [`docs/BASE_L2_GO_NO_GO.md`](docs/BASE_L2_GO_NO_GO.md), the deploy scripts are
+      `DeployBaseMVP` / `DeployCurveLauncher`, and **Base 8453 went live 2026-08-25** with
+      every contract slot read back on-chain. A second chain nobody scoped went with it —
+      **Robinhood Chain 4663** ([`docs/ROBINHOOD_L2_LEG.md`](docs/ROBINHOOD_L2_LEG.md)),
+      which needed its own `AttestedSequencerUptimeFeed` because Chainlink publishes no
+      uptime feed for 4663 and `SequencerCheck` reverts off-mainnet on a zero feed.
+      **The TVL half of the metric is unmeasured, and the fee half is deliberately not
+      staker yield:** both L2 sinks are *remittance* Safes, so an L2 fee is queued for the
+      bridge. Ownership handoffs still await the 2-of-2 accept ceremony on each chain —
+      both role Safes are at `nonce() == 0`.
 
 ---
 
@@ -98,7 +151,12 @@ Hand more of the protocol over to the community and widen the surface area.
 12. **Treasury grants**
     - Scope: Formalize a CommunityGrants program with public applications, milestone payouts, and quarterly reporting.
     - Metric: At least 10 funded grants in the first year with 70%+ reaching their final milestone and a public dashboard showing every outflow.
-    - **Status: contract in the tree, program not started.** `CommunityGrants` is deployed but not wired into `constants.ts`, so its UI is gated. House law forbids funding it out of capital the protocol has not earned, which makes item 5 its real precondition.
+    - **Status: contract in the tree, program not started.** Re-verified 2026-09-04:
+      `COMMUNITY_GRANTS_ADDRESS` in `frontend/src/lib/constants.ts` is still the zero
+      address, so the UI stays gated. There is also **no governance forum to apply
+      through** — `FAQ.md` described one until 2026-09-04 and has been corrected. House law
+      forbids funding grants out of capital the protocol has not earned, which makes item 5
+      its real precondition.
 
 13. **Community partnerships**
     - Scope: Integration and co-marketing deals with adjacent DeFi protocols (aggregators, perps, yield routers) that route volume or liquidity into Tegriddy pairs.
