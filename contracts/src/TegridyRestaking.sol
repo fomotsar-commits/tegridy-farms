@@ -305,7 +305,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      emit. Extracted byte-for-byte; `oldBoosted` is the caller's pre-refresh
     ///      cached boost.
     function _settlePreAccrueBonus(RestakeInfo storage info, address recipient, uint256 oldBoosted) internal {
-        uint256 preBonus;
+        uint256 preBonus = 0;
         if (oldBoosted > 0) {
             int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
             int256 preDiff = preAccum - info.bonusDebt;
@@ -330,20 +330,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      calling this (both sites do) so the safeTransferFrom callback cannot
     ///      re-enter to double-vote.
     function _returnNftSettleResidual(uint256 tokenId, address recipient) internal returns (uint256 totalUnsettled) {
-        uint256 prePaid;
+        uint256 prePaid = 0;
         try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p) {
             prePaid = _p;
         } catch {
             prePaid = 0;
         }
-        bool delivered;
+        bool delivered = false;
         try stakingNFT.safeTransferFrom(address(this), recipient, tokenId) {
             delivered = true;
         } catch {
             strandedRestakeRecipient[tokenId] = recipient;
             emit RestakeNFTStranded(tokenId, recipient);
         }
-        uint256 postPaid;
+        uint256 postPaid = 0;
         if (delivered) {
             try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p2) {
                 postPaid = _p2;
@@ -2446,6 +2446,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                     // minted (net of per-share flooring) so `outstanding` never drifts
                     // above what positions can claim, keeping the cap tight but never
                     // starving genuinely-funded accrual.
+                    // SLITHER 2026-08-30: the div→mul round-trip IS the fix above — it books the
+                    // liability actually minted NET of per-share flooring, never the pre-floor reward
+                    // slither-disable-next-line divide-before-multiply
                     totalBonusEmitted += (accDelta * totalRestaked) / ACC_PRECISION;
                 }
             }

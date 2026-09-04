@@ -204,6 +204,9 @@ contract LockerClaimer is ReentrancyGuard {
     ///      ETH arriving.
     function _forwardETH() internal {
         uint256 amount = address(this).balance;
+        // SLITHER 2026-08-30: empty-balance no-op so keeper batching never reverts; the sink is
+        // immutable and the whole balance forwards unconditionally — no branch to game
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) return;
         (bool ok,) = revenueDistributor.call{value: amount}("");
         if (!ok) revert ForwardFailed();

@@ -179,6 +179,9 @@ contract TegridyAirdropDistributor is MerkleDistributor, ReentrancyGuard {
         if (block.timestamp < deadline) revert ClaimWindowOpen(deadline);
         IERC20 t = IERC20(token);
         amount = t.balanceOf(address(this));
+        // SLITHER 2026-08-30: whole-balance sweep sentinel — creator-only, post-expiry,
+        // fail-closed on an empty contract
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NothingToReclaim();
         emit Reclaimed(creator, amount);
         t.safeTransfer(creator, amount);

@@ -371,6 +371,9 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         // no deposit path ever leaves reward tokens in this contract. Dust left by a prior
         // harvest's rounding is therefore also yield and is swept in with this one.
         uint256 rewards = rewardToken.balanceOf(address(this));
+        // SLITHER 2026-08-30: empty-yield no-op sentinel; the dust-donation grief is closed by the
+        // swap-output quote gate below (AUDIT FIX 2026-08-25)
+        // slither-disable-next-line incorrect-equality
         if (rewards == 0) return 0;
 
         // AUDIT FIX 2026-08-25 (dust-donation harvest grief): gate on the swap's
@@ -390,6 +393,9 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         path[0] = address(rewardToken);
         path[1] = address(pairedToken);
         uint256 swapAmount = (rewards - _performanceFee(rewards)) / 2;
+        // SLITHER 2026-08-30: this IS the dust gate — a zero quote means the swap leg cannot
+        // produce output, so no-op instead of charging a fee against nothing compounded
+        // slither-disable-next-line incorrect-equality
         if (swapAmount == 0 || router.getAmountsOut(swapAmount, path)[1] == 0) return 0;
 
         // Past the gate: the swap and re-add cannot dust-revert, so the fee is safe to take.
@@ -400,6 +406,10 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         rewardToken.forceApprove(address(router), swapAmount);
         // The router's deadline window is a mempool-staleness guard, not a price guard.
         // Price protection on this call is `minPairedOut` and nothing else.
+        // SLITHER 2026-08-30: TegridyRouter enforces minPairedOut internally (reverts
+        // InsufficientOutputAmount before any transfer) and the vault re-reads realised balances
+        // below — the returned quote carries no signal (proven by test_harvest_respectsMinPairedOut)
+        // slither-disable-next-line unused-return
         router.swapExactTokensForTokens(swapAmount, minPairedOut, path, address(this), block.timestamp);
 
         uint256 rewardSide = rewardToken.balanceOf(address(this));
@@ -407,6 +417,9 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         // Reached only on a reward balance too small to split into a swap leg and a
         // liquidity leg. Reverting rather than returning rolls back the fee transfer above,
         // so a dust harvest can never charge a fee against nothing compounded.
+        // SLITHER 2026-08-30: fail-closed sentinel — reverting rolls back the fee transfer so a
+        // dust harvest can never charge a fee against nothing compounded
+        // slither-disable-next-line incorrect-equality
         if (rewardSide == 0 || pairedSide == 0) revert NothingToCompound();
 
         rewardToken.forceApprove(address(router), rewardSide);
@@ -415,6 +428,11 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
         // addLiquidity returns the unused remainder of whichever leg was over-supplied, so a
         // leg minimum here would reject harmless ratio drift while `minLpOut` bounds the
         // thing that actually determines what depositors receive.
+        // SLITHER 2026-08-30: lpCompounded is addLiquidity's OWN return value (not a pre-call
+        // balance delta) and is bounded by minLpOut below; the two consumed-amount returns are
+        // deliberately unused (leftover legs stay for the next harvest, approvals are zeroed).
+        // nonReentrant + selector-precise reentrancy tests with a disarmed-hook control.
+        // slither-disable-next-line reentrancy-balance,unused-return
         (,, lpCompounded) = router.addLiquidity(
             address(rewardToken),
             address(pairedToken),
@@ -453,6 +471,9 @@ contract TegridyHarvestVault is ERC4626, OwnableNoRenounce, ReentrancyGuard, Pau
 
     function _chargePerformanceFee(uint256 rewards) internal returns (uint256 fee) {
         fee = _performanceFee(rewards);
+        // SLITHER 2026-08-30: pure local rounding result computed one line above; the branch
+        // protects zero-transfer-reverting tokens and both fee gates ship closed
+        // slither-disable-next-line incorrect-equality
         if (fee == 0) return 0;
         totalFeesCharged += fee;
         rewardToken.safeTransfer(feeRecipient, fee);
