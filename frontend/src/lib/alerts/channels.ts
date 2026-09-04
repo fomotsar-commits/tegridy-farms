@@ -24,7 +24,15 @@
 // while the app is open. It is also, therefore, the channel whose limits have to
 // be stated — see IN_APP_LIMITATION.
 
-export type ChannelId = 'in-app' | 'web-push';
+// A THIRD channel sits between those two and must not be confused with either.
+// The Web Notification API shows an OS-level notification from a page that is
+// already running — no key, no subscription, no worker — so it is honestly
+// available today. What it is NOT is push: it can only fire during a pass, and a
+// pass only happens while a tab of this site is open. That boundary is in its id,
+// its label, its detail and on every inbox row it stamps, because "browser
+// notification" is exactly what a user would otherwise read as "it will find me".
+
+export type ChannelId = 'in-app' | 'web-notification' | 'web-push';
 
 export type ChannelState =
   /** Will carry events. */
@@ -44,7 +52,12 @@ export interface ChannelStatus {
   id: ChannelId;
   label: string;
   state: ChannelState;
-  /** One sentence. Empty only when `state === 'ready'`. Rendered verbatim. */
+  /**
+   * One sentence, rendered verbatim. Never empty except on a `ready` channel
+   * that has nothing left to qualify — `web-notification` is `ready` and still
+   * carries one, because being on is not the same as being always-on and the
+   * difference is the whole thing a user needs to know about it.
+   */
   detail: string;
   /** What the operator must do, or null when no operator action would help. */
   operatorStep: string | null;
@@ -165,17 +178,70 @@ export function inAppChannel(): ChannelStatus {
   };
 }
 
+/** The scope sentence, repeated in every state so it cannot be read past. */
+const WHILE_OPEN =
+  'A rule that fires during a pass in an open tab is shown as a system notification. Nothing is shown when every tab of this site is closed.';
+
+/**
+ * Resolve the OS-notification channel.
+ *
+ * There is no `unconfigured` branch and no operator step in any state: this
+ * channel needs nothing from the deployment. Every state it can be in is a fact
+ * about the visitor's own browser, which is why the reasons are addressed to them
+ * rather than to whoever runs the site.
+ */
+export function resolveWebNotificationChannel(env: PushEnvironment): ChannelStatus {
+  const base = {
+    id: 'web-notification' as const,
+    label: 'Browser notifications (while a tab is open)',
+    operatorStep: null,
+    canSubscribe: false,
+  };
+
+  if (!env.hasNotificationApi) {
+    return {
+      ...base,
+      state: 'unsupported',
+      detail:
+        'This browser has no Notifications API (iOS Safari outside an installed app, for one), so nothing can be shown outside the page. Alerts still land in the inbox.',
+    };
+  }
+  if (env.permission === 'denied') {
+    return {
+      ...base,
+      state: 'blocked',
+      detail:
+        'Notifications are blocked for this site in your browser settings, so none can be shown. Alerts still land in the inbox.',
+    };
+  }
+  if (env.permission !== 'granted') {
+    return {
+      ...base,
+      state: 'off',
+      detail: `Available and not switched on. ${WHILE_OPEN}`,
+      canSubscribe: true,
+    };
+  }
+  return {
+    ...base,
+    state: 'ready',
+    detail: `${WHILE_OPEN} Each inbox row records whether its notification was actually shown.`,
+  };
+}
+
 export function resolveChannels(env: PushEnvironment): ChannelStatus[] {
-  return [inAppChannel(), resolvePushChannel(env)];
+  return [inAppChannel(), resolveWebNotificationChannel(env), resolvePushChannel(env)];
 }
 
 /**
- * The channels an event will actually be recorded against.
+ * The channels an event will be ATTEMPTED on. Not a record of delivery.
  *
- * Always contains `in-app`: the inbox is local and unconditional, which is what
- * makes it safe to say an alert was delivered at all. `web-push` joins only in
- * `ready`, so an event can never be labelled "pushed" on a deployment where
- * nothing pushes.
+ * Always contains `in-app`: the inbox is local and unconditional, and ingesting a
+ * row IS the delivery, which is what makes it safe to stamp at ingest time.
+ * Nothing else is. `web-notification` joins the plan in `ready`, but a row is
+ * only stamped with it once a show has actually returned true (inbox.markDelivered)
+ * — the plan says what will be tried, the row says what happened. `web-push` can
+ * never join, so an event can never be labelled "pushed" where nothing pushes.
  */
 export function deliveryPlan(channels: readonly ChannelStatus[]): ChannelId[] {
   const out: ChannelId[] = ['in-app'];

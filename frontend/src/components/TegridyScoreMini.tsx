@@ -81,7 +81,12 @@ export function TegridyScoreMini() {
       <div>
         <p className="text-[13px] text-white font-medium">{rank}</p>
         <p className="text-[11px] text-white">{tier}</p>
-        <p className="text-[10px] text-white mt-0.5">Tegridy Score</p>
+        {/* ONE instrument, ONE name. This card links to /leaderboard, whose
+            own H1 is "Your Venue Score" — so a visitor was shown two names for
+            the same number, one of them the brand retired on 2026-08-31. The
+            component identifier keeps its old name on purpose: renaming it
+            would touch the score's storage keys and hook, not the claim. */}
+        <p className="text-[10px] text-white mt-0.5">Venue Score</p>
         <p className="text-[9px] text-white/55 mt-0.5 italic">On-chain verified</p>
       </div>
     </m.div>

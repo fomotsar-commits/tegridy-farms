@@ -23,7 +23,7 @@ describe('imageSafety IPFS gateways (F470)', () => {
     expect(candidates).toHaveLength(IPFS_GATEWAYS.length);
     expect(candidates[0]).toBe(`https://ipfs.io/ipfs/${cid}`);
     // Cloudflare is retained as a harmless tail (additive — removes nothing).
-    expect(candidates.some((u) => u.includes('cloudflare-ipfs.com'))).toBe(true);
+    expect(candidates).toContain(`https://cloudflare-ipfs.com/ipfs/${cid}`);
   });
 
   it('still rejects disallowed schemes', () => {

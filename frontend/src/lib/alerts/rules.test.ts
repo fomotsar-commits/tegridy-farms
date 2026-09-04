@@ -10,21 +10,32 @@
 import { describe, it, expect } from 'vitest';
 import {
   ALERT_RULE_KINDS,
-  FREE_RULE_LIMIT,
-  PREMIUM_RULE_LIMIT,
   RULE_KIND_LABELS,
   RULE_KIND_MEANING,
   SUBJECT_LABEL,
+  SUBJECT_SHAPE,
   THRESHOLD_LABEL,
+  canonicalSubject,
   describeRule,
+  formatThreshold,
   isChangeDetectionKind,
   isDuplicateRule,
+  parsePoolSubject,
   ruleKey,
-  ruleLimitFor,
   usesThreshold,
   validateRuleDraft,
   type AlertRule,
+  type AlertRuleKind,
 } from './rules';
+
+/** BAYLA's PumpSwap pool, byte-for-byte as bungalows.ts records it. */
+const SOLANA_POOL = '8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n';
+const BASE_POOL = '0xF02C421E15ABDF2008BB6577336B0F3D7AEC98F0';
+
+/** A subject of the shape each kind actually wants. */
+function subjectFor(kind: AlertRuleKind): string {
+  return SUBJECT_SHAPE[kind] === 'pool' ? `solana:${SOLANA_POOL}` : SUBJECT;
+}
 
 const SUBJECT = '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D';
 
@@ -43,8 +54,14 @@ describe('the vocabulary is fully described', () => {
     }
   });
 
-  it('exactly the two measured kinds take a threshold', () => {
-    expect(ALERT_RULE_KINDS.filter(usesThreshold)).toEqual(['whale-move', 'loan-deadline']);
+  it('exactly the measured kinds take a threshold', () => {
+    expect(ALERT_RULE_KINDS.filter(usesThreshold)).toEqual([
+      'whale-move',
+      'loan-deadline',
+      'pool-price-above',
+      'pool-price-below',
+      'pool-large-trade',
+    ]);
   });
 
   it('a threshold kind names its unit, and a non-threshold kind names none', () => {
@@ -60,10 +77,73 @@ describe('the vocabulary is fully described', () => {
     }
     expect(THRESHOLD_LABEL['whale-move']).toMatch(/USD/i);
     expect(THRESHOLD_LABEL['loan-deadline']).toMatch(/hours/i);
+    // The three pool kinds share a form field and do NOT share a quantity: two
+    // are a price per token, one is the size of a single swap. A label that said
+    // only "USD" on all three would make a $50 price rule and a $50 swap rule
+    // look like the same question.
+    expect(THRESHOLD_LABEL['pool-price-above']).toMatch(/price/i);
+    expect(THRESHOLD_LABEL['pool-price-below']).toMatch(/price/i);
+    expect(THRESHOLD_LABEL['pool-large-trade']).toMatch(/swap size/i);
+  });
+
+  it('the swap kind is never described as a transfer or a whale', () => {
+    // It reads a DEX's trade feed. Calling a swap a transfer would promise the
+    // token-movement coverage the indexer would give and this does not have —
+    // and 'whale-move' is a real, separate kind that stays dark.
+    const meaning = RULE_KIND_MEANING['pool-large-trade'];
+    expect(meaning).not.toMatch(/transfer/i);
+    expect(meaning).not.toMatch(/whale/i);
+    expect(meaning).toMatch(/swap/i);
+  });
+
+  it('the price kinds admit the quote is a quote, with no as-of time', () => {
+    for (const kind of ['pool-price-above', 'pool-price-below'] as const) {
+      expect(RULE_KIND_MEANING[kind], kind).toMatch(/quote/i);
+      expect(RULE_KIND_MEANING[kind], kind).toMatch(/as-of/i);
+    }
   });
 
   it('the change-detection kinds are exactly the two that compare readings', () => {
     expect(ALERT_RULE_KINDS.filter(isChangeDetectionKind)).toEqual(['deployer-reputation', 'heat-tier']);
+  });
+});
+
+describe('pool subjects are parsed, and their case is respected', () => {
+  it('preserves a Solana pool id byte-for-byte, and lower-cases an EVM one', () => {
+    // Base58 has no case-folding: '8z52…' and '8Z52…' are different values, and
+    // only one of them is a pool. The lower-casing that is correct for a hex EVM
+    // address is data corruption here.
+    expect(canonicalSubject('pool-price-above', `solana:${SOLANA_POOL}`)).toBe(`solana:${SOLANA_POOL}`);
+    expect(canonicalSubject('pool-price-above', `base:${BASE_POOL}`)).toBe(`base:${BASE_POOL.toLowerCase()}`);
+  });
+
+  it('refuses a bare address, an unknown network, and a mis-cased Solana id', () => {
+    expect(canonicalSubject('pool-price-above', SOLANA_POOL)).toBeNull();
+    expect(canonicalSubject('pool-price-above', `polygon:${SUBJECT}`)).toBeNull();
+    // 'l' is not in the base58 alphabet — it is excluded precisely because it is
+    // indistinguishable from '1' in most fonts.
+    expect(parsePoolSubject('solana:llllllllllllllllllllllllllllllll')).toBeNull();
+  });
+
+  it('an EVM-subject kind refuses a network-prefixed subject', () => {
+    expect(canonicalSubject('heat-tier', `eth:${SUBJECT}`)).toBeNull();
+  });
+
+  it('two Solana pools differing only by case are two different rules', () => {
+    const existing: AlertRule[] = [
+      { id: 'a', kind: 'pool-price-above', subject: `solana:${SOLANA_POOL}`, threshold: 1, enabled: true, createdAt: 0 },
+    ];
+    const swapped = SOLANA_POOL.replace('phbct', 'PHBCT');
+    expect(swapped).not.toBe(SOLANA_POOL);
+    expect(
+      isDuplicateRule(existing, {
+        kind: 'pool-price-above',
+        subject: `solana:${swapped}`,
+        threshold: 1,
+        enabled: true,
+      }),
+      'lower-casing inside ruleKey would merge two different pools into one rule',
+    ).toBe(false);
   });
 });
 
@@ -136,17 +216,14 @@ describe('duplicates', () => {
   });
 });
 
-describe('tier limits are counts, not feature gates', () => {
-  it('free is lower than premium and both are positive', () => {
-    expect(FREE_RULE_LIMIT).toBeGreaterThan(0);
-    expect(PREMIUM_RULE_LIMIT).toBeGreaterThan(FREE_RULE_LIMIT);
-    expect(ruleLimitFor(false)).toBe(FREE_RULE_LIMIT);
-    expect(ruleLimitFor(true)).toBe(PREMIUM_RULE_LIMIT);
-  });
-
-  it('every kind is available at the free tier — only the count is bounded', () => {
+describe('no kind is gated behind anything', () => {
+  it('every kind validates, given a subject of its own shape', () => {
     for (const kind of ALERT_RULE_KINDS) {
-      const result = validateRuleDraft({ kind, subject: SUBJECT, threshold: usesThreshold(kind) ? '1000' : null });
+      const result = validateRuleDraft({
+        kind,
+        subject: subjectFor(kind),
+        threshold: usesThreshold(kind) ? '1000' : null,
+      });
       expect(result.ok, kind).toBe(true);
     }
   });
@@ -163,5 +240,44 @@ describe('descriptions', () => {
       createdAt: 0,
     };
     expect(describeRule(rule)).toContain('12,500');
+  });
+});
+
+describe('formatThreshold — a rule must not describe itself as a different rule', () => {
+  // The bug this pins was found in the running app: a pool-price rule saved with a
+  // threshold of 0.000025 rendered as "above $0" in both the rule list and the inbox,
+  // because toLocaleString() with no options caps at three fraction digits. On a venue
+  // whose pools trade in millionths of a dollar that is nearly every price rule.
+  it('keeps a sub-cent pool price legible instead of rounding it to zero', () => {
+    expect(formatThreshold(0.000025)).toBe('0.000025');
+    expect(formatThreshold(0.0000001234)).toContain('0.000000123');
+    // The whole point: it must not read as the number zero, which is a different rule.
+    expect(formatThreshold(0.000025)).not.toBe('0');
+  });
+
+  it('reads a saved sub-cent rule back in its own words', () => {
+    const rule = {
+      kind: 'pool-price-above',
+      subject: 'solana:31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX',
+      threshold: 0.000025,
+      enabled: true,
+      id: 'local:test',
+      createdAt: 1788365712,
+    } as AlertRule;
+    expect(describeRule(rule)).toContain('0.000025');
+    expect(describeRule(rule)).not.toContain('above $0 ');
+  });
+
+  it('still groups a size at or above one, and never invents precision', () => {
+    expect(formatThreshold(50000)).toBe((50000).toLocaleString(undefined, { maximumFractionDigits: 2 }));
+    expect(formatThreshold(24)).toBe('24');
+    expect(formatThreshold(0)).toBe('0');
+  });
+
+  it('renders an absent or unusable threshold as an em dash, never as a number', () => {
+    expect(formatThreshold(null)).toBe('—');
+    expect(formatThreshold(undefined)).toBe('—');
+    expect(formatThreshold(Number.NaN)).toBe('—');
+    expect(formatThreshold(Number.POSITIVE_INFINITY)).toBe('—');
   });
 });

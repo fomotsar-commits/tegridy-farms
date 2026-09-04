@@ -4,8 +4,13 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+// AUDIT FIX TF-019: opensea.js gained the global circuit-breaker that
+// alchemy.js and etherscan.js already carried. Hoisted mocks so the breaker
+// can be driven per-test.
+const checkGlobalLimitMock = vi.fn(async () => true);
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
+  checkGlobalLimit: (...args) => checkGlobalLimitMock(...args),
 }));
 
 const NAKAMIGOS = "0xd774557b647330c91bf44cfeab205095f7e6c367";
@@ -31,6 +36,47 @@ function makeRes() {
   };
   return { res, headerSpy, statusSpy, jsonSpy };
 }
+
+// AUDIT TF-019. The per-IP cap bounds ONE source; it does nothing about a
+// distributed flood of many IPs each staying under 30/min, and the CORS
+// headers this proxy sets bound browsers only — never curl. That made the
+// paid OpenSea key the last key-holding surface with no aggregate ceiling.
+// The property pinned here is "an aggregate ceiling is consulted, and it can
+// shed load BEFORE the upstream call is paid for" — not the numeric limit,
+// which is env-tunable by design.
+describe("opensea — global circuit-breaker", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.OPENSEA_API_KEY = "test-key";
+    process.env.NODE_ENV = "test";
+    checkGlobalLimitMock.mockClear().mockResolvedValue(true);
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ ok: true }),
+    }));
+    handler = (await import("../opensea.js")).default;
+  });
+
+  const statsReq = () =>
+    makeReq({ method: "GET", query: { path: "collection/nakamigos/stats" } });
+
+  it("consults the aggregate breaker for this endpoint", async () => {
+    const { res } = makeRes();
+    await handler(statsReq(), res);
+    expect(checkGlobalLimitMock).toHaveBeenCalledTimes(1);
+    expect(checkGlobalLimitMock.mock.calls[0][1]).toMatchObject({ identifier: "opensea" });
+  });
+
+  it("sheds load before paying for the upstream call", async () => {
+    checkGlobalLimitMock.mockResolvedValueOnce(false);
+    const { res } = makeRes();
+    await handler(statsReq(), res);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
 
 describe("opensea — POST body contract-allowlist", () => {
   let handler;

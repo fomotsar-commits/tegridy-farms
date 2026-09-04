@@ -36,7 +36,7 @@ export interface RouteCandidate {
   venue: RouteVenue;
   /** Raw base units of the output mint the trader ends up with. */
   outAmount: bigint;
-  /** Human label for the surface — "Tegridy pool", "Jupiter", … */
+  /** Human label for the surface — "venue pool", "Jupiter", … */
   label: string;
   /** Set for own-pool candidates so the surface can link the pool. */
   poolAddress?: string;
@@ -124,7 +124,7 @@ export function chooseRoute(candidates: RouteCandidate[]): RouteDecision {
  */
 export function ownPoolCandidate(
   quote: { outAmount: bigint; poolAddress: string; priceImpact?: number } | null,
-  label = 'Tegridy pool',
+  label = 'venue pool',
 ): RouteCandidate | null {
   if (!quote || quote.outAmount <= 0n) return null;
   return {

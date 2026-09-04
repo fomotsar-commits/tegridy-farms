@@ -157,7 +157,7 @@ function SourceLink({ chainId, address, label }: { chainId: number | undefined; 
 }
 
 export default function TreasuryPage() {
-  usePageTitle('Treasury', 'On-chain Tegridy Farms treasury holdings and protocol revenue flows.');
+  usePageTitle('Treasury', 'On-chain memetics.finance treasury holdings and protocol revenue flows.');
 
   // F390: all reads on this page are mainnet (treasury balance, fee router,
   // /api/etherscan feed) — pin the canonical chain so explorer links never
@@ -692,10 +692,19 @@ export default function TreasuryPage() {
 // transfers so contract-routed fee inflows show alongside direct in/outflows.
 // Scoped to ETH value flows; the full ledger (incl. token transfers) stays one
 // click away on the block explorer.
+const LEG_LABELS = ['normal transfer list', 'internal transfer list'] as const;
+
 function RecentTreasuryTransactions({ chainId }: { chainId: number }) {
   const [rows, setRows] = useState<TxRecord[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Which explorer leg failed, when only one of the two did. `fetchAddressTxList`
+  // throws on a failed read and resolves `[]` only on an EXPLICIT empty page, so
+  // a rejection is the one thing that must never be merged into silence: an
+  // internal-transfer read that errored while the normal list came back empty
+  // used to render as "No ETH transfers recorded yet" — a claim about the chain
+  // manufactured from a read that did not happen.
+  const [incompleteLeg, setIncompleteLeg] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -708,11 +717,16 @@ function RecentTreasuryTransactions({ chainId }: { chainId: number }) {
         const ok = results.filter(
           (r): r is PromiseFulfilledResult<TxRecord[]> => r.status === 'fulfilled',
         );
+        const failed = results.flatMap((r, i) =>
+          r.status === 'rejected' ? [LEG_LABELS[i] ?? 'one transfer list'] : [],
+        );
         if (ok.length === 0) {
           setError('Treasury activity is momentarily unavailable.');
           setRows([]);
+          setIncompleteLeg(null);
           return;
         }
+        setIncompleteLeg(failed.length > 0 ? failed.join(' and ') : null);
         const seen = new Set<string>();
         const merged = ok
           .flatMap((r) => r.value)
@@ -754,6 +768,18 @@ function RecentTreasuryTransactions({ chainId }: { chainId: number }) {
             Full ledger ↗
           </a>
         </div>
+
+        {/* A named, unmissable disclosure whenever one leg failed. The list below
+            is still worth rendering — it is real — but it is not the whole list,
+            and the reader has to be told which part is missing. */}
+        {!loading && incompleteLeg && (
+          <p
+            className="text-[12px] leading-relaxed rounded-lg px-3 py-2 mb-3"
+            style={{ background: 'rgba(28,21,6,0.92)', border: '1px solid rgba(227,179,65,0.45)', color: '#e3b341' }}
+          >
+            The {incompleteLeg} could not be read — the list below is incomplete.
+          </p>
+        )}
 
         {loading ? (
           <div className="space-y-2">
@@ -800,6 +826,13 @@ function RecentTreasuryTransactions({ chainId }: { chainId: number }) {
               );
             })}
           </div>
+        ) : incompleteLeg ? (
+          // Half a read is not evidence of an empty treasury. The banner above
+          // already names what is missing; this only says what WAS read.
+          <p className="text-white/70 text-[13px] leading-relaxed">
+            Nothing came back from the list that did read. The full ledger is on the{' '}
+            <a href={getAddressUrl(chainId, TREASURY_ADDRESS)} target="_blank" rel="noopener noreferrer" className="text-white underline hover:text-white/80">block explorer ↗</a>.
+          </p>
         ) : (
           <p className="text-white/70 text-[13px] leading-relaxed">
             No ETH transfers recorded yet — inflows and outflows will appear here as they happen. The full ledger is on the{' '}

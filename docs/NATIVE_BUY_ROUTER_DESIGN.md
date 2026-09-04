@@ -68,9 +68,25 @@ through it**; OpenSea buys keep going direct.
    `recordFee` is wrapped in `try/catch`: on failure the fee stays in the router (swept
    to treasury) and **the buy still succeeds**. A misconfig degrades to "no
    attribution", never "can't buy".
-7. **Dutch/dynamic native listings.** `_nativeTotal` reads `startAmount`; a
-   decaying-price order would mismatch Seaport's required value → `ValueMismatch`
-   revert (fails safe). The frontend must only route **static** native listings here.
+7. **Dutch/dynamic native listings — OPEN on-chain, and it does NOT fail safe.**
+   *Corrected 2026-09-02 (audit TF-048): this item used to claim a `ValueMismatch`
+   revert made the case safe. It does not.* `_nativeTotal` sums `startAmount`
+   only, so on a DECAYING order the router sends the START price while Seaport
+   requires the (lower) current price, and Seaport **refunds the difference to
+   the caller** — which is this router. The excess is then swept as protocol fee
+   rather than returned to the buyer. The buy succeeds; the buyer simply overpays,
+   and the overpayment is mis-booked. Nothing on-chain blocks it, so
+   "the frontend must only route static listings" is a convention, not a guard.
+
+   **What actually stops it today** is the API: `validateOrderShape`
+   (`frontend/api/orderbook.js`) refuses any order whose consideration
+   `startAmount != endAmount` (audit TF-021), so a decaying order cannot be
+   listed through our orderbook at all. That closes the realistic path and does
+   not close the contract-level one — a caller reaching the router directly with
+   a Dutch order sourced elsewhere still hits this. An on-chain fix is a
+   `startAmount == endAmount` check inside the `_nativeTotal` loop; it is not
+   applied here because the router is live and the API gate covers every path
+   this app creates.
 8. **Approved-caller hygiene.** The router becomes an approved `recordFee` caller via
    the splitter's 24h-timelocked `proposeApprovedCaller` → `executeApprovedCaller`.
    On any router upgrade, `revokeApprovedCaller(oldRouter)` immediately.

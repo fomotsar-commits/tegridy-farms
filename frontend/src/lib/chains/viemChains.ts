@@ -49,6 +49,57 @@ const VIEM_CHAINS: Record<number, Chain> = {
   [robinhoodChain.id]: robinhoodChain,
 };
 
+/**
+ * HEALTH-RANKING OPTIONS — shared by every chain, and the reason this is not
+ * just `{ rank: true }`.
+ *
+ * viem's ranker (clients/transports/fallback.js:101) defaults to pinging
+ * `net_listening` every 4s, forever, against EVERY endpoint of EVERY configured
+ * chain. Two things went wrong with that here, both measured 2026-09-03 with a
+ * browser Origin header:
+ *
+ *   mainnet.base.org                 net_listening -> HTTP 403, err -32601
+ *                                    eth_blockNumber -> HTTP 200, acao: *
+ *   rpc.mainnet.chain.robinhood.com  net_listening -> HTTP 200, err -32601
+ *                                    eth_blockNumber -> HTTP 200, acao: *
+ *
+ * Both endpoints serve real reads perfectly and simply do not implement
+ * `net_listening`. So the ranker scored two working endpoints at zero stability
+ * permanently, and filled devtools with 403s from a host that was never failing.
+ * A field review read that console and concluded "mainnet.base.org refuses
+ * browser origins outright — drop it". Dropping it would have removed a healthy
+ * Base RPC and left the noise running, because the noise is ours.
+ *
+ * The volume was the larger half. Measured on an idle homepage, same 45s window,
+ * only this option object changed:
+ *
+ *              rank: true          RANK_OPTIONS
+ *   POSTs      157                 17
+ *   methods    154 net_listening   0 net_listening, 14 eth_blockNumber
+ *              3 eth_call          3 eth_call
+ *   failures   22x 403 from        none
+ *              mainnet.base.org
+ *
+ * So the ranker was 98.1% of all outbound RPC traffic and 100% of the visible
+ * failures. It is also what kept tripping dRPC's rate limiter.
+ *
+ * `ping` therefore uses a method every Ethereum JSON-RPC endpoint implements, so
+ * the check finally measures node liveness instead of a proxy's method
+ * allowlist. `interval` is 60s rather than 4s: this picks a healthy endpoint, it
+ * is not a monitoring system, and the fallback still fails over on a real error
+ * the moment a request actually fails.
+ *
+ * BEFORE ADDING AN ENDPOINT: verify it under BOTH methods, not just one. An
+ * endpoint that answers eth_blockNumber but not the ping is exactly the trap
+ * above.
+ */
+const RANK_OPTIONS = {
+  interval: 60_000,
+  timeout: 2_000,
+  ping: ({ transport }: { transport: { request: (args: { method: string }) => Promise<unknown> } }) =>
+    transport.request({ method: 'eth_blockNumber' }),
+} as const;
+
 const TRANSPORTS: Record<number, Transport> = {
   [mainnet.id]: fallback(
     [
@@ -59,15 +110,20 @@ const TRANSPORTS: Record<number, Transport> = {
       // eth.merkle.io DROPPED 2026-08-25: 429s every request — dead third slot
       // that burned a retry per rotation. Re-verify with a real read before re-adding.
     ],
-    { rank: true },
+    { rank: RANK_OPTIONS },
   ),
   [base.id]: fallback(
     [
       http('https://base-rpc.publicnode.com'),
       http('https://base.drpc.org'),
+      // KEPT DELIBERATELY. This host answers eth_blockNumber/eth_call with HTTP
+      // 200 and `access-control-allow-origin: *`; it only rejects the ranker's
+      // default net_listening probe with a 403. A console full of 403s from this
+      // host is RANK_OPTIONS working, not a failed read — do not drop it on that
+      // evidence. Re-verified with a browser Origin header 2026-09-03.
       http('https://mainnet.base.org'),
     ],
-    { rank: true },
+    { rank: RANK_OPTIONS },
   ),
   [robinhoodChain.id]: fallback(
     [
@@ -75,9 +131,11 @@ const TRANSPORTS: Record<number, Transport> = {
       // keyed Alchemy transport can be layered in front later without touching
       // consumers. No fake second entry — a roster is only as honest as its
       // weakest member.
+      // Also -32601s net_listening (200, not 403) — same reason RANK_OPTIONS
+      // overrides the ping.
       http('https://rpc.mainnet.chain.robinhood.com'),
     ],
-    { rank: true },
+    { rank: RANK_OPTIONS },
   ),
 };
 

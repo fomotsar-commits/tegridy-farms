@@ -116,8 +116,8 @@ export type ChainlinkRound = readonly [bigint, bigint, bigint, bigint, bigint];
 export function evaluateEthUsdFeed(
   round: ChainlinkRound | undefined,
   nowSeconds: number,
-): { ethUsd: number; ethUsdForLaunch: number; oracleStale: boolean } {
-  if (!round) return { ethUsd: 0, ethUsdForLaunch: 0, oracleStale: false };
+): { ethUsd: number; ethUsdForLaunch: number; ethUsdForDisplay: number; oracleStale: boolean } {
+  if (!round) return { ethUsd: 0, ethUsdForLaunch: 0, ethUsdForDisplay: 0, oracleStale: false };
 
   const [roundId, answer, , updatedAt, answeredInRound] = round;
   const answerNum = Number(answer);
@@ -145,13 +145,39 @@ export function evaluateEthUsdFeed(
   // widening the band check to it would change swap pricing, out of scope for this fix.)
   const ethUsdForLaunch = wellFormed && inBand && ageSeconds < MAX_LAUNCH_STALENESS_SECONDS ? answerNum / 1e8 : 0;
 
+  /**
+   * DISPLAY path: same heartbeat-sized window as the launch path, and the same
+   * in-band requirement.
+   *
+   * The 300s window on `ethUsd` is correct FOR SWAPS and wrong for everything
+   * that merely shows a dollar figure. This feed publishes on a 3600s heartbeat
+   * (or a 0.5% deviation), so a perfectly healthy round is routinely 5-15
+   * minutes old: measured live 2026-09-03 at 940s. Under a 300s window that
+   * healthy price becomes `ethUsd = 0`, and every USD figure derived from it
+   * renders as an em dash. The Farm's TVL / APR / 24h volume were dashed out
+   * essentially all the time for that reason, which reads as a broken venue
+   * rather than a cautious one.
+   *
+   * This is the SAME defect the launch path already hit and already fixed — the
+   * comment above MAX_LAUNCH_STALENESS_SECONDS records /launch refusing ~85% of
+   * attempts against a healthy oracle for exactly this reason. That fix stopped
+   * at the launch path; this extends it to the display path.
+   *
+   * Deliberately a THIRD value rather than a widened `ethUsd`: ~8 surfaces treat
+   * `ethUsd > 0` as "safe to price with", swap quoting among them. Widening it
+   * would silently loosen swap pricing to accept an hour-old price, which is the
+   * one place the tight window genuinely earns its keep. `oracleStale` keeps its
+   * existing 300s meaning so no consumer's semantics shift underneath it.
+   */
+  const ethUsdForDisplay = wellFormed && inBand && ageSeconds < MAX_LAUNCH_STALENESS_SECONDS ? answerNum / 1e8 : 0;
+
   if (!inBand) oracleStale = true;
 
-  return { ethUsd, ethUsdForLaunch, oracleStale };
+  return { ethUsd, ethUsdForLaunch, ethUsdForDisplay, oracleStale };
 }
 
 export function useToweliPrice() {
-  const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Tegridy DEX pair (was external Uniswap LP)
+  const pairAddr = TEGRIDY_LP_ADDRESS; // RELAUNCH: native Venue DEX pair (was external Uniswap LP)
   const hasPair = checkDeployed(pairAddr);
 
   const { data: reserves } = useReadContract({
@@ -267,7 +293,7 @@ export function useToweliPrice() {
   }, []);
 
   // Validate Chainlink data (pure — see evaluateEthUsdFeed).
-  const { ethUsd, ethUsdForLaunch, oracleStale } = evaluateEthUsdFeed(
+  const { ethUsd, ethUsdForLaunch, ethUsdForDisplay, oracleStale } = evaluateEthUsdFeed(
     ethUsdData as ChainlinkRound | undefined,
     Math.floor(Date.now() / 1000),
   );
@@ -398,6 +424,7 @@ export function useToweliPrice() {
      * incomplete round. Never use this to price a swap.
      */
     ethUsdForLaunch,
+    ethUsdForDisplay,
     isLoaded,
     oracleStale,
     priceChange: sessionPriceChange,

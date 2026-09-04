@@ -38,6 +38,28 @@ export function proxyWrite({ table, method, body, match }) {
   return proxyCall({ table, method, body, match });
 }
 
+/**
+ * Owner-scoped table READ.
+ *
+ * AUDIT FIX TF-004 / TF-007. The anon key cannot carry a wallet claim — the
+ * SIWE JWT is in an httpOnly cookie client JS can never read — so an
+ * owner-scoped RLS policy can only ever match on a request that went through
+ * this proxy. Reading personal rows (a watchlist, a favourites list) with the
+ * anon key therefore requires a `USING (true)` policy, which is exactly the
+ * policy that publishes EVERY wallet's rows to anyone holding the key.
+ *
+ * Moving the read here is what makes dropping that policy possible without
+ * turning the feature into a silent zero. `match` is required server-side —
+ * there are no table scans through this path.
+ *
+ * Returns rows on success. Throws with `err.needsAuth === true` when the
+ * caller has no SIWE session, which is the honest answer: without a proven
+ * wallet nobody can be shown that wallet's rows.
+ */
+export function proxyRead({ table, match }) {
+  return proxyCall({ table, method: "SELECT", match });
+}
+
 /** RPC call — the proxy injects the JWT-verified wallet into `args`. */
 export function proxyRpc(fn, args = {}) {
   return proxyCall({ method: "RPC", fn, args });

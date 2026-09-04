@@ -14,6 +14,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { pageArt } from '../../lib/artConfig';
+import { OpenInPhantom } from './OpenInPhantom';
 
 type Surface = 'farm' | 'trade' | 'lending' | 'governance' | 'dashboard' | 'generic';
 
@@ -25,7 +26,7 @@ interface ConnectPromptProps {
 
 const DEFAULTS: Record<Surface, { title: string; description: string; cta: string }> = {
   farm: {
-    title: 'Connect to farm with tegridy',
+    title: 'Connect to farm with held time',
     description:
       // F109: softened from a hardcoded "100% of protocol swap fees" to a claim
       // that can't drift if governance retunes the on-chain staker fee-share. The
@@ -48,7 +49,7 @@ const DEFAULTS: Record<Surface, { title: string; description: string; cta: strin
     cta: 'Open Lending',
   },
   governance: {
-    title: 'Connect to vote with tegridy',
+    title: 'Connect to vote with held time',
     description:
       'Stakers direct where LP farming emissions flow. Your locked TOWELI is your voting power. Bribers pay you to vote their way — totally not bribes, just donations.',
     cta: 'Open Governance',
@@ -149,6 +150,11 @@ export function ConnectPrompt({ surface = 'generic', title, description }: Conne
           New to DeFi? Read the FAQ
         </Link>
       </div>
+
+      {/* Mobile-only, and only outside Phantom's own browser: Phantom cannot
+          connect from mobile Safari/Chrome at all, so the modal above will not
+          list it. This is the hop Phantom documents instead. */}
+      <OpenInPhantom />
 
       <p className="text-white/40 text-[11px] mt-10 max-w-[420px] mx-auto">
         By connecting, you confirm you've read the{' '}

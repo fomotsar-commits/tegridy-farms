@@ -132,6 +132,25 @@ Season 1 + Season 2 drew from the 10% Community bucket. The bucket can fund mult
 
 ---
 
+## The other three chains do not feed this
+
+Added 2026-09-04, because the venue went multichain on 2026-08-25 and every number above is
+still an **Ethereum-only** number.
+
+- **TOWELI exists on Ethereum and nowhere else.** No bridge, no wrapped version on Base,
+  Robinhood or Solana, and none is planned. The supply table above is the whole supply.
+- **The L2 legs do not pay stakers.** Base 8453 and Robinhood 4663 run the same
+  factory/router/TWAP/fee stack, but their fee sink is a **remittance Safe**, not a
+  distributor — a fee captured there is *queued for the bridge*, and calling it staker yield
+  would be false. Nothing in the yield flow above changes because an L2 earned a fee.
+- **The Solana surface is fee-capture and staking only.** The Jupiter-routed swap takes a
+  platform fee into a Solana fee account; it does not touch TOWELI.
+- **The bungalow lighthouses pay their own token, not TOWELI.** Thirteen resident tokens each
+  stake into their own pool. The six EVM pools (`LighthouseLadder`) use **exactly the ladder
+  in the next section** — 7d…4y, 0.4×…4.0×, the same linear interpolation — but a staker
+  there earns that bungalow's token, and the pool's runway is whatever its own vault was
+  funded with. The five Solana pools run on Streamflow and have **no early exit at all**.
+
 ## Staking boost
 
 Lock-duration multiplier, optional NFT bonus, hard ceiling:

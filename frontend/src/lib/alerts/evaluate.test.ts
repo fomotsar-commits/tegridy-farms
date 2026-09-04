@@ -24,18 +24,30 @@ import {
   type RuleFacts,
   type SourceReading,
 } from './evaluate';
-import { ALERT_RULE_KINDS, type AlertRule, type AlertRuleKind } from './rules';
+import { ALERT_RULE_KINDS, SUBJECT_SHAPE, type AlertRule, type AlertRuleKind } from './rules';
 
 const SUBJECT = '0x420698cfdeddea6bc78d59bc17798113ad278f9d' as const;
 const OTHER = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' as const;
 const NOW = 1_760_000_000;
 
+/** A Base pool, in the canonical `network:pool` subject form. */
+const POOL_ID = '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0';
+const POOL = `base:${POOL_ID}`;
+
+function thresholdFor(kind: AlertRuleKind): number | null {
+  if (kind === 'whale-move') return 10_000;
+  if (kind === 'loan-deadline') return 24;
+  if (kind === 'pool-price-above' || kind === 'pool-price-below') return 100;
+  if (kind === 'pool-large-trade') return 5_000;
+  return null;
+}
+
 function rule(kind: AlertRuleKind, over: Partial<AlertRule> = {}): AlertRule {
   return {
     id: `rule-${kind}`,
     kind,
-    subject: SUBJECT,
-    threshold: kind === 'whale-move' ? 10_000 : kind === 'loan-deadline' ? 24 : null,
+    subject: SUBJECT_SHAPE[kind] === 'pool' ? POOL : SUBJECT,
+    threshold: thresholdFor(kind),
     enabled: true,
     createdAt: NOW - 3600,
     ...over,
@@ -96,6 +108,21 @@ function firingReading(kind: AlertRuleKind, prior?: PriorSnapshot): SourceReadin
           ],
         },
       };
+    // Above the $100 threshold, so with a `below` prior it is a crossing UP —
+    // which is what an above-rule fires on. The below-rule's own fixture is in
+    // its suite, since one reading cannot be a crossing in both directions.
+    case 'pool-price-above':
+    case 'pool-price-below':
+      return { status: 'ok', observedAt: NOW, value: { kind, priceUsd: 150, poolName: 'QR / WETH' } };
+    case 'pool-large-trade':
+      return {
+        status: 'ok',
+        observedAt: NOW,
+        value: {
+          kind,
+          trades: [{ txHash: '0xswap', at: NOW - 20, usd: 9_000, kind: 'buy', wallet: OTHER }],
+        },
+      };
   }
   void prior;
   throw new Error(`unhandled kind ${kind}`);
@@ -104,9 +131,17 @@ function firingReading(kind: AlertRuleKind, prior?: PriorSnapshot): SourceReadin
 const CHANGE_PRIOR: PriorSnapshot = { signature: 'Observer', label: 'Observer (40.00°)', at: NOW - 86_400 };
 const REP_PRIOR: PriorSnapshot = { signature: 'c1/a0/t0/n1/u0@low', label: '1 created', at: NOW - 86_400 };
 
+/** The previous reading was BELOW the threshold, so the fixture above is a crossing up. */
+const PRICE_PRIOR: PriorSnapshot = { signature: 'below', label: '$50.00', at: NOW - 120 };
+/** A watermark older than the fixture's swap, so the swap is new. */
+const TRADE_PRIOR: PriorSnapshot = { signature: '0xold', label: '', at: NOW - 600 };
+
 function priorFor(kind: AlertRuleKind): PriorSnapshot | null {
   if (kind === 'heat-tier') return CHANGE_PRIOR;
   if (kind === 'deployer-reputation') return REP_PRIOR;
+  if (kind === 'pool-price-above') return PRICE_PRIOR;
+  if (kind === 'pool-price-below') return { signature: 'above', label: '$500.00', at: NOW - 120 };
+  if (kind === 'pool-large-trade') return TRADE_PRIOR;
   return null;
 }
 
@@ -306,9 +341,182 @@ describe('every fired event is attributable', () => {
   });
 });
 
+
+describe('a pool price rule fires on a CROSSING, not on a level', () => {
+  const priceReading = (priceUsd: number): SourceReading<RuleFacts> => ({
+    status: 'ok',
+    observedAt: NOW,
+    value: { kind: 'pool-price-above', priceUsd, poolName: 'QR / WETH' },
+  });
+
+  it('the first reading records a baseline and reports it cannot evaluate', () => {
+    const { evaluation, nextPrior } = evaluateRule(rule('pool-price-above'), priceReading(150), null, NOW);
+    // There is no second reading, AND no way to know whether a crossing happened
+    // before we looked. That is not calm.
+    expect(evaluation.verdict).toBe('cannot-evaluate');
+    // The SIDE is what gets compared next pass; the label is only ever shown.
+    expect(nextPrior?.signature).toBe('above');
+    expect(nextPrior?.at).toBe(NOW);
+    expect(nextPrior?.label).toContain('150');
+  });
+
+  it('below → above fires exactly once, keyed to the pair of readings', () => {
+    const prior: PriorSnapshot = { signature: 'below', label: '$50.00', at: NOW - 60 };
+    const { evaluation } = evaluateRule(rule('pool-price-above'), priceReading(150), prior, NOW);
+    expect(evaluation.verdict).toBe('fired');
+    expect(evaluation.events[0]!.idempotencyKey).toBe(`pool-price-above:rule-pool-price-above:${NOW - 60}->${NOW}`);
+  });
+
+  it('above → above is quiet — a level is not an event', () => {
+    // Firing here would notify once a minute for as long as the price sat still.
+    const prior: PriorSnapshot = { signature: 'above', label: '$140.00', at: NOW - 60 };
+    expect(evaluateRule(rule('pool-price-above'), priceReading(150), prior, NOW).evaluation.verdict).toBe('quiet');
+  });
+
+  it('above → below is quiet for an ABOVE rule', () => {
+    // The mutation this catches: dropping the `side === wanted` half of the test
+    // and firing on any change of side, which makes every rule bidirectional.
+    const prior: PriorSnapshot = { signature: 'above', label: '$140.00', at: NOW - 60 };
+    expect(evaluateRule(rule('pool-price-above'), priceReading(50), prior, NOW).evaluation.verdict).toBe('quiet');
+  });
+
+  it('a below rule fires on the opposite crossing', () => {
+    const reading: SourceReading<RuleFacts> = {
+      status: 'ok',
+      observedAt: NOW,
+      value: { kind: 'pool-price-below', priceUsd: 50, poolName: null },
+    };
+    const prior: PriorSnapshot = { signature: 'above', label: '$150.00', at: NOW - 60 };
+    expect(evaluateRule(rule('pool-price-below'), reading, prior, NOW).evaluation.verdict).toBe('fired');
+  });
+
+  it('the event says the time is OURS and the price is a quote', () => {
+    const prior: PriorSnapshot = { signature: 'below', label: '$50.00', at: NOW - 60 };
+    const event = evaluateRule(rule('pool-price-above'), priceReading(150), prior, NOW).evaluation.events[0]!;
+    // GeckoTerminal publishes no as-of time for a quote, so the row must not say
+    // "as of" — that would attribute our fetch clock to them.
+    expect(event.observedAtKind).toBe('read');
+    expect(event.body).toMatch(/read at/);
+    expect(event.body).toMatch(/no as-of time/i);
+    expect(event.body).toMatch(/quote/i);
+  });
+});
+
+describe('a large-swap rule fires on swaps past its watermark, and only once each', () => {
+  const swap = (txHash: string, at: number, usd: number | null) => ({
+    txHash,
+    at,
+    usd,
+    kind: 'buy' as const,
+    wallet: OTHER,
+  });
+  const tradesReading = (trades: ReturnType<typeof swap>[]): SourceReading<RuleFacts> => ({
+    status: 'ok',
+    observedAt: NOW,
+    value: { kind: 'pool-large-trade', trades },
+  });
+
+  it('the first pass records the watermark and fires on nothing', () => {
+    // The feed's whole page is history. Counting it on the first pass would fire
+    // a burst of alerts for trades that happened before the rule existed.
+    const { evaluation, nextPrior } = evaluateRule(
+      rule('pool-large-trade'),
+      tradesReading([swap('0xa', NOW - 100, 9_000), swap('0xb', NOW - 50, 20_000)]),
+      null,
+      NOW,
+    );
+    expect(evaluation.verdict).toBe('cannot-evaluate');
+    expect(evaluation.events).toEqual([]);
+    expect(nextPrior).toEqual({ signature: '0xb', label: '', at: NOW - 50 });
+  });
+
+  it('a swap past the watermark fires, and the same swap never fires twice', () => {
+    const prior: PriorSnapshot = { signature: '0xold', label: '', at: NOW - 600 };
+    const trades = [swap('0xnew', NOW - 60, 9_000)];
+    const first = evaluateRule(rule('pool-large-trade'), tradesReading(trades), prior, NOW);
+    expect(first.evaluation.verdict).toBe('fired');
+    expect(first.evaluation.events[0]!.idempotencyKey).toBe('pool-large-trade:rule-pool-large-trade:0xnew');
+
+    const second = evaluateRule(rule('pool-large-trade'), tradesReading(trades), first.nextPrior, NOW);
+    expect(second.evaluation.verdict).toBe('quiet');
+  });
+
+  it('a swap older than the watermark never fires', () => {
+    const prior: PriorSnapshot = { signature: '0xw', label: '', at: NOW - 60 };
+    const result = evaluateRule(rule('pool-large-trade'), tradesReading([swap('0xold', NOW - 600, 50_000)]), prior, NOW);
+    expect(result.evaluation.verdict).toBe('quiet');
+  });
+
+  it('two swaps in the same second: the remembered one is silent, the new one fires', () => {
+    // Time alone cannot separate swaps that share a block, so the watermark
+    // carries the hashes at its own second. Without them, a second swap in a
+    // marked block would either be lost or re-fire the first.
+    const at = NOW - 60;
+    const prior: PriorSnapshot = { signature: '0xseen', label: '', at };
+    const result = evaluateRule(
+      rule('pool-large-trade'),
+      tradesReading([swap('0xseen', at, 9_000), swap('0xfresh', at, 9_000)]),
+      prior,
+      NOW,
+    );
+    expect(result.evaluation.events.map((e) => e.idempotencyKey)).toEqual([
+      'pool-large-trade:rule-pool-large-trade:0xfresh',
+    ]);
+    expect(result.nextPrior!.signature.split(',').sort()).toEqual(['0xfresh', '0xseen']);
+  });
+
+  it('a swap with no USD size is excluded and SAID to be excluded', () => {
+    const prior: PriorSnapshot = { signature: '', label: '', at: NOW - 600 };
+    const { evaluation } = evaluateRule(
+      rule('pool-large-trade'),
+      tradesReading([swap('0xunsized', NOW - 60, null)]),
+      prior,
+      NOW,
+    );
+    expect(evaluation.verdict).toBe('quiet');
+    // Silently dropping it would make an unmeasurable swap indistinguishable
+    // from a small one.
+    expect(evaluation.detail).toMatch(/carried no USD size/i);
+  });
+
+  it('an empty feed never advances an existing watermark', () => {
+    const prior: PriorSnapshot = { signature: '0xw', label: '', at: NOW - 60 };
+    const { nextPrior } = evaluateRule(rule('pool-large-trade'), tradesReading([]), prior, NOW);
+    // Advancing to the read clock would step silently over any trade the feed
+    // had not published yet.
+    expect(nextPrior).toEqual(prior);
+  });
+
+  it('the event anchors to the rule’s OWN chain, not to ethereum', () => {
+    const prior: PriorSnapshot = { signature: '', label: '', at: NOW - 600 };
+    const { evaluation } = evaluateRule(
+      rule('pool-large-trade'),
+      tradesReading([swap('0xbase', NOW - 60, 9_000)]),
+      prior,
+      NOW,
+    );
+    // The old `chainForKind` answered 'ethereum' for everything that was not
+    // Heat, which sends a reader to an explorer where the tx does not exist.
+    expect(evaluation.events[0]!.anchor).toEqual({ chain: 'base', ref: '0xbase' });
+  });
+
+  it('never calls a swap a transfer, and never calls it a whale', () => {
+    const prior: PriorSnapshot = { signature: '', label: '', at: NOW - 600 };
+    const { evaluation } = evaluateRule(
+      rule('pool-large-trade'),
+      tradesReading([swap('0xswap', NOW - 60, 9_000)]),
+      prior,
+      NOW,
+    );
+    const text = `${evaluation.events[0]!.title} ${evaluation.events[0]!.body}`;
+    expect(text).not.toMatch(/transfer/i);
+    expect(text).not.toMatch(/whale/i);
+  });
+});
+
 describe('the exhaustive sweep', () => {
   it('no kind can reach `quiet` from an unavailable reading, in any prior state', () => {
-    const priors: (PriorSnapshot | null)[] = [null, CHANGE_PRIOR, REP_PRIOR];
+    const priors: (PriorSnapshot | null)[] = [null, CHANGE_PRIOR, REP_PRIOR, PRICE_PRIOR, TRADE_PRIOR];
     for (const kind of ALERT_RULE_KINDS) {
       for (const prior of priors) {
         const { evaluation } = evaluateRule(
@@ -323,7 +531,7 @@ describe('the exhaustive sweep', () => {
   });
 
   it('every verdict carries a non-empty reason and only `fired` carries events', () => {
-    const priors: (PriorSnapshot | null)[] = [null, CHANGE_PRIOR, REP_PRIOR];
+    const priors: (PriorSnapshot | null)[] = [null, CHANGE_PRIOR, REP_PRIOR, PRICE_PRIOR, TRADE_PRIOR];
     const readings: SourceReading<RuleFacts>[] = ALERT_RULE_KINDS.map((k) => firingReading(k));
     for (const kind of ALERT_RULE_KINDS) {
       for (const prior of priors) {

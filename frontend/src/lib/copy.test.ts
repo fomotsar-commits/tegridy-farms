@@ -35,9 +35,16 @@ describe('RECEIPT_COPY', () => {
   });
 
   it('uses in-voice copy where expected', () => {
-    expect(RECEIPT_COPY.stake.label).toContain('TEGRIDY');
+    // RETIRED 2026-08-31 (owner): the receipts kept their swagger, but the brand
+    // word is gone from every rendered surface. Pin the VOICE (held time, the
+    // farm's own verbs), not the retired name.
+    expect(RECEIPT_COPY.stake.label).toMatch(/HELD TIME/i);
     expect(RECEIPT_COPY.claim.label).toMatch(/HARVEST/i);
-    expect(RECEIPT_COPY.vote.label).toContain('TEGRIDY');
+    expect(RECEIPT_COPY.vote.label).toMatch(/VOTE/i);
+    for (const entry of Object.values(RECEIPT_COPY)) {
+      expect(entry.label).not.toMatch(/tegridy/i);
+      expect(entry.verb).not.toMatch(/tegridy/i);
+    }
   });
 });
 
@@ -133,7 +140,10 @@ describe('COMMUNITY_TAB_INTRO', () => {
 
 describe('FAQ_INTRO', () => {
   it('opens with a Randy-voice subheading', () => {
-    expect(FAQ_INTRO.subheading).toMatch(/tegridy/i);
+    // Same retirement: the voice stays ("no bullshit", "real farm"), the brand
+    // word does not.
+    expect(FAQ_INTRO.subheading).toMatch(/held time/i);
+    expect(FAQ_INTRO.subheading).not.toMatch(/tegridy/i);
   });
 });
 

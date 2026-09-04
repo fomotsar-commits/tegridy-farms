@@ -446,3 +446,84 @@ describe('the dedupe fingerprint is stable against things that move on their own
     expect(fp({ creditWei: 0n })).not.toBe(base);
   });
 });
+
+describe('worthPulling is the only fact that should ever wake somebody', () => {
+  const fp = (r: Parameters<typeof reading>[0]) => {
+    const out = renderGithubOutput(classifyCallerCredit(reading(r)));
+    return /stranded_fingerprint=([0-9a-f]+)/.exec(out)?.[1];
+  };
+
+  // `state === 'stranded'` has been permanently true since the rail was wired, and
+  // `pullable` only says the transaction would not revert. Neither distinguishes the one
+  // hour a human should sign from the thousands where signing burns money.
+  it('is false while the pull still costs more than it recovers', () => {
+    const c = classifyCallerCredit(reading());
+    expect(c.state).toBe('stranded');
+    expect(c.pullable).toBe(true);
+    expect(c.worthPulling).toBe(false);
+  });
+
+  it('is true once the pull pays for itself', () => {
+    expect(classifyCallerCredit(reading({ gasPriceWei: 1n })).worthPulling).toBe(true);
+  });
+
+  // Rule 1, on the field an operator acts on. "We could not price it" and "it is not
+  // worth it" produce OPPOSITE behaviour, so collapsing them into `false` would be the
+  // same class of bug this whole file exists to pin.
+  it('is null, NOT false, when the economics could not be computed', () => {
+    const c = classifyCallerCredit(reading({ gasEstimate: null }));
+    expect(c.economics).toBeNull();
+    expect(c.worthPulling).toBeNull();
+    expect(c.worthPulling).not.toBe(false);
+  });
+
+  // THE INVERTED SIGN. `pullable` is `... && unreadableGuards.length === 0`, so an
+  // unreadable guard makes it FALSE - correctly, since we cannot claim the pull is
+  // available. Feeding that straight into a conjunction would publish a confident
+  // "not worth pulling" assembled out of "we could not tell", and an RPC outage would
+  // read to an operator as a reason to stand down. This is the same coercion the Rule 1
+  // note at the top of caller-credit.mjs describes, pointed the other way.
+  it('is null when a GUARD was unreadable, even though the pull is priceable', () => {
+    const c = classifyCallerCredit(reading({ routerPaused: null }));
+    expect(c.unreadableGuards.length).toBeGreaterThan(0);
+    expect(c.economics).not.toBeNull();   // we COULD price it
+    expect(c.pullable).toBe(false);       // but cannot claim it is available
+    expect(c.worthPulling).toBeNull();    // so we must not claim it is not worth doing
+    expect(c.worthPulling).not.toBe(false);
+    expect(renderGithubOutput(c)).toContain('stranded_worth_pulling=unknown');
+  });
+
+  it('renders as unknown in GITHUB_OUTPUT rather than as a confident false', () => {
+    const unknown = renderGithubOutput(classifyCallerCredit(reading({ gasEstimate: null })));
+    expect(unknown).toContain('stranded_worth_pulling=unknown');
+    const known = renderGithubOutput(classifyCallerCredit(reading()));
+    expect(known).toContain('stranded_worth_pulling=false');
+  });
+
+  // THE REGRESSION THIS BLOCK EXISTS FOR.
+  //
+  // The fingerprint deliberately excludes gas price, so that a figure moving every block
+  // cannot re-post the same alert hourly. But "pulling is now worth it" flips on gas
+  // price ALONE, with the credit, the blockers and the state all unchanged. Before
+  // `worthPulling` joined the fingerprint, the single run where the rail first became
+  // worth draining hashed identically to the thousands where it was not, and the dedupe
+  // swallowed it: the alert would have been suppressed at the only moment it mattered.
+  //
+  // MUTATION: drop `String(classification.worthPulling)` from `fingerprintFacts` in
+  // caller-credit.mjs and this test fails, while every other test in this file passes.
+  it('DOES change the fingerprint when pulling becomes worth it, though gas price alone does not', () => {
+    const notWorth = fp({});
+    const worth = fp({ gasPriceWei: 1n });
+
+    // Same strand, same blockers, same state - only the economics differ.
+    const a = classifyCallerCredit(reading());
+    const b = classifyCallerCredit(reading({ gasPriceWei: 1n }));
+    expect(b.creditWei).toBe(a.creditWei);
+    expect(b.state).toBe(a.state);
+    expect(b.pullable).toBe(a.pullable);
+    expect(b.worthPulling).not.toBe(a.worthPulling);
+
+    expect(notWorth).toBeTruthy();
+    expect(worth).not.toBe(notWorth);
+  });
+});

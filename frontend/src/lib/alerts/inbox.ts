@@ -37,8 +37,17 @@ export interface InboxEntry {
   at: number;
   read: boolean;
   anchor: { chain: string; ref: string } | null;
-  /** The channels this entry was recorded against, at the time it was ingested. */
+  /**
+   * The channels this entry was actually DELIVERED on.
+   *
+   * `in-app` is stamped at ingest because ingesting IS the in-app delivery.
+   * Nothing else is stamped here: a channel joins this list only after its send
+   * returned true (see `markDelivered`), so a row can never claim a notification
+   * that a browser refused, threw on, or silently dropped.
+   */
   channels: ChannelId[];
+  /** Whether `at` is the source's own as-of time or our read clock. Absent means source. */
+  observedAtKind?: 'source' | 'read';
 }
 
 export interface InboxState {
@@ -67,7 +76,18 @@ function gapId(ruleId: string, detail: string): string {
   return `gap:${ruleId}:${(h >>> 0).toString(36)}`;
 }
 
-function entryFromEvent(event: AlertEvent, channels: ChannelId[]): InboxEntry {
+/**
+ * The only channel an entry is born with.
+ *
+ * Hardcoded rather than taken from the caller's delivery PLAN, and that is the
+ * point: the plan says what will be attempted, and stamping it at ingest would
+ * label every row "shown as a browser notification" — including the ones whose
+ * show threw, was refused, or never ran because the tab was replaced. Any other
+ * channel is added by `markDelivered`, after it happened.
+ */
+const INGEST_CHANNELS: ChannelId[] = ['in-app'];
+
+function entryFromEvent(event: AlertEvent): InboxEntry {
   return {
     id: event.idempotencyKey,
     kind: 'event',
@@ -79,11 +99,12 @@ function entryFromEvent(event: AlertEvent, channels: ChannelId[]): InboxEntry {
     at: event.observedAt,
     read: false,
     anchor: event.anchor,
-    channels,
+    channels: [...INGEST_CHANNELS],
+    observedAtKind: event.observedAtKind ?? 'source',
   };
 }
 
-function entryFromGap(evaluation: Evaluation, ruleLabel: string, channels: ChannelId[]): InboxEntry {
+function entryFromGap(evaluation: Evaluation, ruleLabel: string): InboxEntry {
   return {
     id: gapId(evaluation.ruleId, evaluation.detail),
     kind: 'gap',
@@ -97,7 +118,10 @@ function entryFromGap(evaluation: Evaluation, ruleLabel: string, channels: Chann
     at: evaluation.evaluatedAt,
     read: false,
     anchor: null,
-    channels,
+    channels: [...INGEST_CHANNELS],
+    // A gap is stamped with OUR clock by definition — nothing was read, so no
+    // source could have supplied a time.
+    observedAtKind: 'read',
   };
 }
 
@@ -105,39 +129,75 @@ export interface IngestInput {
   evaluations: readonly Evaluation[];
   /** rule id → short label, for gap titles. */
   ruleLabels: Record<string, string>;
-  channels: ChannelId[];
+}
+
+export interface IngestResult {
+  state: InboxState;
+  /**
+   * The EVENT rows this fold created, in the order they were created. Gaps are
+   * deliberately absent: a notification for "a rule could not be evaluated" is
+   * how an outage becomes an hour of buzzing, and the gap row in the list is the
+   * honest place for it.
+   */
+  added: InboxEntry[];
 }
 
 /**
  * Fold a pass into the inbox. Pure: returns a new state, never mutates.
  *
  * Existing entries win on collision, so re-reading a fact cannot flip a row back
- * to unread or move it up the list.
+ * to unread or move it up the list — and cannot re-announce it either, which is
+ * what makes `added` safe to drive a notification from.
  */
-export function ingest(state: InboxState, input: IngestInput): InboxState {
+export function ingestWithDelta(state: InboxState, input: IngestInput): IngestResult {
   const byId = new Map(state.entries.map((e) => [e.id, e]));
+  const added: InboxEntry[] = [];
   let changed = false;
 
   for (const evaluation of input.evaluations) {
     if (evaluation.verdict === 'fired') {
       for (const event of evaluation.events) {
         if (byId.has(event.idempotencyKey)) continue;
-        byId.set(event.idempotencyKey, entryFromEvent(event, input.channels));
+        const entry = entryFromEvent(event);
+        byId.set(entry.id, entry);
+        added.push(entry);
         changed = true;
       }
     } else if (evaluation.verdict === 'cannot-evaluate') {
       const label = input.ruleLabels[evaluation.ruleId] ?? evaluation.kind;
-      const entry = entryFromGap(evaluation, label, input.channels);
+      const entry = entryFromGap(evaluation, label);
       if (byId.has(entry.id)) continue;
       byId.set(entry.id, entry);
       changed = true;
     }
   }
 
-  if (!changed) return state;
+  if (!changed) return { state, added };
 
   const entries = [...byId.values()].sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
-  return { entries: entries.slice(0, MAX_INBOX_ENTRIES) };
+  return { state: { entries: entries.slice(0, MAX_INBOX_ENTRIES) }, added };
+}
+
+export function ingest(state: InboxState, input: IngestInput): InboxState {
+  return ingestWithDelta(state, input).state;
+}
+
+/**
+ * Record that an entry was delivered on a channel. A no-op for an unknown id, and
+ * for a channel already recorded.
+ *
+ * Separate from ingest so the delivery record is written by whoever WATCHED the
+ * send finish. An entry evicted past MAX_INBOX_ENTRIES between the show and this
+ * call simply has nothing to stamp, which is why an unknown id is not an error.
+ */
+export function markDelivered(state: InboxState, id: string, channel: ChannelId): InboxState {
+  let changed = false;
+  const entries = state.entries.map((e) => {
+    if (e.id !== id || e.channels.includes(channel)) return e;
+    changed = true;
+    return { ...e, channels: [...e.channels, channel] };
+  });
+  return changed ? { entries } : state;
 }
 
 export function markRead(state: InboxState, id: string): InboxState {
@@ -186,7 +246,7 @@ export function unreadBreakdown(state: InboxState): { events: number; gaps: numb
 
 export const INBOX_STORAGE_KEY = 'tegridy-alert-inbox-v1';
 
-const CHANNEL_IDS = new Set<ChannelId>(['in-app', 'web-push']);
+const CHANNEL_IDS = new Set<ChannelId>(['in-app', 'web-notification', 'web-push']);
 
 function parseEntry(raw: unknown): InboxEntry | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -220,6 +280,10 @@ function parseEntry(raw: unknown): InboxEntry | null {
     read: r.read === true,
     anchor,
     channels,
+    // A row written before this field existed carries a SOURCE time — every kind
+    // that shipped then took its stamp from the source. Defaulting the other way
+    // would relabel every historic row's "as of" as "read at".
+    observedAtKind: r.observedAtKind === 'read' ? 'read' : 'source',
   };
 }
 

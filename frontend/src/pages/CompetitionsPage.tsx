@@ -2,56 +2,62 @@ import { useMemo, useState } from 'react';
 import { useAccount } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useCompetitionStandings } from '../hooks/useCompetitionStandings';
+import { useIslandCup } from '../hooks/useIslandCup';
 import { CompetitionDataNotice } from '../components/competitions/CompetitionDataNotice';
+import { CupBoard } from '../components/competitions/CupBoard';
+import { CupCoverageNotice } from '../components/competitions/CupCoverageNotice';
 import { ScoringRules } from '../components/competitions/ScoringRules';
+import { SeasonCard } from '../components/competitions/SeasonCard';
 import { StandingsTable } from '../components/competitions/StandingsTable';
-import { SEASONS, SEASON_STATUS_TEXT, seasonStatus } from '../lib/competitions/season';
+import { YourRank } from '../components/competitions/YourRank';
+import { SEASONS } from '../lib/competitions/season';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 
-// TRADING COMPETITIONS — seasonal volume boards scored from indexed history.
+// TRADING COMPETITIONS — two boards, each named by what actually reads it.
 //
-// The page makes three refusals, all of them enforced in lib/competitions rather
+// THE ISLAND CUP is live. It ranks senders by the USD size of the fills
+// GeckoTerminal reports on the island's own registered pools — the same feed the
+// bungalow trade tapes already read, browser-direct, no key and no server of
+// ours in the path. Everything it claims is measured: the window comes from the
+// fills' own block timestamps, and every pool that failed or filled its page is
+// named above the table.
+//
+// SEASON 1 is the venue router's own swaps out of a Ponder indexer that is
+// hosted nowhere. Its card says so rather than printing a clock-derived
+// "counting now" about a process that is not running.
+//
+// The page makes four refusals, all of them enforced in lib/competitions rather
 // than here:
 //
 //   1. No prize and no settlement. Nothing is escrowed and nothing closes a
 //      season, because there is no keeper on this venue and no funded contract
 //      to pay one — season.ts, SETTLEMENT.
-//   2. No profit board. Indexed swaps record what was spent and never what came
-//      back, so a season return exists for nobody — scoring.ts, PNL_SCORING.
+//   2. No profit board. A swap row and a trade feed each give ONE leg, so a
+//      season return exists for nobody — scoring.ts, PNL_SCORING.
 //   3. Wash resistance, WITH its limits. A self-reversal inside the window is
-//      struck from both sides; two wallets colluding are invisible and the page
-//      says so — scoring.ts, RESISTANCE_RULE and RESISTANCE_LIMITS.
+//      struck from both sides; two wallets colluding are invisible, and a round
+//      trip straddling the window start cannot be struck — scoring.ts
+//      RESISTANCE_RULE / RESISTANCE_LIMITS and islandCup.ts CUP_WASH_LIMIT.
+//   4. A pool that could not be read is not a quiet pool. An unread board draws
+//      no table at all: an empty leaderboard under a season name asserts that
+//      nobody entered, which on this page is the most damaging thing it could
+//      say and the easiest to say by accident.
 //
-// The indexer is not hosted, so the resting state is `unavailable` and the table
-// is not drawn at all. An empty standings table under a season name is the
-// clearest fabricated zero available here: it asserts that nobody entered.
+// NO CLOCK IS READ IN THIS FILE. Every time on screen is a block timestamp from
+// the data, or a season's own declared date.
 
 export default function CompetitionsPage() {
   usePageTitle(
     'Trading Competitions',
-    'Seasonal volume boards scored from indexed swap history, with self-reversals struck from both sides. No prize pool, no settlement, and no profit ranking — indexed swaps record what was spent and never what came back.',
+    "The Island Cup ranks senders by the USD size of the fills GeckoTerminal reports on the island's own pools, with self-reversals struck from both sides and every unread pool named. No prize pool, no settlement, and no profit ranking.",
   );
 
   const { address } = useAccount();
   const [seasonId, setSeasonId] = useState(SEASONS[0]?.id ?? '');
   const season = useMemo(() => SEASONS.find((s) => s.id === seasonId) ?? SEASONS[0] ?? null, [seasonId]);
 
-  const now = Math.floor(Date.now() / 1000);
+  const cup = useIslandCup();
   const standings = useCompetitionStandings({ season });
-
-  if (!season) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-4 py-8">
-        <h1 className="text-2xl font-bold text-white">Trading Competitions</h1>
-        <p className="mt-2 text-sm text-white/75">
-          No season is declared in this build, so there is nothing to score. This is a statement
-          about the configuration, not about the venue.
-        </p>
-      </div>
-    );
-  }
-
-  const status = seasonStatus(season, now);
 
   return (
     <div className="relative">
@@ -60,42 +66,55 @@ export default function CompetitionsPage() {
         <header>
           <h1 className="text-2xl font-bold text-white">Trading Competitions</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-            A season ranks wallets by how much of one named token they put through the venue's
-            router, with self-reversals removed from both sides so a wallet cannot climb by selling
-            back what it just bought. It ranks activity. It does not rank profit, and it does not
-            pay anything.
+            Two boards, each ranking activity and neither ranking profit. The Island Cup is scored
+            from the trade feeds of the island's own registered pools, over the widest window every
+            pool that answered can speak for. Season 1 is scored from the venue router's swaps,
+            whenever something is reading them. Nothing here pays anything, and nothing closes.
           </p>
         </header>
 
-        <div className="mt-6 space-y-6">
-          <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <label
-                htmlFor="competition-season"
-                className="text-[11px] font-medium uppercase tracking-wide text-white/60"
-              >
-                Season
-                <select
-                  id="competition-season"
-                  value={season.id}
-                  onChange={(e) => setSeasonId(e.target.value)}
-                  className="mt-1 block rounded-md border border-white/20 bg-black/40 px-2 py-1 text-xs text-white"
-                >
-                  {SEASONS.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="text-[11px] leading-relaxed text-white/70">
-                {new Date(season.startsAt * 1000).toISOString().slice(0, 10)} →{' '}
-                {new Date(season.endsAt * 1000).toISOString().slice(0, 10)} (UTC). {SEASON_STATUS_TEXT[status]}
-              </p>
-            </div>
-          </section>
+        <div className="mt-6 grid grid-cols-1 gap-6">
+          <CupCoverageNotice
+            status={cup.status}
+            coverage={cup.coverage}
+            poolsTotal={cup.poolsTotal}
+            onReload={cup.reload}
+          />
+
+          {cup.board ? (
+            <CupBoard
+              board={cup.board}
+              status={cup.status === 'complete' ? 'complete' : 'partial'}
+              account={address ?? null}
+            />
+          ) : null}
+
+          {cup.board ? (
+            <YourRank
+              board={cup.board}
+              status={cup.status === 'complete' ? 'complete' : 'partial'}
+              account={address ?? null}
+            />
+          ) : null}
 
           <ScoringRules />
+
+          {season ? (
+            <SeasonCard
+              seasons={SEASONS}
+              season={season}
+              onSeasonChange={setSeasonId}
+              syncedAt={standings.syncedAt}
+            />
+          ) : (
+            <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+              <h2 className="text-sm font-semibold text-white">No season is declared</h2>
+              <p className="mt-1.5 text-xs leading-relaxed text-white/75">
+                This build declares no router season, so there is nothing to score for one. That is
+                a statement about the configuration, not about the venue.
+              </p>
+            </section>
+          )}
 
           <CompetitionDataNotice
             status={standings.status}
