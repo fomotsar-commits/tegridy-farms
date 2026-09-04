@@ -31,6 +31,42 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### Security — External audit CSV remediated, and ten failed reads that rendered as facts (2026-09-04)
+
+`254fb8de`, two agent lanes over 47 commits.
+
+**Contracts — 35 of 71 audit findings fixed**, each pinned by a test that **fails on the
+pre-fix tree**. A permissionless vault repay that stranded a BNPL NFT forever; an anti-snipe
+hook a stranger could start the clock on; a bribe trap that locked a voter's earned share
+behind a second governance action; a commit-reveal scheme the legacy `vote()` path made
+optional.
+
+**Three fixes were written and then WITHDRAWN when the tests proved them wrong**, and the
+reverts stay in the history with their reasoning: two would have traded a bug for a worse
+one, and the third would have falsified a representation currently in front of Whetstone. A
+fix that does not survive its own test is a finding about the fix.
+
+**Frontend — ten instances of one bug class:** a failed read whose fallback is *itself a
+valid value*, so the failure renders as a confident false claim. "You own 100% of the crop"
+on an existing pool. "0% penalty" while the contract takes its cut. A position panel deleted
+from the person who owns the position. The repo already had the rule written down and
+unenforced — **a zero is only publishable when a read returned it** — which is why this is
+the most-repeated defect class in the file above.
+
+Also: **four mainnet contracts that were deployed and recorded nowhere**, surfaced by fixing
+a receipt-selection bug that made the registry check read a *superseded* deploy; two Supabase
+migrations closing a world-readable watchlist; and a GitHub Actions workflow that executed
+its input before validating it. CodeQL's one real HIGH — clear-text logging of an environment
+value in `verify-env.mjs` — was found and fixed in the same wave.
+
+**Known-red on merge, and stated rather than hidden:** Slither (fail-on:medium). It is
+pre-existing on trunk — `mvp-launch`'s own runs have failed on five consecutive pushes since
+2026-08-28, and a pure `codeql-action` version bump touching no contracts fails it too. PR
+[#348](https://github.com/fomotsar-commits/tegridy-farms/pull/348) is the backlog fix.
+Everything else green: 35 checks, both E2E suites, the Anvil money-path fork, the V2
+provenance gate, every forge slice, and CodeQL. Local full suite **548 files, 7,652 tests,
+exit 0**.
+
 ### Fixed — Field review: 20 findings, 9 of them misdiagnosed (2026-09-03)
 
 [#367](https://github.com/fomotsar-commits/tegridy-farms/pull/367). An outside field

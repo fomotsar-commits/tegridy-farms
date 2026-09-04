@@ -146,6 +146,13 @@ export function decodeUint(hex) {
  * EOA -> '0x'. EIP-7702 delegation -> a 23-byte 0xef0100<20-byte target>.
  */
 export function classifyCode(code) {
+  // AUDIT FIX TF-028: an UNREADABLE result is not an EOA. `rpc()` returns null
+  // when the node answers with a JSON-RPC error, and the old
+  // `typeof code !== 'string'` arm folded that straight into 'eoa' — so any
+  // endpoint that errored on eth_getCode made every signer look like a clean
+  // key and the EIP-7702 quorum-collapse check below found nothing to report.
+  // A verifier that cannot read must say so, never award a pass.
+  if (code === null || code === undefined) return { kind: 'unknown' };
   if (typeof code !== 'string' || code === '0x' || code === '') return { kind: 'eoa' };
   const body = code.slice(2);
   if (body.length === 46 && body.slice(0, 6).toLowerCase() === 'ef0100') {
@@ -226,6 +233,19 @@ export function assessSafe(safe) {
   }
   if (threshold >= owners.length && owners.length > 1) {
     notes.push(`${name}: ${threshold}-of-${owners.length} — NO key-loss redundancy; losing one key bricks it`);
+  }
+
+  // AUDIT FIX TF-028: a signer whose code could not be read is a HOLE in the
+  // delegation analysis below, not a clean EOA. Without this the whole 7702
+  // check degrades to silence on an RPC that errors — the failure mode a
+  // verification script exists to prevent.
+  const unreadable = owners.filter((o) => o.kind === 'unknown').map((o) => o.address);
+  if (unreadable.length) {
+    problems.push(
+      `${name}: eth_getCode did not return for ${unreadable.length} of ${owners.length} signer(s) ` +
+      `(${unreadable.join(', ')}) — the EIP-7702 delegation check is INCOMPLETE and this run does ` +
+      `NOT establish that the quorum holds`,
+    );
   }
 
   // Group owners by shared EIP-7702 delegation target.
@@ -347,6 +367,11 @@ function selfTest() {
   })());
   ok('classifyCode: ordinary contract is not mistaken for 7702',
     classifyCode('0x6080604052').kind === 'contract');
+  // AUDIT TF-028. `rpc()` returns null when the node answers with a JSON-RPC
+  // error. Classifying that as 'eoa' turned an unread chain into a clean bill
+  // of health for every signer — the one verdict a verifier must never invent.
+  ok('classifyCode: an unreadable result is UNKNOWN, never a clean EOA',
+    classifyCode(null).kind === 'unknown' && classifyCode(undefined).kind === 'unknown');
 
   const base = { name: 'X', kind: 'two-step', owner: '0x' + 'aa'.repeat(20),
     pendingOwner: ZERO, expiresAt: 0, now: '2026-08-02T00:00:00.000Z' };
@@ -378,6 +403,16 @@ function selfTest() {
 
   ok('a clean 2-of-3 of plain EOAs is fine',
     assessSafe({ name: 'S', threshold: 2, owners: [eoa(A), eoa(B), eoa(C)], minThreshold: 2 }).problems.length === 0);
+  // AUDIT TF-028, the property that actually matters: a Safe whose signers
+  // could not be READ must not be reported as a Safe whose signers are clean.
+  // Pre-fix these owners arrived as kind 'eoa' and this assessment was empty.
+  const unk = (a) => ({ address: a, kind: 'unknown' });
+  ok('a Safe with an unreadable signer is a problem, never a silent pass',
+    assessSafe({ name: 'S', threshold: 2, owners: [unk(A), eoa(B), eoa(C)], minThreshold: 2 })
+      .problems.some((p) => /INCOMPLETE/.test(p)));
+  ok('the unreadable-signer problem names how many were not checked',
+    assessSafe({ name: 'S', threshold: 2, owners: [unk(A), unk(B), eoa(C)], minThreshold: 2 })
+      .problems.some((p) => /2 of 3 signer/.test(p)));
   ok('TWO signers sharing ONE delegate at threshold 2 = that delegate owns the Safe',
     assessSafe({ name: 'S', threshold: 2, owners: [eoa(A), del(B, X), del(C, X)], minThreshold: 2 })
       .problems.some((p) => /alone controls this Safe/.test(p)));
@@ -509,7 +544,9 @@ async function main(argv) {
     console.log(`  ${v.problems.length ? '❌' : '  '} ${sf.name.padEnd(11)} ${sf.address}  ${sf.threshold}-of-${sf.owners.length}`);
     for (const o of sf.owners) {
       const tag = o.kind === 'eoa' ? 'EOA'
-        : o.kind === 'eip7702' ? `7702 -> ${o.delegateTo}` : `contract (${o.bytes}B)`;
+        : o.kind === 'eip7702' ? `7702 -> ${o.delegateTo}`
+        : o.kind === 'unknown' ? 'UNREADABLE (eth_getCode did not return)'
+        : `contract (${o.bytes}B)`;
       console.log(`       ${o.address}  ${tag}`);
     }
     for (const n of v.notes) console.log(`       · ${n}`);
@@ -522,6 +559,7 @@ async function main(argv) {
     for (const s of signerReport) {
       if (s.kind === 'eoa') console.log(`     ✅ ${s.address} — plain EOA`);
       else if (s.kind === 'eip7702') console.log(`     ❌ ${s.address} — 7702-DELEGATED to ${s.delegateTo}`);
+      else if (s.kind === 'unknown') console.log(`     ❌ ${s.address} — eth_getCode did NOT return; this signer was not checked`);
       else console.log(`     ❌ ${s.address} — has ${s.bytes} bytes of code (not an EOA)`);
     }
     const targets = signerReport.filter((s) => s.kind === 'eip7702').map((s) => s.delegateTo);

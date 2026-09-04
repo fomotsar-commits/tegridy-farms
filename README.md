@@ -379,7 +379,7 @@ survive*, which is why one of the four that existed in August is gone.
 |---|---|---|---|
 | **Our own EVM curve** | [/eth-curve](https://memetics.finance/eth-curve) | `TegridyCurveLauncher` → a pool the protocol owns | 🟢 **Live on three chains** — Ethereum (`0xF4Dfa741…34dE`), Base 8453 and Robinhood 4663. Token identity (image/description/socials) uploads through Irys and is bound by **signature**, so the immutable contract is untouched; every launch gets a permanent `/eth-curve/:token` page and the creator can claim their fees |
 | **Doppler EVM launcher** | [/launch](https://memetics.finance/launch) | Doppler V4 dynamic auction, then (eventually) a Tegridy-hooked V4 pool | 🟢 **Live** — a real in-app signing path (`LAUNCHER_ENABLED = true`, [`launcher/config.ts`](frontend/src/lib/launcher/config.ts)). Graduation still runs through Doppler's own migrator: `TEGRIDY_V4_MIGRATOR_ADDRESS` is `0x0` and that zero is load-bearing |
-| **Own Solana curve** | — | `tegridy-launch` bonding curve → our own CP-AMM pool PDA | 🔴 **Deployed 2026-08-08, closed 2026-08-13.** Both program ids are permanently spent and cannot be reused. The instruction builders, decoders, offset tables and guards all survive; the restart is planned and not live. See [Solana surface](#solana-surface) |
+| **Own Solana curve** | — | `tegridy-launch` bonding curve → our own CP-AMM pool PDA | 🔴 **Deployed 2026-08-08, closed 2026-08-13.** Both program ids (`CpFnacr…hzED`, `3ZvZXEBr…PM9y`) are permanently spent and cannot be reused — their *ProgramData* accounts are the separate `6vV7DqMy…` / `6TnZb1GT…`, and only those two reads prove the close. The instruction builders, decoders, offset tables and guards all survive; the restart is planned and not live. See [Solana surface](#solana-surface) |
 | ~~Meteora DBC rail~~ | ~~/solana-launch~~ | ~~Meteora DAMM v2~~ | 🪦 **Deleted 2026-08-23.** It graduated into a pool the protocol does not own and could not own without deploying a different program — that asymmetry, not the fee split, is what retired it. Six lib modules and every user-facing surface removed; a `meteoraRetired` tripwire and rewritten (not deleted) registry entries keep it from quietly returning |
 
 **Two tiers on the Doppler rail** (`LAUNCH_TIERS`): *Flagship* — full dynamic Dutch auction,
@@ -493,6 +493,14 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   the rail really did exist, because a retired rail that leaves no trace is how a future
   session re-adds it.
 - 🔴 **Our own two programs were deployed on 2026-08-08 and closed on 2026-08-13.**
+  The **program ids** are `CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (`tegridy-launch`)
+  and `3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y` (the cp-swap fork). Their **ProgramData**
+  accounts — `6vV7DqMyGwpM18rf2Lkefa1U9YfKquZjvwA61ch3FsnS` and
+  `6TnZb1GTHhPAYsrbtwfELkqQrXyqCfv7V6s27RJKXHAF` — return `null` at 0 lamports on two
+  independent RPCs. **Those are four different addresses and it matters which is which:** a
+  redeploy needs a fresh program id, a new `declare_id!`, and re-derivation of every PDA the
+  fork owns. `global` (`7hrjMjYx…`) is stranded — 723 bytes holding 5,922,960 lamports of rent,
+  owned by a program that can never execute again, so nobody can sign for it or close it.
   `tegridy_launch` went live at `CpFnacr…hzED` with its on-chain bytecode sha256 **matching
   the CI artifact it was built from** (dumped back off mainnet and compared, not assumed),
   and the vendored `raydium-cp-swap` fork alongside it. Both were then closed: **ProgramData
@@ -689,7 +697,7 @@ Tegridy Farms treats its own custom code as a known-risk attack surface: the sta
   - **2026-08-30** — a 45-agent island gap scan, which caught a shipped EIP-55 defect within the hour of it landing.
   - **2026-09-03** — a four-lane review sweep (53 findings survived verification; 50 fixed, 3 declined with reasons) and an external field review of the live site (**20 findings, 9 of them misdiagnosed**).
   Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
-- **One external review** (Spartan, [`SPARTAN_AUDIT.txt`](SPARTAN_AUDIT.txt)) has been done.
+- **One review to an external methodology** (Spartan, [`SPARTAN_AUDIT.txt`](SPARTAN_AUDIT.txt)) has been done. Its own Appendix C says who wrote it: "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner." The *methodology* is external; the *reviewer* was not. It is not a third-party audit and this README does not claim it as one.
 - **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Gated surfaces each get a dedicated audit wave before they deploy.
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
 
@@ -872,8 +880,12 @@ the single operator entry point is [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.
   tested but undeployed; adoption needs a Whetstone module whitelist plus a timelocked hook
   allowance. Until then `TEGRIDY_V4_MIGRATOR_ADDRESS` stays `0x0` and launches graduate
   through Doppler's own migrator.
-- **`LockerClaimer` adoption** — the small contract that would let the launcher's fee line
-  reach TOWELI stakers instead of resting in the treasury. Deployed, wired to nothing.
+- **`LockerClaimer` adoption.** The contract **is** deployed and Etherscan-verified at
+  [`0xD2Ac3dC1…`](https://etherscan.io/address/0xd2ac3dc13c6fd09855f0e4a077826983aa66e6c7#code)
+  (2026-08-01, deployed by hand — which is why there is no broadcast receipt). What is still
+  outstanding is **adoption**: no launch has routed its fee line through it yet. *(This README
+  said "written and tested, wired to nothing" until 2026-09-02, contradicting itself a few
+  hundred lines further up.)*
 - **Deploy what is built and dormant:** the airdrop/vesting rails, the ERC-4626
   auto-compounder, the staking-position market, the rug-refund escrow, the anti-snipe fee,
   and `TegridyRestaking` (its EIP-170 split executed 2026-08-19).

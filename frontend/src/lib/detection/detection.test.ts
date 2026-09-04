@@ -223,6 +223,68 @@ describe('weakest-link hard-fact gate', () => {
 });
 
 // ── DATA-CONFIDENCE flag (separate from band) ─────────────────────────────────
+// ── AUDIT TF-024 / TF-025: a guess must not be able to forge the verdict ─────
+//
+// The `contract` label is the only EXCLUDED classification this codebase marks
+// `confidence: 'low'` / `source: 'heuristic'` — nothing claimed the address, it
+// just has code. Excluding removes the holder from the denominator every other
+// number is computed against, so before these fixes the cheapest possible
+// action (deploy a bare contract, park the supply in it) turned the strongest
+// signal this scanner emits — "Well-distributed", "High confidence" — into a
+// lie. Both tests assert the OUTCOME a user reads, not an internal field.
+describe('supply parked in an unlabeled contract cannot forge a clean read', () => {
+  const tail = (n: number, each: bigint) =>
+    Array.from({ length: n }, (_, i) => ({
+      address: `0x${(i + 1).toString(16).padStart(40, '0')}`,
+      balance: each,
+    }));
+
+  it('TF-024: a dominant unlabeled contract is KEPT, so the band still reads concentrated', () => {
+    // 99% in an attacker-controlled contract, 1% spread over 60 fresh EOAs.
+    const holders: RawHolder[] = [
+      { address: '0xPARK', balance: 5940n, isContract: true },
+      ...tail(60, 1n),
+    ];
+    const r = analyzeDistribution({
+      holders,
+      launch: { bundlesResolved: true, snipersResolved: true },
+      observedAt: 1_700_000_000,
+    });
+    expect(r.band).toBe('concentrated');
+  });
+
+  it('TF-025: a large-but-not-dominant unlabeled contract floors confidence', () => {
+    // 40% parked — below the TF-024 keep-cap, so it is still excluded, but far
+    // too much supply to have set aside on a guess and still claim High.
+    const holders: RawHolder[] = [
+      { address: '0xPARK', balance: 4000n, isContract: true },
+      ...tail(60, 100n),
+    ];
+    const r = analyzeDistribution({
+      holders,
+      launch: { bundlesResolved: true, snipersResolved: true },
+      observedAt: 1_700_000_000,
+    });
+    expect(r.confidence.level).not.toBe('high');
+    expect(r.confidence.reasons.join(' ')).toMatch(/heuristic/i);
+  });
+
+  it('a LABELED pool of the same size is unaffected — evidence is not a guess', () => {
+    // Non-vacuity, and the line that keeps the fix honest: an address a label
+    // source actually named still gets excluded without denting confidence.
+    const holders: RawHolder[] = [
+      { address: '0xPOOL', balance: 4000n, isContract: true, label: 'lp' },
+      ...tail(60, 100n),
+    ];
+    const r = analyzeDistribution({
+      holders,
+      launch: { bundlesResolved: true, snipersResolved: true },
+      observedAt: 1_700_000_000,
+    });
+    expect(r.confidence.reasons.join(' ')).not.toMatch(/heuristic/i);
+  });
+});
+
 describe('data-confidence flag', () => {
   it('too few holders ⇒ low confidence (band unaffected)', () => {
     const r = analyzeDistribution({ holders: eqHolders(3), observedAt: 1_700_000_000 });

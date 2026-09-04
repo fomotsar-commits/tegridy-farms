@@ -377,6 +377,21 @@ contract TegridyV4HookAdmin is OwnableNoRenounce, TimelockAdmin {
             pendingPoolAllowed = false;
             emit PoolAllowChangeCancelled();
         }
+        // AUDIT FIX TF-018: the STANDING initializer grant was the one key this
+        // flush missed, and it is the broadest key the queue can hold — an
+        // allowed initializer can open pools behind this hook without any
+        // per-pool approval. The docstring above promises acceptOwnership
+        // leaves a CLEAN queue, so an incoming owner has no reason to go
+        // looking; a matured grant armed by the outgoing owner would have
+        // survived the handoff and stayed executable inside its validity
+        // window. Body copied verbatim from cancelInitializerAllowed (:237-243).
+        if (_executeAfter[INITIALIZER_ALLOW_CHANGE] != 0) {
+            _cancel(INITIALIZER_ALLOW_CHANGE);
+            address staleInitializer = pendingInitializer;
+            pendingInitializer = address(0);
+            pendingInitializerAllowed = false;
+            emit InitializerAllowChangeCancelled(staleInitializer);
+        }
         if (_executeAfter[DISCOUNT_CONFIG_CHANGE] != 0) {
             _cancel(DISCOUNT_CONFIG_CHANGE);
             pendingPremiumAccess = address(0);

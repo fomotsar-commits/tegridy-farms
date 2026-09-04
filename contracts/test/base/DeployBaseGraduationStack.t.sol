@@ -122,6 +122,38 @@ contract DeployBaseGraduationStackTest is Test {
         assertEq(TegridyV4HookAdmin(d.hookAdmin).pendingOwner(), address(multisig), "admin offered two-step");
     }
 
+    // AUDIT TF-018. `acceptOwnership` promises a CLEAN queue on handoff, and it
+    // flushed seven timelock keys while missing the eighth — INITIALIZER_ALLOW_
+    // CHANGE, which is the broadest key the queue can hold: an allowed
+    // initializer opens pools behind this hook with no per-pool approval. An
+    // outgoing owner could arm it, hand over, and the grant would survive into
+    // the new owner's tenure, executable inside its validity window, with the
+    // new owner told the queue was clean.
+    function test_HandoffFlushesTheStandingInitializerGrant() public {
+        DeployBaseGraduationStackScript.Deployed memory d = _run();
+        TegridyV4HookAdmin admin = TegridyV4HookAdmin(d.hookAdmin);
+
+        // The outgoing owner (the deploy script contract) arms the broadest
+        // grant there is.
+        address attacker = address(0xBADBEEF);
+        vm.prank(admin.owner());
+        admin.proposeInitializerAllowed(attacker, true);
+        assertEq(admin.pendingInitializer(), attacker, "setup: grant is armed");
+
+        vm.prank(address(multisig));
+        admin.acceptOwnership();
+
+        // THE INVARIANT: nothing armed survives the handoff.
+        assertEq(admin.pendingInitializer(), address(0), "a standing initializer grant survived the handoff");
+        assertEq(admin.pendingInitializerAllowed(), false, "the grant's flag survived the handoff");
+
+        // And it is not merely un-named — it is un-executable.
+        vm.warp(block.timestamp + 365 days);
+        vm.prank(address(multisig));
+        vm.expectRevert();
+        admin.executeInitializerAllowed();
+    }
+
     function test_AdminCeremonyCompletes() public {
         DeployBaseGraduationStackScript.Deployed memory d = _run();
 
