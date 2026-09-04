@@ -771,6 +771,21 @@ purpose because they spend).
 - ⛔ **The decaying-fee hook's owner is set in the constructor**, because the deploy script mines a
   CREATE2 address over the constructor args. Decide the owner *before* deploying — rotating
   afterwards changes the address and invalidates the mine.
+- ⛔ **The decaying-fee hook's pool must be opened by the owner Safe ITSELF**, and steps 1-3 must
+  go as ONE MultiSend batch: `configurePool` → `poolManager.initialize` → mint the launch
+  position. `DecayingFeeHook._afterInitialize` (`contracts/src/v4/DecayingFeeHook.sol`) compares
+  v4's `sender` against `owner()`, and v4 sets `sender` to whoever **called** `initialize`
+  (`Hooks.sol:190` encodes `msg.sender`). So `PositionManager.multicall([initializePool, mint])`
+  arrives as the *router* and is rejected — and v4-periphery's `PoolInitializer_v4` wraps that
+  call in `try/catch`, returning `type(int24).max` on any revert, so **the failure is silent**:
+  nothing surfaces, the pool simply is not open, and the `mint` leg then fails against a pool that
+  does not exist. Batching also closes a real front-run: `configurePool` publishes the exact
+  `PoolKey` in its calldata, so a separate later `initialize` lets whoever gets there first choose
+  the opening price and start the decay clock. There is no operator lever to relax the check and
+  there is not meant to be — that check is what stops the front-run entirely. It fails CLOSED (no
+  pool, no clock, no funds moved), which is the opposite of the pre-fix behaviour. *(Graduation is
+  unaffected: `TegridyLiquidityMigrator` carries `TegridyV4Hook`, whose `allowedInitializers`
+  grant already covers the migrator.)*
 - ⛔ **`TegridyLending` must not deploy before the TWAP is warm.** Origination calls
   `_assertSpotWithinTWAP` against an oracle with zero observations; it would revert on every
   valuation. That needs the pool deepen first.
