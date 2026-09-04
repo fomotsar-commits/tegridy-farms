@@ -226,10 +226,24 @@ export function classifyCallerCredit(reading) {
   // This is the conjunction that actually warrants waking someone: the pull would
   // succeed AND it recovers more than it costs.
   //
-  // NULL, NOT FALSE, when the economics could not be computed. Rule 1 applies here as
-  // much as anywhere - "we could not price it" must never render as "not worth it",
-  // because those two produce opposite operator behaviour and only one of them is a fact.
-  const worthPulling = economics === null ? null : (pullable && economics.worthIt);
+  // NULL, NOT FALSE, on EITHER kind of ignorance. Rule 1 applies here as much as
+  // anywhere - "we could not tell" must never render as "not worth it", because those
+  // two produce opposite operator behaviour and only one of them is a fact.
+  //
+  // Two distinct ways of not knowing, and BOTH have to produce null:
+  //   - `economics === null`        we could not price the pull
+  //   - `unreadableGuards.length`   we could not tell whether the pull would even work
+  //
+  // The second is the subtle one, and getting it wrong inverts the sign on exactly the
+  // trap the Rule 1 note above describes. `pullable` is
+  // `... && unreadableGuards.length === 0`, so an unreadable `paused()` makes `pullable`
+  // FALSE - correctly, because we cannot claim it is available. But feeding that
+  // straight into a conjunction would publish a confident `worthPulling: false`,
+  // i.e. "do not bother", built out of "we do not know". An outage would read as a
+  // reason to stand down.
+  const worthPulling = (economics === null || unreadableGuards.length > 0)
+    ? null
+    : (pullable && economics.worthIt);
 
   // RULE 3. The epoch claim is arithmetic, not a slogan.
   let opensEpoch = null;

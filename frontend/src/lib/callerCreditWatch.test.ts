@@ -477,6 +477,22 @@ describe('worthPulling is the only fact that should ever wake somebody', () => {
     expect(c.worthPulling).not.toBe(false);
   });
 
+  // THE INVERTED SIGN. `pullable` is `... && unreadableGuards.length === 0`, so an
+  // unreadable guard makes it FALSE - correctly, since we cannot claim the pull is
+  // available. Feeding that straight into a conjunction would publish a confident
+  // "not worth pulling" assembled out of "we could not tell", and an RPC outage would
+  // read to an operator as a reason to stand down. This is the same coercion the Rule 1
+  // note at the top of caller-credit.mjs describes, pointed the other way.
+  it('is null when a GUARD was unreadable, even though the pull is priceable', () => {
+    const c = classifyCallerCredit(reading({ routerPaused: null }));
+    expect(c.unreadableGuards.length).toBeGreaterThan(0);
+    expect(c.economics).not.toBeNull();   // we COULD price it
+    expect(c.pullable).toBe(false);       // but cannot claim it is available
+    expect(c.worthPulling).toBeNull();    // so we must not claim it is not worth doing
+    expect(c.worthPulling).not.toBe(false);
+    expect(renderGithubOutput(c)).toContain('stranded_worth_pulling=unknown');
+  });
+
   it('renders as unknown in GITHUB_OUTPUT rather than as a confident false', () => {
     const unknown = renderGithubOutput(classifyCallerCredit(reading({ gasEstimate: null })));
     expect(unknown).toContain('stranded_worth_pulling=unknown');
