@@ -1,4 +1,5 @@
-// Season scoring, and the wash-trade rule stated in full.
+// Season scoring: the indexer's swap rows, adapted onto the shared round-trip
+// rule in legs.ts, plus the sentences the surfaces render.
 //
 // ─── THE RULE ────────────────────────────────────────────────────────────────
 //
@@ -16,6 +17,26 @@
 //      removed. A round trip moves no position and its only effect on a
 //      volume board is the one the board must not reward.
 //
+// ─── NATIVE ETH AND WETH ARE ONE SIDE ────────────────────────────────────────
+//
+// SwapFeeRouter emits `address(0)` for the ETH leg of a native swap
+// (contracts/src/SwapFeeRouter.sol:720 and :920 for ETH in, :790 and :983 for
+// ETH out) and the real WETH address on its wrapped path (:837, :1047). Read
+// literally, that made a WETH season blind to its own dominant path: an ETH-in
+// buy spent "0x000…0", which is not the quote token, so it scored zero — and
+// worse, an ETH-in buy followed by a sell back to WETH was keyed on two
+// different pair strings, so the two halves of an obvious round trip never met
+// and BOTH counted.
+//
+// `canonicalSide` folds the sentinel onto the quote token, and it is applied to
+// the pair key as well as to the count. Doing only the count is the trap: the
+// ETH leg starts scoring while the wash rule still cannot see the round trip,
+// which is strictly worse than before.
+//
+// The alias is GATED on the season's quote actually being mainnet WETH.
+// `address(0)` is an event sentinel meaning "the chain's native asset", not a
+// registered token, and a season quoted in anything else must not absorb it.
+//
 // ─── AND WHAT THE RULE DOES NOT CATCH ────────────────────────────────────────
 //
 // Saying "wash-trade resistant" without saying where the resistance ends is the
@@ -31,21 +52,38 @@
 //     Widening the window would start erasing real trading instead.
 
 import type { IndexedSwap } from '../indexer/queries';
+import { rankLegs, washedLegIndices, WASH_WINDOW_SECONDS, type Leg } from './legs';
 import type { Season } from './season';
 
+export { WASH_WINDOW_SECONDS };
+
 /**
- * How long a reversal still counts as the same round trip, in seconds.
+ * The `address(0)` the router emits for a native-ETH leg.
  *
- * One hour. Short enough that a position held across a session and exited later
- * is treated as trading rather than as a wash; long enough that the obvious
- * pattern — buy and sell back within a few blocks, repeated — is removed on both
- * legs. There is no value here that separates the two cases perfectly, which is
- * why the limit is disclosed rather than tuned quietly.
+ * Not a token and never treated as one outside `canonicalSide`: it is the
+ * event's way of saying "this side was the chain's own asset".
  */
-export const WASH_WINDOW_SECONDS = 3600;
+export const NATIVE_SENTINEL = '0x0000000000000000000000000000000000000000';
+
+/** Mainnet WETH, lowercased. The one quote whose native sentinel is an alias. */
+const WETH_MAINNET = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+
+/**
+ * The side a token belongs to for one season, lowercased.
+ *
+ * Everything is lowercased here because the indexer's rows are EVM hex and hex
+ * is case-insensitive. This function is the ONLY place that decision is taken
+ * for this source — the shared rule in legs.ts re-cases nothing.
+ */
+export function canonicalSide(token: string, season: Season): string {
+  const lower = token.toLowerCase();
+  if (lower !== NATIVE_SENTINEL) return lower;
+  const quote = season.quoteToken.toLowerCase();
+  return quote === WETH_MAINNET ? quote : lower;
+}
 
 export const RESISTANCE_RULE =
-  'A swap and its reversal by the same wallet on the same token pair within one hour are both struck from the score. Selling back what you just bought moves no position, so it earns nothing here.';
+  'A swap and its reversal by the same wallet on the same token pair within one hour are both struck from the score. Selling back what you just bought moves no position, so it earns nothing here. Native ETH and WETH count as the same side, so a buy paid in ETH and a sell back to WETH is still a round trip.';
 
 export const RESISTANCE_LIMITS =
   'Two limits, stated because a resistance claim without them is worse than none. One person using two wallets to trade against each other is not detectable from this data — an indexed swap records the trader and the router, never a counterparty. And a round trip slower than an hour is left alone, because it cannot be told apart from a position that was genuinely held.';
@@ -86,62 +124,42 @@ export const TRUNCATED_NOTICE =
   'The read filled its page before covering the whole season, so these are partial totals over the newest slice of it. The ranking is provisional and a competitor missing from it has not been shown to be absent.';
 
 /**
+ * One indexed swap as a `Leg`.
+ *
+ * This is the whole of the indexer's dialect: wallets are EVM hex so they are
+ * lowercased HERE (never inside the rule), the native sentinel is folded onto
+ * the quote, and the unordered pair key is built from the canonical sides so
+ * that a buy and its reversal produce the same key with opposite directions.
+ *
+ * `id` is the indexer's own row id, which is unique per log — the leg does not
+ * need to invent one.
+ */
+export function swapToLeg(swap: IndexedSwap, season: Season): Leg {
+  const tokenIn = canonicalSide(swap.tokenIn, season);
+  const tokenOut = canonicalSide(swap.tokenOut, season);
+  const low = tokenIn < tokenOut ? tokenIn : tokenOut;
+  const high = tokenIn < tokenOut ? tokenOut : tokenIn;
+  return {
+    id: swap.id,
+    wallet: swap.user.toLowerCase(),
+    pairKey: `${low}|${high}`,
+    direction: tokenIn === low ? 'a>b' : 'b>a',
+    amount: swap.amountIn,
+    counted: tokenIn === season.quoteToken.toLowerCase(),
+    at: Number(swap.timestamp),
+    txHash: swap.txHash,
+  };
+}
+
+/**
  * Indices of the swaps struck by the round-trip rule.
  *
- * Separated from the aggregation so the rule can be tested on its own: the
- * question "would this wallet's self-reversal climb the board" has one answer
- * and it must not depend on how a total is later summed.
- *
- * Greedy and oldest-first per wallet. Each leg is consumed once, so three buys
- * followed by one sell strike exactly one buy — the other two are open positions
- * and remain real volume.
+ * Takes the season because the native-ETH alias is season-dependent: the same
+ * two swaps are a round trip under a WETH season and two unrelated trades under
+ * any other.
  */
-export function washedIndices(swaps: readonly IndexedSwap[]): Set<number> {
-  const ordered = swaps
-    .map((swap, index) => ({ swap, index }))
-    .sort((a, b) => Number(a.swap.timestamp - b.swap.timestamp) || a.index - b.index);
-
-  const struck = new Set<number>();
-  // wallet → "tokenIn>tokenOut" → indices of legs still open, oldest first.
-  const open = new Map<string, Map<string, { index: number; at: number }[]>>();
-
-  for (const { swap, index } of ordered) {
-    const wallet = swap.user.toLowerCase();
-    const tokenIn = swap.tokenIn.toLowerCase();
-    const tokenOut = swap.tokenOut.toLowerCase();
-    const at = Number(swap.timestamp);
-
-    let byPair = open.get(wallet);
-    if (!byPair) {
-      byPair = new Map();
-      open.set(wallet, byPair);
-    }
-
-    const reverseKey = `${tokenOut}>${tokenIn}`;
-    const queue = byPair.get(reverseKey);
-    let matched = false;
-    if (queue) {
-      // Oldest first: entries older than the window can never match anything
-      // later either, so they are dropped as they are passed rather than
-      // re-scanned on every subsequent swap.
-      while (queue.length > 0 && at - queue[0]!.at > WASH_WINDOW_SECONDS) queue.shift();
-      const partner = queue.shift();
-      if (partner) {
-        struck.add(partner.index);
-        struck.add(index);
-        matched = true;
-      }
-    }
-
-    if (!matched) {
-      const ownKey = `${tokenIn}>${tokenOut}`;
-      const ownQueue = byPair.get(ownKey) ?? [];
-      ownQueue.push({ index, at });
-      byPair.set(ownKey, ownQueue);
-    }
-  }
-
-  return struck;
+export function washedIndices(swaps: readonly IndexedSwap[], season: Season): Set<number> {
+  return washedLegIndices(swaps.map((swap) => swapToLeg(swap, season)));
 }
 
 export interface ScoreOptions {
@@ -150,56 +168,21 @@ export interface ScoreOptions {
 }
 
 export function scoreSeason(swaps: readonly IndexedSwap[], opts: ScoreOptions): Standings {
-  const quoteToken = opts.season.quoteToken.toLowerCase();
-  const struck = washedIndices(swaps);
-
-  const byWallet = new Map<string, CompetitorRow>();
-  let from: bigint | null = null;
-  let to: bigint | null = null;
-
-  swaps.forEach((swap, index) => {
-    const wallet = swap.user.toLowerCase();
-    if (from === null || swap.timestamp < from) from = swap.timestamp;
-    if (to === null || swap.timestamp > to) to = swap.timestamp;
-
-    let row = byWallet.get(wallet);
-    if (!row) {
-      row = {
-        wallet,
-        countedVolume: 0n,
-        countedTrades: 0,
-        washedLegs: 0,
-        offQuoteTrades: 0,
-        lastTradeAt: swap.timestamp,
-      };
-      byWallet.set(wallet, row);
-    }
-    if (swap.timestamp > row.lastTradeAt) row.lastTradeAt = swap.timestamp;
-
-    if (struck.has(index)) {
-      row.washedLegs += 1;
-      return;
-    }
-    if (swap.tokenIn.toLowerCase() === quoteToken) {
-      row.countedVolume += swap.amountIn;
-      row.countedTrades += 1;
-    } else {
-      row.offQuoteTrades += 1;
-    }
-  });
-
-  const rows = [...byWallet.values()].sort((a, b) => {
-    if (a.countedVolume !== b.countedVolume) return a.countedVolume > b.countedVolume ? -1 : 1;
-    if (a.countedTrades !== b.countedTrades) return b.countedTrades - a.countedTrades;
-    return a.wallet < b.wallet ? -1 : a.wallet > b.wallet ? 1 : 0;
-  });
+  const ranked = rankLegs(swaps.map((swap) => swapToLeg(swap, opts.season)));
 
   return {
     season: opts.season,
-    rows,
-    swapsRead: swaps.length,
-    washedLegs: struck.size,
+    rows: ranked.rows.map((row) => ({
+      wallet: row.wallet,
+      countedVolume: row.countedVolume,
+      countedTrades: row.countedTrades,
+      washedLegs: row.washedLegs,
+      offQuoteTrades: row.uncountedTrades,
+      lastTradeAt: BigInt(row.lastTradeAt),
+    })),
+    swapsRead: ranked.legsRead,
+    washedLegs: ranked.washedLegs,
     truncated: opts.truncated,
-    window: from !== null && to !== null ? { from, to } : null,
+    window: ranked.window ? { from: BigInt(ranked.window.from), to: BigInt(ranked.window.to) } : null,
   };
 }

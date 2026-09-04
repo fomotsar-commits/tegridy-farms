@@ -13,9 +13,28 @@ import {
 } from './constants';
 import { isSolanaSwapLive } from './solana';
 import { getActiveBungalow } from './bungalows';
-import { isIndexerConfigured } from './indexer/client';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
+// The four predicates below replaced `isIndexerConfigured` on their entries when
+// those surfaces stopped depending on the unhosted Ponder indexer. Each is pure,
+// side-effect-free at import, and reads config this build already carries — a
+// registry market, a registered island pool, a verified settlement asset — so a
+// pill can still be a computed fact rather than a literal. See each entry.
+//
+// `isIndexerConfigured` is deliberately NO LONGER IMPORTED HERE, and its absence is
+// the summary of this change-set: as of 2026-09-02 not one nav entry is keyed to
+// VITE_INDEXER_URL. Six surfaces used to be — /terminal, /chart, /copy-trading,
+// /competitions and /tax read that one unset variable and every one of them showed
+// a visitor an amber SOON. The indexer is still unhosted; those pages simply stopped
+// depending on it, and now read rails this build already carries. It survives inside
+// `hasScoreableBoard()` (an indexer season is one of two ways a board can exist) and
+// inside the pages themselves, where an outage can be described in words instead of
+// being compressed into a pill. If you re-add the import, you are re-coupling the
+// menu to a service nobody hosts — read the entry comments below first.
+import { hasChartableMarket } from './chart/markets';
+import { hasCopyTapeSource } from './copytrade/tape';
+import { hasScoreableBoard } from './competitions/availability';
+import { hasPaymentLinkChain } from './commerce/settleTokens';
 
 export interface NavItem {
   to: string;
@@ -132,7 +151,7 @@ export const PRIMARY_NAV: NavItem[] = [
 
 /** Tradermigos link — right-aligned action, separate from primary nav. Swapped
  *  in from the dropdown so the art gallery is promoted to the top bar. */
-export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Tradermigos' };
+export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Marketplace' };
 
 export interface NavSection {
   heading: string;
@@ -153,7 +172,20 @@ export interface NavSection {
  */
 export const MORE_NAV_SECTIONS: NavSection[] = [
   {
-    heading: 'Engage',
+    // SPLIT FROM ONE 14-ITEM "Engage" SECTION, 2026-09-03.
+    //
+    // "Engage" was a catch-all mixing four unrelated jobs — discovering the
+    // venue, trading on it, launching a token, and earning from it — under a
+    // heading that described none of them. A newcomer scanning for "where do I
+    // buy" had to read fourteen labels to find out it was the fourth one.
+    //
+    // NOTHING MOVED. Not one `to`, not one `label`, not one gating expression,
+    // not one comment: the source order was already almost job-grouped, so this
+    // is three inserted section boundaries and nothing else. That matters here
+    // — this repo's e2e specs pin nav LABELS and have gone red twice on rename
+    // waves, so a regrouping that renames nothing carries none of that risk.
+    // (Checked before doing it: no test asserts on these headings.)
+    heading: 'Discover',
     items: [
       // Community is gated on COMMUNITY_LIVE. 🔄 2026-08-12: the old note here
       // said all four governance contracts were "zeroed" and the page was
@@ -164,7 +196,12 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // PROMOTE_PENDING, not by COMMUNITY_ADDRESSES_LIVE (which is false).
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       { to: '/gallery',     label: 'Gallery' },
-      { to: '/leaderboard', label: 'Tegridy Score' },
+      { to: '/leaderboard', label: 'Venue Score' },
+    ],
+  },
+  {
+    heading: 'Trade',
+    items: [
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
       // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
       // is a live chain probe of the venue's status, so while the program is
@@ -175,6 +212,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // "Soon" pill self-clears — the flag drives it, so this entry stays honest
       // either way: while gated, /launch renders the SOON wall + LauncherExplainer
       // rather than a dead link.
+    ],
+  },
+  {
+    heading: 'Launch',
+    items: [
       { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
       // ── /solana-launch REMOVED 2026-08-23 ────────────────────────────────
       // The Meteora DBC leg lived here. It was retired because it graduated into
@@ -193,10 +235,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // the program id rather than from a flag. No flag drives this one because
       // there is nothing to flip — a deploy is what changes it, and the page
       // picks that up on its own.
-      // 2026-08-28: renamed from the bare "Tegridy Curve" — the dead Solana
+      // 2026-08-28: renamed from the bare "Memetics Curve" — the dead Solana
       // rail owned the flagship's plain name while the LIVE EVM curve carried
-      // the qualifier, so the menu read "Tegridy Curve — Soon" first.
-      // ARRIVAL IDENTITY 2026-08-31: "Tegridy Curve" -> "Memetics Curve" on the
+      // the qualifier, so the menu read "Memetics Curve — Soon" first.
+      // ARRIVAL IDENTITY 2026-08-31: "Memetics Curve" -> "Memetics Curve" on the
       // owner's call, so nothing outside the TOWELI bungalow speaks Tegridy.
       // DISPLAY NAME ONLY — the route and the TegridyCurveLauncher contract are
       // unchanged. The two lines above are HISTORY and keep the old name on
@@ -219,8 +261,10 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // navConfig.test.ts pins), and the link this page mints is `/?ref=0x…`, which
       // resolves in the visitor's browser with no server, no database and no migration.
       //
-      // Contrast /alerts directly above, which IS pilled: nothing there can be saved at
-      // all until `016_alert_rules.sql` is applied. The comparable dependency here —
+      // Contrast /curve-launch above, which IS pilled and cannot self-clear: its Solana
+      // program is deployed on no cluster, so no flag or config can make it launchable.
+      // (/yield used to be the example here and no longer is — it now carries verified
+      // deposit addresses and its pill cleared.) The comparable dependency here —
       // `019_referral_codes.sql` — buys only the shorter `/?r=code` form, so its absence
       // degrades one optional affordance instead of the feature. Pilling this entry
       // would tell a visitor the referral programme is not live when it is paying.
@@ -228,59 +272,99 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // What is NOT promised by this entry, and must not be added to it: whether a
       // PARTICULAR wallet earns. That depends on the splitter's staking threshold, is a
       // per-wallet on-chain read, and is disclosed on the page above the share controls.
+    ],
+  },
+  {
+    heading: 'Earn',
+    items: [
       { to: '/referrals', label: 'Referrals' },
       // Yield Routing compares THIRD-PARTY liquid staking and stablecoin lending
       // venues. It sits in Engage rather than Stats because what a visitor does here
       // is choose between other people's protocols, which is an action, not a metric
       // about ours.
       //
-      // PILLED, and keyed to the only condition the label is about. The entry names
-      // ROUTING, and `hasRoutableYieldVenue()` is false because every deposit target
-      // in lib/yield/venues.ts is the zero address — so the pill is a computed fact,
-      // not a hardcoded one, and it self-clears the moment an operator wires a
-      // destination. navConfig.test.ts pins the precondition separately so wiring one
-      // fails that assertion first and forces this comment to be re-read.
+      // NO LONGER PILLED, and the expression did not change — what it computes did.
+      // The entry names ROUTING, and `hasRoutableYieldVenue()` reads whether any venue
+      // carries a real, on-chain-verified deposit target. Every one of them used to be
+      // the zero address, so the pill was on; seven now hold the protocol's own
+      // canonical permissionless entry point (Lido submit, Rocket Pool deposit,
+      // ether.fi, Renzo, Aave v3 supply, Compound v3 supply, sUSDS deposit), each
+      // registered in scripts/addresses.json and re-read on chain, so it is off. That
+      // is the pill working exactly as designed — a computed fact that turned over on
+      // its own the moment the destinations became real.
       //
-      // Deliberately NOT keyed to the yield feed. A configured feed with no wired
+      // cbETH deliberately stays unroutable and does NOT hold the pill on: Coinbase
+      // mints it only for its own custody customers, so there is no public contract to
+      // wire, and its row says so instead of offering a button that cannot fire.
+      //
+      // Deliberately NOT keyed to a rate feed. A readable feed with no wired
       // destination is a working comparison table and a router that cannot route,
       // which is exactly the /solana-launch bug — a pill that clears on a flag while
-      // the advertised action stays impossible.
+      // the advertised action stays impossible. Rates are now read on chain anyway;
+      // an unread rate degrades one cell, and never this entry.
       { to: '/yield', label: 'Yield Routing', soon: !hasRoutableYieldVenue() },
-      // Copy Trading and Competitions. Both read the F1 indexer and nothing else, so
-      // both pills are keyed to the one input that decides whether either can do the
-      // thing its label names: VITE_INDEXER_URL. Without it there is no trade history
-      // to follow and no swaps to score, and each page says exactly that instead of
-      // drawing an empty board.
+      // Copy Trading and Competitions. Both were keyed to VITE_INDEXER_URL when the
+      // venue's own Ponder indexer was the only thing either could read. Neither is
+      // any more: both now read the ISLAND TAPE — GeckoTerminal's pool-trade feed for
+      // every bungalow carrying a registered `market`, plus the venue's own TOWELI/WETH
+      // pool. No env var, no key, no proxy: api.geckoterminal.com is already in
+      // connect-src and usePoolTrades already reads this exact URL in production.
       //
-      // Same self-clearing condition as /terminal below, and deliberately NOT a
-      // separate flag: a flag can be true while the feed is unreachable, which is the
-      // state a pill exists to describe rather than to hide.
+      // Both pills are therefore REGISTRY-CONSTANT, the same shape as /eth-curve's
+      // `!isDeployed(...)` above: each clears because a readable pool is REGISTERED,
+      // not because a read succeeded. A failed read is described by the page's own
+      // ledger, which can name the pool that failed and the reason it gave; a pill can
+      // do neither, and one keyed to a live read would flicker SOON during a
+      // third-party outage on pages that still have a follow list, a mirror queue, a
+      // personal record and a season's rules. Feed reachability at render time is
+      // deliberately NOT folded in — the same convention /swap follows, whose pill does
+      // not probe the aggregator.
+      //
+      // The two predicates differ in ONE way worth keeping: `hasScoreableBoard()` is
+      // true if EITHER a resident pool is registered OR an indexer is configured,
+      // because /competitions still offers the router season when one exists.
+      // `hasCopyTapeSource()` is the registry alone. Both return to SOON if every
+      // market is removed from the registry (and, for competitions, no indexer is set).
       //
       // What these entries do NOT promise, and must not be edited to: that a follow
       // executes anything — there is no keeper, so the user places every mirror — or
-      // that a season pays, since no prize pool, escrow or settlement exists. Both
-      // pages state those from the modules that enforce them.
-      { to: '/copy-trading', label: 'Copy Trading', soon: !isIndexerConfigured() },
-      { to: '/competitions', label: 'Competitions', soon: !isIndexerConfigured() },
-      // Merchant checkout. PILLED, AND IT CANNOT SELF-CLEAR — the same shape as
-      // /alerts above and for the same reason: the invoice store lives behind
-      // `021_commerce.sql`, a migration applied BY HAND, so until an operator runs it
-      // every lookup answers 503 `schema-missing`, no invoice can be published, and no
-      // payment link can resolve. Unlike /solana-launch (a flag plus a published config,
-      // both readable in the browser) there is no client-readable signal for "the table
-      // exists": it is a server fact that arrives with the first read. Hence a hardcoded
-      // `true`, like /alerts and /curve-launch, rather than a condition.
+      // that a season pays or ever closes, since no prize pool, escrow or settlement
+      // exists. Both pages state those from the modules that enforce them.
+      { to: '/copy-trading', label: 'Copy Trading', soon: !hasCopyTapeSource() },
+      { to: '/competitions', label: 'Competitions', soon: !hasScoreableBoard() },
+      // Merchant checkout. NOT PILLED since 2026-09-02, and the reason is the same
+      // one that keeps /referrals above unpilled: the thing this entry names now
+      // happens entirely in the browser.
       //
-      // Deliberately NOT keyed to a feature flag. The page's honesty — the exact amount
-      // and exact settlement asset shown before signing, and NO signature offered when
-      // the route cannot guarantee the merchant's amount — is the product, and a flag
-      // would hide the one state it can currently be in.
+      // The invoice is an EIP-712 document the merchant signs with their own wallet
+      // and carries in the link's URL fragment (lib/commerce/paymentLink.ts). The
+      // buyer's browser verifies that signature against the merchant address with
+      // viem, re-reads the settlement token on chain, and signs the exact transfer.
+      // No server, no database, no migration, no account, no env var participates —
+      // so there is nothing a server could fail to answer that could make this pill
+      // lie in either direction.
+      //
+      // `021_commerce.sql` has NOT landed and this entry does not wait for it. What
+      // that migration buys is now only the shorter `/checkout?invoice=` form and the
+      // merchant's claims list, exactly the way `019_referral_codes.sql` buys only
+      // `/?r=code` — its absence degrades one optional affordance instead of the
+      // feature. Pilling this would tell a visitor they cannot be paid here when they
+      // can.
+      //
+      // KEYED TO THE ONE FACT THAT CAN VARY. `hasPaymentLinkChain()` is false when no
+      // served chain has an on-chain-verified, registry-registered settlement asset in
+      // SETTLE_TOKENS_BY_CHAIN — a table that can genuinely be empty, and that extends
+      // itself the day a Base or Robinhood asset is verified and registered.
+      // Deliberately NOT keyed to CONFIGURED_CHAIN_IDS, which viemChains.ts makes
+      // non-empty by construction: a condition that cannot be false is a tautology
+      // wearing a check's clothes. navConfig.test.ts asserts the table contains chain
+      // 1 BEFORE it asserts the pill, so emptying the table fails the precondition
+      // first and forces this comment to be re-read.
       //
       // What this entry does NOT promise, and must not be edited to: that this venue
       // executes the swap leg. lib/aggregator.ts is quote-only here, so the checkout
       // signs the exact transfer and states that step 1 happens on the trade surface.
-      // Remove the pill when 021 is applied — navConfig.test.ts holds you to the reason.
-      { to: '/checkout', label: 'Checkout', soon: true },
+      { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain() },
     ],
   },
   {
@@ -288,17 +372,30 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
-      // Tax reports read the F1 indexer and nothing else, so the pill is keyed to the one
-      // input that decides whether the entry can do the thing it names — build a report
-      // FROM YOUR HISTORY. Without VITE_INDEXER_URL nothing of anyone's history is read
-      // and the whole requested period is a declared gap on the export.
+      // Tax reports no longer read the F1 indexer and nothing else. Ethereum-mainnet
+      // history is read through /api/etherscan — a same-origin serverless function that
+      // ships with every deployment of this repo and allowlists exactly the three account
+      // actions the ledger needs (txlist, txlistinternal, tokentx) — and it returns BOTH
+      // legs of a trade in one transaction, so disposals get real proceeds. That is a REPO
+      // fact, not a deployment flag, so the pill is a concrete `false`.
       //
-      // The paste-your-own-lots path on that page works with no indexer at all and is
-      // genuinely useful, but it is the filer's own records rather than history this
-      // venue read, so it does not clear this pill. Same self-clearing condition as
-      // /terminal and /chart, and deliberately not a separate flag: a flag can be true
-      // while the feed is unreachable, which is the state a pill exists to describe.
-      { to: '/tax', label: 'Tax Reports', soon: !isIndexerConfigured() },
+      // The one input that could make it false is the SERVER-SIDE ETHERSCAN_API_KEY, and
+      // it is not client-readable at nav-render time (this array is built at module
+      // scope). So the honest disclosure lives where the state IS readable: the ledger
+      // status card on /tax names ETHERSCAN_API_KEY and prints the operator step the
+      // moment a read comes back keyless, and every export carries the whole period as a
+      // declared `explorer-unavailable` gap. Same treatment lib/alerts/sources.ts already
+      // gives the identical source (explorer readable: true — a same-origin resource
+      // whose failure is an outage, reported at read time).
+      //
+      // Deliberately NOT a function returning a constant, which is the hardcoded value
+      // wearing a check this list warns about. It is guarded three ways instead:
+      // lib/tax/rails.test.ts parses api/etherscan.js for the three actions and asserts
+      // the page-level disclosure exists, navConfig.test.ts pins the concrete false AND
+      // that stubbing isIndexerConfigured() either way leaves it unchanged, and
+      // TaxPage.test.tsx renders the keyless copy. The indexer is now optional
+      // enrichment and does not decide this pill.
+      { to: '/tax', label: 'Tax Reports', soon: false },
     ],
   },
   // The three detection surfaces are the protocol's one genuine differentiator and
@@ -316,42 +413,65 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // pasted address. It sits here rather than beside Trade because the feed is
       // the delivery mechanism and the safety read is the product.
       //
-      // The pill answers the one question the others answer — can I do the thing
-      // this entry names? — and it is keyed to the only input that decides:
-      // VITE_INDEXER_URL. Without it there is no pair feed to discover anything
-      // in, and the page says exactly that instead of drawing an empty table. No
-      // separate flag, because a flag could be set true while the feed stays
-      // unreachable, which is the state this pill exists to describe.
-      { to: '/terminal', label: 'Pro Terminal', soon: !isIndexerConfigured() },
-      // Pro Charting reads the SAME indexer as the terminal above — candles are
-      // derived from its `pair_event` swap rows — so it sits beside it rather
-      // than beside Trade, and its pill is keyed to the identical input for the
-      // identical reason. Two entries pilled by one condition is correct here:
-      // VITE_INDEXER_URL is the single fact that decides whether either surface
-      // can read anything, and pilling only one of them would suggest the other
-      // has a data path it does not have.
-      { to: '/chart', label: 'Pro Charting', soon: !isIndexerConfigured() },
-      // Alerts belongs to this section rather than to Engage or Stats: four of its five
-      // rule kinds watch exactly what the tools above read on demand (whale moves, a
-      // deployer's reputation band, an LP unlock, a launch going live), on ANY token or
-      // wallet. Same subject matter, pushed instead of pulled.
+      // NO PILL, and the absence is the honest answer rather than an oversight.
       //
-      // PILLED, AND IT CANNOT SELF-CLEAR. The pill answers the one question the others
-      // answer — can I do the thing this entry names? — and today the answer is no: the
-      // rule store lives behind `016_alert_rules.sql`, a migration applied BY HAND, so
-      // every alerts call answers 503 `schema-missing` and nothing can be saved. Unlike
-      // /solana-launch (a flag + a published config, both readable here) there is no
-      // client-readable signal for "the table exists": it is a server fact that arrives
-      // with the first read, which is why this is a hardcoded `true` like /curve-launch
-      // rather than a condition. Remove the pill when 016 is applied — see
-      // docs/WHAT_I_NEED_FROM_YOU.md §2.2 — and navConfig.test.ts will hold you to the
-      // reason until you do.
+      // This entry was pilled on `!isIndexerConfigured()` when the page's only feed
+      // was the venue's own Ponder indexer. It is not any more: /terminal's market
+      // feed is a browser-direct read of GeckoTerminal — keyless, on an origin the
+      // CSP already allows (vercel.json connect-src), with no operator step and no
+      // environment variable behind it. It works on every deployment, so a "soon"
+      // pill here would mark a working page as absent.
+      //
+      // And there is nothing else to key one on. The rule wants a pill driven by the
+      // same live read the page gates on; this page's gate is a constant (the
+      // GeckoTerminal source is readable by construction, exactly like the
+      // same-origin entries in lib/alerts/sources.ts). Dressing that constant up as
+      // a live check would be a hardcoded value pretending to self-clear — nothing
+      // in the client can read a CSP header or an upstream's mood. The live signal
+      // is the page's own "The market feed could not be read" banner, reported at
+      // read time, which is where a rate limit or an outage actually shows up.
+      //
+      // The indexer half is STILL a live read, and it gates only the extra
+      // "Venue pairs" TAB, which appears when VITE_INDEXER_URL is set.
+      { to: '/terminal', label: 'Pro Terminal' },
+      // Pro Charting no longer reads the indexer for its primary source. Its data
+      // path is api.geckoterminal.com (CSP: vercel.json connect-src) over the
+      // registry's `market` fields (lib/bungalows.ts) plus TOWELI's own pool, so the
+      // pill reads `hasChartableMarket()` — a client-readable registry fact, the same
+      // discipline as `!isDeployed(CURVE_LAUNCHER_ADDRESS)` above — and returns to
+      // SOON only if every registry market is removed. Runtime outages (429/404) are
+      // the page banner's job; a pill that flickered with a rate limit would be less
+      // honest, not more. In practice the expression is a compile-time constant today,
+      // which is said here rather than dressed up as a live probe. The indexed-swap
+      // panel on that page still self-enables on VITE_INDEXER_URL.
+      { to: '/chart', label: 'Pro Charting', soon: !hasChartableMarket() },
+      // Alerts belongs to this section rather than to Engage or Stats: its rule kinds
+      // watch exactly what the tools above read on demand (a deployer's reputation
+      // band, a launch going live, a wallet's Heat tier, a pool's quoted price), on
+      // ANY token, wallet or pool. Same subject matter, pushed instead of pulled.
+      //
+      // NOT PILLED, and this is the assertion to re-read if that ever changes. The
+      // pill answers one question — can I do the thing this entry names? — and the
+      // answer is yes, unconditionally, in every build: the rule store is this
+      // browser's own localStorage (lib/alerts/ruleStore.ts — no server table, no
+      // session, no env), and the readable rule kinds run on sources that ship with
+      // every deployment (sources.ts hardcodes heat-oracle / launch-radar / explorer /
+      // gecko-pool as readable; venue-lending is readable wherever the NFT-lending
+      // address is deployed).
+      //
+      // It was pilled because the store lived behind `016_alert_rules.sql` AND a SIWE
+      // session this venue has no control for, so nothing could be saved. The store
+      // moved into the browser; 016 now gates only the deferred wallet-SYNC step,
+      // which nothing on the page promises. navConfig.test.ts pins the PRECONDITION
+      // (the store's source contains no `fetch(`) rather than the conclusion, so the
+      // day someone gives this store a server dependency that assertion fails first
+      // and sends them back here.
       //
       // NOTE for a future editor: TradePage's fifth tab is *also* labelled "Alerts"
-      // (internal id 'limit', heading "Limit Order" — a browser-tab price watcher beside
-      // a CoW limit order). It is a different surface and is not in the nav. This entry
-      // is the rule store + inbox at /alerts.
-      { to: '/alerts',   label: 'Alerts', soon: true },
+      // (internal id 'limit', heading "Limit Order" — a browser-tab price watcher
+      // beside a CoW limit order). It is a different surface and is not in the nav.
+      // This entry is the rule store + inbox at /alerts.
+      { to: '/alerts',   label: 'Alerts' },
     ],
   },
 ];

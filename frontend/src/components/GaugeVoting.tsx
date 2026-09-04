@@ -540,12 +540,23 @@ export function GaugeVoting() {
                 {gauges.map((gauge) => {
                   const w = weights[gauge] ?? 0;
                   return (
+                    /* A11Y-R11: the slider had no label of any kind, so every
+                       gauge announced as the same anonymous "slider, 0 to
+                       10000" — and 10000 is basis points, which is not the
+                       number the sighted user is looking at. aria-labelledby
+                       names the gauge, aria-valuetext reads the percentage the
+                       screen shows, and the transparent py-2.5 wrapper lifts a
+                       6px track to a 26px pointer target without repainting it. */
                     <div key={gauge} className="flex items-center gap-3">
-                      <span className="text-[12px] text-white/60 w-28 truncate" title={gauge}>{gaugeLabel(gauge)}</span>
-                      <input type="range" min={0} max={BPS} step={100} value={w}
-                        onChange={(e) => setGaugeWeight(gauge, Number(e.target.value))}
-                        className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer accent-purple-500"
-                        style={{ background: `linear-gradient(to right, rgb(139 92 246) ${(w / BPS) * 100}%, rgba(255,255,255,0.08) ${(w / BPS) * 100}%)` }} />
+                      <span id={`gauge-weight-${gauge}`} className="text-[12px] text-white/60 w-28 truncate" title={gauge}>{gaugeLabel(gauge)}</span>
+                      <div className="flex-1 flex items-center py-2.5">
+                        <input type="range" min={0} max={BPS} step={100} value={w}
+                          aria-labelledby={`gauge-weight-${gauge}`}
+                          aria-valuetext={`${(w / 100).toFixed(0)} percent`}
+                          onChange={(e) => setGaugeWeight(gauge, Number(e.target.value))}
+                          className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-purple-500"
+                          style={{ background: `linear-gradient(to right, rgb(139 92 246) ${(w / BPS) * 100}%, rgba(255,255,255,0.08) ${(w / BPS) * 100}%)` }} />
+                      </div>
                       <span className="text-sm font-medium text-white/80 w-16 text-right">{(w / 100).toFixed(0)}%</span>
                     </div>
                   );

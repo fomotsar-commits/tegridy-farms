@@ -97,6 +97,16 @@ interface ITegridyStakingJbacVault {
 ///         - Transferring the NFT transfers the entire staking position
 ///         - Buyer of an NFT inherits the lock, boost, and rewards
 ///         - This means users can sell their locked position instead of paying the 25% penalty
+// SLITHER 2026-09-04: `locked-ether`. Surfaced for the first time by anchoring
+// `filter_paths` (it was masked while `src/lib/` was silently excluded). The payable
+// functions are Solady's ERC721 `approve` / `transferFrom` / `safeTransferFrom`, which
+// are payable purely as a calldata-gas optimisation upstream - this contract declares no
+// `receive()`, so a plain ETH send reverts, and nothing in the staking flow ever attaches
+// value. Reaching it requires deliberately attaching ETH to an NFT approve/transfer.
+// NOT FIXABLE HERE, and that is why this is a suppression rather than a patch: the
+// contract is live, non-upgradeable, and sits at 24,554 B against the 24,576 B EIP-170
+// ceiling - 22 bytes of headroom, far less than any rescue function costs.
+// slither-disable-next-line locked-ether
 contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
     using SafeTransferLib for address;
     using Checkpoints for Checkpoints.Trace208;

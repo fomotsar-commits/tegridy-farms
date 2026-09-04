@@ -71,7 +71,7 @@ export function zapFeeDisclosure(input: ZapFeeInput): ZapFeeDisclosure {
       label: 'Venue fee',
       value: 'None',
       note:
-        'The swap leg fills on Uniswap, which Tegridy does not host, so the venue takes nothing from it. ' +
+        'The swap leg fills on Uniswap, which the venue does not host, so the venue takes nothing from it. ' +
         `The zap itself adds no fee${policy.enabled ? ', including while the venue swap fee is switched on' : ''}. ` +
         THIRD_PARTY_NOTE,
       unavailable: false,
@@ -84,7 +84,7 @@ export function zapFeeDisclosure(input: ZapFeeInput): ZapFeeDisclosure {
       label: 'Venue fee',
       value: 'Unavailable',
       note:
-        "The swap leg routes through Tegridy's SwapFeeRouter, and its fee could not be read from the chain just " +
+        "The swap leg routes through the venue's SwapFeeRouter, and its fee could not be read from the chain just " +
         'now. That is a missing number, not a zero — refresh before signing if you want it stated. ' +
         THIRD_PARTY_NOTE,
       unavailable: true,
@@ -106,7 +106,7 @@ export function zapFeeDisclosure(input: ZapFeeInput): ZapFeeDisclosure {
     label: 'Venue fee',
     value: formatBpsPct(input.routerFeeBps),
     note:
-      "Taken by Tegridy's SwapFeeRouter on the swap leg, at the rate it reports on-chain. The zap adds nothing " +
+      "Taken by the venue's SwapFeeRouter on the swap leg, at the rate it reports on-chain. The zap adds nothing " +
       `on top of it. ${THIRD_PARTY_NOTE}`,
     unavailable: false,
     addedByZap: 0,

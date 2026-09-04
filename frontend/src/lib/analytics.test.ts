@@ -193,4 +193,43 @@ describe('analytics', () => {
       expect.objectContaining({ message: 'string error' }),
     );
   });
+
+  // PERF-09. The console branch was gated on `IS_DEV || !ENDPOINT`, so a
+  // PRODUCTION build with no VITE_ANALYTICS_ENDPOINT configured printed every
+  // batched event to the visitor's console every ten seconds — swap pairs and
+  // amounts, stake amounts, NFT purchase prices, wallet-connect events. That is
+  // the likely production state, since the env var is optional.
+  //
+  // `IS_DEV` is read once at module scope, so the env has to be stubbed BEFORE
+  // the import; `getModule()` re-imports under `resetModules` from afterEach.
+  describe('a production build with no endpoint says nothing', () => {
+    it('does not print tracked events to the console', async () => {
+      vi.stubEnv('DEV', false);
+      vi.stubEnv('VITE_ANALYTICS_ENDPOINT', '');
+      const { track } = await getModule();
+
+      track('swap_executed', { tokenIn: 'WETH', tokenOut: 'TOWELI', amountIn: '4.2' });
+      vi.advanceTimersByTime(11_000);
+
+      const leaked = (console.log as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: unknown[]) => c[0] === '[analytics]',
+      );
+      expect(leaked).toEqual([]);
+    });
+
+    it('still prints in dev, so the diagnostic is not lost', async () => {
+      vi.stubEnv('DEV', true);
+      vi.stubEnv('VITE_ANALYTICS_ENDPOINT', '');
+      const { track } = await getModule();
+
+      track('swap_executed', { tokenIn: 'WETH', tokenOut: 'TOWELI', amountIn: '4.2' });
+      vi.advanceTimersByTime(11_000);
+
+      expect(console.log).toHaveBeenCalledWith(
+        '[analytics]',
+        'swap_executed',
+        expect.objectContaining({ tokenIn: 'WETH' }),
+      );
+    });
+  });
 });

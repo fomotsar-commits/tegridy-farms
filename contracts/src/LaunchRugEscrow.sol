@@ -669,7 +669,7 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
         // that follows reverts in a way `try` cannot catch, so it must be checked first.
         if (asset.code.length == 0) return (false, 0);
 
-        uint256 live;
+        uint256 live = 0;
         try IERC20(asset).totalSupply() returns (uint256 supply) {
             live = supply;
         } catch {
@@ -682,7 +682,7 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
         uint256 denom = live < snapshot ? live : snapshot;
         if (denom == 0) return (false, 0);
 
-        uint256 held;
+        uint256 held = 0;
         uint256 n = c.holders.length;
         for (uint256 i; i < n; ++i) {
             try IERC20(asset).balanceOf(c.holders[i]) returns (uint256 bal) {

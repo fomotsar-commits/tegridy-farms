@@ -40,6 +40,19 @@ export interface Season {
 export const SETTLEMENT =
   'This is a scoreboard. There is no prize pool, nothing is escrowed, no contract holds funds for it, and no process closes a season — standings are recomputed from indexed history every time this page is read.';
 
+/**
+ * What a season card says when nothing is reading it.
+ *
+ * The status line used to be derived from `Date.now()` alone, so an unhosted
+ * indexer still produced "Counting now. Every figure moves as new swaps are
+ * indexed." — a sentence about a process that was not running, printed with
+ * total confidence because the clock had no idea. A status is now only shown
+ * when a source has reported a head time; otherwise this sentence is, which
+ * says the dates are real and the counting is not.
+ */
+export const SEASON_NO_SOURCE =
+  'These dates are calendar facts. No source in this build is reading this season, so nothing is being counted here.';
+
 export type SeasonStatus = 'upcoming' | 'live' | 'ended';
 
 export function seasonStatus(season: Season, now: number): SeasonStatus {
@@ -50,7 +63,7 @@ export function seasonStatus(season: Season, now: number): SeasonStatus {
 
 export const SEASON_STATUS_TEXT: Record<SeasonStatus, string> = {
   upcoming: 'Has not started. Nothing is being counted yet.',
-  live: 'Counting now. Every figure moves as new swaps are indexed.',
+  live: 'Counting now. Every figure moves as new router swaps are read by the indexer.',
   ended:
     'The dates have passed. Nothing was settled and no result was frozen — this is the same live recomputation, over a window that is now in the past.',
 };
@@ -82,13 +95,13 @@ const DAY = 86_400;
 export const SEASONS: readonly Season[] = [
   {
     id: 'weth-s1',
-    name: 'Season 1 — WETH volume',
+    name: 'Season 1 — ETH/WETH volume',
     // 2026-09-01T00:00:00Z → 2026-09-30T23:59:59Z
     startsAt: 1_788_220_800,
     endsAt: 1_788_220_800 + 30 * DAY - 1,
     quoteToken: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
     blurb:
-      'Volume is WETH spent through the venue router. Round trips that reverse inside the wash window are removed from both sides.',
+      'Volume is ETH or WETH spent through the venue router (native ETH and WETH are one side). Round trips that reverse inside the wash window are removed from both sides.',
   },
 ];
 

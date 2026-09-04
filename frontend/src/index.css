@@ -155,10 +155,11 @@
 }
 
 /* Main content bottom padding for bottom nav + safe area on mobile (#87).
-   F13: the BottomNav hides at `sm:` (≥640px), so the reserved bottom band must
-   end at 639px too — at 640-767px the nav isn't rendered and the old 767px
-   breakpoint left ~80px of dead padding. */
-@media (max-width: 639px) {
+   F13, CORRECTED 2026-09-03: the BottomNav hides at `min-[800px]:` so the
+   reserved bottom band must end at 799px to match. It previously ended at 639px,
+   tracking a BottomNav that hid at 640px — the same boundary that created the
+   640-790px dead band (see TopNav.tsx). Move this only with the other six sites. */
+@media (max-width: 799px) {
   .safe-area-content-bottom {
     padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px)) !important;
   }
@@ -345,6 +346,17 @@ body {
   letter-spacing: 0.02em;
 }
 .badge-primary { background: var(--color-purple-75); color: #000; border: 1px solid var(--color-purple-50); }
+/* CHAIN PILLS — one source of truth for the rail above the fold.
+   A field review read these as "three foreign brand palettes at full
+   saturation". Measured, they are not full saturation (0.75-0.78 alpha) and
+   `.badge` already sets the monospace face the review asked for, so the visual
+   ask was largely already met. The REAL defect it walked past: the Ethereum pill
+   was styled by a class while Solana and Base carried inline hex literals, so
+   the family had no single source and could not be restyled in one place.
+   Same values as the inline versions they replace — this is a move, not a
+   redesign. Change the rail's look here, once. */
+.badge-chain-solana { background: rgba(76,175,80,0.78); color: #000; border: 1px solid var(--color-kyle-40); }
+.badge-chain-base { background: rgba(33,81,245,0.78); color: #fff; border: 1px solid rgba(33,81,245,0.45); }
 .badge-success { background: rgba(49, 208, 170, 0.75); color: #000; }
 .badge-warning { background: rgba(255, 178, 55, 0.75); color: #000; }
 /* ─── Small Label Pill (uppercase labels on art) ─── */
@@ -606,7 +618,9 @@ body,
  *
  * Two bars overlay the scrollport and neither is in flow:
  *   header  .fixed top-0 … z-50            56px tall, every width
- *   nav[aria-label="Main navigation"]      65px tall, below sm: only (sm:hidden)
+ *   nav[aria-label="Main navigation"]      65px tall, below 800px only
+ *                                          (BottomNav, min-[800px]:hidden — was
+ *                                          sm:hidden until 2026-09-03)
  *
  * Nothing reserved room for them on the scroll container, so every scroll-into-view
  * the browser performs — an in-page anchor, a `:target` jump, focus moving to an
@@ -622,7 +636,9 @@ body,
 html {
   scroll-padding-top: 64px;
 }
-@media (max-width: 639px) {
+/* Tracks the BottomNav's own breakpoint (min-[800px]:hidden) — see index.css's
+   safe-area-content-bottom note and TopNav.tsx. */
+@media (max-width: 799px) {
   html {
     scroll-padding-bottom: 80px;
   }
@@ -676,7 +692,16 @@ html {
 /* ─── Luxury Heading ─── */
 .heading-luxury {
   font-family: var(--font-family-heading);
-  font-weight: 700;
+  /* 700 -> 900. The self-hosted Playfair is a VARIABLE face declared
+     `font-weight: 400 900` in public/fonts/fonts.css, so the heavier cut is
+     already in the woff2 we ship and costs nothing: no new file, no new
+     preload, no CSP change. A field review called the display face a "safe
+     default" carrying "no jungle, no venue, no heat" — this is the part of that
+     answerable without adding a font binary, and it gives the headline real
+     presence against the paintings behind it.
+     NOT the family swap the review asked for; see the commit for why that is a
+     separate, owner-sized decision. */
+  font-weight: 900;
   letter-spacing: 0.01em;
   text-shadow: 0 2px 8px rgba(0,0,0,1), 0 0 16px rgba(0,0,0,0.7);
 }

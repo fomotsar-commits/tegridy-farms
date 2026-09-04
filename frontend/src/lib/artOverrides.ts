@@ -227,7 +227,7 @@ export const ART_OVERRIDES: Record<string, ArtOverride> = {
   "lp-farming:1": { artId: "naka31", objectPosition: "50% 26%" },
   "make-offer:0": { artId: "naka05" },
   "nav-drawer:0": { artId: "iph_0161", objectPosition: "50% 78%" },
-  "nav-logo:0": { artId: "bobowelie" },
+  "nav-logo:0": { artId: "island-mark" },
   "nft-detail:0": { artId: "naka11" },
   "nft-finance:0": { artId: "naka02", objectPosition: "50% 21%" },
   "nft-finance:1": { artId: "iph_0169", objectPosition: "50% 35%" },

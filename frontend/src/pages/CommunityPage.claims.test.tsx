@@ -120,7 +120,7 @@ describe('CommunityPage — deployed-but-unwired is not the same as "not live"',
     // page and must still be there.
     renderTab('');
     expect(screen.getByText(/Live now/i)).toBeTruthy();
-    expect(screen.getByText(/Tegridy Score/)).toBeTruthy();
+    expect(screen.getByText(/Venue Score/)).toBeTruthy();
     expect(screen.getByText(/Community chat/)).toBeTruthy();
     expect(screen.getByText(/Gallery/)).toBeTruthy();
     for (const tab of ['Governance', 'Bounties', 'Vote Incentives', 'Gauge Voting']) {

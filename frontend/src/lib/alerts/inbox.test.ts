@@ -12,7 +12,9 @@ import {
   dismiss,
   emptyInbox,
   ingest,
+  ingestWithDelta,
   markAllRead,
+  markDelivered,
   markRead,
   parseInbox,
   serializeInbox,
@@ -51,10 +53,9 @@ function quiet(ruleId = 'r1'): Evaluation {
 }
 
 const LABELS = { r1: 'Transfers of 0x4206…8F9D over $10,000' };
-const CHANNELS = ['in-app' as const];
 
 function ingestOnce(state: InboxState, evaluations: Evaluation[]): InboxState {
-  return ingest(state, { evaluations, ruleLabels: LABELS, channels: CHANNELS });
+  return ingest(state, { evaluations, ruleLabels: LABELS });
 }
 
 describe('a rule that could not be evaluated leaves a mark', () => {
@@ -209,5 +210,70 @@ describe('persistence refuses a half-trusted blob', () => {
       ],
     });
     expect(parseInbox(raw).entries[0]!.channels).toEqual(['in-app']);
+  });
+});
+
+describe('delivery is recorded after it happens, never when it is planned', () => {
+  it('an entry is born carrying in-app and nothing else', () => {
+    // Ingesting IS the in-app delivery, which is what makes it safe to stamp
+    // here. Every other channel is a SEND that can fail, and stamping the plan
+    // would label a row "shown as a browser notification" whose show threw.
+    const state = ingestOnce(emptyInbox(), [fired([event()])]);
+    expect(state.entries[0]!.channels).toEqual(['in-app']);
+  });
+
+  it('markDelivered adds a channel exactly once, and ignores an unknown id', () => {
+    const state = ingestOnce(emptyInbox(), [fired([event()])]);
+    const id = state.entries[0]!.id;
+    const once = markDelivered(state, id, 'web-notification');
+    expect(once.entries[0]!.channels).toEqual(['in-app', 'web-notification']);
+    expect(markDelivered(once, id, 'web-notification')).toBe(once);
+    // An entry evicted between the show and the stamp simply has nothing to
+    // mark; that is not an error worth throwing inside a notification loop.
+    expect(markDelivered(once, 'no-such-id', 'web-notification')).toBe(once);
+  });
+
+  it('ingestWithDelta returns the new EVENT rows, and never a gap', () => {
+    const first = ingestWithDelta(emptyInbox(), {
+      evaluations: [fired([event()]), gap('the indexer is down')],
+      ruleLabels: LABELS,
+    });
+    // Gaps are excluded on purpose: a notification per "could not evaluate" is
+    // how one outage becomes an hour of buzzing.
+    expect(first.added.map((e) => e.kind)).toEqual(['event']);
+    expect(first.state.entries).toHaveLength(2);
+
+    // Re-folding the same pass announces nothing — the guard that stops a 60s
+    // loop re-notifying the same fact forever.
+    const second = ingestWithDelta(first.state, {
+      evaluations: [fired([event()]), gap('the indexer is down')],
+      ruleLabels: LABELS,
+    });
+    expect(second.added).toEqual([]);
+    expect(second.state).toBe(first.state);
+  });
+});
+
+describe('a stored row survives the round trip with what it claims', () => {
+  it('keeps a web-notification stamp and a read-clock time', () => {
+    const state = markDelivered(
+      ingestOnce(emptyInbox(), [fired([event({ observedAtKind: 'read' })])]),
+      'whale-move:r1:0xabc:0',
+      'web-notification',
+    );
+    const parsed = parseInbox(serializeInbox(state));
+    expect(parsed.entries[0]!.channels).toEqual(['in-app', 'web-notification']);
+    expect(parsed.entries[0]!.observedAtKind).toBe('read');
+  });
+
+  it('a row written before observedAtKind existed reads back as a SOURCE time', () => {
+    // Defaulting the other way would relabel every historic row's "as of" as
+    // "read at", which is a claim about provenance nobody made.
+    const raw = JSON.stringify({
+      entries: [
+        { id: 'old', kind: 'event', ruleId: 'r', ruleKind: 'whale-move', title: 't', body: 'b', at: NOW },
+      ],
+    });
+    expect(parseInbox(raw).entries[0]!.observedAtKind).toBe('source');
   });
 });

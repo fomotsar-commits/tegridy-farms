@@ -85,7 +85,20 @@ export function feeConstitutionToBeneficiaries(
   }));
   const sum = beneficiaries.reduce((n, b) => n + b.shares, 0n);
   if (sum !== WAD) throw new Error(`beneficiary shares must sum to 1e18, got ${sum}`);
-  return beneficiaries.sort((a, b) => (a.beneficiary.toLowerCase() < b.beneficiary.toLowerCase() ? -1 : 1));
+  // The comparator MUST return 0 for equal addresses. The old form returned 1 for
+  // both (a<b) and (b<a) when they were equal, which is an INCONSISTENT comparator,
+  // and ECMAScript leaves the sort order implementation-defined when one is used.
+  // That is unobservable until the list contains duplicates — which is exactly the
+  // case TegridyLiquidityMigrator.initialize now relies on, because it merges
+  // duplicate beneficiaries in a single linear pass that assumes equal addresses
+  // land ADJACENT. Spec-wise the old comparator did not guarantee that in the one
+  // situation the merge depends on it, and a list that came back out of order would
+  // now be refused at initialize (the locker refuses it too). One line, no hole.
+  return beneficiaries.sort((a, b) => {
+    const x = a.beneficiary.toLowerCase();
+    const y = b.beneficiary.toLowerCase();
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
 }
 
 export interface TegridyLaunchConfig {

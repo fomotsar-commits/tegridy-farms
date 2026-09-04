@@ -226,6 +226,13 @@ export const REFERRAL_SPLITTER_ABI = [
   { type: 'function', name: 'pendingETH', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getReferralInfo', inputs: [{ name: '_referrer', type: 'address' }], outputs: [{ name: 'referred', type: 'uint256' }, { name: 'earned', type: 'uint256' }, { name: 'pending', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalReferralsPaid', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The referrer's cut, taken off the top of every fee BEFORE anything reaches
+  // the staking distributor (ReferralSplitter.sol:400). Needed by the Farm
+  // strip's "Fee Share" chip: SwapFeeRouter.stakerShareBps is 100% *of what
+  // arrives*, so quoting it alone overstates what a staker actually receives.
+  // Settable up to MAX_REFERRAL_FEE (3000) behind a timelock, so it must be
+  // READ, never hardcoded.
+  { type: 'function', name: 'referralFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyFactory (Native DEX Factory) ───────────────────────
@@ -409,6 +416,14 @@ export const LIGHTHOUSE_STAKING_ABI = [
   { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getRewardForDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The identity guard (TF-035) reads this to prove a pool really stakes the
+  // token the registry claims, before any figure is trusted. It was missing
+  // here while present on the LADDER abi, so EvmLighthousePoolLive failed to
+  // typecheck and blocked every build. It is a real selector: the vendored
+  // StakingRewards declares `IERC20 public stakingToken` (line 28), and a
+  // public state variable has a getter — so this is an omission from the ABI,
+  // not a capability the deployed pools lack.
+  { type: 'function', name: 'stakingToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
 ] as const;
 
 // ─── Island lighthouse LADDER (contracts/src/LighthouseLadder.sol) ───────────

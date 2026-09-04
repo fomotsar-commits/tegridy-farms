@@ -40,11 +40,11 @@ const FEE_CONSTITUTION_TEXT = DEFAULT_FEE_CONSTITUTION.map(
 export const SECTIONS = [
   {
     title: '1. Acceptance of Terms',
-    body: 'By accessing or using the Tegridy Farms protocol ("Protocol"), including its smart contracts, website, and associated interfaces, you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you must not access or use the Protocol. Your continued use of the Protocol constitutes acceptance of any updates or modifications to these Terms.',
+    body: 'By accessing or using the memetics.finance protocol ("Protocol"), including its smart contracts, website, and associated interfaces, you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you must not access or use the Protocol. Your continued use of the Protocol constitutes acceptance of any updates or modifications to these Terms.',
   },
   {
     title: '2. Description of Services',
-    body: 'Tegridy Farms is a decentralized finance (DeFi) protocol built on the Ethereum blockchain. The Protocol provides the following services: yield farming and liquidity provision through automated market maker pools; token swapping via integrated DEX functionality; TOWELI token staking with vote-escrow mechanics; peer-to-peer NFT lending with collateral-based loan origination; an NFT AMM for automated NFT trading; and a token launcher through which any user may create, issue and deploy a new ERC-20 token on Ethereum mainnet using the third-party Doppler protocol, paired against either native ETH or TOWELI, which runs a dynamic auction and graduates into a Uniswap V4 pool. The Protocol previously published a Solana sub-brand launch rail over a third-party Dynamic Bonding Curve program. THAT RAIL WAS RETIRED ON 2026-08-23 and the Protocol offers no Solana launch service at this time. The Protocol\'s own Solana launch program is written but is not deployed on any cluster, and no Solana token can be created through the Protocol until it is. All Ethereum services are provided through non-custodial smart contracts deployed on the Ethereum mainnet.',
+    body: 'memetics.finance is a decentralized finance (DeFi) protocol built on the Ethereum blockchain. The Protocol provides the following services: yield farming and liquidity provision through automated market maker pools; token swapping via integrated DEX functionality; TOWELI token staking with vote-escrow mechanics; peer-to-peer NFT lending with collateral-based loan origination; an NFT AMM for automated NFT trading; and a token launcher through which any user may create, issue and deploy a new ERC-20 token on Ethereum mainnet using the third-party Doppler protocol, paired against either native ETH or TOWELI, which runs a dynamic auction and graduates into a Uniswap V4 pool. The Protocol previously published a Solana sub-brand launch rail over a third-party Dynamic Bonding Curve program. THAT RAIL WAS RETIRED ON 2026-08-23 and the Protocol offers no Solana launch service at this time. The Protocol\'s own Solana launch program is written but is not deployed on any cluster, and no Solana token can be created through the Protocol until it is. All Ethereum services are provided through non-custodial smart contracts deployed on the Ethereum mainnet.',
   },
   {
     title: '3. Eligibility',
@@ -84,7 +84,7 @@ export const SECTIONS = [
   },
   {
     title: '12. Intellectual Property',
-    body: 'All artwork, branding, visual assets, user interface designs, and proprietary smart contract code associated with Tegridy Farms are owned by the Protocol and its community. You may not reproduce, distribute, modify, or create derivative works from the Protocol\'s intellectual property without prior written consent. The TOWELI token, JBAC NFT collection, and associated brand elements are protected under applicable intellectual property laws. Open-source components are subject to their respective licenses.',
+    body: 'All artwork, branding, visual assets, user interface designs, and proprietary smart contract code associated with memetics.finance are owned by the Protocol and its community. You may not reproduce, distribute, modify, or create derivative works from the Protocol\'s intellectual property without prior written consent. The TOWELI token, JBAC NFT collection, and associated brand elements are protected under applicable intellectual property laws. Open-source components are subject to their respective licenses.',
   },
   {
     title: '13. Limitation of Liability',
@@ -101,7 +101,7 @@ export const SECTIONS = [
 ];
 
 export default function TermsPage() {
-  usePageTitle('Terms of Service', 'Terms and conditions for using the Tegridy Farms protocol.');
+  usePageTitle('Terms of Service', 'Terms and conditions for using the memetics.finance protocol.');
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -122,7 +122,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="text-white/70 text-sm">
-            Please read these terms carefully before using the Tegridy Farms protocol.
+            Please read these terms carefully before using the memetics.finance protocol.
           </p>
         </m.div>
 

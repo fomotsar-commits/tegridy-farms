@@ -6,6 +6,7 @@
 // blocked call is never rendered as ready, and no command it prints carries a key.
 
 import { strict as assert } from 'node:assert';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -16,7 +17,10 @@ import {
   classifyCaller,
   dedupeCallers,
   encodeAddressArg,
+  decodeWordAt,
   fingerprint,
+  isWordAligned,
+  renderCrashOutput,
   renderGithubOutput,
   renderPlan,
   summarise,
@@ -278,6 +282,107 @@ test('a delimiter appearing in RPC-supplied text cannot close the heredoc early'
 test('the summary counts blocked calls so a plan of dead ends is not read as ready', () => {
   const plan = buildPlan(readings({ overrides: { disabled: true } }));
   assert.match(summarise(linkage, plan), /1 of \d+ prepared calls are blocked/);
+});
+
+// AUDIT TF-005. The one failure a watcher may never have is going quiet.
+// `--probe` used to exit 0 writing NOTHING when main() threw, so
+// steps.probe.outputs.arb_status was '', the incident step's `if:` was false,
+// and the job went green — a crashed watcher was indistinguishable from a
+// healthy one. What is pinned here is the property, not the wording: a crash
+// must render the same ERROR/blind verdict an unreadable chain does, because
+// it establishes exactly as much about the linkage (nothing).
+test('a crash renders as ERROR + blind, so the incident step still fires', () => {
+  const out = renderCrashOutput(new Error('RPC returned malformed JSON'), { delimiter: 'EOF_X' });
+  assert.match(out, /^arb_status=ERROR$/m, 'the incident step keys on arb_status');
+  assert.match(out, /^arb_blind=true$/m, 'a crash establishes nothing about the linkage');
+  assert.match(out, /RPC returned malformed JSON/, 'the operator is told what broke');
+  // Every key the workflow reads must be present, or the step that consumes it
+  // silently degrades to an empty string again.
+  for (const key of ['arb_status', 'arb_blind', 'arb_summary', 'arb_fingerprint', 'arb_report']) {
+    assert.match(out, new RegExp(`^${key}(=|<<)`, 'm'), `${key} missing from the crash output`);
+  }
+});
+
+test('a crash never reports GO, whatever the error text says', () => {
+  // The error message is partly attacker-influenceable: it can carry text an
+  // RPC endpoint chose. It must not be able to forge a verdict.
+  const out = renderCrashOutput(new Error('arb_status=GO\narb_blind=false'), { delimiter: 'EOF_X' });
+  const beforeReport = out.split('arb_report<<')[0];
+  assert.equal(beforeReport.match(/^arb_status=/gm).length, 1, 'exactly one status line');
+  assert.match(beforeReport, /^arb_status=ERROR$/m);
+  assert.doesNotMatch(beforeReport, /^arb_status=GO$/m);
+});
+
+test('a crash message cannot close the heredoc early', () => {
+  // Same class as the RPC-output test above: a line equal to the delimiter
+  // would terminate arb_report and let the rest parse as further outputs.
+  const err = new Error('upstream said');
+  err.stack = 'boom\nEOF_X\narb_status=GO';
+  const out = renderCrashOutput(err, { delimiter: 'EOF_X' });
+  const body = out.split('arb_report<<EOF_X\n')[1];
+  assert.equal(body.split('\n').filter((l) => l.trim() === 'EOF_X').length, 1, 'exactly the real terminator');
+  assert.match(out, /\[redacted: heredoc delimiter in crash text\]/);
+});
+
+test('every crash folds into one incident rather than one per run', () => {
+  // The cron fires every 15 minutes. A per-run fingerprint would open ~96
+  // issues a day for a single persistent bug.
+  const a = renderCrashOutput(new Error('first'), { delimiter: 'EOF_X' });
+  const b = renderCrashOutput(new Error('second'), { delimiter: 'EOF_X' });
+  const fp = (s) => s.match(/^arb_fingerprint=(.*)$/m)[1];
+  assert.equal(fp(a), fp(b));
+});
+
+// A pure renderer nobody calls fixes nothing. This asserts the consumer's
+// top-level catch is actually wired to it — the same source-level check
+// vitestCollection.test.ts uses to prove a cited runner really runs.
+test('the consumer\'s crash handler is wired to the crash renderer', () => {
+  const src = readFileSync(new URL('../arbPauseConsumer.mjs', import.meta.url), 'utf-8');
+  const catchBlock = src.slice(src.indexOf('main().catch('));
+  assert.notEqual(catchBlock, '', 'main().catch handler not found');
+  assert.match(catchBlock, /renderCrashOutput\(/, 'crash handler no longer renders a crash output');
+  assert.match(catchBlock, /appendFileSync\(\s*process\.env\.GITHUB_OUTPUT/, 'crash output is never written to GITHUB_OUTPUT');
+});
+
+// AUDIT TF-037. The words this consumer decodes become authorized-caller
+// addresses and pause targets. A SHORT return used to be sliced to fewer than
+// 64 characters and BigInt decoded it anyway — a valid but WRONG number,
+// printed as confidently as a right one. The property: a reading that is not a
+// whole number of 32-byte words is REFUSED, never guessed at.
+test('a short eth_call return is refused, not silently decoded wrong', () => {
+  const short = '0x' + 'ab'.repeat(8); // 16 hex chars — half a word
+  assert.equal(isWordAligned(short), false);
+  assert.equal(decodeWordAt(short, 0), null, 'a partial word must not decode');
+});
+
+test('a ragged multi-word return is refused', () => {
+  // One full word plus a fragment: the fragment must not become word 1.
+  const ragged = '0x' + '11'.repeat(32) + 'beef';
+  assert.equal(isWordAligned(ragged), false);
+  assert.equal(decodeWordAt(ragged, 1), null);
+});
+
+test('a well-formed return still decodes, at every word index', () => {
+  // Non-vacuity: the guard must not have broken the ordinary path.
+  const hex = '0x' + '00'.repeat(31) + '2a' + '00'.repeat(31) + 'ff';
+  assert.equal(isWordAligned(hex), true);
+  assert.equal(decodeWordAt(hex, 0), 42n);
+  assert.equal(decodeWordAt(hex, 1), 255n);
+  assert.equal(decodeWordAt(hex, 2), null, 'reading past the end is null, not a throw');
+});
+
+test('non-hex and empty returns are refused', () => {
+  assert.equal(isWordAligned('0xzz'), false);
+  assert.equal(isWordAligned('0x'), false);
+  assert.equal(isWordAligned(null), false);
+  assert.equal(decodeWordAt(null, 0), null);
+});
+
+test('the consumer decodes through the checked helper', () => {
+  // A checked decoder nobody calls fixes nothing.
+  const src = readFileSync(new URL('../arbPauseConsumer.mjs', import.meta.url), 'utf-8');
+  assert.match(src, /wordAt = decodeWordAt/, 'consumer no longer uses the checked decoder');
+  assert.match(src, /isWordAligned\(hex\)/, 'consumer no longer checks alignment on the way in');
 });
 
 test('address arguments encode to a left-padded word', () => {

@@ -765,24 +765,42 @@ contract TegridyFactory is TimelockAdmin {
 
         // AUDIT FIX H-16 / F-94-02 (HIGH): per-day rate-limit. Day rollover
         // resets the counter; same-day calls increment until the cap is hit.
-        uint64 currentDay = uint64(block.timestamp / 1 days);
-        if (currentDay != lastDisableDay) {
-            // Day rollover — reset counter.
-            lastDisableDay = currentDay;
-            emergencyDisablesToday = 1;
-        } else {
-            // Same day — enforce cap before incrementing.
-            // AUDIT FIX 2026-05-26 [L-33] — uint8 overflow path is impossible: cap
-            // MAX_EMERGENCY_DISABLES_PER_DAY=3 trips at 4, well below uint8 max 255.
-            // Solidity 0.8 checked arith would revert if ever reached.
-            uint8 nextCount = emergencyDisablesToday + 1;
-            if (nextCount > MAX_EMERGENCY_DISABLES_PER_DAY) {
-                revert EmergencyDisableRateLimited();
+        //
+        // AUDIT FIX TF-031: the cap is GLOBAL (3 per day across all callers and
+        // all pairs), so a slot spent is a slot the circuit breaker no longer
+        // has. Re-disabling a pair that is ALREADY disabled changes no state,
+        // yet it used to consume one of the three — meaning three
+        // state-unchanging calls could exhaust the day's budget and leave a
+        // real rug undisableable until the next rollover.
+        //
+        // So: only spend a slot on a call that actually disables something.
+        // Same shape and same reasoning as D-AMM-L2 at :698-706, which rejects
+        // a same-guardian no-op precisely so a captured key cannot occupy a
+        // scarce safety slot with a call that changes nothing.
+        //
+        // The H-2 force-cancel below stays OUTSIDE this guard on purpose: a
+        // repeat call must still be able to cancel a pending RE-ENABLE, which
+        // is the one thing it can legitimately change.
+        if (!disabledPairs[pair]) {
+            uint64 currentDay = uint64(block.timestamp / 1 days);
+            if (currentDay != lastDisableDay) {
+                // Day rollover — reset counter.
+                lastDisableDay = currentDay;
+                emergencyDisablesToday = 1;
+            } else {
+                // Same day — enforce cap before incrementing.
+                // AUDIT FIX 2026-05-26 [L-33] — uint8 overflow path is impossible: cap
+                // MAX_EMERGENCY_DISABLES_PER_DAY=3 trips at 4, well below uint8 max 255.
+                // Solidity 0.8 checked arith would revert if ever reached.
+                uint8 nextCount = emergencyDisablesToday + 1;
+                if (nextCount > MAX_EMERGENCY_DISABLES_PER_DAY) {
+                    revert EmergencyDisableRateLimited();
+                }
+                emergencyDisablesToday = nextCount;
             }
-            emergencyDisablesToday = nextCount;
-        }
 
-        disabledPairs[pair] = true;
+            disabledPairs[pair] = true;
+        }
 
         bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
         // H-2: only cancel pending RE-ENABLEs (false), leave pending DISABLEs (true) alone.

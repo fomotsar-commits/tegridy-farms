@@ -12,7 +12,7 @@ import { ArtImg } from '../ArtImg';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
 
 // Derive from the canonical constant so the penalty label + math track one source.
 const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
@@ -22,6 +22,11 @@ export interface ConfirmState {
   earlyWithdraw: boolean;
   emergencyExit: boolean;
   extendLock: boolean;
+  /**
+   * Gates the ENABLE direction of Auto-Max Lock only. Enabling is the most
+   * expensive irreversible click on this card — see the panel for why.
+   */
+  autoMaxLock: boolean;
 }
 
 export interface StakeInputState {
@@ -153,7 +158,7 @@ export function StakingCard({
                     because it is an interpolation between refreshes, not a fresh read. */}
                 {pos.accrualPerSec > 0 && (
                   <p
-                    className="text-white/45 text-[9px] mt-0.5 font-mono"
+                    className="text-white/45 text-[11px] mt-0.5 font-mono"
                     title="Estimated between the 30-second on-chain refreshes, using this position's live reward rate. Snaps back to the exact value on each refresh.">
                     est. live &middot; +{pos.accrualPerSec.toFixed(6)}/s
                   </p>
@@ -200,30 +205,41 @@ export function StakingCard({
                 )}
                 {pos.hasPosition && pos.isLocked && confirms.extendLock && (
                   <div className="mt-2">
-                    <div className="grid grid-cols-2 gap-1.5 mb-2">
-                      {LOCK_OPTIONS.map((opt) => (
+                    {/* A11Y-R02: this picker chooses from the same LOCK_OPTIONS as
+                        the STAKE form's, so it carries the same contract that one
+                        already got in F104 — radiogroup/radio semantics, a 44px
+                        target, and a checkmark so the selection is not conveyed by
+                        background colour alone. It was a 26px div of plain buttons. */}
+                    <div role="radiogroup" aria-label="Extend lock duration" className="grid grid-cols-2 gap-1.5 mb-2">
+                      {LOCK_OPTIONS.map((opt) => {
+                        const isSelected = extendLockDuration.label === opt.label;
+                        return (
                         <button key={opt.label} onClick={() => setExtendLockDuration(opt)}
-                          className="rounded-lg px-2 py-1.5 text-center cursor-pointer transition-all text-[10px]"
+                          role="radio"
+                          aria-checked={isSelected}
+                          className="rounded-lg p-2.5 min-h-[44px] text-center cursor-pointer transition-all text-[12px]"
                           style={{
-                            background: extendLockDuration.label === opt.label ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
-                            border: extendLockDuration.label === opt.label ? '1px solid var(--color-purple-30)' : '1px solid rgba(255,255,255,0.25)',
-                            color: extendLockDuration.label === opt.label ? '#000000' : 'rgba(255,255,255,1)',
+                            background: isSelected ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.55)',
+                            border: isSelected ? '1px solid var(--color-purple-30)' : '1px solid rgba(255,255,255,0.25)',
+                            color: isSelected ? '#000000' : 'rgba(255,255,255,1)',
                           }}>
+                          {isSelected && <span aria-hidden="true" className="mr-1">&#10003;</span>}
                           {opt.label}
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                     <div className="flex gap-1.5">
                       <button
                         onClick={() => setConfirm('extendLock', false)}
-                        className="flex-1 py-1.5 rounded-lg text-[10px] text-white cursor-pointer"
+                        className="flex-1 py-1.5 min-h-[44px] rounded-lg text-[10px] text-white cursor-pointer"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
                       <button
                         onClick={() => { lastActionRef.current = null; actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setConfirm('extendLock', false); }}
                         disabled={actions.isPending || actions.isConfirming}
-                        className="btn-secondary flex-1 py-1.5 rounded-lg text-[10px] disabled:opacity-70 disabled:cursor-not-allowed">
+                        className="btn-secondary flex-1 py-1.5 min-h-[44px] rounded-lg text-[10px] disabled:opacity-70 disabled:cursor-not-allowed">
                         Extend {extendLockDuration.label}
                       </button>
                     </div>
@@ -310,11 +326,67 @@ export function StakingCard({
                   </div>
                   );
                 })()}
-                <button onClick={() => { lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
-                  disabled={actions.isPending || actions.isConfirming}
-                  className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
-                  {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
-                </button>
+{/* AUTO-MAX LOCK — confirm the ENABLE direction only.
+                    This used to fire on a single click in both directions, and
+                    enabling is the most expensive irreversible action on the
+                    card: TegridyStaking.toggleAutoMaxLock sets
+                    `lockEnd = block.timestamp + MAX_LOCK_DURATION` immediately
+                    (contracts/src/TegridyStaking.sol:1197-1203), and its own
+                    docs record that "Disabling autoMaxLock does NOT restore
+                    original lockDuration... users who toggled then want a
+                    shorter conceptual lock must withdraw and re-stake fresh".
+                    So one tap committed four years, and the button said nothing
+                    about it.
+                    DISABLING stays one click on purpose — it is harmless, and
+                    gating it would only make an unwanted state harder to leave.
+                    A field review flagged this as a copy-placement problem
+                    ("explained even further down"). It is not: the penalty is
+                    already disclosed three times and matches the contract
+                    exactly. What was missing is this control. */}
+                {pos.autoMaxLock && (
+                  <button onClick={() => { lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
+                    disabled={actions.isPending || actions.isConfirming}
+                    className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
+                    Disable Auto-Lock
+                  </button>
+                )}
+                {!pos.autoMaxLock && !confirms.autoMaxLock && (
+                  <button onClick={() => setConfirm('autoMaxLock', true)}
+                    disabled={actions.isPending || actions.isConfirming}
+                    className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
+                    Enable Auto-Max Lock
+                  </button>
+                )}
+                {!pos.autoMaxLock && confirms.autoMaxLock && (
+                  <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
+                    <p className="text-danger text-[12px] font-semibold mb-2">
+                      This locks your {pos.stakedFormatted} TOWELI until{' '}
+                      {new Date((nowSec + MAX_LOCK_DURATION) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                      {' '}— four years from now.
+                    </p>
+                    <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
+                      <p className="text-danger/80 text-[11px] mb-1">
+                        Turning it back off later stops the auto-renew but does <span className="font-semibold">not</span> shorten this lock.
+                      </p>
+                      <p className="text-white/80 text-[11px]">
+                        Need out early? You keep {100 - EARLY_WITHDRAWAL_PENALTY_PCT}% — the other {EARLY_WITHDRAWAL_PENALTY_PCT}% goes to treasury.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setConfirm('autoMaxLock', false)}
+                        className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
+                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                        Cancel
+                      </button>
+                      <button onClick={() => { setConfirm('autoMaxLock', false); lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
+                        disabled={actions.isPending || actions.isConfirming}
+                        className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
+                        style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                        Lock for four years
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {pos.isPaused && pos.hasPosition && !confirms.emergencyExit && (
                   <button
                     onClick={() => setConfirm('emergencyExit', true)}
@@ -467,14 +539,20 @@ export function StakingCard({
                     const projected = amtNum * (boostedApr / 100) * (days / 365);
                     return (
                       <div key={label} className="text-center">
-                        <p className="text-white/40 text-[9px] uppercase mb-0.5">{label}</p>
+                        {/* A11Y-R16: same "Projected Earnings" block, same defect as the
+                            lighthouse pool's — 9px carrying a column label, a
+                            denomination and two explanatory sentences (including the
+                            runway caveat, which is the one line a reader most has to
+                            read). 11px floor for words; 9px stays for uppercase pills
+                            whose text is duplicated in an aria-label. */}
+                        <p className="text-white/40 text-[11px] uppercase mb-0.5">{label}</p>
                         <p className="stat-value text-white text-[13px]">{projected < 0.01 ? '<0.01' : projected.toFixed(2)}</p>
-                        <p className="text-white/30 text-[9px]">TOWELI</p>
+                        <p className="text-white/30 text-[11px]">TOWELI</p>
                       </div>
                     );
                   })}
                 </div>
-                <p className="text-white/30 text-[9px] mt-2 text-center">
+                <p className="text-white/30 text-[11px] mt-2 text-center">
                   Based on {pool.apr}% base APR × {boostDisplay}x boost. Rates change with total staked.
                 </p>
                 {/* STAKING_LOOK §4: the same runway guard DashboardPage already
@@ -482,7 +560,7 @@ export function StakingCard({
                 {(() => {
                   const runwayDays = Math.floor((pool.secondsRemaining ?? 0) / 86400);
                   return runwayDays > 0 && runwayDays < 365 ? (
-                    <p className="text-[9px] mt-1 text-center" style={{ color: '#e3b341', opacity: 0.85 }}>
+                    <p className="text-[11px] mt-1 text-center" style={{ color: '#e3b341', opacity: 0.85 }}>
                       Current reserve runs ≈ {runwayDays}d at this rate — figures beyond that assume refills.
                     </p>
                   ) : null;

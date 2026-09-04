@@ -61,11 +61,20 @@ const ALLOWED_TABLES = ["messages", "user_profiles", "user_favorites", "user_wat
 // 005 so the proxy (authenticated) is the only call path.
 const ALLOWED_RPCS = new Set(["toggle_like", "toggle_reaction"]);
 
-// SELECT through the proxy exists ONLY for DMs: their RLS hides rows from
-// the anon key, and the SIWE JWT lives in the httpOnly cookie this proxy
-// holds. Every other table stays write-only here (public reads go straight
-// to PostgREST with the anon key, as before).
-const SELECT_TABLES = new Set(["dm_messages"]);
+// SELECT through the proxy exists for tables whose rows are PERSONAL: their
+// RLS hides rows from the anon key, and the SIWE JWT lives in the httpOnly
+// cookie this proxy holds. Truly public reads (messages, native_orders,
+// trade_offers) still go straight to PostgREST with the anon key, as before.
+//
+// AUDIT FIX TF-004 / TF-007: user_watchlist and user_favorites joined this set.
+// They are per-wallet personal data — a watchlist is a statement of trading
+// intent, a favourites list is a behavioural profile — but they were read
+// client-side with the anon key, which forced a `USING (true)` SELECT policy
+// that OR-defeated their owner-scoped twin and published every wallet's rows
+// to anyone who pulled the anon key out of the JS bundle. The read had to move
+// here BEFORE that policy could be dropped; dropping it first would have
+// returned zero rows to everyone instead of an error. See migration 016.
+const SELECT_TABLES = new Set(["dm_messages", "user_watchlist", "user_favorites"]);
 const SELECT_MAX_ROWS = 200;
 
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
