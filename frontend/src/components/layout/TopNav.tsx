@@ -242,7 +242,16 @@ export const TopNav = React.memo(function TopNav() {
               group is `flex-shrink-0`, so its width is a hard floor and the
               wordmark is what silently absorbs any shortfall. 14px bought
               against a 2px overrun: margin for the next face, not a fix that is
-              exactly big enough. */}
+              exactly big enough.
+
+              VERIFIED BY SWEEP, not by the arithmetic above: with these three
+              levers the row's intrinsic width is 350px, so it still fits at a
+              352px viewport and only overflows at 348. That is 10px of headroom
+              at 360 against CI's 2px overrun. Before them the row measured
+              exactly 360 at 360 — zero slack, which is why a rasteriser a shade
+              wider than local was enough to tip it. If you change anything in
+              this row, re-run the sweep rather than a local 360px check: 360
+              passed locally on the broken version too. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
