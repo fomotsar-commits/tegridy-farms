@@ -1,6 +1,11 @@
 /**
- * A11Y — /treasury, /contracts, /risks, /terms, /privacy reach assistive tech as
- * a real tablist.
+ * A11Y — /contracts, /risks, /terms, /privacy reach assistive tech as a real
+ * tablist.
+ *
+ * (/treasury was the fifth tab here until 2026-09-04, when it moved to StatsPage
+ * beside Tokenomics and Tax Reports — a route renders one tab bar, so the Stats
+ * menu section could only become one tabbed page if it owned it. The URL is
+ * unchanged; StatsPage.tsx holds the reasoning.)
  *
  * InfoPage hosts the site's legal and treasury navigation behind a control that
  * LOOKS like tabs and was built as five `aria-pressed` toggle buttons: no
@@ -19,7 +24,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-vi.mock('./TreasuryPage', () => ({ default: () => <div>treasury panel</div> }));
 vi.mock('./ContractsPage', () => ({ default: () => <div>contracts panel</div> }));
 vi.mock('./RisksPage', () => ({ default: () => <div>risks panel</div> }));
 vi.mock('./TermsPage', () => ({ default: () => <div>terms panel</div> }));
@@ -41,7 +45,6 @@ describe('InfoPage tab strip', () => {
     expect(list).toHaveAttribute('aria-label');
     const tabs = screen.getAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual([
-      'Treasury',
       'Contracts',
       'Risks',
       'Terms',
@@ -72,7 +75,7 @@ describe('InfoPage tab strip', () => {
   });
 
   it('keeps a single tab in the Tab sequence and moves the rest with arrows', () => {
-    at('/treasury');
+    at('/contracts');
     const tabs = screen.getAllByRole('tab');
     expect(tabs.filter((t) => t.getAttribute('tabindex') === '0')).toHaveLength(1);
     expect(tabs[0]).toHaveAttribute('tabindex', '0');
@@ -81,7 +84,7 @@ describe('InfoPage tab strip', () => {
     // handler lives on the tablist, which is where the keydown bubbles to.
     fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
     expect(screen.getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true')).toHaveTextContent(
-      'Contracts',
+      'Risks',
     );
   });
 });

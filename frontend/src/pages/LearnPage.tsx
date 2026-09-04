@@ -3,32 +3,35 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
-type Tab = 'tokenomics' | 'lore' | 'security' | 'faq';
+// 🔻 2026-09-04 — TOKENOMICS LEFT THIS HOST. It is a tab on StatsPage now, beside
+// Treasury and Tax Reports, because the "More" menu's own Stats section already
+// grouped those three and a route can only render one tab bar (StatsPage.tsx
+// spells out why there was no version of that change which left this file alone).
+// What remains here is the narrative: the story, the security posture, the
+// questions. /tokenomics is unchanged as a URL and still linked from the Footer.
+type Tab = 'lore' | 'security' | 'faq';
 
 const TAB_LABELS: Record<Tab, string> = {
-  tokenomics: 'Tokenomics',
   lore: 'Lore',
   security: 'Security',
   faq: 'FAQ',
 };
 
 const TAB_PATHS: Record<Tab, string> = {
-  tokenomics: '/tokenomics',
   lore: '/lore',
   security: '/security',
   faq: '/faq',
 };
 
-const TokenomicsPage = lazy(() => import('./TokenomicsPage'));
 const LorePage = lazy(() => import('./LorePage'));
 const SecurityPage = lazy(() => import('./SecurityPage'));
 const FAQPage = lazy(() => import('./FAQPage'));
 
 function tabFromPath(pathname: string): Tab {
-  if (pathname.startsWith('/lore')) return 'lore';
   if (pathname.startsWith('/security')) return 'security';
   if (pathname.startsWith('/faq')) return 'faq';
-  return 'tokenomics';
+  // Lore is the landing tab, and the one /learn now aliases to.
+  return 'lore';
 }
 
 export default function LearnPage() {
@@ -96,7 +99,6 @@ export default function LearnPage() {
 
       <div role="tabpanel" id="learn-panel" aria-labelledby={`learn-tab-${tab}`}>
         <Suspense fallback={<PageSkeleton />}>
-          {tab === 'tokenomics' && <TokenomicsPage />}
           {tab === 'lore' && <LorePage />}
           {tab === 'security' && <SecurityPage />}
           {tab === 'faq' && <FAQPage />}
