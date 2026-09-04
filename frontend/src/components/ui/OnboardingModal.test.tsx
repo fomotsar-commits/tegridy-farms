@@ -135,7 +135,7 @@ describe('OnboardingModal', () => {
     expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
   });
 
-  it('ARRIVAL IDENTITY: the classic Tegridy welcome renders inside the TOWELI bungalow', async () => {
+  it('ARRIVAL IDENTITY: the classic farm welcome renders inside the TOWELI bungalow', async () => {
     // The steps array resolves at module scope (voice is stable per document,
     // switching bungalows reloads), so the toweli variant needs a fresh
     // module graph with the choice already stored — same contract as prod.
@@ -147,7 +147,11 @@ describe('OnboardingModal', () => {
     const [{ OnboardingModal: ToweliModal }, { renderWithProviders: renderFresh }] =
       await Promise.all([import('./OnboardingModal'), import('../../test-utils/render')]);
     renderFresh(<ToweliModal />);
-    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
+    // RETIRED 2026-08-31 (owner): the brand word is gone from every room, so
+    // the TOWELI tour is titled by its bungalow now. What this still pins is
+    // the CONTAINMENT — the toweli welcome is a different document from the
+    // venue's, and only one of them renders per voice.
+    expect(screen.getByText('Welcome to the TOWELI bungalow')).toBeInTheDocument();
     expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
   });
 });

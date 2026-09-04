@@ -142,16 +142,37 @@ export function isPayableInvoice(inv: Invoice): boolean {
   return invoiceProblems(inv).length === 0;
 }
 
+/**
+ * How much clock skew between a merchant's machine and a buyer's is ordinary.
+ *
+ * Five minutes is generous for two consumer devices and far short of the window
+ * a back-dated clock would need to be useful, so an invoice whose `createdAt` is
+ * beyond it is describing a moment that has not happened rather than disagreeing
+ * about which second it is.
+ */
+export const MAX_CLOCK_SKEW_SECONDS = 300;
+
 export type InvoiceLifecycle =
   /** Payable right now. */
   | 'open'
   /** Past `expiresAt`. Not an error and not a failure — a price that lapsed. */
   | 'expired'
+  /**
+   * Minted at a moment that has not arrived.
+   *
+   * Kept apart from `open` because a self-carrying invoice sets its own clock:
+   * `createdAt` is what a receipt is bound against ("this transfer was mined
+   * before the invoice existed, so it cannot be its payment"), and a document
+   * free to claim any birthday could make an old, already-spent transfer look
+   * like a fresh payment for a new debt.
+   */
+  | 'future-dated'
   /** Structurally unpayable; `invoiceProblems` says why. */
   | 'malformed';
 
 export function invoiceLifecycle(inv: Invoice, nowSeconds: number): InvoiceLifecycle {
   if (!isPayableInvoice(inv)) return 'malformed';
+  if (inv.createdAt > nowSeconds + MAX_CLOCK_SKEW_SECONDS) return 'future-dated';
   return nowSeconds >= inv.expiresAt ? 'expired' : 'open';
 }
 

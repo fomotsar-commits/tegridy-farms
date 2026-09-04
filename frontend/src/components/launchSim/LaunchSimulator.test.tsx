@@ -20,6 +20,24 @@ describe('LaunchSimulator (render)', () => {
     expect(screen.queryByText('Concentrated')).toBeNull();
   });
 
+  /**
+   * A11Y-R05. The route sweep audits /launch-simulator in its RESTING state,
+   * where the allocation list is empty — so four placeholder-only fields and a
+   * 20px remove button sat on the first screen a real user reaches (one click
+   * on "+ Add allocation") and were reported by nothing. This is that click.
+   */
+  it('names every field in an added allocation row', () => {
+    render(<LaunchSimulator />);
+    fireEvent.click(screen.getByRole('button', { name: /Add allocation/i }));
+    expect(screen.getByRole('textbox', { name: 'Allocation label' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Token amount' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: 'Allocation category' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Cluster tag' })).toBeTruthy();
+    const remove = screen.getByRole('button', { name: /Remove allocation row/i });
+    expect(remove.className).toContain('min-h-[44px]');
+    expect(remove.className).toContain('min-w-[44px]');
+  });
+
   it('loading an example populates rows and renders a distribution band', () => {
     render(<LaunchSimulator />);
     fireEvent.click(screen.getByRole('button', { name: 'Fair launch' }));

@@ -152,6 +152,102 @@ describe("solrpc proxy", () => {
     }
   });
 
+  // 2026-09-03: the filter gate tested STRUCTURE, not narrowing. A filter that
+  // is syntactically a filter but selects the whole program still makes the
+  // upstream walk every account and bills us for it, so these all reached the
+  // keyed RPC. The gate now requires a well-formed memcmp (integer offset,
+  // plausible base58 key), which is what actually bounds the scan.
+  it("refuses filters that are well-formed but narrow nothing", async () => {
+    for (const filters of [
+      [{ dataSize: 0 }],
+      [{ memcmp: {} }],
+      [{ memcmp: { offset: 0, bytes: "" } }],
+      [{ memcmp: { offset: 0, bytes: "0OIl+/=" } }],
+      [{ memcmp: { offset: "0", bytes: "PVanXA8YbR1" } }],
+      [{ memcmp: { offset: -1, bytes: "PVanXA8YbR1" } }],
+      [{ dataSize: 8 }],
+      [{ dataSize: "8" }],
+    ]) {
+      fetchMock.mockClear();
+      const req = makeReq({
+        method: "POST",
+        body: { jsonrpc: "2.0", method: "getProgramAccounts", params: ["STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH", { encoding: "base64", filters }], id: 1 },
+      });
+      const { res, statusSpy } = makeRes();
+      await handler(req, res);
+      expect(statusSpy).toHaveBeenCalledWith(403);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  });
+
+  // The counterfactual for the test above: every query the app actually makes
+  // must still get through. These six filter lists are the complete set of
+  // getProgramAccounts shapes the Streamflow SDK emits for our call sites,
+  // wire-captured 2026-09-03 by pointing SolanaStakingClient at a local server
+  // and recording the request bodies. If a future tightening breaks one of
+  // these, it breaks the live BAYLA pool page.
+  it("still allows every filter shape the SDK actually emits", async () => {
+    const DISC = { offset: 0, encoding: "base58" };
+    const POOL = "Fgwemm7VcQoeRqiNHZGEqmkUKe4WfD3axYse1P86nxeQ";
+    const MINT = "So11111111111111111111111111111111111111112";
+    const STAKE = "STAKEvGqQTtzJZH6BWDcbpzXXn2BBerPAgQ3EGLN2GH";
+    const FIXED = "RWRDdfRbi3339VgKxTAXg4cjyniF7cbhNbMxZWiSKmj";
+    const DYN = "RWRDyfZa6Rk9UYi85yjYYfGmoUqffLqjo6vZdFawEez";
+    const captured = [
+      // searchStakePools({})
+      [STAKE, [{ memcmp: { ...DISC, bytes: "MGAteRdkWBD" } }]],
+      // searchStakeEntries({})
+      [STAKE, [{ memcmp: { ...DISC, bytes: "YMx1BScecEs" } }]],
+      // searchStakeEntries({ stakePool })
+      [STAKE, [{ memcmp: { ...DISC, bytes: "YMx1BScecEs" } }, { memcmp: { offset: 12, bytes: POOL, encoding: "base58" } }]],
+      // searchRewardPools({ stakePool })
+      [FIXED, [{ memcmp: { ...DISC, bytes: "PVanXA8YbR1" } }, { memcmp: { offset: 10, bytes: POOL, encoding: "base58" } }]],
+      // searchRewardPools({ stakePool, mint })
+      [FIXED, [{ memcmp: { ...DISC, bytes: "PVanXA8YbR1" } }, { memcmp: { offset: 10, bytes: POOL, encoding: "base58" } }, { memcmp: { offset: 42, bytes: MINT, encoding: "base58" } }]],
+      // our own dynamic-pool lookup: rewardPool.all([{ memcmp offset 10 }])
+      [DYN, [{ memcmp: { ...DISC, bytes: "PVanXA8YbR1" } }, { memcmp: { offset: 10, bytes: POOL, encoding: "base58" } }]],
+    ];
+    for (const [program, filters] of captured) {
+      fetchMock.mockClear();
+      const req = makeReq({
+        method: "POST",
+        body: { jsonrpc: "2.0", method: "getProgramAccounts", params: [program, { encoding: "base64", commitment: "confirmed", filters }], id: 1 },
+      });
+      const { res, statusSpy } = makeRes();
+      await handler(req, res);
+      expect(statusSpy).toHaveBeenCalledWith(200);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  // The limiter charged one token per HTTP REQUEST while the upstream bills per
+  // CALL, so a client batching MAX_RPC_BATCH at a time got 20x the budget.
+  it("charges a JSON-RPC batch its true call count, not one token per request", async () => {
+    const { checkRateLimit } = await import("../_lib/ratelimit.js");
+    checkRateLimit.mockClear();
+    const body = Array.from({ length: 5 }, (_, i) => ({ jsonrpc: "2.0", method: "getBalance", params: [], id: i }));
+    const { res } = makeRes();
+    await handler(makeReq({ method: "POST", body }), res);
+
+    const charged = checkRateLimit.mock.calls.reduce(
+      (sum, call) => sum + Math.max(1, Number(call[2]?.cost) || 1),
+      0,
+    );
+    expect(charged).toBe(5);
+  });
+
+  it("charges exactly one token for a single (non-batched) call", async () => {
+    const { checkRateLimit } = await import("../_lib/ratelimit.js");
+    checkRateLimit.mockClear();
+    const { res } = makeRes();
+    await handler(makeReq({ method: "POST", body: { jsonrpc: "2.0", method: "getBalance", params: [], id: 1 } }), res);
+
+    const charged = checkRateLimit.mock.calls.reduce(
+      (sum, call) => sum + Math.max(1, Number(call[2]?.cost) || 1),
+      0,
+    );
+    expect(charged).toBe(1);
+  });
   it("refuses FILTERLESS getProgramAccounts even against allowlisted programs (compute-burn hole)", async () => {
     for (const cfg of [
       { encoding: "base64" }, // no filters at all

@@ -8,6 +8,8 @@ import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/a
 import { isLauncherEnabled } from '../lib/launcher/config';
 import { isSolanaSwapLive } from '../lib/solana';
 import { useFarmStats } from '../hooks/useFarmStats';
+import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
+import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { Sparkline } from '../components/Sparkline';
@@ -28,7 +30,7 @@ import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
 import { ProofOfClaims } from '../components/ProofOfClaims';
 import { CopyButton } from '../components/ui/CopyButton';
-import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, GITHUB_REPO_URL, SOCIAL_LINKS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
@@ -38,14 +40,6 @@ import { VenueDoors } from '../components/VenueDoors';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
-
-// F91: surfaced from the Footer's community links — keep one source so Home
-// and Footer can't drift. (Footer still owns its own copy; these mirror it.)
-const SOCIAL_LINKS = [
-  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
-] as const;
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
 // the connect-ordering (referred visitor clicks Buy → connects on /swap). Uses
@@ -59,7 +53,7 @@ const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
 
 const CORE_LOOP_STEPS = [
   IS_TOWELI_ARRIVAL
-    ? { label: 'People trade TOWELI', sub: 'on the Tegridy DEX' }
+    ? { label: 'People trade TOWELI', sub: 'on the venue DEX' }
     : { label: 'People trade here', sub: 'on the venue DEX' },
   // F82: sub no longer just restates the label — it adds the "where" (router,
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
@@ -79,7 +73,7 @@ const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
   {
     step: '1',
     title: 'Get Some Towelies',
-    desc: 'Swap ETH for TOWELI on the Tegridy DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
+    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
     to: '/swap',
   },
   {
@@ -90,7 +84,7 @@ const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
   },
   {
     step: '3',
-    title: 'Harvest the Tegridy',
+    title: 'Harvest the Yield',
     desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
     to: '/dashboard',
   },
@@ -136,6 +130,10 @@ export default function HomePage() {
   );
   const { address } = useAccount();
   const stats = useFarmStats();
+  // The Farm card's stat and its body are ONE claim about the same two pools, so
+  // they come off ONE read. They used to disagree: a hardcoded "2 pools" beside a
+  // body admitting the LP pool is dormant.
+  const lpPhase = useLpEmissionsPhase();
   const pool = usePoolData();
   const revenueStats = useRevenueStats();
   const price = useTOWELIPrice();
@@ -193,7 +191,7 @@ export default function HomePage() {
   // later correction we make to the site. So it describes what the protocol IS rather
   // than what it has paid.
   const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
+    'Fee-routed staking, on-chain and in ETH, on @JungleBayAC \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
@@ -268,16 +266,14 @@ export default function HomePage() {
               <Link
                 to={isSolanaSwapLive() ? '/solana' : '/scan'}
                 aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
-                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
-                style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
+                className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
                 SOLANA
               </Link>
               <Link
                 to="/eth-curve"
                 aria-label="Live on Base: launch and trade on the curve"
-                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
-                style={{ background: 'rgba(33,81,245,0.78)', color: '#fff', border: '1px solid rgba(33,81,245,0.45)' }}
+                className="badge badge-chain-base text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
               </Link>
@@ -320,7 +316,7 @@ export default function HomePage() {
               Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
               liquidity engine, and operations. Every core contract is source-verified on Etherscan,
               so you can read the code that holds your stake. On Solana we swap through Jupiter and
-              scan any token &mdash; same tegridy, second chain.
+              scan any token &mdash; same rails, second chain.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -539,7 +535,7 @@ export default function HomePage() {
               GeckoTerminal <span className="text-white/40">↗</span>
             </a>
             <a href={shareTweetUrl} target="_blank" rel="noopener noreferrer"
-              aria-label="Share Tegridy Farms on X (opens in new tab)"
+              aria-label="Share MEMETICS.FINANCE on X (opens in new tab)"
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
               style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -734,7 +730,11 @@ export default function HomePage() {
               // pool's funded period (periodFinish 2026-06-15, lpEmissions.ts) —
               // the exact literal-vs-phase drift dayTwoEconomyPhrase() exists to
               // prevent. State what pays now without promising the dormant pool.
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI to earn now; the LP pool rejoins when its next emissions round is funded.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
+              // 2026-09-03: the BODY was corrected then; the stat beside it was not,
+              // so the same object literal rendered "2 pools" in large type over
+              // "the LP pool rejoins when…" in small type. Both now derive from
+              // periodFinish, and an unread period gets its own third answer.
+              { to: '/farm', title: 'Farm', desc: farmCardDesc(lpPhase), stat: farmCardStat(lpPhase), label: 'Ethereum', art: pageArt('home', 7) },
               // Spread-gated on the SAME predicate navConfig uses to decide whether
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
@@ -861,7 +861,7 @@ export default function HomePage() {
                 told the product is a three-step TOWELI farm. Scoping the title, not the
                 steps. */}
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How the Farm Works</h2>
-            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Real tegridy.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Held time counts.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {HOW_IT_WORKS_STEPS.map((s, i) => (
@@ -905,7 +905,7 @@ export default function HomePage() {
               { label: 'Contracts Verified', to: '/contracts' },
               { label: 'Timelocked Admin', to: '/security' },
               { label: 'Responsible Disclosure', to: '/security' },
-              { label: 'Open Source', href: 'https://github.com/fomotsar-commits/tegridy-farms' },
+              { label: 'Open Source', href: GITHUB_REPO_URL },
             ].map((b) => (
               'href' in b ? (
                 <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
@@ -957,7 +957,13 @@ export default function HomePage() {
             </a>
             </m.div>
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
-            <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
+            {/* This card named a specific token and opened a generic Uniswap
+                page for the whole of Base — an empty ETH -> ? form the visitor
+                cannot buy JBM from, while the registry has held JBM's address,
+                its JBM/WETH pool and a working market link all along. The door
+                at /jbm is that registry-driven landing, so the card now leads
+                where its own words point. */}
+            <Link to="/jbm"
               className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <ArtImg pageId="home" idx={13} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -966,7 +972,7 @@ export default function HomePage() {
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">$JBM on Base</p>
                 <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
               </div>
-            </a>
+            </Link>
             </m.div>
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
             <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>

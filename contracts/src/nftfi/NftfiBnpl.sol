@@ -230,8 +230,12 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // Straight-line amortisation: the k-th instalment carries principal
         // `financed/INSTALMENTS` and rides for `k * INSTALMENT_INTERVAL`.
         uint256 apr = vault.aprBps();
+        // SLITHER 2026-08-30: remainder-correction idiom, not precision loss — the final leg
+        // carries financedWei - slice*(N-1) so the legs sum EXACTLY to financedWei, matching the
+        // openPlan/payInstalment money path (which recomputes charges live from vault.quoteRepay)
+        // slither-disable-next-line divide-before-multiply
         uint256 slice = financedWei / INSTALMENTS;
-        uint256 acc;
+        uint256 acc = 0;
         for (uint256 k = 1; k <= INSTALMENTS; k++) {
             uint256 principalForLeg = k == INSTALMENTS ? financedWei - slice * (INSTALMENTS - 1) : slice;
             acc += (principalForLeg * apr * (k * INSTALMENT_INTERVAL)) / (365 days * BPS);
@@ -320,7 +324,24 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
     function payInstalment(uint256 planId, uint256 maxPaymentWei) external nonReentrant returns (uint256 paid) {
         Plan storage p = _livePlan(planId);
         (uint256 principalDue, uint256 interestDue) = vault.quoteRepay(p.loanId);
-        if (principalDue == 0 && interestDue == 0) revert PlanClosed();
+        // AUDIT FIX TF-002: `vault.repay` is permissionless by design — it takes
+        // whoever pays and never checks the borrower — so a third party, or the
+        // buyer settling at the vault directly to save interest, can clear this
+        // plan's loan out from under it. The vault then releases the collateral
+        // to its borrower, which is THIS contract. Before this branch existed,
+        // every remaining path was closed: `payInstalment` reverted PlanClosed
+        // here, and `forfeit` reverts inside `vault.surrender` because the loan
+        // is no longer live. The token sat in this desk permanently, and this
+        // desk has no sweep, no rescue and no owner escape.
+        //
+        // So treat "already clear" as "deliver", not as an error. The token can
+        // only ever go to `p.buyer`, so whoever paid gains nothing by it — the
+        // grief costs them the whole outstanding debt and hands the buyer their
+        // NFT early.
+        if (principalDue == 0 && interestDue == 0) {
+            _settle(planId, p);
+            return 0;
+        }
 
         uint8 next = p.instalmentsPaid + 1;
         uint256 principalLeg = next >= INSTALMENTS ? principalDue : p.principalPerInstalment;
@@ -344,14 +365,9 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit InstalmentPaid(planId, next, paid);
 
         (uint256 principalLeft, uint256 interestLeft) = vault.quoteRepay(p.loanId);
-        if (principalLeft == 0 && interestLeft == 0) {
-            // The vault released the token to this contract when the loan
-            // cleared; hand it straight to the buyer.
-            p.settled = true;
-            bool moved = SafeERC721Call.safeTransferFromBounded(collection, address(this), p.buyer, p.tokenId);
-            if (!moved) revert CollateralTransferFailed();
-            emit PlanSettled(planId, p.buyer);
-        }
+        // The vault released the token to this contract when the loan cleared;
+        // hand it straight to the buyer.
+        if (principalLeft == 0 && interestLeft == 0) _settle(planId, p);
     }
 
     /// @notice When the next instalment is due, and whether it is late enough
@@ -413,6 +429,18 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
     }
 
     // ─── Internals ───────────────────────────────────────────────────
+
+    /// @dev The one place a plan ends happily: mark it settled and put the
+    ///      collateral in the buyer's hands. Hoisted out of `payInstalment` by
+    ///      AUDIT FIX TF-002 so the last-instalment path and the
+    ///      externally-cleared path cannot drift apart — the second was added
+    ///      precisely because it had no way to reach the first.
+    function _settle(uint256 planId, Plan storage p) private {
+        p.settled = true;
+        bool moved = SafeERC721Call.safeTransferFromBounded(collection, address(this), p.buyer, p.tokenId);
+        if (!moved) revert CollateralTransferFailed();
+        emit PlanSettled(planId, p.buyer);
+    }
 
     function _livePlan(uint256 planId) private view returns (Plan storage p) {
         if (planId >= plans.length) revert UnknownPlan();

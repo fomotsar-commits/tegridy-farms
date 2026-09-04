@@ -263,4 +263,75 @@ contract GaugeControllerTest is Test {
         assertEq(gauge.getGaugeWeight(gauge1), expectedPower / 2);
         assertEq(gauge.getGaugeWeight(gauge2), expectedPower / 2);
     }
+
+    // ─── AUDIT TF-013: the legacy path must shut before reveals begin ──
+    //
+    // commitVote/revealVote exist so nobody can read everyone else's allocation
+    // and then place their own knowing it. Legacy `vote()` had no timing window
+    // at all — it stayed open through the reveal window, while other voters'
+    // reveals were landing in public. A voter who simply never committed could
+    // watch and then vote informed, which makes the scheme opt-in for the
+    // honest and free to bypass for everyone else.
+    //
+    // The invariant pinned is the WINDOW, not a revert string: legacy voting
+    // must close no later than committing does, so neither path can be used
+    // once reveals are visible.
+
+    function _split5050() internal view returns (address[] memory g, uint256[] memory w) {
+        g = new address[](2);
+        w = new uint256[](2);
+        g[0] = gauge1; w[0] = 5000;
+        g[1] = gauge2; w[1] = 5000;
+    }
+
+    /// @dev The instant the commit window shuts, per the contract's own rule.
+    function _commitCutoff() internal view returns (uint256) {
+        uint256 e = gauge.currentEpoch();
+        return gauge.epochStartTime(e) + gauge.EPOCH_DURATION() - gauge.REVEAL_WINDOW() - gauge.REVEAL_GRACE();
+    }
+
+    function test_legacyVoteIsRefusedOnceTheRevealWindowIsOpen() public {
+        uint256 tokenId = staking.userTokenId(alice);
+        (address[] memory g, uint256[] memory w) = _split5050();
+
+        // Sit inside the reveal window, where honest reveals are public.
+        uint256 e = gauge.currentEpoch();
+        vm.warp(gauge.epochStartTime(e) + gauge.EPOCH_DURATION() - gauge.REVEAL_WINDOW() + 1);
+
+        vm.prank(alice);
+        vm.expectRevert(GaugeController.VoteWindowClosed.selector);
+        gauge.vote(tokenId, g, w);
+
+        // And it really did not land — a revert that still recorded weight
+        // would be no defence.
+        assertEq(gauge.getGaugeWeight(gauge1), 0, "an informed vote must not be recorded");
+    }
+
+    function test_legacyVoteClosesNoLaterThanCommittingDoes() public {
+        // The two paths must shut together, or the later one is the bypass.
+        uint256 tokenId = staking.userTokenId(alice);
+        (address[] memory g, uint256[] memory w) = _split5050();
+
+        vm.warp(_commitCutoff());
+
+        vm.prank(alice);
+        vm.expectRevert(GaugeController.CommitWindowClosed.selector);
+        gauge.commitVote(tokenId, keccak256("whatever"));
+
+        vm.prank(alice);
+        vm.expectRevert(GaugeController.VoteWindowClosed.selector);
+        gauge.vote(tokenId, g, w);
+    }
+
+    function test_legacyVoteStillWorksThroughTheOrdinaryVotingWindow() public {
+        // Non-vacuity: the gate must not have closed the path outright. Almost
+        // the whole epoch is still open to it.
+        uint256 tokenId = staking.userTokenId(alice);
+        (address[] memory g, uint256[] memory w) = _split5050();
+
+        vm.warp(_commitCutoff() - 1);
+        vm.prank(alice);
+        gauge.vote(tokenId, g, w);
+        assertGt(gauge.getGaugeWeight(gauge1), 0, "honest in-window voting must still work");
+    }
 }

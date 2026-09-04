@@ -1,4 +1,4 @@
-// Launch Afterlife — wiring a GRADUATED Doppler launch into Tegridy's V4 stack
+// Launch Afterlife — wiring a GRADUATED Doppler launch into the venue's V4 stack
 // (docs/LAUNCHER_STRATEGY.md §2.1).
 //
 // A Doppler launch that completes price discovery "graduates": its bonded

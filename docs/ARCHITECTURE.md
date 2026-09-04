@@ -2,6 +2,25 @@
 
 How the protocol is put together. Written for developers, integrators, and auditors who want more than the README overview.
 
+> **Scope note, added 2026-09-04.** This document describes the **Ethereum mainnet** protocol,
+> which is where the whole flywheel lives. Three surfaces sit outside it and are deliberately
+> *not* part of these flows:
+>
+> - **Base 8453 and Robinhood 4663** (live 2026-08-25) run the same factory / router / TWAP /
+>   fee-router stack, but their fee sink is a **remittance Safe rather than a distributor** —
+>   no veTOWELI, no staker leg, no POL. An L2 fee is queued for the bridge. Robinhood also
+>   carries a deployed `AttestedSequencerUptimeFeed`, because Chainlink publishes no uptime
+>   feed for it and `SequencerCheck` reverts off-mainnet on a zero feed.
+> - **The bungalow lighthouses** (`LighthouseLadder` on Ethereum and Base, Streamflow on
+>   Solana) are self-contained per-token staking pools. They reuse TOWELI's lock ladder on the
+>   EVM side but share no state with the contracts below.
+> - **Solana** is a Jupiter-routed swap plus those Streamflow pools. Our own two Solana
+>   programs were deployed 2026-08-08 and **closed 2026-08-13**; their ids are spent.
+>
+> Read `frontend/src/lib/chains/registry.ts` for what each chain is *capable* of — it encodes
+> the fee-sink **kind** per chain, so a surface cannot accidentally describe a remittance Safe
+> as a staker rail.
+
 ## Contents
 
 - [System overview](#system-overview)

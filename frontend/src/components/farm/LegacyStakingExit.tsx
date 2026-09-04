@@ -22,7 +22,7 @@ interface LegacyPosition {
   amount: bigint;
   lockEnd: bigint;
   canWithdraw: boolean;
-  penaltyBps: bigint;
+  penaltyBps: bigint | null;
 }
 
 /**
@@ -105,11 +105,39 @@ export function LegacyStakingExit() {
       amount,
       lockEnd,
       canWithdraw,
-      penaltyBps: pen?.status === 'success' ? (pen.result as bigint) : 0n,
+      // OUTAGE-AS-FREE. Defaulting a failed penalty read to 0n told the
+      // staker their early exit was free while the contract took its real
+      // cut. Unknown stays unknown, and the confirm button refuses to arm.
+      penaltyBps: pen?.status === 'success' ? (pen.result as bigint) : null,
     });
   });
 
-  if (!isConnected || positions.length === 0) return null;
+  // OUTAGE-AS-ZERO. A failed read collapses to tokenId 0n, which is also the
+  // legitimate "no legacy position" value — so an RPC hiccup used to hide this
+  // banner entirely and tell someone with a stranded stake that they had
+  // nothing to withdraw. Track the failure separately and say so instead.
+  const idsUnread = isConnected && !!address && !idReads.isLoading
+    && (!idReads.data || idReads.data.some((r) => !r || r.status !== 'success'));
+  const posUnread = !posReads.isLoading && LEGACY_STAKING_ADDRESSES.some(
+    (_, i) => (ids[i] ?? 0n) > 0n && posReads.data?.[i * 2]?.status !== 'success',
+  );
+  const legacyUnread = idsUnread || posUnread;
+
+  if (!isConnected) return null;
+  if (positions.length === 0 && legacyUnread) {
+    return (
+      <div
+        className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-[13px] text-amber-100"
+        data-testid="legacy-staking-exit-unread"
+      >
+        We could not check the retired staking contracts just now — the network did
+        not answer. If you have a position stranded in one, it is still there and
+        still yours; this check failing does not move or forfeit anything. Reload
+        to try again before concluding you have nothing to withdraw.
+      </div>
+    );
+  }
+  if (positions.length === 0) return null;
 
   const exit = (p: LegacyPosition & { idx: number }) => {
     setActiveIdx(p.idx);
@@ -168,7 +196,9 @@ export function LegacyStakingExit() {
                 {!p.canWithdraw && (
                   <div className="text-amber-300/80 text-[11px] mt-0.5">
                     Locked until {new Date(Number(p.lockEnd) * 1000).toLocaleDateString()} — early
-                    withdrawal pays a {(Number(p.penaltyBps) / 100).toFixed(0)}% penalty
+                    withdrawal pays {p.penaltyBps === null
+                      ? 'a penalty whose rate could not be read just now'
+                      : `a ${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
                   </div>
                 )}
               </div>
@@ -183,10 +213,17 @@ export function LegacyStakingExit() {
               ) : confirmingIdx === p.idx ? (
                 <button
                   onClick={() => exit(p)}
-                  disabled={isPending || isConfirming}
-                  className="btn-primary px-5 py-2.5 min-h-[44px] text-[13px] whitespace-nowrap"
+                  disabled={isPending || isConfirming || p.penaltyBps === null}
+                  className="btn-primary px-5 py-2.5 min-h-[44px] text-[13px] whitespace-nowrap disabled:opacity-50"
+                  title={p.penaltyBps === null
+                    ? 'The penalty rate could not be read from the contract. Reload before exiting early — do not sign a cost you cannot see.'
+                    : undefined}
                 >
-                  {busy ? 'Confirming…' : `Confirm −${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
+                  {busy
+                    ? 'Confirming…'
+                    : p.penaltyBps === null
+                      ? 'Penalty unknown — reload'
+                      : `Confirm −${(Number(p.penaltyBps) / 100).toFixed(0)}% penalty`}
                 </button>
               ) : (
                 <button

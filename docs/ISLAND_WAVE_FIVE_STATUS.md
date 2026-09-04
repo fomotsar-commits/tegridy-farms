@@ -67,6 +67,58 @@ renamed on the owner's explicit call (27 sites, 11 files, display name only — 
 `TegridyCurveLauncher` contract untouched), plus the 9 curve-graduation mentions that would
 otherwise have read "Memetics Curve … graduates into a Tegridy pool".
 
+## The owner's override: the Tegridy name is retired, not relocated
+
+**This reverses §0 of the island's own wave doc**, and is recorded here as the
+owner's decision so the island is not left thinking its instruction was missed.
+The wave RELOCATES the classic identity behind `/toweli`; the owner asked for it
+retired from every surface. Done 2026-08-31 across **171 sites** — the toweli
+room's own copy, then Terms, Privacy, Risks, FAQ, Lore, every page title, the
+fee copy on every route, the knowledge base, gallery titles, the leaderboard,
+the launcher's graduation copy, and wagmi's appName (what wallets show at
+signing). Towelie survives as a **character** — voice, bubble, art. Only the
+brand word went.
+
+**Four names did not move, none of them oversights.** Deployed contract names
+(`TegridyStaking`, …) are on-chain and printed beside their verified addresses,
+so renaming them would make ContractsPage disagree with Etherscan.
+`t.me/tegridyfarms` is a real channel. `curveIdentity`'s Arweave tags are
+**lookup keys** — already-published token identities are found by them.
+`tegridy-*` storage keys would log every visitor out and orphan their saved
+bungalow, consent and studio placements.
+
+**One was changed and then reverted, by the suite.** CoW's `appCode` was renamed
+under "everything". `cowProtocol.test.ts` caught it: appCode lives INSIDE the
+appData document whose keccak256 CoW re-derives and verifies at submission, so
+changing it re-hashes appData and **rejects every in-flight order signed against
+the old hash** — the exact failure the 2026-08-22 fee-leak audit pinned. Reverted
+with the reasoning written into the file. Renaming it is a migration (drain
+in-flight orders, then cut), not a copy edit. Still the owner's to order.
+
+**The parody disclosure was reworded by hand, not deleted.** The mechanical pass
+turned *"The 'Tegridy Farms' / 'Towelie' brand is a parody reference to a
+third-party IP (South Park)"* into the same sentence about memetics.finance —
+false, and it would have replaced a live disclosure with a wrong one. Towelie's
+character, voice and art still ship, so the exposure narrows without
+disappearing; `RisksPage` now says exactly that.
+
+## Other owner calls in the same sitting
+
+- **The walls.** The staking card scrim was `rgba(4,9,18,0.85)` over a `0.55`
+  page scrim, stacking into near-black over the resident's art. Now `0.52` and
+  `0.38`, in all three staking modules, so every bungalow lightens together.
+- **The way back moved to the wordmark.** The picker's venue tile is gone (it
+  read like a fourteenth bungalow you could move into). The wordmark persists the
+  `venue` sentinel and walks home — which a plain `<Link to="/">` cannot do,
+  because with a bungalow stored `/` renders THAT bungalow. Two ways to the
+  venue now: the arrival, and the mark.
+- **The island mark** replaces the purple bobowelie crop and the purple bolt
+  favicon across the tab, the TopNav button in all thirteen skins, the Apple
+  touch icon and both PWA icons. Excellent from 64px up; at 28px it reduces to a
+  green ring with a squiggle, which still reads and beats what it replaced.
+- **Tradermigos → Marketplace** on the five surfaces a visitor reads.
+  `/nakamigos` unchanged.
+
 ## Deviations from the changeset
 
 1. **`AppLoader.tsx` is not in v3's file list**, but §1 requires the intro's words and gallery

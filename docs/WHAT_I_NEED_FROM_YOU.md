@@ -89,10 +89,14 @@ only possible **while both keys still work**. Same argument on the Ethereum side
 ### 1.1 Host the indexer (~$5–20/month)
 **What:** a Railway account, Postgres, deploy `indexer/`, put it behind a rate-limited proxy, set
 `VITE_INDEXER_URL` in Vercel.
-**Why:** it is the chokepoint under the trading terminal, leaderboards, copy-trading, portfolio and
-tax APIs — the biggest revenue cluster in the top-100 list. Everything client-side is already
-built and honesty-gated: with no URL set, every surface says "unavailable" rather than inventing a
-zero.
+**Why:** it is no longer the chokepoint it was. As of 2026-09-02 the trading terminal, charting,
+copy-trading, competitions and tax reports each read a source that ships with every deployment —
+GeckoTerminal's public feeds and, for tax, the same-origin `/api/etherscan` function — so all five
+work with `VITE_INDEXER_URL` unset. What the indexer still buys is the venue's OWN history beside
+those third-party feeds: the terminal's "Venue pairs" tab, the chart's indexed-swap panel, the
+router season on /competitions, venue-side enrichment on a tax report, and the pooled-lending
+vault's reads. Everything client-side stays honesty-gated either way: an unread source says
+"unavailable" rather than inventing a zero.
 **Runbook:** [`indexer/DEPLOY.md`](../indexer/DEPLOY.md) — env vars, the mandatory proxy (Ponder
 ships no auth and no rate limiting; the raw port must never be public), and bring-up.
 
@@ -150,8 +154,9 @@ This section asked you to connect three surfaces I could not reach from inside t
 ownership fences. All three were mounted in `7ba46691` on 2026-08-19 and verified again
 2026-08-21:
 - **Alerts** — routed at `/alerts` and listed under Trust & Safety in `lib/navConfig.ts`. It
-  carries `soon: true` until migration `016` is applied by hand, because until then the store
-  answers 503 `schema-missing`.
+  carried `soon: true` until 2026-09-02, when the rule store moved into the browser's own
+  localStorage. The pill is off and there is nothing for you to do: the page works with no wallet,
+  no session and no migration.
 - **Triggers** — `'trigger'` is in the `Tab` union and `VALID_TABS` on `pages/TradePage.tsx`, with
   its panel mounted alongside TWAP. The tab-button row now maps `VALID_TABS` rather than a second
   hardcoded literal, which could previously diverge in silence.
@@ -163,8 +168,14 @@ Still true and still a deliberate act: `/airdrop` and `/vesting` are reachable b
 the nav, which suits rails that are still undeployed.
 
 ### 2.2 Apply two migrations by hand *(this database has no migration ledger)*
-`016_alert_rules.sql` and `017_api_keys.sql`. Both written, neither applied. Until `016` runs,
-every alerts call answers 503 `schema-missing` and says so — it does not pretend to have no rules.
+`016_alert_rules.sql` and `017_api_keys.sql`. Both written, neither applied. `016` no longer
+gates the /alerts SURFACE — the rule store moved into the browser's own localStorage, so the page
+works with no wallet, no session and no migration. What `016` still gates is cross-device sync of
+those rules, which nothing on the page promises today (the panel header says "Saved in this
+browser"). Note `016`'s own CHECK constraints reject the kinds added since it was written
+(loan-deadline carries hours; the pool kinds carry a `network:pool` subject), so syncing needs a
+follow-up migration widening the kind list, the subject regex and the threshold CHECK — deliberately
+not written until `016` is applied.
 ⚠️ They were briefly both numbered 016 by two independent slices; I renumbered the API one. If you
 ever see two files sharing a number again, that is the bug — you apply one, see "016 done", and the
 other never lands.
@@ -216,15 +227,17 @@ so in the UI. Right now the UI is honest about it, which is not the same as it b
 `020_telegram_links`. All written, none applied. Two things to know:
 - Each surface answers `503 schema-missing` with the migration path attached until you run its
   file — never a confident empty result. So a surface that looks broken is telling you which
-  migration is missing.
+  migration is missing. (Exception: /alerts no longer needs `016` to function — its rules are
+  browser-local. `016` buys cross-device sync only.)
 - `019` and `020` end with `NOTIFY pgrst, 'reload schema'`. Do not stop before that line, or the
   table will exist while every call insists it does not — the same failure that kept login dark.
 
 ### 2.7b Services built and hosted nowhere
 Three now, each with its own runbook, each deployed by you:
-- **The indexer** — `indexer/DEPLOY.md`. Still the biggest single unlock: the terminal,
-  copy-trading, competitions, charting and tax reports all read through it and all currently say
-  "unavailable" rather than rendering an empty result.
+- **The indexer** — `indexer/DEPLOY.md`. No longer the biggest single unlock: since 2026-09-02 the
+  terminal, copy-trading, competitions, charting and tax reports each read a source that ships with
+  every deployment, so none of them is dark waiting for you. Hosting it adds the venue's own
+  history beside those feeds — see §1.1 for the exact five things it turns on.
 - **The Solana indexing leg** — same host, runs beside the Ponder app.
 - **The Telegram bot** — `bot/DEPLOY.md`. Zero npm dependencies on purpose, so no postinstall in
   any dependency tree can reach its secret. It is non-custodial by construction: its credential can
@@ -235,9 +248,11 @@ Three now, each with its own runbook, each deployed by you:
   Etherscan's `getcontractcreation` is not in the API's allowed actions, so a token's deployer
   cannot be resolved automatically. Adding that action is a small change and it is what turns the
   terminal from honest-but-sparse into the product. Worth doing early.
-- **No leaderboard anywhere shows realised PnL**, because the indexed swap row carries no output
-  amount and no price. It is not caution — the number does not exist in the schema. Adding an
-  output amount to the indexer's swap table is what would make returns computable.
+- **No leaderboard anywhere shows realised PnL**, and it is not caution — the number does not
+  exist in either source. The indexed swap row carries no output amount and no price, so adding an
+  output amount to the indexer's swap table is what would make returns computable there. The boards
+  that now run on the island tape have a second, separate reason: a pool trade feed gives ONE leg,
+  so a return is not derivable from it at all and hosting the indexer would not change that.
 
 ### 2.7 Branding decision
 The PWA manifest no longer describes a single-chain farming product, but the **name** is still a

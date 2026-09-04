@@ -71,6 +71,13 @@ export const COW_PARTNER_FEE_BPS = 0;
 export const COW_PARTNER_FEE_RECIPIENT = '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d';
 
 export const COW_APP_DATA_DOC = JSON.stringify({
+  // NOT RENAMED, and not a branding oversight (owner asked for 'everything'
+  // on 2026-08-31; this is the one string that refused). appCode is part of
+  // the appData DOCUMENT whose keccak256 CoW re-derives and verifies at
+  // submission. Changing it re-hashes appData and rejects every in-flight
+  // order signed against the old hash — see the 2026-08-22 fee-leak audit
+  // pin in cowProtocol.test.ts. Renaming it is a migration (drain in-flight
+  // orders, then cut), not a copy edit.
   appCode: 'Tegridy Farms',
   metadata:
     COW_PARTNER_FEE_BPS > 0

@@ -94,7 +94,15 @@ export function PriceAlertWidget() {
                     </div>
                     <button
                       onClick={() => removeAlert(a.id)}
-                      className="text-white/30 hover:text-white text-[14px] leading-none shrink-0 transition-colors"
+                      /* A11Y-R15: a bare 14px glyph at text-white/30 is ~2.6:1
+                         against the row — under the 4.5:1 floor — and roughly a
+                         14x14 target, for the ONLY way to delete an alert. The
+                         box is a real 44x44 now (this is a list row, not inline
+                         text, so the honest fix is the box itself) and the
+                         resting colour clears contrast. The select/price inputs
+                         beside it are already lifted to 16px on phones by the
+                         global rule in index.css. */
+                      className="text-white/60 hover:text-white text-[14px] leading-none shrink-0 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                       aria-label="Remove alert"
                     >
                       x

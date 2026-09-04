@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { TOWELI_WETH_LP_ADDRESS } from '../lib/constants';
 import { safeGetItem, safeJsonParse, safeSetItem } from '../lib/storage';
 import { PRICE_CACHE_VERSION } from './useToweliPrice';
-import { geckoTerminalOhlcvSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
+import { TOWELI_MARKET } from '../lib/chart/market';
+import { ohlcvUrlFor, readOhlcvBars } from '../lib/chart/ohlcv';
 
 const CACHE_KEY = 'tegridy_price_history';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -10,6 +10,8 @@ const FRESHNESS_SLACK_MS = 60_000;
 const MAX_AGE_MS = 24 * 60 * 60_000;
 const MAX_RETRIES = 2;
 const BASE_DELAY = 1000;
+/** One day of hourly closes. The sparkline's whole claim is "the last 24 hours". */
+const HISTORY_BUCKETS = 24;
 
 interface CachedHistory {
   version: number;
@@ -72,52 +74,44 @@ export function usePriceHistory(): PriceHistoryResult {
 
       while (retryCount.current <= MAX_RETRIES) {
         try {
-          const url = `https://api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_WETH_LP_ADDRESS}/ohlcv/hour?aggregate=1&limit=24`;
-          const res = await fetch(url, {
-            headers: { Accept: 'application/json' },
-            signal: abortController.signal,
-          });
+          // ONE OHLCV READER. The URL and the envelope validation used to be
+          // written out here, a second copy of what lib/chart/ohlcv.ts does for
+          // /chart — and a second copy of a rule is a rule that drifts. R080's
+          // envelope check, the reject-never-repair sanity rule and the
+          // duplicate-timestamp rule now all reach this sparkline too, because
+          // there is only one place they live.
+          const url = ohlcvUrlFor(TOWELI_MARKET, '1h', { limit: HISTORY_BUCKETS });
+          const read = await readOhlcvBars(url, fetch, abortController.signal);
 
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const json: unknown = await res.json();
-
-          // R080: validate the whole envelope before any candle reaches the
-          // sparkline. A shape outside the schema falls through to the retry
-          // loop and then to the explicit "unavailable" state — the chart never
-          // renders a series assembled from a payload we could not verify.
-          const parsed = parseOrNull(geckoTerminalOhlcvSchema, json);
-          if (!parsed) throw new Error('OHLCV response failed schema validation');
-
-          const ohlcv = parsed.data.attributes.ohlcv_list;
-          if (ohlcv.length >= 2) {
-            const closes: number[] = [];
-            for (const candle of ohlcv) {
-              const close = candle[4];
-              // The schema pins the tuple shape and rejects NaN/Infinity; it does
-              // not check sign, and a negative close is a number but not a price.
-              if (!(close >= 0)) continue;
-              closes.push(close);
-            }
-            closes.reverse();
-
-            if (closes.length < 2) throw new Error('Insufficient valid OHLCV entries');
-
-            if (!cancelled) {
-              setHistory(closes);
-              setError(null);
-              setIsLoading(false);
-              // R075: versioned write — version + signedAt stamped on every save.
-              const entry: CachedHistory = {
-                version: PRICE_CACHE_VERSION,
-                data: closes,
-                signedAt: Date.now(),
-              };
-              safeSetItem(CACHE_KEY, JSON.stringify(entry));
-            }
-            return;
+          if (!read.ok) {
+            // A refusal is NOT retried. GeckoTerminal's keyless limit is shared
+            // by every open page in this tab, and re-asking a 429 twice with
+            // backoff is how a rate limit becomes a longer one.
+            if (read.reason === 'rate-limited') break;
+            throw new Error(read.detail);
           }
-          throw new Error('Invalid OHLCV data');
-        } catch (_e) {
+
+          // `read.bars` is already ascending and de-duplicated; GeckoTerminal
+          // answers newest-first and the sparkline draws left-to-right, so the
+          // ordering is the reader's job rather than a `reverse()` here.
+          const closes = read.bars.map((bar) => bar.close);
+          if (closes.length < 2) throw new Error('Insufficient valid OHLCV entries');
+
+          if (!cancelled) {
+            setHistory(closes);
+            setError(null);
+            setIsLoading(false);
+            // R075: versioned write — version + signedAt stamped on every save.
+            const entry: CachedHistory = {
+              version: PRICE_CACHE_VERSION,
+              data: closes,
+              signedAt: Date.now(),
+            };
+            safeSetItem(CACHE_KEY, JSON.stringify(entry));
+          }
+          return;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'AbortError') return;
           retryCount.current++;
           if (retryCount.current <= MAX_RETRIES) {
             const delay = BASE_DELAY * Math.pow(2, retryCount.current - 1);

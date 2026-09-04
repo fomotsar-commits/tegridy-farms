@@ -151,12 +151,12 @@ export default function CommunityPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl mx-auto">
             <Link to="/leaderboard" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
-              <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Tegridy Score →</div>
+              <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Venue Score →</div>
               <div className="text-white/60 text-xs mt-1 leading-relaxed">On-chain reputation from your real activity — staking, LP, lock duration.</div>
             </Link>
             <Link to="/nakamigos" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Community chat →</div>
-              <div className="text-white/60 text-xs mt-1 leading-relaxed">Live chat, P2P trades, and whale intel over in Tradermigos.</div>
+              <div className="text-white/60 text-xs mt-1 leading-relaxed">Live chat, P2P trades, and whale intel over in the Marketplace.</div>
             </Link>
             <Link to="/gallery" className="group rounded-xl p-4 transition-colors hover:border-emerald-500/40" style={{ background: 'rgba(13,21,48,0.55)', border: '1px solid rgba(255,255,255,0.12)' }}>
               <div className="text-white font-semibold text-sm group-hover:text-emerald-300 transition-colors">Gallery →</div>
@@ -196,7 +196,10 @@ export default function CommunityPage() {
               aria-controls={`community-panel-${key}`}
               tabIndex={tabKeys.tabIndex(key)}
               ref={tabKeys.ref(key)}
-              className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
+              /* A11Y-R07: `px-3 py-2 text-xs` is a ~32px tap target. The
+                 structurally identical tab strip on /swap already carries the
+                 repo's 44px floor (TradePage.tsx); these are the same control. */
+              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 ${
                 section === key ? 'text-white' : 'text-white/60 hover:text-white'
               }`}
               onClick={() => handleSectionChange(key)}

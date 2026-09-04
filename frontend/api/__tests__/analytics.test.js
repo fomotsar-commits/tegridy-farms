@@ -86,6 +86,39 @@ describe("privacy — no wallet address may be stored", () => {
     expect(out.payload.accepted).toBe(0);
   });
 
+  // AUDIT TF-033. PrivacyPage §3 promises event records carry no wallet
+  // address. The promise is about the RECORD, not about one column, and the
+  // `event` name is a caller-supplied string stored verbatim — 64 chars is
+  // room enough for any address. Pinned as behaviour because the properties-
+  // only DB backstop cannot see this column at all.
+  it("rejects an EVM address in the EVENT NAME, not just in properties", async () => {
+    const { default: handler } = await load();
+    const { res, out } = makeRes();
+    await handler(makeReq({
+      body: { events: [EVENT({ event: "buy:0x14898258122C0740106391E6e8E4F17F3b6d456E" })] },
+    }), res);
+    expect(out.payload.accepted).toBe(0);
+    expect(out.payload.reasons["address-shaped-value"]).toBe(1);
+    expect(inserted).toHaveLength(0);
+  });
+
+  // AUDIT TF-034. `properties` is caller-shaped, so nothing stops an address
+  // being the KEY. Walking Object.values alone left that route wide open.
+  it("rejects an address used as an object KEY", async () => {
+    const { containsAddress } = await load();
+    expect(containsAddress({ ["0x" + "a".repeat(40)]: 1 })).toBe(true);
+  });
+
+  it("rejects an address key nested under an ordinary key", async () => {
+    const { default: handler } = await load();
+    const { res, out } = makeRes();
+    await handler(makeReq({
+      body: { events: [EVENT({ properties: { holders: { ["0x" + "b".repeat(40)]: 3 } } })] },
+    }), res);
+    expect(out.payload.accepted).toBe(0);
+    expect(out.payload.reasons["address-shaped-value"]).toBe(1);
+  });
+
   it("does NOT reject ordinary long strings — the false positive that would break the sink", async () => {
     const { containsAddress } = await load();
     // 40 chars of base58-legal alphanumerics INSIDE a longer value. A substring

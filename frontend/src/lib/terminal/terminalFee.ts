@@ -61,7 +61,7 @@ export function terminalFeeDisclosure(route: TerminalRoute): TerminalFeeDisclosu
     const note =
       route.source !== null && dialOn
         ? `The venue fee is configured but is not attached to ${AGGREGATOR_NAMES[route.source]} on this build, so it is not charged here. ${THIRD_PARTY_NOTE}`
-        : `Tegridy adds no fee to this trade. ${THIRD_PARTY_NOTE}`;
+        : `The venue adds no fee to this trade. ${THIRD_PARTY_NOTE}`;
     return { label: 'Terminal fee', value: 'None', note, bps: 0, charged: false };
   }
 
@@ -78,7 +78,7 @@ export function terminalFeeDisclosure(route: TerminalRoute): TerminalFeeDisclosu
   return {
     label: 'Terminal fee',
     value: formatBpsPct(bps),
-    note: `Added by Tegridy to this ${who} route before you sign. ${THIRD_PARTY_NOTE}`,
+    note: `Added by the venue to this ${who} route before you sign. ${THIRD_PARTY_NOTE}`,
     bps,
     charged: true,
   };

@@ -8,8 +8,17 @@
 // A rule is a QUESTION, not a promise. Nothing in this module claims a rule is
 // being watched; that claim belongs to evaluate.ts (did we get an answer?) and
 // channels.ts (would a delivery reach anyone?), both of which can refuse it.
+//
+// SUBJECTS ARE NOT ALL ADDRESSES. Six kinds watch an EVM address; three watch a
+// POOL, which is a (network, pool-id) pair and on Solana is base58 — a
+// CASE-SENSITIVE encoding. The lower-casing that is right for an EVM address is
+// data corruption for a Solana pool id, so canonicalisation is per-kind and lives
+// in `canonicalSubject`, which every write path goes through exactly once.
 
-import type { Address } from 'viem';
+// The network vocabulary comes from the shared GeckoTerminal module rather than
+// from a second copy here: two lists of networks is how a subject validates on
+// one surface and is then refused by the reader on the next.
+import { isGeckoNetwork, type GeckoNetwork } from '../geckoTerminal/pools';
 
 export type AlertRuleKind =
   /** A transfer of the watched token above a USD threshold. */
@@ -23,7 +32,13 @@ export type AlertRuleKind =
   /** The watched wallet's Jungle Bay Island Heat tier changed. */
   | 'heat-tier'
   /** A loan the connected wallet borrowed is within N hours of its deadline. */
-  | 'loan-deadline';
+  | 'loan-deadline'
+  /** GeckoTerminal's quote for a pool crossed above a USD price. */
+  | 'pool-price-above'
+  /** GeckoTerminal's quote for a pool crossed below a USD price. */
+  | 'pool-price-below'
+  /** A swap on a pool worth at least a USD size landed in the recent-trades feed. */
+  | 'pool-large-trade';
 
 export const ALERT_RULE_KINDS: readonly AlertRuleKind[] = [
   'whale-move',
@@ -32,6 +47,9 @@ export const ALERT_RULE_KINDS: readonly AlertRuleKind[] = [
   'launch-live',
   'heat-tier',
   'loan-deadline',
+  'pool-price-above',
+  'pool-price-below',
+  'pool-large-trade',
 ];
 
 export const RULE_KIND_LABELS: Record<AlertRuleKind, string> = {
@@ -41,6 +59,9 @@ export const RULE_KIND_LABELS: Record<AlertRuleKind, string> = {
   'launch-live': 'Launch go-live',
   'heat-tier': 'Heat tier change',
   'loan-deadline': 'Loan deadline approaching',
+  'pool-price-above': 'Pool price rises above',
+  'pool-price-below': 'Pool price falls below',
+  'pool-large-trade': 'Large swap on a pool',
 };
 
 /**
@@ -61,6 +82,12 @@ export const RULE_KIND_MEANING: Record<AlertRuleKind, string> = {
     'Fires when Jungle Bay Island’s held-time tier for this wallet changes. Heat is the island’s measurement, not this venue’s.',
   'loan-deadline':
     'Fires when a loan you borrowed on this lending contract comes within the hours you set of its deadline. It is evaluated on the lending page, where your loans are read — elsewhere it reports “cannot evaluate” rather than calm. The alert is a message: repaying is still a transaction you sign yourself.',
+  'pool-price-above':
+    'Fires once when GeckoTerminal’s quoted price for this pool crosses above the threshold between two readings, roughly a minute apart while this page is open. It is a quote, not a fill you could get, and GeckoTerminal publishes no as-of time for it.',
+  'pool-price-below':
+    'Fires once when GeckoTerminal’s quoted price for this pool crosses below the threshold between two readings, roughly a minute apart while this page is open. It is a quote, not a fill you could get, and GeckoTerminal publishes no as-of time for it.',
+  'pool-large-trade':
+    'Fires on a swap in this pool worth at least the threshold that lands after this rule’s first reading. It reads GeckoTerminal’s recent-trades feed for the pool — a swap on a pool, not a token movement, and only the trades that feed returns.',
 };
 
 /** Kinds that can only speak by comparing two readings. */
@@ -71,7 +98,13 @@ export function isChangeDetectionKind(kind: AlertRuleKind): boolean {
 }
 
 /** Kinds whose `threshold` is meaningful. Everything else ignores it. */
-export const THRESHOLD_KINDS: readonly AlertRuleKind[] = ['whale-move', 'loan-deadline'];
+export const THRESHOLD_KINDS: readonly AlertRuleKind[] = [
+  'whale-move',
+  'loan-deadline',
+  'pool-price-above',
+  'pool-price-below',
+  'pool-large-trade',
+];
 
 export function usesThreshold(kind: AlertRuleKind): boolean {
   return THRESHOLD_KINDS.includes(kind);
@@ -92,6 +125,9 @@ export const THRESHOLD_LABEL: Record<AlertRuleKind, string | null> = {
   'launch-live': null,
   'heat-tier': null,
   'loan-deadline': 'Hours of warning before the deadline',
+  'pool-price-above': 'USD price',
+  'pool-price-below': 'USD price',
+  'pool-large-trade': 'USD swap size',
 };
 
 /** What `subject` means for each kind, so the builder can label its own input. */
@@ -102,35 +138,96 @@ export const SUBJECT_LABEL: Record<AlertRuleKind, string> = {
   'launch-live': 'Token contract address',
   'heat-tier': 'Wallet address',
   'loan-deadline': 'Lending contract address',
+  'pool-price-above': 'Pool, as network:address',
+  'pool-price-below': 'Pool, as network:address',
+  'pool-large-trade': 'Pool, as network:address',
 };
+
+/**
+ * The SHAPE of a subject, which decides how it is canonicalised.
+ *
+ * This exists because "lower-case it" is not a universal rule. It is right for a
+ * hex EVM address (case is checksum, not identity) and WRONG for a base58 Solana
+ * pool id, where case is part of the value — `8z52phbct…` and `8Z52PHBCT…` are
+ * different strings and only one of them is a pool.
+ */
+export type SubjectShape = 'evm-address' | 'pool';
+
+export const SUBJECT_SHAPE: Record<AlertRuleKind, SubjectShape> = {
+  'whale-move': 'evm-address',
+  'deployer-reputation': 'evm-address',
+  'lp-unlock': 'evm-address',
+  'launch-live': 'evm-address',
+  'heat-tier': 'evm-address',
+  'loan-deadline': 'evm-address',
+  'pool-price-above': 'pool',
+  'pool-price-below': 'pool',
+  'pool-large-trade': 'pool',
+};
+
+const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+/** Same alphabet the Heat proxy validates against (heatClient.ts) — no 0, O, I, l. */
+const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+export interface PoolSubject {
+  network: GeckoNetwork;
+  /** Lower-cased on eth/base; byte-preserved on solana. */
+  pool: string;
+}
+
+/**
+ * Parse `network:pool` into its parts, or null.
+ *
+ * A bare address is REFUSED rather than defaulted to a network. GeckoTerminal
+ * pool ids are not globally unique across chains, so guessing the network here
+ * would silently point a rule at a different pool with the same id — which fires
+ * on somebody else's market and looks exactly like a working alert.
+ */
+export function parsePoolSubject(raw: string): PoolSubject | null {
+  const value = String(raw ?? '').trim();
+  const cut = value.indexOf(':');
+  if (cut <= 0) return null;
+  const network = value.slice(0, cut).trim().toLowerCase();
+  const pool = value.slice(cut + 1).trim();
+  if (!isGeckoNetwork(network)) return null;
+  if (network === 'solana') {
+    return SOLANA_ADDRESS_RE.test(pool) ? { network, pool } : null;
+  }
+  return EVM_ADDRESS_RE.test(pool) ? { network, pool: pool.toLowerCase() } : null;
+}
+
+/**
+ * The one canonical form of a subject, per kind. Null when the input is not a
+ * subject of that shape at all.
+ *
+ * EVERY write path goes through this exactly once — validation, the rule key, the
+ * duplicate check and the local store's row coercion — so a subject cannot be
+ * canonicalised twice with two different rules, which is how a Solana id ends up
+ * lower-cased by the step nobody remembered.
+ */
+export function canonicalSubject(kind: AlertRuleKind, raw: string): string | null {
+  const value = String(raw ?? '').trim();
+  if (SUBJECT_SHAPE[kind] === 'pool') {
+    const parsed = parsePoolSubject(value);
+    return parsed ? `${parsed.network}:${parsed.pool}` : null;
+  }
+  return EVM_ADDRESS_RE.test(value) ? value.toLowerCase() : null;
+}
 
 export interface AlertRule {
   id: string;
   kind: AlertRuleKind;
-  /** Lower-cased EVM address the rule watches. */
-  subject: Address;
-  /** USD threshold for `whale-move`; null for every other kind. */
+  /**
+   * The canonical subject for this kind: a lower-cased EVM address, or
+   * `network:pool` for the pool kinds. Always the output of `canonicalSubject`.
+   */
+  subject: string;
+  /** USD / hours threshold for the kinds that use one; null for the rest. */
   threshold: number | null;
   enabled: boolean;
   /** Unix seconds. */
   createdAt: number;
 }
-
-/**
- * Per-wallet rule ceiling for a user with no PremiumAccess subscription.
- *
- * A cap is not a paywall dressed as a limit: every kind is available to a free
- * user, only the COUNT is bounded. A surface that hid kinds behind the tier while
- * still listing them would be selling a rule the user cannot tell is missing.
- */
-export const FREE_RULE_LIMIT = 3;
-export const PREMIUM_RULE_LIMIT = 25;
-
-export function ruleLimitFor(hasPremium: boolean): number {
-  return hasPremium ? PREMIUM_RULE_LIMIT : FREE_RULE_LIMIT;
-}
-
-const EVM_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 export interface RuleDraft {
   kind: AlertRuleKind;
@@ -152,9 +249,15 @@ export function validateRuleDraft(draft: RuleDraft): RuleValidation {
   if (!ALERT_RULE_KINDS.includes(draft.kind)) {
     return { ok: false, error: 'Unknown rule type.' };
   }
-  const subject = String(draft.subject ?? '').trim();
-  if (!EVM_ADDRESS_RE.test(subject)) {
-    return { ok: false, error: `${SUBJECT_LABEL[draft.kind]} must be a 0x-prefixed 40-character address.` };
+  const subject = canonicalSubject(draft.kind, String(draft.subject ?? ''));
+  if (subject === null) {
+    return {
+      ok: false,
+      error:
+        SUBJECT_SHAPE[draft.kind] === 'pool'
+          ? `${SUBJECT_LABEL[draft.kind]} — for example eth:0x… , base:0x… or solana:<pool id>. A bare address is not enough: the same id can exist on more than one network.`
+          : `${SUBJECT_LABEL[draft.kind]} must be a 0x-prefixed 40-character address.`,
+    };
   }
 
   let threshold: number | null = null;
@@ -173,17 +276,23 @@ export function validateRuleDraft(draft: RuleDraft): RuleValidation {
     ok: true,
     rule: {
       kind: draft.kind,
-      subject: subject.toLowerCase() as Address,
+      subject,
       threshold,
       enabled: true,
     },
   };
 }
 
-/** Two rules collide when they ask the same question of the same subject. */
+/**
+ * Two rules collide when they ask the same question of the same subject.
+ *
+ * Canonicalises through `canonicalSubject` rather than lower-casing, so two
+ * Solana pools that differ only by case stay two different questions. A blanket
+ * `.toLowerCase()` here would merge them and silently drop the second rule.
+ */
 export function ruleKey(kind: AlertRuleKind, subject: string, threshold: number | null): string {
   const t = usesThreshold(kind) && threshold != null ? threshold.toString() : '-';
-  return `${kind}:${subject.toLowerCase()}:${t}`;
+  return `${kind}:${canonicalSubject(kind, subject) ?? subject}:${t}`;
 }
 
 export function isDuplicateRule(existing: readonly AlertRule[], candidate: Omit<AlertRule, 'id' | 'createdAt'>): boolean {
@@ -191,14 +300,62 @@ export function isDuplicateRule(existing: readonly AlertRule[], candidate: Omit<
   return existing.some((r) => ruleKey(r.kind, r.subject, r.threshold) === key);
 }
 
+function short(value: string): string {
+  return value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : value;
+}
+
+/**
+ * How a subject reads in a sentence. Registry-free on purpose: this module knows
+ * nothing about which pools belong to island residents, and a name it cannot
+ * verify is a name it should not print. The surfaces that DO have that registry
+ * add the friendly name themselves.
+ */
+export function describeSubject(rule: AlertRule): string {
+  if (SUBJECT_SHAPE[rule.kind] === 'pool') {
+    const parsed = parsePoolSubject(rule.subject);
+    if (parsed) return `${parsed.network} pool ${short(parsed.pool)}`;
+  }
+  return short(rule.subject);
+}
+
+/**
+ * A threshold as it reads in a sentence.
+ *
+ * `toLocaleString()` with no options caps at three fraction digits, so a pool
+ * price of 0.000025 renders as "0" — and the rule then DESCRIBES ITSELF AS A
+ * DIFFERENT RULE than the one that was saved and is being evaluated. On a venue
+ * whose pools are priced in millionths of a dollar that is not an edge case; it
+ * is nearly every price rule.
+ *
+ * Below 1 the fraction digits ARE the number, so significant digits carry it.
+ * At or above 1 the value is a size (a USD amount, a count of hours) where
+ * grouping reads better and two decimals is plenty. Neither branch invents
+ * precision the user did not type.
+ */
+export function formatThreshold(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  if (value === 0) return '0';
+  return Math.abs(value) < 1
+    ? value.toLocaleString(undefined, { maximumSignificantDigits: 6 })
+    : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 /** Short human description of a rule, used in the inbox and the rule list. */
 export function describeRule(rule: AlertRule): string {
-  const short = `${rule.subject.slice(0, 6)}…${rule.subject.slice(-4)}`;
-  if (rule.kind === 'whale-move') {
-    return `Transfers of ${short} over $${rule.threshold?.toLocaleString() ?? '—'}`;
+  const subject = describeSubject(rule);
+  const amount = formatThreshold(rule.threshold);
+  switch (rule.kind) {
+    case 'whale-move':
+      return `Transfers of ${subject} over $${amount}`;
+    case 'loan-deadline':
+      return `Your loans on ${subject} within ${amount}h of their deadline`;
+    case 'pool-price-above':
+      return `Quoted price of ${subject} above $${amount}`;
+    case 'pool-price-below':
+      return `Quoted price of ${subject} below $${amount}`;
+    case 'pool-large-trade':
+      return `Swaps in ${subject} of at least $${amount}`;
+    default:
+      return `${RULE_KIND_LABELS[rule.kind]} — ${subject}`;
   }
-  if (rule.kind === 'loan-deadline') {
-    return `Your loans on ${short} within ${rule.threshold?.toLocaleString() ?? '—'}h of their deadline`;
-  }
-  return `${RULE_KIND_LABELS[rule.kind]} — ${short}`;
 }

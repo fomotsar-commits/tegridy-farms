@@ -1,7 +1,7 @@
 // WHOSE MONEY, AND WHO PRESSES THE BUTTON.
 //
 // Two claims a "DCA into yield" feature makes by implication and must not:
-//   · that the schedule is holding the unspent budget (it is not — a Tegridy
+//   · that the schedule is holding the unspent budget (it is not — a
 //     schedule is a reminder, and the funds never leave the user's wallet), and
 //   · that "auto-stake" happens by itself (it cannot — the venue runs no keeper,
 //     and no server here holds or can derive a key, so every leg is signed).
@@ -129,17 +129,41 @@ describe('neither leg claims to run on its own', () => {
   });
 });
 
-describe('both legs report unavailable while no destination is wired', () => {
-  it('cannot park an unfilled budget, and says the money stays put', () => {
+describe('each leg is keyed to the BUDGET\u2019s own token, not to the first wired venue', () => {
+  it('refuses to park an ETH budget in a USDC lending market, and names the token', () => {
+    // The regression this exists for: before the legs were keyed to the asset,
+    // wiring Aave made an ETH schedule print "would route to Aave v3 — USDC
+    // market". That is a token the holder does not have and a deposit that
+    // would revert.
     const p = plan('0.1', 10);
     expect(p.parking.state).toBe('unavailable');
-    expect(p.parking.state === 'unavailable' && p.parking.reason).toMatch(/stays in your wallet, earning nothing/i);
+    expect(p.parking.state === 'unavailable' && p.parking.reason).toMatch(/USDC/);
+    expect(p.parking.state === 'unavailable' && p.parking.reason).toMatch(/stays in your wallet earning nothing/i);
   });
 
-  it('cannot stake a completed buy, and says what happens instead', () => {
+  it('offers an ETH-denominated staking venue for an ETH budget', () => {
     const p = plan('0.1', 10);
-    expect(p.autoStake.state).toBe('unavailable');
-    expect(p.autoStake.state === 'unavailable' && p.autoStake.reason).toMatch(/stays in your wallet/i);
+    expect(p.autoStake.state).toBe('available');
+    if (p.autoStake.state !== 'available') throw new Error('unreachable');
+    // The venue it names must actually take ETH through a payable function.
+    expect(p.autoStake.venue.route.kind).toBe('native-payable');
+    expect(p.autoStake.venue.route.kind === 'native-payable' && p.autoStake.venue.route.asset).toBe('ETH');
+  });
+
+  it('parks a USDS budget in the USDS vault and nowhere else', () => {
+    const result = dcaYieldPlan({
+      amountPerSwap: '10',
+      totalSwaps: 4,
+      completedSwaps: 0,
+      asset: { symbol: 'USDS', decimals: 18 },
+    });
+    if (!result.ok) throw new Error(`expected a plan, got: ${result.reason}`);
+    expect(result.plan.parking.state).toBe('available');
+    if (result.plan.parking.state !== 'available') throw new Error('unreachable');
+    expect(result.plan.parking.venue.id).toBe('sky-susds');
+    // ...and it must NOT then offer to stake a stablecoin budget into an LST.
+    expect(result.plan.autoStake.state).toBe('unavailable');
+    expect(result.plan.autoStake.state === 'unavailable' && result.plan.autoStake.reason).toMatch(/USDS/);
   });
 
   it('gives a finished schedule its own reason rather than the wiring one', () => {

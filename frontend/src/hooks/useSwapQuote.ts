@@ -126,12 +126,12 @@ export function useSwapQuote(
     query: { enabled: onRightChain && parsedAmount > 0n && path.length >= 2 },
   });
 
-  // ---- Tegridy DEX: check own pools ----
+  // ---- Venue DEX: check own pools ----
   const fromAddrForPair = fromToken?.isNative ? WETH_ADDRESS : (fromToken?.address ?? WETH_ADDRESS);
   const toAddrForPair = toToken?.isNative ? WETH_ADDRESS : (toToken?.address ?? WETH_ADDRESS);
   const pairsEnabled = onRightChain && !!fromToken && !!toToken && fromAddrForPair.toLowerCase() !== toAddrForPair.toLowerCase();
 
-  // Check if Tegridy Factory has a pair for these tokens
+  // Check if Venue Factory has a pair for these tokens
   const { data: tegridyPairAddr } = useReadContract({
     address: TEGRIDY_FACTORY_ADDRESS,
     abi: TEGRIDY_FACTORY_ABI,
@@ -143,7 +143,7 @@ export function useSwapQuote(
 
   const hasTegridyPair = !!tegridyPairAddr && tegridyPairAddr !== ZERO_ADDR;
 
-  // Get quote from Tegridy Router (only if own pair exists)
+  // Get quote from Venue Router (only if own pair exists)
   const { data: tegridyAmountsOut, isLoading: isTegridyQuoteLoading, refetch: refetchTegridy } = useReadContract({
     address: TEGRIDY_ROUTER_ADDRESS,
     abi: TEGRIDY_ROUTER_ABI,
@@ -479,11 +479,11 @@ export function useSwapQuote(
     // disclose that as context rather than claiming to route through it — the
     // swap is still submitted on-chain via SwapFeeRouter / Uniswap V2.
     if (selectedRoute === 'aggregator') {
-      const execDex = selectedOnChainRoute.source === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2';
+      const execDex = selectedOnChainRoute.source === 'tegridy' ? 'Venue DEX' : 'Uniswap V2';
       const who = bestAggregatorName ?? 'An aggregator';
       return `Swapping via ${execDex} — ${who} quotes more, but isn't routable in-app`;
     }
-    const dex = selectedRoute === 'tegridy' ? 'Tegridy DEX' : 'Uniswap V2';
+    const dex = selectedRoute === 'tegridy' ? 'Venue DEX' : 'Uniswap V2';
     // Native route carries the protocol fee; disclose it (the shown output already nets it).
     const feeNote = selectedRoute === 'tegridy' ? ` (incl. ${feeBpsNum / 100}% fee)` : '';
     if (path.length <= 2) return `Direct swap via ${dex}${feeNote}`;

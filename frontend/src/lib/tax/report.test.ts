@@ -20,7 +20,7 @@ function baseInput(over: Partial<TaxReportInput> = {}): TaxReportInput {
     method: 'fifo',
     quoteCurrency: 'USD',
     indexed: { lotEvents: [], income: [], informational: [], limitations: [] },
-    coverage: { status: 'ready', syncedAt: YEAR_END, oldestRowAt: null, truncated: false, indexedFrom: null },
+    coverage: { source: 'indexer', status: 'ready', syncedAt: YEAR_END, oldestRowAt: null, truncated: false, indexedFrom: null },
     generatedAt: YEAR_END,
     account: ACCOUNT,
     ...over,
@@ -34,6 +34,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'unavailable',
       syncedAt: null,
       oldestRowAt: null,
@@ -49,6 +50,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'backfilling',
       syncedAt: YEAR_END,
       oldestRowAt: YEAR_START,
@@ -63,6 +65,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'ready',
       syncedAt: YEAR_END,
       oldestRowAt: oldest,
@@ -79,6 +82,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'ready',
       syncedAt: head,
       oldestRowAt: YEAR_START,
@@ -92,6 +96,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'ready',
       syncedAt: null,
       oldestRowAt: YEAR_START,
@@ -106,6 +111,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'ready',
       syncedAt: YEAR_END,
       oldestRowAt: from,
@@ -120,6 +126,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'unavailable',
       syncedAt: null,
       oldestRowAt: null,
@@ -133,6 +140,7 @@ describe('a period the venue could not read is a GAP on the export, never an omi
     const c = computeCoverage({
       periodStart: YEAR_START,
       periodEnd: YEAR_END,
+      source: 'indexer',
       status: 'ready',
       syncedAt: YEAR_END,
       oldestRowAt: YEAR_START,
@@ -314,7 +322,7 @@ describe('the report is honest about being incomplete, in the file as well as on
   it('an unavailable indexer produces a full header and no rows, not a clean zero', () => {
     const report = buildTaxReport(
       baseInput({
-        coverage: { status: 'unavailable', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null },
+        coverage: { source: 'indexer', status: 'unavailable', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null },
       }),
     );
     expect(report.usableAsFiled).toBe(false);
@@ -339,6 +347,7 @@ describe('the report is honest about being incomplete, in the file as well as on
     const report = buildTaxReport(
       baseInput({
         coverage: {
+          source: 'indexer',
           status: 'ready',
           syncedAt: YEAR_START + 100 * DAY,
           oldestRowAt: YEAR_START,
@@ -398,7 +407,7 @@ describe('the report is honest about being incomplete, in the file as well as on
     const good = buildTaxReport(baseInput());
     expect(good.usableAsFiled).toBe(true);
     const gapped = buildTaxReport(
-      baseInput({ coverage: { status: 'ready', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null } }),
+      baseInput({ coverage: { source: 'indexer', status: 'ready', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null } }),
     );
     expect(gapped.usableAsFiled).toBe(false);
   });
@@ -444,5 +453,172 @@ describe('CSV mechanics', () => {
     expect(csvField('a,b')).toBe('"a,b"');
     expect(csvField('say "hi"')).toBe('"say ""hi"""');
     expect(csvField('plain')).toBe('plain');
+  });
+});
+
+// ─── Quote scale ─────────────────────────────────────────────────────────────
+
+describe('the report formats money at the scale its own currency actually has', () => {
+  const ethSupplied = {
+    lotEvents: [
+      {
+        kind: 'acquire' as const,
+        id: 'lot-eth',
+        asset: '0xabc',
+        assetSymbol: 'TKN',
+        quantity: 1_000n,
+        decimals: 0,
+        costBasis: 2n * 10n ** 17n,
+        costSource: 'supplied' as const,
+        timestamp: YEAR_START + DAY,
+        txHash: '0xa',
+      },
+      {
+        kind: 'dispose' as const,
+        id: 'sale-eth',
+        asset: '0xabc',
+        assetSymbol: 'TKN',
+        quantity: 1_000n,
+        decimals: 0,
+        proceeds: 5n * 10n ** 17n,
+        proceedsSource: 'settle-leg' as const,
+        timestamp: YEAR_START + 2 * DAY,
+        txHash: '0xb',
+      },
+    ],
+    income: [],
+  };
+
+  // Pinned because the pre-change writer formatted every money column with a
+  // literal 2: 5e17 wei printed as "5000000000000000.00", which is a wrong
+  // number in a filing and looks like a plausible one.
+  it('prints an ETH figure at 18 places, in the CSV, the worksheet and the header', () => {
+    const report = buildTaxReport(
+      baseInput({ quoteCurrency: 'ETH', quoteScale: 18, supplied: ethSupplied }),
+    );
+    expect(report.capitalGains.disposals[0]!.proceeds).toBe(5n * 10n ** 17n);
+    const csv = capitalGainsCsv(report);
+    expect(csv).toContain('0.500000000000000000');
+    expect(csv).not.toContain('5000000000000000.00');
+    expect(csv).toMatch(/# Values are ETH to 18 decimal places/);
+    expect(capitalGainsFormExport(report)).toContain('0.500000000000000000');
+  });
+
+  it('still prints 2 places when no scale is named, so existing callers are unchanged', () => {
+    expect(buildTaxReport(baseInput()).quoteScale).toBe(2);
+  });
+
+  it('carries each figure’s provenance onto the row, not just into the total', () => {
+    const report = buildTaxReport(
+      baseInput({ quoteCurrency: 'ETH', quoteScale: 18, supplied: ethSupplied }),
+    );
+    const row = capitalGainsCsv(report)
+      .split('\n')
+      .find((l) => l.startsWith('sale-eth'))!;
+    expect(row).toContain('settle-leg');
+    expect(row).toContain('supplied');
+    expect(capitalGainsFormExport(report)).toMatch(/Proceeds source: settle-leg\./);
+  });
+});
+
+// ─── Coverage per source ─────────────────────────────────────────────────────
+
+describe('coverage is stated per READ, so one source cannot vouch for another', () => {
+  it('an explorer read that covered the period leaves no indexer gap behind it', () => {
+    const report = buildTaxReport(
+      baseInput({
+        coverage: [
+          { source: 'explorer', status: 'ready', syncedAt: YEAR_END, oldestRowAt: null, truncated: false, indexedFrom: null },
+        ],
+      }),
+    );
+    expect(report.coverage.complete).toBe(true);
+    expect(report.coverage.gaps).toEqual([]);
+  });
+
+  it('names the EXPLORER in its own failure, and says an empty file is not an empty year', () => {
+    const report = buildTaxReport(
+      baseInput({
+        coverage: [
+          { source: 'explorer', status: 'unavailable', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null },
+        ],
+      }),
+    );
+    const gap = report.coverage.gaps[0]!;
+    expect(gap.reason).toBe('explorer-unavailable');
+    expect(gap.source).toBe('explorer');
+    expect(gap.detail).toMatch(/explorer proxy/i);
+    expect(gap.detail).toMatch(/does not mean there were no transactions/i);
+    expect(capitalGainsCsv(report)).toMatch(/GAP .*\[explorer\/explorer-unavailable\]/);
+  });
+
+  it('keeps the indexer’s own wording when the indexer is the source that failed', () => {
+    const report = buildTaxReport(
+      baseInput({
+        coverage: [
+          { source: 'indexer', status: 'unavailable', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null },
+        ],
+      }),
+    );
+    expect(report.coverage.gaps[0]!.reason).toBe('indexer-unavailable');
+    expect(report.coverage.gaps[0]!.detail).toMatch(/indexed history could not be read/i);
+  });
+
+  it('reports two failed sources as two gaps but counts the period ONCE', () => {
+    const report = buildTaxReport(
+      baseInput({
+        coverage: [
+          { source: 'explorer', status: 'unavailable', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null },
+          { source: 'indexer', status: 'unavailable', syncedAt: null, oldestRowAt: null, truncated: false, indexedFrom: null },
+        ],
+      }),
+    );
+    expect(report.coverage.gaps).toHaveLength(2);
+    expect(report.coverage.gapSeconds).toBe(YEAR_END - YEAR_START + 1);
+  });
+
+  it('an explorer cut is a gap that names the stretch nobody looked at', () => {
+    const cut = YEAR_START + 100 * DAY;
+    const report = buildTaxReport(
+      baseInput({
+        coverage: [
+          { source: 'explorer', status: 'ready', syncedAt: YEAR_END, oldestRowAt: cut, truncated: true, indexedFrom: null },
+        ],
+      }),
+    );
+    const gap = report.coverage.gaps.find((g) => g.reason === 'page-truncated')!;
+    expect(gap.from).toBe(YEAR_START);
+    expect(gap.to).toBe(cut - 1);
+    expect(gap.detail).toMatch(/at least one of the transaction lists/i);
+  });
+});
+
+// ─── The paste path shares the report's scale ────────────────────────────────
+
+describe('a pasted value is parsed at the scale the report is stamped with', () => {
+  const sheet =
+    'kind,asset,symbol,decimals,quantity,value,timestamp,txhash,id,nominates\n' +
+    'acquire,0xabc,TKN,0,1000,0.5,2025-01-14T10:00:00Z,0xa,lot-1,\n';
+
+  // Pre-change VALUE_SCALE was hard-wired to 2, so an ETH-quoted report parsed
+  // a pasted 0.5 ETH as 50 wei and put it into the same matcher as a leg read
+  // at 5e17. The two rows were sixteen orders of magnitude apart and the
+  // resulting gain was arithmetic nobody could trace back to a mistake.
+  it('parses 0.5 as 5e17 at ETH scale and as 50 at the default scale', () => {
+    expect(importTaxRows(sheet, 18).lotEvents[0]!).toMatchObject({ costBasis: 5n * 10n ** 17n });
+    expect(importTaxRows(sheet).lotEvents[0]!).toMatchObject({ costBasis: 50n });
+  });
+
+  it('stamps a pasted figure as supplied, which is not a compliment', () => {
+    expect(importTaxRows(sheet, 18).lotEvents[0]!).toMatchObject({ costSource: 'supplied' });
+  });
+
+  it('names the scale it refused a row at', () => {
+    const res = importTaxRows(
+      'kind,asset,symbol,decimals,quantity,value,timestamp,txhash,id,nominates\n' +
+        'acquire,0xabc,TKN,0,1000,0.5,2025-01-14T10:00:00Z,0xa,lot-1,\n',
+      0,
+    );
+    expect(res.errors[0]!.message).toMatch(/at most 0 fractional digits/);
   });
 });

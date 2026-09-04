@@ -77,7 +77,10 @@ describe('with a partner configured and a wallet connected', () => {
     configureTransak();
     render(<FiatOnrampPanel walletAddress={EVM} />);
     const link = screen.getByRole('link', { name: /continue to transak/i }) as HTMLAnchorElement;
-    expect(link.href.startsWith('https://global.transak.com')).toBe(true);
+    // The origin is compared whole, never as a prefix: "https://global.transak.com.evil.io/"
+    // starts with the partner's URL without being the partner, and this test exists to
+    // catch exactly that mutation of the origin constant.
+    expect(new URL(link.href).origin).toBe('https://global.transak.com');
     expect(link.target).toBe('_blank');
     expect(link.rel).toContain('noopener');
     expect(link.rel).toContain('noreferrer');

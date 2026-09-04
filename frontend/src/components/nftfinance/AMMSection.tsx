@@ -1178,7 +1178,11 @@ function PoolAdminPanel({
     }
   }, [isReverted]);
 
-  const isPaused = state?.[0]?.status === 'success' ? (state[0].result as boolean) : false;
+  // A failed paused() read used to default to false, so the panel asserted
+  // "Active - trading open" about a pool whose state it had not read, and
+  // offered a Pause button that would revert on an already-paused pool.
+  // Unknown is its own state here.
+  const isPaused = state?.[0]?.status === 'success' ? (state[0].result as boolean) : null;
   const pendingSpot = state?.[1]?.status === 'success' ? (state[1].result as bigint) : 0n;
   const pendingSpotAfter = state?.[2]?.status === 'success' ? Number(state[2].result as bigint) : 0;
   const pendingDeltaVal = state?.[3]?.status === 'success' ? (state[3].result as bigint) : 0n;
@@ -1239,23 +1243,25 @@ function PoolAdminPanel({
     <div className="pt-3 border-t border-white/20 space-y-4">
       {/* Status / Pause */}
       <div className="flex items-center justify-between rounded-lg p-3"
-        style={{ background: isPaused ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.06)', border: `1px solid ${isPaused ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
+        style={{ background: isPaused === null ? 'rgba(245,158,11,0.08)' : isPaused ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.06)', border: `1px solid ${isPaused === null ? 'rgba(245,158,11,0.3)' : isPaused ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
         <div>
           <p className="text-[10px] uppercase tracking-wider text-white/55">Status</p>
-          <p className={`text-[13px] font-semibold ${isPaused ? 'text-red-300' : 'text-emerald-300'}`}>
-            {isPaused ? 'Paused — trading disabled' : 'Active — trading open'}
+          <p className={`text-[13px] font-semibold ${isPaused === null ? 'text-amber-300' : isPaused ? 'text-red-300' : 'text-emerald-300'}`}>
+            {isPaused === null
+              ? 'Unknown — paused() could not be read'
+              : isPaused ? 'Paused — trading disabled' : 'Active — trading open'}
           </p>
         </div>
         <button
-          onClick={() => call(isPaused ? 'unpause' : 'pause')}
-          disabled={busy}
+          onClick={() => { if (isPaused !== null) call(isPaused ? 'unpause' : 'pause'); }}
+          disabled={busy || isPaused === null}
           className={`px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-colors disabled:opacity-40 ${
             isPaused
               ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/25'
               : 'bg-red-500/15 text-red-200 border-red-500/30 hover:bg-red-500/25'
           }`}
         >
-          {isPaused ? 'Unpause' : 'Pause'}
+          {isPaused === null ? 'Reload' : isPaused ? 'Unpause' : 'Pause'}
         </button>
       </div>
 
@@ -2794,73 +2800,11 @@ function MyPoolsTab({ deployed }: { deployed: boolean }) {
   );
 }
 
-// ─── Coming Soon State ────────────────────────────────────────────
-
-/** @internal Reserved for future use */
-export function ComingSoon() {
-  const features = [
-    { title: 'Linear Bonding Curves', desc: 'Predictable pricing with configurable spot price and delta parameters.' },
-    { title: 'Buy / Sell / Trade Pools', desc: 'Create single-sided or two-sided liquidity pools for any NFT collection.' },
-    { title: 'Instant NFT Liquidity', desc: 'Swap NFTs instantly without waiting for a buyer or seller.' },
-    { title: 'LP Fee Earnings', desc: 'Earn fees on every trade through your liquidity pools.' },
-  ];
-
-  return (
-    <div className="max-w-xl mx-auto">
-      <ArtCard art={pageArt('amm', 16)} opacity={1} overlay="none" border="rgba(16,185,129,0.10)" className="rounded-2xl">
-        <div className="p-8 sm:p-10">
-          {/* Glow */}
-          <div className="absolute -top-20 -right-20 w-60 h-60 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-purple-500/5 rounded-full blur-3xl pointer-events-none" />
-
-          <div className="relative z-10">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold mb-6">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Coming Soon
-            </div>
-
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">NFT AMM</h2>
-            <p className="text-sm text-white leading-relaxed mb-8 max-w-md">
-              Create bonding-curve liquidity pools for any NFT collection.
-              Automated market making with linear pricing, instant swaps, and protocol-level fee routing.
-            </p>
-
-            {/* Blurred Preview */}
-            <ArtCard art={pageArt('amm', 17)} opacity={1} overlay="none" border="rgba(255,255,255,0.04)" className="rounded-xl mb-8">
-              <div className="p-5 relative">
-                <div className="blur-[2px] opacity-60 pointer-events-none select-none">
-                  <BondingCurveChart spotPrice={0.1} delta={0.005} numSteps={10} height={160} />
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center bg-[rgba(6,12,26,0.3)]">
-                  <span className="text-sm font-medium text-white bg-[rgba(13,21,48,0.8)] px-4 py-2 rounded-lg border border-white/25">
-                    Interactive bonding curve visualization
-                  </span>
-                </div>
-              </div>
-            </ArtCard>
-
-            {/* Feature List */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {features.map((f) => (
-                <div key={f.title} className="flex gap-3 items-start">
-                  <div className="w-5 h-5 rounded-md bg-emerald-500/30 border border-emerald-500/40 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <svg className="w-3 h-3 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-white">{f.title}</p>
-                    <p className="text-[11px] text-white leading-relaxed mt-0.5">{f.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </ArtCard>
-    </div>
-  );
-}
+// DELETED 2026-09-03 — `ComingSoon()`. Exported, imported by nothing, and it told
+// visitors the NFT AMM was unlaunched; it has been live since 2026-07-21. Same
+// class as LendingSection's deleted ComingSoonState: a superseded placeholder that
+// would ship a false gate the moment anything re-imported it. The live surface
+// gates on isDeployed(TEGRIDY_NFT_POOL_FACTORY_ADDRESS) instead.
 
 // ─── Main Export ───────────────────────────────────────────────────
 

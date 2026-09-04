@@ -1,204 +1,170 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAccount } from 'wagmi';
 import {
-  createRule,
-  deleteRule,
-  listRules,
-  toggleRule,
-  type DeliveryReport,
-  type RuleStoreResult,
-  type RuleStoreStatus,
-} from '../lib/alerts/rulesClient';
+  LOCAL_CEILING_DETAIL,
+  LOCAL_UNWRITABLE_DETAIL,
+  MAX_LOCAL_RULES,
+  MAX_POOL_SUBJECTS,
+  POOL_CEILING_DETAIL,
+  RULES_STORAGE_KEY,
+  loadLocalRules,
+  newLocalRuleId,
+  parseRuleStore,
+  poolSubjectsOf,
+  saveLocalRules,
+  type LocalStoreStatus,
+} from '../lib/alerts/ruleStore';
 import {
+  SUBJECT_SHAPE,
   isDuplicateRule,
-  ruleLimitFor,
   validateRuleDraft,
   type AlertRule,
   type RuleDraft,
 } from '../lib/alerts/rules';
-import { usePremiumAccess } from './usePremiumAccess';
 
-// Alert-rule CRUD, bound to the SIWE session.
+// Alert-rule CRUD against this browser's own storage.
 //
-// The state machine is five-valued for the same reason useIndexedQuery's is: a
-// two-state (loading / rules) hook cannot express "the store could not be read",
-// and that failure renders as an empty rule list — which tells a user they are
-// watching nothing when the truth is that nobody could check. `rules` is empty in
-// every non-`ready` state so a caller that ignores `status` shows nothing rather
-// than something false.
+// WHAT THIS HOOK NO LONGER DOES, AND WHY. It used to be a five-state machine over
+// a SIWE-authenticated server store: signed-out / loading / ready / not-configured
+// / schema-missing / unreachable, with a premium tier deciding the ceiling. Every
+// one of those states except the first was unreachable for a visitor — the venue
+// has no sign-in control, and the table behind the store is created by a migration
+// nobody has applied — so the surface's only reachable state was a disabled form
+// under the sentence "connect and sign in", pointing at a control that does not
+// exist. The store moved into localStorage and the state machine collapsed with it.
 //
-// PREMIUM GATING IS A UI AFFORDANCE, NOT AN ENFORCED LIMIT. The API enforces one
-// hard ceiling per wallet (25) because it cannot cheaply read PremiumAccess
-// on-chain. The free-tier count below is checked here only, and the surface must
-// not claim the database enforces it.
+// TWO STATES, and the second one is the honest half. `local` means what is on
+// screen is what is stored. `local-unwritable` means a write did NOT land — quota,
+// private mode, blocked storage — and the rule stays IN THE LIST for the session
+// with a warning above it, on an ENABLED form. The alternative, an empty list, is
+// the exact lie this file used to tell: "you have no rules" when the truth was
+// "nobody could check".
+//
+// NO NETWORK CALL IS MADE FROM HERE, AT ALL. That is what unpills /alerts, and
+// navConfig.test.ts asserts the store's source contains no fetch so the claim
+// cannot rot quietly.
 
 export interface UseAlertsState {
-  status: RuleStoreStatus | 'loading';
+  status: LocalStoreStatus;
   rules: AlertRule[];
-  /** Null only when `status === 'ready'`. */
+  /** Null exactly when `status === 'local'`. */
   detail: string | null;
-  /** What an operator must do, when anything. */
-  operatorStep: string | null;
-  /** What the SERVER says about delivery. Null when the server never answered. */
-  delivery: DeliveryReport | null;
-  /** Rules this wallet may hold, from the tier. */
+  /** How many rules this browser holds. A quota number, not a tier. */
   limit: number;
-  hasPremium: boolean;
+  /** How many distinct pools may be watched at once. */
+  poolLimit: number;
   /** Last write's rejection message, cleared on the next attempt. */
   writeError: string | null;
-  busy: boolean;
   reload: () => void;
-  addRule: (draft: RuleDraft) => Promise<boolean>;
-  removeRule: (id: string) => Promise<void>;
-  setRuleEnabled: (id: string, enabled: boolean) => Promise<void>;
-}
-
-function applyResult(
-  result: RuleStoreResult,
-  set: (s: Partial<UseAlertsState>) => void,
-): void {
-  set({
-    status: result.status,
-    rules: result.rules,
-    detail: result.detail,
-    operatorStep: result.operatorStep,
-    delivery: result.delivery,
-  });
+  addRule: (draft: RuleDraft) => boolean;
+  removeRule: (id: string) => void;
+  setRuleEnabled: (id: string, enabled: boolean) => void;
 }
 
 export function useAlerts(): UseAlertsState {
-  const { address, isConnected } = useAccount();
-  const { hasPremium } = usePremiumAccess();
-
-  const [status, setStatus] = useState<UseAlertsState['status']>('loading');
-  const [rules, setRules] = useState<AlertRule[]>([]);
-  const [detail, setDetail] = useState<string | null>(null);
-  const [operatorStep, setOperatorStep] = useState<string | null>(null);
-  const [delivery, setDelivery] = useState<DeliveryReport | null>(null);
+  // Read synchronously on first render. There is no request in flight and never
+  // will be, so a `loading` state here would be a spinner over a value we already
+  // have — and one more state a caller could mistake for "no rules".
+  const [rules, setRules] = useState<AlertRule[]>(loadLocalRules);
+  const [status, setStatus] = useState<LocalStoreStatus>('local');
   const [writeError, setWriteError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [reloadKey, setReloadKey] = useState(0);
 
-  const mounted = useRef(true);
+  const rulesRef = useRef(rules);
+  rulesRef.current = rules;
+
+  const commit = useCallback((next: AlertRule[]) => {
+    const persisted = saveLocalRules(next);
+    // The rules go into state either way. In memory for the session is a real,
+    // usable state — the evaluation loop reads them and the inbox fills — and it
+    // is disclosed rather than hidden, which is the difference from failing quietly.
+    setRules(next);
+    setStatus(persisted ? 'local' : 'local-unwritable');
+    return persisted;
+  }, []);
+
+  const reload = useCallback(() => {
+    setRules(loadLocalRules());
+    setStatus('local');
+    setWriteError(null);
+  }, []);
+
+  // Another tab of this site is the same store. Adopting its blob wholesale is
+  // last-writer-wins — the browser's own semantics for localStorage — and is the
+  // only rule under which a DELETE propagates. A "merge, existing wins" policy
+  // would resurrect a rule the user deleted in the other tab, which is the one
+  // outcome a rule store must never produce.
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== RULES_STORAGE_KEY) return;
+      setRules(parseRuleStore(event.newValue));
+      // What is on screen is now exactly what is in storage, whatever this tab's
+      // own last write did, so the unwritable warning no longer describes it.
+      setStatus('local');
     };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
-
-  const set = useCallback((s: Partial<UseAlertsState>) => {
-    if (!mounted.current) return;
-    if (s.status !== undefined) setStatus(s.status);
-    if (s.rules !== undefined) setRules(s.rules);
-    if (s.detail !== undefined) setDetail(s.detail);
-    if (s.operatorStep !== undefined) setOperatorStep(s.operatorStep);
-    if (s.delivery !== undefined) setDelivery(s.delivery);
-  }, []);
-
-  useEffect(() => {
-    // Not connected is not an outage: there is genuinely nothing to read, and
-    // saying so plainly is different from failing to read.
-    if (!isConnected || !address) {
-      set({
-        status: 'signed-out',
-        rules: [],
-        detail: 'Alert rules are stored against your wallet. Connect and sign in to read them.',
-        operatorStep: null,
-        delivery: null,
-      });
-      return;
-    }
-    const controller = new AbortController();
-    setStatus('loading');
-    (async () => {
-      const result = await listRules({ signal: controller.signal });
-      if (controller.signal.aborted) return;
-      applyResult(result, set);
-    })();
-    return () => controller.abort();
-  }, [address, isConnected, reloadKey, set]);
-
-  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
-
-  const limit = ruleLimitFor(hasPremium === true);
 
   const addRule = useCallback(
-    async (draft: RuleDraft): Promise<boolean> => {
+    (draft: RuleDraft): boolean => {
       setWriteError(null);
       const validation = validateRuleDraft(draft);
       if (!validation.ok) {
         setWriteError(validation.error);
         return false;
       }
-      if (isDuplicateRule(rules, validation.rule)) {
+      const current = rulesRef.current;
+      if (isDuplicateRule(current, validation.rule)) {
         setWriteError('You already have that exact rule.');
         return false;
       }
-      if (rules.length >= limit) {
-        setWriteError(
-          hasPremium === true
-            ? `You are at the ${limit}-rule ceiling. Delete one to add another.`
-            : `Free accounts hold ${limit} rules. Delete one, or subscribe to PremiumAccess for more.`,
-        );
+      if (current.length >= MAX_LOCAL_RULES) {
+        setWriteError(LOCAL_CEILING_DETAIL);
         return false;
       }
-      setBusy(true);
-      try {
-        const result = await createRule(validation.rule);
-        applyResult(result, set);
-        if (result.status !== 'ready') {
-          setWriteError(result.detail);
+      // The pool ceiling is about a third party's quota, not about the user: each
+      // watched pool costs a keyless GeckoTerminal request per pass, so the bound
+      // is on DISTINCT pools rather than on pool rules — three rules on one pool
+      // are one request.
+      if (SUBJECT_SHAPE[validation.rule.kind] === 'pool') {
+        const pools = poolSubjectsOf(current);
+        if (!pools.has(validation.rule.subject) && pools.size >= MAX_POOL_SUBJECTS) {
+          setWriteError(POOL_CEILING_DETAIL);
           return false;
         }
-        return true;
-      } finally {
-        if (mounted.current) setBusy(false);
       }
+      commit([
+        ...current,
+        { ...validation.rule, id: newLocalRuleId(), createdAt: Math.floor(Date.now() / 1000) },
+      ]);
+      return true;
     },
-    [rules, limit, hasPremium, set],
+    [commit],
   );
 
   const removeRule = useCallback(
-    async (id: string) => {
+    (id: string) => {
       setWriteError(null);
-      setBusy(true);
-      try {
-        const result = await deleteRule(id);
-        applyResult(result, set);
-        if (result.status !== 'ready') setWriteError(result.detail);
-      } finally {
-        if (mounted.current) setBusy(false);
-      }
+      const next = rulesRef.current.filter((r) => r.id !== id);
+      if (next.length !== rulesRef.current.length) commit(next);
     },
-    [set],
+    [commit],
   );
 
   const setRuleEnabled = useCallback(
-    async (id: string, enabled: boolean) => {
+    (id: string, enabled: boolean) => {
       setWriteError(null);
-      setBusy(true);
-      try {
-        const result = await toggleRule(id, enabled);
-        applyResult(result, set);
-        if (result.status !== 'ready') setWriteError(result.detail);
-      } finally {
-        if (mounted.current) setBusy(false);
-      }
+      commit(rulesRef.current.map((r) => (r.id === id ? { ...r, enabled } : r)));
     },
-    [set],
+    [commit],
   );
 
   return {
     status,
-    rules: status === 'ready' ? rules : [],
-    detail,
-    operatorStep,
-    delivery,
-    limit,
-    hasPremium: hasPremium === true,
+    rules,
+    detail: status === 'local' ? null : LOCAL_UNWRITABLE_DETAIL,
+    limit: MAX_LOCAL_RULES,
+    poolLimit: MAX_POOL_SUBJECTS,
     writeError,
-    busy,
     reload,
     addRule,
     removeRule,

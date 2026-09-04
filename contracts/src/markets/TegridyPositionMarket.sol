@@ -483,13 +483,23 @@ contract TegridyPositionMarket is OwnableNoRenounce, ReentrancyGuard, Pausable, 
         uint256 owed = escrowRewardsOwed[msg.sender];
         if (owed == 0) revert NothingOwed();
 
+        // SLITHER 2026-08-30: guarded pull from the trusted protocol staking contract; every
+        // writer of the ledger is nonReentrant, and the write below is RELATIVE (-=) so even a
+        // hypothetical re-entrant credit could not be clobbered by a stale absolute value
+        // slither-disable-next-line reentrancy-no-eth
         _pullUnsettled();
 
         uint256 bal = rewardToken.balanceOf(address(this));
         paid = owed > bal ? bal : owed;
+        // SLITHER 2026-08-30: fail-closed — the partial-pay ledger keeps the unpaid remainder
+        // owed; zero payable must revert, never zero a ledger entry that was not paid
+        // slither-disable-next-line incorrect-equality
         if (paid == 0) revert RewardsNotYetClaimable();
 
-        escrowRewardsOwed[msg.sender] = owed - paid;
+        // Relative form on purpose (2026-08-30, per the 08-22 refutation review): equivalent to
+        // `owed - paid` under the guard, and safe against clobbering a concurrent credit even
+        // without it — the safety no longer rests on the modifier set staying exactly as-is.
+        escrowRewardsOwed[msg.sender] -= paid;
         totalEscrowRewardsOwed -= paid;
         rewardToken.safeTransfer(msg.sender, paid);
         emit EscrowRewardsClaimed(msg.sender, paid);
@@ -586,6 +596,9 @@ contract TegridyPositionMarket is OwnableNoRenounce, ReentrancyGuard, Pausable, 
         if (to == address(0)) revert ZeroAddress();
         _pullUnsettled();
         uint256 amount = surplusRewards();
+        // SLITHER 2026-08-30: bounded-sweep sentinel — surplusRewards() already subtracts every
+        // seller's outstanding ledger entry, so owed yield is unreachable; zero fail-closes
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) revert NoSurplus();
         rewardToken.safeTransfer(to, amount);
         emit SurplusRewardsRescued(to, amount);

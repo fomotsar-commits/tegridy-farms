@@ -20,6 +20,64 @@ describe('InfoTooltip', () => {
     fireEvent.mouseEnter(screen.getByText('?').parentElement!);
     expect(screen.getByText('Helpful info')).toBeInTheDocument();
   });
+
+  /* A11Y-R03 / A11Y-R14. This is the mechanism by which every DeFi term on the
+     site is explained, at 33 call sites, and it shipped a 15x15px target and a
+     224px bubble with no viewport clamp. The class assertions are the honest
+     pin available in jsdom — it lays nothing out, so a geometric assertion here
+     would be a fabricated measurement. All four fail on the pre-change file. */
+  it('grows the hit area past 24px without growing the painted circle', () => {
+    renderWithTheme(<InfoTooltip text="Test tooltip" />);
+    const button = screen.getByText('?');
+    // 15px painted circle: unchanged, so no call site's layout moves.
+    expect(button.className).toContain('w-[15px]');
+    expect(button.className).toContain('h-[15px]');
+    // …and a transparent ::before overlay carrying the target to 24px (15 + 4.5
+    // each side), 32px under max-md.
+    expect(button.className).toContain("before:content-['']");
+    expect(button.className).toContain('before:-inset-[4.5px]');
+    expect(button.className).toContain('max-md:before:-inset-[8.5px]');
+  });
+
+  it('clamps the bubble to the viewport and keeps it hoverable', () => {
+    renderWithTheme(<InfoTooltip text="Helpful info" />);
+    fireEvent.click(screen.getByText('?'));
+    const bubble = screen.getByRole('tooltip');
+    expect(bubble.className).toContain('max-w-[calc(100vw-2rem)]');
+    // WCAG 1.4.13: pointer-events-none made the bubble vanish when the pointer
+    // reached it, because the hit test fell through to the page behind.
+    expect(bubble.className).not.toContain('pointer-events-none');
+  });
+
+  /* The first TAP on a phone used to do nothing at all: a touch fires the
+     compatibility mouseenter and focus BEFORE click — both of which open the
+     bubble — and the old click handler toggled it straight back closed.
+     Measured on Pixel 5 before the fix: aria-expanded stayed "false" after tap
+     one and only went "true" on tap two. This replays that real event order. */
+  it('opens on the first tap, and closes on the second', () => {
+    renderWithTheme(<InfoTooltip text="Helpful info" />);
+    const button = screen.getByText('?');
+    const tap = () => {
+      // Order a touchscreen actually delivers: pointerdown first, then the
+      // mouse-compatibility events, then click.
+      fireEvent.pointerDown(button);
+      fireEvent.mouseEnter(button.parentElement!);
+      fireEvent.focus(button);
+      fireEvent.click(button);
+    };
+    tap();
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    tap();
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('dismisses on Escape', () => {
+    renderWithTheme(<InfoTooltip text="Helpful info" />);
+    fireEvent.click(screen.getByText('?'));
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByText('?'), { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
 });
 
 describe('HowItWorks', () => {

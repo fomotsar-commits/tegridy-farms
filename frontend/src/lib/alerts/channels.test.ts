@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  resolveWebNotificationChannel,
   BACKGROUND_DELIVERY_AVAILABLE,
   BACKGROUND_DELIVERY_REQUIREMENTS,
   IN_APP_LIMITATION,
@@ -109,6 +110,10 @@ describe('the in-app inbox is the one honest channel, and states its own limit',
   });
 
   it('the delivery plan never contains web-push while nothing sends', () => {
+    // Pinned as the INVARIANT rather than as the literal ['in-app'] it used to
+    // be: a third channel now legitimately joins the plan when the browser has
+    // granted permission, and an equality assertion would have failed for the
+    // right behaviour while still passing if web-push were wrongly added.
     for (const overrides of [
       {},
       { vapidPublicKey: '' },
@@ -116,8 +121,16 @@ describe('the in-app inbox is the one honest channel, and states its own limit',
       { subscribed: true },
       { hasNotificationApi: false },
     ]) {
-      expect(deliveryPlan(resolveChannels(env(overrides)))).toEqual(['in-app']);
+      expect(deliveryPlan(resolveChannels(env(overrides)))).not.toContain('web-push');
     }
+  });
+
+  it('the OS-notification channel joins the plan only once permission is granted', () => {
+    expect(deliveryPlan(resolveChannels(env({ permission: 'granted' })))).toContain('web-notification');
+    for (const permission of ['default', 'denied'] as const) {
+      expect(deliveryPlan(resolveChannels(env({ permission })))).not.toContain('web-notification');
+    }
+    expect(deliveryPlan(resolveChannels(env({ hasNotificationApi: false })))).not.toContain('web-notification');
   });
 });
 
@@ -147,5 +160,54 @@ describe('every non-ready channel explains itself', () => {
         }
       }
     }
+  });
+});
+
+describe('the OS-notification channel is honest about its one limit', () => {
+  it('reports every state of the browser, and nothing about the deployment', () => {
+    expect(resolveWebNotificationChannel(env({ hasNotificationApi: false })).state).toBe('unsupported');
+    expect(resolveWebNotificationChannel(env({ permission: 'denied' })).state).toBe('blocked');
+    expect(resolveWebNotificationChannel(env({ permission: 'default' })).state).toBe('off');
+    expect(resolveWebNotificationChannel(env({ permission: 'granted' })).state).toBe('ready');
+    // Nothing an operator sets can change any of this, so offering an operator
+    // step would send someone to edit an env var that does not exist.
+    for (const permission of ['default', 'denied', 'granted'] as const) {
+      expect(resolveWebNotificationChannel(env({ permission })).operatorStep).toBeNull();
+    }
+  });
+
+  it('only the `off` state offers a switch, because only it would achieve something', () => {
+    expect(resolveWebNotificationChannel(env({ permission: 'default' })).canSubscribe).toBe(true);
+    for (const permission of ['denied', 'granted'] as const) {
+      expect(resolveWebNotificationChannel(env({ permission })).canSubscribe).toBe(false);
+    }
+  });
+
+  it('says “while a tab is open” in its label and in EVERY state’s detail', () => {
+    // This is the sentence that separates it from push. A state that omitted it
+    // would read as "notifications: on" — which people take to mean "it will
+    // find me", and it will not.
+    const label = resolveWebNotificationChannel(env({})).label;
+    expect(label).toMatch(/tab is open/i);
+    for (const overrides of [
+      { hasNotificationApi: false },
+      { permission: 'denied' as const },
+      { permission: 'default' as const },
+      { permission: 'granted' as const },
+    ]) {
+      const channel = resolveWebNotificationChannel(env(overrides));
+      expect(channel.detail.length, channel.state).toBeGreaterThan(20);
+    }
+    for (const permission of ['default', 'granted'] as const) {
+      expect(resolveWebNotificationChannel(env({ permission })).detail).toMatch(/every tab of this site is closed/i);
+    }
+  });
+
+  it('the ready state still carries a detail, unlike the in-app channel', () => {
+    // `ready` normally means "nothing left to say". Here it does not: being on
+    // is not the same as being always-on, and the difference is the whole thing
+    // a user needs to know.
+    expect(resolveWebNotificationChannel(env({ permission: 'granted' })).detail).not.toBe('');
+    expect(inAppChannel().detail).toBe('');
   });
 });

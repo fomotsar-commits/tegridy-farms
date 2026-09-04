@@ -31,7 +31,7 @@ test.describe('TradePage', () => {
     await expect(page.getByText('Connect your wallet to swap', { exact: true })).toBeVisible();
   });
 
-  test('tab toggle switches between Swap, Recurring Swap, and Price Alert', async ({ page, walletMock: _w }) => {
+  test('tab toggle switches between Swap, Recurring Swap, and Limit Order', async ({ page, walletMock: _w }) => {
     await page.goto('/swap');
 
     // Tab labels come from `TAB_LABELS` (src/pages/TradePage.tsx:43) — the
@@ -41,7 +41,10 @@ test.describe('TradePage', () => {
     // Tabs render as role="tab" (not role="button") inside a [role="tablist"].
     const swapTab = page.getByRole('tab', { name: 'Swap', exact: true });
     const dcaTab = page.getByRole('tab', { name: 'DCA', exact: true });
-    const limitTab = page.getByRole('tab', { name: 'Alerts', exact: true });
+    // 2026-09-03: 'Alerts' -> 'Limit'. The label dated from when this tab was a
+    // browser-only price watcher; it is a real on-chain CoW order now, and /alerts
+    // in the nav is a different product entirely.
+    const limitTab = page.getByRole('tab', { name: 'Limit', exact: true });
 
     await expect(swapTab).toBeVisible();
     await expect(dcaTab).toBeVisible();

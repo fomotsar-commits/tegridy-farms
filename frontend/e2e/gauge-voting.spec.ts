@@ -80,8 +80,13 @@ test.describe('Connect prompt surfaces', () => {
   test('Farm page shows ConnectPrompt when disconnected', async ({ page }) => {
     // Intentionally skip walletMock.connect().
     await gotoRoute(page, '/farm');
-    // ConnectPrompt renders an h2 with the farm-specific Randy voice.
-    const heading = page.getByRole('heading', { name: /Connect to farm with tegridy/i });
+    // ConnectPrompt renders an h2 with the farm-specific voice. The word was
+    // "tegridy" until the owner's 2026-08-31 retirement (commit 17fe6fcc) took
+    // the brand out of every rendered surface — "Real tegridy." became "Held
+    // time counts." and this title moved with it. DEFAULTS.farm.title in
+    // src/components/ui/ConnectPrompt.tsx is the source; its unit test
+    // (ConnectPrompt.test.tsx) pins the same string.
+    const heading = page.getByRole('heading', { name: /Connect to farm with held time/i });
     await expect(heading).toBeVisible();
   });
 
@@ -99,10 +104,18 @@ test.describe('Connect prompt surfaces', () => {
 });
 
 test.describe('HomePage yield calculator (wallet-less)', () => {
-  test('YieldCalculator renders for disconnected visitors', async ({ page }) => {
-    await gotoRoute(page, '/');
-    // Calculator is rendered only when `address` is undefined.
-    // Look for the baseline APR chip text.
+  test('YieldCalculator renders for disconnected visitors in the TOWELI room', async ({ page }) => {
+    // MOVED, not deleted. The calculator computes TOWELI staking yield, so the
+    // arrival wave relocated it with the rest of the classic cluster: HomePage
+    // gates it on `!address && !bungalowIdentity && IS_TOWELI_ARRIVAL`
+    // (HomePage.tsx:421). On the venue front door it is correctly absent —
+    // asserting it at '/' was asserting the pre-relocation design.
+    //
+    // The gate reads arrivalVoice() at MODULE SCOPE (HomePage.tsx:58), so the
+    // voice has to be settled before the page script runs. Walking the /toweli
+    // door does exactly that: it persists the choice and reloads in place.
+    await gotoRoute(page, '/toweli');
+    // Still the wallet-less assertion: rendered only when `address` is undefined.
     await expect(page.locator('body')).toContainText(/See what you'd earn/i);
   });
 
