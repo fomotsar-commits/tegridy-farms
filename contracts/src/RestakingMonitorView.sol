@@ -45,6 +45,9 @@ contract RestakingMonitorView {
 
     function pendingBonus(address _user) public view returns (uint256) {
         IRestakingForView r = restaking;
+        // SLITHER 2026-08-30: fixed 6-field tuple of a public-mapping getter (cannot fail);
+        // only tokenId + bonusDebt are consumed and the shape is dictated by the host
+        // slither-disable-next-line unused-return
         (uint256 tokenId,,, int256 bonusDebt,,) = r.restakers(_user);
         if (tokenId == 0) return 0;
 
@@ -54,7 +57,7 @@ contract RestakingMonitorView {
         if (block.timestamp > lastTime && totalRestaked_ > 0) {
             uint256 elapsed = block.timestamp - lastTime;
             uint256 reward = elapsed * r.bonusRewardPerSecond();
-            uint256 available;
+            uint256 available = 0;
             try IERC20BalanceView(r.bonusRewardToken()).balanceOf(address(r)) returns (uint256 bal) {
                 // AUDIT FIX 2026-08-27 [BONUS-SOLVENCY]: mirror the host's cap EXACTLY.
                 // The host caps accrual against the outstanding minted-but-unpaid
@@ -80,6 +83,9 @@ contract RestakingMonitorView {
 
     function pendingBase(address _user) public view returns (uint256) {
         IRestakingForView r = restaking;
+        // SLITHER 2026-08-30: fixed 6-field tuple of a public-mapping getter (cannot fail);
+        // only tokenId is consumed and the shape is dictated by the host
+        // slither-disable-next-line unused-return
         (uint256 tokenId,,,,,) = r.restakers(_user);
         if (tokenId == 0) return 0;
         return IStakingMonitorEarned(r.monitor()).earned(tokenId);

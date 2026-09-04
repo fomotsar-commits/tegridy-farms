@@ -441,6 +441,10 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         // curve's favor), kept as a loud failure over a silent misdraw.
         if (grossOut > l.ethReserve) revert InsufficientCurveEth(grossOut, l.ethReserve);
 
+        // SLITHER 2026-08-30: fee is deliberately taken on the REALISED gross output (which rounds
+        // in the curve's favor) so ethOut + fee reconciles exactly with the reserve draw; folding
+        // the fractions would desync fee accrual from reserve accounting
+        // slither-disable-next-line divide-before-multiply
         uint256 fee = (grossOut * l.feeBps) / BPS;
         ethOut = grossOut - fee;
         if (ethOut < minEthOut) revert SlippageExceeded(ethOut, minEthOut);
@@ -581,6 +585,9 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         IERC20(token).safeTransfer(pair, tokensToPool);
         // Mint ALL LP to 0xdead: liquidity is burned, not custodied. Nobody —
         // including us — can ever pull this floor out from under holders.
+        // SLITHER 2026-08-30: the LP amount is irrelevant by design — 100% is minted to 0xdead
+        // (burned floor) and mint() reverts on any failure; there is nothing to do with the figure
+        // slither-disable-next-line unused-return
         ITegridyPairMinimal(pair).mint(DEAD);
 
         // The ecosystem reserve exists only for launches that made it — a
@@ -640,6 +647,9 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
         Launch storage l = _requireLive(token);
         uint256 x = uint256(l.virtualEth) + l.ethReserve;
         uint256 grossOut = (x * tokensIn) / (l.tokenReserve + tokensIn);
+        // SLITHER 2026-08-30: mirrors sell() exactly — a preview must round precisely as
+        // execution does, or the quote lies about the fill
+        // slither-disable-next-line divide-before-multiply
         fee = (grossOut * l.feeBps) / BPS;
         ethOut = grossOut - fee;
     }
@@ -722,15 +732,9 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
     }
 
     function _sendEth(address to, uint256 amount) internal {
-        // SLITHER 2026-09-03 (arbitrary-send-eth, alert #1938): `to` is a
-        // parameter of a shared internal helper, so the detector loses the
-        // caller's guard and reports the helper itself. Every one of the four
-        // call sites fixes the recipient: sell() and claimCreatorFees() pay
-        // `msg.sender` (the latter only after `msg.sender == l.creator`),
-        // withdrawProtocolFees() is onlyOwner, and sweepTreasuryFees() can
-        // only ever pay the owner-set, non-zero `treasury` slot. No caller can
-        // name an arbitrary recipient; all four entrypoints are nonReentrant
-        // and zero the accrued balance before the send.
+        // SLITHER 2026-08-30: recipients are never arbitrary — seller's own proceeds (sell),
+        // creator's own accrual (claimCreatorFees), owner-directed (withdrawProtocolFees), or the
+        // fixed treasury (sweepTreasuryFees); every caller is nonReentrant with state zeroed pre-send
         // slither-disable-next-line arbitrary-send-eth
         (bool ok,) = to.call{value: amount}("");
         if (!ok) revert EthSendFailed(to);

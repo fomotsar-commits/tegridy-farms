@@ -1,6 +1,6 @@
 {
   "compile_force_framework": "foundry",
-  "filter_paths": "lib/|node_modules/|test/|script/|out/|cache/|broadcast/|.audit_101/|.spartan_unpacked/",
+  "filter_paths": "^lib/|^node_modules/|^test/|^script/|^out/|^cache/|^broadcast/|^.audit_101/|^.spartan_unpacked/",
 
   "exclude_dependencies": true,
   "exclude_informational": false,

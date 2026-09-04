@@ -192,6 +192,10 @@ contract AirdropFactory is OwnableNoRenounce, Pausable, PauseGuardian, TimelockA
         uint256 balanceBefore = IERC20(token).balanceOf(distributor);
         IERC20(token).safeTransferFrom(msg.sender, distributor, fundingAmount);
         uint256 funded = IERC20(token).balanceOf(distributor) - balanceBefore;
+        // SLITHER 2026-08-30: measured-funding sentinel (FoT-honest delta) under nonReentrant;
+        // a pre-funded CREATE address cancels on both sides of the delta, and `funded` feeds
+        // only the event — never state, never a transfer
+        // slither-disable-next-line incorrect-equality
         if (funded == 0) revert NoFundsReceived();
 
         emit CampaignCreated(
@@ -313,6 +317,9 @@ contract AirdropFactory is OwnableNoRenounce, Pausable, PauseGuardian, TimelockA
         for (uint256 i = offset; i < end; ++i) {
             page[i - offset] = campaigns[i];
         }
+        // SLITHER 2026-08-30: pagination boundary on a push-only array length — exact-match
+        // end-of-list sentinel, no value at stake
+        // slither-disable-next-line incorrect-equality
         next = end == total ? 0 : end;
     }
 

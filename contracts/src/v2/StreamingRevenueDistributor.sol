@@ -364,6 +364,9 @@ contract StreamingRevenueDistributor is
     }
 
     function rewardPerToken() public view returns (uint256) {
+        // SLITHER 2026-08-30: canonical Synthetix StakingRewards division guard, verbatim
+        // upstream shape; the variable has exactly one writer (_updateReward)
+        // slither-disable-next-line incorrect-equality
         if (totalEffectiveSupply == 0) return rewardPerTokenStored;
         return rewardPerTokenStored + (
             (lastTimeRewardApplicable() - lastUpdateTime) * rewardRate * ACC_PRECISION / totalEffectiveSupply
@@ -513,6 +516,9 @@ contract StreamingRevenueDistributor is
     ///      nowhere to double-check.
     function _mirrorPower(address account) internal view returns (bool writable, uint256 power) {
         (writable, power) = _tryEffectivePower(account);
+        // SLITHER 2026-08-30: degraded-read classification — all three operands are exact
+        // sentinels (unreadable zero + unset fallback), the shape the 2026-08-25 fix introduced
+        // slither-disable-next-line incorrect-equality
         if (!writable && power == 0 && address(restakingContract) == address(0)) {
             // Re-ask the primary directly: only its revert makes this unwritable.
             try votingEscrow.votingPowerOf(account) returns (uint256 p) {
@@ -574,7 +580,7 @@ contract StreamingRevenueDistributor is
     ///      exactly the dual-position accounts this fix exists for.
     function _tryEffectivePower(address account) internal view returns (bool readable, uint256 power) {
         bool stakingReadable = true;
-        uint256 stakingPower;
+        uint256 stakingPower = 0;
         try votingEscrow.votingPowerOf(account) returns (uint256 p) {
             stakingPower = p;
         } catch {
@@ -606,6 +612,9 @@ contract StreamingRevenueDistributor is
     ///      idle UI copy; the false positive was exactly the fabrication above.
     function isSynced(address account) external view returns (bool) {
         (bool readable, uint256 power) = _tryEffectivePower(account);
+        // SLITHER 2026-08-30: exact mirror equality IS the definition of synced — any drift must
+        // read false (the 2026-08-25 fabricated-data fix); a range compare would defeat the check
+        // slither-disable-next-line incorrect-equality
         return readable && effectiveBalanceOf[account] == power;
     }
 
@@ -685,7 +694,7 @@ contract StreamingRevenueDistributor is
             ? (periodFinish - block.timestamp) * rewardRate
             : 0;
 
-        uint256 pendingWindow;
+        uint256 pendingWindow = 0;
         if (totalEffectiveSupply != 0) {
             uint256 applicable = lastTimeRewardApplicable();
             if (applicable > lastUpdateTime) {
@@ -749,6 +758,9 @@ contract StreamingRevenueDistributor is
 
         // slither-disable-next-line divide-before-multiply
         rewardRate = budget / duration;
+        // SLITHER 2026-08-30: fail-closed dust floor — a rate rounding to zero rejects the notify
+        // rather than starting an unpayable schedule
+        // slither-disable-next-line incorrect-equality
         if (rewardRate == 0) revert NotifyAmountTooSmall();
 
         lastUpdateTime = block.timestamp;

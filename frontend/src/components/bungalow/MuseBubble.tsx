@@ -50,9 +50,9 @@ export function MuseBubble({ bungalow }: { bungalow: Bungalow & { identity: Bung
   };
 
   return (
-    <div className="fixed right-4 bottom-20 md:bottom-4 z-[60] max-w-[280px] pointer-events-none select-none">
+    <div className="fixed right-4 bottom-20 min-[800px]:bottom-4 z-[60] max-w-[280px] pointer-events-none select-none">
       <div
-        className="pointer-events-auto rounded-xl px-3 py-2.5 pr-8 relative text-[12px] leading-snug shadow-lg"
+        className="pointer-events-none rounded-xl px-3 py-2.5 pr-8 relative text-[12px] leading-snug shadow-lg"
         style={{
           background: 'rgba(4,18,12,0.88)',
           // Registry accents are 6-digit hex, so hex-alpha suffixes are safe.
@@ -70,7 +70,7 @@ export function MuseBubble({ bungalow }: { bungalow: Bungalow & { identity: Bung
           aria-label={`Dismiss ${byline}'s line for this session`}
           /* A11Y-R12, same as the Towelie bubble's dismiss: the 24px painted
              glyph stays, a transparent ::before takes the tap target to 44x44. */
-          className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none before:absolute before:content-[''] before:-inset-[10px]"
+          className="pointer-events-auto absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none before:absolute before:content-[''] before:-inset-[10px]"
         >
           ×
         </button>

@@ -230,8 +230,12 @@ contract NftfiBnpl is OwnableNoRenounce, ReentrancyGuard, Pausable {
         // Straight-line amortisation: the k-th instalment carries principal
         // `financed/INSTALMENTS` and rides for `k * INSTALMENT_INTERVAL`.
         uint256 apr = vault.aprBps();
+        // SLITHER 2026-08-30: remainder-correction idiom, not precision loss — the final leg
+        // carries financedWei - slice*(N-1) so the legs sum EXACTLY to financedWei, matching the
+        // openPlan/payInstalment money path (which recomputes charges live from vault.quoteRepay)
+        // slither-disable-next-line divide-before-multiply
         uint256 slice = financedWei / INSTALMENTS;
-        uint256 acc;
+        uint256 acc = 0;
         for (uint256 k = 1; k <= INSTALMENTS; k++) {
             uint256 principalForLeg = k == INSTALMENTS ? financedWei - slice * (INSTALMENTS - 1) : slice;
             acc += (principalForLeg * apr * (k * INSTALMENT_INTERVAL)) / (365 days * BPS);

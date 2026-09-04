@@ -1,5 +1,15 @@
 # Slither triage — the 48 High/Medium findings that gate CI
 
+> ## ✅ 2026-08-30 — THE SUPPRESSION PASS LANDED. The gate can go green.
+> The deferred final step below ("what remains is line-by-line SUPPRESSION") is done, against the
+> post-fix finding set from CI run 33326737233 (PR #341 push `11f70704` — 6 High + 50 Medium, the
+> first honest read after the curated config started loading). Per this document's own guidance:
+> the 13 `uninitialized-local` got explicit zero-initializers (ids 15/19's prescribed remedy —
+> no suppression), `claimEscrowRewards` got id 5's relative write (`-= paid`), and the surviving
+> true FPs got dated line-scoped `// SLITHER 2026-08-30:` suppressions. Ledger:
+> `contracts/src/.slither.suppress.md` § "Batch 2026-08-30". `fail-on: medium` untouched;
+> nothing added to `detectors_to_exclude`.
+
 > ## ✅ 2026-08-25 — ALL 12 REFUTATION-CONFIRMED DEFECTS ARE FIXED (commit `3acd395b`)
 > A 13-agent scope→fix→adversarial-verify round closed every real defect the refutation surfaced,
 > plus the v2-distributor confiscation finding tracked separately in TODO_OPERATOR. All are
