@@ -4,37 +4,63 @@ Tegridy Farms takes the security of its smart contracts, frontend, and user fund
 
 ## Reporting a Vulnerability
 
-**Preferred channel:** the community channels linked on our site
+> **Corrected 2026-09-04.** This section used to name "the community channels linked on our
+> site" as the preferred channel and then told you to "use email" — but **no community
+> channel exists** (none is registered) and **no address was given anywhere in the file**.
+> A security policy with no reachable contact is worse than none, because a researcher
+> reads it, believes there is a process, and gives up.
 
-PGP key fingerprint available on request. Please encrypt critical findings.
+**The canonical contact is [`/.well-known/security.txt`](frontend/public/.well-known/security.txt)**,
+served at both production origins and tracked in this repository. It is an RFC 9116 policy
+and it carries the reporting address, the declared scope, the safe-harbour statement and an
+expiry. **Read it rather than this file if the two ever disagree** — it is the machine-
+readable one, and the one a researcher's tooling will find first.
 
-**Bug bounty program status:** A formal bug bounty program is being set up. For now, please email the team via our community channels with disclosures. Researchers who report responsibly during this interim period will receive Hall-of-Fame acknowledgment and priority consideration for rewards once the program is live. There is no public Immunefi page yet — this section will be updated when the program goes live.
+Report **privately, before any public disclosure or on-chain exploitation.** Do not run
+destructive tests against mainnet — use a fork (Anvil or Tenderly).
 
-**Response SLA:**
-- Initial acknowledgement: within 24 hours
-- Triage and severity assessment: within 48 hours
-- Status updates: at least every 5 business days until resolved
-- Patch + payout timeline communicated after triage
+**For an in-progress drain**, the SEAL 911 emergency responder network can help:
+<https://securityalliance.org/our-work/seal-911> — responders never need your keys.
 
-Please do NOT open public GitHub issues for security vulnerabilities. Use email.
+**Bug bounty status:** none is live. No Immunefi page exists. Researchers who report
+responsibly in the interim are credited in the [Hall of Fame](./HALL_OF_FAME.md) and given
+priority consideration if a program launches.
+
+**On response times:** this file used to promise acknowledgement within 24 hours, triage
+within 48, and updates every 5 business days. That is a staffed-team SLA and this project is
+one person — nothing measures or enforces it. **The honest statement is that reports are read
+and answered as quickly as one maintainer can**, and that an in-progress exploit should go to
+SEAL 911 in parallel rather than waiting on a reply here.
+
+Please do **not** open public GitHub issues for vulnerabilities.
 
 ## Scope
 
 **In scope** — the following deployed mainnet contracts as listed in [CONTRACTS.md](./CONTRACTS.md):
 
-- TegridyToken (ERC-20)
+- TOWELI, the ERC-20 (`contracts/src/Toweli.sol`)
+- TegridyStaking and its admin/vault sisters
 - TegridyLPFarming
-- TegridyNFTLending
+- TegridyNFTLending, TegridyNFTPoolFactory
 - TegridyDropV2 (V2 template; V1 `TegridyDrop` source deleted 2026-04-19, live V1 clones remain in scope)
-- GaugeController
-- Governance / voting contracts
-- Any contract address marked "mainnet" in CONTRACTS.md
+- TegridyLaunchpadV2, TegridyCurveLauncher
+- SwapFeeRouter, ReferralSplitter, RevenueDistributor, POLAccumulator, TegridyTWAP
+- GaugeController and the governance / voting contracts (deployed, frontend-gated)
+- **`LighthouseLadder`** — the six EVM bungalow staking pools (Ethereum + Base), live since 2026-08-30
+- **The Base 8453 and Robinhood 4663 legs**, live since 2026-08-25, including `AttestedSequencerUptimeFeed`
+- Any address listed as live in [`frontend/scripts/addresses.json`](frontend/scripts/addresses.json), which is the registry of record
 
-Frontend code paths that directly handle user funds, signatures, or private keys are also in scope.
+Frontend code paths that directly handle user funds, signatures, or private keys are also in
+scope, as is the serverless API under `frontend/api/`.
+
+**Not currently in scope because they no longer exist on-chain:** the two own-venue Solana
+programs were deployed 2026-08-08 and **closed 2026-08-13**; their program ids are spent.
+The Meteora DBC rail was deleted 2026-08-23. Reports against either are welcome as *code*
+findings but there is nothing live to exploit.
 
 ## Out of Scope
 
-- **UI / UX bugs** — please open a regular [GitHub issue](https://github.com/tegridyfarms/tegriddy-farms/issues) instead
+- **UI / UX bugs** — please open a regular [GitHub issue](https://github.com/fomotsar-commits/tegridy-farms/issues) instead
 - **Known issues** — previously disclosed findings documented in [AUDIT_FINDINGS.md](./AUDIT_FINDINGS.md) are not eligible
 - **Third-party dependencies** — vulnerabilities in Uniswap V3, Chainlink oracles, OpenZeppelin libraries, or other external protocols should be reported upstream to the respective maintainers
 - **Test, mock, deprecated, or testnet contracts** — anything not explicitly listed as mainnet in CONTRACTS.md
@@ -97,4 +123,4 @@ We maintain a [Hall of Fame](./HALL_OF_FAME.md) for researchers who have contrib
 
 ---
 
-Last updated: 2026-04-25
+Last updated: **2026-09-04**. Reconciled against `/.well-known/security.txt`, the address registry, and the live chain set.
