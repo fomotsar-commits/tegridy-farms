@@ -196,6 +196,32 @@ function validateOrderShape(params, label) {
   if ((params.zone || ZERO_ADDR).toLowerCase() !== ZERO_ADDR) return `${label} must use the zero zone`;
   if ((params.zoneHash || ZERO32).toLowerCase() !== ZERO32) return `${label} must use a zero zoneHash`;
   if ((params.conduitKey || "").toLowerCase() !== CANONICAL_CONDUIT_KEY) return `${label} must use the canonical conduit`;
+  // AUDIT FIX TF-021: pin the price. Seaport interpolates every consideration
+  // item linearly from startAmount to endAmount across [startTime, endTime], but
+  // both create paths derive the price they DISPLAY and STORE from startAmount
+  // alone. A hand-crafted order with startAmount 0.01 ETH and endAmount 100 ETH
+  // is a valid Seaport order that lists at "0.01" and charges whatever the curve
+  // has reached when someone fills it. Refusing the divergence is the honest
+  // fix: this orderbook has one price field, so it may only accept orders that
+  // have one price.
+  //
+  // It belongs here rather than at the two call sites: the P2P trades path
+  // inlines its own shape checks (~:1752) precisely because its cash legs MAY
+  // interpolate, and the guard has already drifted between these paths twice.
+  for (const item of params.consideration || []) {
+    const start = String(item.startAmount ?? "0");
+    const end = String(item.endAmount ?? start);
+    if (start !== end) {
+      return `${label} must use a fixed price — consideration startAmount and endAmount must match`;
+    }
+  }
+  for (const item of params.offer || []) {
+    const start = String(item.startAmount ?? "0");
+    const end = String(item.endAmount ?? start);
+    if (start !== end) {
+      return `${label} must use a fixed quantity — offer startAmount and endAmount must match`;
+    }
+  }
   return null;
 }
 

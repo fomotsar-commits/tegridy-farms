@@ -73,13 +73,38 @@ describe("userdata.js performs NO direct anon-key mutation (migration 015 §1)",
     }
   });
 
-  it("still READS through the anon client — 015 §2 is deferred, not done here", () => {
-    // Guards the guard: deleting the feature must not be a way to pass. Reads
-    // stay on the anon key by design; only writes moved.
+  // AUDIT FIX TF-004 / TF-007. 015 §2 is no longer wholly deferred: the two
+  // PERSONAL tables moved off the anon key so their `USING (true)` SELECT
+  // policy can be dropped (migration 016). The other two stay public on
+  // purpose — a profile is a public identity, and getVoteTally has to count
+  // OTHER wallets' votes, so an owner-scoped policy would break it.
+  const PUBLIC_READ_TABLES = ["user_profiles", "votes"];
+  const PERSONAL_READ_TABLES = ["user_favorites", "user_watchlist"];
+
+  it("still READS the PUBLIC tables through the anon client", () => {
+    // Guards the guard: deleting the feature must not be a way to pass.
     expect(CODE).toMatch(/import\s*\{[^}]*supabase[^}]*\}\s*from\s*["']\.\/supabase["']/);
     expect(CODE).toMatch(/\.select\(/);
-    for (const table of OWNED_TABLES) {
+    for (const table of PUBLIC_READ_TABLES) {
       expect(CODE, `${table} lost its read path`).toContain(`.from("${table}")`);
+    }
+  });
+
+  it("reads the PERSONAL tables through the SIWE proxy and NEVER the anon key", () => {
+    // The anon key carries no wallet claim, so an anon read of these tables is
+    // only ever served by the world-readable policy this migration removes.
+    for (const table of PERSONAL_READ_TABLES) {
+      expect(
+        CODE,
+        `${table} is still read with the anon key — migration 016 will turn that ` +
+          `into a silent zero for every user, and until it runs the table stays ` +
+          `world-readable to anyone holding the anon key.`,
+      ).not.toContain(`.from("${table}")`);
+      // Substring, not a regex: the read has to still EXIST (deleting the
+      // feature must not be a way to pass this guard), and a literal is both
+      // easier to read and immune to the escaping traps a built pattern has.
+      const call = CODE.slice(CODE.indexOf("proxyRead("));
+      expect(call, `${table} lost its read path entirely`).toContain(`table: "${table}"`);
     }
   });
 });

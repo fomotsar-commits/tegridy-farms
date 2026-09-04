@@ -10,6 +10,10 @@ import "../src/TegridyRestaking.sol";
 import {TegridyRestakingAdmin} from "../src/TegridyRestakingAdmin.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+// AUDIT TF-001: the force-closed state cannot be produced through the staking
+// API, so the regression below manufactures it. Same import shape as
+// AuditR014_Restaking.t.sol:6.
+import {stdStorage, StdStorage} from "forge-std/StdStorage.sol";
 
 /// @dev Standalone regression suite for the DEEP_2026_05_01 / 04_restaking_farming.md
 ///      cluster. Covers DR-01 (cross-user drain), DR-02 (totalActivePrincipal
@@ -41,6 +45,7 @@ contract MockWETH is ERC20 {
 }
 
 contract DeepRestakingTest is Test {
+    using stdStorage for StdStorage; // AUDIT TF-001
     MockTOWELI public toweli;
     MockJBAC public jbac;
     MockWETH public weth;
@@ -331,5 +336,75 @@ contract DeepRestakingTest is Test {
         // After 24h, propose succeeds
         vm.warp(t0 + 24 hours + 1);
         restakingAdmin.proposeBonusRate(0.7 ether);
+    }
+
+    // ────────────────────────────────
+    // TF-001: `claimAll` must not destroy the principal anchor.
+    //
+    // DR3-05 established the rule at `decayExpiredRestaker`: when the
+    // underlying staking position reads zero (force-closed), do NOT sync
+    // `positionAmount` to it. `recoverStuckPrincipal` reads exactly that field
+    // as `originalAmount` and caps the payout by it, so zeroing it leaves the
+    // user with payout == 0 and a BadParam revert — principal reachable only
+    // through a timelocked owner call. The guard was applied to the decay
+    // primitive and NOT to `claimAll`, which is the sibling a force-closed
+    // restaker is most likely to reach (`refreshPosition` reverts ZeroAmount
+    // for them, so claiming bonus is the natural next thing to try).
+    //
+    // REACHABILITY, STATED HONESTLY: no live path can force-close a position
+    // while restaking holds the NFT — `emergencyExitPosition` needs
+    // `ownerOf == msg.sender` and restaking exposes no call into it. So this is
+    // latent, not a live loss, and the state below has to be manufactured. It
+    // is still worth holding: `recoverStuckPrincipal` (H-06) and DR3-05 exist
+    // for precisely the world where a force-close becomes possible, and a
+    // recovery path that only works at three of its four sibling sites is not
+    // a recovery path.
+    // ────────────────────────────────
+
+    /// @dev Force `staking.positions(tokenId).amount` to zero without going
+    ///      through an API that cannot produce it. `amount` is the FIRST member
+    ///      of Position, so it sits at the struct's base slot.
+    function _forceClosePosition(uint256 tokenId) internal {
+        uint256 base = stdstore.target(address(staking)).sig("positions(uint256)").with_key(tokenId).find();
+        vm.store(address(staking), bytes32(base), bytes32(uint256(0)));
+        (uint256 amt,,,,,,,,,,) = staking.positions(tokenId);
+        assertEq(amt, 0, "setup: position must read as force-closed");
+    }
+
+    function test_claimAll_preservesPrincipalAnchor_whenPositionForceClosed() public {
+        uint256 tokenId = _stakeAndRestake(alice, 30 days);
+
+        // The principal is physically in the restaking contract — the H-06
+        // scenario `recoverStuckPrincipal` was written for.
+        deal(address(toweli), address(restaking), STAKE_AMOUNT);
+        _forceClosePosition(tokenId);
+
+        // The natural user action: try to collect the bonus.
+        vm.prank(alice);
+        restaking.claimAll();
+
+        // THE INVARIANT: the anchor survives. Pre-fix this read 0 and the
+        // user's principal was unreachable by any self-service path.
+        (, uint256 positionAmount,,,,) = restaking.restakers(alice);
+        assertEq(positionAmount, STAKE_AMOUNT, "TF-001: claimAll must not zero the principal anchor");
+    }
+
+    function test_recoverStuckPrincipal_stillPaysAfterAClaimAll() public {
+        uint256 tokenId = _stakeAndRestake(alice, 30 days);
+        deal(address(toweli), address(restaking), STAKE_AMOUNT);
+        _forceClosePosition(tokenId);
+
+        vm.prank(alice);
+        restaking.claimAll();
+
+        // The consequence the anchor exists for. Pre-fix: payout 0 -> BadParam.
+        uint256 before = toweli.balanceOf(alice);
+        vm.prank(alice);
+        restaking.recoverStuckPrincipal();
+        assertEq(
+            toweli.balanceOf(alice) - before,
+            STAKE_AMOUNT,
+            "TF-001: a force-closed restaker who claimed first must still recover their principal"
+        );
     }
 }

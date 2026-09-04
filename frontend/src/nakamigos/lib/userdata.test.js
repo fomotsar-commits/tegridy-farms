@@ -11,8 +11,17 @@
  *   2. a refusal must reach the caller as a NAMED reason, not a bare `false`
  *      that is indistinguishable from "nothing changed".
  *
- * Reads are deliberately NOT covered here: 015 §2 (the read-side policies) is
- * a deferred product decision and reads stay on the anon key.
+ * AUDIT FIX TF-004 / TF-007 — reads are now covered too. 015 §2 (the read-side
+ * policies) is no longer deferred for the two PERSONAL tables: a watchlist is a
+ * statement of trading intent and a favourites list is a behavioural profile,
+ * and both were world-readable to anyone who pulled the anon key out of the
+ * shipped bundle — while PrivacyPage §3 told every visitor that RLS scoped
+ * their rows to their own SIWE wallet claim. Migration 016 drops those two
+ * `USING (true)` policies; these tests pin the read path that has to move
+ * FIRST, because dropping the policy under an anon read returns zero rows
+ * rather than an error, and a silent zero is the failure this codebase refuses.
+ *
+ * `votes` and `user_profiles` deliberately stay public — see 016's header.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -26,6 +35,10 @@ const WALLET = "0x" + "AB".repeat(20); // callers pass checksummed/mixed case
 const OTHER = "0x" + "cd".repeat(20);
 
 const proxyWrite = vi.fn();
+// AUDIT FIX TF-004 / TF-007: the two personal-table reads moved onto the proxy
+// as well, so the owner-scoped RLS policy can match a proven wallet and the
+// world-readable `USING (true)` twin can be dropped (migration 016).
+const proxyRead = vi.fn();
 /** Records ANY mutating verb called on the anon Supabase client. Must stay at 0. */
 const anonMutation = vi.fn();
 
@@ -58,12 +71,14 @@ async function loadUserdata({ syncEnabled }) {
   vi.resetModules();
   proxyWrite.mockReset();
   proxyWrite.mockResolvedValue([{}]);
+  proxyRead.mockReset();
+  proxyRead.mockResolvedValue([]);
   anonMutation.mockReset();
   vi.doMock("./supabase", () => ({
     CHAT_ENABLED: syncEnabled,
     supabase: syncEnabled ? makeAnonClient() : null,
   }));
-  vi.doMock("./supabaseProxy", () => ({ proxyWrite }));
+  vi.doMock("./supabaseProxy", () => ({ proxyWrite, proxyRead }));
   return import("./userdata.js");
 }
 
@@ -79,6 +94,9 @@ async function runAllMutations(mod) {
   await mod.syncWatchlist(WALLET, [{ id: "22", targetPrice: 2, note: "x" }], "nakamigos");
   return mod;
 }
+
+const readFor = (table) =>
+  proxyRead.mock.calls.map((c) => c[0]).find((p) => p.table === table);
 
 const callFor = (table, method) =>
   proxyWrite.mock.calls.map((c) => c[0]).find((p) => p.table === table && p.method === method);
@@ -182,6 +200,57 @@ describe("every mutation routes through the SIWE proxy, not the anon key", () =>
 });
 
 // ── 2. The bodies satisfy the server's own schema ────────────────────
+
+// AUDIT TF-004 / TF-007. The property: a wallet's personal rows are never
+// fetched with a credential that cannot prove that wallet. The anon key
+// cannot — it carries no JWT claim — so these reads must leave through the
+// proxy that holds the SIWE cookie, and must be scoped to the caller's own
+// wallet rather than fetching the table.
+describe("personal-table reads leave through the SIWE proxy, not the anon key", () => {
+  it("syncFavorites and syncWatchlist read through the proxy", async () => {
+    const mod = await loadUserdata({ syncEnabled: true });
+    await mod.syncFavorites(WALLET, ["11"], "nakamigos");
+    await mod.syncWatchlist(WALLET, [{ id: "22" }], "nakamigos");
+
+    expect(readFor("user_favorites")).toBeTruthy();
+    expect(readFor("user_watchlist")).toBeTruthy();
+  });
+
+  it("scopes every personal read to the caller's OWN lower-cased wallet", async () => {
+    const mod = await loadUserdata({ syncEnabled: true });
+    await mod.syncFavorites(WALLET, [], "nakamigos");
+    await mod.syncWatchlist(WALLET, [], "nakamigos");
+
+    for (const table of ["user_favorites", "user_watchlist"]) {
+      // A read with no wallet in `match` would be a table scan against
+      // whatever the policy allows — precisely the exposure being closed.
+      expect(readFor(table).match.wallet, `${table} read is not wallet-scoped`).toBe(LOWER);
+    }
+  });
+
+  it("never reaches the anon client for those two tables", async () => {
+    const mod = await loadUserdata({ syncEnabled: true });
+    const { supabase } = await import("./supabase");
+    await mod.syncFavorites(WALLET, ["11"], "nakamigos");
+    await mod.syncWatchlist(WALLET, [{ id: "22" }], "nakamigos");
+
+    const anonTables = supabase.from.mock.calls.map((c) => c[0]);
+    expect(anonTables).not.toContain("user_favorites");
+    expect(anonTables).not.toContain("user_watchlist");
+  });
+
+  it("degrades to the local list when there is no SIWE session, never to a throw", async () => {
+    const mod = await loadUserdata({ syncEnabled: true });
+    const denied = new Error("Sign-in required");
+    denied.needsAuth = true;
+    proxyRead.mockRejectedValue(denied);
+
+    await expect(mod.syncFavorites(WALLET, ["11"], "nakamigos")).resolves.toEqual(["11"]);
+    await expect(
+      mod.syncWatchlist(WALLET, [{ id: "22" }], "nakamigos"),
+    ).resolves.toEqual([{ id: "22" }]);
+  });
+});
 
 describe("proxied bodies satisfy api/_lib/proxy-schemas.js as-is", () => {
   it("every INSERT/UPSERT/UPDATE body validates against the server schema", async () => {

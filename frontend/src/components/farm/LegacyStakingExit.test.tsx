@@ -52,6 +52,40 @@ describe('LegacyStakingExit', () => {
     expect(screen.queryByTestId('legacy-staking-exit')).toBeNull();
   });
 
+  // OUTAGE-AS-ZERO. A failed userTokenId read collapses to 0n, which is also
+  // the honest "no legacy position" value. Silently returning null then tells
+  // someone with a stranded stake that they have nothing to withdraw.
+  it('reports a failed check instead of implying the wallet has no legacy position', () => {
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+    wagmiMock.setReadResult({ address: LEGACY_A, functionName: 'userTokenId', result: null, status: 'failure' });
+    wagmiMock.setReadResult({ address: LEGACY_B, functionName: 'userTokenId', result: 0n });
+    render(<LegacyStakingExit />);
+
+    expect(screen.queryByTestId('legacy-staking-exit')).toBeNull();
+    const notice = screen.getByTestId('legacy-staking-exit-unread');
+    expect(notice.textContent).toMatch(/could not check/i);
+    expect(notice.textContent).toMatch(/still there and still yours/i);
+  });
+
+  // OUTAGE-AS-FREE, the costlier sibling: defaulting an unreadable penalty to
+  // 0n quoted a free early exit while the contract took its real cut.
+  it('never quotes a 0% penalty when the penalty rate could not be read', () => {
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+    wagmiMock.setReadResult({ address: LEGACY_A, functionName: 'userTokenId', result: 3n });
+    wagmiMock.setReadResult({ address: LEGACY_A, functionName: 'getPosition', result: LOCKED_100 });
+    wagmiMock.setReadResult({ address: LEGACY_A, functionName: 'EARLY_WITHDRAWAL_PENALTY_BPS', result: null, status: 'failure' });
+    stubPosition(LEGACY_B, 0n, null);
+    render(<LegacyStakingExit />);
+
+    expect(screen.queryByText(/0% penalty/)).toBeNull();
+    expect(screen.getByTestId('legacy-staking-exit').textContent).toMatch(/could not be read/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /Early withdraw/i }));
+    const confirm = screen.getByRole('button', { name: /Penalty unknown/i }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(confirm);
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+  });
   it('shows an unlocked position and sends withdraw(tokenId) to the right contract', () => {
     wagmiMock.setAccount({ address: USER, isConnected: true });
     stubPosition(LEGACY_A, 2n, UNLOCKED_1000);

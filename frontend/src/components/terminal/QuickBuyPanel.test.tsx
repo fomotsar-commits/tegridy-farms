@@ -153,7 +153,10 @@ describe('Ethereum rows keep the existing, unchanged path', () => {
 
 describe('the acknowledgement never contradicts the badge beside it', () => {
   const HIGH_RISK_PARTLY_READ: RowSafety = assessRowSafety({
-    distribution: componentRead({ band: 'concentrated', confidence: 'high', firedGateIds: [] }),
+    // excludedShareOfTotal became required on DistributionRead in the audit lane; this
+    // fixture arrived from #360 before that landed, so the merge is where they meet.
+    // 0 is the honest value for a fixture that excludes nothing.
+    distribution: componentRead({ band: 'concentrated', confidence: 'high', firedGateIds: [], excludedShareOfTotal: 0 }),
     deployer: componentUnread('no creator lookup on this build'),
     heat: componentUnread('no heat'),
   });

@@ -42,6 +42,8 @@ function dist(over: Partial<DistributionRead> = {}): ComponentRead<DistributionR
     band: 'well-distributed',
     confidence: 'high',
     firedGateIds: [],
+    // AUDIT TF-026: an ordinary token where most of supply is still measured.
+    excludedShareOfTotal: 0.2,
     ...over,
   });
 }
@@ -165,6 +167,45 @@ describe('low confidence removes a row from the axis rather than colouring it', 
     expect(badge.label).toBe('Partly unread');
     expect(badge.detail).not.toMatch(/nothing (was )?found/i);
     expect(badge.detail).not.toMatch(/clean/i);
+  });
+});
+
+// AUDIT TF-026. The scanner page renders its exclusion set beside its verdict;
+// this row rendered the verdict alone. The concentration math runs on what
+// SURVIVES exclusion, so when most of supply was set aside — pools, burns, and
+// the low-confidence `contract` heuristic — a clean band describes the
+// remainder, not the token, and a binary green states a claim nobody measured.
+describe('a band measured over a sliver of supply is not a clean token', () => {
+  it('most of supply excluded ⇒ a coverage gap, not "known safe"', () => {
+    const safety = assessRowSafety({
+      distribution: dist({ band: 'well-distributed', excludedShareOfTotal: 0.92 }),
+      deployer: dep(),
+      heat: HEAT_READ,
+    });
+    expect(isKnownSafe(safety)).toBe(false);
+    expect(safety.kind === 'scored' && safety.coverage).toBe('partial');
+    expect(safety.kind === 'scored' && safety.gaps.join(' ')).toMatch(/set aside before the concentration math/i);
+  });
+
+  it('the number it reports is the share actually excluded', () => {
+    const safety = assessRowSafety({
+      distribution: dist({ excludedShareOfTotal: 0.921 }),
+      deployer: dep(),
+      heat: HEAT_READ,
+    });
+    expect(safety.kind === 'scored' && safety.gaps.join(' ')).toMatch(/92\.1%/);
+  });
+
+  it('an ordinary token with a deep pool and a real burn keeps its clean read', () => {
+    // Non-vacuity, and the reason the threshold is generous: excluding a large
+    // share is NORMAL and healthy. This must not become a suspicion signal.
+    const safety = assessRowSafety({
+      distribution: dist({ band: 'well-distributed', excludedShareOfTotal: 0.6 }),
+      deployer: dep(),
+      heat: HEAT_READ,
+    });
+    expect(safety.kind === 'scored' && safety.gaps.join(' ')).not.toMatch(/set aside before/i);
+    expect(isKnownSafe(safety)).toBe(true);
   });
 });
 

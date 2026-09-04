@@ -14,7 +14,11 @@ function pngFile(bytes = 1024, name = 'coin.png'): File {
   return new File([new Uint8Array(bytes)], name, { type: 'image/png' });
 }
 
-function view(overrides: Partial<{ stage: CurveCreateStage; createdToken: `0x${string}` | null }> = {}) {
+type Terms = { creatorShare: string; fee: string; reserve: string } | null;
+
+function view(
+  overrides: Partial<{ stage: CurveCreateStage; createdToken: `0x${string}` | null; terms: Terms }> = {},
+) {
   const onCreate = vi.fn();
   const onRetryIdentity = vi.fn();
   const onReset = vi.fn();
@@ -28,6 +32,7 @@ function view(overrides: Partial<{ stage: CurveCreateStage; createdToken: `0x${s
         onRetryIdentity={onRetryIdentity}
         onReset={onReset}
         onTrade={onTrade}
+        terms={overrides.terms ?? null}
       />
     </MemoryRouter>,
   );
@@ -42,6 +47,36 @@ function fillBasics() {
 function attachImage(file: File = pngFile()) {
   fireEvent.change(screen.getByLabelText(/^token image$/i), { target: { files: [file] } });
 }
+
+// AUDIT TF-023. This panel is a SIGNATURE surface: the creator commits to
+// these economics by pressing Create. The terms are not constants — `create()`
+// snapshots the owner-tunable `launchConfig`, and `setLaunchConfig` retunes it
+// immediately for every subsequent create, with no frontend deploy and no
+// signal this panel consumed. Hardcoded copy would keep stating the OLD split
+// to everyone who launched after a retune.
+describe('CurveCreateView — the terms a creator signs on', () => {
+  it('quotes the terms it actually read', () => {
+    view({ terms: { creatorShare: '40%', fee: '1%', reserve: '3.69%' } });
+    expect(screen.getByText(/You earn 40% of every trade/)).toBeTruthy();
+    expect(screen.getByText(/3\.69% reserve/)).toBeTruthy();
+  });
+
+  it('quotes RETUNED terms, not the ones that used to be hardcoded', () => {
+    // The mutation that matters: after a setLaunchConfig the panel must move.
+    view({ terms: { creatorShare: '20%', fee: '3%', reserve: '10%' } });
+    expect(screen.getByText(/You earn 20% of every trade/)).toBeTruthy();
+    expect(screen.getByText(/10% reserve/)).toBeTruthy();
+    expect(screen.queryByText(/You earn 40% of every trade/)).toBeNull();
+    expect(screen.queryByText(/3\.69% reserve/)).toBeNull();
+  });
+
+  it('says it is still reading rather than quoting a number from memory', () => {
+    view({ terms: null });
+    expect(screen.getByText(/Reading the current launch terms/)).toBeTruthy();
+    // No percentage may appear in the terms paragraph before the read lands.
+    expect(screen.queryByText(/You earn \d/)).toBeNull();
+  });
+});
 
 describe('CurveCreateView', () => {
   it('keeps Create disabled until name, symbol AND an image are present', () => {
