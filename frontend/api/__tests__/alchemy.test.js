@@ -308,3 +308,77 @@ describe("alchemy — R050 CORS fallback (non-allowlisted origin)", () => {
     expect(headers["Access-Control-Allow-Credentials"]).toBeUndefined();
   });
 });
+
+describe("alchemy — API-M5 RPC upstream status is not flattened to 200", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.ALCHEMY_API_KEY = "demo";
+    process.env.NODE_ENV = "test";
+  });
+
+  async function runWithStatus(status) {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status,
+      headers: { get: () => null },
+      body: null,
+      text: async () =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32600, message: "Must be authenticated!" },
+        }),
+    }));
+    handler = (await import("../alchemy.js")).default;
+    const req = makeReq({
+      method: "POST",
+      query: { endpoint: "rpc" },
+      body: { method: "eth_blockNumber", params: [] },
+    });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    return { statusSpy, jsonSpy };
+  }
+
+  it("401 from a revoked key surfaces as 502, never 200", async () => {
+    const { statusSpy, jsonSpy } = await runWithStatus(401);
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream service error" });
+  });
+
+  it("429 from a throttled key surfaces as 502, never 200", async () => {
+    const { statusSpy } = await runWithStatus(429);
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+  });
+
+  it("does not echo the upstream status or message to the client", async () => {
+    const { jsonSpy } = await runWithStatus(401);
+    const payload = JSON.stringify(jsonSpy.mock.calls[0][0]);
+    expect(payload).not.toContain("Must be authenticated");
+    expect(payload).not.toContain("401");
+  });
+
+  it("a healthy upstream still returns the RPC result unchanged", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: null,
+      text: async () => JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x18b4c2f" }),
+    }));
+    handler = (await import("../alchemy.js")).default;
+    const req = makeReq({
+      method: "POST",
+      query: { endpoint: "rpc" },
+      body: { method: "eth_blockNumber", params: [] },
+    });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(jsonSpy.mock.calls[0][0].result).toBe("0x18b4c2f");
+  });
+});
