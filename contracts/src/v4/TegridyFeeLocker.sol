@@ -166,8 +166,8 @@ contract TegridyFeeLocker is IERC721Receiver, ReentrancyGuard {
         if (recipient == address(0)) revert ZeroAddress();
         if (beneficiaries.length == 0) revert NoBeneficiaries();
 
-        uint256 total;
-        address previous;
+        uint256 total = 0;
+        address previous = address(0);
         for (uint256 i; i < beneficiaries.length; ++i) {
             BeneficiaryData calldata b = beneficiaries[i];
             if (b.beneficiary == address(0)) revert ZeroAddress();
@@ -257,10 +257,13 @@ contract TegridyFeeLocker is IERC721Receiver, ReentrancyGuard {
         // nothing can drain the pot mid-measurement, so a zero delta really means
         // "this currency earned nothing" — not a reentrant claim cancelling the
         // delta and silently stranding swept fees.
+        // SLITHER 2026-08-30: benign no-op sentinel under the collect/claim ReentrancyGuard
+        // added 2026-08-25 (the guard is what makes the delta trustworthy — see above)
+        // slither-disable-next-line incorrect-equality
         if (amount == 0) return;
 
         uint256 n = l.beneficiaries.length;
-        uint256 distributed;
+        uint256 distributed = 0;
         for (uint256 i; i < n; ++i) {
             BeneficiaryData storage b = l.beneficiaries[i];
             uint256 share;

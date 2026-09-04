@@ -1,6 +1,18 @@
 # Tegridy Farms — Canonical Contract Index
 
-Chain: Ethereum Mainnet (chainId 1). All addresses are EIP-55 checksummed. Etherscan links use `https://etherscan.io/address/...`.
+**Four chains as of 2026-09-04**, not one. This index covers **Ethereum Mainnet (chainId 1)**
+in full; the Base 8453, Robinhood 4663 and Solana surfaces are indexed below under
+[Other chains](#other-chains). All EVM addresses are EIP-55 checksummed. Etherscan links use
+`https://etherscan.io/address/...`.
+
+> **[`frontend/scripts/addresses.json`](frontend/scripts/addresses.json) is the registry of
+> record** — **130 entries** across the four chains (Ethereum 75, Solana 24, Base 20,
+> Robinhood 11), live and retired alike, each in full and checked by
+> `verify-addresses.mjs` in CI on every push (structural decode, no truncation, no
+> duplicates, a denylist, and drift against `constants.ts`). Where this document and that
+> file disagree, **the registry is right** and this file is stale. It also keeps *retired*
+> addresses marked as retired rather than deleting them, which is how you tell "superseded"
+> from "never existed".
 
 **Verified 2026-08-06** against `contracts/broadcast/<Script>.s.sol/1/run-latest.json` and a live
 `cast code` / `cast call` read of every row marked Live. The previous revision of this file was
@@ -172,6 +184,81 @@ See [docs/MIGRATION_HISTORY.md](docs/MIGRATION_HISTORY.md) for why each migratio
 part of the protocol.
 
 ---
+
+## Other chains
+
+Added 2026-09-04. This file described itself as Ethereum-only for ten days after the L2 legs
+went live.
+
+### Base 8453 — deployed 2026-08-25
+Full MVP + curve stack, every slot read back on-chain before wiring. Explorer: BaseScan.
+
+| Contract | Address |
+|---|---|
+| TegridyFactory | `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC` |
+| TegridyRouter | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` |
+| TegridyTWAP | `0xB021651dACaD5dabf83ef587297E093DfA0c95Ec` |
+| SwapFeeRouter | `0xa24C7287eC56A7DEFDc70033803451240e267a52` |
+| SwapFeeRouterAdmin | `0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2` |
+| TegridyCurveLauncher | `0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060` |
+| Fee sink — FEE_REMITTANCE Safe | `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1` |
+| Treasury Safe | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
+
+### Robinhood Chain 4663 — deployed 2026-08-25
+Arbitrum Orbit L2, ETH gas, Blockscout explorer.
+
+| Contract | Address |
+|---|---|
+| AttestedSequencerUptimeFeed | `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC` |
+| TegridyFactory | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` |
+| TegridyRouter | `0xB021651dACaD5dabf83ef587297E093DfA0c95Ec` |
+| TegridyTWAP | `0xa24C7287eC56A7DEFDc70033803451240e267a52` |
+| SwapFeeRouter | `0xE9F83A07b071748E795d2489651d5310fA098Db8` |
+| SwapFeeRouterAdmin | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` |
+| TegridyCurveLauncher | `0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5` |
+| Fee sink / Treasury | the same FEE_REMITTANCE / TREASURY Safes as Base (CREATE2, both chains) |
+
+**The `AttestedSequencerUptimeFeed` had to deploy first.** Chainlink publishes no uptime feed
+for 4663, and `SequencerCheck` reverts off-mainnet on a zero feed — so the deploy scripts
+structurally refuse to ship the contracts without one.
+
+> ⚠️ **Neither L2 pays staker yield, by design.** Both fee sinks are **remittance** Safes: a
+> fee captured on Base or Robinhood is *queued for the bridge*, not credited to a veTOWELI
+> staker. There is no TOWELI on either chain and there never will be. Ownership handoffs to
+> the multisig await the **2-of-2 accept ceremony** on each chain — both role Safes are at
+> `nonce() == 0`, and an N-of-M is unproven until something has executed at the new threshold.
+
+### Bungalow lighthouses — `LighthouseLadder`, deployed 2026-08-30
+
+| Bungalow | Chain | Pool |
+|---|---|---|
+| PEPE | Ethereum | `0xdC0B34cE782029f30382F42097f6b33F0544329c` |
+| QR | Base | `0xdcc3a95A0921b83326157132B17770f02094c8E3` |
+| MFER | Base | `0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273` |
+| BNKR | Base | `0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178` |
+| DRB | Base | `0xB62BaD165997E95C503044787b2Dcc85DC6D83F1` |
+| JBM | Base | `0xA0D43eF39C4940e68b2f81d51E6316a45C136D93` |
+
+PEPE's pool was first deployed as a vendored Synthetix `StakingRewards` at
+`0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32`, then **retired the same day — never funded,
+never staked** — and replaced by the ladder above. Both entries stay in the registry, the old
+one marked retired, so the address change has a reason attached to it.
+
+### Solana
+
+Five Streamflow staking pools (BAYLA `EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`, plus
+BOBO, SOY, BRAINLET and RIZZ — full addresses in the registry), and a Jupiter-routed swap
+that custodies nothing.
+
+**Our own two Solana programs are gone.** `tegridy-launch`
+(`CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED`) and the cp-swap fork
+(`3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y`) were deployed 2026-08-08 and **closed
+2026-08-13**. Their *ProgramData* accounts — the separate `6vV7DqMy…` and `6TnZb1GT…` —
+return `null` at 0 lamports on two independent RPCs. Those are four distinct addresses and
+the difference matters: `solana program close` leaves the program stub in place **still
+executable-flagged**, so a naive `getAccountInfo` on the program id looks healthy. **Check
+ProgramData, not the program account.** The ids are spent; a restart needs fresh keypairs, a
+new `declare_id!`, and re-derivation of every PDA.
 
 ## Notes
 

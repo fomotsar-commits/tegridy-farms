@@ -52,13 +52,17 @@ const TABS = ALL_TABS.filter((t) => t.to !== '/nft-finance' || NFT_FINANCE_LIVE)
 
 export const BottomNav = React.memo(function BottomNav() {
   return (
-    // R038 / F13: `sm:hidden` hides the bar at ≥640px, where the TopNav primary
-    // nav switches in (TopNav uses `sm:flex`). The content padding band
-    // (index.css safe-area-content-bottom, AppLayout pb) ends at 639px to match,
-    // so 640-767px reserves no dead space for a nav that isn't rendered.
+    // R038 / F13, CORRECTED 2026-09-03: this bar hides at >=800px, where the
+    // TopNav primary nav switches in (TopNav uses `min-[800px]:flex`). It used to
+    // hide at 640px, which is where the TopNav row starts overflowing — so
+    // 640-790px lost this bar AND the hamburger AND the off-canvas Connect
+    // button at once, leaving no way to navigate or connect. See the long note
+    // at TopNav.tsx's <nav>. The content padding band (index.css
+    // safe-area-content-bottom, AppLayout pb) ends at 799px to match, so no dead
+    // space is reserved for a bar that isn't rendered.
     // safe-area-inset-bottom keeps the bar above the home indicator on
     // notched iOS devices. 44px tap target floor is enforced via min-h.
-    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 sm:hidden"
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 min-[800px]:hidden"
       style={{
         background: 'rgba(6,12,26,0.95)',
         backdropFilter: 'blur(20px)',

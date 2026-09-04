@@ -260,14 +260,23 @@ function ToweliDashboard() {
               { l: 'TOWELI Price', v: price.isLoaded && price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : '–', showSparkline: true },
               { l: 'TVL', v: pool.isDeployed && Number(pool.totalStaked) > 0 ? `${formatWholeNumber(Number(pool.totalStaked))} TOWELI` : '–' },
               { l: 'Base APR', v: pool.isDeployed && pool.aprNum > 0 ? `${pool.apr}%` : '–' },
-              { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
-            ] as { l: string; v: string | null; showSparkline?: boolean }[]).map((s) => (
+              // Three states, never two: loading (skeleton), READ FAILED (em dash
+              // plus a named reason), and a real figure. Gating only on
+              // isDataLoading printed a hard `0.0000 ETH` whenever the contract
+              // read errored — a fabricated number about the protocol's flagship
+              // claim, on the first screen a disconnected visitor sees. Same
+              // shape RealYieldProof.tsx uses per call.
+              revenueStats.isDataError
+                ? { l: 'ETH Distributed', v: '–', sub: 'read unavailable' }
+                : { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
+            ] as { l: string; v: string | null; sub?: string; showSparkline?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
                 <span className="text-[12px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}</span>
                 <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
                   {s.v === null ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}
                 </span>
+                {s.sub && <span className="text-[11px] text-white/60">{s.sub}</span>}
                 {s.showSparkline && priceHistory.length > 1 && (
                   <Sparkline data={priceHistory} width={48} height={16} />
                 )}
@@ -871,10 +880,21 @@ export function POLAccumulatorCard() {
   const wiringKnown = deployed && shareBps !== undefined && routerPolTarget !== undefined;
   const everFunded = totalETHReceived !== undefined && (totalETHReceived as bigint) > 0n;
 
-  const badge = !deployed ? 'Coming Soon' : wired ? 'Live' : 'Deployed · Unfunded';
+  // `wired` is false both when the contract genuinely is not wired AND when
+  // the two reads it depends on did not come back. Collapsing those made the
+  // badge assert "Deployed · Unfunded" about a contract whose funding it had
+  // simply failed to read — and contradicted the detail line below, which was
+  // already honest about it via wiringKnown. Three states, not two.
+  const badge = !deployed
+    ? 'Coming Soon'
+    : !wiringKnown ? 'Deployed · Status Unknown'
+    : wired ? 'Live'
+    : 'Deployed · Unfunded';
   const badgeStyle = wired
     ? { background: 'rgba(52,211,153,0.22)', color: '#6ee7b7', border: '1px solid rgba(52,211,153,0.45)' }
-    : { background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' };
+    : !wiringKnown && deployed
+      ? { background: 'rgba(245,158,11,0.20)', color: '#fcd34d', border: '1px solid rgba(245,158,11,0.45)' }
+      : { background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' };
 
   return (
     <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -903,6 +923,14 @@ export function POLAccumulatorCard() {
                 {totalLPCreated !== undefined && (
                   <>Lifetime LP minted to the protocol: <span className="font-mono text-white/85">{formatWei(totalLPCreated as bigint, 18, 6)}</span> LP.</>
                 )}
+              </p>
+            ) : !wiringKnown ? (
+              <p className="text-white/70 text-[11px] leading-relaxed">
+                <span className="text-amber-300/90 font-medium">Status unknown:</span> the contract is
+                deployed and unpaused on mainnet, but SwapFeeRouter&apos;s POL share and accumulator
+                target did not come back from the network just now, so this card cannot tell you
+                whether it is funded or earning. That is a read failure, not a finding — reload
+                before treating either answer as fact.
               </p>
             ) : (
               <p className="text-white/70 text-[11px] leading-relaxed">

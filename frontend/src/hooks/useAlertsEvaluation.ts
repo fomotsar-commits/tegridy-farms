@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { readAll, type ReaderDeps } from '../lib/alerts/readers';
+import { newReaderPass, readAll, type ReaderDeps } from '../lib/alerts/readers';
 import {
   evaluateAll,
   summarizeEvaluations,
@@ -30,7 +30,7 @@ export const DEFAULT_INTERVAL_MS = 60_000;
 const EMPTY_EVALUATIONS: Evaluation[] = [];
 
 export const COVERAGE_STATEMENT =
-  'Rules are evaluated in this browser tab, roughly once a minute, only while this page is open. Nothing evaluates them when it is closed.';
+  'Rules are evaluated in this browser tab, roughly once a minute, only while this page is open. Nothing evaluates them when it is closed. Each open tab evaluates on its own.';
 
 function loadPriors(): PriorState {
   try {
@@ -125,8 +125,13 @@ export function useAlertsEvaluation(
     (async () => {
       setRunning(true);
       try {
+        // A fresh sharing scope per pass, never reused across the minute
+        // boundary: it exists so N rules asking one source cost one request, and
+        // a cache that outlived the pass would start serving a stale minute as
+        // this minute's reading.
         const readings = await readAll(activeRules, {
           ...readerDepsRef.current,
+          pass: newReaderPass(activeRules),
           signal: controller.signal,
         });
         if (cancelled || controller.signal.aborted) return;

@@ -100,6 +100,7 @@ function ToweliFarm() {
     earlyWithdraw: false,
     emergencyExit: false,
     extendLock: false,
+    autoMaxLock: false,
   });
   // F118: stable identity so useAutoReset's effect (which lists the setter in
   // its deps) doesn't clear + re-arm the 5s confirm-dismiss timer on every
@@ -326,7 +327,7 @@ function ToweliFarm() {
               ConnectPrompt below remains the action-card slot). Additive — the
               jungle art hero and ConnectPrompt are untouched. */}
           <div className="max-w-[1200px] mx-auto px-4 md:px-6 pb-4">
-            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} reserveEmpty={pool.isDry} />
+            <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
             <FarmStatsRow
               stats={stats}
@@ -337,8 +338,12 @@ function ToweliFarm() {
               season={season}
             />
 
-            {/* Real-yield thesis surfaced in the staking loop: 100% of swap fees → stakers
-                as ETH, live-cumulative once the flywheel turns (graceful pre-volume state). */}
+            {/* Real-yield thesis surfaced in the staking loop: swap fees → stakers as
+                ETH, live-cumulative once the flywheel turns (graceful pre-volume state).
+                NOT "100%" — that was this comment's old wording and it is wrong the same
+                way the strip above was: the referral carve precedes the distributor, so
+                the end-to-end ceiling is ~80%. IncentivesStrip now reads both values live
+                and states the real figure; RealYieldProof itself was always correct. */}
             <RealYieldProof showWhenEmpty />
 
             {/* Native LP Pools — read-only pool cards (TVL, reserves, fees). */}
@@ -408,7 +413,7 @@ function ToweliFarm() {
         </m.div>
 
         {/* Incentives strip — real APR + reward-pool / emissions / boost / fee-share */}
-        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} reserveEmpty={pool.isDry} />
+        <IncentivesStrip apr={pool.apr} aprNum={pool.aprNum} rewardPool={stats.rewardPool} dailyEmissions={stats.dailyEmissions} rewardsRemaining={rewardsRemainingDisplay} secondsRemaining={pool.secondsRemaining} stakerSharePct={poolTVL.stakerSharePct} referralFeeBps={poolTVL.referralFeeBps} reserveEmpty={pool.isDry} />
 
         {/* Stats */}
         <FarmStatsRow
@@ -420,7 +425,8 @@ function ToweliFarm() {
           season={season}
         />
 
-        {/* Real-yield thesis in the staking loop — 100% swap fees → stakers as ETH. */}
+        {/* Real-yield thesis in the staking loop — swap fees → stakers as ETH. Not
+            "100%": see the twin comment on the other RealYieldProof mount above. */}
         <RealYieldProof showWhenEmpty />
 
         {/* Season banner */}

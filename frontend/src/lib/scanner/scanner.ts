@@ -25,10 +25,18 @@ import { analyzeDistribution, type DistributionAnalysis, type DistributionInput 
  */
 export type ScanChain = 'ethereum' | 'base' | 'solana';
 
-/** EVM 0x-prefixed 40-hex address. */
-const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+/**
+ * EVM 0x-prefixed 40-hex address.
+ *
+ * Exported because "is this string an address on this chain" is now asked well
+ * outside the scanner — every GeckoTerminal pool row is validated against it
+ * before its address is interpolated into a URL. One definition, so a future
+ * tightening cannot apply to half the app. Neither regex is global, so there is
+ * no shared `lastIndex` to trip over.
+ */
+export const ETH_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Base58 pubkey, 32–44 chars (excludes 0 O I l). Solana mint addresses. */
-const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+export const SOL_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 export interface ChainDetection {
   chain: ScanChain | null;

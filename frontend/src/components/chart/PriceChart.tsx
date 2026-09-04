@@ -5,89 +5,27 @@ import {
   TOWELI_MARKET,
   chartEmbedUrl,
   chartPoolUrl,
-  ohlcvCacheKey,
-  ohlcvUrl,
+  readChartCandles,
+  type ChartCandlesReason,
   type ChartMarket,
   type Timeframe,
 } from '../../lib/chart/market';
 import { useTheme } from '../../contexts/ThemeContext';
 
-// In-memory cache, keyed by pool AND timeframe (see ohlcvCacheKey).
-const ohlcvCache: Record<string, { data: CandlestickData<Time>[]; ts: number }> = {};
-const CACHE_TTL = 60_000;
-
-async function fetchWithRetry(url: string, retries = 5, delay = 800, signal?: AbortSignal): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch(url, { signal });
-      if (res.ok) return res;
-      if (res.status === 429) {
-        await new Promise(r => setTimeout(r, delay * (i + 1) * 2));
-        continue;
-      }
-      return res;
-    } catch (err) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      if (i === retries - 1) throw err;
-      await new Promise(r => setTimeout(r, delay * (i + 1)));
-    }
-  }
-  throw new Error('Max retries reached');
-}
-
-async function fetchOHLCV(tf: Timeframe, market: ChartMarket, signal?: AbortSignal): Promise<CandlestickData<Time>[]> {
-  const cacheKey = ohlcvCacheKey(market, tf);
-  const cached = ohlcvCache[cacheKey];
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
-
-  // F152: direct cross-origin fetch to GeckoTerminal with retry/backoff. There is
-  // no same-origin proxy — on Safari ITP / Edge tracking-prevention failures the
-  // caller falls through to the embedded GeckoTerminal iframe instead.
-  const url = ohlcvUrl(market, tf);
-
-  const res = await fetchWithRetry(url, 5, 800, signal);
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const json = await res.json();
-  const list = json?.data?.attributes?.ohlcv_list ?? [];
-
-  const raw = (Array.isArray(list) ? list : [])
-    .map((bar: unknown) => {
-      if (!Array.isArray(bar) || bar.length < 5) return null;
-      const [ts, o, h, l, c] = bar;
-      const vals = { open: Number(o), high: Number(h), low: Number(l), close: Number(c) };
-      const time = Math.floor(Number(ts));
-      if (!Number.isFinite(time) || time <= 0) return null;
-      if (!Number.isFinite(vals.open) || !Number.isFinite(vals.high) || !Number.isFinite(vals.low) || !Number.isFinite(vals.close)) return null;
-      // lightweight-charts throws "Value is null" if OHLC values are 0 or invalid
-      if (vals.open <= 0 || vals.high <= 0 || vals.low <= 0 || vals.close <= 0) return null;
-      // Ensure OHLC ordering: high must be highest, low must be lowest
-      vals.high = Math.max(vals.open, vals.high, vals.low, vals.close);
-      vals.low = Math.min(vals.open, vals.low, vals.high, vals.close);
-      return { time: (time as unknown) as Time, ...vals };
-    })
-    .filter((b): b is CandlestickData<Time> => b !== null);
-  const sorted = raw.sort((a, b) => (a.time as number) - (b.time as number));
-  // lightweight-charts requires strictly ascending unique `time` values on
-  // setData — duplicates trigger an internal assertion ("Value is null")
-  // when the series builds its price-line index. GeckoTerminal occasionally
-  // returns two bars with the same epoch (DST boundaries, low-volume hours
-  // collapsed by their aggregator). Keep the last bar for each timestamp.
-  const bars: CandlestickData<Time>[] = [];
-  for (const bar of sorted) {
-    const last = bars[bars.length - 1];
-    if (last && (last.time as number) === (bar.time as number)) {
-      bars[bars.length - 1] = bar;
-    } else {
-      bars.push(bar);
-    }
-  }
-
-  if (Object.keys(ohlcvCache).length > 8) {
-    for (const k of Object.keys(ohlcvCache)) delete ohlcvCache[k];
-  }
-  ohlcvCache[cacheKey] = { data: bars, ts: Date.now() };
-  return bars;
-}
+// WHAT A REFUSED READ SAYS. Every branch names the READ, never the market: a
+// chart that cannot be drawn because the feed refused us is not a chart of a
+// pool with no trades. The fetch itself — one request, no retry of any class, an
+// 8s deadline and a bounded cache — lives in lib/chart/market.ts next to the URL
+// builder it belongs with; see the PERF-07/PERF-12 note there for why the
+// five-attempt 429 backoff that used to sit in this file had to go.
+const READ_FAILURE_COPY: Record<ChartCandlesReason, string> = {
+  'rate-limited': 'The chart feed is rate-limiting right now. Give it a moment and try again.',
+  'not-found': 'The chart feed has no candles for this pool.',
+  http: 'The chart feed refused this request.',
+  'off-schema': 'The chart feed answered in a shape we will not draw.',
+  network: 'The chart feed could not be reached.',
+  timeout: 'The chart feed did not answer in time.',
+};
 
 // Format tiny prices like 0.00004052 nicely
 function formatPrice(price: number): string {
@@ -225,13 +163,45 @@ function PriceChartInner({ market = TOWELI_MARKET }: { market?: ChartMarket }) {
     setLoading(true);
     setError(null);
 
-    fetchOHLCV(timeframe, market, controller.signal)
-      .then((bars) => {
+    readChartCandles(market, timeframe, { signal: controller.signal })
+      .then((read) => {
         // Guard against race condition: ignore if a newer request was made
         if (requestId !== requestIdRef.current) return;
         if (!seriesRef.current) return;
+
+        if (!read.ok) {
+          // A REFUSAL IS NOT AN OUTAGE OF THIS COMPONENT. Two failed reads still
+          // fall through to GeckoTerminal's own embed (which answers from their
+          // origin and their budget), but the reason is named on the way there
+          // rather than collapsed into "Chart unavailable".
+          retryCountRef.current += 1;
+          if (retryCountRef.current >= 2) {
+            setUseEmbed(true);
+            setLoading(false);
+            setError(null);
+          } else {
+            setError(READ_FAILURE_COPY[read.reason]);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // lightweight-charts wants strictly ascending unique `time` values and a
+        // positive price on every field. readOhlcvBars already guarantees both —
+        // it sorts, keeps the last bar per timestamp, and DROPS a bar whose high
+        // sits below its close rather than clamping it into a shape that draws.
+        // This map therefore invents nothing; the old inline reader repaired the
+        // OHLC here, which put an ordering on screen that nobody traded.
+        const bars: CandlestickData<Time>[] = read.bars.map((b) => ({
+          time: b.timeSec as unknown as Time,
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+        }));
+
         if (bars.length === 0) {
-          setError('No chart data available');
+          setError('The chart feed returned no candles for this pool.');
           setLoading(false);
           return;
         }
@@ -246,19 +216,13 @@ function PriceChartInner({ market = TOWELI_MARKET }: { market?: ChartMarket }) {
         setLoading(false);
       })
       .catch((err) => {
+        // readChartCandles only rejects for an abort the CALLER asked for —
+        // every read failure comes back as a tagged reason above.
         if (err instanceof DOMException && err.name === 'AbortError') return;
         if (requestId !== requestIdRef.current) return;
-        console.warn('Chart fetch failed:', err);
-        retryCountRef.current += 1;
-        // After 2 failed attempts, fall back to GeckoTerminal embed
-        if (retryCountRef.current >= 2) {
-          setUseEmbed(true);
-          setLoading(false);
-          setError(null);
-        } else {
-          setError('Chart unavailable');
-          setLoading(false);
-        }
+        console.warn('Chart read threw:', err);
+        setError('Chart unavailable');
+        setLoading(false);
       });
   }, [useEmbed, market]);
 

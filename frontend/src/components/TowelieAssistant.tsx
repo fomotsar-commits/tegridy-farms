@@ -95,7 +95,15 @@ const ROUTE_TIPS: Record<string, string> = {
   '/community':   "Vote, post bounties, propose grants. The island demands it.",
   '/nft-finance': "Lend, borrow, trade NFTs. No oracles, no rugs.",
   '/lore':        "The story of how the island was found.",
-  '/tokenomics':  "1B supply. 100% of fees flow back to stakers.",
+  // CORRECTED 2026-09-03: this said "100% of fees flow back to stakers". That is
+  // the same overclaim the Farm strip carried — SwapFeeRouter.stakerShareBps is
+  // 10000, but ReferralSplitter carves 2000 bps off the top BEFORE the
+  // distributor sees anything, so the end-to-end ceiling is ~80% and cannot be
+  // raised from the app. No percentage here on purpose: this is a static hint
+  // string with no access to the live reads, and a hardcoded 80 would drift the
+  // moment governance retunes the split (it is settable to MAX_REFERRAL_FEE
+  // behind a timelock). The Farm strip quotes the live number; this points at it.
+  '/tokenomics':  "1B supply. Protocol fees route on-chain to stakers, after the referral carve.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
   '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, receipts and all.",
@@ -373,7 +381,7 @@ export function TowelieAssistant() {
 
   return (
     <div
-      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 md:bottom-4"
+      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 min-[800px]:bottom-4"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >
       <AnimatePresence>
@@ -384,7 +392,7 @@ export function TowelieAssistant() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.9 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-auto max-w-[260px] mb-1 relative"
+            className="pointer-events-none max-w-[260px] mb-1 relative"
             role="status"
             aria-live="polite"
           >
@@ -400,7 +408,13 @@ export function TowelieAssistant() {
               <button
                 onClick={dismissBubble}
                 aria-label="Dismiss Towelie"
-                className="absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none"
+                /* A11Y-R12: 20x20px, on a control that is rendered on literally
+                   every route. The painted square stays 20px — growing the box
+                   would grow the hover fill and crowd a bubble that is only ~40px
+                   tall — and a transparent ::before carries the TAP target to
+                   44x44. The bubble body has no click handler of its own, so the
+                   overlay steals nothing. */
+                className="pointer-events-auto absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none before:absolute before:content-[''] before:-inset-[12px]"
               >
                 ×
               </button>
@@ -412,7 +426,7 @@ export function TowelieAssistant() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Ask me anything…"
-                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
+                    className="pointer-events-auto flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
                     aria-label="Ask Towelie a question"
                     maxLength={140}
                   />
@@ -420,7 +434,7 @@ export function TowelieAssistant() {
                     type="submit"
                     disabled={!chatInput.trim()}
                     aria-label="Send question"
-                    className="text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
+                    className="pointer-events-auto text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
                   >
                     ↩
                   </button>
@@ -429,13 +443,13 @@ export function TowelieAssistant() {
               <div className="mt-1.5 flex items-center gap-3">
                 <button
                   onClick={toggleChat}
-                  className="text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
+                  className="pointer-events-auto text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
                 >
                   {chatOpen ? 'Close chat' : '💬 Ask me'}
                 </button>
                 <button
                   onClick={disablePermanently}
-                  className="text-[10px] text-white/40 hover:text-white/70 transition-colors"
+                  className="pointer-events-auto text-[10px] text-white/40 hover:text-white/70 transition-colors"
                 >
                   Don't show again
                 </button>

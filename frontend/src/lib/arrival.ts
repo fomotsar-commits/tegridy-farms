@@ -76,8 +76,48 @@ export const VENUE = {
     'that open on Heat instead of hype, staking and swaps with every fee routed ' +
     'onchain where you can read it. Heat is held time, measured by the island’s ' +
     'instrument. It cannot be bought and it cannot be faked.',
+  /**
+   * PLAIN LANGUAGE, before the lore. Additive — the island writing below is
+   * untouched and stays the voice of the page; this only gives a first-time
+   * reader somewhere to stand before it.
+   *
+   * Every clause is checkable: staking is live on the Farm; the swap surfaces
+   * cover the three chains named in `description` (Ethereum, Base and Solana —
+   * isSolanaSwapLive() is true); "check any token" is /scan, the Token Scanner,
+   * which is also the third CTA below.
+   */
+  heroPlain:
+    'Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.',
   /** Second person, present tense, the viewer's own stake. */
   heroHook: 'Your heat already exists. It started counting at your first buy.',
+  /**
+   * HEAT, MECHANICALLY — the sentence that has to be true.
+   *
+   * Every word here is traceable to lib/heat/heatOracle.ts:
+   *   heat_degrees = 100 · (1 − e^(−60 · TWAB / totalSupply)) per (wallet, token),
+   *   summed across tokens; one token caps at 100°. The launch floor is 80°
+   *   (Resident) per heatGateConfig.heatLaunchFloor().
+   *
+   * WHAT THIS DELIBERATELY DOES NOT SAY, and must never say: any averaging
+   * window, any number of days, any decay schedule. The island has confirmed
+   * exactly three properties — continuous, zero-anchored, velocity-blind — and
+   * the venue previously published a 180-day window it had invented and built a
+   * decay mechanic on. islandClaims.test.ts fails the build if a window length
+   * or decay mechanic reappears in user-facing source, and it is right to.
+   *
+   * It also does not say "days held x the size of your bag". That is wrong three
+   * ways: the input is a SHARE of total supply, not an absolute balance; the
+   * curve SATURATES, so more of both stops helping; and a fresh bag reads cold
+   * however large it is.
+   */
+  heatPlain:
+    'Heat scores how much of a token you have held, and for how long — as a share ' +
+    'of its supply, not a dollar amount. Each token you hold scores 0 to 100 degrees; ' +
+    'your Heat is those scores added together. Price never enters it, so Heat cannot ' +
+    'be bought, and a fresh bag starts cold however large it is.',
+  /** The worked example. 80° is the live launch floor, not a round number chosen for prose. */
+  heatExample:
+    'At 80 degrees you reach Resident, the tier that may plant a launch here.',
   museLine: 'An island in a sea of rugs.',
   museBy: 'Jungle Bay Island',
   /** Meta description: mirrored by index.html and usePageTitle. Names only

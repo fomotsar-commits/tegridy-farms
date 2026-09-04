@@ -151,7 +151,7 @@ function getTier(score: number): string {
 function getTips(breakdown: TegridyScoreBreakdown): string[] {
   const tipMap: { key: keyof TegridyScoreBreakdown; tip: string }[] = [
     { key: 'stakingScore', tip: 'Tip: Stake more TOWELI to boost your score' },
-    { key: 'lockScore', tip: 'Tip: Lock for longer to increase your Tegridy Score' },
+    { key: 'lockScore', tip: 'Tip: Lock for longer to increase your Venue Score' },
     { key: 'activityScore', tip: 'Tip: Swap and stake to build on-chain activity' },
     // Governance (grants/gauges) and bounties are not yet redeployed, so "vote on
     // proposals" / "post a bounty" instruct actions no one can take today. Keep the
@@ -344,7 +344,7 @@ export function useTegridyScore(): TegridyScoreResult {
     }).catch((err) => {
       // Public RPCs sometimes reject wide eth_getLogs ranges. Stay quiet
       // for users — DEV gets a one-off log so it's still discoverable.
-      if (import.meta.env.DEV) console.warn('Tegridy Score: first-interaction lookup unavailable, falling back to 0', err);
+      if (import.meta.env.DEV) console.warn('Venue Score: first-interaction lookup unavailable, falling back to 0', err);
       if (!cancelled) setFirstInteractionTs(0);
     });
     return () => { cancelled = true; };

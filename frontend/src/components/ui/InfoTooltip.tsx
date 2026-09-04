@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useCallback, useId, useRef, useState } from 'react';
 import { pageArt, artStyle } from '../../lib/artConfig';
 import { useTheme } from '../../contexts/ThemeContext';
 
@@ -24,6 +24,35 @@ export function InfoTooltip({
   const [show, setShow] = useState(false);
   const tipId = useId();
   const { isDark } = useTheme();
+  // Whether the bubble was already open when the pointer went down — see the
+  // comment on onPointerDown below.
+  const shownBeforePress = useRef(false);
+  // A11Y-R14: horizontal clamp. The bubble is 224px wide and centred on its
+  // trigger, so any tooltip within ~112px of a 390px viewport edge rendered
+  // half off-screen — and `body { overflow-x: hidden }` then CLIPPED it rather
+  // than letting the page scroll to it, so the explanation was simply
+  // unreadable.
+  //
+  // Measured in a callback ref rather than an effect (R007: no setState in an
+  // effect body). The ref identity is stable, so this runs exactly twice per
+  // open/close — once with the node, once with null — and the null pass resets
+  // the offset so the next open always measures from a true centred baseline
+  // instead of compounding the last nudge.
+  const [shift, setShift] = useState(0);
+  const measureBubble = useCallback((node: HTMLSpanElement | null) => {
+    if (!node) {
+      setShift(0);
+      return;
+    }
+    const rect = node.getBoundingClientRect();
+    // jsdom (and a display:none ancestor) report a zero box — there is nothing
+    // to clamp against, and guessing would be worse than leaving it centred.
+    if (rect.width === 0) return;
+    const margin = 8;
+    const vw = window.innerWidth;
+    if (rect.left < margin) setShift(margin - rect.left);
+    else if (rect.right > vw - margin) setShift(vw - margin - rect.right);
+  }, []);
   // AUDIT THEME: background was hardcoded rgba(10,16,40,0.95) in both
   // the bubble and the arrow; light-mode users got a near-black tooltip
   // on a cream page. Branching on isDark keeps the brand contrast in
@@ -39,6 +68,15 @@ export function InfoTooltip({
       className={`relative inline-flex items-center ${className}`}
       onMouseEnter={() => setShow(true)}
       onMouseLeave={() => setShow(false)}
+      // WCAG 1.4.13 (dismissible): a keyboard user can close the bubble without
+      // moving focus. Only swallowed while it is open, so Escape still reaches
+      // an enclosing dialog when there is nothing to dismiss here.
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && show) {
+          e.stopPropagation();
+          setShow(false);
+        }
+      }}
     >
       <button
         type="button"
@@ -47,25 +85,46 @@ export function InfoTooltip({
         aria-expanded={show}
         onFocus={() => setShow(true)}
         onBlur={() => setShow(false)}
+        /* A11Y-R03 (found while verifying the hit area on a real touch device):
+           the FIRST tap on a phone did nothing. A tap fires the compatibility
+           mouseenter and focus BEFORE click, both of which set `show` true, and
+           the click then toggled it straight back off — measured on Pixel 5,
+           aria-expanded false after tap 1 and true only after tap 2. Snapshotting
+           the state at pointerdown, before any of that runs, makes one tap open
+           it and the next close it, and leaves the mouse path (hover has already
+           opened it, so a click closes it) exactly as it was. */
+        onPointerDown={() => { shownBeforePress.current = show; }}
         onClick={(e) => {
-          // Click/tap toggle so touch users can also dismiss.
           e.preventDefault();
-          setShow((p) => !p);
+          setShow(!shownBeforePress.current);
         }}
-        className="w-[15px] h-[15px] rounded-full border border-white/25 bg-white/5 flex items-center justify-center cursor-help text-[9px] font-semibold text-white/70 hover:text-white hover:border-white/40 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none transition-all duration-200 select-none"
+        /* A11Y-R03: the PAINTED circle stays 15px so no layout moves at any of
+           the 33 call sites, and only the HIT AREA grows — a transparent
+           ::before overlay taking the target to 24x24 (WCAG 2.5.8 Minimum) and
+           32x32 on phones. Deliberately not the repo's 44px button floor: this
+           glyph sits inline inside sentences and inside tap-to-select rows
+           (VoteIncentivesSection's gauge rows), where a 44px invisible box
+           would start eating taps meant for the row it lives in. */
+        className="relative w-[15px] h-[15px] rounded-full border border-white/25 bg-white/5 flex items-center justify-center cursor-help text-[9px] font-semibold text-white/70 hover:text-white hover:border-white/40 focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:outline-none transition-all duration-200 select-none before:absolute before:content-[''] before:-inset-[4.5px] max-md:before:-inset-[8.5px] before:rounded-full"
       >
         ?
       </button>
       {show && (
         <span
+          ref={measureBubble}
           id={tipId}
           role="tooltip"
-          className={`absolute z-50 w-56 px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal pointer-events-none ${
-            position === 'top'
-              ? 'bottom-full mb-2 left-1/2 -translate-x-1/2'
-              : 'top-full mt-2 left-1/2 -translate-x-1/2'
+          /* `pointer-events-none` is gone: with it, moving the pointer onto the
+             bubble hit-tested through to whatever was underneath, which fired
+             mouseleave on the wrapper and yanked the tooltip away mid-read
+             (WCAG 1.4.13 hoverable). The bubble is a child of the wrapper, so
+             keeping events on it keeps the hover alive. */
+          className={`absolute z-50 w-56 max-w-[calc(100vw-2rem)] px-3 py-2.5 rounded-lg text-[11px] leading-relaxed ${textColor} font-normal left-1/2 ${
+            position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
           }`}
           style={{
+            // Centred on the trigger, then nudged by the viewport clamp above.
+            transform: `translateX(calc(-50% + ${shift}px))`,
             background: bubbleBg,
             border: '1px solid var(--color-purple-25)',
             backdropFilter: 'blur(12px)',
@@ -74,10 +133,14 @@ export function InfoTooltip({
         >
           {text}
           <span
-            className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 ${
+            /* The 45deg rotation moved from the `rotate-45` utility into the
+               inline transform below — the two must not both apply. */
+            className={`absolute left-1/2 w-2 h-2 ${
               position === 'top' ? '-bottom-1' : '-top-1'
             }`}
             style={{
+              // Counter-shift so the arrow keeps pointing at the "?" after a clamp.
+              transform: `translateX(calc(-50% - ${shift}px)) rotate(45deg)`,
               background: bubbleBg,
               borderRight: position === 'top' ? '1px solid var(--color-purple-25)' : 'none',
               borderBottom: position === 'top' ? '1px solid var(--color-purple-25)' : 'none',

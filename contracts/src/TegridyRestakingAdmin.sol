@@ -210,6 +210,10 @@ contract TegridyRestakingAdmin is OwnableNoRenounce, TimelockAdmin {
     ///      the F-2 unattributed cap against LIVE host balances at execute time; the
     ///      sister must never compute that cap off getters.
     function proposeAttributeStuckRewards(address _restaker, uint256 _amount) external onlyOwner {
+        // SLITHER 2026-08-30: advisory pre-check on a public-mapping getter (cannot fail);
+        // applyAttributeStuckRewards re-checks tokenId and recomputes the F-2 cap from LIVE
+        // host balances at execute time
+        // slither-disable-next-line unused-return
         (uint256 tokenId,,,,,) = restaking.restakers(_restaker);
         if (tokenId == 0) revert NotRestaked();
         if (_amount == 0) revert ZeroAmount();

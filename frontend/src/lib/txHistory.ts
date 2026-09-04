@@ -58,6 +58,56 @@ export const TxRecordSchema = z.object({
 export type TxRecord = z.infer<typeof TxRecordSchema>;
 
 /**
+ * An ERC-20 transfer row (`action=tokentx`).
+ *
+ * The token metadata columns are attacker-authored: `tokenSymbol` and
+ * `tokenName` are whatever the contract's own `symbol()`/`name()` returned, and
+ * anyone can deploy a token that claims to be "USDC" or `=HYPERLINK("…")`. They
+ * are TRUNCATED here rather than rejected — a row dropped over a display field
+ * is a transfer missing from somebody's tax report, which is the worse of the
+ * two failures — and `lib/tax/ledger.ts` decides separately whether a claimed
+ * symbol may be shown at all. Identity is `contractAddress`, never the symbol.
+ *
+ * `tokenDecimal` is likewise NOT a validation gate: Etherscan occasionally
+ * returns it empty, and the ledger treats an unreadable value as "decimals
+ * unknown" (displayed at 18, never used in arithmetic) instead of losing the
+ * row.
+ */
+export const tokenTxRowSchema = z.object({
+  hash: z.string().regex(HEX_HASH),
+  from: z.string().regex(HEX_ADDR),
+  to: z.string().regex(HEX_ADDR),
+  contractAddress: z.string().regex(HEX_ADDR),
+  value: z.string().regex(DEC_DIGITS).default('0'),
+  tokenSymbol: z.string().default('').transform((s) => s.slice(0, 64)),
+  tokenName: z.string().default('').transform((s) => s.slice(0, 64)),
+  tokenDecimal: z.string().default('').transform((s) => s.slice(0, 3)),
+  timeStamp: z.union([z.string().regex(DEC_DIGITS), z.number().int().nonnegative()])
+    .transform((v) => String(v)),
+  blockNumber: z.union([z.string().regex(DEC_DIGITS), z.number().int().nonnegative()])
+    .transform((v) => String(v)),
+});
+
+export type TokenTxRow = z.infer<typeof tokenTxRowSchema>;
+
+/** Every row an allowlisted account action can return. */
+export type ExplorerRow = TxRecord | TokenTxRow;
+
+/**
+ * Which of the two row shapes this is.
+ *
+ * Narrowed on a field only the token schema has, so a caller holding a mixed
+ * list never has to remember which action produced it. Note that the PARSE is
+ * still chosen by action rather than by shape: a `tokentx` row also satisfies
+ * `TxRecordSchema` (zod strips the unknown keys), so shape-sniffing at the
+ * parse boundary would silently discard `contractAddress` and turn every token
+ * transfer into a native one.
+ */
+export function isTokenTxRow(row: ExplorerRow): row is TokenTxRow {
+  return 'contractAddress' in row;
+}
+
+/**
  * Parse a raw indexer response into a list of validated TxRecords. Every
  * entry runs through `safeParse`; failures are dropped silently so a single
  * malformed row can't break the page. Never throws.
@@ -67,6 +117,17 @@ export function parseTxRecords(input: unknown): TxRecord[] {
   const out: TxRecord[] = [];
   for (const raw of input) {
     const parsed = TxRecordSchema.safeParse(raw);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
+}
+
+/** `parseTxRecords` for `action=tokentx`. Never throws; drops only unparseable rows. */
+export function parseTokenTxRows(input: unknown): TokenTxRow[] {
+  if (!Array.isArray(input)) return [];
+  const out: TokenTxRow[] = [];
+  for (const raw of input) {
+    const parsed = tokenTxRowSchema.safeParse(raw);
     if (parsed.success) out.push(parsed.data);
   }
   return out;
@@ -183,47 +244,229 @@ export function categorizeTx(tx: TxRecord): { type: string; color: string } {
   return { type: 'Other', color: 'text-white' };
 }
 
+/** The account actions this rail reads. All three are allowlisted at api/etherscan.js:69-76. */
+export type ExplorerAction = 'txlist' | 'txlistinternal' | 'tokentx';
+
 /**
- * Fetch + validate an address's transaction list via the server-side Etherscan
- * proxy (keeps the API key server-side). `action` selects normal (`txlist`) or
- * internal (`txlistinternal`) transfers — the proxy allows both. The proxy
- * ignores `page`/`offset`, so callers slice the (desc-sorted) result
- * client-side. Returns only schema-validated rows; throws a human-readable
- * Error on transport/upstream failure so callers can surface a retry + an
- * explorer fallback.
+ * Rows asked for per page. 500 == MAX_OFFSET in api/etherscan.js, so the
+ * proxy's clamp is a no-op and the page size the caller reasons about is the
+ * page size that is sent.
+ *
+ * Sending page/offset at all is load-bearing. Without them Etherscan returns
+ * its 10,000-row default; at ~700 B/row that is ~7 MB, over MAX_RESPONSE_BYTES
+ * in api/_lib/bodycap.js, so the proxy answers 502 "Upstream response too
+ * large" deterministically for any busy address — the failure documented at
+ * useDeployerReputation.ts:104-114, which read as an outage rather than a bug.
  */
-export async function fetchAddressTxList(
+export const EXPLORER_PAGE_SIZE = 500;
+
+/**
+ * The URL for one page of one account action.
+ *
+ * `endblock` is sent ALONE and `startblock` is never sent: api/etherscan.js
+ * rejects a span wider than 10k blocks only when BOTH bounds are present
+ * (:169-174) and forwards a lone endblock (:197). Pinning the upper bound is
+ * what makes multi-page reads consistent — without it a block mined between
+ * page 1 and page 2 shifts every row down and a transaction falls through the
+ * seam unnoticed.
+ */
+export function explorerPageUrl(
+  action: ExplorerAction,
   address: string,
+  page: number,
+  offset: number = EXPLORER_PAGE_SIZE,
+  endblock?: bigint,
+): string {
+  const q = new URLSearchParams({
+    module: 'account',
+    action,
+    address: address.toLowerCase(),
+    page: String(page),
+    offset: String(offset),
+    sort: 'desc',
+  });
+  if (endblock !== undefined) q.set('endblock', endblock.toString());
+  return `/api/etherscan?${q.toString()}`;
+}
+
+export type ExplorerFailureReason =
+  /** The proxy has no usable ETHERSCAN_API_KEY, so the upstream refused us. */
+  | 'explorer-keyless'
+  /** Etherscan throttled the deployment (its own 200-body envelope). */
+  | 'explorer-rate-limited'
+  /** Our own proxy throttled this browser (HTTP 429). */
+  | 'proxy-rate-limited'
+  /** The proxy answered non-2xx — upstream 502, deploy in flight, body cap. */
+  | 'proxy-error'
+  /** A 200 body we cannot trust: not JSON, or an envelope in no known shape. */
+  | 'explorer-malformed';
+
+export type ExplorerRead<T> =
+  | {
+      kind: 'rows';
+      /** Rows that passed their schema. */
+      rows: T[];
+      /** The page came back at its limit, so more rows exist behind it. */
+      full: boolean;
+      /**
+       * Rows the page contained and the schema refused.
+       *
+       * Reported rather than swallowed. A dropped row is a transaction the
+       * caller will not see, and in a tax ledger an unseen transaction is the
+       * failure the whole surface exists to prevent — so the count travels up
+       * and is declared as a limitation on the export.
+       */
+      dropped: number;
+      /**
+       * Oldest `timeStamp` in the RAW page, or null when none was readable.
+       *
+       * Read off the raw rows on purpose: this is what a truncation boundary is
+       * derived from, and deriving it from the VALIDATED rows meant a page whose
+       * rows all failed the schema truncated the read while reporting no cut —
+       * history dropped with nothing saying so, which is fail-open.
+       */
+      oldestRawAt: number | null;
+    }
+  | { kind: 'empty' }
+  | { kind: 'failed'; reason: ExplorerFailureReason; detail: string };
+
+/** Oldest readable `timeStamp` across raw explorer rows. Null when none is. */
+function oldestRawTimestamp(raw: unknown[]): number | null {
+  let oldest: number | null = null;
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const value = (entry as { timeStamp?: unknown }).timeStamp;
+    const at = typeof value === 'string' || typeof value === 'number' ? Number(value) : NaN;
+    if (!Number.isFinite(at)) continue;
+    if (oldest === null || at < oldest) oldest = at;
+  }
+  return oldest;
+}
+
+/**
+ * Read one page of one account action, WITHOUT throwing.
+ *
+ * ─── THE SHAPE RULE ────────────────────────────────────────────────────────
+ *
+ * Etherscan signals failure inside a 200 body and does not put the reason in
+ * `message`: a refused read is
+ * `{"status":"0","message":"NOTOK","result":"Missing/Invalid API Key"}` and a
+ * throttled one is the same envelope with "Max rate limit reached" in `result`.
+ * Its genuine empty answer is `{status:'0', message:'No transactions found',
+ * result:[]}` — an ARRAY. So EMPTINESS IS A SHAPE, not a sentence. The prose
+ * test this replaces (`message === 'No transactions found'`) meant a wording
+ * change upstream turned "we could not read" into a thrown error at best and,
+ * in the sibling implementation on /deployer, into "this address has no
+ * history" — a claim about somebody's wallet manufactured out of our own
+ * missing key. Copied from the pure rule at useDeployerReputation.ts:79-86.
+ *
+ * `full` is measured on the RAW result length, not on the validated rows: a
+ * page that came back at its limit is a full page even if a row inside it
+ * failed the schema, and treating it as short would end the read early and
+ * silently truncate the history without declaring a gap.
+ */
+export async function readExplorerPage(
+  action: ExplorerAction,
+  address: string,
+  page: number,
   signal: AbortSignal,
-  action: 'txlist' | 'txlistinternal' = 'txlist',
-): Promise<TxRecord[]> {
-  const res = await fetch(
-    `/api/etherscan?module=account&action=${action}&address=${address}&sort=desc`,
-    { signal },
-  );
+  endblock?: bigint,
+  offset: number = EXPLORER_PAGE_SIZE,
+): Promise<ExplorerRead<ExplorerRow>> {
+  const res = await fetch(explorerPageUrl(action, address, page, offset, endblock), {
+    headers: { accept: 'application/json' },
+    signal,
+  });
+  if (res.status === 429) {
+    return {
+      kind: 'failed',
+      reason: 'proxy-rate-limited',
+      detail: 'Activity service is rate-limiting this deployment (HTTP 429). Nothing was read.',
+    };
+  }
   // The proxy can return a Vercel HTML/comment error page instead of JSON
   // (e.g. during a deploy). r.json() on that body surfaces a cryptic parse
   // error — read text first and fall back to a readable message.
   const text = await res.text();
   let data: { status?: string; message?: string; result?: unknown };
   try {
-    data = JSON.parse(text);
+    data = JSON.parse(text) as { status?: string; message?: string; result?: unknown };
   } catch {
-    throw new Error(
-      res.ok
-        ? 'Activity service returned an unexpected response. Try again shortly.'
-        : `Activity service unavailable (HTTP ${res.status}). Try again shortly.`,
-    );
+    return res.ok
+      ? {
+          kind: 'failed',
+          reason: 'explorer-malformed',
+          detail: 'Activity service returned an unexpected response. Try again shortly.',
+        }
+      : {
+          kind: 'failed',
+          reason: 'proxy-error',
+          detail: `Activity service unavailable (HTTP ${res.status}). Try again shortly.`,
+        };
   }
-  if (data.status === '1' && Array.isArray(data.result)) return parseTxRecords(data.result);
-  // Etherscan returns status '0' + "No transactions found" for an empty history.
-  if (data.status === '0' && data.message === 'No transactions found') return [];
-  const raw = (data.message || '').toString();
-  const looksLikeAuthIssue =
-    raw === 'NOTOK' || /api\s*key/i.test(typeof data.result === 'string' ? data.result : '');
-  throw new Error(
-    looksLikeAuthIssue
-      ? "memetics.finance can't reach Etherscan right now."
-      : raw || 'Failed to load activity. Try again later.',
-  );
+  if (!res.ok) {
+    return {
+      kind: 'failed',
+      reason: 'proxy-error',
+      detail: `Activity service unavailable (HTTP ${res.status}). Try again shortly.`,
+    };
+  }
+
+  if (data.status === '1' && Array.isArray(data.result)) {
+    const raw: unknown[] = data.result;
+    const rows: ExplorerRow[] =
+      action === 'tokentx' ? parseTokenTxRows(raw) : parseTxRecords(raw);
+    return {
+      kind: 'rows',
+      rows,
+      full: raw.length >= offset,
+      dropped: raw.length - rows.length,
+      oldestRawAt: oldestRawTimestamp(raw),
+    };
+  }
+  if (data.status === '0' && Array.isArray(data.result)) return { kind: 'empty' };
+
+  const reason = typeof data.result === 'string' ? data.result : '';
+  const message = typeof data.message === 'string' ? data.message : '';
+  if (/api\s*key/i.test(reason)) {
+    return {
+      kind: 'failed',
+      reason: 'explorer-keyless',
+      detail: "memetics.finance can't reach Etherscan right now.",
+    };
+  }
+  if (/rate limit/i.test(reason) || /rate limit/i.test(message)) {
+    return {
+      kind: 'failed',
+      reason: 'explorer-rate-limited',
+      detail: 'The explorer is rate-limiting right now — try again in a moment.',
+    };
+  }
+  return {
+    kind: 'failed',
+    reason: 'explorer-malformed',
+    detail: message || 'Failed to load activity. Try again later.',
+  };
+}
+
+/**
+ * Fetch + validate one page of an address's normal or internal transaction
+ * list via the server-side Etherscan proxy (keeps the API key server-side).
+ *
+ * A thin, THROWING wrapper over `readExplorerPage` — kept because
+ * TreasuryPage.tsx:703-704 is written against the throwing contract, and its
+ * messages are unchanged. The one behavioural difference for existing callers
+ * is that the request is now bounded to one 500-row page, which is the fix
+ * described on EXPLORER_PAGE_SIZE, not a new limitation: the proxy already
+ * capped the answer, it just capped it by 502-ing.
+ */
+export async function fetchAddressTxList(
+  address: string,
+  signal: AbortSignal,
+  action: 'txlist' | 'txlistinternal' = 'txlist',
+): Promise<TxRecord[]> {
+  const read = await readExplorerPage(action, address, 1, signal);
+  if (read.kind === 'empty') return [];
+  if (read.kind === 'rows') return read.rows.filter((r): r is TxRecord => !isTokenTxRow(r));
+  throw new Error(read.detail);
 }

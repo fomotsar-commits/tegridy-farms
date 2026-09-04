@@ -283,6 +283,18 @@ export function summarizeDeployer(
     'Only tokens this address deployed DIRECTLY (its own contract-creation transactions) are shown. Tokens launched through a factory contract — the norm for most token launchers — are created by the factory, not this address, and do not appear here without a deployed event indexer.',
     'Launch-time price and liquidity are not available from the wired data sources, so per-token price return and liquidity-drain — the signals behind “survived / dumped / rugged” — cannot be computed. Each token shows its CURRENT market state only.',
     'Absence of a live pool is reported as “no live market found”, never as a rug. It is a factual current-state observation, not an accusation of wrongdoing.',
+    // Our OWN curve is one of those factories, and unlike a stranger's it is one we
+    // could index today: TegridyCurveLauncher.create() deploys the token itself
+    // (contracts/src/curve/TegridyCurveLauncher.sol:333), so the creator's txlist row
+    // carries the launcher as `to` and no `contractAddress`, and creationAddress() in
+    // deployerLaunches.ts drops it before discovery ever reaches enrichment. The
+    // launcher records the creator on-chain (getLaunch().creator; topic2 of
+    // LaunchCreated), and CurveLaunchesGrid.tsx already reads that index in this same
+    // app -- so this gap is WIRABLE, not structural, and the disclosure above would
+    // otherwise tell a reader the only cure is an indexer we do not have. Naming it is
+    // the honest interim: nobody should take this list as a whole record while the one
+    // launcher we control is missing from it.
+    'Coins launched on our own bonding curve at /eth-curve are absent from the list above for the same reason: TegridyCurveLauncher deploys each launch token itself, so the contract creation belongs to the launcher and not to this address, even though the launcher records the creator on-chain. Read the /eth-curve list alongside this page until that source is wired in.',
   ];
   if (!opts.holderCountsAvailable) {
     disclosures.push('Holder counts require the Etherscan Pro tier and are unavailable here — they are omitted rather than shown as zero.');

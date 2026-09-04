@@ -305,7 +305,7 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      emit. Extracted byte-for-byte; `oldBoosted` is the caller's pre-refresh
     ///      cached boost.
     function _settlePreAccrueBonus(RestakeInfo storage info, address recipient, uint256 oldBoosted) internal {
-        uint256 preBonus;
+        uint256 preBonus = 0;
         if (oldBoosted > 0) {
             int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
             int256 preDiff = preAccum - info.bonusDebt;
@@ -330,20 +330,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      calling this (both sites do) so the safeTransferFrom callback cannot
     ///      re-enter to double-vote.
     function _returnNftSettleResidual(uint256 tokenId, address recipient) internal returns (uint256 totalUnsettled) {
-        uint256 prePaid;
+        uint256 prePaid = 0;
         try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p) {
             prePaid = _p;
         } catch {
             prePaid = 0;
         }
-        bool delivered;
+        bool delivered = false;
         try stakingNFT.safeTransferFrom(address(this), recipient, tokenId) {
             delivered = true;
         } catch {
             strandedRestakeRecipient[tokenId] = recipient;
             emit RestakeNFTStranded(tokenId, recipient);
         }
-        uint256 postPaid;
+        uint256 postPaid = 0;
         if (delivered) {
             try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p2) {
                 postPaid = _p2;
@@ -1031,8 +1031,30 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                 // entrypoint's `othersPrincipal` reservation grows unbounded).
                 // DR-02 fixed this for `emergencyForceReturn`; DR2-01 ports the
                 // same pattern to all four sibling stale-paths.
-                _syncActivePrincipal(oldAmt, currentAmount);
-                info.positionAmount = currentAmount;
+                // AUDIT FIX TF-001: the DR3-05 guard belongs here too.
+                // DR3-05 (decayExpiredRestaker, ~line 2360) established that
+                // zeroing `positionAmount` on a force-closed position destroys
+                // the anchor `recoverStuckPrincipal` reads — it takes
+                // `originalAmount = info.positionAmount` and caps the payout by
+                // it, so once this is 0 the payout is 0 and the call reverts
+                // BadParam. It was applied to the permissionless decay
+                // primitive only. `claimAll` is the sibling a force-closed
+                // restaker is MOST likely to reach, because `refreshPosition`
+                // already reverts ZeroAmount for them and claiming bonus is the
+                // natural next thing to try. Doing so stranded their principal
+                // behind a timelocked owner call.
+                //
+                // Same semantic as DR3-05: cleanup for a force-closed position
+                // is owned by `unrestake` / `emergencyForceReturn` /
+                // `recoverStuckPrincipal` (each of which captures the principal
+                // BEFORE mutating it), and this path only resyncs when there is
+                // a non-zero principal to sync against. Re-entering the stale
+                // branch on a later call is harmless: `oldBoosted` is 0 by then,
+                // so the settle and the totalRestaked update are both no-ops.
+                if (currentAmount > 0) {
+                    _syncActivePrincipal(oldAmt, currentAmount);
+                    info.positionAmount = currentAmount;
+                }
                 info.boostedAmount = currentBoosted;
                 _writeBoostCheckpoint(msg.sender, currentBoosted); // AUDIT H-8
                 // AUDIT FIX 2026-05-26 [L-38] defensive underflow guard on totalRestaked
@@ -2424,6 +2446,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                     // minted (net of per-share flooring) so `outstanding` never drifts
                     // above what positions can claim, keeping the cap tight but never
                     // starving genuinely-funded accrual.
+                    // SLITHER 2026-08-30: the div→mul round-trip IS the fix above — it books the
+                    // liability actually minted NET of per-share flooring, never the pre-floor reward
+                    // slither-disable-next-line divide-before-multiply
                     totalBonusEmitted += (accDelta * totalRestaked) / ACC_PRECISION;
                 }
             }

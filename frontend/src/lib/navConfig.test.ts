@@ -13,7 +13,13 @@ import {
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
 } from './navConfig';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
+import { loadLocalRules } from './alerts/ruleStore';
+import { evaluableRuleKinds } from './alerts/sources';
+import { PAYMENT_LINK_CHAIN_IDS } from './commerce/settleTokens';
 // The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
 // Used here as the already-verified answer to "is this path reachable by URL at all",
 // so the assertions below can tell "routed but not promoted" apart from "not routed".
@@ -162,48 +168,94 @@ describe('navConfig', () => {
     expect(entry?.soon).toBe(true);
   });
 
-  // Alerts sits with the detection tools because four of its five rule kinds watch
-  // exactly what those tools read on demand, on any token or wallet.
-  it('promotes /alerts under Trust & Safety, pilled because nothing can be saved yet', () => {
+  // Alerts sits with the detection tools because its rule kinds watch exactly what those
+  // tools read on demand, on any token, wallet or pool.
+  it('promotes /alerts under Trust & Safety, unpilled because the store is server-free', () => {
     const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
     expect(trust?.items.map((i) => i.to)).toContain('/alerts');
 
     const entry = ALL_NAV.find((n) => n.to === '/alerts');
     expect(entry?.label).toBe('Alerts');
-    // Hardcoded `true`, and asserted as a concrete value for the same reason the
-    // /solana-launch pill is: there is no client-readable signal to compare against.
-    // Whether `alert_rules` exists is a SERVER fact — the store answers 503
-    // `schema-missing` until `016_alert_rules.sql` is applied by hand — so the pill
-    // cannot self-clear and this assertion is the thing that has to be re-read (and
-    // deleted) when the migration lands. See docs/WHAT_I_NEED_FROM_YOU.md §2.2.
-    expect(entry?.soon, 'a store that cannot save a rule must not read as live').toBe(true);
+    expect(entry?.soon, 'a store that needs nothing must not read as unavailable').toBeFalsy();
   });
 
-  // Checkout is pilled for exactly the /alerts reason, and the two must not drift apart:
-  // both are gated on a migration an operator applies BY HAND, and both therefore have no
-  // client-readable signal that could clear the pill on its own.
-  it('promotes /checkout under Engage, pilled because no invoice can exist yet', () => {
-    const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
-    expect(engage?.items.map((i) => i.to)).toContain('/checkout');
+  // The PRECONDITION, not the conclusion. The entry above is unpilled because the rule
+  // store is provably local: if someone gives it a server dependency, this fails first
+  // and the nav comment that cites it has to be re-read before the pill can stay off.
+  it('the alert rule store reaches no network, in source and at runtime', () => {
+    // Resolved from THIS file's own URL, not from the runner's cwd: a relative path
+    // here silently reads nothing when vitest is invoked from another directory, and a
+    // guard that reads nothing passes forever.
+    const storePath = join(dirname(fileURLToPath(import.meta.url)), 'alerts', 'ruleStore.ts');
+    const source = readFileSync(storePath, 'utf8');
+    // A guard that reads nothing passes forever, so prove the read landed before
+    // asserting anything about the contents.
+    expect(source.length, 'the rule store source could not be read').toBeGreaterThan(500);
+    expect(source, 'not the module this guard thinks it is').toContain('loadLocalRules');
+    expect(
+      source.includes('fetch('),
+      'a browser-local store must not fetch - see the /alerts comment in navConfig.ts',
+    ).toBe(false);
+    expect(source, 'rulesClient is the SERVER store — the local one must not use it').not.toContain(
+      './rulesClient',
+    );
+
+    vi.stubGlobal('fetch', () => {
+      throw new Error('the rule store must not make a request');
+    });
+    try {
+      expect(loadLocalRules()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('at least one alert rule kind is readable with no indexer configured', () => {
+    // If a shipped source is ever made configurable, THIS fails and the /alerts
+    // comment tells you what to do about the pill.
+    expect(evaluableRuleKinds().length).toBeGreaterThan(0);
+  });
+
+  // Checkout was pilled for the /alerts reason — a migration applied by hand — until the
+  // invoice became a merchant-signed document carried in the URL fragment. It now has the
+  // /referrals shape instead: the advertised action completes in the browser, and the one
+  // input that could make it impossible is client-readable.
+  it('promotes /checkout in the More menu, unpilled because a link can be minted and paid here', () => {
+    // Heading-agnostic on purpose. This assertion is about the entry being
+    // PROMOTED and UNPILLED; which section it sits in is presentation. It named
+    // 'Engage' until 2026-09-03, when that 14-item catch-all was split into
+    // Discover / Trade / Launch / Earn — a regrouping this test had no business
+    // failing on, since nothing about /checkout changed.
+    const sections = MORE_NAV_SECTIONS.filter((s) => s.items.some((i) => i.to === '/checkout'));
+    expect(sections, '/checkout must be promoted in exactly one More section').toHaveLength(1);
 
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');
-    // Hardcoded `true`. Whether `commerce_invoices` exists is a SERVER fact — the store
-    // answers 503 `schema-missing` until `021_commerce.sql` is applied — so nothing in the
-    // browser can decide this. Delete this assertion when the migration lands, and not
-    // before: a payment link that cannot resolve must not read as live.
-    expect(entry?.soon, 'a store that cannot publish an invoice must not read as live').toBe(true);
+
+    // THE PRECONDITION, ASSERTED FIRST AND ON PURPOSE. The pill is keyed to the
+    // settle-token table, not to CONFIGURED_CHAIN_IDS (which viemChains.ts makes
+    // non-empty by construction). Emptying the table must fail HERE — naming the real
+    // cause — rather than surfacing as a confusing pill assertion two lines down.
+    expect(
+      PAYMENT_LINK_CHAIN_IDS,
+      'no served chain has a verified settlement asset, so nothing can be minted or paid',
+    ).toContain(1);
+
+    expect(entry?.soon, 'a checkout that can mint and pay a link must not read as SOON').toBe(false);
   });
 
-  // Tax Reports reads the F1 indexer and nothing else, so its pill is keyed to the same
-  // single input as /terminal, /chart, /copy-trading and /competitions. Asserted as a
-  // CONCRETE value rather than as `!isIndexerConfigured()`, which would compare the entry
-  // against itself.
-  it('pills /tax exactly while no indexer is configured to read a history from', () => {
-    expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
+  // Tax Reports is NOT keyed to the indexer any more: it reads Ethereum-mainnet history
+  // through /api/etherscan, which ships with every deployment. Asserted as a CONCRETE
+  // value — comparing against `!isIndexerConfigured()` would compare the entry with
+  // itself — plus the independence claim, which is the part that would rot silently.
+  it('does not pill /tax: its rail ships with the deployment, and the key is disclosed on the page', () => {
     const entry = ALL_NAV.find((n) => n.to === '/tax');
     expect(entry?.label).toBe('Tax Reports');
-    expect(entry?.soon, 'a report over history nobody can read must not advertise itself').toBe(true);
+    expect(entry?.soon, 'the explorer rail ships with every deployment').toBe(false);
+    // Independence: an indexer appearing or disappearing must not move this pill.
+    // (lib/tax/rails.test.ts pins the rail itself; TaxPage.test.tsx pins the
+    // ETHERSCAN_API_KEY disclosure that makes an unpilled entry honest.)
+    expect(isIndexerConfigured()).toBe(false);
     // It lives under Stats, not Trust & Safety: it is a personal accounting surface over
     // the caller's own history, not one of the detection tools that work on any address.
     const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');

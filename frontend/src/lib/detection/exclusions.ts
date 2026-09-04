@@ -125,6 +125,13 @@ export function classifyAddress(
   chain: ChainKind,
   labelSources: readonly LabelSource[],
   unclassifiedThreshold: number,
+  /**
+   * AUDIT FIX TF-024: share at or above which the low-confidence `contract`
+   * heuristic stops being allowed to EXCLUDE a holder. Defaults to the same
+   * 0.5 the score gate uses for `hardTop1Threshold`, so a holder big enough to
+   * decide the verdict on its own cannot be removed on a guess.
+   */
+  heuristicExclusionCap = 0.5,
 ): Classification {
   // 1. explicit label from the adapter / feed
   if (holder.label) {
@@ -162,8 +169,22 @@ export function classifyAddress(
     return { category: 'burn', excluded: true, confidence: 'high', source: 'registry', reason: reasonFor('burn') };
   }
 
-  // 5. heuristic: EVM contract code, no better label
-  if (holder.isContract) {
+  // 5. heuristic: EVM contract code, no better label.
+  //
+  // AUDIT FIX TF-024: this label is a GUESS — `confidence: 'low'`,
+  // `source: 'heuristic'`, no label source claimed the address — and a guess
+  // does not get to DELETE a holder large enough to decide the verdict on its
+  // own. Pre-fix, parking 99% of supply in any deployer-controlled contract
+  // (a bare contract with a `transfer` costs a few dollars of gas) removed it
+  // from the denominator entirely, and the remaining dust read as
+  // "Well-distributed" — the single strongest signal this scanner emits,
+  // inverted by the cheapest possible action.
+  //
+  // At or above the cap it falls through to step 6 and is KEPT as
+  // `unclassified`, which is already exactly what this file says an unlabeled
+  // dominant address means. An address a label source actually named (step 3)
+  // is unaffected: that is evidence, not a guess.
+  if (holder.isContract && shareOfTotal < heuristicExclusionCap) {
     return {
       category: 'contract',
       excluded: true,
@@ -198,6 +219,8 @@ export function classifyHolders(params: {
   chain: ChainKind;
   labelSources: readonly LabelSource[];
   unclassifiedThreshold: number;
+  /** AUDIT FIX TF-024 — see `classifyAddress`. Defaults to the gate's 0.5. */
+  heuristicExclusionCap?: number;
 }): {
   totalSupply: bigint;
   classified: ClassifiedHolder[];
@@ -217,6 +240,7 @@ export function classifyHolders(params: {
       params.chain,
       params.labelSources,
       params.unclassifiedThreshold,
+      params.heuristicExclusionCap,
     );
     return { holder, classification, shareOfTotal };
   });

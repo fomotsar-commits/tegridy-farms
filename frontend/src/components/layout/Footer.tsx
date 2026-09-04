@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
+import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
 import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { isSolanaSwapLive } from '../../lib/solana';
@@ -50,12 +50,6 @@ const EXTERNAL_RESOURCES: { href: string; label: string }[] = [
   { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
   { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
   { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
-];
-
-const COMMUNITY_LINKS: { href: string; label: string }[] = [
-  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
 ];
 
 const LEGAL_LINKS: { to: string; label: string }[] = [
@@ -230,7 +224,7 @@ export function Footer() {
                   Governance
                 </Link>
               )}
-              {COMMUNITY_LINKS.map((l) => (
+              {SOCIAL_LINKS.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className={LINK_CLASS} style={LINK_SHADOW}>

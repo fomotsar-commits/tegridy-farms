@@ -18,6 +18,10 @@
  * meantime. Once seaport-verify.js imports from here, delete that guard.
  */
 
+// AUDIT FIX TF-022: bound every upstream RPC body. Placement matches
+// _lib/heat.js:30 and _lib/referrals.js:66.
+import { readBoundedText, MAX_RESPONSE_BYTES } from "./bodycap.js";
+
 export function alchemyUrl() {
   const key = process.env.ALCHEMY_API_KEY;
   if (!key || key === "demo") return null;
@@ -85,9 +89,15 @@ export function padAddr(addr) {
  * 2.5s abort and the "deterministic JSON-RPC errors are NOT retried" rule are the parts
  * worth having exactly once.
  *
- * ⚠️ NOT body-capped (`res.json()` below). Fine for 32-byte returns, EIP-170-bounded
- * `eth_getCode` and a single transaction object. Do NOT reach for this with
- * `eth_getLogs` or a receipt-heavy method without adding `readBoundedText`.
+ * AUDIT FIX TF-022: body-capped via `readBoundedText`. The caveat that used to
+ * stand here — "fine for 32-byte returns, EIP-170-bounded eth_getCode and a
+ * single transaction object" — was wrong about the one method that matters.
+ * `eth_call`'s return length is chosen by the CALLED CONTRACT, not by the ABI:
+ * a fallback doing `assembly { return(0, N) }` answers any selector with N
+ * bytes. Every reader here is reachable unauthenticated with an
+ * attacker-supplied address, so the callee picked the size of the buffer this
+ * lambda allocated. Now it is bounded like every other upstream read in this
+ * directory.
  */
 export async function ethRpcOnce(url, method, params) {
   const ctrl = new AbortController();
@@ -104,7 +114,25 @@ export async function ethRpcOnce(url, method, params) {
     clearTimeout(timer);
   }
   if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
-  const json = await res.json();
+  // AUDIT FIX TF-022: bounded read, same shape as _lib/heat.js:147-150 and
+  // alchemy.js. An oversized body is DETERMINISTIC — the same contract returns
+  // the same bytes on every attempt — so it is surfaced as an `rpcError`, which
+  // this file's retry doctrine already treats as not-retryable. Retrying it
+  // would amplify the very cost the cap exists to bound.
+  const { text, truncated } = await readBoundedText(res, MAX_RESPONSE_BYTES);
+  if (truncated) {
+    const err = new Error("RPC response too large");
+    err.rpcError = { code: -32000, message: "response too large" };
+    throw err;
+  }
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    const err = new Error("RPC response was not JSON");
+    err.rpcError = { code: -32000, message: "malformed response" };
+    throw err;
+  }
   if (json.error) {
     const err = new Error(json.error.message || "rpc error");
     err.rpcError = json.error;
@@ -162,7 +190,25 @@ export async function ethCallOnce(url, to, data) {
     clearTimeout(timer);
   }
   if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
-  const json = await res.json();
+  // AUDIT FIX TF-022: bounded read, same shape as _lib/heat.js:147-150 and
+  // alchemy.js. An oversized body is DETERMINISTIC — the same contract returns
+  // the same bytes on every attempt — so it is surfaced as an `rpcError`, which
+  // this file's retry doctrine already treats as not-retryable. Retrying it
+  // would amplify the very cost the cap exists to bound.
+  const { text, truncated } = await readBoundedText(res, MAX_RESPONSE_BYTES);
+  if (truncated) {
+    const err = new Error("RPC response too large");
+    err.rpcError = { code: -32000, message: "response too large" };
+    throw err;
+  }
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    const err = new Error("RPC response was not JSON");
+    err.rpcError = { code: -32000, message: "malformed response" };
+    throw err;
+  }
   if (json.error) {
     const msg = json.error.message || "rpc error";
     const err = new Error(msg);

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
-import { useAccount, useChainId, usePublicClient, useReadContract, useWalletClient } from 'wagmi';
+import { useAccount, useChainId, usePublicClient, useWalletClient } from 'wagmi';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -70,14 +70,13 @@ import type { OutcomeRecord } from '../lib/launcher/outcomes';
 import { readOurLaunches } from '../lib/launcher/ourLaunches';
 import { cohortLogClient } from '../lib/launcher/cohortLogSource';
 import { isAddress, getAddress, type Address } from 'viem';
-import { LP_FARMING_ABI } from '../lib/contracts';
-import { LP_FARMING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
+import { CHAIN_ID } from '../lib/constants';
 import {
-  lpEmissionsPhase,
   dayTwoEconomyPhrase,
   dayTwoEconomyShortPhrase,
   type LpEmissionsPhase,
 } from '../lib/lpEmissions';
+import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
 import { useTOWELIPriceOptional } from '../contexts/PriceContext';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { LaunchGate } from '../components/LaunchGate';
@@ -241,24 +240,6 @@ const FEE_POOL_DISPLAY: { recipient: string; shareBps: number }[] = [
 ];
 
 const STEPS = ['Details', 'Tier & curve', 'Fees & disclosure', 'Review'] as const;
-
-/**
- * Does the LP farm have a funded emissions period right now? Read ONCE at the page root
- * and threaded down, so the two day-2 copy sites can never disagree with each other or
- * with the chain. `periodFinish` only — the Synthetix `rewardRate` residual survives the
- * period and would report emissions nobody is paid (see lib/lpEmissions.ts). A failed
- * read degrades to 'unknown', never to 'running'.
- */
-function useLpEmissionsPhase(): LpEmissionsPhase {
-  const { data } = useReadContract({
-    address: LP_FARMING_ADDRESS,
-    abi: LP_FARMING_ABI,
-    functionName: 'periodFinish',
-    chainId: CHAIN_ID,
-    query: { enabled: isDeployed(LP_FARMING_ADDRESS), staleTime: 300_000 },
-  });
-  return lpEmissionsPhase(typeof data === 'bigint' ? Number(data) : 0);
-}
 
 type LaunchStatus =
   | { phase: 'idle' }

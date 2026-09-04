@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ALERT_RULE_KINDS,
   RULE_KIND_LABELS,
   RULE_KIND_MEANING,
   SUBJECT_LABEL,
+  SUBJECT_SHAPE,
   THRESHOLD_LABEL,
   describeRule,
   usesThreshold,
   type AlertRule,
   type AlertRuleKind,
 } from '../../lib/alerts/rules';
-import { ALERT_SOURCES, RULE_SOURCE, readinessForRule } from '../../lib/alerts/sources';
+import { ALERT_SOURCES, RULE_SOURCE, evaluableRuleKinds, readinessForRule } from '../../lib/alerts/sources';
+import { residentLabelForSubject, residentPools } from '../../lib/alerts/residentPools';
+import { ArtCard } from '../ui/ArtCard';
 
 // The rules builder.
 //
@@ -20,57 +23,99 @@ import { ALERT_SOURCES, RULE_SOURCE, readinessForRule } from '../../lib/alerts/s
 // selling protection it knows it cannot provide. Creation is still allowed — the
 // rule is real and will start evaluating the moment the source is wired — but the
 // warning is attached to the choice, not to the aftermath.
+//
+// THE FORM IS NEVER DISABLED. It used to grey itself out whenever the store had a
+// problem, which for every visitor meant always. The browser store is always
+// writable-or-honest: a write that does not land leaves the rule in the list for
+// the session with an amber line above it, which is a state the user can act on,
+// unlike a dead form.
 
 interface Props {
   rules: readonly AlertRule[];
+  /** How many rules this browser holds. A quota number, not a tier. */
   limit: number;
-  hasPremium: boolean;
-  busy: boolean;
   writeError: string | null;
-  /** Non-null disables the form and explains why the store is unusable. */
-  storeProblem: string | null;
+  /** Non-null when the last write did not reach storage. Warns; never disables. */
+  storeWarning: string | null;
   onAdd: (draft: { kind: AlertRuleKind; subject: string; threshold: string }) => void;
   onRemove: (id: string) => void;
   onToggle: (id: string, enabled: boolean) => void;
 }
 
-export function AlertRuleBuilder({
-  rules,
-  limit,
-  hasPremium,
-  busy,
-  writeError,
-  storeProblem,
-  onAdd,
-  onRemove,
-  onToggle,
-}: Props) {
+/** 44px minimum on every control — the same touch target the rest of the app holds to. */
+const CONTROL = 'min-h-11 w-full px-3 py-2 rounded-lg text-white text-[12px]';
+const CONTROL_STYLE = { background: '#111', border: '1px solid var(--color-purple-75)' } as const;
+const TEXT_BUTTON = 'min-h-11 min-w-11 px-2 text-white/70 text-[11px] underline';
+
+export function AlertRuleBuilder({ rules, limit, writeError, storeWarning, onAdd, onRemove, onToggle }: Props) {
   const [kind, setKind] = useState<AlertRuleKind>('heat-tier');
   const [subject, setSubject] = useState('');
   const [threshold, setThreshold] = useState('');
 
   const readiness = readinessForRule(kind);
   const source = ALERT_SOURCES[RULE_SOURCE[kind]];
-  const disabled = busy || storeProblem !== null;
+
+  // Split rather than shortened: a dark kind stays offerable — the rule is real
+  // and starts working the moment its source is wired — but it is grouped and
+  // labelled as unreadable at the moment of CHOOSING, which is the only moment
+  // the user can act on it.
+  const { evaluable, dark } = useMemo(() => {
+    const readable = new Set(evaluableRuleKinds());
+    return {
+      evaluable: ALERT_RULE_KINDS.filter((k) => readable.has(k)),
+      dark: ALERT_RULE_KINDS.filter((k) => !readable.has(k)),
+    };
+  }, []);
+
+  const residents = useMemo(() => residentPools(), []);
 
   return (
     <section
       className="rounded-xl p-4"
-      style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
+      style={{ background: 'transparent' }}
       aria-label="Alert rules"
     >
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
         <h3 className="text-white text-[13px] font-medium">Alert rules</h3>
         <span className="text-white/50 text-[11px]">
-          {rules.length} of {limit}
-          {hasPremium ? ' (premium)' : ' (free tier)'}
+          Saved in this browser — {rules.length} of {limit}
         </span>
       </div>
+      <p className="mt-1 text-white/45 text-[11px] leading-snug">
+        Rules live in this browser’s storage. They are not tied to a wallet and do not follow you to another device.
+      </p>
 
-      {storeProblem && (
+      {storeWarning && (
         <p className="mt-2 text-[11px] leading-snug" style={{ color: '#FFD37C' }} role="status">
-          {storeProblem}
+          {storeWarning}
         </p>
+      )}
+
+      {residents.length > 0 && (
+        <ArtCard pageId="alerts" idx={1} className="mt-3" padding="p-3">
+          <p id="resident-pick-label" className="text-white/55 text-[11px]">
+            Watch an island resident
+          </p>
+          <div className="mt-1 flex flex-wrap gap-2" role="group" aria-labelledby="resident-pick-label">
+            {residents.map((resident) => (
+              <button
+                key={resident.id}
+                type="button"
+                // Fills the subject in the canonical `network:pool` form so nobody
+                // hand-types a base58 pool id — the step where a Solana subject
+                // gets a character wrong and the rule silently watches nothing.
+                onClick={() => {
+                  setSubject(resident.subject);
+                  setKind('pool-price-above');
+                }}
+                className="min-h-11 px-3 rounded-lg text-[11px] text-white/80"
+                style={{ background: '#111', border: '1px solid var(--color-purple-75)' }}
+              >
+                {resident.symbol} — {resident.label}
+              </button>
+            ))}
+          </div>
+        </ArtCard>
       )}
 
       <div className="mt-3 space-y-2">
@@ -79,15 +124,25 @@ export function AlertRuleBuilder({
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value as AlertRuleKind)}
-            disabled={disabled}
-            className="w-full px-2 py-1 rounded-lg text-white text-[12px]"
-            style={{ background: '#111', border: '1px solid var(--color-purple-75)' }}
+            className={CONTROL}
+            style={CONTROL_STYLE}
           >
-            {ALERT_RULE_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {RULE_KIND_LABELS[k]}
-              </option>
-            ))}
+            <optgroup label="Readable on this deployment">
+              {evaluable.map((k) => (
+                <option key={k} value={k}>
+                  {RULE_KIND_LABELS[k]}
+                </option>
+              ))}
+            </optgroup>
+            {dark.length > 0 && (
+              <optgroup label="Cannot evaluate here yet">
+                {dark.map((k) => (
+                  <option key={k} value={k}>
+                    {RULE_KIND_LABELS[k]} — not readable here
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
 
@@ -109,10 +164,16 @@ export function AlertRuleBuilder({
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            placeholder={SUBJECT_LABEL[kind]}
-            disabled={disabled}
-            className="w-full px-2 py-1 rounded-lg text-white text-[12px]"
-            style={{ background: '#111', border: '1px solid var(--color-purple-75)' }}
+            placeholder={SUBJECT_SHAPE[kind] === 'pool' ? 'eth:0x… · base:0x… · solana:<pool id>' : SUBJECT_LABEL[kind]}
+            // Autocorrect and capitalisation are OFF because a Solana pool id is
+            // base58 and case-sensitive: a helpfully capitalised first letter is a
+            // different pool, or no pool at all.
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="text"
+            className={CONTROL}
+            style={CONTROL_STYLE}
           />
         </label>
 
@@ -127,22 +188,20 @@ export function AlertRuleBuilder({
               onChange={(e) => setThreshold(e.target.value)}
               placeholder={THRESHOLD_LABEL[kind] ?? ''}
               inputMode="decimal"
-              disabled={disabled}
-              className="w-full px-2 py-1 rounded-lg text-white text-[12px]"
-              style={{ background: '#111', border: '1px solid var(--color-purple-75)' }}
+              className={CONTROL}
+              style={CONTROL_STYLE}
             />
           </label>
         )}
 
         <button
           type="button"
-          disabled={disabled}
           onClick={() => {
             onAdd({ kind, subject, threshold });
             setSubject('');
             setThreshold('');
           }}
-          className="px-3 py-1 rounded-lg text-[12px] text-white disabled:opacity-40"
+          className="min-h-11 px-4 rounded-lg text-[12px] text-white"
           style={{ background: 'var(--color-purple-80)' }}
         >
           Add rule
@@ -158,6 +217,7 @@ export function AlertRuleBuilder({
       <ul className="mt-4 space-y-2">
         {rules.map((rule) => {
           const ruleReadiness = readinessForRule(rule.kind);
+          const resident = residentLabelForSubject(rule.subject);
           return (
             <li
               key={rule.id}
@@ -167,26 +227,17 @@ export function AlertRuleBuilder({
               <div className="min-w-0">
                 <p className="text-white text-[12px] truncate">{describeRule(rule)}</p>
                 <p className="text-white/45 text-[11px]">
+                  {resident && `${resident} · `}
                   {ALERT_SOURCES[RULE_SOURCE[rule.kind]].label}
                   {!ruleReadiness.readable && ' — source not readable here'}
                   {!rule.enabled && ' — off'}
                 </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => onToggle(rule.id, !rule.enabled)}
-                  disabled={busy}
-                  className="text-white/70 text-[11px] underline disabled:opacity-40"
-                >
+              <div className="flex items-center gap-1 shrink-0">
+                <button type="button" onClick={() => onToggle(rule.id, !rule.enabled)} className={TEXT_BUTTON}>
                   {rule.enabled ? 'Turn off' : 'Turn on'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(rule.id)}
-                  disabled={busy}
-                  className="text-white/70 text-[11px] underline disabled:opacity-40"
-                >
+                <button type="button" onClick={() => onRemove(rule.id)} className={TEXT_BUTTON}>
                   Delete
                 </button>
               </div>

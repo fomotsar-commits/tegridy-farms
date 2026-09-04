@@ -135,8 +135,15 @@ function AllocationRow({
         {/* min-w-0 lets these inputs shrink below their intrinsic content width so
             the row fits at 390px — without it flex-1 never shrinks and the remove
             button clips off-screen (w-32 alone is a no-op for the same reason). */}
+        {/* A11Y-R05: every field in this row was named by `placeholder` alone,
+            which no assistive technology treats as a label and which vanishes
+            the moment the user types. The route sweep reported /launch-simulator
+            clean because the rows only exist AFTER the user clicks Add and the
+            state initialises empty — the defect was real and simply unreachable
+            by a resting-state audit. */}
         <input
           className={`${inputCls} flex-1 min-w-0`}
+          aria-label="Allocation label"
           placeholder="Label (e.g. Team)"
           value={row.label}
           onChange={(e) => onChange({ label: e.target.value })}
@@ -145,17 +152,19 @@ function AllocationRow({
         <input
           className={`${inputCls} w-24 sm:w-32 min-w-0 tabular-nums`}
           inputMode="numeric"
+          aria-label="Token amount"
           placeholder="tokens"
           value={row.amount}
           onChange={(e) => onChange({ amount: e.target.value.replace(/[^\d,]/g, '') })}
         />
-        <button onClick={onRemove} className="text-white/40 hover:text-rose-300 text-sm px-1.5 shrink-0" aria-label="remove row">
+        <button onClick={onRemove} className="text-white/40 hover:text-rose-300 text-sm px-1.5 shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center" aria-label="Remove allocation row">
           ✕
         </button>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap">
         <select
           className={`${inputCls} w-auto flex-1 min-w-[150px]`}
+          aria-label="Allocation category"
           value={row.category}
           onChange={(e) => onChange({ category: e.target.value as CategoryChoice })}
         >
@@ -168,6 +177,7 @@ function AllocationRow({
         </select>
         <input
           className={`${inputCls} w-28`}
+          aria-label="Cluster tag"
           placeholder="cluster tag"
           value={row.clusterId ?? ''}
           onChange={(e) => onChange({ clusterId: e.target.value })}

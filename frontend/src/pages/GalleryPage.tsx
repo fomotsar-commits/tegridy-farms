@@ -100,8 +100,8 @@ export default function GalleryPage() {
             {/* F75: count DISTINCT works — GALLERY_ORDER double-counts the
                 .avif+.jpg format pairs; UNIQUE_GALLERY_COUNT exists for this. */}
             {bungalowIdentity?.artPool
-              ? `${bungalowIdentity.artPool.length + UNIQUE_GALLERY_COUNT} pieces — the ${bungalowIdentity.name} wing, original hand-drawn Tegridy art and the Nakamigos drop`
-              : `${UNIQUE_GALLERY_COUNT} pieces — original hand-drawn Tegridy art and the Nakamigos drop`}
+              ? `${bungalowIdentity.artPool.length + UNIQUE_GALLERY_COUNT} pieces — the ${bungalowIdentity.name} wing, original hand-drawn island art and the Nakamigos drop`
+              : `${UNIQUE_GALLERY_COUNT} pieces — original hand-drawn island art and the Nakamigos drop`}
           </p>
         </m.div>
 

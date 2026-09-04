@@ -44,26 +44,78 @@ vi.mock('../launcher/outcomesClient', () => ({
 
 import {
   READERS,
+  newReaderPass,
   readAll,
   readDeployerReputation,
   readHeatTier,
   readIndexedKind,
   readLaunchLive,
+  readPoolLargeTrade,
+  readPoolPrice,
   reputationSignature,
 } from './readers';
-import { ALERT_RULE_KINDS, type AlertRule, type AlertRuleKind } from './rules';
+import { ALERT_RULE_KINDS, SUBJECT_SHAPE, type AlertRule, type AlertRuleKind } from './rules';
 
 const SUBJECT = '0x420698cfdeddea6bc78d59bc17798113ad278f9d' as const;
+const POOL_ID = '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0';
+const POOL = `base:${POOL_ID}`;
 const NOW = Math.floor(Date.now() / 1000);
 
-function rule(kind: AlertRuleKind): AlertRule {
+function rule(kind: AlertRuleKind, over: Partial<AlertRule> = {}): AlertRule {
   return {
     id: `r-${kind}`,
     kind,
-    subject: SUBJECT,
-    threshold: kind === 'whale-move' ? 1000 : null,
+    // A subject of the shape this kind actually takes, so the sweep at the bottom
+    // exercises each reader's real network path rather than tripping every pool
+    // reader on a malformed subject before it gets there.
+    subject: SUBJECT_SHAPE[kind] === 'pool' ? POOL : SUBJECT,
+    threshold: kind === 'whale-move' || SUBJECT_SHAPE[kind] === 'pool' ? 1000 : null,
     enabled: true,
     createdAt: 0,
+    ...over,
+  };
+}
+
+/** A `fetch` double that answers each URL from a table and counts every call. */
+function stubFetch(routes: { match: RegExp; body: unknown; status?: number }[]) {
+  return vi.fn(async (input: unknown) => {
+    const url = String(input);
+    const hit = routes.find((r) => r.match.test(url));
+    if (!hit) throw new Error(`unrouted fetch: ${url}`);
+    return {
+      ok: (hit.status ?? 200) < 400,
+      status: hit.status ?? 200,
+      json: async () => hit.body,
+    } as unknown as Response;
+  });
+}
+
+/** One `pools/multi` row, in GeckoTerminal's JSON:API shape. */
+function poolRow(over: Record<string, unknown> = {}) {
+  return {
+    id: `base_${POOL_ID}`,
+    attributes: {
+      address: POOL_ID,
+      name: 'QR / WETH',
+      base_token_price_usd: '1.5',
+      reserve_in_usd: '250000',
+      ...over,
+    },
+    relationships: { base_token: { data: { id: `base_${SUBJECT}` } } },
+  };
+}
+
+/** One trades-feed row. */
+function tradeRow(over: Record<string, unknown> = {}) {
+  return {
+    attributes: {
+      block_timestamp: '2026-09-02T10:00:00Z',
+      kind: 'buy',
+      tx_hash: '0xfeed',
+      volume_in_usd: '9000',
+      to_token_amount: '5',
+      ...over,
+    },
   };
 }
 
@@ -212,17 +264,149 @@ describe('deployer-reputation', () => {
     expect(result.status).toBe('ok');
   });
 
-  it('enrichment failing does not invalidate discovery', async () => {
+  // THE FABRICATED FIRE, pinned. The signature is built from classification
+  // counts, and a token with no market reading classifies as `unobserved`. The
+  // old code swallowed an enrichment failure into `outcomes = {}`, so every
+  // creation degraded to unobserved and the SIGNATURE MOVED — c1/a1/t0/n0/u0
+  // became c1/a0/t0/n0/u1 — which evaluate.ts then reported as "Deployer
+  // reputation change". An outage in our own enrichment call became a confident,
+  // specific claim about somebody's address.
+  it('an enrichment outage is unavailable, not a reputation change', async () => {
     const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => TXLIST_OK }) as unknown as Response);
     fetchLauncherOutcomesMock.mockRejectedValue(new Error('down'));
     const result = await readDeployerReputation(rule('deployer-reputation'), { fetchImpl });
+    expect(result.status).toBe('unavailable');
+    if (result.status === 'unavailable') expect(result.detail).toMatch(/No change was concluded/);
+  });
+
+  it('a body with no outcomes object is refused the same way', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => TXLIST_OK }) as unknown as Response);
+    fetchLauncherOutcomesMock.mockResolvedValue({});
+    const result = await readDeployerReputation(rule('deployer-reputation'), { fetchImpl });
+    expect(result.status).toBe('unavailable');
+  });
+
+  it('a deployer with NO creations needs no enrichment and is still a real reading', async () => {
+    // Nothing to enrich is not an enrichment failure. Calling out for zero
+    // baselines would let a third-party outage refuse a reading that was already
+    // complete without it.
+    const fetchImpl = vi.fn(
+      async () =>
+        ({ ok: true, status: 200, json: async () => ({ status: '1', message: 'OK', result: [] }) }) as unknown as Response,
+    );
+    fetchLauncherOutcomesMock.mockRejectedValue(new Error('down'));
+    const result = await readDeployerReputation(rule('deployer-reputation'), { fetchImpl });
     expect(result.status).toBe('ok');
+    expect(fetchLauncherOutcomesMock).not.toHaveBeenCalled();
+  });
+
+  it('two rules on one deployer cost the explorer one read', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => TXLIST_OK }) as unknown as Response);
+    fetchLauncherOutcomesMock.mockResolvedValue({ outcomes: {} });
+    const rules = [rule('deployer-reputation', { id: 'a' }), rule('deployer-reputation', { id: 'b' })];
+    await readAll(rules, { fetchImpl, pass: newReaderPass(rules) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('the signature is built from counts, not from an invented score', () => {
     const sig = reputationSignature({ created: 2, activeMarket: 1, thinMarket: 0, noMarket: 1, unobserved: 0 }, 'low');
     expect(sig).toBe('c2/a1/t0/n1/u0@low');
     expect(sig).not.toMatch(/score/i);
+  });
+});
+
+describe('GeckoTerminal pool kinds', () => {
+  it('a price rule reads the quote endpoint and nothing else', async () => {
+    const fetchImpl = stubFetch([{ match: /pools\/multi/, body: { data: [poolRow()] } }]);
+    const result = await readPoolPrice(rule('pool-price-above'), { fetchImpl });
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok' && result.value.kind === 'pool-price-above') {
+      expect(result.value.priceUsd).toBe(1.5);
+      expect(result.value.poolName).toBe('QR / WETH');
+    }
+    // The trades feed is NOT touched for a price rule: one endpoint per kind is
+    // what keeps a pass inside a keyless quota.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0]![0])).not.toMatch(/trades/);
+  });
+
+  it('several price rules across pools on one network are ONE request', async () => {
+    const other = '0xb08a99ab559e5456907278727a3b0d968c0a313b';
+    const fetchImpl = stubFetch([
+      { match: /pools\/multi/, body: { data: [poolRow(), poolRow({ address: other })] } },
+    ]);
+    const rules = [
+      rule('pool-price-above', { id: 'a' }),
+      rule('pool-price-below', { id: 'b', subject: `base:${other}` }),
+    ];
+    await readAll(rules, { fetchImpl, pass: newReaderPass(rules) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    // Both pools in the one URL, or the batching claim is not true.
+    const url = String(fetchImpl.mock.calls[0]![0]);
+    expect(url).toContain(POOL_ID);
+    expect(url).toContain(other);
+  });
+
+  it('a pool asked about but not answered about is unavailable, not priceless', async () => {
+    const fetchImpl = stubFetch([{ match: /pools\/multi/, body: { data: [] } }]);
+    const result = await readPoolPrice(rule('pool-price-above'), { fetchImpl });
+    expect(result.status).toBe('unavailable');
+    if (result.status === 'unavailable') expect(result.detail).toMatch(/without this pool/i);
+  });
+
+  it('a null price is an outage, in those words — never a zero', async () => {
+    const fetchImpl = stubFetch([
+      { match: /pools\/multi/, body: { data: [poolRow({ base_token_price_usd: null })] } },
+    ]);
+    const result = await readPoolPrice(rule('pool-price-above'), { fetchImpl });
+    expect(result.status).toBe('unavailable');
+    if (result.status === 'unavailable') expect(result.detail).toMatch(/outage, not a zero/i);
+  });
+
+  it('a 429 is a refusal to read, and is not retried', async () => {
+    const fetchImpl = stubFetch([{ match: /pools\/multi/, body: {}, status: 429 }]);
+    const result = await readPoolPrice(rule('pool-price-above'), { fetchImpl });
+    expect(result.status).toBe('unavailable');
+    // One call. A retry spends the same throttled quota twice for a pass nobody
+    // is watching.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('a swap rule reads the trades feed, and two such rules on one pool read it once', async () => {
+    const fetchImpl = stubFetch([{ match: /trades/, body: { data: [tradeRow()] } }]);
+    const rules = [rule('pool-large-trade', { id: 'a' }), rule('pool-large-trade', { id: 'b', threshold: 50 })];
+    const readings = await readAll(rules, { fetchImpl, pass: newReaderPass(rules) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const reading = readings['a']!;
+    expect(reading.status).toBe('ok');
+    if (reading.status === 'ok' && reading.value.kind === 'pool-large-trade') {
+      expect(reading.value.trades).toHaveLength(1);
+      expect(reading.value.trades[0]!.usd).toBe(9000);
+      expect(reading.value.trades[0]!.at).toBe(Math.floor(Date.parse('2026-09-02T10:00:00Z') / 1000));
+    }
+  });
+
+  it('a trade with no USD size stays null — never 0', async () => {
+    const fetchImpl = stubFetch([
+      {
+        match: /trades/,
+        body: { data: [tradeRow({ kind: 'sell', volume_in_usd: null, from_token_amount: '5' })] },
+      },
+    ]);
+    const result = await readPoolLargeTrade(rule('pool-large-trade'), { fetchImpl });
+    if (result.status === 'ok' && result.value.kind === 'pool-large-trade') {
+      // `Number(x) || 0` here would make an unmeasurable trade a $0 trade, which
+      // passes every threshold comparison as "too small" without saying so.
+      expect(result.value.trades[0]!.usd).toBeNull();
+    }
+  });
+
+  it('a subject that is not network:pool reads nothing at all', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('should not be called');
+    }) as unknown as typeof fetch;
+    const result = await readPoolPrice(rule('pool-price-above', { subject: SUBJECT }), { fetchImpl });
+    expect(result.status).toBe('unavailable');
   });
 });
 
@@ -247,11 +431,20 @@ describe('the indexed kinds are dark, and say so', () => {
     }
   });
 
-  it('no substitute source is silently used in the indexer’s place', () => {
+  it('no substitute source is silently used in the indexer’s place', async () => {
     vi.stubEnv('VITE_INDEXER_URL', '');
-    readIndexedKind(rule('whale-move'));
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('no substitute may be read for an indexed kind');
+    }) as unknown as typeof fetch;
+    const rules = [rule('whale-move')];
+    const readings = await readAll(rules, { fetchImpl, pass: newReaderPass(rules) });
+    expect(readings['r-whale-move']!.status).toBe('unavailable');
     expect(fetchLaunchRadarMock).not.toHaveBeenCalled();
     expect(fetchHeatMock).not.toHaveBeenCalled();
+    // And specifically not GeckoTerminal. A pool's trade tape is a DIFFERENT
+    // fact from an indexed transfer, and serving it under this rule's name would
+    // be exactly the substitution this module refuses.
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 
@@ -297,6 +490,15 @@ describe('readAll', () => {
     expect(Object.keys(readings).sort()).toEqual(['r-heat-tier', 'r-launch-live']);
     expect(readings['r-heat-tier']!.status).toBe('ok');
     expect(readings['r-launch-live']!.status).toBe('unavailable');
+  });
+
+  it('two launch-live rules in one pass read the market-wide feed once', async () => {
+    fetchLaunchRadarMock.mockResolvedValue({ observedAt: NOW, entries: [] });
+    const rules = [rule('launch-live', { id: 'a' }), rule('launch-live', { id: 'b' })];
+    await readAll(rules, { pass: newReaderPass(rules) });
+    // The radar ignores the rule entirely, so N rules used to mean N identical
+    // requests for one market-wide body.
+    expect(fetchLaunchRadarMock).toHaveBeenCalledTimes(1);
   });
 
   it('every kind has a reader', () => {
