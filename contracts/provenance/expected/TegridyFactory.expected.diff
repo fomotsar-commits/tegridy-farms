@@ -349,6 +349,7 @@
 + require(pair != address(0), "ZERO_ADDRESS");
 + require(msg.sender == guardian || msg.sender == feeToSetter, "NOT_GUARDIAN");
 + if (!isPair[pair]) revert NotAPair();
++ if (!disabledPairs[pair]) {
 + uint64 currentDay = uint64(block.timestamp / 1 days);
 + if (currentDay != lastDisableDay) {
 + lastDisableDay = currentDay;
@@ -362,6 +363,7 @@
 + emergencyDisablesToday = nextCount;
 + }
 + disabledPairs[pair] = true;
++ }
 + bytes32 key = keccak256(abi.encodePacked(PAIR_DISABLE_CHANGE, pair));
 + if (_executeAfter[key] != 0 && pendingPairDisableValue[pair] == false) {
 + _cancel(key);
