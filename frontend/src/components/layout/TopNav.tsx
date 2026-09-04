@@ -3,14 +3,68 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
+import { PRIMARY_NAV, MORE_NAV, MENU_NAV_SECTIONS } from '../../lib/navConfig';
+import type { NavItem, NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
-import { artSrcSet } from '../../lib/artSrcSet';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { setActiveBungalow } from '../../lib/bungalows';
+
+/**
+ * Is any of this section's destinations the page we are on?
+ *
+ * A COLLAPSED section links to its hub only, so a plain `<NavLink to={hub}>`
+ * would go dim the moment the visitor moved to a sibling tab — standing on
+ * /scan, the "Trust & Safety" row it was reached through would read as
+ * inactive. The row represents the whole section, so it is lit by the whole
+ * section.
+ *
+ * Segment-boundary matching, not `startsWith`: `/launch-simulator` starts with
+ * `/launch` and is a different destination.
+ */
+function sectionIsActive(section: NavSection, pathname: string): boolean {
+  return section.items.some((i) => pathname === i.to || pathname.startsWith(`${i.to}/`));
+}
+
+/** The amber SOON / green LIVE pills, identical in the dropdown and the drawer. */
+function NavPills({ item }: { item: NavItem }) {
+  return (
+    <>
+      {item.soon && (
+        <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+          Soon
+        </span>
+      )}
+      {item.live && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
+          <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+          Live
+        </span>
+      )}
+    </>
+  );
+}
+
+/** The "opens a page of tabs" affordance on a collapsed section row. */
+function SectionChevron() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="opacity-45 flex-shrink-0">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+/**
+ * Index of the first COLLAPSED section, so the menu can rule a line above it.
+ *
+ * Without the divider the four section rows sit heading-less directly under the
+ * last expanded group and read as more of its links. -1 when nothing is
+ * collapsed, which draws no rule at all.
+ */
+const FIRST_HUB_INDEX = MENU_NAV_SECTIONS.findIndex((s) => !!s.hub);
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -160,15 +214,46 @@ export const TopNav = React.memo(function TopNav() {
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
-        {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
-            row overflowing. Restored to px-4 the moment there is room. */}
-        {/* GUTTERS STEP DOWN TWICE. CI (Linux) renders Archivo wider than a Windows
-            box does, so 360px measured 370 there while fitting locally - the CI
-            number is the one that counts. px-2 below 400px buys the difference. */}
+        {/* px-2 below 400px, px-3 to 480, then px-4. The narrowest phones need
+            every pixel of this back; each step is restored the moment there is
+            room for it. See the gap comment below for what this is paying for. */}
         <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* gap-1 below 480px: two gaps in this group, 8px reclaimed, and at
-              360px that is the difference between fitting and not. */}
-          <div className="flex items-center gap-1 min-[480px]:gap-2">
+          {/* 🔴 THE 360px ROW. e2e/header-reachability.spec.ts measured
+              scrollWidth 362 against clientWidth 360 in CI — the header
+              overflowing its own viewport on the narrowest supported phone.
+              CAUSE: the display face moved from Playfair Display to Archivo
+              (03552f3c) and the wordmark got wider; the identity comment below
+              had already sized the TYPE down for exactly this reason in August,
+              and the new face ate the margin that bought. CI rasterises Archivo
+              a shade wider than a local run, so 360px passes here and fails
+              there — do not trust a local green on this one.
+
+              WHY IT WAS INVISIBLE UNTIL NOW: the spec measured `locator('header')`,
+              which matched a second <header> inside YieldCalculator, so it threw
+              a strict-mode violation BEFORE it ever reached this measurement.
+              The overflow is older than the fix that revealed it.
+
+              FIXED IN THE GAPS AND THE PADDING, NOT THE TYPE, on purpose: the
+              2026-08-31 owner rule is that the mark stays whole and
+              un-abbreviated at every width, so shrinking it again is the one
+              lever that is not available. Three levers, all below 400px, all
+              measured at 360: row padding px-3→px-2 buys 8px of content box
+              (336→344), these two gaps 4px→2px take the left group 222→218, and
+              the right group's gap-1.5→gap-1 takes it 121.3→119.3 — note that
+              group is `flex-shrink-0`, so its width is a hard floor and the
+              wordmark is what silently absorbs any shortfall. 14px bought
+              against a 2px overrun: margin for the next face, not a fix that is
+              exactly big enough.
+
+              VERIFIED BY SWEEP, not by the arithmetic above: with these three
+              levers the row's intrinsic width is 350px, so it still fits at a
+              352px viewport and only overflows at 348. That is 10px of headroom
+              at 360 against CI's 2px overrun. Before them the row measured
+              exactly 360 at 360 — zero slack, which is why a rasteriser a shade
+              wider than local was enough to tip it. If you change anything in
+              this row, re-run the sweep rather than a local 360px check: 360
+              passed locally on the broken version too. */}
+          <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
                 an off-logo click can't trigger a ~15s replay). A hover play-icon
@@ -184,22 +269,7 @@ export const TopNav = React.memo(function TopNav() {
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
-              {/* RESPONSIVE, 2026-09-04. This renders at 26x26 (44x44 on a
-                  phone) from a 512x512 PNG — 185 KB for an icon, fetched on
-                  EVERY route because it lives in the fixed header, which makes
-                  it the most-repeated wasted byte on the site. The generator
-                  gained a 128px width specifically for slots like this; 480 was
-                  still ~18x the display size.
-                   is a fixed pixel value because this slot genuinely is
-                  fixed — the two Tailwind sizes below are the whole range. */}
-              <img
-                src={pageArt('nav-logo', 0).src}
-                {...(artSrcSet(pageArt('nav-logo', 0).src)
-                  ? { srcSet: artSrcSet(pageArt('nav-logo', 0).src), sizes: '(min-width: 768px) 28px, 44px' }
-                  : {})}
-                alt=""
-                className="w-full h-full object-cover"
-              />
+              <img src={pageArt('nav-logo', 0).src} alt="" className="w-full h-full object-cover" />
               <span
                 aria-hidden="true"
                 className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
@@ -236,10 +306,9 @@ export const TopNav = React.memo(function TopNav() {
                   voice; the brand word is gone. */}
               {/* SIZED DOWN BELOW 480px, not truncated. Re-tightened 2026-09-04
                   when the display face changed: Archivo at 900 sets wider than
-                  Playfair did, pushing this row back over its budget at 375px
-                  (379 > 375 in CI). The e2e overflow guard caught it before merge,
-                  which is exactly why that guard exists.
-                  The mark stays whole —
+                  Playfair did, which pushed this row back over its own budget at
+                  375px (379 > 375). The e2e overflow guard caught it before merge,
+                  which is the whole reason that guard exists. The mark stays whole —
                   both halves always render, so the venue's name is never
                   abbreviated or forked (the 2026-08-31 identity rule). This only
                   buys back width on the narrowest phones, where the row was
@@ -248,8 +317,8 @@ export const TopNav = React.memo(function TopNav() {
                   Caught by e2e/header-reachability.spec.ts, which asserts the
                   row never overflows; the fix for the 640-790px band left this
                   narrower case standing. */}
-              <span className="heading-luxury text-[11px] min-[400px]:text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[10px] min-[400px]:text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;
@@ -351,34 +420,51 @@ export const TopNav = React.memo(function TopNav() {
                     role="navigation"
                     aria-label="More destinations"
                   >
-                    {MORE_NAV_SECTIONS.map((section) => (
-                      <div key={section.heading} className="px-2">
-                        <p
-                          className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60"
-                          style={{ color: isDark ? '#fff' : '#1a1a1a' }}
-                        >
-                          {section.heading}
-                        </p>
-                        {section.items.map((n) => (
+{/* 🔻 CONDENSED 2026-09-04. Four of these six sections carry a `hub`
+                        and render as ONE row apiece — Launch, Earn, Stats, Trust &
+                        Safety — with their former entries becoming the tab strip on
+                        the page that row opens (SectionHost.tsx). Nine rows here
+                        instead of twenty-one.
+
+                        NOTHING WAS DROPPED FROM navConfig TO DO IT: MORE_NAV_SECTIONS
+                        still holds every entry with its label and its pill, and the
+                        host reads the SAME array to build its tabs. That is the whole
+                        reason this is a rendering change — a destination cannot be
+                        lost from the menu without also vanishing from its host's tab
+                        bar, because there is one list, not two. */}
+                    {MENU_NAV_SECTIONS.map((section, si) => (
+                      <div
+                        key={section.heading}
+                        className={`px-2 ${si === FIRST_HUB_INDEX ? 'mt-1 pt-1.5 border-t border-white/10' : ''}`}
+                      >
+                        {section.hub ? (
                           <NavLink
-                            key={n.to}
-                            to={n.to}
-                            className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
+                            to={section.hub}
+                            className={`nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${sectionIsActive(section, location.pathname) ? 'active' : ''}`}
                           >
-                            <span>{n.label}</span>
-                            {n.soon && (
-                              <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                                Soon
-                              </span>
-                            )}
-                            {n.live && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                                <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-                                Live
-                              </span>
-                            )}
+                            <span>{section.heading}</span>
+                            <SectionChevron />
                           </NavLink>
-                        ))}
+                        ) : (
+                          <>
+                            <p
+                              className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60"
+                              style={{ color: isDark ? '#fff' : '#1a1a1a' }}
+                            >
+                              {section.heading}
+                            </p>
+                            {section.items.map((n) => (
+                              <NavLink
+                                key={n.to}
+                                to={n.to}
+                                className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
+                              >
+                                <span>{n.label}</span>
+                                <NavPills item={n} />
+                              </NavLink>
+                            ))}
+                          </>
+                        )}
                       </div>
                     ))}
                   </m.div>
@@ -392,7 +478,7 @@ export const TopNav = React.memo(function TopNav() {
               budget by the chip-label rule above; the nav itself is deliberately
               NOT given min-w-0/overflow-hidden, because that would clip the
               "More" dropdown, which is absolutely positioned inside it.) */}
-          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
+          <div className="flex items-center gap-1 min-[400px]:gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
             {/* AUDIT 2026-05-30 (mobile+iPad re-pass): was `hidden md:block` which (a) failed
                 to actually hide at 390 in the wild and (b) collided with the Connect button
                 at the 768 iPad-portrait breakpoint (50px allocated slot vs 85px text width).
@@ -545,30 +631,38 @@ export const TopNav = React.memo(function TopNav() {
                 {/* Mirror the desktop "More" dropdown — single source of
                     truth in navConfig. Primary tabs already live in the
                     BottomNav, so the drawer is just the secondary overflow. */}
-                {MORE_NAV_SECTIONS.map((section) => (
-                  <div key={section.heading} className="mb-3">
-                    <p className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60 text-text-muted">
-                      {section.heading}
-                    </p>
-                    <div className="space-y-0.5">
-                      {section.items.map((n) => (
-                        <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
-                          className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
-                          <span>{n.label}</span>
-                          {n.soon && (
-                            <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                              Soon
-                            </span>
-                          )}
-                          {n.live && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-                              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-                              Live
-                            </span>
-                          )}
-                        </NavLink>
-                      ))}
-                    </div>
+{/* Mirrors the desktop dropdown exactly, collapsed sections and
+                    all — same array, same `hub` test. See the comment there. */}
+                {MENU_NAV_SECTIONS.map((section, si) => (
+                  <div
+                    key={section.heading}
+                    className={`mb-3 ${si === FIRST_HUB_INDEX ? 'pt-2 border-t border-white/10' : ''}`}
+                  >
+                    {section.hub ? (
+                      <NavLink
+                        to={section.hub}
+                        onClick={() => setOpen(false)}
+                        className={`nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${sectionIsActive(section, location.pathname) ? 'active' : ''}`}
+                      >
+                        <span>{section.heading}</span>
+                        <SectionChevron />
+                      </NavLink>
+                    ) : (
+                      <>
+                        <p className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60 text-text-muted">
+                          {section.heading}
+                        </p>
+                        <div className="space-y-0.5">
+                          {section.items.map((n) => (
+                            <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
+                              className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
+                              <span>{n.label}</span>
+                              <NavPills item={n} />
+                            </NavLink>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
                 {showAdmin && (

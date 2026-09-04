@@ -9,12 +9,21 @@
  * same list from src/App.tsx and fails when the two disagree, which is what
  * makes a new route arrive with coverage attached instead of arriving silently.
  *
- * Three of the pages (ActivityPage / LearnPage / InfoPage) host what used to be
- * separate pages as TABS, and the tab is selected from the URL path — see
- * `tabFromPath` in each. So a per-path sweep does cover the tabs: /security is
- * the LearnPage security tab, /contracts is the InfoPage contracts tab. The
- * `tabOf` field records which host renders each path, so a reader of a failure
- * knows which component file to open.
+ * SEVEN of the pages host what used to be separate pages as TABS, and the tab is
+ * selected from the URL path. Three are the originals (ActivityPage / LearnPage /
+ * InfoPage — see `tabFromPath` in each); four arrived 2026-09-04 with the "More"
+ * menu condensation (LaunchHubPage / EarnPage / StatsPage / TrustPage, all
+ * driven by pages/SectionHost.tsx off their nav section). So a per-path sweep
+ * does cover the tabs: /security is the LearnPage security tab, /scan is the
+ * TrustPage scanner tab.
+ *
+ * `owner` stays the CONTENT page — the file where a failure is actually fixed —
+ * and `tabOf` records the host that wraps it. Collapsing a section changes the
+ * second and never the first, which is why nineteen entries here gained a
+ * `tabOf` in that change and not one changed its owner. (/tokenomics and
+ * /treasury are the exception, and in the other direction: they named their HOST
+ * as owner while they were LearnPage/InfoPage tabs, and now name the page a
+ * reader would open.)
  */
 
 import type { Page } from '@playwright/test';
@@ -310,10 +319,13 @@ export const ROUTES: readonly RouteSpec[] = [
       'create_amm_config runs, not a placeholder.',
     knownViolations: [],
   },
-  { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx', gate: null, knownViolations: [] },
-  { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx', gate: null, knownViolations: [] },
+  { path: '/curve-launch', owner: 'pages/CurveLaunchPage.tsx',
+    tabOf: 'LaunchHubPage · curve-launch', gate: null, knownViolations: [] },
+  { path: '/eth-curve', owner: 'pages/EthCurvePage.tsx',
+    tabOf: 'LaunchHubPage · eth-curve', gate: null, knownViolations: [] },
   { path: '/eth-curve/:token', owner: 'pages/CurveTokenPage.tsx', gate: null, knownViolations: [] },
-  { path: '/launch', owner: 'pages/LaunchPage.tsx', gate: null, knownViolations: ['form-field-label'] },
+  { path: '/launch', owner: 'pages/LaunchPage.tsx',
+    tabOf: 'LaunchHubPage · launch', gate: null, knownViolations: ['form-field-label'] },
   {
     path: '/launch/:token',
     owner: 'pages/LaunchTokenPage.tsx',
@@ -324,7 +336,8 @@ export const ROUTES: readonly RouteSpec[] = [
       'covering those needs a launched token on the chain the run points at.',
     knownViolations: [],
   },
-  { path: '/launch-simulator', owner: 'pages/LaunchSimulatorPage.tsx', gate: null, knownViolations: [] },
+  { path: '/launch-simulator', owner: 'pages/LaunchSimulatorPage.tsx',
+    tabOf: 'LaunchHubPage · launch-simulator', gate: null, knownViolations: [] },
   {
     path: '/airdrop',
     owner: 'pages/AirdropPage.tsx',
@@ -370,6 +383,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/yield',
     owner: 'pages/YieldPage.tsx',
+    tabOf: 'EarnPage · yield',
     gate: null,
     why:
       'Audited with no wallet. Every rate, NAV, market-price and exit cell is read live from Ethereum ' +
@@ -386,6 +400,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/copy-trading',
     owner: 'pages/CopyTradingPage.tsx',
+    tabOf: 'EarnPage · copy-trading',
     gate: null,
     why:
       'Audited with no wallet and no indexer. The island tape reads api.geckoterminal.com live and keyless ' +
@@ -410,6 +425,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/competitions',
     owner: 'pages/CompetitionsPage.tsx',
+    tabOf: 'EarnPage · competitions',
     gate: null,
     why:
       'Two halves with two different answers. The Island Cup reads api.geckoterminal.com live and keyless ' +
@@ -455,8 +471,8 @@ export const ROUTES: readonly RouteSpec[] = [
   { path: '/gallery', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },
   {
     path: '/tokenomics',
-    owner: 'pages/LearnPage.tsx',
-    tabOf: 'LearnPage · tokenomics',
+    owner: 'pages/TokenomicsPage.tsx',
+    tabOf: 'StatsPage · tokenomics',
     gate: null,
     knownViolations: [],
   },
@@ -472,8 +488,11 @@ export const ROUTES: readonly RouteSpec[] = [
     path: '/learn',
     owner: 'App.tsx',
     gate: 'redirect',
+    // Landed on /tokenomics until 2026-09-04, when Tokenomics moved to the Stats
+    // host — the alias now points at the first tab LearnPage still owns rather
+    // than bouncing out of the host it is named after.
     why: 'Hub alias for the LearnPage default tab.',
-    redirectsTo: '/tokenomics',
+    redirectsTo: '/lore',
     knownViolations: [],
   },
   {
@@ -585,20 +604,25 @@ export const ROUTES: readonly RouteSpec[] = [
     gate: null,
     knownViolations: ['aria-valid-attr-value'],
   },
-  { path: '/treasury', owner: 'pages/InfoPage.tsx', tabOf: 'InfoPage · treasury', gate: null, knownViolations: [] },
+  { path: '/treasury', owner: 'pages/TreasuryPage.tsx', tabOf: 'StatsPage · treasury', gate: null, knownViolations: [] },
   {
     path: '/exposure',
     owner: 'pages/WalletExposurePage.tsx',
+    tabOf: 'TrustPage · exposure',
     gate: null,
     knownViolations: [],
     connectedViolations: [],
   },
-  { path: '/scan', owner: 'pages/ScannerPage.tsx', gate: null, knownViolations: [] },
-  { path: '/deployer', owner: 'pages/DeployerPage.tsx', gate: null, knownViolations: [] },
-  { path: '/trust', owner: 'pages/TrustHubPage.tsx', gate: null, knownViolations: [] },
+  { path: '/scan', owner: 'pages/ScannerPage.tsx',
+    tabOf: 'TrustPage · scan', gate: null, knownViolations: [] },
+  { path: '/deployer', owner: 'pages/DeployerPage.tsx',
+    tabOf: 'TrustPage · deployer', gate: null, knownViolations: [] },
+  { path: '/trust', owner: 'pages/TrustHubPage.tsx',
+    tabOf: 'TrustPage · trust', gate: null, knownViolations: [] },
   {
     path: '/terminal',
     owner: 'pages/TerminalPage.tsx',
+    tabOf: 'TrustPage · terminal',
     gate: null,
     why:
       'Audited with no indexer configured, on the default view (Ethereum · new pools). The market feed ' +
@@ -616,6 +640,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/chart',
     owner: 'components/chart/ChartPage.tsx',
+    tabOf: 'TrustPage · chart',
     gate: null,
     why:
       'Audited on the registry\'s default market with no wallet. The pool picker is a REGISTRY read, not a ' +
@@ -634,6 +659,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/alerts',
     owner: 'pages/AlertsPage.tsx',
+    tabOf: 'TrustPage · alerts',
     gate: null,
     why:
       'Audited with no wallet, which is now the LIVE branch rather than a gate: the rule store is this ' +
@@ -647,6 +673,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/referrals',
     owner: 'pages/ReferralsPage.tsx',
+    tabOf: 'EarnPage · referrals',
     gate: null,
     why:
       'Audited with no wallet, which is the disconnected branch: the earning requirement is stated in full ' +
@@ -660,6 +687,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/checkout',
     owner: 'pages/CheckoutPage.tsx',
+    tabOf: 'EarnPage · checkout',
     gate: null,
     why:
       'Audited on the "Get paid" tab with no wallet, no ?invoice= and no #i= fragment, which is where a ' +
@@ -678,6 +706,7 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/tax',
     owner: 'pages/TaxPage.tsx',
+    tabOf: 'StatsPage · tax',
     gate: null,
     why:
       'Audited with no wallet, which is the resting state: the ledger card reads idle, the report renders ' +
