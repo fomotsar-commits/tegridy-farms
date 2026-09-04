@@ -216,6 +216,21 @@ export function classifyCallerCredit(reading) {
     };
   }
 
+  // THE ONE FACT AN OPERATOR ACTS ON.
+  //
+  // `state === 'stranded'` has been permanently true since the rail was wired, so as a
+  // trigger it is worth nothing - it produces an hourly alert that means "still Tuesday".
+  // And `pullable` only says the transaction would not revert, which is NOT the same as
+  // it being worth sending: at present the pull burns ~47x what it recovers.
+  //
+  // This is the conjunction that actually warrants waking someone: the pull would
+  // succeed AND it recovers more than it costs.
+  //
+  // NULL, NOT FALSE, when the economics could not be computed. Rule 1 applies here as
+  // much as anywhere - "we could not price it" must never render as "not worth it",
+  // because those two produce opposite operator behaviour and only one of them is a fact.
+  const worthPulling = economics === null ? null : (pullable && economics.worthIt);
+
   // RULE 3. The epoch claim is arithmetic, not a slogan.
   let opensEpoch = null;
   let shortfallWei = null;
@@ -233,6 +248,7 @@ export function classifyCallerCredit(reading) {
     unreadableGuards,
     simulationReverted,
     pullable,
+    worthPulling,
     economics,
     distribution: {
       landsIn: 'SwapFeeRouter.accumulatedETHFees',
@@ -349,6 +365,10 @@ export function renderGithubOutput(classification, { delimiter } = {}) {
     classification.state,
     String(classification.creditWei ?? 'null'),
     String(classification.pullable),
+    // The flip this whole file exists to catch. Without it in the fingerprint, the run
+    // where pulling FIRST becomes worth it dedupes against the thousands of runs where
+    // it was not, and the issue is never updated at the only moment it matters.
+    String(classification.worthPulling),
     // Sorted so two runs that discover the same blockers in a different order agree.
     [...classification.blockers].sort().join('|'),
     [...classification.unreadableGuards].sort().join('|'),
@@ -358,6 +378,9 @@ export function renderGithubOutput(classification, { delimiter } = {}) {
   return [
     `stranded_state=${classification.state}`,
     `stranded_pullable=${classification.pullable}`,
+    // `unknown`, never `false`, when the economics could not be computed - a consumer
+    // branching on this must be able to tell "not worth it" from "we could not tell".
+    `stranded_worth_pulling=${classification.worthPulling === null ? 'unknown' : String(classification.worthPulling)}`,
     `stranded_summary=${summary.replace(/[\r\n]+/g, ' ')}`,
     `stranded_fingerprint=${createHash('sha256').update(fingerprintFacts).digest('hex').slice(0, 16)}`,
     `stranded<<${delim}`,

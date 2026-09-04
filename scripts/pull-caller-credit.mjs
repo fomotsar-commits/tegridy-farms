@@ -203,7 +203,12 @@ if (PROBE) {
 
   // Workflow-command annotations so the signal is on the run summary, not only in an
   // issue body. `::warning::` is a single line by contract, hence the flattening.
-  if (classification.state === 'stranded') {
+  if (classification.worthPulling === true) {
+    // The one run in thousands that is worth a human's attention. Deliberately worded
+    // and prefixed differently from the standing hum below, because an alert that looks
+    // identical to the one an operator has already learned to ignore is not an alert.
+    console.log(`::error::PULL NOW - recovering ${classification.creditWei} wei from ReferralSplitter.callerCredit now costs LESS than it recovers for the first time. Sign it from a hardware wallet: node scripts/pull-caller-credit.mjs`);
+  } else if (classification.state === 'stranded') {
     console.log(`::warning::STRANDED FEES — ${classification.creditWei} wei sits in ReferralSplitter.callerCredit(SwapFeeRouter) and reaches the protocol only when someone calls the permissionless recoverCallerCredit(). See: node scripts/pull-caller-credit.mjs`);
   } else if (classification.state === 'unknown') {
     console.log('::warning::callerCredit could not be read — this run does NOT prove nothing is stranded.');
