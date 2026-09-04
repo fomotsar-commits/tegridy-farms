@@ -16,6 +16,7 @@ import { Sparkline } from '../components/Sparkline';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { artImgProps } from '../lib/artSrcSet';
 
 // AUDIT R035: Split mirrors TOKENOMICS.md (source of truth) — 45 / LP Seed 30 /
 // Treasury 10 / Community Emissions 10 / Team 5.
@@ -109,7 +110,7 @@ export default function TokenomicsPage() {
           ].map((i) => (
             <div key={i.l} className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={i.art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(i.art, i.pos)} />
+                <img src={i.art.src} {...artImgProps(i.art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(i.art, i.pos)} />
               </div>
               <div className="relative z-10 p-3 md:p-5 pt-8 pb-6">
               <p className="text-white text-[11px] uppercase tracking-wider label-pill mb-2">{i.l}</p>

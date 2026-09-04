@@ -18,6 +18,7 @@ import { useTOWELIPrice } from '../../contexts/PriceContext';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { InfoTooltip, HowItWorks, StepIndicator, RiskBanner, TxSummary } from '../ui/InfoTooltip';
+import { artImgProps } from '../../lib/artSrcSet';
 
 // ─── Design tokens ──────────────────────────────────────────────
 const CARD_BG = 'rgba(13, 21, 48, 0.6)';
@@ -194,7 +195,7 @@ function ArtPanel({
       style={{ border: `1px solid ${CARD_BORDER}`, ...style }}
     >
       <div className="absolute inset-0">
-        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity, ...artStyle(art) }} />
+        <img src={art.src} {...artImgProps(art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity, ...artStyle(art) }} />
         <div className="absolute inset-0" style={{ background: overlay }} />
       </div>
       <div className="relative z-10">

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getConsent, setConsent } from '../../lib/consent';
 import { pageArt } from '../../lib/artConfig';
+import { artImgProps } from '../../lib/artSrcSet';
 
 /**
  * R046 / H-1: GDPR/ePrivacy consent banner.
@@ -67,7 +68,7 @@ export function ConsentBanner() {
             with the copy kept legible by its text-shadow (below) rather than a
             heavy near-black scrim. */}
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <img src={pageArt('consent-banner', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+          <img src={pageArt('consent-banner', 0).src} {...artImgProps(pageArt('consent-banner', 0).src)} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
           <div className="absolute inset-0" style={{ background: 'rgba(11, 18, 42, 0.5)' }} />
         </div>
         <div className="relative z-10 text-sm text-gray-200 leading-relaxed flex-1" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
+import { artImgProps } from '../../lib/artSrcSet';
 
 interface ModalProps {
   open: boolean;
@@ -175,6 +176,7 @@ export function Modal({
                 <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
                   <img
                     src={art}
+                    {...artImgProps(art)}
                     alt=""
                     loading="lazy"
                     className="w-full h-full object-cover"

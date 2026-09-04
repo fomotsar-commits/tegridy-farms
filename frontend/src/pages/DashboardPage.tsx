@@ -52,6 +52,7 @@ const BungalowDashboardPanel = lazy(() =>
 const EvmBungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
 );
+import { artImgProps } from '../lib/artSrcSet';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -366,7 +367,7 @@ function ToweliDashboard() {
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={s.art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art)} />
+                <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art)} />
               </div>
               {/* Semi-transparent content panel — art bleeds through while kyle-green stat
                   text stays readable against the dimmed backdrop. */}
