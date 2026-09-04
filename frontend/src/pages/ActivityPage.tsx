@@ -1,42 +1,41 @@
 import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
-import { PREMIUM_LIVE } from '../lib/navConfig';
-import { useTabListKeys } from '../hooks/useTabListKeys';
+import { PREMIUM_LIVE, type NavItem } from '../lib/navConfig';
+import { RouteTabs } from '../components/layout/RouteTabs';
+import { tabDomId } from '../components/layout/routeTabId';
 
-type Tab = 'points' | 'gold' | 'history' | 'changelog';
-
-const TAB_LABELS: Record<Tab, string> = {
-  points: 'Points',
-  gold: 'Gold Card',
-  history: 'History',
-  changelog: 'Changelog',
-};
-
-const TAB_PATHS: Record<Tab, string> = {
-  points: '/leaderboard',
-  gold: '/premium',
-  history: '/history',
-  changelog: '/changelog',
-};
+/**
+ * The tabs, as routes. Replaced a `Tab` union + TAB_LABELS + TAB_PATHS.
+ *
+ * Gold Card is listed here unconditionally and filtered below — the gate is one
+ * expression in one place, next to the reasoning for it, rather than a second
+ * literal that has to stay in step with this one.
+ */
+const ALL_TABS: readonly NavItem[] = [
+  { to: '/leaderboard', label: 'Points' },
+  { to: '/premium', label: 'Gold Card' },
+  { to: '/history', label: 'History' },
+  { to: '/changelog', label: 'Changelog' },
+];
 
 const LeaderboardPage = lazy(() => import('./LeaderboardPage'));
 const PremiumPage = lazy(() => import('./PremiumPage'));
 const HistoryPage = lazy(() => import('./HistoryPage'));
 const ChangelogPage = lazy(() => import('./ChangelogPage'));
 
-function tabFromPath(pathname: string): Tab {
-  if (pathname.startsWith('/premium')) return 'gold';
-  if (pathname.startsWith('/history')) return 'history';
-  if (pathname.startsWith('/changelog')) return 'changelog';
-  return 'points';
+function tabFromPath(pathname: string): string {
+  if (pathname.startsWith('/premium')) return '/premium';
+  if (pathname.startsWith('/history')) return '/history';
+  if (pathname.startsWith('/changelog')) return '/changelog';
+  return '/leaderboard';
 }
 
 /// ActivityPage — tabbed host for Points (Leaderboard), Gold Card (Premium),
 /// History, and Changelog. URLs `/leaderboard`, `/premium`, `/history`, and
 /// `/changelog` all route here with the correct tab pre-selected, preserving
-/// deep-link compatibility. Mirrors the LearnPage pattern used for
-/// Tokenomics/Lore/Security/FAQ.
+/// deep-link compatibility. The strip is the shared one
+/// (components/layout/RouteTabs.tsx).
 export default function ActivityPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -50,77 +49,40 @@ export default function ActivityPage() {
   // the Gold Card tab self-heals to the live Points content. The bar highlights
   // Points to stay coherent, and the moment PREMIUM_LIVE flips true (address
   // wired in constants.ts) /premium shows the real Gold Card with no code change.
-  const effectiveTab: Tab = tab === 'gold' && !PREMIUM_LIVE ? 'points' : tab;
+  //
+  // This is the one host whose active tab is not simply its URL, which is why
+  // RouteTabs takes `active` as a prop instead of reading the location itself.
+  const effectiveTab = tab === '/premium' && !PREMIUM_LIVE ? '/leaderboard' : tab;
 
   // F9: don't promote the Gold Card tab while PREMIUM_ACCESS is zeroed — it would
   // dead-end in the not-deployed placeholder. The tab returns automatically the
   // moment the address lands in constants.ts (mirrors Footer/navConfig gating).
-  const visibleTabs = (Object.keys(TAB_LABELS) as Tab[]).filter(
-    (t) => t !== 'gold' || PREMIUM_LIVE,
-  );
+  const visibleTabs = ALL_TABS.filter((t) => t.to !== '/premium' || PREMIUM_LIVE);
 
-  const handleTab = (t: Tab) => {
-    if (t === effectiveTab) return;
-    navigate(TAB_PATHS[t], { replace: false });
+  // Compared against effectiveTab, not tab: while !PREMIUM_LIVE the URL can be
+  // /premium with Points selected, and clicking Points there must stay a no-op
+  // rather than navigate to the tab the user is already looking at.
+  const handleTab = (to: string) => {
+    if (to === effectiveTab) return;
+    navigate(to, { replace: false });
   };
-
-  // T10 (F22): WAI-ARIA tabs roving-focus + arrow-key navigation. These tabs
-  // navigate routes (each sub-page is lazy-loaded into the tabpanel below), so
-  // "activate" = navigate; the pattern still applies for keyboard users.
-  const tabKeys = useTabListKeys(visibleTabs, effectiveTab, handleTab);
 
   return (
     <>
-      <div
-        className="fixed left-0 right-0 z-30 px-4 md:px-6 pointer-events-none"
-        style={{ top: 56 }}
-      >
-        <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
-          <div
-            role="tablist"
-            aria-label="Activity sections"
-            onKeyDown={tabKeys.onKeyDown}
-            className="flex gap-1.5 p-1 rounded-2xl"
-            style={{
-              // F509: opacity bump 0.72 -> 0.92 (sibling of InfoPage) so text
-              // underneath stops ghosting through the sticky pill bar.
-              background: 'rgba(13,21,48,0.92)',
-              border: '1px solid rgba(255,255,255,0.22)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
-            }}
-          >
-            {visibleTabs.map((t) => (
-              <button
-                key={t}
-                role="tab"
-                id={`activity-tab-${t}`}
-                aria-selected={effectiveTab === t}
-                aria-controls="activity-panel"
-                tabIndex={tabKeys.tabIndex(t)}
-                ref={tabKeys.ref(t)}
-                onClick={() => handleTab(t)}
-                className="flex-1 px-3 md:px-4 py-2 min-h-[40px] rounded-xl text-[13px] md:text-[14px] font-medium text-white transition-all whitespace-nowrap"
-                style={
-                  effectiveTab === t
-                    ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
-                    : undefined
-                }
-              >
-                {TAB_LABELS[t]}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      <RouteTabs
+        idPrefix="activity"
+        ariaLabel="Activity sections"
+        items={visibleTabs}
+        active={effectiveTab}
+        onSelect={handleTab}
+      />
 
-      <div role="tabpanel" id="activity-panel" aria-labelledby={`activity-tab-${effectiveTab}`}>
+      <div role="tabpanel" id="activity-panel" aria-labelledby={tabDomId('activity', effectiveTab)}>
         <Suspense fallback={<PageSkeleton />}>
-          {effectiveTab === 'points' && <LeaderboardPage />}
-          {effectiveTab === 'gold' && <PremiumPage />}
-          {effectiveTab === 'history' && <HistoryPage />}
-          {effectiveTab === 'changelog' && <ChangelogPage />}
+          {effectiveTab === '/leaderboard' && <LeaderboardPage />}
+          {effectiveTab === '/premium' && <PremiumPage />}
+          {effectiveTab === '/history' && <HistoryPage />}
+          {effectiveTab === '/changelog' && <ChangelogPage />}
         </Suspense>
       </div>
     </>
