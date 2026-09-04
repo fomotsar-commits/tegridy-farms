@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
-  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining,
+  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining, MIN_STAKE_RAW,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
 import { surfaceTxError } from '../../lib/txErrors';
@@ -146,6 +146,11 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const chosen = RUNGS[rung]!;
   const needsApproval = amountRaw !== null && amountRaw > 0n && allowanceRaw !== null && allowanceRaw < amountRaw;
   const myBoostIfStaked = amountRaw === null ? 0n : (amountRaw * boostBpsFor(chosen.secs)) / 10_000n;
+  // The contract's dust floor. Checked here so a below-minimum amount reads as
+  // a sentence instead of costing gas to learn as "Lighthouse: stake below
+  // minimum". `belowMin` is only true once an amount has actually been typed —
+  // an empty field is not an error, it is an empty field.
+  const belowMin = amountRaw !== null && amountRaw > 0n && amountRaw < MIN_STAKE_RAW;
   const projected = projectedRawPerSec(view, big(1), myBoostIfStaked);
   const soloPool = big(1) === 0n;
 
@@ -269,6 +274,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 </div>
                 <p className="text-[11px] text-white/50 mb-3">
                   Wallet: {fmtRaw(walletRaw, decimals)} {bungalow.symbol}
+                  {belowMin && (
+                    <span className="text-amber-300/90">
+                      {' · '}minimum {fmtRaw(MIN_STAKE_RAW, decimals)} {bungalow.symbol} — smaller positions are
+                      refused because their lock weight would be small enough to distort every staker's share
+                    </span>
+                  )}
                   {amountRaw !== null && amountRaw > 0n && (
                     <>
                       {' · '}at {boostLabel(chosen.secs)}
@@ -288,10 +299,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                       {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}
                     </button>
                   ) : (
-                    <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || (walletRaw !== null && amountRaw > walletRaw)}
+                    <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || belowMin || (walletRaw !== null && amountRaw > walletRaw)}
                       className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('stake', () => writeContractAsync({ ...poolC, functionName: 'stake', args: [amountRaw ?? 0n, chosen.secs] }))}>
-                      {busy === 'stake' ? 'Staking…' : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.label}`}
+                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.label}`}
                     </button>
                   )}
                   <button type="button" disabled={busy !== null || earnedRaw === null || earnedRaw === 0n} className="btn-secondary px-5 py-2 text-[13px] disabled:opacity-50"
