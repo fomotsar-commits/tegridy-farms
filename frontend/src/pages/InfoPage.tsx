@@ -3,10 +3,15 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
-type Tab = 'treasury' | 'contracts' | 'risks' | 'terms' | 'privacy';
+// 🔻 2026-09-04 — TREASURY LEFT THIS HOST. It is a tab on StatsPage now, beside
+// Tokenomics and Tax Reports, because the "More" menu's own Stats section already
+// grouped those three and a route can only render one tab bar (StatsPage.tsx
+// spells out why there was no version of that change which left this file alone).
+// What remains here is the legal + reference shelf. /treasury is unchanged as a
+// URL and still linked from the Footer.
+type Tab = 'contracts' | 'risks' | 'terms' | 'privacy';
 
 const TAB_LABELS: Record<Tab, string> = {
-  treasury: 'Treasury',
   contracts: 'Contracts',
   risks: 'Risks',
   terms: 'Terms',
@@ -18,31 +23,29 @@ const TAB_LABELS: Record<Tab, string> = {
 const VISIBLE_TABS = Object.keys(TAB_LABELS) as Tab[];
 
 const TAB_PATHS: Record<Tab, string> = {
-  treasury: '/treasury',
   contracts: '/contracts',
   risks: '/risks',
   terms: '/terms',
   privacy: '/privacy',
 };
 
-const TreasuryPage = lazy(() => import('./TreasuryPage'));
 const ContractsPage = lazy(() => import('./ContractsPage'));
 const RisksPage = lazy(() => import('./RisksPage'));
 const TermsPage = lazy(() => import('./TermsPage'));
 const PrivacyPage = lazy(() => import('./PrivacyPage'));
 
 function tabFromPath(pathname: string): Tab {
-  if (pathname.startsWith('/contracts')) return 'contracts';
   if (pathname.startsWith('/risks')) return 'risks';
   if (pathname.startsWith('/terms')) return 'terms';
   if (pathname.startsWith('/privacy')) return 'privacy';
-  return 'treasury';
+  // Contracts is the landing tab.
+  return 'contracts';
 }
 
-/// InfoPage — tabbed host for Treasury, Contracts, Risks, Terms, and Privacy.
-/// URLs `/treasury`, `/contracts`, `/risks`, `/terms`, `/privacy` each land on
-/// the matching tab so deep links keep working. Mirrors the LearnPage /
-/// ActivityPage tab pattern.
+/// InfoPage — tabbed host for Contracts, Risks, Terms, and Privacy.
+/// URLs `/contracts`, `/risks`, `/terms`, `/privacy` each land on the matching
+/// tab so deep links keep working. Mirrors the LearnPage / ActivityPage tab
+/// pattern.
 export default function InfoPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -112,11 +115,10 @@ export default function InfoPage() {
         </div>
       </div>
 
-      {/* Treasury and Contracts pages don't use the full-bleed -mt-14 pattern,
-          so they need extra top padding to clear the sticky tab bar. */}
+      {/* Contracts needs extra top padding to clear the sticky tab bar; the
+          other three already carry their own. */}
       <div role="tabpanel" id="info-panel" aria-labelledby={`info-tab-${tab}`}>
         <Suspense fallback={<PageSkeleton />}>
-          {tab === 'treasury' && <div className="pt-14"><TreasuryPage /></div>}
           {tab === 'contracts' && <div className="pt-14"><ContractsPage /></div>}
           {tab === 'risks' && <RisksPage />}
           {tab === 'terms' && <TermsPage />}

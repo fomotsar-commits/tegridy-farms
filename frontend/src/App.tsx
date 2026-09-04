@@ -51,34 +51,20 @@ const BungalowArtStudioPage = lazy(() => import('./pages/BungalowArtStudioPage')
 const LendingPage = lazy(() => import('./pages/LendingPage'));
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
-// Public token scanner (concentration/bundle/holder-quality read; self-gates when
-// holder data is unavailable) + wallet exposure view (the scanner pointed inward).
-const ScannerPage = lazy(() => import('./pages/ScannerPage'));
-const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
-// Deployer reputation graph — a deployer's past launches + what happened to each.
-const DeployerPage = lazy(() => import('./pages/DeployerPage'));
-// Thin hub that frames the three detection surfaces above as one anti-rug suite.
-const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
-// The same detection stack pointed at a discovery feed, each row carrying its safety
-// read or an explicit statement that it has none. The rows themselves are a
-// browser-direct read of GeckoTerminal's market-wide pool feed on an origin the CSP
-// already allows, so the page works on every deployment with no env var and no operator
-// step. VITE_INDEXER_URL is optional here and decides only whether the venue's own
-// "Venue pairs" tab appears beside that feed.
-const TerminalPage = lazy(() => import('./pages/TerminalPage'));
-// Alert rules over the same subjects (token / wallet / deployer / pool), pushed instead
-// of pulled. NOT flag-gated and no longer gated at all: the rule store is this browser's
-// own localStorage, so the page works with no wallet, no session and no migration. Each
-// panel still prints its own honest state — a rule whose source is dark says so at pick
-// time, and a write that did not reach storage is a warning on a form that still works.
-const AlertsPage = lazy(() => import('./pages/AlertsPage'));
-// Referral links, the staking threshold that decides whether sharing one earns
-// anything at all, and the on-chain claim. NOT flag-gated and not pilled: the
-// splitter is deployed and the long-form `/?ref=0x…` link resolves in the browser
-// with no server, so the surface is live. Only the optional short `/?r=code` form
-// needs `019_referral_codes.sql`, and the share card prints that store's own answer
-// rather than gating the page on it.
-const ReferralsPage = lazy(() => import('./pages/ReferralsPage'));
+// ── FOUR TABBED SECTION HOSTS (2026-09-04) ───────────────────────────────────
+// Seventeen lazy page imports used to sit here. They did not disappear: the
+// "More" dropdown's Launch / Earn / Stats / Trust & Safety sections each
+// collapsed into ONE menu row plus a tabbed page, so each host now lazy-imports
+// the pages it hosts — and carries the comment that used to be on that import.
+// Read them there: TrustPage.tsx, EarnPage.tsx, StatsPage.tsx, LaunchHubPage.tsx.
+//
+// Every route below is unchanged. A host is what a route RENDERS, never where
+// it points, so /scan, /tax, /eth-curve and the other fourteen are the same URLs
+// they always were — deep links, footer links and e2e routes all still land.
+const TrustPage = lazy(() => import('./pages/TrustPage'));
+const EarnPage = lazy(() => import('./pages/EarnPage'));
+const StatsPage = lazy(() => import('./pages/StatsPage'));
+const LaunchHubPage = lazy(() => import('./pages/LaunchHubPage'));
 // Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
 // from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
 // so neither the price list nor the signup can claim what is not configured.
@@ -90,27 +76,13 @@ const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
 // LIVE probe of whether the program is actually deployed. Lazy for the same
 // reason as the swap — @solana/* only loads when a Solana surface is opened.
 const PoolsPage = lazy(() => import('./pages/PoolsPage'));
-// Our OWN Solana bonding curve (tegridy-launch), which graduates into our cp-swap
-// fork. Since the Meteora rail was retired 2026-08-23 this is the ONLY Solana launch
-// rail. NOT gated by a flag: the page
-// probes the chain for the program on mount and renders "not deployed" from that
-// live read, so it needs no redeploy to start working once the program ships.
-const CurveLaunchPage = lazy(() => import('./pages/CurveLaunchPage'));
-const EthCurvePage = lazy(() => import('./pages/EthCurvePage'));
 // Permanent per-token record at /eth-curve/:token — the shareable page a curve
 // creator hands out and the launches grid links into.
 const CurveTokenPage = lazy(() => import('./pages/CurveTokenPage'));
-// Token launch rail (Doppler V4 integration). LIVE since 2026-07-22
-// (LAUNCHER_ENABLED = true); renders the create wizard. Still in-page-gated by
-// isLauncherEnabled() so it can be re-gated by flipping the flag + redeploying.
-const LaunchPage = lazy(() => import('./pages/LaunchPage'));
 // Permanent per-token record at /launch/:token — the page cohort rows link into.
 // Read-only; never gated, because a launched token's disclosures must stay reachable
 // even if the create wizard is re-gated.
 const LaunchTokenPage = lazy(() => import('./pages/LaunchTokenPage'));
-// Launch simulator — preview a token's distribution band + Fact-Sheet tier before
-// launching. Pure client-side, always usable (deliberately live before the launch rail).
-const LaunchSimulatorPage = lazy(() => import('./pages/LaunchSimulatorPage'));
 // Merkle airdrop campaigns (#65). AirdropFactory is undeployed, so the funding and
 // claim transactions are isDeployed()-gated in-page; the client-side tree builder is
 // not, because a root computed from a CSV needs no chain.
@@ -129,52 +101,6 @@ const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow
 // and its refusal states, and each venue reports its own availability from constants.ts.
 // Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
 const ZapPage = lazy(() => import('./components/zap/ZapPage'));
-// Copy trading (#7) and trading competitions (#50). Both read the ISLAND TAPE —
-// GeckoTerminal's pool-trade feed for the registry's resident pools plus the venue's
-// own TOWELI/WETH pool — so neither needs an env var, a key or a proxy. NOT flag-gated,
-// and the refusals rather than the feed are what make routing them right: no wallet on
-// either board carries a profit figure (a pool fill is one leg of a trade), nothing
-// executes for you because this venue runs no keeper, and no season pays or settles.
-// A read that fails is named by each page's own ledger, not flattened into an empty table.
-const CopyTradingPage = lazy(() => import('./pages/CopyTradingPage'));
-const CompetitionsPage = lazy(() => import('./pages/CompetitionsPage'));
-// Pro charting (#47). Candles from GeckoTerminal's OHLCV feed, drawn by a
-// dependency-free SVG renderer — no charting library, no price oracle. The pool list is
-// a registry read, so the picker is fully rendered even when the feed cannot be reached,
-// and a timeframe that returned nothing draws NO PLOT: a blank plot area with an axis on
-// it reads as a pool that did not trade, which is the one thing it must never say. Not
-// flag-gated. VITE_INDEXER_URL adds the venue's own indexed-swap panel when set and
-// changes nothing else. Lives under components/chart/ with the renderer it mounts, as
-// ZapPage does.
-const ChartPage = lazy(() => import('./components/chart/ChartPage'));
-// Yield routing (#32 / #21 / #34) — a comparison of THIRD-PARTY liquid staking and
-// stablecoin lending venues. This venue issues nothing here and deploys no contract:
-// every figure is read live from Ethereum mainnet over the public RPC roster, and each
-// route sends the deposit straight to that protocol's own permissionless entry function
-// in lib/yield/venues.ts. Not flag-gated. The counterparty disclosures and the
-// structural refusals (a venue with no on-chain growth rate, or no market leg, says so)
-// are as much the product as the routing.
-const YieldPage = lazy(() => import('./pages/YieldPage'));
-// Merchant checkout + recurring billing (#68 / #69). NOT flag-gated, because the
-// states it can be in are the product: the buyer is shown the exact amount and the
-// exact settlement asset before signing, and no signature is offered at all when the
-// route cannot guarantee the merchant's exact amount. Non-custodial by construction —
-// both legs are signed in the buyer's own wallet with the merchant as the direct
-// recipient, and api/_lib/commerce.js holds no key. The invoice itself needs no server:
-// it is an EIP-712 document the merchant signs and carries in the link's `#i=` fragment,
-// which the buyer's browser verifies against the merchant address. `021_commerce.sql`
-// still gates only the optional short `?invoice=` form, and that lookup answers 503
-// `schema-missing` rather than "no such invoice" until an operator applies it.
-const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
-// Capital-gains and income reports (#71). Ethereum-mainnet history is read through
-// /api/etherscan — a same-origin function that ships with every deployment of this repo
-// — so a report is built from real history rather than from a whole-period gap; the
-// F1 indexer is optional enrichment now. A period the ledger could not read is still a
-// declared GAP on the export itself, never an omission and never an empty year. The
-// cost-basis method is selected by the filer and stamped on every file, because FIFO and
-// specific identification are different numbers and an unlabelled report cannot be
-// reproduced. Every surface states it is not tax advice.
-const TaxPage = lazy(() => import('./pages/TaxPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -385,27 +311,30 @@ function AnimatedRoutes() {
             launch rail. No redirect is added on purpose: the route is gone, so the SPA
             404s, and a redirect to a rail that ALSO cannot launch (both program ids are
             spent) would move a dead end rather than close one. */}
-        <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><CurveLaunchPage /></Suspense>} />
-        <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><EthCurvePage /></Suspense>} />
+        <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
+        <Route path="eth-curve" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="eth-curve/:token" element={<Suspense fallback={<PageSkeleton />}><CurveTokenPage /></Suspense>} />
-        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchPage /></Suspense>} />
+        <Route path="launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="launch/:token" element={<Suspense fallback={<PageSkeleton />}><LaunchTokenPage /></Suspense>} />
-        <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchSimulatorPage /></Suspense>} />
+        <Route path="launch-simulator" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />
         <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
         <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
         <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><ZapPage /></Suspense>} />
-        <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><YieldPage /></Suspense>} />
+        <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
-        <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><CopyTradingPage /></Suspense>} />
-        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><CompetitionsPage /></Suspense>} />
+        <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
-        <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
+        <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="history" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="lore" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
-        <Route path="learn" element={<Navigate to="/tokenomics" replace />} />
+        {/* /learn is a legacy alias. It pointed at /tokenomics until 2026-09-04, when
+            Tokenomics moved to the Stats host — it now lands on the first tab LearnPage
+            still owns, rather than bouncing out of the host it names. */}
+        <Route path="learn" element={<Navigate to="/lore" replace />} />
         <Route path="leaderboard" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="community" element={<Suspense fallback={<PageSkeleton />}><CommunityPage /></Suspense>} />
         <Route path="grants" element={<Navigate to="/community" replace />} />
@@ -426,17 +355,17 @@ function AnimatedRoutes() {
         <Route path="faq" element={<Suspense fallback={<PageSkeleton />}><LearnPage /></Suspense>} />
         <Route path="changelog" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
-        <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
-        <Route path="exposure" element={<Suspense fallback={<PageSkeleton />}><WalletExposurePage /></Suspense>} />
-        <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><ScannerPage /></Suspense>} />
-        <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><DeployerPage /></Suspense>} />
-        <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustHubPage /></Suspense>} />
-        <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TerminalPage /></Suspense>} />
-        <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><ChartPage /></Suspense>} />
-        <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><AlertsPage /></Suspense>} />
-        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><ReferralsPage /></Suspense>} />
-        <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><CheckoutPage /></Suspense>} />
-        <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><TaxPage /></Suspense>} />
+        <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
+        <Route path="exposure" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="terminal" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="chart" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="alerts" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        <Route path="referrals" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        <Route path="checkout" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
+        <Route path="tax" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="developers" element={<Suspense fallback={<PageSkeleton />}><DeveloperPage /></Suspense>} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
