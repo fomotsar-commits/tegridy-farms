@@ -20,8 +20,8 @@ export default function LeaderboardPage() {
   // the UI doesn't deliver. Multi-user ranking waits on the Ponder indexer
   // being publicly queryable; until then the personal profile is honest.
   usePageTitle(
-    'Your Tegridy Score',
-    'Your Tegridy Score — on-chain points, tier progress, streak multipliers, and badges.',
+    'Your Venue Score',
+    'Your Venue Score — on-chain points, tier progress, streak multipliers, and badges.',
   );
   const { isConnected } = useAccount();
   const points = usePoints();
@@ -49,7 +49,7 @@ export default function LeaderboardPage() {
         </div>
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Your Tegridy Score</h1>
+          <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">Your Venue Score</h1>
           <div className="rounded-lg p-3 inline-block max-w-full" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>
             {/* The season line had NO date check: past endDate it kept inviting people to
                 earn points in a window that had closed. Points themselves stay on-chain and
@@ -65,7 +65,7 @@ export default function LeaderboardPage() {
           </div>
         </m.div>
 
-        {/* Tegridy Score */}
+        {/* Venue Score */}
         {isConnected && (
           <m.div className="mb-6" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
             <TegridyScore />
@@ -75,8 +75,8 @@ export default function LeaderboardPage() {
         {/* HEAT (2026-08-07) — Jungle Bay Island's held-time reading, and a plain
             account of how it was arrived at.
             Placed on this page because it is the reputation surface, and directly
-            BELOW the Tegridy Score so the two are visibly separate instruments:
-            Tegridy Score is ours and is earned by on-chain activity; Heat is the
+            BELOW the Venue Score so the two are visibly separate instruments:
+            Venue Score is ours and is earned by on-chain activity; Heat is the
             island's and is earned only by holding measured tokens over time. The
             card repeats that distinction in its own copy — do not merge them into a
             single "score" panel, and never sum them.

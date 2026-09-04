@@ -2,7 +2,15 @@
 // in the type.
 
 import { describe, it, expect } from 'vitest';
-import { SEASONS, SETTLEMENT, findSeason, seasonStatus, seasonWhere } from './season';
+import {
+  SEASONS,
+  SEASON_NO_SOURCE,
+  SEASON_STATUS_TEXT,
+  SETTLEMENT,
+  findSeason,
+  seasonStatus,
+  seasonWhere,
+} from './season';
 import { findQuoteToken } from '../copytrade/quoteTokens';
 
 describe('the declared seasons', () => {
@@ -48,6 +56,39 @@ describe('the declared seasons', () => {
   it('finds a season by id and returns null rather than a stand-in', () => {
     expect(findSeason(SEASONS[0]!.id)).toEqual(SEASONS[0]);
     expect(findSeason('no-such-season')).toBeNull();
+  });
+});
+
+describe('Season 1 names what it actually counts', () => {
+  it('says ETH/WETH, because native ETH and WETH are one side of it', () => {
+    // The router emits address(0) for a native leg. Scoring folds that onto the
+    // quote, so the season's own name has to say so — a "WETH volume" board that
+    // silently counts ETH is describing a different measurement than the one it
+    // performs.
+    const s1 = SEASONS[0]!;
+    expect(s1.name).toContain('ETH/WETH');
+    expect(s1.blurb).toMatch(/native eth and weth are one side/i);
+  });
+
+  it('keeps WETH as the quote constant — only the copy and the folding changed', () => {
+    expect(SEASONS[0]!.quoteToken.toLowerCase()).toBe(
+      '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+    );
+  });
+});
+
+describe('a season with no source says so, rather than saying "counting"', () => {
+  it('offers a sentence about the calendar and not about a process', () => {
+    // The old page derived "Counting now" from Date.now() alone, which was true
+    // about the date and false about everything else: no indexer is hosted, so
+    // nothing was counting.
+    expect(SEASON_NO_SOURCE).toMatch(/calendar facts/i);
+    expect(SEASON_NO_SOURCE).toMatch(/no source in this build is reading this season/i);
+    expect(SEASON_NO_SOURCE).not.toMatch(/counting now/i);
+  });
+
+  it('attributes the live status to a reader, not to the passage of time', () => {
+    expect(SEASON_STATUS_TEXT.live).toMatch(/read by the indexer/i);
   });
 });
 

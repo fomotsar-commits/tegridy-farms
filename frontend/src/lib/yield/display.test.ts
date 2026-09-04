@@ -1,144 +1,146 @@
-// WHAT A CELL IS ALLOWED TO SAY.
+// THE ONE RULE: an unread figure never renders as a figure.
 //
-// Everything above this layer can be correct and the page can still lie, because
-// the lie is a formatting decision: `(0).toFixed(2)` on an absent value is one
-// keystroke away at all times, and the result — "0.00%" — is indistinguishable
-// from a real reading. So these tests read the STRINGS.
-//
-// The strongest assertion here is the negative one: for every shape of missing
-// input, the rendered text must not parse as a number. That holds whatever the
-// formatter is rewritten to do.
+// Asserted without a DOM, because the failure is in the string rather than in
+// the layout. A cell that prints '0.00%' for a rate nobody read is not a
+// rendering bug a screenshot would catch — it is a number, and it is wrong.
 
 import { describe, it, expect } from 'vitest';
-import { UNAVAILABLE_MARK, apyDisplay, exitLiquidityDisplay, feedStatusLine, pegDisplay } from './display';
-import { venueMetrics, type MetricRead } from './metrics';
-import { YIELD_READING_MAX_AGE_S } from './feed';
-import { yieldVenue } from './venues';
+import {
+  UNAVAILABLE_MARK,
+  exitDisplay,
+  marketDisplay,
+  navDisplay,
+  rateDisplay,
+  readStatusLine,
+  vsNavDisplay,
+} from './display';
+import type { MetricRead } from './metrics';
 
-const NOW = 1_780_000_000;
-const LIDO = yieldVenue('lido-steth')!;
+const readCell = (over: Partial<Extract<MetricRead, { state: 'read' }>> = {}): MetricRead => ({
+  state: 'read',
+  value: 3.44,
+  unit: 'pct',
+  source: 'Aave v3 Pool.getReserveData(USDC).currentLiquidityRate at block 25888268',
+  asOf: 1_788_335_951,
+  block: 25_888_268,
+  stale: false,
+  ageSeconds: 0,
+  maxAgeS: 3_600,
+  ...over,
+});
 
-const absent: MetricRead = { state: 'unavailable', reason: 'nothing was read for this venue' };
+const gone: MetricRead = { state: 'unavailable', reason: 'Aave v3 Pool.getReserveData did not answer at block 25888268.' };
+const na: MetricRead = { state: 'not-applicable', reason: 'stETH rebases, so there is no share rate to read.' };
 
-function reading(over: Record<string, unknown> = {}) {
-  return {
-    apyPct: { value: 3.1, source: 'stats API' },
-    pegRatio: { value: 0.9994, source: 'pool mid' },
-    exitLiquidityUsd: { value: 1_000_000, source: 'pool balances' },
-    ...over,
-  } as Parameters<typeof venueMetrics>[1];
-}
+const ALL_FIVE = [rateDisplay, navDisplay, marketDisplay, vsNavDisplay, exitDisplay] as const;
 
-/** Anything a reader could mistake for a quantity. */
-function looksNumeric(text: string): boolean {
-  return /\d/.test(text);
-}
-
-describe('an unavailable cell cannot be mistaken for a value', () => {
-  it('renders the marker, never a digit, for every metric', () => {
-    for (const display of [apyDisplay(absent), exitLiquidityDisplay(absent), pegDisplay(absent, 'ETH')]) {
-      expect(display.text).toBe(UNAVAILABLE_MARK);
-      expect(looksNumeric(display.text), `"${display.text}" reads as a number`).toBe(false);
-      expect(display.unavailable).toBe(true);
-    }
+describe('the read and unread branches can never produce the same string', () => {
+  it.each(ALL_FIVE.map((f, i) => [i, f] as const))('cell %i never prints a digit when nothing was read', (_i, fn) => {
+    const out = fn(gone);
+    expect(out.text).toBe(UNAVAILABLE_MARK);
+    expect(out.text).not.toMatch(/\d/);
+    expect(out.unavailable).toBe(true);
+    expect(out.detail.length).toBeGreaterThan(10);
   });
 
-  it('carries the reason as visible text, not as an empty tooltip', () => {
-    // A hidden explanation behind an em dash is functionally no explanation: the
-    // reader who needs it is skimming, and skimming does not hover.
-    for (const display of [apyDisplay(absent), exitLiquidityDisplay(absent), pegDisplay(absent, 'USD')]) {
-      expect(display.detail.length).toBeGreaterThan(10);
-    }
+  it.each(ALL_FIVE.map((f, i) => [i, f] as const))('cell %i never prints a digit when there is nothing to read', (_i, fn) => {
+    const out = fn(na);
+    expect(out.text).toBe(UNAVAILABLE_MARK);
+    expect(out.notApplicable).toBe(true);
+    expect(out.detail).toContain('rebases');
   });
 
-  it('never marks an absence as notable, so a gap cannot read as an alarm', () => {
-    expect(pegDisplay(absent, 'ETH').notable).toBe(false);
+  it('keeps the two absences distinguishable, because only one of them can change', () => {
+    expect(rateDisplay(gone).notApplicable).toBe(false);
+    expect(rateDisplay(na).notApplicable).toBe(true);
   });
 
-  it('holds for every real missing-metric path, not just a hand-built absence', () => {
-    const noFeed = venueMetrics(LIDO, null, null, NOW);
-    const noRate = venueMetrics(LIDO, reading({ apyPct: null, pegRatio: null, exitLiquidityUsd: null }), NOW, NOW);
-    for (const row of [noFeed, noRate]) {
-      expect(apyDisplay(row.apy).text).toBe(UNAVAILABLE_MARK);
-      expect(pegDisplay(row.peg, LIDO.pegReference).text).toBe(UNAVAILABLE_MARK);
-      expect(exitLiquidityDisplay(row.exitLiquidity).text).toBe(UNAVAILABLE_MARK);
-    }
+  it('prints a genuine zero as a zero', () => {
+    // A read 0.00% is a real, loud answer and is NOT what this file guards.
+    expect(rateDisplay(readCell({ value: 0 })).text).toBe('0.00%');
+    expect(rateDisplay(readCell({ value: 0 })).unavailable).toBe(false);
   });
 });
 
-describe('a read cell states its figure and its provenance', () => {
-  it('prints an APY with its source and its age', () => {
-    const row = venueMetrics(LIDO, reading(), NOW - 120, NOW);
-    const display = apyDisplay(row.apy);
-    expect(display.text).toBe('3.10%');
-    expect(display.unavailable).toBe(false);
-    expect(display.detail).toContain('stats API');
-    expect(display.detail).toMatch(/ago/);
+describe('every figure carries its own unit, and the ratio carries none', () => {
+  it('prints NAV and market price with their denomination', () => {
+    expect(navDisplay(readCell({ value: 1.1709, unit: 'ETH' })).text).toBe('1.1709 ETH');
+    expect(marketDisplay(readCell({ value: 1.1702, unit: 'ETH' })).text).toBe('1.1702 ETH');
   });
 
-  it('prints a genuine zero APY as a figure, because it is one', () => {
-    const row = venueMetrics(LIDO, reading({ apyPct: { value: 0, source: 'stats API' } }), NOW, NOW);
-    expect(apyDisplay(row.apy).text).toBe('0.00%');
-    expect(apyDisplay(row.apy).unavailable).toBe(false);
+  it('prints vs-NAV as a multiple with no currency suffix', () => {
+    // The whole point: at four decimals a ratio and a price are frequently the
+    // same glyphs, and only the suffix says which claim is being made.
+    const out = vsNavDisplay(readCell({ value: 0.9959, unit: 'ratio' }));
+    expect(out.text).toContain('×');
+    expect(out.text).not.toContain('ETH');
+    expect(out.text).not.toContain('USD');
+    expect(out.text).not.toContain('$');
   });
 
-  it('prints a read exit liquidity of zero as $0.00 — a loud, real answer', () => {
-    const row = venueMetrics(LIDO, reading({ exitLiquidityUsd: { value: 0, source: 'pool balances' } }), NOW, NOW);
-    const display = exitLiquidityDisplay(row.exitLiquidity);
-    expect(display.unavailable).toBe(false);
-    expect(display.text).toContain('0');
+  it('flags a notable discount and describes an at-or-above reading as a measurement', () => {
+    const under = vsNavDisplay(readCell({ value: 0.99, unit: 'ratio' }));
+    expect(under.notable).toBe(true);
+    expect(under.detail).toContain('1.00% under');
+    const over = vsNavDisplay(readCell({ value: 1.0002, unit: 'ratio' }));
+    expect(over.notable).toBe(false);
+    expect(over.detail).toMatch(/not a guarantee/);
   });
 
-  it('says a stale figure is stale rather than refreshing it silently', () => {
-    const row = venueMetrics(LIDO, reading(), NOW - YIELD_READING_MAX_AGE_S - 60, NOW);
-    const display = apyDisplay(row.apy);
-    expect(display.stale).toBe(true);
-    expect(display.detail).toMatch(/out of date/i);
-  });
-});
-
-describe('the peg column shows four decimals, because two would hide the subject', () => {
-  it('keeps a half-percent discount distinguishable from no discount', () => {
-    const pegged = venueMetrics(LIDO, reading({ pegRatio: { value: 1, source: 'mid' } }), NOW, NOW);
-    const off = venueMetrics(LIDO, reading({ pegRatio: { value: 0.995, source: 'mid' } }), NOW, NOW);
-    const a = pegDisplay(pegged.peg, 'ETH').text;
-    const b = pegDisplay(off.peg, 'ETH').text;
-    expect(a).not.toBe(b);
-    expect(a).toBe('1.0000 ETH');
-    expect(b).toBe('0.9950 ETH');
-  });
-
-  it('flags a notable discount and states the percentage under reference', () => {
-    const off = venueMetrics(LIDO, reading({ pegRatio: { value: 0.97, source: 'mid' } }), NOW, NOW);
-    const display = pegDisplay(off.peg, 'ETH');
-    expect(display.notable).toBe(true);
-    expect(display.detail).toMatch(/3\.00% under/);
-  });
-
-  it('describes an at-reference read without promising it holds', () => {
-    const pegged = venueMetrics(LIDO, reading({ pegRatio: { value: 1, source: 'mid' } }), NOW, NOW);
-    const display = pegDisplay(pegged.peg, 'ETH');
-    expect(display.detail).toMatch(/not a guarantee it holds/i);
-    expect(display.notable).toBe(false);
+  it('never flags an absence as notable', () => {
+    expect(vsNavDisplay(gone).notable).toBe(false);
+    expect(vsNavDisplay(na).notable).toBe(false);
   });
 });
 
-describe('the feed banner tells an outage apart from an answer', () => {
-  it('prefers the specific reason over the generic one when there is one', () => {
-    expect(feedStatusLine('unavailable', 'VITE_YIELD_FEED_URL is set but is not a valid http(s) URL.')).toMatch(
-      /VITE_YIELD_FEED_URL/,
-    );
+describe('an exit backlog is never worded as available liquidity', () => {
+  it('says "queued ahead" and does not say "available"', () => {
+    const out = exitDisplay(readCell({ value: 6402.67, unit: 'stETH', meaning: 'queued-ahead' }));
+    expect(out.text).toContain('stETH');
+    expect(out.detail).toContain('queued ahead');
+    // The opposite fact. A reader who takes a backlog for depth has been told
+    // they can leave when the number says the reverse.
+    expect(out.detail).not.toContain('available');
   });
 
-  it('still says nothing was read when no reason was supplied', () => {
-    const line = feedStatusLine('unavailable', null);
-    expect(line).toMatch(/no rate, peg or exit-liquidity figure could be read/i);
-    // And says what the columns will do about it, so a reader is not left to
-    // decide for themselves what an em dash means.
-    expect(line).toMatch(/rather than showing a number/i);
+  it('says redeemable now for real depth, and prints its own unit rather than a currency', () => {
+    const out = exitDisplay(readCell({ value: 164_381_298.44, unit: 'USDC', meaning: 'available-now' }));
+    expect(out.detail).toContain('Redeemable now');
+    expect(out.text).toContain('USDC');
+    expect(out.text).not.toContain('$');
+  });
+});
+
+describe('a stale reading is shown as measured, with its age and its own window', () => {
+  it('names the window that was exceeded rather than a global one', () => {
+    const out = rateDisplay(readCell({ stale: true, ageSeconds: 180_000, maxAgeS: 172_800 }));
+    expect(out.stale).toBe(true);
+    expect(out.detail).toMatch(/out of date|past this source/);
+    expect(out.detail).toContain('48h');
+    expect(out.text).toBe('3.44%');
   });
 
-  it('does not describe a loading read as an answer', () => {
-    expect(feedStatusLine('loading', null)).not.toMatch(/could not|unavailable/i);
+  it('carries the annualisation basis into the detail when a row has one', () => {
+    const out = rateDisplay(readCell({ basis: 'the Sky Savings Rate, a governance parameter' }));
+    expect(out.detail).toContain('Basis: the Sky Savings Rate');
+  });
+});
+
+describe('the status line says which block, and how much of it failed', () => {
+  it('names the block and the chain time on a clean read', () => {
+    const line = readStatusLine('ready', 25_888_268, 1_788_335_951, 0, 40, null);
+    expect(line).toContain('block 25888268');
+    expect(line).toContain('2026-');
+  });
+
+  it('counts the unread figures rather than hiding them behind the same sentence', () => {
+    const line = readStatusLine('partial', 25_888_268, 1_788_335_951, 3, 40, null);
+    expect(line).toContain('3 of 40');
+    expect(line).toContain('say so in place');
+  });
+
+  it('says nothing was read when nothing was', () => {
+    expect(readStatusLine('unavailable', null, null, 40, 40, null)).toMatch(/could not be read/);
+    expect(readStatusLine('loading', null, null, 0, 40, null)).toMatch(/Reading/);
   });
 });

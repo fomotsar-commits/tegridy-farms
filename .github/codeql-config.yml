@@ -1,0 +1,30 @@
+# CodeQL configuration.
+#
+# WHY THIS FILE EXISTS: CodeQL was scanning our VENDORED DEPENDENCIES.
+# contracts/lib/ holds git-submodule-style copies of upstream Solidity libraries
+# (OpenZeppelin, forge-std, Uniswap). We do not author that code, we do not
+# choose when it changes, and its own CI never runs here -- GitHub only executes
+# workflows under the repository root .github/, so the nested
+# contracts/lib/openzeppelin-contracts/.github/workflows/formal-verification.yml
+# that calls fv/run.js is inert in this repo.
+#
+# It was producing 8 alerts, 2 of them HIGH, all in upstream code:
+#   contracts/lib/openzeppelin-contracts/fv/run.js                    4  (2 high, 2 medium)
+#   contracts/lib/openzeppelin-contracts/test/token/ERC721/...        2
+#   contracts/lib/openzeppelin-contracts/test/governance/...          2
+# Every one names a defect in a maintainer-only Certora/Hardhat dev script that
+# no attacker can reach through this application. Fixing them would mean editing
+# vendored code, which the V2 provenance gate exists to PREVENT (a diff there
+# reds CI until the pin is re-recorded). Dismissing them one by one would leave
+# the next OpenZeppelin bump free to reintroduce the same class.
+#
+# So the fix is upstream of the alerts: do not scan code we do not write. This
+# is what paths-ignore is for, and excluding a dependency tree does not weaken
+# the scan of the application -- OUR code (436 alerts at the time of writing) is
+# still fully analysed, and the security-and-quality query suite in
+# .github/workflows/codeql.yml is unchanged.
+#
+# NOTE: paths/paths-ignore apply to interpreted languages (our javascript-typescript
+# matrix). They are not a general substitute for build-time filtering.
+paths-ignore:
+  - contracts/lib

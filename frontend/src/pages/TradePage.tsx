@@ -35,29 +35,32 @@ type Tab = 'swap' | 'liquidity' | 'dca' | 'limit' | 'twap' | 'trigger';
  */
 const floor6 = (n: number): number => Math.floor(n * 1e6) / 1e6;
 
-// AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. The DCA and
-// Limit Order features are not on-chain — they persist in browser localStorage and
-// run only while the tab is open. Renaming to "Recurring Swap" / "Price Alert" makes
-// the actual behaviour legible without falsely implying automated execution.
-// AUDIT 2026-05-30 (mobile re-pass): shortened "Recurring Swap"→"DCA" and
-// "Price Alert"→"Alerts" — the longer labels overflowed their tab button widths
-// at 390 px and visually collided ("Recurring Swa**P**rice Alert"). The
-// titleByTab descriptions below keep the full names for clarity on the page.
+// AUDIT FIX H-2 (2026-04-20 / battle-tested Option C): honest-UX labels. DCA is not
+// on-chain — it persists in browser localStorage and runs only while the tab is open,
+// so it reads "Recurring Swap" on the page rather than implying automated execution.
+// AUDIT 2026-05-30 (mobile re-pass): shortened "Recurring Swap"→"DCA" — the longer
+// label overflowed its tab button width at 390 px and collided with its neighbour.
+// The titleByTab descriptions below keep the full name for clarity on the page.
+//
+// 2026-09-03: the 'limit' tab was labelled "Alerts" by that same pass, when it WAS a
+// browser-only price watcher. It was rebuilt as a real on-chain CoW order (its own
+// heading says "Limit Order"), while /alerts in the nav is a different product
+// entirely — so "Alerts" here offered a signature for a live order, and anyone
+// hunting the alert-rule store landed on a swap tab. One name per thing.
 const TAB_LABELS: Record<Tab, string> = {
   swap: 'Swap',
   liquidity: 'Liquidity',
   dca: 'DCA',
-  limit: 'Alerts',
+  limit: 'Limit',
   twap: 'TWAP',
   trigger: 'Trigger',
 };
 
 const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit', 'twap', 'trigger'];
 
-// F242: the Alerts feature is named three ways (tab label "Alerts", heading
-// "Price Alert", internal tab 'limit'). `?tab=alerts` is the canonical,
-// honesty-pass-aligned param; `?tab=limit` is kept as a legacy synonym so old
-// shared links keep working.
+// `?tab=limit` is canonical again, matching the tab's label and its heading.
+// `?tab=alerts` — canonical while the tab was called "Alerts" — stays a silent
+// synonym so links shared in that window keep resolving.
 function tabFromQuery(v: string | null): Tab | null {
   if (!v) return null;
   if (v === 'alerts') return 'limit';
@@ -83,7 +86,7 @@ export default function TradePage() {
   // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
-    liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on Tegridy Farms native pools.' },
+    liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on memetics.finance native pools.' },
     // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
     dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
     // UPDATED 2026-07-19: CoW is now the PRIMARY path in this tab — a real
@@ -132,8 +135,7 @@ export default function TradePage() {
     // Liquidity (Swap was unreachable from /liquidity). Since ?tab wins over the
     // path in resolveInitialTab, writing ?tab=swap makes the switch stick.
     if (next === 'swap' && !location.pathname.startsWith('/liquidity')) params.delete('tab');
-    // F242: write the canonical `?tab=alerts` for the Alerts (internal 'limit') tab.
-    else params.set('tab', next === 'limit' ? 'alerts' : next);
+    else params.set('tab', next);
     setSearchParams(params, { replace: true });
   };
 
@@ -576,7 +578,7 @@ export default function TradePage() {
                             {swap.hasTegridyPair && swap.tegridyOutputFormatted && (
                               <div className="flex justify-between text-[10px] px-2 py-1 rounded" style={{ background: swap.selectedRoute === 'tegridy' ? 'rgba(16,185,129,0.20)' : 'rgba(255,255,255,0.04)' }}>
                                 <span className="text-white/85">
-                                  Tegridy DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}
+                                  Venue DEX {swap.selectedRoute === 'tegridy' && <span className="text-emerald-300 ml-1">Best</span>}
                                   {tegridyIsLowLiquidity && <span className="text-amber-300 ml-1" title="The native pool is thin pre-seed — its quote isn't representative yet.">low liquidity</span>}
                                 </span>
                                 <span className="text-white font-mono">{formatTokenAmountGrouped(swap.tegridyOutputFormatted)}</span>

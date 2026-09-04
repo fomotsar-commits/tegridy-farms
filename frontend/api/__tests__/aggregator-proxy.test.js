@@ -405,6 +405,77 @@ describe("aggregator proxy — jupiter trending + price paths", () => {
   });
 });
 
+describe("aggregator proxy — jupiter recurring (DCA) paths", () => {
+  let handler;
+  let fetchMock;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.NODE_ENV = "test";
+    fetchMock = mockUpstreamOk({ ok: true });
+    globalThis.fetch = fetchMock;
+    handler = (await import(AGG_HANDLER)).default;
+  });
+
+  it("allows GET recurring/v1/getRecurringOrders and forwards recurringType + includeFailedTx", async () => {
+    // Both params are REQUIRED by the upstream (it 400s without them) — a
+    // stripped param here is a dead DCA tab, not a narrower surface.
+    const req = makeReq({
+      method: "GET",
+      query: {
+        provider: "jupiter",
+        path: ["recurring", "v1", "getRecurringOrders"],
+        user: "abc",
+        orderStatus: "active",
+        recurringType: "time",
+        includeFailedTx: "false",
+      },
+    });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("recurring/v1/getRecurringOrders");
+    expect(url).toContain("recurringType=time");
+    expect(url).toContain("includeFailedTx=false");
+  });
+
+  it("allows POST recurring/v1/createOrder", async () => {
+    const req = makeReq({ method: "POST", query: { provider: "jupiter", path: ["recurring", "v1", "createOrder"] }, body: { user: "abc", inputMint: "x", outputMint: "y" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("recurring/v1/createOrder");
+  });
+
+  it("allows POST recurring/v1/cancelOrder", async () => {
+    const req = makeReq({ method: "POST", query: { provider: "jupiter", path: ["recurring", "v1", "cancelOrder"] }, body: { user: "abc", order: "ord", recurringType: "time" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("recurring/v1/cancelOrder");
+  });
+
+  // The surface is time-based only: the price-based strategy and BOTH
+  // deposit/withdraw legs must stay refused, along with any segment-count
+  // variant of an allowed endpoint.
+  it.each([
+    ["deposit leg", ["recurring", "v1", "deposit"]],
+    ["withdraw leg", ["recurring", "v1", "withdraw"]],
+    ["priceDeposit leg", ["recurring", "v1", "priceDeposit"]],
+    ["priceWithdraw leg", ["recurring", "v1", "priceWithdraw"]],
+    ["execute (wallet signs+sends itself)", ["recurring", "v1", "execute"]],
+    ["2-segment prefix", ["recurring", "v1"]],
+    ["4-segment suffix", ["recurring", "v1", "getRecurringOrders", "extra"]],
+  ])("refuses %s with 404", async (_label, path) => {
+    const req = makeReq({ method: "POST", query: { provider: "jupiter", path }, body: { user: "abc" } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("aggregator proxy — body cap (32 KB)", () => {
   let handler;
 

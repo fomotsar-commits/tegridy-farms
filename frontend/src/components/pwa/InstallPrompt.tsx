@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { isToweliVoice, VENUE } from '../../lib/arrival';
+import { VENUE } from '../../lib/arrival';
 import { useLocation } from 'react-router-dom';
 import {
   isRunningInstalled,
@@ -91,10 +91,10 @@ export function InstallPrompt() {
     <div
       className="fixed inset-x-3 bottom-20 z-[9500] mx-auto flex max-w-md items-center gap-3 rounded-xl border border-white/20 bg-[#0b1226]/95 px-4 py-3 shadow-2xl backdrop-blur sm:bottom-6"
       role="dialog"
-      aria-label={`Install ${isToweliVoice() ? 'Tegridy Farms' : VENUE.name}`}
+      aria-label={`Install ${VENUE.name}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-white">Install {isToweliVoice() ? 'Tegridy Farms' : VENUE.name}</p>
+        <p className="text-sm font-semibold text-white">Install {VENUE.name}</p>
         {/* No offline-trading claim here, and none anywhere else in this banner.
             The installed app is the same app: it reads the chain live and shows
             nothing when it cannot. Promising an offline experience would be

@@ -49,3 +49,39 @@ export function dayTwoEconomyShortPhrase(phase: LpEmissionsPhase): string {
       return 'an LP-farming rail whose funding status we could not read; a gauge program as governance deploys';
   }
 }
+
+/**
+ * The Home "Farm" card's headline stat.
+ *
+ * The card's body was corrected on 2026-08-28 to admit the LP pool is dormant, but
+ * the stat beside it was left as the literal '2 pools' — so one object literal
+ * rendered "2 pools" in large type and "the LP pool rejoins when its next emissions
+ * round is funded" in small type. Same drift `dayTwoEconomyPhrase` exists to prevent,
+ * one card later.
+ *
+ * A failed read gets its OWN answer. It must not borrow 'ended' — "we could not tell"
+ * and "it has stopped" are different facts, and collapsing them is the fabricated
+ * zero this app refuses to ship.
+ */
+export function farmCardStat(phase: LpEmissionsPhase): string {
+  switch (phase) {
+    case 'running':
+      return '2 pools';
+    case 'ended':
+      return '1 paying';
+    default:
+      return '1 + 1 unread';
+  }
+}
+
+/** The Home "Farm" card's body, on the same read as the stat above. */
+export function farmCardDesc(phase: LpEmissionsPhase): string {
+  switch (phase) {
+    case 'running':
+      return 'Stake TOWELI to earn now; the LP pool has a funded emissions period running too.';
+    case 'ended':
+      return 'Stake TOWELI to earn now; the LP pool rejoins when its next emissions round is funded.';
+    default:
+      return 'Stake TOWELI to earn now; we could not read whether the LP pool has a funded emissions period.';
+  }
+}

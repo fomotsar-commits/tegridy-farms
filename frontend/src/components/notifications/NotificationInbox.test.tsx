@@ -135,9 +135,9 @@ describe('gaps are rows, and they are counted apart', () => {
 });
 
 describe('events disclose what was actually delivered', () => {
-  it('an in-app-only event says no push was sent', () => {
+  it('an in-app-only event says no notification was shown', () => {
     renderInbox({ entries: [eventEntry()], unread: { events: 1, gaps: 0, total: 1 } });
-    expect(screen.getByText(/no push was sent/i)).toBeInTheDocument();
+    expect(screen.getByText(/no notification was shown/i)).toBeInTheDocument();
   });
 
   it('an event names its source', () => {
@@ -145,12 +145,34 @@ describe('events disclose what was actually delivered', () => {
     expect(screen.getByText(/Jungle Bay Island/)).toBeInTheDocument();
   });
 
-  it('a pushed event does not claim in-app-only', () => {
+  it('an event stamped with a shown notification says so instead', () => {
+    // The stamp is only applied after a show returned true, so this row is a
+    // record of something that happened rather than of something planned.
     renderInbox({
-      entries: [eventEntry({ channels: ['in-app', 'web-push'] })],
+      entries: [eventEntry({ channels: ['in-app', 'web-notification'] })],
       unread: { events: 1, gaps: 0, total: 1 },
     });
-    expect(screen.queryByText(/no push was sent/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no notification was shown/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/shown as a browser notification/i)).toBeInTheDocument();
+  });
+
+  it('a pool quote row says “read at”, not “as of”', () => {
+    // "as of" is the SOURCE'S claim about when a fact was true. GeckoTerminal
+    // makes no such claim about a pool quote, so a row that said "as of" would
+    // attribute our own fetch clock to them.
+    renderInbox({
+      entries: [eventEntry({ observedAtKind: 'read' })],
+      unread: { events: 1, gaps: 0, total: 1 },
+    });
+    expect(screen.getByText(/read at/i)).toBeInTheDocument();
+    expect(screen.queryByText(/· as of/i)).not.toBeInTheDocument();
+  });
+
+  it('every row control is a 44px target', () => {
+    renderInbox({ entries: [eventEntry()], unread: { events: 1, gaps: 0, total: 1 } });
+    for (const name of ['Mark all read', 'Mark read', 'Dismiss']) {
+      expect(screen.getByRole('button', { name }).className, name).toContain('min-h-11');
+    }
   });
 });
 

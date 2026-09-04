@@ -16,7 +16,7 @@ doors. What it never gave her was a single **market fact**. Walking `/bayla`,
 | No sign of life | `AppLayout` mutes `LiveActivity` in a bungalow for the same reason. |
 | No holder view | Only an outbound link to `/scan`. |
 | Lighthouse pool read as a permanent outage | A dev-proxy bug — see §4. |
-| "Pro Charting" (`/chart`) marked SOON | It builds candles from the EVM Ponder indexer's `TegridyPair` swaps. It can **never** chart a Solana pool; this is not a fix, it is a category mismatch, and it stays SOON. |
+| "Pro Charting" (`/chart`) marked SOON | ~~It builds candles from the EVM Ponder indexer's `TegridyPair` swaps. It can **never** chart a Solana pool; this is not a fix, it is a category mismatch, and it stays SOON.~~ **Rewritten 2026-09-02:** the reasoning held only while the page's single source was that indexer. `/chart` now charts any registry `market` — Solana included, on the same GeckoTerminal OHLCV rail this document put behind Bayla's own strip — and the indexer is an optional second source. |
 
 ## 1. The market — chart + numbers
 
@@ -130,8 +130,10 @@ error.
 
 ## Still open
 
-- **`/chart` (Pro Charting)** stays SOON and stays EVM-only by design. A Solana
-  equivalent would be a separate build, not a fix.
+- ~~**`/chart` (Pro Charting)** stays SOON and stays EVM-only by design. A Solana
+  equivalent would be a separate build, not a fix.~~ **Closed 2026-09-02:** it
+  charts every registry pool on all three networks from GeckoTerminal OHLCV; the
+  Solana equivalent was the parameter this document already added, not a build.
 - **Distribution success path** waits on a keyed `SOLANA_RPC_URL` (§3).
 - The **other 11 bungalows** get all of this for free the moment they declare a
   `market` pool in `lib/bungalows.ts` — every component here self-hides without

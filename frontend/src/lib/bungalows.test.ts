@@ -18,6 +18,7 @@ import {
   bungalowArtPool,
   bungalowTradeRoute,
   bungalowScanRoute,
+  residentLabelForPool,
 } from './bungalows';
 import { pageArt } from './artConfig';
 
@@ -361,6 +362,37 @@ describe('resolution order', () => {
     }
     // The quiet slot never grows a market.
     expect(BUNGALOWS.find((x) => x.id === 'nb1')!.market).toBeUndefined();
+  });
+
+  // The market surfaces read pools from GeckoTerminal, which knows a pool only
+  // by address. This is the join back to the island: which of those pools has a
+  // resident behind it. Getting it wrong in the permissive direction is the
+  // dangerous half — a stranger's pool badged as a bungalow's.
+  describe('residentLabelForPool', () => {
+    it('names the resident behind a registered pool', () => {
+      expect(residentLabelForPool('eth', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f')).toBe('Pepe');
+      expect(residentLabelForPool('solana', '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX')).toBe('BOBO');
+    });
+
+    it('says nothing about a pool the island does not own', () => {
+      // Silence is the honest answer for the other ~million pools GeckoTerminal
+      // lists; a fallback label here would badge strangers as residents.
+      expect(residentLabelForPool('eth', '0x0000000000000000000000000000000000000001')).toBeNull();
+      expect(residentLabelForPool('eth', '')).toBeNull();
+    });
+
+    it('matches EVM pools case-insensitively — the same address is written both ways', () => {
+      expect(residentLabelForPool('eth', '0xA43FE16908251EE70EF74718545E4FE6C5CCEC9F')).toBe('Pepe');
+    });
+
+    it('matches Solana keys EXACTLY, because base58 is case-sensitive', () => {
+      // Lowercased, that key is a different, valid-looking, wrong address.
+      expect(residentLabelForPool('solana', '31zmtzeufrdbgksj7nicckekxtpqgaemqvdbcuufe6gx')).toBeNull();
+    });
+
+    it('does not cross networks: the same string on another chain is another pool', () => {
+      expect(residentLabelForPool('base', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f')).toBeNull();
+    });
   });
 
   it("keeps Bayla's canon voice in the registry (lore + muse pool)", () => {

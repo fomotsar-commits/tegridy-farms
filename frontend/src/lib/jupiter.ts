@@ -104,12 +104,22 @@ export async function getQuote(params: {
 }
 
 /**
+ * Priority-fee levels for the swap build ("Speed" in the UI). Each maps to
+ * Jupiter's priorityLevelWithMaxLamports, hard-capped at MAX_PRIORITY_LAMPORTS
+ * so a congestion spike can never charge more than the disclosed ceiling.
+ */
+export type PriorityLevel = 'medium' | 'high' | 'veryHigh';
+export const MAX_PRIORITY_LAMPORTS = 5_000_000; // 0.005 SOL — disclosed in the UI
+
+/**
  * Build the (unsigned) swap transaction from a quote. Returns the base64
  * `swapTransaction` (a serialized VersionedTransaction) for the wallet to sign.
  */
 export async function buildSwapTransaction(params: {
   quote: JupiterQuote;
   userPublicKey: string;
+  /** Omitted → Jupiter's default fee behavior (how v1 always ran). */
+  priorityLevel?: PriorityLevel;
 }): Promise<string> {
   // Derive the fee account from the SAME pair-aware decision as the quote, so
   // platformFeeBps + feeAccount stay coupled (both present, or neither).
@@ -123,6 +133,14 @@ export async function buildSwapTransaction(params: {
     wrapAndUnwrapSol: true,
     dynamicComputeUnitLimit: true,
   };
+  if (params.priorityLevel) {
+    body.prioritizationFeeLamports = {
+      priorityLevelWithMaxLamports: {
+        maxLamports: MAX_PRIORITY_LAMPORTS,
+        priorityLevel: params.priorityLevel,
+      },
+    };
+  }
   if (feeAccount) body.feeAccount = feeAccount;
   const res = await fetch(`${JUPITER_PROXY_BASE}/swap`, {
     method: 'POST',
@@ -145,12 +163,47 @@ export function toBaseUnits(amount: string, decimals: number): string | null {
   return combined === '' ? null : combined;
 }
 
+/**
+ * Limit-order receive amount in the BUY token's base units, at full typed
+ * precision. The naive shape — toBaseUnits(price, buyDecimals) first, multiply
+ * after — silently truncates every typed price digit beyond the buy token's
+ * decimals, flooring the order rate scaled by order size, and makes any
+ * fractional price on a 0-decimal buy token unrepresentable (null). Parse the
+ * price digits at their own scale instead and apply ONE floor at the end:
+ *   taking = making × priceDigits × 10^buyDec ÷ (10^payDec × 10^priceScale)
+ */
+export function limitTakingAmount(
+  makingAmount: string | null,
+  price: string,
+  payDecimals: number,
+  buyDecimals: number,
+): string | null {
+  if (!makingAmount) return null;
+  const m = price.trim().match(/^(\d*)(?:\.(\d*))?$/);
+  if (!m) return null;
+  const digits = `${m[1] ?? ''}${m[2] ?? ''}`;
+  if (!/[1-9]/.test(digits)) return null;
+  const priceScale = (m[2] ?? '').length;
+  const taking =
+    (BigInt(makingAmount) * BigInt(digits) * 10n ** BigInt(buyDecimals)) /
+    (10n ** BigInt(payDecimals) * 10n ** BigInt(priceScale));
+  return taking === 0n ? null : taking.toString();
+}
+
 /** Convert an integer base-unit string back to a human decimal string. */
 export function fromBaseUnits(raw: string, decimals: number): string {
   if (decimals === 0) return raw;
   const s = raw.padStart(decimals + 1, '0');
   const whole = s.slice(0, s.length - decimals);
-  const frac = s.slice(s.length - decimals).replace(/0+$/, '');
+  // Trailing zeros stripped by index, NOT by /0+$/. That regex backtracks
+  // quadratically on a long run of zeros (CodeQL js/polynomial-redos), and the
+  // run length here is not ours to bound: `decimals` comes off the token, so a
+  // hostile mint declaring a large value makes this string as long as it likes.
+  // Walking back from the end is linear and cannot backtrack at all.
+  const fracRaw = s.slice(s.length - decimals);
+  let end = fracRaw.length;
+  while (end > 0 && fracRaw[end - 1] === '0') end -= 1;
+  const frac = fracRaw.slice(0, end);
   return frac ? `${whole}.${frac}` : whole;
 }
 
@@ -325,6 +378,110 @@ export async function cancelTriggerOrder(maker: string, order: string): Promise<
 
 /** Best-effort extraction of an order's pubkey (the field name varies). */
 export function orderKeyOf(o: TriggerOrder): string | null {
+  const a = o.account as Record<string, unknown> | undefined;
+  if (typeof o.orderKey === 'string') return o.orderKey;
+  if (typeof o.publicKey === 'string') return o.publicKey;
+  if (a && typeof a.orderKey === 'string') return a.orderKey;
+  return null;
+}
+
+// ─── DCA (Jupiter Recurring — time-based, keeper-executed) ──────────────────
+//
+// v1 is TIME-BASED only (recurringType 'time'); the price-based strategy and
+// its deposit/withdraw legs are not plumbed — the proxy refuses them. Ships
+// FEE-OFF like Trigger: integrator fees need a Jupiter referral-account setup
+// (operator-gated follow-up).
+
+export interface RecurringOrder {
+  orderKey?: string;
+  publicKey?: string;
+  inputMint?: string;
+  outputMint?: string;
+  inDeposited?: string;
+  inUsed?: string;
+  inWithdrawn?: string;
+  inAmountPerCycle?: string;
+  cycleFrequency?: string;
+  outReceived?: string;
+  account?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * Create a time-based DCA order. Returns the base64 transaction for the
+ * wallet to sign+send (same flow as a swap). Jupiter deposits `inAmount`
+ * up-front and the keeper spends inAmount/numberOfOrders every
+ * `intervalSeconds`.
+ */
+export async function createRecurringOrder(params: {
+  user: string;
+  inputMint: string;
+  outputMint: string;
+  /** TOTAL deposit in the input mint's base units, split across all orders. */
+  inAmount: string;
+  numberOfOrders: number;
+  intervalSeconds: number;
+}): Promise<string> {
+  // Jupiter's time params are JSON numbers (u64 upstream — a string is
+  // rejected), so a base-units total past 2^53 would silently lose precision.
+  // Refuse it instead of corrupting the deposit.
+  const inAmount = Number(params.inAmount);
+  if (!Number.isSafeInteger(inAmount) || inAmount <= 0) {
+    throw new Error('DCA amount not representable');
+  }
+  const body: Record<string, unknown> = {
+    user: params.user,
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    params: {
+      time: {
+        inAmount,
+        numberOfOrders: params.numberOfOrders,
+        interval: params.intervalSeconds,
+      },
+    },
+  };
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/recurring/v1/createOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Could not create DCA (${res.status})`);
+  const json = (await res.json()) as { transaction?: string };
+  if (!json.transaction) throw new Error('No DCA transaction returned');
+  return json.transaction;
+}
+
+/**
+ * A wallet's active time-based DCA orders. `recurringType` and
+ * `includeFailedTx` are REQUIRED by the upstream (it 400s without them), and
+ * the response array is keyed by the requested type (`time`), not `orders`.
+ */
+export async function getRecurringOrders(user: string, signal?: AbortSignal): Promise<RecurringOrder[]> {
+  const res = await fetch(
+    `${JUPITER_TOKENS_BASE}/recurring/v1/getRecurringOrders?user=${user}&orderStatus=active&recurringType=time&includeFailedTx=false`,
+    { headers: { Accept: 'application/json' }, signal },
+  );
+  if (!res.ok) throw new Error(`Could not load DCAs (${res.status})`);
+  const json = (await res.json()) as { time?: RecurringOrder[] };
+  return Array.isArray(json.time) ? json.time : [];
+}
+
+/** Cancel a DCA order. Returns the base64 tx for the wallet to sign+send. */
+export async function cancelRecurringOrder(user: string, order: string): Promise<string> {
+  const res = await fetch(`${JUPITER_TOKENS_BASE}/recurring/v1/cancelOrder`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ user, order, recurringType: 'time' }),
+  });
+  if (!res.ok) throw new Error(`Could not cancel DCA (${res.status})`);
+  const json = (await res.json()) as { transaction?: string };
+  if (!json.transaction) throw new Error('No cancel transaction returned');
+  return json.transaction;
+}
+
+/** Best-effort extraction of a DCA order's pubkey (the field name varies). */
+export function recurringOrderKeyOf(o: RecurringOrder): string | null {
   const a = o.account as Record<string, unknown> | undefined;
   if (typeof o.orderKey === 'string') return o.orderKey;
   if (typeof o.publicKey === 'string') return o.publicKey;

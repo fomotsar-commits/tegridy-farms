@@ -31,7 +31,10 @@ const requireFrom = createRequire(import.meta.url);
  */
 const WALLET_RUNTIME_DEPS: ReadonlyArray<readonly [wallet: string, pkg: string]> = [
   ['MetaMask', '@metamask/connect-evm'],
-  ['WalletConnect + Rainbow', '@walletconnect/ethereum-provider'],
+  // Trust rides this too: with no injected Trust provider it connects over
+  // WalletConnect (QR on desktop, trust:// deep link on mobile), so dropping
+  // WalletConnect from the modal would take Trust's main path with it.
+  ['WalletConnect + Rainbow + Trust', '@walletconnect/ethereum-provider'],
   ['Base', '@base-org/account'],
   ['Safe', '@safe-global/safe-apps-sdk'],
   ['Safe', '@safe-global/safe-apps-provider'],

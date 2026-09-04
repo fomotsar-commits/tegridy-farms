@@ -95,3 +95,59 @@ describe("ethcall — failover chain", () => {
     await expect(ethCall("0x" + "1".repeat(40), "0xdeadbeef")).rejects.toThrow();
   });
 });
+
+// AUDIT TF-022. `eth_call`'s return length is chosen by the CALLED CONTRACT,
+// not by the ABI: a fallback doing `assembly { return(0, N) }` answers any
+// selector with N bytes. Every caller of this module is reachable
+// unauthenticated with an attacker-supplied address, so before the cap the
+// callee picked the size of the buffer this lambda allocated.
+//
+// What is pinned is the pair of properties that make the cap worth having:
+// the oversized body is refused, AND refusing it does not send the failover
+// chain round again — a retry would multiply the very cost being bounded.
+describe("ethcall — an oversized response body", () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.ALCHEMY_API_KEY;
+
+  beforeEach(() => {
+    delete process.env.ALCHEMY_API_KEY;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.ALCHEMY_API_KEY;
+    else process.env.ALCHEMY_API_KEY = originalKey;
+  });
+
+  /** A Response whose Content-Length declares more than the cap. */
+  const oversized = () => ({
+    ok: true,
+    headers: { get: (h) => (h.toLowerCase() === "content-length" ? String(50 * 1024 * 1024) : null) },
+    body: { cancel() {} },
+    json: async () => {
+      throw new Error("the body must never be read once the cap is known to be exceeded");
+    },
+  });
+
+  it("is refused rather than buffered", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(oversized());
+    await expect(ethCall("0x" + "1".repeat(40), "0xdeadbeef")).rejects.toThrow(/too large/i);
+  });
+
+  it("is NOT retried down the rest of the chain", async () => {
+    // Deterministic: the same contract returns the same bytes every time.
+    const fetchMock = vi.fn().mockResolvedValue(oversized());
+    globalThis.fetch = fetchMock;
+    await expect(ethCall("0x" + "1".repeat(40), "0xdeadbeef")).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still returns a normal-sized result", async () => {
+    // Non-vacuity: the cap must not have broken the ordinary path.
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ result: "0x2a" }),
+    });
+    await expect(ethCall("0x" + "1".repeat(40), "0xdeadbeef")).resolves.toBe("0x2a");
+  });
+});

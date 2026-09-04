@@ -2,9 +2,9 @@ import {
   BACKGROUND_DELIVERY_AVAILABLE,
   BACKGROUND_DELIVERY_REQUIREMENTS,
   IN_APP_LIMITATION,
+  type ChannelId,
   type ChannelStatus,
 } from '../../lib/alerts/channels';
-import type { DeliveryReport } from '../../lib/alerts/rulesClient';
 
 // Where alerts can go, stated before the user relies on them going anywhere.
 //
@@ -17,8 +17,6 @@ import type { DeliveryReport } from '../../lib/alerts/rulesClient';
 
 interface Props {
   channels: readonly ChannelStatus[];
-  /** What the SERVER reported. The browser cannot see the private VAPID half. */
-  delivery?: DeliveryReport | null;
   onSubscribe?: () => void;
 }
 
@@ -31,11 +29,29 @@ const STATE_WORD: Record<ChannelStatus['state'], string> = {
   off: 'Available, off',
 };
 
-export function DeliveryChannelNotice({ channels, delivery, onSubscribe }: Props) {
+/**
+ * "Delivering" is too strong for a channel that only fires while a tab is open,
+ * so this channel gets its own word. A badge is the shortest thing on the panel
+ * and therefore the thing most likely to be read INSTEAD of the sentence below it.
+ */
+const READY_WORD: Partial<Record<ChannelId, string>> = {
+  'web-notification': 'On, while a tab is open',
+};
+
+/**
+ * The subscribe control exists ONLY for a channel that can be switched on and
+ * would then do something. `web-push` never has `canSubscribe`, so its label is
+ * not in this map and the button cannot be rendered for it by any state.
+ */
+const SUBSCRIBE_LABEL: Partial<Record<ChannelId, string>> = {
+  'web-notification': 'Turn on browser notifications',
+};
+
+export function DeliveryChannelNotice({ channels, onSubscribe }: Props) {
   return (
     <section
       className="rounded-xl p-4"
-      style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
+      style={{ background: 'transparent' }}
       aria-label="Alert delivery"
     >
       <h3 className="text-white text-[13px] font-medium">Where alerts go</h3>
@@ -52,7 +68,7 @@ export function DeliveryChannelNotice({ channels, delivery, onSubscribe }: Props
                   border: '1px solid currentColor',
                 }}
               >
-                {STATE_WORD[channel.state]}
+                {(channel.state === 'ready' && READY_WORD[channel.id]) || STATE_WORD[channel.state]}
               </span>
             </div>
             {channel.detail && <p className="mt-1 text-white/70 text-[11px] leading-snug">{channel.detail}</p>}
@@ -62,14 +78,14 @@ export function DeliveryChannelNotice({ channels, delivery, onSubscribe }: Props
                 {channel.operatorStep}
               </p>
             )}
-            {channel.canSubscribe && onSubscribe && (
+            {channel.canSubscribe && onSubscribe && SUBSCRIBE_LABEL[channel.id] && (
               <button
                 type="button"
                 onClick={onSubscribe}
-                className="mt-2 px-3 py-1 rounded-lg text-[11px] text-white"
+                className="mt-2 min-h-11 px-4 rounded-lg text-[11px] text-white"
                 style={{ background: 'var(--color-purple-80)' }}
               >
-                Turn on browser push
+                {SUBSCRIBE_LABEL[channel.id]}
               </button>
             )}
           </li>
@@ -77,11 +93,6 @@ export function DeliveryChannelNotice({ channels, delivery, onSubscribe }: Props
       </ul>
 
       <p className="mt-3 text-white/70 text-[11px] leading-snug">{IN_APP_LIMITATION}</p>
-
-      {/* The server knows something the browser cannot: whether the PRIVATE VAPID
-          half is set. A deployment with only the public key looks push-ready from
-          here, so its own report is shown rather than inferred. */}
-      {delivery && <p className="mt-2 text-white/50 text-[11px] leading-snug">{delivery.detail}</p>}
 
       {!BACKGROUND_DELIVERY_AVAILABLE && (
         <details className="mt-3">

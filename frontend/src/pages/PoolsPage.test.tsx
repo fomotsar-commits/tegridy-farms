@@ -44,6 +44,17 @@ describe('when nothing is deployed', () => {
     expect(screen.getByText(/nothing on chain charges it today/i)).toBeInTheDocument();
   });
 
+  it('never claims in the present tense that a pool can be opened', async () => {
+    // The regression this pins: the hero asserted "anyone can open a pool" above
+    // a status card that says the program id is permanently spent, so a reader
+    // met the capability claim before the correction.
+    await mount();
+    await waitFor(() => expect(screen.getByText(/being redeployed/i)).toBeInTheDocument());
+    expect(screen.queryByText(/anyone can open a pool/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/no pool can be opened here yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/no pool to\s+deposit into today/i)).toBeInTheDocument();
+  });
+
   it('shows the competitive split — 0.25% paid, 0.21% to LPs, 0.04% to the venue', async () => {
     await mount();
     await waitFor(() => expect(screen.getByText('0.25%')).toBeInTheDocument());
@@ -87,6 +98,15 @@ describe('when the venue is live', () => {
         protocolOwner: 'Own1', fundOwner: 'Own2',
       },
     });
+  });
+
+  it('restores the present-tense capability claim only when the probe says live', async () => {
+    await mount();
+    await waitFor(() => expect(screen.getByText(/Pools are open/i)).toBeInTheDocument());
+    // Twice: once in the hero, once in the live status card.
+    expect(screen.getAllByText(/anyone can open a pool/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/no pool can be opened here yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/How it will work/i)).not.toBeInTheDocument();
   });
 
   it('drops the PROPOSAL badge and reads the fees from the chain', async () => {

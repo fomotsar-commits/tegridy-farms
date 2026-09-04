@@ -30,7 +30,7 @@ const TIMELINE = [
   },
   {
     phase: '06',
-    title: 'Tegridy Farms',
+    title: 'memetics.finance',
     description: 'Built by the community, for the community. A DeFi platform where protocol swap fees route on-chain to stakers. No VC money. No insider allocations. Just pure, unadulterated TEGRIDY.',
   },
   {
@@ -41,7 +41,7 @@ const TIMELINE = [
 ];
 
 export default function LorePage() {
-  usePageTitle('Lore', 'The origin story of Tegridy Farms and the TOWELI token.');
+  usePageTitle('Lore', 'The origin story of memetics.finance and the TOWELI token.');
   return (
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}

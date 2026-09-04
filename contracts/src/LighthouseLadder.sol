@@ -117,6 +117,16 @@ contract LighthouseLadder is ReentrancyGuard {
     uint256 public lastUpdateTime;
     uint256 public rewardPerTokenStored;
 
+    /// @notice AUDIT C2 (2026-09-01). Total rewards the accumulator has ever
+    ///         EMITTED to stakers, and the part of that already transferred
+    ///         out. Their difference is the pool's outstanding liability.
+    /// @dev    Exact, not an estimate: `_totalBoosted` can only change inside a
+    ///         function carrying `updateReward`, so between two checkpoints it
+    ///         is constant and the increment below captures that whole window.
+    ///         (emergencyWithdraw was the one exception; C3 closed it.)
+    uint256 public rewardsEmitted;
+    uint256 public rewardsPaid;
+
     mapping(address => uint256) public userRewardPerTokenPaid;
     mapping(address => uint256) public rewards;
 
@@ -180,12 +190,38 @@ contract LighthouseLadder is ReentrancyGuard {
         return bal > _totalSupply ? bal - _totalSupply : 0;
     }
 
+    /// @notice Rewards emitted to stakers and not yet transferred out.
+    /// @dev    `rewardsEmitted` is only banked when a checkpoint runs, so a
+    ///         bare read of it is STALE between interactions — it would
+    ///         under-report the liability by everything accrued since the last
+    ///         touch, and a view that under-reports a debt is the same class of
+    ///         lie this contract refuses everywhere else. So the un-banked
+    ///         window is added here, exactly as `updateReward` would bank it.
+    ///         Inside notifyRewardAmount the modifier has already run, so that
+    ///         term is zero there and the guard is unaffected.
+    function rewardsOutstanding() public view returns (uint256) {
+        uint256 emitted = rewardsEmitted + ((rewardPerToken() - rewardPerTokenStored) * _totalBoosted) / 1e18;
+        return emitted > rewardsPaid ? emitted - rewardsPaid : 0;
+    }
+
+    /// @notice What a NEW reward period may actually draw on: the surplus after
+    ///         reserving what is already owed to existing stakers.
+    function fundableBudget() public view returns (uint256) {
+        uint256 surplus = rewardSurplus();
+        uint256 owed = rewardsOutstanding();
+        return surplus > owed ? surplus - owed : 0;
+    }
+
     function lastTimeRewardApplicable() public view returns (uint256) {
         return Math.min(block.timestamp, periodFinish);
     }
 
     function rewardPerToken() public view returns (uint256) {
         // FORK HUNK 1/2: boosted weight is the divisor.
+        // SLITHER 2026-09-04: division-by-zero guard on the DIVISOR of the very next
+        // expression - the canonical Synthetix StakingRewards shape. Zero is the only
+        // value that must branch, so there is no tolerance to widen into.
+        // slither-disable-next-line incorrect-equality
         if (_totalBoosted == 0) {
             return rewardPerTokenStored;
         }
@@ -261,8 +297,14 @@ contract LighthouseLadder is ReentrancyGuard {
     function withdrawPosition(uint256 id) public nonReentrant updateReward(msg.sender) {
         Position memory p = _owned(id);
         require(block.timestamp >= p.lockEnd, "Lighthouse: still locked");
-        _close(id, p);
+        // AUDIT C1 (2026-09-01, proven by test/vendor/LadderOrderingPoC.t.sol):
+        // _payRewards MUST run before _close. _close debits _totalSupply while
+        // the principal is still held here, and rewardSurplus() is
+        // balanceOf(this) - _totalSupply, so closing first over-states the cap
+        // by exactly this position's own deposit — and in a same-token pool the
+        // payout then comes out of other stakers' principal.
         _payRewards(msg.sender);
+        _close(id, p);
         stakingToken.safeTransfer(msg.sender, p.amount);
         emit Withdrawn(msg.sender, id, p.amount, 0);
     }
@@ -274,8 +316,9 @@ contract LighthouseLadder is ReentrancyGuard {
         // The reference's H-3: a matured position must never eat a penalty by
         // accident — send it to the free door instead of silently charging.
         require(block.timestamp < p.lockEnd, "Lighthouse: use withdrawPosition");
-        _close(id, p);
+        // AUDIT C1: pay before closing — see withdrawPosition above.
         _payRewards(msg.sender);
+        _close(id, p);
         uint256 penalty = (p.amount * EARLY_EXIT_PENALTY_BPS) / BPS;
         uint256 out = p.amount - penalty;
         stakingToken.safeTransfer(msg.sender, out);
@@ -286,10 +329,21 @@ contract LighthouseLadder is ReentrancyGuard {
     ///         path, never reads the accumulator for a payout, and is open at
     ///         ANY time — including while locked (paying the same penalty) and
     ///         including when rewards are broken, unfunded or wedged.
-    /// @dev    No `updateReward` on purpose: this must work even if the reward
-    ///         accounting is the thing that is broken. Accrued rewards are
-    ///         forfeited by taking this door, and the event says so.
-    function emergencyWithdraw(uint256 id) external nonReentrant {
+    /// @dev    AUDIT C3 (2026-09-01): this used to carry NO `updateReward`, on
+    ///         the reasoning that the door must work when reward accounting is
+    ///         broken. That reasoning was wrong in one direction and harmful in
+    ///         the other. `updateReward` performs NO token transfer — it only
+    ///         moves accounting — so it cannot fail because the vault is empty
+    ///         or wedged, and the door stays open exactly as before. Meanwhile
+    ///         omitting it meant `_close` shrank `_totalBoosted`, the divisor in
+    ///         rewardPerToken(), WITHOUT first checkpointing the accumulator —
+    ///         retroactively repricing every other staker's accrual — and threw
+    ///         away the caller's own earned rewards. Checkpointing first fixes
+    ///         both: other stakers are unaffected, and the caller's accrual is
+    ///         preserved in `rewards[]`, claimable later via getReward().
+    ///         It is ALSO what makes the C2 liability accounting exact: every
+    ///         mutation of `_totalBoosted` is now preceded by a checkpoint.
+    function emergencyWithdraw(uint256 id) external nonReentrant updateReward(msg.sender) {
         Position memory p = _owned(id);
         _close(id, p);
         uint256 out = p.amount;
@@ -320,7 +374,14 @@ contract LighthouseLadder is ReentrancyGuard {
         // that counts STAKED PRINCIPAL as fundable budget — the hazard named in
         // VENDOR.md. Here the rate is bounded by the SURPLUS, so an over-notify
         // is refused at the door instead of being paid out of deposits.
-        require(rewardRate <= rewardSurplus() / rewardsDuration, "Provided reward too high");
+        //
+        // AUDIT C2: the surplus alone is NOT the budget. Rewards already
+        // accrued and not yet claimed are physically still in balanceOf(this)
+        // and are not in _totalSupply, so they land in the surplus and were
+        // being offered a second time — the same tokens pledged to two periods,
+        // and a notify of ZERO fresh funding was accepted. Reserve the
+        // outstanding liability first; what is left is the real budget.
+        require(rewardRate <= fundableBudget() / rewardsDuration, "Provided reward too high");
 
         lastUpdateTime = block.timestamp;
         periodFinish = block.timestamp + rewardsDuration;
@@ -365,10 +426,17 @@ contract LighthouseLadder is ReentrancyGuard {
     ///      later top-up settles it — accrual is never lost, only deferred.
     function _payRewards(address account) private {
         uint256 owed = rewards[account];
+        // SLITHER 2026-09-04: nothing-owed early return on an internal accrual counter,
+        // not a token balance. Exact zero is the whole condition.
+        // slither-disable-next-line incorrect-equality
         if (owed == 0) return;
         uint256 payable_ = Math.min(owed, rewardSurplus());
+        // SLITHER 2026-09-04: nothing-payable early return. Anything unpayable STAYS
+        // owed (see the dev-note above), so this branch defers, it never forfeits.
+        // slither-disable-next-line incorrect-equality
         if (payable_ == 0) return;
         rewards[account] = owed - payable_;
+        rewardsPaid += payable_; // AUDIT C2: retires the matching liability.
         rewardsToken.safeTransfer(account, payable_);
         emit RewardPaid(account, payable_);
     }
@@ -376,7 +444,11 @@ contract LighthouseLadder is ReentrancyGuard {
     /* ========== MODIFIERS ========== */
 
     modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
+        // AUDIT C2: bank what this step emitted BEFORE moving the checkpoint,
+        // using the weight in force across the window just closed.
+        uint256 rpt = rewardPerToken();
+        rewardsEmitted += ((rpt - rewardPerTokenStored) * _totalBoosted) / 1e18;
+        rewardPerTokenStored = rpt;
         lastUpdateTime = lastTimeRewardApplicable();
         if (account != address(0)) {
             rewards[account] = earned(account);

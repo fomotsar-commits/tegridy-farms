@@ -65,7 +65,10 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           every established page (fixed, scrimmed, content above). */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="bungalow-farm" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.55)' }} />
+        {/* ART VISIBILITY 2026-08-31 (owner): 0.55 -> 0.38. The card scrims
+            above it were lightened in the same pass; leaving this heavy would
+            have kept the resident's art muddy anyway. */}
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
       {/* Header */}

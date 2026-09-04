@@ -10,7 +10,7 @@ Before you read further, here's the methodology breakdown:
 
 | Type | Count | Description |
 |---|---|---|
-| **External, third-party methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026) |
+| **Reviews to an external methodology** | 2 | `SPARTAN_AUDIT.txt` (Apr 16, 2026) and the pre-release doc archived at [`docs/audits/archive/tegridy_farms_audit.docx`](./docs/audits/archive/tegridy_farms_audit.docx) (Mar 25, 2026). ⚠️ **Neither is a third-party audit.** Spartan's own Appendix C states "The reviewer is an AI assistant (Claude, Anthropic) acting at the direction of the repository owner" — the *methodology* is external, the *reviewer* was not. This row used to be headed "External, third-party methodology", which read as independent authorship. |
 | **Internal AI-agent reviews** | 14 | Parallel Claude/GPT agent sweeps. Useful as a breadth tool. **Not a substitute for a human audit firm.** Latest: **pass-8 adversarial 100-agent audit (May 4–6, 2026)** — see [`.audit_101/PASS8_2026_05_04.md`](./.audit_101/PASS8_2026_05_04.md). The lineage: 100→200→300→40-agent passes (Mar 2026), 101-agent canonical pass (Apr 25, 2026 — [`.audit_101/MASTER_REPORT.md`](./.audit_101/MASTER_REPORT.md) + remediation R001–R076), microscope (Apr 30), DEEP_2026_05_01 v1/v2/v3 (May 1), pass-5 cross-contract (May 2), pass-6 (May 3), pass-7 (May 3), pass-8 (May 4–6). |
 | **Rolling remediation docs** | 3 | `FIX_STATUS.md`, `AUDIT_FINDINGS.md`, `CHANGELOG.md` |
 

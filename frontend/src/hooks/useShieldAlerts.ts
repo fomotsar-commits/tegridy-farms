@@ -53,7 +53,11 @@ export function useShieldAlerts(snapshot: ShieldPositionsSnapshot): UseShieldAle
     lastRunAt: evaluation.lastRunAt,
     running: evaluation.running,
     coverage: evaluation.coverage,
-    storeProblem: status === 'ready' ? null : detail,
+    // `local` is the good state: the rules on screen are the rules in storage.
+    // Only `local-unwritable` is a problem worth putting in front of somebody
+    // watching a loan deadline, and it is a real one — a rule added here will not
+    // survive the reload.
+    storeProblem: status === 'local' ? null : detail,
     runNow: evaluation.runNow,
   };
 }

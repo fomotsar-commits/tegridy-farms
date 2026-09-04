@@ -99,7 +99,7 @@ import { supabase, CHAT_ENABLED } from "./supabase";
 // compared against the JWT claim by api/_lib/proxy-schemas.js `validateBody`
 // and a mismatch is a 400. Sending it is required (the row schemas mark it
 // non-optional), spoofing it is not possible.
-import { proxyWrite } from "./supabaseProxy";
+import { proxyRead, proxyWrite } from "./supabaseProxy";
 
 const SYNC_ENABLED = CHAT_ENABLED; // reuse same Supabase credentials
 
@@ -280,13 +280,17 @@ export async function syncFavorites(wallet, localIds, collectionSlug = "nakamigo
   const lower = wallet.toLowerCase();
 
   try {
-    const { data } = await supabase
-      .from("user_favorites")
-      .select("token_id")
-      .eq("wallet", lower)
-      .eq("collection_slug", collectionSlug);
+    // AUDIT FIX TF-007: read through the SIWE proxy, not the anon key. The
+    // anon key carries no wallet claim, so an anon read can only be served by
+    // a `USING (true)` policy — the one that also serves every OTHER wallet's
+    // favourites to anyone holding the key. No SIWE session means no proven
+    // wallet, which the catch below already degrades to local-only.
+    const data = await proxyRead({
+      table: "user_favorites",
+      match: { wallet: lower, collection_slug: collectionSlug },
+    });
 
-    const remoteIds = (data || []).map(r => r.token_id);
+    const remoteIds = (Array.isArray(data) ? data : []).map(r => r.token_id);
     const merged = [...new Set([...localIds.map(String), ...remoteIds.map(String)])];
 
     // Push any local-only favorites to remote. Its own try/catch: a refused
@@ -352,13 +356,17 @@ export async function syncWatchlist(wallet, localItems, collectionSlug = "nakami
   const lower = wallet.toLowerCase();
 
   try {
-    const { data } = await supabase
-      .from("user_watchlist")
-      .select("token_id, target_price, note")
-      .eq("wallet", lower)
-      .eq("collection_slug", collectionSlug);
+    // AUDIT FIX TF-004: read through the SIWE proxy, not the anon key. Of the
+    // four user-owned tables this is the most sensitive — target_price and
+    // note are a statement of trading intent, joinable to on-chain history by
+    // the wallet column — and it was world-readable to anyone who pulled the
+    // anon key out of the shipped bundle. Same reasoning as syncFavorites.
+    const data = await proxyRead({
+      table: "user_watchlist",
+      match: { wallet: lower, collection_slug: collectionSlug },
+    });
 
-    const remoteMap = new Map((data || []).map(r => [r.token_id, r]));
+    const remoteMap = new Map((Array.isArray(data) ? data : []).map(r => [r.token_id, r]));
     const localMap = new Map(localItems.map(item => [String(item.id), item]));
 
     // Merge: local items take precedence, but add remote-only items

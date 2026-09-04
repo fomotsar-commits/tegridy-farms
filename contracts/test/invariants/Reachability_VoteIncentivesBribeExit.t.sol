@@ -23,23 +23,34 @@ import "../../src/VoteIncentivesAdmin.sol";
 ///             — a voter's claimBribes, or a depositor's refundUnvotedBribe
 ///               / refundOrphanedBribe.
 ///
-///         THE CASE. `disabledPairs` is a factory flag that governance can set
-///         (timelocked `proposePairDisabled`, or the guardian's
-///         `emergencyDisablePair`). If a pair is disabled AFTER an epoch was
-///         finalized and voted past MIN_BRIBE_CLAIM_QUORUM, all three exits
-///         close simultaneously:
+///         THE CASE — FIXED 2026-09-02 BY AUDIT TF-006; THIS FILE NOW PINS THE
+///         FIX RATHER THAN THE TRAP. `disabledPairs` is a factory flag that
+///         governance can set (timelocked `proposePairDisabled`, or the
+///         guardian's `emergencyDisablePair`). If a pair was disabled AFTER an
+///         epoch was finalized and voted past MIN_BRIBE_CLAIM_QUORUM, all three
+///         exits used to close simultaneously:
 ///           * claimBribes          -> _validatePair reverts PairDisabled
 ///           * refundUnvotedBribe   -> requires totalGaugeVotes == 0 ("PAIR_HAS_VOTES")
 ///           * refundOrphanedBribe  -> requires epoch >= epochs.length ("EPOCH_ALREADY_SNAPSHOTTED")
-///         The bribe is then unreachable by any permissionless actor.
+///         and the bribe was unreachable by any permissionless actor.
 ///
-///         SEVERITY IS BOUNDED — AND THIS TEST PROVES BOTH HALVES. The disable
-///         is REVERSIBLE (`proposePairDisabled(pair, false)`), so governance
-///         can re-enable and claims resume. `test_governanceReEnable_restoresExit`
-///         pins that recovery, which is what caps this at "temporarily gated by
-///         governance", not "permanently lost". Both halves are load-bearing:
-///         drop the first and we stop noticing the trap; drop the second and we
-///         would over-state the severity.
+///         TF-006 removed `_validatePair` from the two CLAIM paths, so door 1
+///         no longer closes. The gate stays on all four ENTRY paths (vote,
+///         revealVote, depositBribe, depositBribeETH) — the same entry/exit
+///         split TegridyPair already applied, where mint()/swap() are gated and
+///         burn() "intentionally remains callable on disabled pairs (LP exit)".
+///         Doors 2 and 3 still refuse, for their own unchanged and correct
+///         preconditions; they were never the right door for this case, which
+///         is precisely why closing door 1 trapped the value.
+///
+///         SEVERITY, FOR THE RECORD. Before the fix this was "temporarily gated
+///         by governance", NOT "permanently lost": the disable is reversible via
+///         `proposePairDisabled(pair, false)`, and the test now named
+///         `test_reEnableIsNoLongerNeededForTheExit` used to pin exactly that
+///         recovery. An external audit later reported this as permanent
+///         stranding; that overstated it, and this file is the evidence. What
+///         was real was that an ordinary governance action could put a voter's
+///         EARNED share behind a second governance action. It no longer can.
 ///
 ///         NOTE the mock factory here returns a REAL getPair mapping. The
 ///         pre-existing VoteIncentivesShares mock returns address(0), which
@@ -275,7 +286,22 @@ contract Reachability_VoteIncentivesBribeExitTest is Test {
     ///         finalized and voted past quorum: every permissionless exit closes
     ///         at once, so the bribe pool is unreachable. Conservation-style
     ///         invariants cannot see this — the balance is still fully accounted.
-    function test_disabledAfterQuorum_noPermissionlessExitRemains() public {
+    /// @notice AUDIT FIX TF-006 REVERSED THIS TEST'S POLARITY, deliberately.
+    ///
+    ///         It used to assert that all three exits close together — the
+    ///         characterization of the trap described in this file's header.
+    ///         The fix removes `_validatePair` from the two CLAIM paths, so the
+    ///         voter's exit now survives a disable and the reachability
+    ///         invariant this file exists to defend is SATISFIED rather than
+    ///         violated. The test is rewritten, not deleted: the same scenario
+    ///         is still constructed, and it still fails loudly if exit 1 ever
+    ///         closes again.
+    ///
+    ///         Exits 2 and 3 are still expected to revert. Their preconditions
+    ///         (no votes / epoch not snapshotted) are unchanged and correct —
+    ///         they were never the right door for this case, which is exactly
+    ///         why closing door 1 trapped the value.
+    function test_disabledAfterQuorum_voterExitSurvives() public {
         uint256 epoch = _seedVotedEpoch();
 
         // Pool is real and non-zero.
@@ -283,52 +309,91 @@ contract Reachability_VoteIncentivesBribeExitTest is Test {
 
         factory.setDisabled(address(pair), true);
 
-        // Exit 1 — voter claim: blocked by _validatePair (PairDisabled).
+        // Exit 1 — voter claim: OPEN. Claiming is an exit, and exits are not
+        // gated on disabledPairs (the rule TegridyPair.burn already followed).
+        uint256 before = bribeToken.balanceOf(voter1);
         vm.prank(voter1);
-        vm.expectRevert();
         vi.claimBribes(epoch, address(pair));
+        assertGt(
+            bribeToken.balanceOf(voter1),
+            before,
+            "REACHABILITY VIOLATION: funded bribe pool with no permissionless exit"
+        );
 
-        // Exit 2 — depositor refund of an UNVOTED pool: blocked, the pair HAS votes.
+        // Exit 2 — depositor refund of an UNVOTED pool: still blocked, the pair HAS votes.
         vm.prank(depositor);
         vm.expectRevert();
         vi.refundUnvotedBribe(epoch, address(pair), address(bribeToken));
 
-        // Exit 3 — depositor orphan rescue: blocked, the epoch IS snapshotted.
+        // Exit 3 — depositor orphan rescue: still blocked, the epoch IS snapshotted.
         vm.prank(depositor);
         vm.expectRevert();
         vi.refundOrphanedBribe(epoch, address(pair), address(bribeToken));
-
-        // Value is still there, and still fully conserved — just unreachable.
-        assertGt(
-            vi.epochBribes(epoch, address(pair), address(bribeToken)),
-            0,
-            "REACHABILITY VIOLATION: funded bribe pool with no permissionless exit"
-        );
     }
 
-    /// @notice SEVERITY BOUND: the disable is reversible, so governance re-enabling
-    ///         the pair restores the exit. This is what keeps the finding at
-    ///         "temporarily governance-gated" rather than "permanently stranded".
-    function test_governanceReEnable_restoresExit() public {
+    /// @notice The ENTRY paths must still refuse a disabled pair. Deleting the
+    ///         gate wholesale, rather than confining it to exits, would be a
+    ///         different bug: bribers funding a dead pair and voters burning
+    ///         weight on one. This is the other half of TF-006.
+    function test_disabledPair_stillRefusesNewMoneyAndNewVotes() public {
+        _seedVotedEpoch();
+        factory.setDisabled(address(pair), true);
+
+        bribeToken.mint(depositor, 10 ether);
+        vm.startPrank(depositor);
+        bribeToken.approve(address(vi), 10 ether);
+        vm.expectRevert();
+        vi.depositBribe(address(pair), address(bribeToken), 10 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Was `test_governanceReEnable_restoresExit`, the SEVERITY BOUND:
+    ///         the disable is reversible, so a governance re-enable restored the
+    ///         exit, which is what kept this at "temporarily governance-gated"
+    ///         rather than "permanently stranded". (Worth keeping in mind when
+    ///         reading the external audit: it called this permanent. It was not.)
+    ///
+    ///         AUDIT FIX TF-006 makes the bound irrelevant — the exit no longer
+    ///         needs restoring, because it never closes. The test now pins that
+    ///         re-enabling changes nothing for the claimant, which is the
+    ///         stronger property and still catches a regression that made the
+    ///         exit governance-dependent again.
+    function test_reEnableIsNoLongerNeededForTheExit() public {
         uint256 epoch = _seedVotedEpoch();
         factory.setDisabled(address(pair), true);
 
+        // Open while disabled — this is the line that used to expectRevert.
+        uint256 mid = bribeToken.balanceOf(voter1);
         vm.prank(voter1);
-        vm.expectRevert();
         vi.claimBribes(epoch, address(pair));
+        assertGt(bribeToken.balanceOf(voter1), mid, "the exit must not wait on governance");
 
         factory.setDisabled(address(pair), false); // governance re-enable
 
-        uint256 before = bribeToken.balanceOf(voter1);
-        vm.prank(voter1);
+        // Re-enabled: a DIFFERENT voter's exit is open too, and voter1 — who
+        // already took theirs while the pair was disabled — cannot take a
+        // second. Claiming through a disable must not have skipped the
+        // double-claim ledger.
+        uint256 before2 = bribeToken.balanceOf(voter2);
+        vm.prank(voter2);
         vi.claimBribes(epoch, address(pair));
-        assertGt(bribeToken.balanceOf(voter1), before, "re-enable must restore the claim exit");
+        assertGt(bribeToken.balanceOf(voter2), before2, "every voter's exit stays open");
+
+        uint256 after1 = bribeToken.balanceOf(voter1);
+        vm.prank(voter1);
+        vm.expectRevert();
+        vi.claimBribes(epoch, address(pair));
+        assertEq(bribeToken.balanceOf(voter1), after1, "no second helping for a voter who already claimed");
     }
 
-    /// @notice Fuzzed over bribe size + vote split: the trap does not depend on
-    ///         any particular magnitude, only on the disabled-after-quorum
-    ///         ordering. Guards against a "fix" that merely moves the threshold.
-    function testFuzz_disabledAfterQuorum_trapsAnyPoolSize(uint96 amt, uint96 p1) public {
+    /// @notice Fuzzed over bribe size + vote split. The ORIGINAL point was that
+    ///         the trap did not depend on magnitude, only on the
+    ///         disabled-after-quorum ordering — a guard against a "fix" that
+    ///         merely moved a threshold. AUDIT FIX TF-006 keeps that guard and
+    ///         flips what it proves: the voter's exit is open at EVERY pool
+    ///         size, so a regression that re-closed it only for some magnitude
+    ///         still fails here.
+    function testFuzz_disabledAfterQuorum_voterExitSurvivesAnyPoolSize(uint96 amt, uint96 p1) public {
         uint256 amount = bound(uint256(amt), 1 ether, 10_000 ether);
         uint256 pow1 = bound(uint256(p1), 200e18, 50_000e18);
 
@@ -351,16 +416,17 @@ contract Reachability_VoteIncentivesBribeExitTest is Test {
 
         factory.setDisabled(address(pair), true);
 
+        uint256 before = bribeToken.balanceOf(voter1);
         vm.prank(voter1);
-        vm.expectRevert();
         vi.claimBribes(epoch, address(pair));
+        assertGt(bribeToken.balanceOf(voter1), before, "voter exit must be open at this size too");
+
+        // The other two doors stay shut for their own, unchanged reasons.
         vm.prank(depositor);
         vm.expectRevert();
         vi.refundUnvotedBribe(epoch, address(pair), address(bribeToken));
         vm.prank(depositor);
         vm.expectRevert();
         vi.refundOrphanedBribe(epoch, address(pair), address(bribeToken));
-
-        assertGt(vi.epochBribes(epoch, address(pair), address(bribeToken)), 0, "pool trapped at this size too");
     }
 }

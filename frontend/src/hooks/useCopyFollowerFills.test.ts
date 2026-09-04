@@ -26,6 +26,8 @@ const OUT = '0x1111111111111111111111111111111111111111';
 const NOW = Math.floor(Date.now() / 1000);
 
 const intent: MirrorIntent = {
+  // Hex leader, hex follower, hex quote token: an EVM mirror.
+  venue: 'evm',
   leader: LEADER,
   leaderTxHash: `0x${'ab'.repeat(32)}`,
   leaderTimestamp: NOW - 400,
@@ -34,6 +36,11 @@ const intent: MirrorIntent = {
   quoteToken: QUOTE,
   tokenOut: OUT,
   notionalWei: 10n ** 16n,
+  // Null on purpose, not as a stand-in. This hook reconciles against the
+  // indexer's router feed - the mocked source above - and an intent from that
+  // feed has no pool to name; a poolKey belongs to an intent raised off the
+  // island tape, which a different reconciler handles.
+  poolKey: null,
 };
 
 function fill(over: Record<string, unknown> = {}) {

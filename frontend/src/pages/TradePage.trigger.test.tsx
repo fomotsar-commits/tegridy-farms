@@ -131,7 +131,10 @@ describe('the trigger tab is reachable', () => {
     const labels = within(bar)
       .getAllByRole('tab')
       .map((b) => b.textContent);
-    expect(labels).toEqual(['Swap', 'Liquidity', 'DCA', 'Alerts', 'TWAP', 'Trigger']);
+    // 2026-09-03: 'Alerts' -> 'Limit'. That label was set while this tab WAS a
+    // browser-only price watcher; it is now a real on-chain CoW order whose own
+    // heading says "Limit Order", and /alerts in the nav is a different product.
+    expect(labels).toEqual(['Swap', 'Liquidity', 'DCA', 'Limit', 'TWAP', 'Trigger']);
   });
 
   it('does not steal the default tab', () => {

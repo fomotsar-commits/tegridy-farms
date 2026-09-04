@@ -40,6 +40,10 @@ interface PairBribeSummary {
   tokenCount: number;
   /** Sum of ETH bribes across the last HISTORY_LOOKBACK_EPOCHS scanned. */
   historicalEthAmount: bigint;
+  /** At least one amount or history read for this pair failed, so every
+   *  figure above is a FLOOR rather than a total. A dropped read used to
+   *  vanish silently and understate the pot a voter was bidding into. */
+  amountsIncomplete: boolean;
 }
 
 interface PairClaimable {
@@ -364,7 +368,7 @@ function VotingPowerBanner({ userPower, userUsed, deadline, now, voteEpoch, isCo
 
 // ─── Pending withdrawals panel (ETH + ERC20) ───────────────────────
 function PendingWithdrawalsPanel({ pendingETH, tokens, onWithdrawETH, onWithdrawToken, isBusy }: {
-  pendingETH: bigint;
+  pendingETH: bigint | null;
   tokens: WhitelistedToken[];
   onWithdrawETH: () => void;
   onWithdrawToken: (addr: Address) => void;
@@ -379,7 +383,16 @@ function PendingWithdrawalsPanel({ pendingETH, tokens, onWithdrawETH, onWithdraw
         <p className="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold">Pull-Pattern Refunds</p>
         <InfoTooltip text="If a claim ever fails to transfer (e.g. FoT / paused token), the amount is parked here. Click Withdraw to pull it to your wallet." />
       </div>
-      {pendingETH > 0n && (
+      {pendingETH === null && (
+        <div className="rounded-lg p-3" style={{ background: 'rgba(13,21,48,0.7)' }}>
+          <p className="text-[10px] uppercase tracking-wider text-white/55">Pending ETH</p>
+          <p className="text-amber-300 text-[13px]">
+            Could not be read — the network did not answer. Any refund parked here is
+            still yours and still withdrawable; reload before assuming there is none.
+          </p>
+        </div>
+      )}
+      {pendingETH !== null && pendingETH > 0n && (
         <div className="rounded-lg p-3 flex items-center justify-between flex-wrap gap-2" style={{ background: 'rgba(13,21,48,0.7)' }}>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-white/55">Pending ETH</p>
@@ -507,23 +520,35 @@ function ClaimablesPanel({ claimables, gauges, onClaim, isBusy, isConnected, cur
 }
 
 // ─── Leaderboard controls ──────────────────────────────────────────
-function LeaderboardControls({ search, setSearch, sort, setSort, hideEmpty, setHideEmpty, total, shown }: {
+// Exported for VoteIncentivesSection.controls.test.tsx: this row only mounts
+// once the gauge contracts are wired, so it is unreachable from a render of the
+// section itself and its defects went unreported for exactly that reason.
+export function LeaderboardControls({ search, setSearch, sort, setSort, hideEmpty, setHideEmpty, total, shown }: {
   search: string; setSearch: (v: string) => void; sort: SortKey; setSort: (v: SortKey) => void;
   hideEmpty: boolean; setHideEmpty: (v: boolean) => void; total: number; shown: number;
 }) {
   return (
     <div className="flex items-center gap-3 flex-wrap px-5 py-3 border-b border-white/10">
+      {/* A11Y-R10: the search box was named by its placeholder alone and the
+          sort <select> had no accessible name of any kind — a screen reader
+          announced it as an unlabelled combobox. None of this was reported by
+          the route sweep because the whole leaderboard only mounts once the
+          gauge contracts are wired, which they are not on the audited build. */}
       <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search gauge…"
+        aria-label="Search gauges"
         className="flex-1 min-w-[140px] bg-black/50 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] focus:border-purple-500 outline-none transition-colors" />
       <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}
+        aria-label="Sort gauges by"
         className="bg-black/50 border border-white/15 rounded-lg px-3 py-2 text-white text-[12px] focus:border-purple-500 outline-none transition-colors">
         <option value="bribe" className="bg-[#0a0f1a]">Sort: Bribe TVL</option>
         <option value="votes" className="bg-[#0a0f1a]">Sort: Total Votes</option>
         <option value="yours" className="bg-[#0a0f1a]">Sort: Your Allocation</option>
         <option value="claimable" className="bg-[#0a0f1a]">Sort: Your Claimable</option>
       </select>
-      <label className="flex items-center gap-1.5 text-white/70 text-[11.5px] cursor-pointer select-none">
-        <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="w-3.5 h-3.5 accent-purple-500" />
+      {/* 14px box in a label with no height: the whole row is the target, so it
+          carries the 44px floor and the box itself goes to 16px. */}
+      <label className="flex items-center gap-1.5 min-h-[44px] text-white/70 text-[11.5px] cursor-pointer select-none">
+        <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="w-4 h-4 accent-purple-500" />
         Hide empty
       </label>
       <span className="text-[11px] text-white/45 ml-auto">{shown} / {total}</span>
@@ -538,7 +563,7 @@ function GaugeRow({
   onSelect, onSubmitVote, isBusy, isPending, isConfirming, deadlineSeconds,
 }: {
   gauge: GaugeInfo; summary: PairBribeSummary;
-  totalVotes: bigint; userVotes: bigint; userClaimable: bigint;
+  totalVotes: bigint | null; userVotes: bigint | null; userClaimable: bigint;
   whitelistMap: Map<string, WhitelistedToken>;
   selected: boolean; canVote: boolean; voteDisabled: boolean;
   voteInput: string; setVoteInput: (v: string) => void; remainingPower: bigint;
@@ -557,9 +582,14 @@ function GaugeRow({
     try { return parseEther(voteInput); } catch { return 0n; }
   })();
   const tooMuch = voteWei > remainingPower;
-  const projectedEarn = voteWei > 0n && summary.ethAmount > 0n
+  // An unreadable tally must not become an optimistic one. totalVotes === 0n
+  // is a real state (nobody has voted this gauge yet) and the projection is
+  // then honestly the whole pot — but a FAILED read used to collapse to the
+  // same 0n and quote that same maximal number about a gauge that may already
+  // be crowded. null means unknown, and unknown projects nothing.
+  const projectedEarn = totalVotes !== null && voteWei > 0n && summary.ethAmount > 0n
     ? (voteWei * summary.ethAmount) / (totalVotes + voteWei)
-    : 0n;
+    : null;
 
   // AUDIT BRIBES-UX: surface the per-vote earning rate without requiring the
   // user to type a vote amount first. At 1000 TOWELI voted the share is
@@ -567,7 +597,7 @@ function GaugeRow({
   // a typical new voter would get — and tracks closely with the real rate as
   // long as totalVotes >> 1000.
   const PROJECTION_UNIT = parseEther('1000');
-  const marginalEthPer1k = summary.ethAmount > 0n && totalVotes > 0n
+  const marginalEthPer1k = summary.ethAmount > 0n && totalVotes !== null && totalVotes > 0n
     ? (PROJECTION_UNIT * summary.ethAmount) / (totalVotes + PROJECTION_UNIT)
     : 0n;
 
@@ -585,9 +615,15 @@ function GaugeRow({
             <div className="flex items-center gap-2 flex-wrap">
               <p className="text-white text-[14px] font-semibold">{gauge.label}</p>
               {selected && <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/25 text-purple-200 border border-purple-500/40">Selected</span>}
-              {userVotes > 0n && (
+              {userVotes !== null && userVotes > 0n && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
                   Your vote: {formatTokenAmount(formatEther(userVotes), 2)}
+                </span>
+              )}
+              {summary.amountsIncomplete && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-500/40"
+                  title="One or more bribe reads for this gauge did not come back, so the amounts shown are a floor, not a total.">
+                  partial read
                 </span>
               )}
               {marginalEthPer1k > 0n && (
@@ -609,7 +645,9 @@ function GaugeRow({
           <div className="flex items-center gap-4 flex-wrap text-right">
             <div>
               <p className="text-[10px] text-white/50 uppercase tracking-wider">Total Votes</p>
-              <p className="text-white text-[13px] stat-value font-mono">{totalVotes > 0n ? formatTokenAmount(formatEther(totalVotes), 2) : '—'}</p>
+              <p className="text-white text-[13px] stat-value font-mono">
+                {totalVotes === null ? 'unavailable' : totalVotes > 0n ? formatTokenAmount(formatEther(totalVotes), 2) : '—'}
+              </p>
             </div>
             <div>
               <p className="text-[10px] text-white/50 uppercase tracking-wider">ETH Bribe</p>
@@ -665,7 +703,9 @@ function GaugeRow({
             </span>
             {tooMuch ? (
               <span className="text-red-300">Exceeds remaining — contract would revert.</span>
-            ) : projectedEarn > 0n ? (
+            ) : totalVotes === null && voteWei > 0n ? (
+              <span className="text-amber-300/90">Current votes could not be read — no projection shown.</span>
+            ) : projectedEarn !== null && projectedEarn > 0n ? (
               <span className="text-emerald-300">
                 ≈ {formatTokenAmount(formatEther(projectedEarn), 5)} ETH projected at current votes
               </span>
@@ -1092,12 +1132,12 @@ export function VoteIncentivesSection() {
   });
   const perPairVotes = useMemo(() => {
     const stride = address ? 2 : 1;
-    const m = new Map<string, { total: bigint; user: bigint }>();
+    const m = new Map<string, { total: bigint | null; user: bigint | null }>();
     gauges.forEach((g, i) => {
       const totalR = voteData?.[i * stride];
       const userR = address ? voteData?.[i * stride + 1] : undefined;
-      const total = totalR?.status === 'success' ? (totalR.result as bigint) : 0n;
-      const user = userR?.status === 'success' ? (userR.result as bigint) : 0n;
+      const total = totalR?.status === 'success' ? (totalR.result as bigint) : null;
+      const user = !address ? 0n : userR?.status === 'success' ? (userR.result as bigint) : null;
       m.set(g.pair.toLowerCase(), { total, user });
     });
     return m;
@@ -1168,8 +1208,11 @@ export function VoteIncentivesSection() {
   const pairSummaries = useMemo<PairBribeSummary[]>(() => {
     const byPair = new Map<string, EpochBribe[]>();
     gauges.forEach((g) => byPair.set(g.pair.toLowerCase(), []));
+    const incomplete = new Set<string>();
     amountReads.forEach((entry, i) => {
-      const amt = amountData?.[i]?.status === 'success' ? (amountData[i]!.result as bigint) : 0n;
+      const r = amountData?.[i];
+      if (r && r.status !== 'success') incomplete.add(entry.pair.toLowerCase());
+      const amt = r?.status === 'success' ? (r.result as bigint) : 0n;
       if (amt > 0n) {
         const list = byPair.get(entry.pair.toLowerCase()) ?? [];
         list.push({ token: entry.token, amount: amt });
@@ -1182,9 +1225,11 @@ export function VoteIncentivesSection() {
       const ethEntry = list.find((b) => b.token.toLowerCase() === ZERO_ADDRESS);
       const tokenEntries = list.filter((b) => b.token.toLowerCase() !== ZERO_ADDRESS);
       let historical = 0n;
+      let historyIncomplete = false;
       for (let i = 0; i < stride; i++) {
         const r = historyData?.[gi * stride + i];
         if (r?.status === 'success') historical += r.result as bigint;
+        else if (r) historyIncomplete = true;
       }
       return {
         pair: g.pair,
@@ -1192,6 +1237,7 @@ export function VoteIncentivesSection() {
         ethAmount: ethEntry?.amount ?? 0n,
         tokenCount: tokenEntries.length,
         historicalEthAmount: historical,
+        amountsIncomplete: incomplete.has(g.pair.toLowerCase()) || historyIncomplete,
       };
     });
   }, [amountReads, amountData, gauges, historyData, historyEpochs]);
@@ -1275,7 +1321,10 @@ export function VoteIncentivesSection() {
       : [],
     query: { enabled: !!address && bribes.isDeployed, refetchInterval: 30_000 },
   });
-  const pendingETH = pendingETHData?.[0]?.status === 'success' ? (pendingETHData[0]!.result as bigint) : 0n;
+  // OUTAGE-AS-ZERO. Defaulting this to 0n hid the refunds panel entirely on a
+  // failed read, so ETH the contract owes the user became invisible. Unknown
+  // is not zero: pass null through and let the panel say so.
+  const pendingETH = pendingETHData?.[0]?.status === 'success' ? (pendingETHData[0]!.result as bigint) : null;
 
   // ── Rescue countdown (for the current deposit epoch) ────────
   const { data: firstDepositData } = useReadContract({
@@ -1346,8 +1395,10 @@ export function VoteIncentivesSection() {
     const combined = gauges.map((g) => {
       const summary = pairSummaries.find((p) => p.pair === g.pair) ?? {
         pair: g.pair, bribes: [], ethAmount: 0n, tokenCount: 0, historicalEthAmount: 0n,
+        amountsIncomplete: false,
       };
-      const votes = perPairVotes.get(g.pair.toLowerCase()) ?? { total: 0n, user: 0n };
+      const votes = perPairVotes.get(g.pair.toLowerCase())
+        ?? { total: null as bigint | null, user: null as bigint | null };
       const claimable = claimableByPair.get(g.pair.toLowerCase()) ?? 0n;
       return { gauge: g, summary, votes, claimable };
     });
@@ -1359,8 +1410,9 @@ export function VoteIncentivesSection() {
     });
     const sorted = [...filtered].sort((a, b) => {
       switch (sort) {
-        case 'votes': return b.votes.total > a.votes.total ? 1 : b.votes.total < a.votes.total ? -1 : 0;
-        case 'yours': return b.votes.user > a.votes.user ? 1 : b.votes.user < a.votes.user ? -1 : 0;
+        // Ordering is a preference, not a claim, so an unknown sorts as zero.
+        case 'votes': { const at = a.votes.total ?? 0n, bt = b.votes.total ?? 0n; return bt > at ? 1 : bt < at ? -1 : 0; }
+        case 'yours': { const au = a.votes.user ?? 0n, bu = b.votes.user ?? 0n; return bu > au ? 1 : bu < au ? -1 : 0; }
         case 'claimable': return b.claimable > a.claimable ? 1 : b.claimable < a.claimable ? -1 : 0;
         case 'bribe': default:
           if (a.summary.ethAmount !== b.summary.ethAmount) return b.summary.ethAmount > a.summary.ethAmount ? 1 : -1;

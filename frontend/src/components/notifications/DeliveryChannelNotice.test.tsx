@@ -6,7 +6,7 @@
 // The button is absent, and its reason is present.
 
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { DeliveryChannelNotice } from './DeliveryChannelNotice';
 import { readPushEnvironment, resolveChannels } from '../../lib/alerts/channels';
 
@@ -62,17 +62,53 @@ describe('the reasons are rendered, not hidden', () => {
     expect(screen.getByText(/Nothing runs when it is closed/i)).toBeInTheDocument();
   });
 
-  it('prefers the SERVER’s delivery report, which knows about the private key half', () => {
-    render(
-      <DeliveryChannelNotice
-        channels={resolveChannels(readPushEnvironment())}
-        delivery={{
-          pushConfigured: false,
-          backgroundWorker: false,
-          detail: 'No VAPID key pair is set on this deployment and no background worker exists.',
-        }}
-      />,
+  it('states the OS-notification channel’s one limit, in every state', () => {
+    const channels = resolveChannels({
+      vapidPublicKey: '',
+      hasNotificationApi: true,
+      hasServiceWorker: true,
+      permission: 'granted',
+      subscribed: false,
+    });
+    render(<DeliveryChannelNotice channels={channels} />);
+    // "Delivering" would be too strong for a channel that stops the moment the
+    // last tab closes, so this channel gets its own badge word.
+    expect(screen.getByText('On, while a tab is open')).toBeInTheDocument();
+    expect(screen.getByText(/every tab of this site is closed/i)).toBeInTheDocument();
+  });
+});
+
+describe('the one switch that is offered, and the one that is not', () => {
+  const env = (permission: NotificationPermission) => ({
+    vapidPublicKey: 'BKd0-test',
+    hasNotificationApi: true,
+    hasServiceWorker: true,
+    permission,
+    subscribed: false,
+  });
+
+  it('offers the notification switch only when pressing it would achieve something', () => {
+    const { unmount } = render(
+      <DeliveryChannelNotice channels={resolveChannels(env('default'))} onSubscribe={vi.fn()} />,
     );
-    expect(screen.getByText(/no background worker exists/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Turn on browser notifications' })).toBeInTheDocument();
+    unmount();
+
+    for (const permission of ['granted', 'denied'] as const) {
+      const view = render(
+        <DeliveryChannelNotice channels={resolveChannels(env(permission))} onSubscribe={vi.fn()} />,
+      );
+      expect(screen.queryByRole('button', { name: 'Turn on browser notifications' })).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it('clicking it asks exactly once, and the target is 44px tall', () => {
+    const onSubscribe = vi.fn();
+    render(<DeliveryChannelNotice channels={resolveChannels(env('default'))} onSubscribe={onSubscribe} />);
+    const button = screen.getByRole('button', { name: 'Turn on browser notifications' });
+    expect(button.className).toContain('min-h-11');
+    fireEvent.click(button);
+    expect(onSubscribe).toHaveBeenCalledTimes(1);
   });
 });

@@ -189,6 +189,48 @@ describe('useToweliPrice', () => {
     expect(result.current.ethUsd).toBe(0);
   });
 
+  // 3b. ethUsdForDisplay survives the swap window ────────────────────────
+  it('keeps a display price when the round is older than the 300s SWAP window', () => {
+    // 940s is what the live mainnet feed actually read on 2026-09-03 — a
+    // perfectly healthy round on a 3600s heartbeat. Under the swap window alone
+    // this became ethUsd = 0, and every USD figure on the Farm rendered as a
+    // dash. This is THE regression to keep out: if ethUsdForDisplay ever goes to
+    // 0 here, the pool card silently dashes out again.
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      result: validChainlinkRound(2000, 940),
+    });
+    const { result } = renderHook(() => useToweliPrice());
+    expect(result.current.ethUsdForDisplay).toBe(2000);
+    // The swap window and the staleness flag are deliberately UNCHANGED — this
+    // must not become a backdoor that loosens swap pricing.
+    expect(result.current.ethUsd).toBe(0);
+    expect(result.current.oracleStale).toBe(true);
+  });
+
+  it('drops the display price once the feed misses its own heartbeat', () => {
+    // 4000s > MAX_LAUNCH_STALENESS_SECONDS (3900). Past the feed's own liveness
+    // definition, a dash is the honest output.
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      result: validChainlinkRound(2000, 4000),
+    });
+    const { result } = renderHook(() => useToweliPrice());
+    expect(result.current.ethUsdForDisplay).toBe(0);
+  });
+
+  it('refuses an out-of-band answer for display even when it is fresh', () => {
+    // Display is stricter than `ethUsd` here on purpose: `ethUsd` has never
+    // required the sanity band, but an absurd price must not reach a dollar
+    // figure on screen.
+    wagmiMock.setReadResult({
+      functionName: 'latestRoundData',
+      result: validChainlinkRound(50, 10), // $50, fresh
+    });
+    const { result } = renderHook(() => useToweliPrice());
+    expect(result.current.ethUsdForDisplay).toBe(0);
+  });
+
   // 4. oracleStale when answer is out of sanity range ────────────────────
   it('flips oracleStale when Chainlink ETH/USD is below $100', () => {
     wagmiMock.setReadResult({
