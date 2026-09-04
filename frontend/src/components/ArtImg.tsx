@@ -90,9 +90,38 @@ export function ArtImg({
   // Resolved once: `sizes="auto"` is only valid on a lazy image, so the two must
   // be decided from the same value rather than computed twice.
   const resolvedLoading = loading ?? (fetchPriority === 'high' ? 'eager' : 'lazy');
-  const srcSet = artSrcSet(art.src);
+  const [srcSetFailed, setSrcSetFailed] = useState(false);
+  const candidateSet = artSrcSet(art.src);
+  // Dropped for the retry: re-rendering without it makes the browser load `src`.
+  const srcSet = srcSetFailed ? undefined : candidateSet;
+  /**
+   * A MISSING DERIVATIVE MUST NOT DESTROY THE IMAGE.
+   *
+   * This is a two-step fallback, and the first step is the one that matters. If
+   * the browser picked a `srcset` candidate that 404s, the <img> errors and the
+   * old single-step handler swapped straight to PLACEHOLDER_NFT — so one absent
+   * derivative replaced real art with a placeholder. That is exactly what
+   * happened in CI: a /bayla surface rendered `/placeholder-nft.svg` and the
+   * bungalow-doors spec caught it.
+   *
+   * The manifest is supposed to prevent that by only ever naming files the
+   * generator actually wrote, and `artSrcSet` is gated to PROD on top. Both are
+   * still worth having, but they are promises about the BUILD, and this is the
+   * runtime consequence if either is ever wrong — a stale committed manifest, a
+   * build that skipped `prebuild`, a partial artifact upload, a CDN miss. So:
+   * drop the srcset, retry the ORIGINAL, and only fall back to the placeholder
+   * if the original fails too.
+   */
   const handleError = (e: SyntheticEvent<HTMLImageElement>) => {
-    if (!errored) setErrored(true);
+    if (srcSetFailed || !srcSet) {
+      // No srcset in play, or we already retried without it — this is a genuinely
+      // missing original.
+      if (!errored) setErrored(true);
+    } else {
+      // First failure while a srcset was active: assume a candidate is missing
+      // and fall back to the plain original rather than to the placeholder.
+      setSrcSetFailed(true);
+    }
     onError?.(e);
   };
   return (

@@ -27,6 +27,14 @@
  * generated, the manifest is empty and nothing changes — the failure mode is
  * "no optimisation", never "broken image".
  *
+ * CACHING. vercel.json carries a `/_derived/(.*)` rule with the same week-long
+ * TTL as `/art` and `/splash`, which staticAssetCaching.test.ts requires of every
+ * static media directory. It lives there without an explanatory comment because
+ * Vercel's `headers` schema rejects unknown keys — a `_comment` field inside one
+ * of those entries fails the DEPLOYMENT, not the JSON parse, so the reason is
+ * recorded here instead: a derivative's URL encodes its source path and width, so
+ * it changes only when the source does.
+ *
  * OUTPUT IS GENERATED, NEVER COMMITTED. public/ is tracked, and 347 sources x 2
  * widths would add hundreds of megabytes to the repo. Both the derivative tree and
  * the manifest are gitignored and rebuilt by `npm run build` (npm runs `prebuild`
