@@ -179,12 +179,16 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         Records the entitled recipient when an NFT-out transfer (`unrestake` /
     ///         `emergencyWithdrawNFT`) reverts because the recipient is a hostile
     ///         contract OR an EIP-7702-delegated EOA without `onERC721Received`.
-    ///         Permissionless retry via `claimStrandedRestakeNFT(tokenId)` mirrors
-    ///         the `TegridyStakingJbacVault.claimStrandedJbac` battle-tested pattern
-    ///         already live in this codebase. Pre-fix, a 7702-EOA restaker who
+    ///         Permissionless retry via `claimStrandedRestakeNFT(tokenId, recipient)`
+    ///         mirrors the `TegridyStakingJbacVault.claimStrandedJbac` battle-tested
+    ///         pattern already live in this codebase. Pre-fix, a 7702-EOA restaker who
     ///         ran `unrestake` would self-DoS — the only recovery path was admin
     ///         pause + 24h cooldown + emergencyForceReturn. Now they self-recover
     ///         after removing their delegation.
+    ///         The transfer also reverts when the recipient is an EOA that already
+    ///         holds a staking position (`StakingRewardLib` EOA single-position guard);
+    ///         that cause is not curable by retrying to the same address, which is why
+    ///         the claim takes an explicit `recipient` — see the function's docstring.
     mapping(uint256 => address) public strandedRestakeRecipient;
     event RestakeNFTStranded(uint256 indexed tokenId, address indexed to);
     event RestakeNFTReclaimed(uint256 indexed tokenId, address indexed to);
@@ -1783,21 +1787,70 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     /// @notice AUDIT FIX (BATCH-C H5, mirrors TegridyStakingJbacVault.claimStrandedJbac):
     ///         Permissionless retry path for an NFT that failed delivery during
-    ///         `unrestake` / `emergencyWithdrawNFT` (recipient was a hostile contract
-    ///         or 7702-delegated EOA without `onERC721Received`). Caller must be the
-    ///         recorded entitled recipient — they typically retry after removing
-    ///         their EIP-7702 delegation or upgrading their wallet.
+    ///         `unrestake` / `emergencyWithdrawNFT`. Caller must be the recorded
+    ///         entitled recipient; `recipient` is where the NFT actually lands.
+    ///
+    /// @dev    WHY `recipient` IS A PARAMETER AND NOT HARDCODED TO `msg.sender`.
+    ///         (2026-09-04) There are two distinct causes of stranding, and only
+    ///         one of them is curable by retrying to the same address.
+    ///
+    ///           1. WALLET-SIDE (the original BATCH-C H5 case): the recipient was a
+    ///              hostile contract or an EIP-7702-delegated EOA without
+    ///              `onERC721Received`. Retrying to the SAME address works once the
+    ///              user removes their delegation or upgrades their wallet.
+    ///
+    ///           2. STAKING-GUARD-SIDE (found 2026-09-04): the recipient is an EOA
+    ///              that already holds another staking position. The EOA
+    ///              single-position guard in `StakingRewardLib.afterTokenTransfer`
+    ///              (src/lib/StakingRewardLib.sol:872-878) reverts
+    ///              `AlreadyHasPosition` whenever `userTokenId[to] != 0` and `to` is
+    ///              an EOA. It relaxes for `isLendingContract[from]` but NOT for
+    ///              `from == restakingContract` — even though the sibling
+    ///              `escrowHop` computation twelve lines below (:880-884) DOES treat
+    ///              the restaking hop as an escrow hop. The two disagree.
+    ///
+    ///              This is reachable on the ordinary path: `restake` moves the NFT
+    ///              out and zeroes `userTokenId[user]`, which is exactly the field
+    ///              `TegridyStaking.stake` gates on, so the user may open a second
+    ///              position while restaked. `StreamingRevenueDistributor` (:553)
+    ///              documents `stake -> restake -> stake` as a PERMITTED flow and
+    ///              its two power legs are additive precisely to serve it — so the
+    ///              flow must keep working, and the return hop must have an exit.
+    ///
+    ///              For cause 2, retrying to the same address can NEVER succeed
+    ///              while that second position is held: the guard reads
+    ///              `userTokenId[to]`, not the sender. Without a `recipient`
+    ///              parameter the user's only escape is to unwind a perfectly good
+    ///              second position first.
+    ///
+    ///         This mirrors `TegridyPositionMarket.cancel(orderId, recipient)`,
+    ///         which carries a recipient parameter for the IDENTICAL trap (see its
+    ///         comment at markets/TegridyPositionMarket.sol:316-322 — escrowing
+    ///         zeroes `userTokenId[seller]`, so a seller who then stakes anew is
+    ///         ineligible to receive their own escrowed position back).
+    ///
+    ///         The staking-side guard is deliberately NOT relaxed here: `StakingRewardLib`
+    ///         is deployed and linked into the live `TegridyStaking`, so it cannot be
+    ///         changed without redeploying staking and migrating live positions. This
+    ///         contract is not yet deployed, so the fix is free on this side.
+    ///
+    /// @dev    Entitlement is unchanged — only the recorded recipient may claim. The
+    ///         parameter widens WHERE the NFT may land, never WHO may move it.
     /// @dev    CEI: clear stranded record BEFORE outbound transfer so a re-entrant
     ///         claim cannot double-collect. nonReentrant adds defense-in-depth.
-    /// @dev    No try/catch on the retry — if it still fails, the user can call
-    ///         again until they fix their wallet (state was rolled back by the
-    ///         outer `tx.revert`, so the stranded mapping persists).
-    function claimStrandedRestakeNFT(uint256 tokenId) external nonReentrant {
+    /// @dev    No try/catch on the retry — if it still fails (e.g. `recipient` also
+    ///         holds a position), the whole call reverts, the `delete` above is rolled
+    ///         back with it, and the stranded record survives for another attempt.
+    /// @param  tokenId   The stranded staking-position NFT.
+    /// @param  recipient Destination. Pass an address with no staking position of its
+    ///                   own; passing one that holds a position reverts on the guard.
+    function claimStrandedRestakeNFT(uint256 tokenId, address recipient) external nonReentrant {
         address to = strandedRestakeRecipient[tokenId];
         if (to == address(0) || to != msg.sender) revert NotRestakedToken();
+        if (recipient == address(0)) revert ZeroAddress();
         delete strandedRestakeRecipient[tokenId];
-        stakingNFT.safeTransferFrom(address(this), to, tokenId);
-        emit RestakeNFTReclaimed(tokenId, to);
+        stakingNFT.safeTransferFrom(address(this), recipient, tokenId);
+        emit RestakeNFTReclaimed(tokenId, recipient);
     }
 
     // ─── Pause ────────────────────────────────────────────────────────
@@ -2086,9 +2139,10 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             nftReturned = true;
         } catch {
             // AUDIT FIX FRESH-2026: M-2 [F-03-K2] — record stranded recipient so
-            // the user can self-recover via `claimStrandedRestakeNFT(tokenId)`
-            // after fixing their wallet (e.g. removing EIP-7702 delegation,
-            // or deploying an `IERC721Receiver`-compliant wrapper). Pre-fix,
+            // the user can self-recover via `claimStrandedRestakeNFT(tokenId,
+            // recipient)` after fixing their wallet (e.g. removing EIP-7702
+            // delegation, or deploying an `IERC721Receiver`-compliant wrapper),
+            // or by naming a recipient that holds no staking position. Pre-fix,
             // this catch arm only flipped `nftReturned = false` — the NFT
             // became permanently stuck because:
             //   * `restakers[restaker]` was already cleared (line ~1771),
