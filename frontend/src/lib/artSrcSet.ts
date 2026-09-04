@@ -25,7 +25,22 @@ import DERIVATIVES from './artDerivatives.generated.json';
 /** Kept in lock-step with WIDTHS in scripts/generate-image-derivatives.mjs. */
 export const DERIVATIVE_WIDTHS = [128, 480, 960] as const;
 
-const MANIFEST = DERIVATIVES as Record<string, number>;
+/**
+ * `natural` for the ordinary case, `[natural, ...widths]` for the few sources
+ * whose width list cannot be derived. See the manifest comment in the generator:
+ * a webp that comes out no smaller than its source is not written, which for
+ * four of the five avif sources takes out the 960 candidate even though they are
+ * 2000px wide. Deriving would advertise a URL that is not there.
+ */
+type ManifestEntry = number | number[];
+const MANIFEST = DERIVATIVES as unknown as Record<string, ManifestEntry>;
+
+/** The source's true pixel width, whichever form the entry takes. */
+export function naturalWidthOf(src: string): number | undefined {
+  const v = MANIFEST[src];
+  if (v === undefined) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
 
 /** `/art/x.jpg` @480 -> `/_derived/art/x-480.webp`. Mirrors the generator. */
 export function derivedUrl(src: string, width: number): string {
@@ -36,9 +51,13 @@ export function derivedUrl(src: string, width: number): string {
 
 /** The widths that actually exist for this source — never wider than the original. */
 export function widthsFor(src: string): number[] {
-  const natural = MANIFEST[src];
-  if (!natural) return [];
-  return DERIVATIVE_WIDTHS.filter((w) => natural > w);
+  const v = MANIFEST[src];
+  if (v === undefined) return [];
+  // An explicit list is authoritative: it exists precisely because the derived
+  // answer would be wrong. Never fall back to deriving when one is present.
+  if (Array.isArray(v)) return v.slice(1);
+  if (!v) return [];
+  return DERIVATIVE_WIDTHS.filter((w) => v > w);
 }
 
 /**
@@ -60,7 +79,7 @@ export function artSrcSet(src: string): string | undefined {
   // npm runs it before `build`, and `build` is the only way dist/ exists.
   if (!import.meta.env.PROD) return undefined;
 
-  const natural = MANIFEST[src];
+  const natural = naturalWidthOf(src);
   if (!natural) return undefined;
   const widths = widthsFor(src);
   if (widths.length === 0) return undefined;
@@ -93,4 +112,35 @@ export function artSrcSet(src: string): string | undefined {
  */
 export function artSizes(loading: string | undefined): string {
   return loading === 'lazy' ? 'auto' : '100vw';
+}
+
+/**
+ * The `srcSet`/`sizes` pair for a raw `<img>`, or `{}` when there is nothing to
+ * offer. Spread it: `<img src={art.src} {...artImgProps(art.src)} />`.
+ *
+ * WHY A HELPER RATHER THAN TWO ATTRIBUTES AT EACH SITE. `sizes` is only
+ * meaningful alongside `srcSet`, and `sizes="auto"` is only VALID on a
+ * lazy-loaded image. Writing the pair by hand at two dozen call sites is two
+ * dozen chances to set one without the other, and neither mistake throws — the
+ * first is inert, the second silently reverts to the 100vw default and serves
+ * the full-size original, which is exactly the bug this whole pipeline exists
+ * to fix and exactly the bug that is invisible in review.
+ *
+ * ArtImg does the same thing internally; this is for the surfaces that cannot
+ * use ArtImg because they need their own object-position, filter or transform
+ * styling on the element itself.
+ */
+export function artImgProps(
+  src: string | undefined,
+  loading: 'lazy' | 'eager' = 'lazy',
+): { srcSet: string; sizes: string } | Record<string, never> {
+  // `string | undefined` rather than `string` on purpose. Several call sites read
+  // their art out of a Record with noUncheckedIndexedAccess on, so the value is
+  // legitimately optional there; requiring a non-null assertion at each of them
+  // would be asking callers to promise something they cannot, to satisfy a helper
+  // whose honest answer for a missing source is "no candidates" anyway.
+  if (!src) return {};
+  const srcSet = artSrcSet(src);
+  if (!srcSet) return {};
+  return { srcSet, sizes: artSizes(loading) };
 }

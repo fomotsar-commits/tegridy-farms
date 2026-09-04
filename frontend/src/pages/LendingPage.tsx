@@ -43,6 +43,7 @@ import {
 } from '../lib/constants';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 import { isPooledLendingLive, isBnplLive } from '../hooks/usePooledLendingConfig';
+import { artImgProps } from '../lib/artSrcSet';
 
 type Section = 'lending' | 'nftlending' | 'pooled' | 'bnpl' | 'amm' | 'launchpad';
 
@@ -249,7 +250,7 @@ export default function LendingPage() {
                     transition={{ delay: i * 0.05, duration: 0.3 }}
                   >
                     <div className="absolute inset-0">
-                      <img src={card.art.src} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" style={artStyle(card.art)} />
+                      <img src={card.art.src} {...artImgProps(card.art.src)} alt="" loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" style={artStyle(card.art)} />
                     </div>
                     <div className="relative z-10 p-4" style={{ background: 'rgba(6, 12, 26, 0.7)' }}>
                     <div className="flex items-start gap-3">

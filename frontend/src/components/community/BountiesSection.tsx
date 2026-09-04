@@ -15,6 +15,7 @@ import { surfaceTxError } from '../../lib/txErrors';
 // stored content via SafeText to harden against pre-fix payloads.
 import { sanitizeUserText, isAllowedSubmissionUri, SUBMISSION_URI_ERROR, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
+import { artImgProps } from '../../lib/artSrcSet';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 const STAT_ARTS = [pageArt('bounties', 0), pageArt('bounties', 1), pageArt('bounties', 2), pageArt('bounties', 3)];
@@ -218,7 +219,7 @@ export function BountiesSection() {
         ].map(({ label, value, highlight }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
             <div className="absolute inset-0">
-              <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+              <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} {...artImgProps(STAT_ARTS[i % STAT_ARTS.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
             </div>
             <div className="relative z-10 p-3">
               <p className="text-[10px] text-white/60 uppercase tracking-wider mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{label}</p>

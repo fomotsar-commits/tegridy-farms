@@ -18,6 +18,7 @@ import {
   GITHUB_TREE_BASE,
   isDeployed,
 } from '../lib/constants';
+import { artImgProps } from '../lib/artSrcSet';
 
 const fade = { hidden: { opacity: 0, y: 24 }, visible: { opacity: 1, y: 0 } };
 
@@ -70,7 +71,7 @@ function ArtCard({
       style={{ border: '1px solid var(--color-purple-12)' }}
     >
       <div className="absolute inset-0">
-        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(art)} />
+        <img src={art.src} {...artImgProps(art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(art)} />
       </div>
       <div
         className={`relative z-10 m-2 md:m-3 rounded-lg ${padding}`}
@@ -271,7 +272,7 @@ export default function SecurityPage() {
               return (
                 <div key={c.name} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                   <div className="absolute inset-0">
-                    <img src={artPiece.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    <img src={artPiece.src} {...artImgProps(artPiece.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
                   </div>
                   <div className="relative z-10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
@@ -331,7 +332,7 @@ export default function SecurityPage() {
                 return (
                   <div key={t.severity} className="rounded-xl relative overflow-hidden" style={{ border: '1px solid var(--color-purple-12)' }}>
                     <div className="absolute inset-0">
-                      <img src={artPiece.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                      <img src={artPiece.src} {...artImgProps(artPiece.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
                     </div>
                     <div className="relative z-10 p-4 text-center">
                       <div className="text-lg font-bold" style={{ color: t.color, textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{t.reward}</div>

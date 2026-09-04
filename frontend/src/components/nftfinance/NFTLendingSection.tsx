@@ -11,6 +11,7 @@ import { ArtImg } from '../ArtImg';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import { surfaceTxError } from '../../lib/txErrors';
+import { artImgProps } from '../../lib/artSrcSet';
 
 // Per-collection art for the collateral selector — pulls from each project's
 // canonical asset instead of Tegridy's art pool so the cards represent the
@@ -179,7 +180,7 @@ export function NFTLendingSection() {
             className="relative overflow-hidden rounded-xl"
             style={{ border: `1px solid ${CARD_BORDER}` }}
           >
-            <img src={s.art.src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
+            <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" style={artStyle(s.art)} />
             {/* Translucent black content panel — art bleeds through around the
                 edges while the stat stays readable. */}
             <div
@@ -349,7 +350,7 @@ function LendTab() {
                   : 'border border-white/10 text-white hover:border-white/25'
               }`}
             >
-              <img src={COLLECTION_ART[c.symbol]} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={COLLECTION_ART[c.symbol]} {...artImgProps(COLLECTION_ART[c.symbol])} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
               {/* Label overlaid on the art — text sits inside a tight black
                   inline-block sized to the text itself, not a full-width panel. */}
               <div className="absolute inset-0 p-3 flex flex-col justify-end items-start">
@@ -591,7 +592,7 @@ function BorrowTab({ offerCount }: { offerCount: number }) {
                   : 'border border-white/10 text-white hover:border-white/25'
               }`}
             >
-              <img src={art} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+              <img src={art} {...artImgProps(art)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
               <div className="absolute inset-0 p-3 flex flex-col justify-end items-start">
                 <span
                   className="inline-block text-[15px] font-semibold px-2 py-0.5 rounded"

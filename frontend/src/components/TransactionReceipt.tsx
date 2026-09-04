@@ -14,6 +14,7 @@ import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
 import { VENUE } from '../lib/arrival';
+import { artImgProps } from '../lib/artSrcSet';
 
 type TxStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -351,7 +352,7 @@ function TransactionReceiptOverlay({
             legibility of amounts/hashes carried by the text-shadow on the content
             below rather than a near-opaque scrim. */}
         <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <img src={pageArt('tx-receipt', 0).src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
+          <img src={pageArt('tx-receipt', 0).src} {...artImgProps(pageArt('tx-receipt', 0).src)} alt="" loading="lazy" className="w-full h-full object-cover" style={{ filter: 'blur(1.5px) saturate(1.05)' }} />
           <div className="absolute inset-0" style={{ background: 'rgba(8, 14, 32, 0.55)' }} />
         </div>
 

@@ -6,6 +6,7 @@ import { PulseDot } from '../PulseDot';
 import { Sparkline } from '../Sparkline';
 import { CountUpText } from '../motion';
 import { staggerContainer, staggerItem } from '../../lib/motion';
+import { artImgProps } from '../../lib/artSrcSet';
 
 interface FarmStatsRowProps {
   stats: { tvl: string; toweliPrice: string };
@@ -39,7 +40,7 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, season
         <m.div key={s.l} variants={staggerItem}>
           <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
             <div className="absolute inset-0">
-              <img src={s.art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art, s.pos)} />
+              <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art, s.pos)} />
             </div>
             {/* Semi-transparent content panel — art bleeds through while kyle-green text stays readable. */}
             <div className="relative z-10 m-2 md:m-3 rounded-lg p-3 md:p-4 pt-6 pb-5" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)', border: '1px solid rgba(255,255,255,0.08)' }}>

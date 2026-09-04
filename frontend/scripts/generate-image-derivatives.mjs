@@ -45,8 +45,17 @@ import sharp from 'sharp';
 import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 
-/** Source roots to scan. Everything under them is fair game. */
-const SOURCE_DIRS = ['art', 'splash'];
+/**
+ * Source roots to scan. Everything under them is fair game.
+ *
+ * `nakamigos` and `collections` were added 2026-09-04 after measuring what the
+ * app actually fetches: 2.5 MB of sources in those two directories had no
+ * derivatives at all, purely because nothing had ever listed them here. They are
+ * rendered by the same surfaces as everything else. `tokens` is deliberately
+ * absent -- all 15 files there are under MIN_SOURCE_BYTES, so it would add a
+ * directory walk and produce nothing.
+ */
+const SOURCE_DIRS = ['art', 'splash', 'nakamigos', 'collections'];
 const PUBLIC_ROOT = 'public';
 /** Derivatives live here, mirroring the source tree. Gitignored. */
 const DERIVED_DIR = join(PUBLIC_ROOT, '_derived');
@@ -101,7 +110,7 @@ function walk(dir, out = []) {
     if (entry.isDirectory()) {
       // Never recurse into our own output.
       if (p !== DERIVED_DIR) walk(p, out);
-    } else if (/\.(jpe?g|png)$/i.test(entry.name) && statSync(p).size >= MIN_SOURCE_BYTES) {
+    } else if (/\.(jpe?g|png|avif|webp)$/i.test(entry.name) && statSync(p).size >= MIN_SOURCE_BYTES) {
       out.push(p);
     }
   }
@@ -164,6 +173,7 @@ async function main() {
   const manifest = {};
   let written = 0;
   let skipped = 0;
+  let oversized = 0;
   let sourceBytes = 0;
   let derivedBytes = 0;
   const startedAt = Date.now();
@@ -184,10 +194,14 @@ async function main() {
     // vanished between the walk and here gets -Infinity, which makes every
     // candidate stale -- sharp then fails on it and the catch above skips it.
     let sourceMtime = Infinity;
+    let sourceSize = 0;
     try {
-      sourceMtime = statSync(file).mtimeMs;
+      const st = statSync(file);
+      sourceMtime = st.mtimeMs;
+      sourceSize = st.size;
     } catch {
       sourceMtime = Infinity; // unknowable: never claim a derivative is current
+      sourceSize = 0; // and never claim a derivative is smaller than it
     }
 
     for (const width of WIDTHS) {
@@ -203,10 +217,38 @@ async function main() {
       if (fresh) {
         skipped++;
       } else {
+        // toBuffer BEFORE the write, because the buffer has to be weighed first.
+        const buf = await sharp(file).resize({ width }).webp({ quality: WEBP_QUALITY }).toBuffer();
+
+        // A DERIVATIVE THAT IS NOT SMALLER IS NOT A DERIVATIVE.
+        //
+        // Found by measurement when avif sources were added to the filter above.
+        // webp is not uniformly better than what it replaces: against
+        // splash/new/58.avif (2000px, 253,623 B) the 480w webp is 76,810 B, but
+        // the 960w webp is 284,776 B -- larger than the full-size original it
+        // would be served instead of. Four of the five avif sources do this.
+        //
+        // srcset makes that a real regression rather than a curiosity: a
+        // full-bleed surface picks the smallest candidate at least as wide as it
+        // needs, so it would take the 960 and download MORE than before the
+        // optimisation existed. Skipping the candidate leaves the original as
+        // the next one up, which is exactly the pre-change behaviour.
+        //
+        // The rule was written for avif and then caught five JPEGs on its first
+        // run -- splash/new/8, 14, 17, 18, 20 and 39, all 1000-1700px, all of
+        // whose 960w webp came out larger than the jpeg it stands in for. Those
+        // were already shipping before avif was ever added to the filter, which
+        // means this pipeline has been serving small regressions on them since
+        // it was written, and nothing would have reported it. The guard is not
+        // an avif special case; avif is just what made it visible.
+        if (buf.length >= sourceSize) {
+          oversized++;
+          continue;
+        }
+
         mkdirSync(dirname(outPath), { recursive: true });
         // toBuffer + write rather than toFile: toFile has been seen to fail on
         // this OneDrive-backed tree while a plain write to the same path succeeds.
-        const buf = await sharp(file).resize({ width }).webp({ quality: WEBP_QUALITY }).toBuffer();
         writeFileSync(outPath, buf);
         written++;
         derivedBytes += buf.length;
@@ -216,16 +258,32 @@ async function main() {
 
     if (entries.length > 0) {
       sourceBytes += statSync(file).size;
-      // THE MANIFEST STORES ONLY THE NATURAL WIDTH, nothing else.
+      // THE MANIFEST STORES THE NATURAL WIDTH, AND THE WIDTH LIST ONLY WHEN IT
+      // CANNOT BE DERIVED.
       //
-      // The derivative URLs are fully derivable from the source path, and the
-      // rule for WHICH widths exist is exactly `natural > width` — the same test
-      // used above. Storing the URLs too made the manifest 77,633 B, and it ships
-      // in the JS bundle, so a feature meant to save bytes was quietly spending
-      // them. Keep the two derivations in lock-step: `derivedUrl` here and
-      // `derivedUrl` in lib/artSrcSet.ts are the same convention, and
-      // artSrcSet.test.ts pins them against each other.
-      manifest[publicUrl(file)] = naturalWidth;
+      // The derivative URLs are fully derivable from the source path, and for
+      // almost every source the rule for WHICH widths exist is exactly
+      // `natural > width`. Storing the URLs too made the manifest 77,633 B, and
+      // it ships in the JS bundle, so a feature meant to save bytes was quietly
+      // spending them.
+      //
+      // The size guard above broke that derivation for a handful of sources: a
+      // width can now be missing even though the source is wider than it. The
+      // runtime cannot infer which, and guessing wrong is not a soft failure —
+      // an advertised candidate that 404s is a BROKEN IMAGE, not a fallback.
+      //
+      // So those sources, and only those, carry an explicit list. Number means
+      // "derive it"; array means [natural, ...the widths that really exist].
+      // Five entries pay the extra bytes; the other 417 do not. Keep the two
+      // derivations in lock-step: `derivedUrl` here and `derivedUrl` in
+      // lib/artSrcSet.ts are the same convention, and artSrcSet.test.ts pins
+      // them against each other.
+      const derivable = WIDTHS.filter((w) => naturalWidth > w);
+      const actual = entries.map((e) => e.width);
+      manifest[publicUrl(file)] =
+        actual.length === derivable.length && actual.every((w, i) => w === derivable[i])
+          ? naturalWidth
+          : [naturalWidth, ...actual];
     }
   }
 
@@ -235,7 +293,8 @@ async function main() {
   const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log(
     `✔ image derivatives: ${Object.keys(manifest).length} sources with variants ` +
-      `(${written} written, ${skipped} already fresh) in ${secs}s`,
+      `(${written} written, ${skipped} already fresh` +
+      `${oversized > 0 ? `, ${oversized} skipped as not smaller` : ''}) in ${secs}s`,
   );
   if (written > 0) {
     console.log(
