@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b tsconfig.app.json tsconfig.node.json && vite build && node scripts/check-dist-graph.mjs && node scripts/render-bungalow-doors.mjs",
+    "build": "node scripts/generate-image-derivatives.mjs && tsc -b tsconfig.app.json tsconfig.node.json && vite build && node scripts/check-dist-graph.mjs && node scripts/render-bungalow-doors.mjs && node scripts/verify-dist-derivatives.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
@@ -19,7 +19,6 @@
     "e2e": "node scripts/run-e2e-with-anvil.mjs",
     "precommit": "npm run lint && tsc -b --noEmit",
     "analyze": "ANALYZE=true vite build",
-    "prebuild": "node scripts/generate-image-derivatives.mjs",
     "verify:env": "node scripts/verify-env.mjs"
   },
   "dependencies": {
