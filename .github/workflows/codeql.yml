@@ -41,6 +41,10 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
+          # Excludes contracts/lib (vendored upstream Solidity libs and their JS
+          # dev scripts). See the file for why, and for what it deliberately does
+          # NOT exclude.
+          config-file: .github/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4

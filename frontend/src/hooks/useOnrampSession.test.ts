@@ -86,7 +86,7 @@ describe('an unsigned partner needs no round-trip', () => {
     );
     expect(result.current.state.kind).toBe('ready');
     if (result.current.state.kind === 'ready') {
-      expect(result.current.state.url.startsWith('https://global.transak.com')).toBe(true);
+      expect(new URL(result.current.state.url).origin).toBe('https://global.transak.com');
     }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -209,7 +209,7 @@ describe('an answer belongs to the inputs it was prepared for', () => {
     rerender({ provider: transak });
     const state = result.current.state;
     expect(state.kind).toBe('ready');
-    expect(state.kind === 'ready' && state.url.startsWith('https://global.transak.com')).toBe(true);
+    expect(state.kind === 'ready' && state.url.startsWith('https://global.transak.com/')).toBe(true);
   });
 
   it('drops a signed URL when the destination address changes underneath it', async () => {

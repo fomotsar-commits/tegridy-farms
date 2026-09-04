@@ -722,6 +722,16 @@ contract TegridyCurveLauncher is OwnableNoRenounce, Pausable, ReentrancyGuard {
     }
 
     function _sendEth(address to, uint256 amount) internal {
+        // SLITHER 2026-09-03 (arbitrary-send-eth, alert #1938): `to` is a
+        // parameter of a shared internal helper, so the detector loses the
+        // caller's guard and reports the helper itself. Every one of the four
+        // call sites fixes the recipient: sell() and claimCreatorFees() pay
+        // `msg.sender` (the latter only after `msg.sender == l.creator`),
+        // withdrawProtocolFees() is onlyOwner, and sweepTreasuryFees() can
+        // only ever pay the owner-set, non-zero `treasury` slot. No caller can
+        // name an arbitrary recipient; all four entrypoints are nonReentrant
+        // and zero the accrued balance before the send.
+        // slither-disable-next-line arbitrary-send-eth
         (bool ok,) = to.call{value: amount}("");
         if (!ok) revert EthSendFailed(to);
     }

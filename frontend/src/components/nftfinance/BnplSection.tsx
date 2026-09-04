@@ -34,7 +34,16 @@ function eth(wei: bigint): string {
 function parsePrice(input: string): bigint | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-  if (!/^\d*\.?\d*$/.test(trimmed)) return null;
+  // A sale price is never this long, and the cap bounds the work a paste into the
+  // price field can make this function do.
+  if (trimmed.length > 80) return null;
+  // Written as an unambiguous alternation rather than `^\d*\.?\d*$`: two adjacent
+  // `\d*` around an optional dot let the engine split a long digit run many ways,
+  // which is quadratic backtracking on a near-miss (CodeQL js/polynomial-redos).
+  // Same form as parseDecimalToBaseUnits in lib/launcher/solana/curve/format.ts.
+  // It also rejects a bare '.', which parseEther threw on anyway — both paths
+  // return null, so nothing this surface renders changes.
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(trimmed)) return null;
   try {
     const wei = parseEther(trimmed);
     return wei > 0n ? wei : null;
