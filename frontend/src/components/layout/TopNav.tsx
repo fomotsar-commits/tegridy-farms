@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
+import { artSrcSet } from '../../lib/artSrcSet';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
@@ -161,8 +162,13 @@ export const TopNav = React.memo(function TopNav() {
         }} />
         {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
             row overflowing. Restored to px-4 the moment there is room. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        {/* GUTTERS STEP DOWN TWICE. CI (Linux) renders Archivo wider than a Windows
+            box does, so 360px measured 370 there while fitting locally - the CI
+            number is the one that counts. px-2 below 400px buys the difference. */}
+        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+          {/* gap-1 below 480px: two gaps in this group, 8px reclaimed, and at
+              360px that is the difference between fitting and not. */}
+          <div className="flex items-center gap-1 min-[480px]:gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
                 an off-logo click can't trigger a ~15s replay). A hover play-icon
@@ -178,7 +184,22 @@ export const TopNav = React.memo(function TopNav() {
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
-              <img src={pageArt('nav-logo', 0).src} alt="" className="w-full h-full object-cover" />
+              {/* RESPONSIVE, 2026-09-04. This renders at 26x26 (44x44 on a
+                  phone) from a 512x512 PNG — 185 KB for an icon, fetched on
+                  EVERY route because it lives in the fixed header, which makes
+                  it the most-repeated wasted byte on the site. The generator
+                  gained a 128px width specifically for slots like this; 480 was
+                  still ~18x the display size.
+                   is a fixed pixel value because this slot genuinely is
+                  fixed — the two Tailwind sizes below are the whole range. */}
+              <img
+                src={pageArt('nav-logo', 0).src}
+                {...(artSrcSet(pageArt('nav-logo', 0).src)
+                  ? { srcSet: artSrcSet(pageArt('nav-logo', 0).src), sizes: '(min-width: 768px) 28px, 44px' }
+                  : {})}
+                alt=""
+                className="w-full h-full object-cover"
+              />
               <span
                 aria-hidden="true"
                 className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
@@ -213,7 +234,12 @@ export const TopNav = React.memo(function TopNav() {
                   The venue's name is the only one the app speaks, in every room
                   including the TOWELI bungalow. Towelie keeps his farm and his
                   voice; the brand word is gone. */}
-              {/* SIZED DOWN BELOW 480px, not truncated. The mark stays whole —
+              {/* SIZED DOWN BELOW 480px, not truncated. Re-tightened 2026-09-04
+                  when the display face changed: Archivo at 900 sets wider than
+                  Playfair did, pushing this row back over its budget at 375px
+                  (379 > 375 in CI). The e2e overflow guard caught it before merge,
+                  which is exactly why that guard exists.
+                  The mark stays whole —
                   both halves always render, so the venue's name is never
                   abbreviated or forked (the 2026-08-31 identity rule). This only
                   buys back width on the narrowest phones, where the row was
@@ -222,8 +248,8 @@ export const TopNav = React.memo(function TopNav() {
                   Caught by e2e/header-reachability.spec.ts, which asserts the
                   row never overflows; the fix for the 640-790px band left this
                   narrower case standing. */}
-              <span className="heading-luxury text-[13px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[12px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              <span className="heading-luxury text-[11px] min-[400px]:text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[10px] min-[400px]:text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;

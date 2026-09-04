@@ -1,7 +1,7 @@
-import { getDefaultConfig, getDefaultWallets } from '@rainbow-me/rainbowkit';
+import { getDefaultWallets, connectorsForWallets } from '@rainbow-me/rainbowkit';
 import { createConfig } from 'wagmi';
 import { injected, coinbaseWallet } from 'wagmi/connectors';
-import { phantomWallet, trustWallet } from './rainbowkitWallets';
+import { phantomWallet, trustWallet, rabbyWallet } from './rainbowkitWallets';
 import { WAGMI_CHAINS, WAGMI_TRANSPORTS } from './chains/viemChains';
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined;
@@ -70,31 +70,7 @@ const transports = WAGMI_TRANSPORTS;
 // cost here is weight, not correctness — so it is documented, not papered over.
 function buildConfig() {
   if (projectId) {
-    return getDefaultConfig({
-      appName: 'memetics.finance',
-      projectId,
-      chains: WAGMI_CHAINS as never,
-      transports,
-      // getDefaultConfig's own default list (getDefaultWallets(): safe /
-      // rainbow / baseAccount / metaMask / walletConnect — taken from the
-      // library so it can never drift), plus the two wallets its default
-      // omits: Phantom and Trust. Neither shipped an entry, so a browser
-      // without the extension never saw the option at all (an installed
-      // extension only surfaced via EIP-6963 discovery, and the MOBILE modal
-      // renders RainbowKit entries only — both were invisible there in every
-      // state). When an extension IS installed the modal merges our entry
-      // with the EIP-6963 announcement by rdns rather than listing it twice.
-      //
-      // Both are VENDORED (see lib/rainbowkitWallets.ts): the package's
-      // /wallets barrel is unbuildable against wagmi 3.7.6
-      // (portoWallet/geminiWallet chunks import named exports wagmi doesn't
-      // ship — rolldown MISSING_EXPORT at build time, green everywhere else).
-      // Phantom is injected-only; Trust falls back to WalletConnect (QR on
-      // desktop, trust:// deep link on mobile), whose optional peer
-      // @walletconnect/ethereum-provider is already installed and guarded by
-      // walletConnectorDeps.test.ts — so neither can hit the WALLET-03
-      // throwing-stub trap.
-      wallets: (() => {
+    const walletList = (() => {
         const { wallets } = getDefaultWallets();
         const popular = wallets[0]!;
         // ORDER IS LOAD-BEARING ON MOBILE. RainbowKit's MobileOptions renders
@@ -117,12 +93,48 @@ function buildConfig() {
             // the app metadata it computes (walletConnectParameters). Wrapping
             // Trust to pass our own projectId would drop that metadata and
             // leave its users approving a nameless WalletConnect session.
-            wallets: [safe, metaMask, phantomWallet, trustWallet, walletConnect, rainbow, base].filter(
+            // rabbyWallet is LAST on purpose and costs nothing that is visible on a
+            // phone. `installed` is false without the extension, so the entry is not
+            // "ready" and RainbowKit's mobile strip drops it entirely; on desktop WITH
+            // the extension it merges with the EIP-6963 announcement by rdns io.rabby.
+            // It earns its place in exactly one state — desktop WITHOUT Rabby — where
+            // EIP-6963 has nothing to announce and this row carries the install path.
+            //
+            // It is the ONLY wallet added from the field review's list of nine. The
+            // rest were skipped deliberately: the mobile strip already holds more
+            // ready entries than its ~4 visible slots, so appending WalletConnect-backed
+            // wallets (OKX, Zerion, Bitget, Binance, Uniswap, Ledger) would push the
+            // wallets people actually use here off the visible strip to serve rows
+            // nobody scrolls to. Brave and Coinbase-extension users already get a row
+            // via EIP-6963 discovery, and `base` covers Base Account.
+            wallets: [safe, metaMask, phantomWallet, trustWallet, walletConnect, rainbow, base, rabbyWallet].filter(
               (w): w is NonNullable<typeof w> => Boolean(w),
             ),
           },
         ];
-      })(),
+      })();
+    const metadata = {
+      name: 'memetics.finance',
+      description: 'memetics.finance',
+      url: typeof window !== 'undefined' ? window.location.origin : '',
+      icons: [] as string[],
+    };
+    const all = connectorsForWallets(walletList as never, {
+      projectId,
+      appName: 'memetics.finance',
+      walletConnectParameters: { metadata },
+    });
+    const STUB = { chains: WAGMI_CHAINS, emitter: { emit() {}, on() {}, off() {} }, storage: null, transports } as never;
+    const lean = all.filter((fn) => {
+      try {
+        const c = fn(STUB) as { rkDetails?: { isWalletConnectModalConnector?: boolean } };
+        return !c?.rkDetails?.isWalletConnectModalConnector;
+      } catch { return true; }
+    });
+    return createConfig({
+      connectors: lean,
+      chains: WAGMI_CHAINS as never,
+      transports,
     });
   }
 

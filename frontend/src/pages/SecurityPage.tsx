@@ -136,7 +136,7 @@ export default function SecurityPage() {
 
         {/* Hero */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 text-white" style={{ fontFamily: 'Playfair Display, serif', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Security &amp; Transparency</h1>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 text-white" style={{ fontFamily: 'var(--font-family-heading)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Security &amp; Transparency</h1>
           <p className="text-white/85 max-w-2xl mx-auto text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Every claim on this page is one you can verify yourself — source-verified contracts on Etherscan, a public audit trail, and code that stays immutable after deployment. Here is the full record, including what we haven't done yet.</p>
         </m.div>
 

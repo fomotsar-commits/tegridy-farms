@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
@@ -78,8 +79,20 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
   const face = (
     <>
       <div className="h-28 md:h-32 w-full overflow-hidden">
+        {/* RESPONSIVE, 2026-09-04. These 13 door thumbnails were the single
+            largest block of wasted bytes on the homepage: each renders at
+            271x128 while its source is up to 2048px wide, and there are
+            thirteen of them. `sizes` is EXPLICIT rather than `auto` because
+            this slot's width is genuinely known — a card in the grid, never
+            more than ~300 CSS px — and an explicit value works in every
+            browser rather than only those that support `sizes=auto`.
+            srcSet is undefined for any source with no derivative, in which
+            case this renders exactly as it did before. */}
         <img
           src={bungalow.thumb}
+          {...(artSrcSet(bungalow.thumb)
+            ? { srcSet: artSrcSet(bungalow.thumb), sizes: '(max-width: 640px) 50vw, 300px' }
+            : {})}
           alt=""
           loading="lazy"
           decoding="async"

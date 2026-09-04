@@ -58,7 +58,7 @@
 
   <!-- Wordmark -->
   <g transform="translate(68 208)" filter="url(#soft-shadow)">
-    <text font-family="'Playfair Display', Georgia, serif"
+    <text font-family="'Archivo', 'Helvetica Neue', Arial, sans-serif"
           font-size="86" font-weight="700" letter-spacing="-0.02em">
       <tspan fill="#f2ead3">MEMETICS</tspan><tspan fill="url(#mint)">.FINANCE</tspan>
     </text>
