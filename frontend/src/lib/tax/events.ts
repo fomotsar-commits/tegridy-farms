@@ -46,10 +46,15 @@
 // `transfer` rows are the position NFT changing wallets at `amount: 0`. Skipped.
 
 import type { IndexedSwap, IndexedStakingAction } from '../indexer/queries';
-import type { AcquisitionEvent, DisposalEvent, TaxLotEvent } from './lots';
+import type { AcquisitionEvent, DisposalEvent, TaxLotEvent, ValueSource } from './lots';
+
+// Provenance types live in lots.ts (the event interfaces that carry them are
+// declared there); re-exported so an adapter has one import for the whole
+// vocabulary rather than two.
+export type { ValueSource, EventInitiator } from './lots';
 
 /** Where a row came from. Stamped on every export line — see lib/tax/csv.ts. */
-export type EventSource = 'indexer' | 'supplied';
+export type EventSource = 'indexer' | 'supplied' | 'explorer';
 
 export interface IncomeEvent {
   id: string;
@@ -61,9 +66,30 @@ export interface IncomeEvent {
   value: bigint | null;
   timestamp: number;
   txHash: string;
+  /** Where `value` came from. Absent exactly when it is null. */
+  valueSource?: ValueSource;
   /** What produced this receipt, in words a filer can categorise. */
   kind: 'staking-reward' | 'revenue-share' | 'other';
   source: EventSource;
+}
+
+/** What kind of thing an informational row is. Printed on the export. */
+export type InformationalCategory =
+  | 'transfer-in'
+  | 'transfer-out'
+  | 'third-party-tx'
+  | 'multi-leg'
+  | 'wrap-unwrap'
+  | 'fee'
+  | 'penalty';
+
+/** One asset moving in one transaction. Signed: negative left the wallet. */
+export interface InformationalLeg {
+  asset: string;
+  symbol: string;
+  delta: bigint;
+  /** Null means the token did not declare a readable scale — display only. */
+  decimals: number | null;
 }
 
 export interface InformationalRow {
@@ -72,6 +98,16 @@ export interface InformationalRow {
   txHash: string;
   label: string;
   detail: string;
+  /** Which read produced it. Written into the export's source column. */
+  source: EventSource;
+  category?: InformationalCategory;
+  /**
+   * What actually moved, when the row is a transaction this venue read but
+   * refused to classify. Listed rather than summarised: "3 assets moved" is not
+   * something a filer can reconcile, and the whole point of these rows is that
+   * the reader can see what the classifier would not commit to.
+   */
+  legs?: InformationalLeg[];
 }
 
 /** A capability this adapter does not have. Carried onto the export verbatim. */
@@ -93,6 +129,48 @@ export const SWAP_PROCEEDS_LIMITATION: AdapterLimitation = {
     'This venue’s indexer records what was sent into a swap and never what came back, so every disposal ' +
     'derived from it has unknown proceeds and unknown acquisition quantity. Those rows are listed with no ' +
     'gain figure and are excluded from the totals — they are not zero-gain trades.',
+};
+
+/**
+ * The limitations of the EXPLORER read (lib/tax/ledger.ts).
+ *
+ * They live here, beside the indexer's, because a limitation belongs to the
+ * report rather than to the adapter that noticed it: lib/tax/csv.ts writes all
+ * of them into the same header block, and a reader deciding whether they can
+ * use the file should not have to know which module was embarrassed by what.
+ */
+export const CHAIN_SCOPE_ETH_ONLY_LIMITATION: AdapterLimitation = {
+  code: 'chain-scope-eth-only',
+  detail:
+    'History was read for ETHEREUM MAINNET only. Base, Solana and every other chain were NOT read, and ' +
+    'nothing here is a statement about them. Within Ethereum, NFT transfers were not read either: an ETH ' +
+    'movement below may be one leg of an NFT sale or purchase whose other leg this report never saw.',
+};
+
+export const MULTI_LEG_UNCLASSIFIED_LIMITATION: AdapterLimitation = {
+  code: 'multi-leg-unclassified',
+  detail:
+    'Some transactions moved more than one asset in or more than one asset out — liquidity adds and ' +
+    'removals, batched router calls, and similar. They are listed with the legs that moved and are NOT ' +
+    'split into trades: inventing a price split across legs would put figures in this file that no ' +
+    'transaction contains.',
+};
+
+export const THIRD_PARTY_UNCLASSIFIED_LIMITATION: AdapterLimitation = {
+  code: 'third-party-unclassified',
+  detail:
+    'Some transactions moved assets in this wallet without the wallet sending them — order fills settled ' +
+    'by a solver, and also address-poisoning contracts, which can emit a transfer that merely CLAIMS the ' +
+    'wallet sent something. They are listed with their legs and are not classified as sales, because a ' +
+    'stranger must not be able to write a disposal into somebody else’s tax report.',
+};
+
+export const EXPLORER_WINDOW_LIMITATION: AdapterLimitation = {
+  code: 'explorer-window-bounded',
+  detail:
+    'The explorer read is bounded to 4 pages of 500 rows per transaction list. Where a list hit that ' +
+    'bound, transactions older than the cut were not read at all and are not classified — and lots ' +
+    'acquired before it are UNKNOWN, not zero. The cut is stated as a coverage gap above.',
 };
 
 export const NO_PRICE_ORACLE_LIMITATION: AdapterLimitation = {
@@ -194,6 +272,8 @@ export function stakingToEvents(
         id: `penalty:${a.id}`,
         timestamp: Number(a.timestamp),
         txHash: a.txHash,
+        source: 'indexer',
+        category: 'penalty',
         label: `Early-withdrawal penalty — ${a.penalty} ${symbol} (smallest units)`,
         detail:
           'The contract charged this penalty on an early unlock. Whether it is deductible anywhere is a ' +

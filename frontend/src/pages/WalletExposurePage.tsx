@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -17,6 +17,7 @@ import { METHOD_VERSION, type Band, type ConfidenceLevel } from '../lib/detectio
 import { formatBalance, formatPercent, shortenAddress } from '../lib/formatting';
 import { Link } from 'react-router-dom';
 import { validateAddress } from '../lib/tokenList';
+import { readExplorerPage, isTokenTxRow } from '../lib/txHistory';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { HeatCard } from '../components/HeatCard';
 
@@ -182,16 +183,44 @@ function HoldingCard({ holding, exposure }: { holding: WalletHolding; exposure: 
   );
 }
 
+/**
+ * What the explorer discovery pass found, as a state a reader can act on.
+ *
+ * `failed` exists so that a `tokentx` read which did not happen can never be
+ * rendered as an empty wallet — the two are different facts and this page's
+ * whole argument is that it keeps them apart.
+ */
+type DiscoveryState =
+  | { kind: 'idle' }
+  | { kind: 'reading' }
+  | { kind: 'failed'; detail: string }
+  | { kind: 'done'; distinct: number; added: number; overCap: boolean; partialLog: boolean };
+
+/**
+ * How many discovered contracts we are willing to add to the balance multicall.
+ *
+ * Each token costs four calls in `useWalletExposure`'s multicall and one holder
+ * scan afterwards, so an unbounded set turns one click into a very long read. A
+ * cap that is DISCLOSED is honest; an undisclosed one is the "short list that
+ * reads as a complete one" failure this page exists to avoid.
+ */
+const DISCOVERY_CAP = 60;
+
+/** One page of the explorer's token-transfer log. 500 is the proxy's own ceiling. */
+const DISCOVERY_PAGE = 500;
+
 export default function WalletExposurePage() {
   usePageTitle(
     'Wallet Exposure',
     'A descriptive, method-disclosed read of concentration and rug exposure across the tokens your wallet holds.',
   );
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
 
   const [extraTokens, setExtraTokens] = useState<string[]>([]);
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState<string | null>(null);
+  const [discovery, setDiscovery] = useState<DiscoveryState>({ kind: 'idle' });
+  const discoveryAbort = useRef<AbortController | null>(null);
 
   // Inject the LIVE scanner adapter (2026-07-24). Previously omitted, so every
   // holding self-gated to `unmeasured` and the page's headline concentration
@@ -207,12 +236,76 @@ export default function WalletExposurePage() {
   });
 
   const summary = useMemo(() => summarizeExposures(Object.values(exposures)), [exposures]);
-  const observedAt = useMemo(() => {
+  // `Date | null`, never `new Date()`.
+  //
+  // The fallback used to be the current clock, so a page where every scan was
+  // still pending — or where every scan had FAILED — stamped "balances read
+  // on-chain as of <now>" onto a read that did not happen. The absence of an
+  // observation is its own fact and the footer says so in words instead.
+  const observedAt = useMemo<Date | null>(() => {
     const ts = Object.values(exposures)
       .map((e) => e.observedAt)
       .sort((a, b) => b - a)[0];
-    return ts ? new Date(ts * 1000) : new Date();
+    return ts ? new Date(ts * 1000) : null;
   }, [exposures]);
+
+  /**
+   * Read the wallet's ERC-20 transfer log through the existing explorer proxy,
+   * take the distinct contracts out of it, and hand them to the SAME on-chain
+   * multicall the curated list already goes through. The explorer decides only
+   * WHICH contracts to look at; every balance on this page is still an on-chain
+   * read, and a token the wallet has since sold reads zero and drops out.
+   *
+   * Opt-in on purpose: `/api/etherscan` is budgeted at 30 requests per minute
+   * per IP, so this spends a request only when a person asks it to.
+   */
+  const discoverTokens = useCallback(async () => {
+    if (!address) return;
+    discoveryAbort.current?.abort();
+    const controller = new AbortController();
+    discoveryAbort.current = controller;
+    setDiscovery({ kind: 'reading' });
+
+    const read = await readExplorerPage('tokentx', address, 1, controller.signal, undefined, DISCOVERY_PAGE)
+      .catch((e: unknown) => ({
+        kind: 'failed' as const,
+        reason: 'proxy-error' as const,
+        detail: e instanceof Error ? e.message : 'The transfer log could not be read.',
+      }));
+    if (controller.signal.aborted) return;
+
+    if (read.kind === 'failed') {
+      // NOT an empty wallet. Nothing was read, and the page has to say that.
+      setDiscovery({ kind: 'failed', detail: read.detail });
+      return;
+    }
+
+    const rows = read.kind === 'rows' ? read.rows.filter(isTokenTxRow) : [];
+    const seen = new Set<string>();
+    const found: string[] = [];
+    for (const r of rows) {
+      const key = r.contractAddress.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const checksummed = validateAddress(r.contractAddress);
+      if (checksummed) found.push(checksummed);
+    }
+    const capped = found.slice(0, DISCOVERY_CAP);
+    // Computed from the value we render against, not inside the state updater:
+    // an updater can be invoked more than once and must stay pure.
+    const have = new Set(extraTokens.map((t) => t.toLowerCase()));
+    const fresh = capped.filter((t) => !have.has(t.toLowerCase()));
+    if (fresh.length > 0) setExtraTokens((prev) => [...prev, ...fresh]);
+    setDiscovery({
+      kind: 'done',
+      distinct: found.length,
+      added: fresh.length,
+      overCap: found.length > DISCOVERY_CAP,
+      // `full` means the page came back at the request size, so there are older
+      // transfers this single page did not reach.
+      partialLog: read.kind === 'rows' && read.full,
+    });
+  }, [address, extraTokens]);
 
   function addPasted() {
     const checksummed = validateAddress(pasteValue.trim());
@@ -246,7 +339,7 @@ export default function WalletExposurePage() {
         <ConnectPrompt
           surface="dashboard"
           title="Connect to scan your wallet"
-          description="Check your balances across a tracked token set — plus any token address you paste. Read-only: no signing, no approvals, no funds moved."
+          description="Check your balances across a tracked token set, the tokens the explorer says you have received, and any token address you paste. Read-only: no signing, no approvals, no funds moved."
         />
       ) : (
         <>
@@ -284,6 +377,45 @@ export default function WalletExposurePage() {
               <button onClick={addPasted} className="btn-secondary px-4 py-2 text-[13px]">Add</button>
             </div>
             {pasteError && <p className="text-[12px] text-red-300 mt-2">{pasteError}</p>}
+
+            {/* Discovery — opt-in, one click, and every outcome named.
+                The curated list cannot answer "what am I holding", and a page
+                that asks that question has to at least try. What the explorer
+                gives us is a list of CONTRACTS this wallet has touched; the
+                balances still come off chain through the multicall above. */}
+            <div className="mt-4 pt-4 border-t border-white/10">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <button
+                  onClick={() => { void discoverTokens(); }}
+                  disabled={discovery.kind === 'reading' || !address}
+                  className="btn-secondary px-4 py-2 text-[13px] min-h-11 disabled:opacity-50"
+                >
+                  {discovery.kind === 'reading' ? 'Reading the transfer log…' : 'Discover my tokens'}
+                </button>
+                <p className="text-white/45 text-[11px] leading-relaxed">
+                  Reads tokens this wallet has ever received, per the explorer — not a complete
+                  wallet index. Balances are then read on chain like everything else here.
+                </p>
+              </div>
+
+              {discovery.kind === 'failed' && (
+                <p className="text-[12px] text-amber-300 mt-2 leading-relaxed">
+                  The transfer log could not be read, so nothing was discovered: {discovery.detail} This
+                  is a failed read, not an empty wallet — the list below is still only the curated set
+                  plus anything you added.
+                </p>
+              )}
+
+              {discovery.kind === 'done' && (
+                <p className="text-white/55 text-[12px] mt-2 leading-relaxed">
+                  {discovery.distinct === 0
+                    ? 'The explorer returned no ERC-20 transfers for this wallet.'
+                    : `${discovery.distinct} distinct token${discovery.distinct === 1 ? '' : 's'} ever received; ${discovery.added} added to the reads below.`}
+                  {discovery.overCap && ` Only the ${DISCOVERY_CAP} most recent were added — the rest are not being read.`}
+                  {discovery.partialLog && ' The log came back full at one page, so transfers older than that page were not read.'}
+                </p>
+              )}
+            </div>
             {extraTokens.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-3">
                 {extraTokens.map((t) => (
@@ -336,10 +468,17 @@ export default function WalletExposurePage() {
           ) : holdings.length === 0 ? (
             <div className="rounded-2xl p-6 text-center"
               style={{ background: CARD_BG, border: CARD_BORDER }}>
-              <p className="text-white/80 text-[14px] mb-1">No tracked ERC-20 balances in this wallet.</p>
+              <p className="text-white/80 text-[14px] mb-1">
+                {discovery.kind === 'done'
+                  ? 'No ERC-20 balances found in this wallet.'
+                  : 'No tracked ERC-20 balances in this wallet.'}
+              </p>
               <p className="text-white/50 text-[12px] leading-relaxed max-w-md mx-auto">
-                This view reads a curated token set plus any address you add above — it does not
-                enumerate every token you hold. Paste a contract address to check a specific position.
+                {discovery.kind === 'done'
+                  ? 'This read covers the curated set, anything you added, and the tokens the explorer says this wallet has received. Tokens acquired in ways the explorer’s transfer log does not show are still not covered.'
+                  : discovery.kind === 'failed'
+                    ? 'The discovery read failed, so this is the curated token set plus anything you added — it says nothing about the rest of the wallet. Try Discover again, or paste a contract address.'
+                    : 'This view reads a curated token set plus any address you add above — it does not enumerate every token you hold. Run Discover above, or paste a contract address to check a specific position.'}
               </p>
             </div>
           ) : (
@@ -354,7 +493,10 @@ export default function WalletExposurePage() {
           {/* Method disclosure */}
           <footer className="mt-8 pt-5 border-t border-white/10 text-white/40 text-[11px] leading-relaxed space-y-1">
             <p>
-              Method {METHOD_VERSION} · balances read on-chain as of {observedAt.toLocaleString()}. Concentration
+              Method {METHOD_VERSION} ·{' '}
+              {observedAt
+                ? `balances read on-chain as of ${observedAt.toLocaleString()}`
+                : 'no distribution read has completed yet, so there is no observation time to report'}. Concentration
               excludes pools, exchanges, bridges, burns and contracts before any math; an unlabeled large wallet
               is kept but lowers confidence, never assumed hostile.
             </p>

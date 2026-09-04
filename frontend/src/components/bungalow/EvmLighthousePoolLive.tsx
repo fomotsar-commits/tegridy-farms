@@ -75,6 +75,13 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
       { ...poolC, functionName: 'earned', args: [userAddr] },
       { ...tokenC, functionName: 'balanceOf', args: [userAddr] },
       { ...tokenC, functionName: 'allowance', args: [userAddr, pool] },
+      // AUDIT FIX TF-035 (breadth): prove this pool really stakes THIS
+      // bungalow's token before any figure is trusted. EvmLadderPoolLive has
+      // carried this since its design review; the finding named the Solana
+      // card, and checking the other direction showed THIS card was missing it
+      // too. A mispasted `stakePool` in the registry would otherwise render a
+      // stranger pool's numbers under our symbol.
+      { ...poolC, functionName: 'stakingToken' },
     ],
     query: { refetchInterval: 30_000 },
   });
@@ -87,6 +94,9 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
     const r = reads?.[5];
     return r && r.status === 'success' ? Number(r.result) : bungalow.decimals ?? 18;
   })();
+  // AUDIT FIX TF-035 (breadth) — index 10, the stakingToken read appended above.
+  const poolToken = reads?.[10]?.status === 'success' ? String(reads[10].result) : null;
+  const identityMismatch = poolToken !== null && poolToken.toLowerCase() !== token.toLowerCase();
 
   const view = useMemo(
     () =>
@@ -163,7 +173,13 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   return (
     <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
-      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
+      {/* ART VISIBILITY 2026-08-31 (owner): this scrim was 0.85 and the
+          resident's art underneath was barely readable — a dark page scrim
+          plus a dark card scrim stacked into near-black. Lightened hard.
+          Safe because the dense copy inside sits on its OWN panels
+          (rgba(0,0,0,0.4-0.6) blocks), so contrast is carried there and
+          not by drowning the whole card. */}
+      <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.52)' }} />
       <div className="relative z-10 p-6">
         <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: accent }}>
           The lighthouse · {CHAIN_LABEL[poolChainId]}
@@ -176,7 +192,16 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
           </a>
         </div>
 
-        {!view.coreKnown && !isLoading ? (
+        {identityMismatch ? (
+          // AUDIT FIX TF-035 (breadth): a configuration error, not a network
+          // problem — so no figures, and nothing below can send a transaction.
+          // Same wording and styling as EvmLadderPoolLive.tsx:175-180.
+          <p className="text-[13px] mb-4 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
+            This pool does not stake {bungalow.symbol} — it reports {shortenAddress(poolToken ?? '', 6)} as its staking
+            token. That is a configuration error, not a network problem, so no figures are shown and nothing here
+            will send a transaction.
+          </p>
+        ) : !view.coreKnown && !isLoading ? (
           // OUTAGE, not zeros: some core read failed.
           <p className="text-[13px] mb-4" style={{ color: '#f0b26b' }}>
             The pool could not be read just now — figures are withheld rather than shown

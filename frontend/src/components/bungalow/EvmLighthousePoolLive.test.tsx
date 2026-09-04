@@ -70,6 +70,8 @@ function seedReads(over: Record<string, ReadCell> = {}) {
     [`balanceOf:${PLACEHOLDER}`]: ok(0n),
     [`earned:${PLACEHOLDER}`]: ok(0n),
     [`allowance:${PLACEHOLDER},${DRB.stakePool}`]: ok(0n),
+    // AUDIT TF-035 (breadth): the pool agrees it stakes THIS token.
+    'stakingToken:': ok(DRB.address),
   };
   wagmiState.answers = new Map(Object.entries({ ...base, ...over }));
 }
@@ -103,5 +105,34 @@ describe('EvmLighthousePoolLive', () => {
     expect(screen.getByText('0 DRB')).toBeTruthy();
     expect(screen.getByText(/staking works but earns nothing until funding/)).toBeTruthy();
     expect(screen.getByText(/principal is NEVER at the vault/)).toBeTruthy();
+  });
+
+  // AUDIT TF-035 (breadth). The registry's `stakePool` is a hand-pasted
+  // literal sitting in a row of near-identical siblings. If it names someone
+  // else's pool, every figure on this card is a true reading of the WRONG
+  // pool rendered under our symbol — and the stake button points at it. The
+  // ladder card has asked the pool to confirm its own staking token since its
+  // design review; this card never did.
+  it('a pool that stakes a DIFFERENT token shows no figures and no stake path', () => {
+    seedReads({ 'stakingToken:': ok('0x000000000000000000000000000000000000BEEF') });
+    render(<EvmLighthousePoolLive bungalow={DRB} />);
+    expect(screen.getByText(/does not stake DRB/)).toBeTruthy();
+    expect(screen.getByText(/configuration error, not a network problem/)).toBeTruthy();
+    // The figures must be gone — not merely accompanied by a warning.
+    expect(screen.queryByText(/Reward vault/)).toBeNull();
+    expect(screen.queryByText('200 DRB')).toBeNull();
+  });
+
+  it('an UNREADABLE identity is an outage, never a mismatch accusation', () => {
+    // A failed read must not accuse the operator of a mispaste.
+    seedReads({ 'stakingToken:': fail() });
+    render(<EvmLighthousePoolLive bungalow={DRB} />);
+    expect(screen.queryByText(/does not stake DRB/)).toBeNull();
+    expect(screen.getByText('60 DRB')).toBeTruthy(); // figures still render
+  });
+
+  it('a matching identity is invisible — no banner on the happy path', () => {
+    render(<EvmLighthousePoolLive bungalow={DRB} />);
+    expect(screen.queryByText(/does not stake/)).toBeNull();
   });
 });

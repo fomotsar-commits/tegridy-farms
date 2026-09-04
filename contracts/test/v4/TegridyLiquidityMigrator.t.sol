@@ -430,18 +430,154 @@ contract TegridyLiquidityMigratorTest is PosmTestSetup {
 
     /// @notice A list may name the owner twice. Taking only the first entry would
     ///         under-count their real take and reject a split Doppler itself accepts.
+    ///         This is what docs/WHETSTONE_MIGRATOR_PETITION.md:277 and :595 promise
+    ///         Whetstone in writing, so it is load-bearing outside this repo too.
+    ///
+    ///         AUDIT FIX TF-017 changed HOW it is honoured, not WHETHER. The
+    ///         duplicate is still summed - but now into the STORED list as well,
+    ///         because `migrate` hands that list to `TegridyFeeLocker.lockPosition`
+    ///         verbatim (:463) and the locker rejects duplicates outright (:179).
+    ///         Storing the raw duplicate meant a config that passed here and
+    ///         reverted at GRADUATION, with the Airlock funds already moved.
+    ///         Merging IS summing, so the petition sentence stays literally true.
+    ///
+    ///         The fixture is sorted because every real producer sorts: the Doppler
+    ///         SDK (TegridyFeeLocker.sol:175) and our frontend (airlock.ts:69). The
+    ///         pre-fix fixture placed the duplicate non-adjacently, which no caller
+    ///         emits and which the locker would refuse regardless.
     function test_initialize_sumsDuplicateProtocolOwnerEntries() public {
         (address t0, address t1) = _tokens();
-        BeneficiaryData[] memory bens = new BeneficiaryData[](3);
-        bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
-        bens[1] = BeneficiaryData({beneficiary: makeAddr("creator"), shares: uint96(95e16)});
-        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(2e16)}); // 3+2 = 5%
+        BeneficiaryData[] memory bens = _ownerNamedTwice();
 
         vm.prank(airlockMock);
         migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
 
         (, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
-        assertEq(stored.length, 3, "duplicate owner entries must sum, not reject");
+        assertEq(stored.length, 2, "the duplicate must be merged, not stored twice");
+
+        uint96 ownerStored;
+        for (uint256 i = 0; i < stored.length; ++i) {
+            if (stored[i].beneficiary == protocolOwner) ownerStored = stored[i].shares;
+        }
+        assertEq(ownerStored, uint96(5e16), "duplicate owner entries must SUM to 5%, not drop either");
+    }
+
+    /// @dev Ascending, owner named twice ADJACENTLY, 3% + 2% = the 5% floor.
+    function _ownerNamedTwice() internal returns (BeneficiaryData[] memory bens) {
+        address creator = makeAddr("creator");
+        bens = new BeneficiaryData[](3);
+        if (protocolOwner < creator) {
+            bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
+            bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(2e16)});
+            bens[2] = BeneficiaryData({beneficiary: creator, shares: uint96(95e16)});
+        } else {
+            bens[0] = BeneficiaryData({beneficiary: creator, shares: uint96(95e16)});
+            bens[1] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
+            bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(2e16)});
+        }
+    }
+
+    /// @notice The POINT of merging rather than rejecting: what we store is always
+    ///         something the locker will accept, so the failure cannot land at
+    ///         graduation. Strictly ascending, no repeats, no zero share, sums to WAD.
+    function test_initialize_storesAListTheLockerCanHonour() public {
+        (address t0, address t1) = _tokens();
+        vm.prank(airlockMock);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, _ownerNamedTwice()));
+
+        (, BeneficiaryData[] memory stored) = migrator.getFeeConstitution(t0, t1);
+        uint256 total;
+        address previous;
+        for (uint256 i = 0; i < stored.length; ++i) {
+            assertTrue(stored[i].beneficiary > previous, "stored list must be STRICTLY ascending");
+            assertTrue(stored[i].shares > 0, "stored list must carry no zero share");
+            previous = stored[i].beneficiary;
+            total += stored[i].shares;
+        }
+        assertEq(total, 1e18, "stored shares must still sum to WAD");
+    }
+
+    /// @notice The two other invariants the locker enforces and this gate did not.
+    function test_initialize_refusesSharesThatDoNotSumToWad() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](1);
+        bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(
+            abi.encodeWithSelector(TegridyLiquidityMigrator.SharesMustSumToWad.selector, uint256(5e16))
+        );
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    function test_initialize_refusesAZeroShare() public {
+        (address t0, address t1) = _tokens();
+        address low = address(0x1111);
+        BeneficiaryData[] memory bens = new BeneficiaryData[](2);
+        (address a, uint96 sa, address b, uint96 sb) = low < protocolOwner
+            ? (low, uint96(0), protocolOwner, uint96(1e18))
+            : (protocolOwner, uint96(1e18), low, uint96(0));
+        bens[0] = BeneficiaryData({beneficiary: a, shares: sa});
+        bens[1] = BeneficiaryData({beneficiary: b, shares: sb});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.ZeroShare.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    /// @notice THE MERGE IS SAFE EVEN IF A PRODUCER'S SORT IS BROKEN, and this pins
+    ///         it. The linear merge only collapses ADJACENT duplicates, so its
+    ///         correctness looks like it rests on the caller having sorted. It does
+    ///         not, and the reason is a property of the ordering check rather than
+    ///         a promise from the caller:
+    ///
+    ///           in a non-descending list, equal elements are NECESSARILY contiguous
+    ///           (if a[i] == a[j] for i < j, then every a[k] between them satisfies
+    ///            a[i] <= a[k] <= a[j] == a[i], so a[k] == a[i] too)
+    ///
+    ///         So every list `initialize` ACCEPTS has its duplicates adjacent, and
+    ///         every list with a NON-adjacent duplicate necessarily descends
+    ///         somewhere and is refused. There is no input that merges wrongly —
+    ///         only inputs that merge correctly and inputs that revert.
+    ///
+    ///         Written after the frontend's sort comparator was found to be
+    ///         inconsistent for equal addresses (fixed in 9c74a1b7): ECMAScript
+    ///         leaves the order implementation-defined for such a comparator, which
+    ///         is unobservable until the list contains duplicates — exactly the case
+    ///         this merge handles. The worst that bug could ever have caused here is
+    ///         a launch that would not CONFIGURE, never one that mis-split fees.
+    function test_initialize_refusesANonAdjacentDuplicateRatherThanMisMergingIt() public {
+        (address t0, address t1) = _tokens();
+        address high = address(type(uint160).max); // sorts above any makeAddr result
+        // A, B, A — the shape a broken comparator can emit. Every OTHER invariant
+        // is deliberately satisfied so the non-adjacency is the only defect: the
+        // owner is present with 50% (over the 5% floor) and the shares sum to WAD.
+        // Without the ordering check this would be STORED as two separate entries
+        // for the owner, which is exactly the duplicate the locker refuses at
+        // graduation — the failure this whole ticket exists to move earlier.
+        BeneficiaryData[] memory bens = new BeneficiaryData[](3);
+        bens[0] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(3e16)});
+        bens[1] = BeneficiaryData({beneficiary: high, shares: uint96(50e16)});
+        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(47e16)});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.DuplicateOrUnsortedBeneficiary.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
+    }
+
+    /// @notice A genuinely DISORDERED list is still refused. The locker would refuse
+    ///         it too, so accepting it here would only move the failure to
+    ///         graduation - and no producer emits one, because both sort.
+    function test_initialize_refusesAnUnsortedList() public {
+        (address t0, address t1) = _tokens();
+        BeneficiaryData[] memory bens = new BeneficiaryData[](3);
+        bens[0] = BeneficiaryData({beneficiary: address(type(uint160).max), shares: uint96(1e16)});
+        bens[1] = BeneficiaryData({beneficiary: address(0x1111), shares: uint96(94e16)});
+        bens[2] = BeneficiaryData({beneficiary: protocolOwner, shares: uint96(5e16)});
+
+        vm.prank(airlockMock);
+        vm.expectRevert(TegridyLiquidityMigrator.DuplicateOrUnsortedBeneficiary.selector);
+        migrator.initialize(t0, t1, _migratorData(TICK_SPACING, 0, bens));
     }
 
     /// @notice The owner is read LIVE, not pinned: Whetstone's owner is a 3-of-6 Safe

@@ -16,7 +16,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { usePageTitle } from '../../hooks/usePageTitle';
-import { isToweliVoice, VENUE } from '../../lib/arrival';
+import { VENUE } from '../../lib/arrival';
 import { PageArtBackdrop } from '../PageArtBackdrop';
 import { FiatOnrampPanel } from './FiatOnrampPanel';
 import { onboardingSteps } from './onboardingSteps';
@@ -24,7 +24,7 @@ import { onboardingSteps } from './onboardingSteps';
 export default function OnboardingFlow() {
   usePageTitle(
     'Start here',
-    `What ${isToweliVoice() ? 'Tegridy Farms' : VENUE.name} is, what can go wrong, how to get funds in, and the one thing to do first.`,
+    `What ${VENUE.name} is, what can go wrong, how to get funds in, and the one thing to do first.`,
   );
 
   const steps = useMemo(() => onboardingSteps(), []);

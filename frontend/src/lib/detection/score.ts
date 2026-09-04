@@ -34,7 +34,14 @@ import type {
   LaunchFacts,
 } from './types';
 import { BAND_RANK, METHOD_VERSION } from './types';
-import { computeMetrics, largestUnclassifiedShareOfTotal, ratio, sumBalances, unclassifiedShareOfTotal } from './metrics';
+import {
+  computeMetrics,
+  largestHeuristicExcludedShareOfTotal, // AUDIT FIX TF-025
+  largestUnclassifiedShareOfTotal,
+  ratio,
+  sumBalances,
+  unclassifiedShareOfTotal,
+} from './metrics';
 import { classifyHolders } from './exclusions';
 
 /** Battle-tested defaults. Every field is overridable per call. */
@@ -270,6 +277,8 @@ export function assessConfidence(params: {
   includedHolders: number;
   unclassifiedShareOfTotal: number;
   largestUnclassifiedShareOfTotal: number;
+  /** AUDIT FIX TF-025 — largest holder removed on a low-confidence guess. */
+  largestHeuristicExcludedShareOfTotal: number;
   tokenAgeSeconds: number | null | undefined;
   bundlesResolved: boolean;
   snipersResolved: boolean;
@@ -301,6 +310,26 @@ export function assessConfidence(params: {
     medium = true;
     reasons.push(
       `A single unlabeled wallet holds ${(params.largestUnclassifiedShareOfTotal * 100).toFixed(1)}% of supply — it could be infra or a whale.`,
+    );
+  }
+  // AUDIT FIX TF-025: the same leverage rule, applied to holders removed on a
+  // GUESS. Every branch above reasons about wallets that were KEPT, so a large
+  // holder excluded by the low-confidence `contract` heuristic was invisible
+  // here and the read still came back High. The exclusion is the thing most
+  // likely to be wrong — it is the only excluded category this codebase marks
+  // `confidence: 'low'` — and it removes supply from the denominator every
+  // other number is computed against. Same thresholds as the unlabeled-wallet
+  // rule, because it is the same question: could ONE address, if we have it
+  // wrong, invert this read?
+  if (params.largestHeuristicExcludedShareOfTotal >= c.dominantUnclassifiedShareOfTotal) {
+    low = true;
+    reasons.push(
+      `${(params.largestHeuristicExcludedShareOfTotal * 100).toFixed(1)}% of supply was set aside as a contract on a heuristic, not a label — if that guess is wrong this read inverts.`,
+    );
+  } else if (params.largestHeuristicExcludedShareOfTotal >= c.singleUnclassifiedShareOfTotal) {
+    medium = true;
+    reasons.push(
+      `${(params.largestHeuristicExcludedShareOfTotal * 100).toFixed(1)}% of supply was set aside as a contract on a heuristic, not a label.`,
     );
   }
   if (params.unclassifiedShareOfTotal > c.maxUnclassifiedShareOfTotal) {
@@ -407,6 +436,10 @@ export function analyzeDistribution(input: DistributionInput): DistributionAnaly
     chain,
     labelSources: input.labelSources ?? [],
     unclassifiedThreshold: cfg.unclassifiedThreshold,
+    // AUDIT FIX TF-024: the same line the hard top-1 gate uses. A heuristic
+    // exclusion must not be able to remove a holder that would, if kept, trip
+    // `top1-over-threshold` on its own.
+    heuristicExclusionCap: cfg.gate.hardTop1Threshold,
   });
 
   const allHolders: RawHolder[] = classified.map((c) => c.holder);
@@ -431,6 +464,7 @@ export function analyzeDistribution(input: DistributionInput): DistributionAnaly
     includedHolders: metrics.includedHolders,
     unclassifiedShareOfTotal: exclusions.unclassifiedShareOfTotal,
     largestUnclassifiedShareOfTotal: largestUnclassifiedShareOfTotal(classified),
+    largestHeuristicExcludedShareOfTotal: largestHeuristicExcludedShareOfTotal(classified), // AUDIT FIX TF-025
     tokenAgeSeconds: launch.tokenAgeSeconds,
     bundlesResolved,
     snipersResolved,

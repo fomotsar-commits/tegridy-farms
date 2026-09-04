@@ -1204,4 +1204,87 @@ contract VoteIncentivesTest is Test {
     }
 
     receive() external payable {}
+
+    // ─── AUDIT TF-006: disabling a pair must not strand earned bribes ─
+    //
+    // BATCH-A C1 closed a THREE-WAY reject trap and documented it in the source.
+    // DEEP-GOV-08 then added `_validatePair` to the CLAIM paths as well as the
+    // entry paths, which opened a FOURTH leg of the same trap:
+    //
+    //   claimBribes          → PairDisabled (the pair is disabled)
+    //   refundOrphanedBribe  → EPOCH_ALREADY_SNAPSHOTTED
+    //   refundUnvotedBribe   → PAIR_HAS_VOTES
+    //   refundSubQuorumBribe → votes are at/above quorum, not below
+    //
+    // No attacker is needed: an ordinary governance disable, after a normal
+    // epoch, locks the money forever. What is pinned here is that SOME route
+    // out survives — not which revert any particular path gives.
+
+    /// @dev A finalized epoch with real votes at/above quorum on `pair`.
+    function _epochWithEarnedBribes() internal returns (uint256 amount) {
+        amount = 10_000e18;
+        vm.prank(briber);
+        vi.depositBribe(pair, address(bribeToken), amount);
+        vi.advanceEpoch();
+        vm.prank(alice);
+        vi.vote(0, pair, 7000e18);
+        vm.prank(bob);
+        vi.vote(0, pair, 3000e18);
+        vm.warp(block.timestamp + vi.VOTE_DEADLINE() + 1);
+    }
+
+    function test_disablingAPairAfterTheEpochDoesNotStrandEarnedBribes() public {
+        uint256 amount = _epochWithEarnedBribes();
+
+        // Governance disables the pair — guardian emergency stop, or a
+        // timelocked removal. Either way the voters already earned their share.
+        factory.setDisabled(pair, true);
+
+        uint256 netBribe = amount - (amount * 300 / 10000);
+        uint256 aliceExpected = (netBribe * 7000e18) / 10000e18;
+
+        uint256 before = bribeToken.balanceOf(alice);
+        vm.prank(alice);
+        vi.claimBribes(0, pair);
+        assertEq(
+            bribeToken.balanceOf(alice) - before,
+            aliceExpected,
+            "a voter who earned a share before the disable must still be paid it"
+        );
+    }
+
+    function test_theOtherThreeRefundLegsReallyDoNotCoverTheDisabledCase() public {
+        // Guards the guard. If any refund path DID cover this, the claim fix
+        // above would be unnecessary and this test would be theatre.
+        _epochWithEarnedBribes();
+        factory.setDisabled(pair, true);
+
+        vm.prank(briber);
+        vm.expectRevert(bytes("EPOCH_ALREADY_SNAPSHOTTED"));
+        vi.refundOrphanedBribe(0, pair, address(bribeToken));
+
+        vm.prank(briber);
+        vm.expectRevert(bytes("PAIR_HAS_VOTES"));
+        vi.refundUnvotedBribe(0, pair, address(bribeToken));
+
+        // Sub-quorum refund is strictly for votes BELOW quorum; these are above.
+        vm.prank(briber);
+        vm.expectRevert();
+        vi.refundSubQuorumBribe(0, pair, address(bribeToken));
+    }
+
+    function test_disabledPairsAreStillRefusedOnTheENTRYPaths() public {
+        // The DEEP-GOV-08 gate is not deleted — it is confined to entry.
+        // Depositing new money onto, or voting for, a dead pair stays refused.
+        factory.setDisabled(pair, true);
+
+        vm.prank(briber);
+        vm.expectRevert();
+        vi.depositBribe(pair, address(bribeToken), 1_000e18);
+
+        vi.advanceEpoch();
+        vm.prank(alice);
+        vm.expectRevert();
+        vi.vote(0, pair, 7000e18);
+    }
 }

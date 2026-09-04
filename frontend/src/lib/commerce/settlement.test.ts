@@ -58,6 +58,11 @@ function plan(over: Partial<Parameters<typeof buildSettlementPlan>[0]> = {}) {
     slippagePct: 0.5,
     now: NOW,
     connectedChainId: 1,
+    // The defaults are the state the rest of this file was written against: a
+    // link whose signature verified in this browser, and a settlement token this
+    // browser re-read on chain and found to be what the invoice names.
+    attestation: 'merchant-signed',
+    settleTokenOnChain: 'matches',
     ...over,
   });
 }
@@ -233,5 +238,76 @@ describe('the settlement record distinguishes a claim from a confirmation', () =
     expect(settlementStandingText('client-reported')).toMatch(/claim, not a confirmation/i);
     expect(settlementStandingText('chain-refuted')).toMatch(/Do not release/i);
     expect(settlementStandingText('chain-confirmed')).toMatch(/receipt was read/i);
+  });
+});
+
+// ─── Provenance and the settlement token ─────────────────────────────────────
+//
+// Two inputs added on 2026-09-02, when the invoice became a document a stranger
+// hands you rather than a row a server looked up. Both of them can refuse, and
+// each refuses in its own words: an unverified document is a statement about the
+// LINK, a token that could not be read is a statement about the BROWSER, and a
+// contract that is not what the invoice names is a statement about the CHAIN.
+
+describe('nothing is offered against figures nothing established', () => {
+  it('refuses outright when the merchant signature was not verified', () => {
+    const p = plan({ attestation: 'unverified' });
+    expect(p.refusals.join(' ')).toMatch(/signature on this invoice was not verified/i);
+    expect(p.legs).toEqual([]);
+    expect(canSign(p)).toBe(false);
+  });
+
+  it('offers the same fixture once its provenance is established', () => {
+    // The control. Without it the assertion above would pass on a plan that was
+    // refusing for some other reason entirely.
+    const p = plan({ attestation: 'merchant-signed' });
+    expect(p.refusals).toEqual([]);
+    expect(p.legs.some((l) => l.kind === 'transfer')).toBe(true);
+  });
+
+  it('accepts a store-published invoice as its own kind of provenance', () => {
+    expect(plan({ attestation: 'store-published' }).refusals).toEqual([]);
+  });
+});
+
+describe('the signed token is re-read, and the three failures do not collapse', () => {
+  it('refuses when there is no contract at the signed address', () => {
+    const p = plan({ settleTokenOnChain: 'no-code' });
+    expect(p.refusals.join(' ')).toMatch(/no contract at the signed token address on chain 1/i);
+    expect(p.legs).toEqual([]);
+  });
+
+  it('refuses when the contract there is not the token the invoice names', () => {
+    const p = plan({ settleTokenOnChain: 'mismatch' });
+    expect(p.refusals.join(' ')).toMatch(/not the token the invoice names/i);
+    expect(p.legs).toEqual([]);
+  });
+
+  it('refuses an unread token as a statement about the BROWSER, not the invoice', () => {
+    const p = plan({ settleTokenOnChain: 'unread' });
+    const text = p.refusals.join(' ');
+    expect(text).toMatch(/could not be read on chain 1/i);
+    expect(text).toMatch(/about this browser's connection/i);
+    // The collapse this pins: an unread token must never borrow the mismatch
+    // sentence, which accuses the merchant of naming a token that is not there.
+    expect(text).not.toMatch(/not the token the invoice names/i);
+    expect(text).not.toMatch(/no contract at the signed token address/i);
+  });
+
+  it('offers a plan only when the chain agreed with the document', () => {
+    expect(plan({ settleTokenOnChain: 'matches' }).refusals).toEqual([]);
+  });
+});
+
+describe('an invoice whose own clock is in the future is refused', () => {
+  it('refuses a future-dated document with its own sentence', () => {
+    const created = NOW + 10 * 24 * 3600;
+    const p = plan({ invoice: invoice({ createdAt: created, expiresAt: created + 900 }) });
+    expect(p.refusals.join(' ')).toMatch(/dated in the future/i);
+    // Not the expired sentence and not the malformed one: a merchant reading
+    // "this invoice has expired" about a document dated next week has been told
+    // something false about which way the clock is wrong.
+    expect(p.refusals.join(' ')).not.toMatch(/has expired/i);
+    expect(p.legs).toEqual([]);
   });
 });

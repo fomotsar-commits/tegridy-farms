@@ -70,7 +70,7 @@ export default function HistoryPage() {
     setLoading(true);
     setError('');
     // F382/F383: single source of truth for the tracked-contract filter (lib),
-    // now including live LP Farming + native Tegridy Router/LP so the footer's
+    // now including live LP Farming + native Venue Router/LP so the footer's
     // "all protocol contracts" claim holds.
     const contracts = HISTORY_CONTRACTS;
 
@@ -123,7 +123,7 @@ export default function HistoryPage() {
           const looksLikeAuthIssue = raw === 'NOTOK' || /api\s*key/i.test(data.result || '');
           setError(
             looksLikeAuthIssue
-              ? "Tegridy Farms can't reach Etherscan right now. View your full history directly on Etherscan below."
+              ? "memetics.finance can't reach Etherscan right now. View your full history directly on Etherscan below."
               : (raw || 'Failed to load history. Try again later.')
           );
         }
@@ -267,7 +267,7 @@ export default function HistoryPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="heading-luxury text-2xl md:text-3xl lg:text-4xl text-white tracking-tight mb-1">History</h1>
-              <p className="text-white text-[14px]">Your recent transactions on Tegridy Farms</p>
+              <p className="text-white text-[14px]">Your recent transactions on memetics.finance</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {/* F394: force a fresh fetch (skipCache) so a user who just
@@ -449,7 +449,7 @@ export default function HistoryPage() {
         )}
 
         <p className="text-white/15 text-[10px] text-center mt-4">
-          Showing interactions with all Tegridy Farms protocol contracts.
+          Showing interactions with all memetics.finance protocol contracts.
         </p>
       </div>
     </div>

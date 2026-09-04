@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
+import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
 import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { isSolanaSwapLive } from '../../lib/solana';
@@ -32,7 +32,7 @@ const PRODUCT_LINKS: { to: string; label: string }[] = [
   // Community column below (both gate on COMMUNITY_LIVE).
   ...(PREMIUM_LIVE ? [{ to: '/premium', label: 'Gold Card' }] : []),
   { to: '/leaderboard', label: 'Points' },
-  { to: '/nakamigos', label: 'Tradermigos' },
+  { to: '/nakamigos', label: 'Marketplace' },
 ];
 
 const RESOURCE_LINKS: { to: string; label: string }[] = [
@@ -50,12 +50,6 @@ const EXTERNAL_RESOURCES: { href: string; label: string }[] = [
   { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
   { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
   { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
-];
-
-const COMMUNITY_LINKS: { href: string; label: string }[] = [
-  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
 ];
 
 const LEGAL_LINKS: { to: string; label: string }[] = [
@@ -113,11 +107,7 @@ export function Footer() {
               <span className="text-[18px] font-bold tracking-wide" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
                 {/* ARRIVAL IDENTITY 2026-08-27: wordmark follows the arrival
                     voice; classic TEGRIDY FARMS lives in the TOWELI bungalow. */}
-                {isToweliVoice() ? (
-                  <><span>TEGRIDY</span>{' '}<span>FARMS</span></>
-                ) : (
-                  <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
-                )}
+                <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
               </span>
             </div>
             {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
@@ -234,7 +224,7 @@ export function Footer() {
                   Governance
                 </Link>
               )}
-              {COMMUNITY_LINKS.map((l) => (
+              {SOCIAL_LINKS.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className={LINK_CLASS} style={LINK_SHADOW}>
@@ -264,7 +254,7 @@ export function Footer() {
             Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
           </span>
           <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
-            © 2026 {isToweliVoice() ? 'Tegridy Farms' : 'memetics.finance'}
+            © 2026 memetics.finance
           </span>
         </div>
       </div>

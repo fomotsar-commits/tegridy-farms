@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
+import { useTabListKeys } from '../hooks/useTabListKeys';
 
 type Tab = 'treasury' | 'contracts' | 'risks' | 'terms' | 'privacy';
 
@@ -11,6 +12,10 @@ const TAB_LABELS: Record<Tab, string> = {
   terms: 'Terms',
   privacy: 'Privacy',
 };
+
+// Derived, not re-listed: the tab bar and the keyboard helper must walk the same
+// order, and a second literal is how those two drift.
+const VISIBLE_TABS = Object.keys(TAB_LABELS) as Tab[];
 
 const TAB_PATHS: Record<Tab, string> = {
   treasury: '/treasury',
@@ -49,6 +54,13 @@ export default function InfoPage() {
     navigate(TAB_PATHS[t], { replace: false });
   };
 
+  // These looked like tabs, were built as `aria-pressed` toggle buttons, and
+  // carried no role, no aria-controls, no tabpanel and no roving focus — so the
+  // site's legal and treasury navigation reached assistive tech as five
+  // unlabelled toggles. ActivityPage next door already does all five correctly
+  // for the same route-navigating tab pattern; this is that markup, verbatim.
+  const tabKeys = useTabListKeys(VISIBLE_TABS, tab, handleTab);
+
   return (
     <>
       <div
@@ -57,6 +69,9 @@ export default function InfoPage() {
       >
         <div className="max-w-[900px] mx-auto pt-3 pointer-events-auto">
           <div
+            role="tablist"
+            aria-label="Info sections"
+            onKeyDown={tabKeys.onKeyDown}
             className="flex gap-1 md:gap-1.5 p-1 rounded-2xl overflow-x-auto no-scrollbar"
             style={{
               // F509: bumped 0.72 -> 0.92 so underlying H1s / footer links no
@@ -69,11 +84,16 @@ export default function InfoPage() {
               boxShadow: '0 6px 24px rgba(0,0,0,0.45)',
             }}
           >
-            {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
+            {VISIBLE_TABS.map((t) => (
               <button
                 key={t}
+                role="tab"
+                id={`info-tab-${t}`}
+                aria-selected={tab === t}
+                aria-controls="info-panel"
+                tabIndex={tabKeys.tabIndex(t)}
+                ref={tabKeys.ref(t)}
                 onClick={() => handleTab(t)}
-                aria-pressed={tab === t}
                 /* F402: min-w + overflow-x-auto on the row lets the 5 labels
                    scroll horizontally on very narrow phones (<380px) instead of
                    clipping, while flex-1 keeps the equal-width look on wider
@@ -94,13 +114,15 @@ export default function InfoPage() {
 
       {/* Treasury and Contracts pages don't use the full-bleed -mt-14 pattern,
           so they need extra top padding to clear the sticky tab bar. */}
-      <Suspense fallback={<PageSkeleton />}>
-        {tab === 'treasury' && <div className="pt-14"><TreasuryPage /></div>}
-        {tab === 'contracts' && <div className="pt-14"><ContractsPage /></div>}
-        {tab === 'risks' && <RisksPage />}
-        {tab === 'terms' && <TermsPage />}
-        {tab === 'privacy' && <PrivacyPage />}
-      </Suspense>
+      <div role="tabpanel" id="info-panel" aria-labelledby={`info-tab-${tab}`}>
+        <Suspense fallback={<PageSkeleton />}>
+          {tab === 'treasury' && <div className="pt-14"><TreasuryPage /></div>}
+          {tab === 'contracts' && <div className="pt-14"><ContractsPage /></div>}
+          {tab === 'risks' && <RisksPage />}
+          {tab === 'terms' && <TermsPage />}
+          {tab === 'privacy' && <PrivacyPage />}
+        </Suspense>
+      </div>
     </>
   );
 }

@@ -54,6 +54,18 @@
 
 import type { AggregatorQuote } from '../aggregator';
 import { invoiceLifecycle, ZERO_ADDRESS, type Invoice } from './invoice';
+import type { SettleTokenStanding } from './settleTokens';
+
+/**
+ * How this browser came to believe the invoice's figures.
+ *
+ *   merchant-signed  an EIP-712 document whose signature verified against the
+ *                    merchant address, in this browser, just now.
+ *   store-published  the invoice store answered with it. The store is trusted to
+ *                    the extent the deployment's own database is.
+ *   unverified       nothing established it. No plan is ever offered on this.
+ */
+export type SettlementAttestation = 'merchant-signed' | 'store-published' | 'unverified';
 
 /**
  * How old a quote may be when the plan is built.
@@ -100,6 +112,21 @@ export interface SettlementInputs {
   now: number;
   /** The chain the wallet is actually on. */
   connectedChainId: number | null;
+  /**
+   * Where the figures above came from. `unverified` refuses outright — a plan
+   * built on numbers nothing established is a plan built on whatever the last
+   * person to edit the URL typed.
+   */
+  attestation: SettlementAttestation;
+  /**
+   * What a re-read of `invoice.settleToken` on `invoice.chainId` found.
+   *
+   * The invoice names an address AND a symbol AND a decimal count, and only the
+   * chain can say whether those three describe the same thing. `unread` is not a
+   * refusal of the invoice — it is a refusal to claim knowledge — and it earns
+   * its own sentence rather than borrowing `mismatch`'s.
+   */
+  settleTokenOnChain: SettleTokenStanding;
 }
 
 export type SettlementLeg =
@@ -238,9 +265,43 @@ export function buildSettlementPlan(input: SettlementInputs): SettlementPlan {
   const sameAsset = sameAddress(payToken, invoice.settleToken);
   const refusals: string[] = [];
 
+  // FIRST, because everything below reasons about figures this decides whether
+  // to believe at all. A refusal ordered after the arithmetic is a refusal a
+  // reader meets underneath a price.
+  if (input.attestation === 'unverified') {
+    refusals.push('The merchant signature on this invoice was not verified, so no payment is offered against it.');
+  }
+
+  switch (input.settleTokenOnChain) {
+    case 'no-code':
+      refusals.push(
+        `There is no contract at the signed token address on chain ${invoice.chainId}, so nothing can be paid to it.`,
+      );
+      break;
+    case 'mismatch':
+      refusals.push(
+        'The contract at the signed token address is not the token the invoice names (symbol or decimals differ), ' +
+          'so nothing is offered.',
+      );
+      break;
+    case 'unread':
+      refusals.push(
+        `The signed token could not be read on chain ${invoice.chainId}. This is a statement about this browser's ` +
+          'connection, not about the invoice — try again.',
+      );
+      break;
+    case 'matches':
+      break;
+  }
+
   const lifecycle = invoiceLifecycle(invoice, now);
   if (lifecycle === 'malformed') {
     refusals.push('This invoice is not well-formed, so no payment can be built from it.');
+  } else if (lifecycle === 'future-dated') {
+    refusals.push(
+      'This invoice is dated in the future. Nothing is offered against a document whose own clock disagrees ' +
+        'with this one.',
+    );
   } else if (lifecycle === 'expired') {
     refusals.push(
       'This invoice has expired. The merchant committed to a token price for a fixed window and that ' +
@@ -394,7 +455,12 @@ export interface SettlementRecord {
   recordedAt: number;
 }
 
-const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
+/**
+ * Exported since 2026-09-02: the payment-link decoder bounds a stranger-supplied
+ * `tx=` against exactly this rule, and a second copy of it there would be a
+ * second definition of what counts as a transaction reference.
+ */
+export const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
 
 /**
  * Human sentence for a record's standing, written for the merchant.

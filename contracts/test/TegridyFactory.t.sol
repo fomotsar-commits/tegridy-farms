@@ -415,6 +415,53 @@ contract TegridyFactoryTest is Test {
         assertTrue(factory.disabledPairs(pairs[3]));
     }
 
+    /// @notice AUDIT TF-031: the daily cap is GLOBAL — 3 per day across every
+    ///         caller and every pair — so a slot spent is a slot the circuit
+    ///         breaker no longer has. Re-disabling an ALREADY-disabled pair
+    ///         changes no state, and used to burn one of the three. Three such
+    ///         no-ops exhausted the day's budget and left a real rug
+    ///         undisableable until the next UTC rollover.
+    function test_TF031_repeatDisableDoesNotSpendARateLimitSlot() public {
+        MockERC20Factory tokenA = new MockERC20Factory("Token A", "TKA");
+        MockERC20Factory tokenB = new MockERC20Factory("Token B", "TKB");
+        MockERC20Factory tokenC = new MockERC20Factory("Token C", "TKC");
+        address victim = factory.createPair(address(tokenA), address(tokenB));
+        address real = factory.createPair(address(tokenA), address(tokenC));
+
+        vm.startPrank(admin);
+        factory.emergencyDisablePair(victim); // slot 1 — a real disable
+        // Three no-ops on the SAME already-disabled pair. Pre-fix these spent
+        // slots 2, 3 and then reverted RateLimited on the fourth call.
+        factory.emergencyDisablePair(victim);
+        factory.emergencyDisablePair(victim);
+        factory.emergencyDisablePair(victim);
+
+        // THE INVARIANT: the breaker still works on a pair that needs it.
+        factory.emergencyDisablePair(real);
+        vm.stopPrank();
+
+        assertTrue(factory.disabledPairs(real), "TF-031: no-ops must not exhaust the daily budget");
+        assertTrue(factory.disabledPairs(victim), "the repeat calls must still leave it disabled");
+    }
+
+    /// @notice Non-vacuity: the cap itself must still bite on REAL disables.
+    function test_TF031_realDisablesStillHitTheDailyCap() public {
+        MockERC20Factory a = new MockERC20Factory("A", "A");
+        address[] memory p = new address[](4);
+        p[0] = factory.createPair(address(a), address(new MockERC20Factory("B", "B")));
+        p[1] = factory.createPair(address(a), address(new MockERC20Factory("C", "C")));
+        p[2] = factory.createPair(address(a), address(new MockERC20Factory("D", "D")));
+        p[3] = factory.createPair(address(a), address(new MockERC20Factory("E", "E")));
+
+        vm.startPrank(admin);
+        factory.emergencyDisablePair(p[0]);
+        factory.emergencyDisablePair(p[1]);
+        factory.emergencyDisablePair(p[2]);
+        vm.expectRevert(TegridyFactory.EmergencyDisableRateLimited.selector);
+        factory.emergencyDisablePair(p[3]);
+        vm.stopPrank();
+    }
+
     /// @notice AUDIT FIX F-30-2 / M-22 (MED): FEE_TO_SETTER_DELAY is now 24h
     ///         (vs FEE_TO_CHANGE_DELAY = 48h).
     function test_F30_2_setterRotation_fasterThanFeeChange() public {

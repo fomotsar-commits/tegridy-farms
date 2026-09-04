@@ -45,6 +45,25 @@ export const SECONDS_PER_YEAR = 365 * 86_400;
 export interface RewardPoolView {
   address: string;
   mint: string;
+  /**
+   * WHICH reward program owns this pool, and therefore how it pays.
+   *
+   * 'fixed'   — RWRDdfRbi…: carries `rewardAmount`/`rewardPeriod` and pays a
+   *             RATE PER STAKED TOKEN. Each staker's rate is independent of
+   *             everyone else's, so pool-wide emission scales without bound as
+   *             TVL grows.
+   * 'dynamic' — RWRDyfZa…: has NO rate fields at all. It carries
+   *             `fundedAmount`/`claimedAmount` and splits a FUNDED BUDGET pro
+   *             rata across effective stake, so total emission is bounded by
+   *             what was funded and each staker's share DILUTES as stake joins.
+   *             That is TOWELI's model.
+   *
+   * Load-bearing on every write: the SDK routes claim / create-entry /
+   * close-entry / fund to a DIFFERENT PROGRAM based on this, and the wrong one
+   * addresses a PDA that does not exist. It is also why reads must query both
+   * programs — `client.searchRewardPools` only ever searches the fixed one.
+   */
+  kind: 'fixed' | 'dynamic';
   nonce: number;
   /** Escrow token account the rewards are paid out of. */
   vault: string;
@@ -54,9 +73,22 @@ export interface RewardPoolView {
   fundedRaw: bigint | null;
   /** Whether ANYONE may top this vault up, or only the pool authority. */
   permissionless: boolean;
-  /** On-chain configured rate parts (raw, 1e9-scaled amount per effective token per period). */
+  /**
+   * On-chain configured rate parts (raw, 1e9-scaled amount per effective token
+   * per period). FIXED pools only — a dynamic pool has no rate and reports
+   * '0' / 0 here. Check `kind` before quoting these as a rate anywhere.
+   */
   rewardAmountRaw: string;
   rewardPeriodSecs: number;
+  /**
+   * DYNAMIC pools only: the program's own budget accounting, in raw units of
+   * the reward mint. `fundedRaw` above is the live vault balance; these are
+   * what the schedule says. null on a fixed pool, where they do not exist.
+   */
+  fundedAmountRaw: bigint | null;
+  claimedAmountRaw: bigint | null;
+  /** DYNAMIC pools only: how often a claim may be taken. 0 on fixed pools. */
+  claimPeriodSecs: number;
 }
 
 export interface PoolView {
@@ -158,6 +190,43 @@ function bnToNumber(v: unknown, fallback = 0): number {
   return Number.isSafeInteger(n) ? n : fallback;
 }
 
+/**
+ * Reward pools for a stake pool, from BOTH reward programs, each tagged with
+ * which one it came from.
+ *
+ * WHY THIS EXISTS. `client.searchRewardPools` is hardwired to the FIXED
+ * program — its body is `this.programs.rewardPoolProgram.account.rewardPool
+ * .all(...)`. A dynamic pool attached to the same stake pool is therefore
+ * INVISIBLE to it, and every number derived from it would silently omit the
+ * pool that is actually paying. So the dynamic program is queried directly.
+ *
+ * The memcmp offset is 10 (Anchor's 8-byte discriminator + bump + nonce), the
+ * same layout the SDK uses for the fixed program — verified empirically
+ * against a live dynamic pool (stake pool Fgwemm7V…, reward pool HBLhyss5…),
+ * because sharing a struct shape across sibling programs is an assumption, not
+ * a guarantee. A filtered query is also required rather than a bare scan: the
+ * venue's own RPC proxy caps response size and an unfiltered
+ * getProgramAccounts over this program exceeds it.
+ *
+ * Either half failing is survivable and does NOT fail the read — a pool we
+ * cannot see is reported as absent by the caller, never as a zero rate.
+ */
+async function searchAllRewardPools(client: any, stakePool: string): Promise<{ acc: any; kind: 'fixed' | 'dynamic' }[]> {
+  const out: { acc: any; kind: 'fixed' | 'dynamic' }[] = [];
+  try {
+    const fixed: any[] = await client.searchRewardPools({ stakePool });
+    for (const acc of fixed ?? []) out.push({ acc, kind: 'fixed' });
+  } catch { /* fixed unreadable — the dynamic half may still answer */ }
+  try {
+    const dyn = client.getRewardProgram('dynamic');
+    const found: any[] = await dyn.account.rewardPool.all([
+      { memcmp: { offset: 10, bytes: stakePool } },
+    ]);
+    for (const acc of found ?? []) out.push({ acc, kind: 'dynamic' });
+  } catch { /* dynamic unreadable — the fixed half may still answer */ }
+  return out;
+}
+
 /** Mint decimals, read on-chain. Falls back to `fallback` when unreadable. */
 async function readMintDecimals(client: any, mint: string, fallback: number): Promise<number> {
   try {
@@ -204,6 +273,23 @@ export function stakeWeight(
 /** True when the pool grants no duration bonus at all (min weight == max weight). */
 export function isFlatWeight(pool: Pick<PoolView, 'minWeightScaled' | 'maxWeightScaled'>): boolean {
   return pool.minWeightScaled === pool.maxWeightScaled;
+}
+
+/**
+ * Whether this reward pool has a CONFIGURED RATE that can honestly be quoted.
+ *
+ * Only fixed pools do. A dynamic pool has no rate fields at all, so
+ * `rewardAmountRaw` reads '0' and every rate helper below would return 0 —
+ * which the UI would render as a confident "0% APR". That is a lie of a
+ * familiar kind: reporting an ABSENT figure as a measured zero, the same
+ * failure this file's outage-vs-zero rule exists to prevent.
+ *
+ * A dynamic pool's yield is `funded budget / total effective stake`, which is
+ * an OBSERVATION that moves whenever anyone stakes — not a configured rate.
+ * Callers must branch on this and present the two differently.
+ */
+export function quotesAConfiguredRate(rp: Pick<RewardPoolView, 'kind'>): boolean {
+  return rp.kind === 'fixed';
 }
 
 /**
@@ -353,7 +439,8 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
     // is gone. Saying "could not be read right now" there disguises a
     // permanent misconfig as a transient outage.
     if (!pool) return { ok: false, reason: 'No stake pool exists at this address. If this persists, the configured pool address is wrong.' };
-    const rewardAccounts: any[] = await client.searchRewardPools({ stakePool: stakePool as any });
+    // BOTH programs — the SDK's own search covers only the fixed one.
+    const rewardAccounts = await searchAllRewardPools(client, stakePool);
 
     const stakeMint = String(pool?.mint ?? '');
     // Decimals decide every human number on this surface (and the reward RATE,
@@ -361,7 +448,7 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
     const stakeDecimals = await readMintDecimals(client, stakeMint, 6);
 
     const rewardPools: RewardPoolView[] = [];
-    for (const acc of rewardAccounts) {
+    for (const { acc, kind } of rewardAccounts) {
       const rp = acc?.account ?? acc;
       const address = String(acc?.publicKey ?? '');
       const rewardMint = String(rp?.mint ?? '');
@@ -376,6 +463,7 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
       rewardPools.push({
         address,
         mint: rewardMint,
+        kind,
         nonce: bnToNumber(rp?.nonce),
         vault: String(rp?.vault ?? ''),
         decimals: rewardMint === stakeMint
@@ -383,8 +471,13 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
           : await readMintDecimals(client, rewardMint, stakeDecimals),
         fundedRaw,
         permissionless: Boolean(rp?.permissionless),
+        // A dynamic pool has NO rate fields — these read 0 there, and callers
+        // must branch on `kind` rather than quoting a zero rate as a fact.
         rewardAmountRaw: String(bnToBigint(rp?.rewardAmount) ?? '0'),
         rewardPeriodSecs: bnToNumber(rp?.rewardPeriod),
+        fundedAmountRaw: kind === 'dynamic' ? bnToBigint(rp?.fundedAmount) : null,
+        claimedAmountRaw: kind === 'dynamic' ? bnToBigint(rp?.claimedAmount) : null,
+        claimPeriodSecs: kind === 'dynamic' ? bnToNumber(rp?.claimPeriod) : 0,
       });
     }
 
@@ -470,7 +563,9 @@ export async function readEntries(
     // every pending number unknown.
     let rewardAccounts: any[] = [];
     try {
-      rewardAccounts = await client.searchRewardPools({ stakePool: stakePool as any });
+      // BOTH programs: a dynamic pool is invisible to client.searchRewardPools,
+      // and omitting it would silently under-report every pending figure.
+      rewardAccounts = (await searchAllRewardPools(client, stakePool)).map((r) => r.acc);
     } catch { /* pending stays null below */ }
 
     const raw = accounts.map((acc) => ({ acc, e: acc?.account ?? acc }));
@@ -519,7 +614,19 @@ export async function readEntries(
 
 /** Lowest nonce in [0,255] not used by an OPEN entry (closed entries free theirs). */
 export function nextVacantNonce(entries: StakeEntryView[]): number | null {
-  const used = new Set(entries.filter((e) => e.closedTs === 0).map((e) => e.nonce));
+  // AUDIT (2026-09-01): this used to skip CLOSED entries, on the assumption
+  // that closing frees the nonce. It does not. A closed entry is still an
+  // ACCOUNT — StakeEntryView carries `closedTs` precisely because the record
+  // survives its close — and the entry PDA is derived from
+  // (stakePool, authority, nonce). Re-using the nonce therefore tries to
+  // initialise an address that is already in use, and the stake reverts. Left
+  // as it was, a returning staker's second position could never be opened.
+  //
+  // So EVERY entry the search returns occupies its nonce, open or closed. The
+  // asymmetry makes this the safe direction: wrongly skipping a free nonce
+  // costs nothing out of 256, while wrongly re-using a taken one is a failed
+  // transaction the user pays for and cannot diagnose.
+  const used = new Set(entries.map((e) => e.nonce));
   for (let n = 0; n < 256; n++) {
     if (!used.has(n)) return n;
   }
@@ -621,7 +728,9 @@ export async function stake(args: {
           rewardPoolNonce: rp.nonce,
           depositNonce: nonce,
           rewardMint: rp.mint as any,
-          rewardPoolType: 'fixed' as const,
+          // The pool's OWN program — a dynamic pool's entry PDA lives under a
+          // different program id, so a hardcoded 'fixed' addresses nothing.
+          rewardPoolType: rp.kind,
           tokenProgramId: args.pool.tokenProgram as any,
         } as any,
         ext,
@@ -652,7 +761,7 @@ export async function unstakeAndClaim(args: {
         rewardPools: args.pool.rewardPools.map((rp) => ({
           nonce: rp.nonce,
           mint: rp.mint as any,
-          rewardPoolType: 'fixed' as const,
+          rewardPoolType: rp.kind,
           tokenProgramId: args.pool.tokenProgram as any,
         })),
       },
@@ -661,6 +770,59 @@ export async function unstakeAndClaim(args: {
     return { ok: true, txId: String(res?.txId ?? '') };
   } catch (err) {
     return writeFailure(err, 'The unstake did not go through — your stake is untouched.');
+  }
+}
+
+/**
+ * PRINCIPAL RESCUE — unstake a MATURED entry WITHOUT claiming rewards.
+ *
+ * WHY THIS EXISTS. `unstakeAndClaim` above settles rewards in the same
+ * transaction, so when accrued rewards exceed the reward vault the program
+ * reverts the WHOLE transaction with error 6012 (`RewardPoolDrained`) — and a
+ * funding gap therefore holds *principal* hostage even after the lock has
+ * fully expired. That is the failure this function exists to defeat. The SDK
+ * always had it; the venue simply never wired it (found 2026-09-02, with
+ * 2,022,682 BAYLA and eight stakers live on the pool).
+ *
+ * WHAT IT COSTS, and it must be said in the UI, not buried here: the SDK's
+ * `unstakeAndClose` is `unstake(shouldClose: true)` + `closeRewardEntry` — it
+ * CLOSES the reward entry rather than claiming it, which is exactly why it
+ * never touches the reward vault and so cannot hit 6012. Closing the entry
+ * abandons whatever had accrued. This is a way to get PRINCIPAL out of a pool
+ * whose reward vault is short; it is not a free alternative to a normal exit.
+ *
+ * WHAT IT IS NOT. It is not an early exit. The lock is still enforced by
+ * `unstake` (error 6013 `LockedStake`) exactly as before, so this cannot be
+ * used to leave before maturity. Streamflow has no early exit at any price and
+ * this does not add one.
+ */
+export async function unstakeAndCloseForfeitingRewards(args: {
+  invoker: SignerWalletAdapter;
+  pool: PoolView;
+  entryNonce: number;
+}): Promise<Result<{ txId: string }> | Failure> {
+  try {
+    const client = await makeClient();
+    // Same argument shape as unstakeAndClaim — the SDK aliases
+    // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
+    const res: any = await client.unstakeAndClose(
+      {
+        stakePool: args.pool.address as any,
+        stakePoolMint: args.pool.mint as any,
+        nonce: args.entryNonce,
+        tokenProgramId: args.pool.tokenProgram as any,
+        rewardPools: args.pool.rewardPools.map((rp) => ({
+          nonce: rp.nonce,
+          mint: rp.mint as any,
+          rewardPoolType: rp.kind,
+          tokenProgramId: args.pool.tokenProgram as any,
+        })),
+      },
+      { invoker: args.invoker },
+    );
+    return { ok: true, txId: String(res?.txId ?? '') };
+  } catch (err) {
+    return writeFailure(err, 'The rescue unstake did not go through — your stake is untouched.');
   }
 }
 
@@ -680,7 +842,7 @@ export async function claimRewards(args: {
         rewardPoolNonce: args.rewardPool.nonce,
         depositNonce: args.entryNonce,
         rewardMint: args.rewardPool.mint as any,
-        rewardPoolType: 'fixed' as const,
+        rewardPoolType: args.rewardPool.kind,
         tokenProgramId: args.pool.tokenProgram as any,
       },
       { invoker: args.invoker },

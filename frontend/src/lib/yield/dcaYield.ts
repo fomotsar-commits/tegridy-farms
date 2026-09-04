@@ -1,7 +1,7 @@
 // What a DCA schedule's unspent budget could be doing, and what it is actually doing.
 //
 // THE HONEST FRAME, which the copy this module produces has to carry all the way
-// to the screen: a Tegridy DCA schedule is a REMINDER, not an escrow. It holds no
+// to the screen: a DCA schedule here is a REMINDER, not an escrow. It holds no
 // funds, so an "unfilled budget" is money still sitting in the user's own wallet.
 // Nothing here moves it, nothing here can move it, and the figure below is the
 // size of an opportunity rather than a balance under management.
@@ -159,8 +159,8 @@ export function dcaYieldPlan(input: DcaBudgetInput): DcaYieldPlanResult {
       idleAmount: formatEther(idleWei),
       asset: input.asset,
       remainingSwaps,
-      parking: parkingLeg(remainingSwaps),
-      autoStake: autoStakeLeg(),
+      parking: parkingLeg(remainingSwaps, input.asset),
+      autoStake: autoStakeLeg(input.asset),
       execution: DCA_YIELD_EXECUTION_NOTE,
     },
   };
@@ -244,29 +244,49 @@ export function dcaIdleTotal(
  * missing piece rather than the feature — an operator reading it learns what to
  * wire, and a user reading it learns that nothing is being held anywhere.
  */
-function parkingLeg(remainingSwaps: number): DcaYieldLeg {
+function parkingLeg(remainingSwaps: number, asset: DcaAsset): DcaYieldLeg {
   if (remainingSwaps === 0) {
     return { state: 'unavailable', reason: `This schedule has no swaps left to make, ${REMAINING_NOTE}` };
   }
-  const venue = routableYieldVenues('stable-lending')[0];
+  // KEYED TO THE BUDGET'S OWN TOKEN, not merely to the first routable lending
+  // market. Before venues were wired this distinction cost nothing, because the
+  // catalogue was empty and every branch refused. The moment Aave's USDC market
+  // became routable, an unkeyed lookup would have told the holder of an ETH
+  // schedule that their idle ETH "would route to Aave v3 — USDC market", which
+  // is a token they do not hold and a deposit that would revert.
+  const venue = routableYieldVenues('stable-lending').find(
+    (v) => v.route.kind === 'erc20-supply' && v.route.asset.symbol === asset.symbol,
+  );
   if (venue === undefined) {
     return {
       state: 'unavailable',
       reason:
-        'No lending market has a wired deposit address in this build, so an unfilled budget cannot be parked from here. It stays in your wallet, earning nothing.',
+        `No lending market on the Yield Routing page accepts ${asset.symbol}. The USDC and USDS markets take those ` +
+        'tokens, which this schedule does not hold, so its unspent budget stays in your wallet earning nothing.',
     };
   }
   return { state: 'available', venue };
 }
 
-/** Where a completed buy could be staked. Same gate, different half of the catalogue. */
-function autoStakeLeg(): DcaYieldLeg {
-  const venue = routableYieldVenues(['lst', 'lrt'])[0];
+/** Where a completed buy could be staked. Same keying, other half of the catalogue. */
+function autoStakeLeg(asset: DcaAsset): DcaYieldLeg {
+  if (asset.symbol !== 'ETH' && asset.symbol !== 'WETH') {
+    return {
+      state: 'unavailable',
+      reason:
+        `The staking venues on the Yield Routing page all take ETH, and this schedule holds ${asset.symbol}, so a ` +
+        'completed buy cannot be staked from here. It stays in your wallet as the token you bought.',
+    };
+  }
+  const venue = routableYieldVenues(['lst', 'lrt']).find(
+    (v) => v.route.kind === 'native-payable' && v.route.asset === 'ETH',
+  );
   if (venue === undefined) {
     return {
       state: 'unavailable',
       reason:
-        'No staking venue has a wired deposit address in this build, so a completed buy cannot be staked from here. It stays in your wallet as the token you bought.',
+        'No staking venue has a wired deposit address in this build, so a completed buy cannot be staked from here. ' +
+        'It stays in your wallet as the token you bought.',
     };
   }
   return { state: 'available', venue };

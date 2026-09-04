@@ -1,3 +1,6 @@
+import { useId } from 'react';
+import type { GeckoNetwork } from '../../lib/geckoTerminal/pools';
+import { DEPLOYER_NOT_ON_THIS_CHAIN } from '../../hooks/useTerminalSafety';
 import type { RowSafety } from '../../lib/terminal/rowSafety';
 import { SafetyBadge } from './SafetyBadge';
 
@@ -7,6 +10,14 @@ import { SafetyBadge } from './SafetyBadge';
 // scored" is not actionable and "the deployer address was never resolved on this
 // build, paste it to score the row" is. The inspector is where an unread state
 // stops being a shrug and becomes a next step.
+//
+// THE DEPLOYER FIELD IS LABELLED FOR WHAT IT ACTUALLY IS. Nothing in this build
+// verifies that a pasted address deployed this token — there is no
+// contract-creator lookup — so the field takes a CLAIM. Labelling it "Deployer
+// address" alone would let a scored row look like it had been checked against
+// the chain, when what was checked is whatever the visitor typed. Off Ethereum
+// the field is disabled outright rather than left to look usable, because the
+// reputation core reads Ethereum mainnet and would answer about the wrong chain.
 
 export interface SafetyInspectorProps {
   token: string;
@@ -14,6 +25,8 @@ export interface SafetyInspectorProps {
   loading: boolean;
   deployer: string;
   onDeployerChange: (value: string) => void;
+  /** Chain of the selected row. Decides whether a deployer can be read at all. */
+  network?: GeckoNetwork;
 }
 
 export function SafetyInspector({
@@ -22,7 +35,11 @@ export function SafetyInspector({
   loading,
   deployer,
   onDeployerChange,
+  network,
 }: SafetyInspectorProps) {
+  const helpId = useId();
+  const offEthereum = network !== undefined && network !== 'eth';
+
   return (
     <section className="rounded-xl border border-white/15 bg-white/[0.03] p-4" aria-label="Safety read">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -31,7 +48,7 @@ export function SafetyInspector({
       </div>
 
       {!token ? (
-        <p className="mt-2 text-xs text-white/70">Select a pair to read it.</p>
+        <p className="mt-2 text-xs text-white/70">Select a row to read it.</p>
       ) : (
         <>
           <div className="mt-2">
@@ -82,20 +99,22 @@ export function SafetyInspector({
           </div>
 
           <label className="mt-3 block text-[11px] font-medium uppercase tracking-wide text-white/60">
-            Deployer address
+            Deployer address (claimed — not verified against this token)
             <input
               type="text"
-              value={deployer}
+              value={offEthereum ? '' : deployer}
               onChange={(e) => onDeployerChange(e.target.value)}
+              disabled={offEthereum}
+              aria-describedby={helpId}
               spellCheck={false}
-              className="mt-1 w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 font-mono text-xs text-white"
-              placeholder="0x…"
+              className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/30 px-2 py-1.5 font-mono text-xs text-white disabled:opacity-40"
+              placeholder={offEthereum ? 'not read on this chain' : '0x…'}
             />
           </label>
-          <p className="mt-1 text-[10px] leading-snug text-white/55">
-            This build has no contract-creator lookup, so the deploying address cannot be resolved
-            automatically. Until one is supplied the deployer half of the read is missing and the
-            row stays unrated.
+          <p id={helpId} className="mt-1 text-[10px] leading-snug text-white/55">
+            {offEthereum
+              ? DEPLOYER_NOT_ON_THIS_CHAIN[network as Exclude<GeckoNetwork, 'eth'>]
+              : 'This build has no contract-creator lookup, so the deploying address is never resolved automatically. No row on this feed is fully read for that reason: a row can reach a finding, but it can never reach a pass unless you paste a deployer — and what you paste is taken as a claim, not checked against this token.'}
           </p>
         </>
       )}

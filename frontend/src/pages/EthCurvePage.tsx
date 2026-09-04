@@ -1,4 +1,4 @@
-// The EVM own-curve surface — create a launch on the zero-toll Tegridy curve and
+// The EVM own-curve surface — create a launch on the zero-toll Memetics curve and
 // trade any live curve token. Distinct from /curve-launch (Solana) and /launch
 // (the Doppler auction rail): this is OUR curve, no Airlock, no petition, 100%
 // of the fee kept in-house.
@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { useChainId } from 'wagmi';
+import { useChainId, useReadContracts } from 'wagmi';
 import { isAddress, type Address } from 'viem';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -19,8 +19,8 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { FeatureNotDeployed } from '../components/ui/FeatureNotDeployed';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { CHAIN_ID } from '../lib/constants';
-import { getChainConfig } from '../lib/chains/registry';
-import { curveLauncherOn } from '../lib/launcher/curve';
+import { CONFIGURED_CHAIN_IDS, getChainConfig } from '../lib/chains/registry';
+import { curveLauncherOn, CURVE_LAUNCHER_ABI } from '../lib/launcher/curve';
 import { CurveCreatePanel } from '../components/launcher/CurveCreatePanel';
 import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { CurveLaunchesGrid } from '../components/launcher/CurveLaunchesGrid';
@@ -39,7 +39,7 @@ export function CurveHowItWorks() {
   ];
   return (
     <div className="rounded-2xl p-5 space-y-3" style={cardStyle}>
-      <h2 className="text-white font-semibold text-sm">How the Tegridy curve works</h2>
+      <h2 className="text-white font-semibold text-sm">How the Memetics curve works</h2>
       <ul className="space-y-2">
         {points.map((p) => (
           <li key={p.k} className="text-[12px] leading-relaxed">
@@ -99,6 +99,93 @@ function TradeByAddress({ launcher, chainId, prefill }: { launcher: Address; cha
   );
 }
 
+/**
+ * The chains the Memetics curve is actually deployed on, in registry order.
+ *
+ * Derived, never hand-listed: a fourth deployment appears here the moment its
+ * address lands in the chain registry, and a chain whose launcher is absent
+ * never gets a tab that leads nowhere.
+ */
+function deployedCurveChains(): { chainId: number; name: string; launcher: Address }[] {
+  const out: { chainId: number; name: string; launcher: Address }[] = [];
+  for (const chainId of CONFIGURED_CHAIN_IDS) {
+    const a = curveLauncherOn(chainId);
+    if (a.status !== 'deployed') continue;
+    out.push({ chainId, name: getChainConfig(chainId)?.name ?? `Chain ${chainId}`, launcher: a.address });
+  }
+  return out;
+}
+
+/**
+ * How many launches each deployed chain carries, and which one you are looking at.
+ *
+ * WHY THIS EXISTS. The grid below shows ONE chain, seeded from the wallet and
+ * defaulting to mainnet — so a disconnected visitor saw mainnet's launches and
+ * had no way to know two other chains carried any. Discovery is the binding
+ * constraint for a launchpad and that halved it.
+ *
+ * WHY EACH COUNT CARRIES ITS OWN STATE. A `launchCount` that did not return is
+ * not zero. Every chain reads independently and an unread one says so, rather
+ * than advertising an empty chain we never actually asked about.
+ */
+function ChainLaunchCounts({
+  chains,
+  selected,
+  onSelect,
+}: {
+  chains: { chainId: number; name: string; launcher: Address }[];
+  selected: number;
+  onSelect: (chainId: number) => void;
+}) {
+  const { data } = useReadContracts({
+    contracts: chains.map((c) => ({
+      address: c.launcher,
+      abi: CURVE_LAUNCHER_ABI,
+      functionName: 'launchCount' as const,
+      args: [] as const,
+      chainId: c.chainId,
+    })),
+    query: { refetchInterval: 60_000 },
+  });
+
+  return (
+    <div className="rounded-2xl p-3" style={cardStyle}>
+      <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2">Launches by chain</p>
+      <div className="flex flex-wrap gap-2">
+        {chains.map((c, i) => {
+          const res = data?.[i];
+          const count = res?.status === 'success' && typeof res.result === 'bigint' ? res.result : null;
+          const active = c.chainId === selected;
+          return (
+            <button
+              key={c.chainId}
+              type="button"
+              onClick={() => onSelect(c.chainId)}
+              aria-pressed={active}
+              className="min-h-11 px-3 py-2 rounded-xl text-left transition-colors"
+              style={{
+                border: active ? '1px solid rgba(52,211,153,0.5)' : '1px solid rgba(255,255,255,0.12)',
+                background: active ? 'rgba(16,185,129,0.10)' : 'rgba(255,255,255,0.03)',
+              }}
+            >
+              <span className="block text-white/90 text-[12px] font-medium leading-tight">{c.name}</span>
+              <span className={`block text-[11px] leading-tight ${count === null ? 'text-amber-300/80' : 'text-white/55'}`}>
+                {count === null
+                  ? 'count unread'
+                  : `${count.toString()} launch${count === 1n ? '' : 'es'}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-white/40 text-[11px] mt-2 leading-relaxed">
+        Counts are read from each chain&rsquo;s launcher. A chain whose read did not return says
+        so — it is never shown as zero.
+      </p>
+    </div>
+  );
+}
+
 export default function EthCurvePage() {
   usePageTitle('Memetics Curve', 'Launch and trade on the zero-toll Memetics bonding curve.');
   useEffect(() => {
@@ -109,14 +196,19 @@ export default function EthCurvePage() {
   // their coin's permanent, shareable page, not a dead-end toast.
   const navigate = useNavigate();
 
-  // Chain-aware: the Tegridy curve is LIVE on Ethereum, Base and Robinhood. Show the
+  // Chain-aware: the Memetics curve is LIVE on Ethereum, Base and Robinhood. Show the
   // launcher for the wallet's chain when it has one; otherwise default to mainnet
   // (a disconnected wallet resolves to mainnet too). A wallet already on a served
   // curve chain then reads + writes on that chain with no wrong-chain banner.
   const walletChainId = useChainId();
-  const activeChainId =
+  const seededChainId =
     curveLauncherOn(walletChainId).status === 'deployed' ? walletChainId : CHAIN_ID;
+  // The wallet seeds the view; an explicit pick overrides it. Mainnet stays the
+  // default for a disconnected visitor, exactly as before.
+  const [pickedChainId, setPickedChainId] = useState<number | null>(null);
+  const activeChainId = pickedChainId ?? seededChainId;
   const availability = curveLauncherOn(activeChainId);
+  const curveChains = useMemo(() => deployedCurveChains(), []);
   const chainName = getChainConfig(activeChainId)?.name ?? 'Ethereum';
 
   return (
@@ -147,6 +239,9 @@ export default function EthCurvePage() {
               chainId={activeChainId}
               onTrade={(token) => navigate(`/eth-curve/${token}?c=${activeChainId}`)}
             />
+            {curveChains.length > 1 && (
+              <ChainLaunchCounts chains={curveChains} selected={activeChainId} onSelect={setPickedChainId} />
+            )}
             <CurveLaunchesGrid launcher={availability.address} chainId={activeChainId} chainName={chainName} />
             <TradeByAddress launcher={availability.address} chainId={activeChainId} />
             <CurveHowItWorks />
@@ -154,11 +249,14 @@ export default function EthCurvePage() {
         ) : (
           <div className="space-y-4">
             <FeatureNotDeployed
-              title="The Tegridy curve is coming to Ethereum."
+              title="The Memetics curve is coming to Ethereum."
               subtitle="The contract is internally reviewed and ready; it goes live the moment the launcher is broadcast. Here's what it does."
               pageId={PAGE_ID}
               idx={0}
             />
+            {curveChains.length > 0 && (
+              <ChainLaunchCounts chains={curveChains} selected={activeChainId} onSelect={setPickedChainId} />
+            )}
             <CurveHowItWorks />
           </div>
         )}

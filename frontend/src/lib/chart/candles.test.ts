@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bucketStart, buildCandleSeries, priceExtent, totalBuckets, type Slot } from './candles';
+import { bucketStart, buildCandleSeries, interleaveGaps, priceExtent, totalBuckets, type Slot } from './candles';
 
 // The assertions that matter here are the NEGATIVE ones: what the builder
 // refuses to produce. A candle where nothing traded, an open carried across a
@@ -237,5 +237,75 @@ describe('priceExtent', () => {
   it('is null when there is no candle — a gap has no price to contribute', () => {
     expect(priceExtent([{ kind: 'gap', startSec: 0, endSec: HOUR, buckets: 1 }])).toBeNull();
     expect(priceExtent([])).toBeNull();
+  });
+});
+
+// ── The shared gap walk ────────────────────────────────────────────────────
+//
+// `interleaveGaps` was extracted so the GeckoTerminal reader draws its gaps
+// through the SAME code the indexed path does. These pin that the extraction is
+// behaviour-preserving and that the walk is the thing both callers depend on.
+
+describe('interleaveGaps', () => {
+  function candle(hourOffset: number, price: number): Slot & { kind: 'candle' } {
+    return {
+      kind: 'candle',
+      startSec: hourOffset * HOUR,
+      endSec: (hourOffset + 1) * HOUR,
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: 1,
+      trades: null,
+    };
+  }
+
+  it('puts one gap of true width between two candles that are not adjacent', () => {
+    const out = interleaveGaps([candle(0, 10), candle(4, 20)], HOUR);
+    // Mutation: emit one gap slot per empty bucket, or a fixed-width gap, and
+    // the time axis stops being linear in time.
+    expect(out.slots).toHaveLength(3);
+    expect(out.slots[1]).toEqual({ kind: 'gap', startSec: HOUR, endSec: 4 * HOUR, buckets: 3 });
+    expect(out.emptyBuckets).toBe(3);
+    expect(out.from).toBe(0);
+    expect(out.to).toBe(5 * HOUR);
+  });
+
+  it('inserts nothing between adjacent candles', () => {
+    const out = interleaveGaps([candle(0, 10), candle(1, 11)], HOUR);
+    expect(out.slots.every((s) => s.kind === 'candle')).toBe(true);
+    expect(out.emptyBuckets).toBe(0);
+  });
+
+  it('reports an empty input as an empty span rather than as a zero-length one', () => {
+    const out = interleaveGaps([], HOUR);
+    // Mutation: return `from: 0` and a chart with nothing in it would claim to
+    // start at the epoch.
+    expect(out).toEqual({ slots: [], emptyBuckets: 0, from: null, to: null });
+  });
+
+  it('is the walk buildCandleSeries itself uses', () => {
+    const built = buildCandleSeries([trade(0, 10), trade(4, 20)], HOUR, { truncated: false });
+    const walked = interleaveGaps(
+      built.slots.filter((s): s is Slot & { kind: 'candle' } => s.kind === 'candle'),
+      HOUR,
+    );
+    expect(walked.slots).toEqual(built.slots);
+    expect(walked.emptyBuckets).toBe(built.emptyBuckets);
+  });
+});
+
+describe('Candle.trades on the indexed path', () => {
+  it('is still a measured NUMBER — widening the type must not make it absent here', () => {
+    const built = buildCandleSeries([trade(0, 10), trade(0, 12), trade(4, 20)], HOUR, {
+      truncated: false,
+    });
+    const first = built.slots[0];
+    expect(first?.kind).toBe('candle');
+    // Mutation: write `trades: null` on this path to "share" the GeckoTerminal
+    // shape and the venue's own chart would stop reporting counts it really did
+    // measure.
+    if (first?.kind === 'candle') expect(first.trades).toBe(2);
   });
 });

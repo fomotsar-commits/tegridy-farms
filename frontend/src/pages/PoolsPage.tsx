@@ -44,7 +44,7 @@ import {
 export default function PoolsPage() {
   usePageTitle(
     'Liquidity pools — Solana',
-    'Provide liquidity on Tegridy’s own Solana AMM: what it charges, what LPs keep, and its live deployment status.',
+    'Provide liquidity on the venue’s own Solana AMM: what it charges, what LPs keep, and its live deployment status.',
   );
   useEffect(() => { trackPageView('pools'); }, []);
 
@@ -68,6 +68,12 @@ export default function PoolsPage() {
   const liveConfig = status?.kind === 'live' ? status.config : null;
   const split = feeSplit(liveConfig ?? RECOMMENDED_AMM_CONFIG);
 
+  // Every capability claim on this page hangs off the live probe. A spent program
+  // id must never be described in the present tense, and "still reading" is not a
+  // licence to assert either — so the conditional copy is the default and the
+  // present-tense copy is what the probe has to earn.
+  const venueIsOpen = liveConfig !== null;
+
   return (
     <div className="relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -79,15 +85,26 @@ export default function PoolsPage() {
         <ChainSwitch active="solana" />
 
         <m.div className="mb-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Tegridy AMM · Solana</p>
+          <p className="text-white/70 text-[11px] uppercase tracking-[0.2em] mb-2">Venue AMM · Solana</p>
           <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
             Liquidity pools.
           </h1>
           <p className="text-white/85 text-[15px] max-w-xl leading-relaxed">
-            Our own constant-product AMM on Solana — anyone can open a pool, anyone can
-            provide liquidity, and the trade fee is split between the LPs who funded it
-            and the venue. The swap surface quotes these pools alongside the aggregator
-            and takes whichever is better for the trader.
+            {venueIsOpen ? (
+              <>
+                Our own constant-product AMM on Solana — anyone can open a pool, anyone can
+                provide liquidity, and the trade fee is split between the LPs who funded it
+                and the venue. The swap surface quotes these pools alongside the aggregator
+                and takes whichever is better for the trader.
+              </>
+            ) : (
+              <>
+                Our own constant-product AMM on Solana. Everything below is what the venue
+                <strong> will</strong> charge and pay once its program is redeployed — no pool can
+                be opened here yet, and no trade on chain is paying these rates. The card below
+                is a live chain read of which state the venue is actually in.
+              </>
+            )}
           </p>
         </m.div>
 
@@ -144,7 +161,15 @@ export default function PoolsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
           <section className="rounded-2xl p-6" style={CARD}>
             <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--color-kyle)' }}>For liquidity providers</p>
-            <h2 className="heading-luxury text-lg text-white mb-3">Deposit a pair, hold the LP token</h2>
+            <h2 className="heading-luxury text-lg text-white mb-3">
+              {venueIsOpen ? 'Deposit a pair, hold the LP token' : 'How it will work: deposit a pair, hold the LP token'}
+            </h2>
+            {!venueIsOpen && (
+              <p className="text-white/60 text-[12px] leading-relaxed mb-3">
+                This is the mechanism the redeployed program will run. There is no pool to
+                deposit into today — the status card above is the live read.
+              </p>
+            )}
             <ul className="text-white/80 text-[13px] leading-relaxed space-y-2 list-disc pl-4">
               <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
               <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades. There is nothing to claim.</li>

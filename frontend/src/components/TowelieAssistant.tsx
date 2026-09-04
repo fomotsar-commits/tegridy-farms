@@ -32,10 +32,10 @@ const COPY = {
     "Connected. I have no idea what just happened, but cool.",
   ],
   txSuccess: [
-    "Locked it down. With tegridy.",
+    "Locked it down. Nice.",
     "Done. Easy money.",
     "Boom. That worked.",
-    "Tegridy preserved.",
+    "Held time preserved.",
   ],
   txFail: [
     "Eh, shit happens. Try again.",
@@ -92,22 +92,30 @@ const ROUTE_TIPS: Record<string, string> = {
   '/farm':        "4× boost at max lock. Math checks out, I think.",
   '/swap':        "Trade TOWELI here. Or whatever — I'm just a towel.",
   '/liquidity':   "Add liquidity, earn fees. Easy money. Probably.",
-  '/community':   "Vote, post bounties, propose grants. Tegridy demands it.",
+  '/community':   "Vote, post bounties, propose grants. The island demands it.",
   '/nft-finance': "Lend, borrow, trade NFTs. No oracles, no rugs.",
-  '/lore':        "The story of how Tegridy was lost and found.",
-  '/tokenomics':  "1B supply. 100% of fees flow back to stakers.",
+  '/lore':        "The story of how the island was found.",
+  // CORRECTED 2026-09-03: this said "100% of fees flow back to stakers". That is
+  // the same overclaim the Farm strip carried — SwapFeeRouter.stakerShareBps is
+  // 10000, but ReferralSplitter carves 2000 bps off the top BEFORE the
+  // distributor sees anything, so the end-to-end ceiling is ~80% and cannot be
+  // raised from the app. No percentage here on purpose: this is a static hint
+  // string with no access to the live reads, and a hardcoded 80 would drift the
+  // moment governance retunes the split (it is settable to MAX_REFERRAL_FEE
+  // behind a timelock). The Farm strip quotes the live number; this points at it.
+  '/tokenomics':  "1B supply. Protocol fees route on-chain to stakers, after the referral carve.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
   '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
-  '/changelog':   "Every shipped feature, with Tegridy.",
+  '/changelog':   "Every shipped feature, receipts and all.",
   '/premium':     "Randy's Gold Card. Bonus rewards for the loyal.",
   '/gallery':     "All the art. Look, don't lick.",
-  '/history':     "Your tx receipts. Tegridy keeps the books.",
+  '/history':     "Your tx receipts. The chain keeps the books.",
   '/faq':         "Got questions? I probably have shrugs.",
-  '/risks':       "Read this. Seriously. With tegridy.",
+  '/risks':       "Read this. Seriously.",
   '/terms':       "Legal stuff. Required by grown-ups.",
   '/privacy':     "We don't track much. Towels respect privacy.",
   '/contracts':   "Where the magic happens. On-chain.",
-  '/treasury':    "Watch the funds. Transparency, with tegridy.",
+  '/treasury':    "Watch the funds. Transparency, on-chain.",
 };
 
 // F34: three routes (nft-finance/community/premium) are promoted in the nav
@@ -139,7 +147,7 @@ function tipIsLive(pathname: string): boolean {
 
 const COMING_SOON_TIPS: Record<string, string> = {
   '/nft-finance': "NFT lending lands here soon. Contracts aren't live yet — sit tight.",
-  '/community':   "Grants, bounties, votes — coming once governance ships. Patience, with tegridy.",
+  '/community':   "Grants, bounties, votes — coming once governance ships. Patience, with held time.",
   '/premium':     "Randy's Gold Card isn't open yet. I'll holler when it drops.",
 };
 
@@ -373,7 +381,7 @@ export function TowelieAssistant() {
 
   return (
     <div
-      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 md:bottom-4"
+      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 min-[800px]:bottom-4"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >
       <AnimatePresence>
@@ -384,7 +392,7 @@ export function TowelieAssistant() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.9 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-auto max-w-[260px] mb-1 relative"
+            className="pointer-events-none max-w-[260px] mb-1 relative"
             role="status"
             aria-live="polite"
           >
@@ -400,7 +408,13 @@ export function TowelieAssistant() {
               <button
                 onClick={dismissBubble}
                 aria-label="Dismiss Towelie"
-                className="absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none"
+                /* A11Y-R12: 20x20px, on a control that is rendered on literally
+                   every route. The painted square stays 20px — growing the box
+                   would grow the hover fill and crowd a bubble that is only ~40px
+                   tall — and a transparent ::before carries the TAP target to
+                   44x44. The bubble body has no click handler of its own, so the
+                   overlay steals nothing. */
+                className="pointer-events-auto absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none before:absolute before:content-[''] before:-inset-[12px]"
               >
                 ×
               </button>
@@ -412,7 +426,7 @@ export function TowelieAssistant() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Ask me anything…"
-                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
+                    className="pointer-events-auto flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
                     aria-label="Ask Towelie a question"
                     maxLength={140}
                   />
@@ -420,7 +434,7 @@ export function TowelieAssistant() {
                     type="submit"
                     disabled={!chatInput.trim()}
                     aria-label="Send question"
-                    className="text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
+                    className="pointer-events-auto text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
                   >
                     ↩
                   </button>
@@ -429,13 +443,13 @@ export function TowelieAssistant() {
               <div className="mt-1.5 flex items-center gap-3">
                 <button
                   onClick={toggleChat}
-                  className="text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
+                  className="pointer-events-auto text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
                 >
                   {chatOpen ? 'Close chat' : '💬 Ask me'}
                 </button>
                 <button
                   onClick={disablePermanently}
-                  className="text-[10px] text-white/40 hover:text-white/70 transition-colors"
+                  className="pointer-events-auto text-[10px] text-white/40 hover:text-white/70 transition-colors"
                 >
                   Don't show again
                 </button>
