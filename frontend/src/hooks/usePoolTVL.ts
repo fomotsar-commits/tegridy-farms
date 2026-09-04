@@ -14,6 +14,25 @@ const POOL_LAUNCH_TIMESTAMP = TEGRIDY_LP_CREATED_AT;
 
 export function usePoolTVL() {
   const price = useTOWELIPrice();
+  /**
+   * DISPLAY price, not the swap price.
+   *
+   * This hook produces TVL, APR and 24h volume — figures that are shown, never
+   * traded on. It used to read `price.ethUsd`, which carries a 300s freshness
+   * window sized for swap quoting. Mainnet ETH/USD publishes on a 3600s
+   * heartbeat, so that window is closed ~85% of the time against a perfectly
+   * healthy feed (see the note above MAX_LAUNCH_STALENESS_SECONDS in
+   * useToweliPrice.ts, and a live reading of 940s taken 2026-09-03). Whenever it
+   * was closed, `ethUsd` was 0, the guard below fell through, and the Farm's pool
+   * card rendered TVL / APR / 24h volume as an em dash — which reads as a broken
+   * venue rather than a cautious one.
+   *
+   * `ethUsdForDisplay` uses the feed's own heartbeat window and still requires
+   * the answer to be well-formed and inside the sanity band, so a genuinely dead
+   * or absurd feed still produces 0 and still dashes out. Swap surfaces keep the
+   * tight window; nothing about swap pricing changes here.
+   */
+  const ethUsd = price.ethUsdForDisplay;
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
   const hasReferralSplitter = checkDeployed(REFERRAL_SPLITTER_ADDRESS);
   const chainId = useChainId();
@@ -70,8 +89,8 @@ export function usePoolTVL() {
       ? Number(data[6].result as bigint)
       : null;
 
-    if (!reserves || !token0 || price.ethUsd <= 0) {
-      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply: 0n, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps };
+    if (!reserves || !token0 || ethUsd <= 0) {
+      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply: 0n, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps, feesReadOk: true };
     }
 
     const isToken0Toweli = token0 === TOWELI_ADDRESS.toLowerCase();
@@ -83,7 +102,7 @@ export function usePoolTVL() {
     // reserve or NaN oracle would otherwise let the high-side dailyVolumeRatio
     // branch fire on garbage inputs. Math.min(raw, MAX_TVL_USD) keeps the
     // upper end sane.
-    const rawTvl = wethFloat * 2 * price.ethUsd;
+    const rawTvl = wethFloat * 2 * ethUsd;
     const tvl = Number.isFinite(rawTvl) && rawTvl >= 0 ? Math.min(rawTvl, MAX_TVL_USD) : 0;
 
     let tvlFormatted: string;
@@ -100,8 +119,17 @@ export function usePoolTVL() {
     const totalETHFees = hasFeeRouter && data?.[3]?.status === 'success' ? data[3].result as bigint : 0n;
     const feeBps = hasFeeRouter && data?.[4]?.status === 'success' ? data[4].result as bigint : 0n;
 
+    /**
+     * Did the fee read actually LAND? `totalETHFees` collapses a failed read and
+     * a genuine zero into the same 0n, and the F485 branch below then states
+     * "no fees yet" — asserting the pool has never traded on the strength of a
+     * request that never came back. That is the repo's most repeated bug class,
+     * so the two states are separated here and surfaced to the caller.
+     */
+    const feesReadOk = !hasFeeRouter || data?.[3]?.status === 'success';
+
     if (totalETHFees > 0n && tvl > 0) {
-      const totalFeesUsd = parseFloat(formatEther(totalETHFees)) * price.ethUsd;
+      const totalFeesUsd = parseFloat(formatEther(totalETHFees)) * ethUsd;
       const now = Math.floor(Date.now() / 1000);
       const poolAgeSec = Math.max(now - POOL_LAUNCH_TIMESTAMP, 86400);
       const poolAgeDays = poolAgeSec / 86400;
@@ -119,28 +147,39 @@ export function usePoolTVL() {
 
       aprIsEstimated = false;
       volIsEstimated = false;
-    } else if (tvl > 0) {
+    } else if (tvl > 0 && feesReadOk) {
       // F485: with no on-chain fees we do NOT fabricate volume/APR from an
       // assumed turnover ratio — the honesty mandate forbids rendering a number
       // the chain can't back. Leave aprNum / vol24h at 0 so the existing '–'
       // fall-through renders; the consuming stat card surfaces a "volume
       // appears after first trades" microcopy line instead of a synthetic $.
+      //
+      // Gated on feesReadOk: reaching here with a FAILED read would say the same
+      // thing about a pool we simply could not measure.
       aprNum = 0;
       vol24h = 0;
     }
 
     if (aprNum > MAX_APR) aprNum = MAX_APR;
 
-    const apr = aprNum > 0
+    // Mirrors the volume rule above: a real but tiny APR must not print as a
+    // flat "0.0%", which reads as "this pool earns nothing".
+    const apr = aprNum >= 0.1
       ? `${aprIsEstimated ? '~' : ''}${aprNum.toFixed(1)}%${aprIsEstimated ? ' (est.)' : ''}`
-      : '–';
+      : aprNum > 0
+        ? `${aprIsEstimated ? '~' : ''}<0.1%${aprIsEstimated ? ' (est.)' : ''}`
+        : '–';
 
     let vol24hFormatted: string;
     const volPrefix = volIsEstimated ? '~' : '';
     const volSuffix = volIsEstimated ? ' (est.)' : '';
     if (vol24h >= 1_000_000) vol24hFormatted = `${volPrefix}$${(vol24h / 1_000_000).toFixed(2)}M${volSuffix}`;
     else if (vol24h >= 1_000) vol24hFormatted = `${volPrefix}$${(vol24h / 1_000).toFixed(1)}K${volSuffix}`;
-    else if (vol24h > 0) vol24hFormatted = `${volPrefix}$${vol24h.toFixed(0)}${volSuffix}`;
+    // A real but sub-dollar figure used to `toFixed(0)` into "$0", which states
+    // there was no trading when there was some. "<$1" is the same information
+    // without the false claim.
+    else if (vol24h >= 1) vol24hFormatted = `${volPrefix}$${vol24h.toFixed(0)}${volSuffix}`;
+    else if (vol24h > 0) vol24hFormatted = `${volPrefix}<$1${volSuffix}`;
     else vol24hFormatted = '–';
 
     return {
@@ -158,6 +197,8 @@ export function usePoolTVL() {
       stakerSharePct,
       stakerShareLoaded,
       referralFeeBps,
+      /** False when the fee read did not land — "no fees yet" is then unknowable. */
+      feesReadOk,
     };
-  }, [data, price.ethUsd, hasFeeRouter, hasReferralSplitter]);
+  }, [data, ethUsd, hasFeeRouter, hasReferralSplitter]);
 }
