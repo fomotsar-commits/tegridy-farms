@@ -42,7 +42,7 @@
  * repeat builds cost almost nothing.
  */
 import sharp from 'sharp';
-import { readdirSync, statSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 
 /** Source roots to scan. Everything under them is fair game. */
@@ -85,8 +85,18 @@ const WIDTHS = [128, 480, 960];
 const WEBP_QUALITY = 78;
 
 function walk(dir, out = []) {
-  if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  // NO EXISTENCE CHECK BEFORE THE READ. Asking whether a path is there and then
+  // acting on the answer is a check-then-use race: the path can change in the
+  // gap. CodeQL flags the shape as js/file-system-race at HIGH severity, and it
+  // is right to. Attempting the read and handling its failure is both correct
+  // and one syscall cheaper.
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out; // absent or unreadable - nothing to derive from
+  }
+  for (const entry of entries) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
       // Never recurse into our own output.
@@ -136,8 +146,14 @@ async function main() {
       if (naturalWidth <= width) continue;
 
       const outPath = join(PUBLIC_ROOT, derivedUrl(file, width).replace(/^\//u, ''));
-      const fresh =
-        existsSync(outPath) && statSync(outPath).mtimeMs >= statSync(file).mtimeMs;
+      // Same reason: stat the output directly and read a throw as "not there",
+      // instead of asking whether it is there and then acting on the answer.
+      let fresh = false;
+      try {
+        fresh = statSync(outPath).mtimeMs >= statSync(file).mtimeMs;
+      } catch {
+        fresh = false;
+      }
 
       if (fresh) {
         skipped++;
