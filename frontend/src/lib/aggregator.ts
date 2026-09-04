@@ -3,6 +3,21 @@
 // All APIs are free with no API key required.
 
 import { providerFeeAttachment } from './fees/swapFee';
+// R080 (wired 2026-08-28): every `res.json()` below passes through its
+// provider's zod schema before any field is read. `parseOrNull` never throws;
+// a malformed body nulls out THAT provider's quote and the race continues —
+// the same graceful degradation as a failed fetch. The inline amountOut
+// guards stay: they are the load-bearing defense the schemas wrap.
+import {
+  parseOrNull,
+  swapApiResponseSchema,
+  odosResponseSchema,
+  cowSwapResponseSchema,
+  liFiResponseSchema,
+  kyberSwapResponseSchema,
+  openOceanResponseSchema,
+  paraSwapResponseSchema,
+} from './schemas/aggregator';
 
 // AUDIT R045 H1: aggregator was hard-coded to chainId 1 (Ethereum mainnet). On
 // any other chain the wallet would still display "best route" results from
@@ -108,6 +123,7 @@ async function getSwapApiQuote(
     const res = await fetch(`/api/swapapi/v1/swap/${opts.chainId}?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(swapApiResponseSchema, data)) return null; // R080 schema gate
     if (!data || typeof data.amountOut !== 'string' || !/^\d+$/.test(data.amountOut) || data.amountOut === '0' ||
         typeof data.priceImpact !== 'number' || !Number.isFinite(data.priceImpact)) {
       return null;
@@ -155,6 +171,7 @@ async function getOdosQuote(
     });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(odosResponseSchema, data)) return null; // R080 schema gate
     const outAmount = data?.outAmounts?.[0];
     if (!outAmount || !/^\d+$/.test(String(outAmount))) return null;
     const priceImpact = typeof data.priceImpact === 'number' ? data.priceImpact : 0;
@@ -202,6 +219,7 @@ async function getCowSwapQuote(
     });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(cowSwapResponseSchema, data)) return null; // R080 schema gate
     const buyAmount = data?.quote?.buyAmount;
     if (!buyAmount || !/^\d+$/.test(String(buyAmount))) return null;
     return {
@@ -241,6 +259,7 @@ async function getLiFiQuote(
     const res = await fetch(`/api/lifi/v1/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(liFiResponseSchema, data)) return null; // R080 schema gate
     const toAmount = data?.estimate?.toAmount;
     if (!toAmount || !/^\d+$/.test(String(toAmount))) return null;
     return {
@@ -277,6 +296,7 @@ async function getKyberSwapQuote(
     });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(kyberSwapResponseSchema, data)) return null; // R080 schema gate
     const amountOut = data?.data?.routeSummary?.amountOut;
     if (!amountOut || !/^\d+$/.test(String(amountOut))) return null;
     return {
@@ -319,6 +339,7 @@ async function getOpenOceanQuote(
     const res = await fetch(`/api/openocean/v4/eth/quote?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(openOceanResponseSchema, data)) return null; // R080 schema gate
     const outAmount = data?.data?.outAmount;
     if (!outAmount || !/^\d+$/.test(String(outAmount))) return null;
     return {
@@ -354,6 +375,7 @@ async function getParaSwapQuote(
     const res = await fetch(`/api/paraswap/prices?${params}`, { signal: opts.signal });
     if (!res.ok) return null;
     const data = await res.json();
+    if (!parseOrNull(paraSwapResponseSchema, data)) return null; // R080 schema gate
     const destAmount = data?.priceRoute?.destAmount;
     if (!destAmount || !/^\d+$/.test(String(destAmount))) return null;
     return {
