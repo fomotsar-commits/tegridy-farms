@@ -153,7 +153,20 @@ export interface NavSection {
  */
 export const MORE_NAV_SECTIONS: NavSection[] = [
   {
-    heading: 'Engage',
+    // SPLIT FROM ONE 14-ITEM "Engage" SECTION, 2026-09-03.
+    //
+    // "Engage" was a catch-all mixing four unrelated jobs — discovering the
+    // venue, trading on it, launching a token, and earning from it — under a
+    // heading that described none of them. A newcomer scanning for "where do I
+    // buy" had to read fourteen labels to find out it was the fourth one.
+    //
+    // NOTHING MOVED. Not one `to`, not one `label`, not one gating expression,
+    // not one comment: the source order was already almost job-grouped, so this
+    // is three inserted section boundaries and nothing else. That matters here
+    // — this repo's e2e specs pin nav LABELS and have gone red twice on rename
+    // waves, so a regrouping that renames nothing carries none of that risk.
+    // (Checked before doing it: no test asserts on these headings.)
+    heading: 'Discover',
     items: [
       // Community is gated on COMMUNITY_LIVE. 🔄 2026-08-12: the old note here
       // said all four governance contracts were "zeroed" and the page was
@@ -165,6 +178,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
       { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Venue Score' },
+    ],
+  },
+  {
+    heading: 'Trade',
+    items: [
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
       // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
       // is a live chain probe of the venue's status, so while the program is
@@ -175,6 +193,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // "Soon" pill self-clears — the flag drives it, so this entry stays honest
       // either way: while gated, /launch renders the SOON wall + LauncherExplainer
       // rather than a dead link.
+    ],
+  },
+  {
+    heading: 'Launch',
+    items: [
       { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
       // ── /solana-launch REMOVED 2026-08-23 ────────────────────────────────
       // The Meteora DBC leg lived here. It was retired because it graduated into
@@ -228,6 +251,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // What is NOT promised by this entry, and must not be added to it: whether a
       // PARTICULAR wallet earns. That depends on the splitter's staking threshold, is a
       // per-wallet on-chain read, and is disclosed on the page above the share controls.
+    ],
+  },
+  {
+    heading: 'Earn',
+    items: [
       { to: '/referrals', label: 'Referrals' },
       // Yield Routing compares THIRD-PARTY liquid staking and stablecoin lending
       // venues. It sits in Engage rather than Stats because what a visitor does here

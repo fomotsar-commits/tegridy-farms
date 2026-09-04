@@ -347,7 +347,27 @@ export const TopNav = React.memo(function TopNav() {
                 return (
                   <div className="min-w-0" {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
                     {!connected ? (
-                      <button onClick={openConnectModal} aria-label="Connect wallet" className="btn-primary text-[12px] md:text-[13px] px-3 md:px-4 py-1 md:py-1.5">
+                      /* AE1(c)+(d), 2026-09-03.
+                         (c) This was `.btn-primary` — byte-identical to the hero's
+                         "Pick a bungalow" gradient, so two unrelated actions wore the
+                         same paint in the same viewport and neither read as primary.
+                         Outlined in the same kyle green: still unmistakably the wallet
+                         control, no longer competing with the page's own CTA.
+                         (d) A field review reported this button as `text-[12px] px-3
+                         py-1` — "the most important control is the smallest". Those
+                         Tailwind utilities never applied: index.css's unlayered
+                         `.btn-primary` outranks Tailwind's layered ones, so the button
+                         measured 14px / 43px on desktop and 44px on mobile, already
+                         meeting the review's ask. The classes were dead, not small.
+                         They are gone rather than "fixed", and the sizing is explicit
+                         here instead of arriving from a class this element no longer
+                         wants. min-h keeps the 44px tap target index.css was giving it. */
+                      <button
+                        onClick={openConnectModal}
+                        aria-label="Connect wallet"
+                        className="text-[14px] font-semibold rounded-lg px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
+                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
+                      >
                         Connect
                       </button>
                     ) : chain.unsupported ? (

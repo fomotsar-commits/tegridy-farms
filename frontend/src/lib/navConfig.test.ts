@@ -182,9 +182,14 @@ describe('navConfig', () => {
   // Checkout is pilled for exactly the /alerts reason, and the two must not drift apart:
   // both are gated on a migration an operator applies BY HAND, and both therefore have no
   // client-readable signal that could clear the pill on its own.
-  it('promotes /checkout under Engage, pilled because no invoice can exist yet', () => {
-    const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
-    expect(engage?.items.map((i) => i.to)).toContain('/checkout');
+  it('promotes /checkout somewhere in the More menu, pilled because no invoice can exist yet', () => {
+    // Deliberately heading-agnostic. This assertion is about the entry being
+    // PROMOTED and PILLED; which section it sits in is presentation. It used to
+    // name 'Engage', and reded on 2026-09-03 when that 14-item catch-all was
+    // split into Discover / Trade / Launch / Earn — a rename this test had no
+    // business failing on, since nothing about /checkout changed.
+    const sections = MORE_NAV_SECTIONS.filter((s) => s.items.some((i) => i.to === '/checkout'));
+    expect(sections, '/checkout must be promoted in exactly one More section').toHaveLength(1);
 
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');

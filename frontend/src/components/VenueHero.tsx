@@ -90,10 +90,19 @@ export function VenueHero() {
         >
           Pick a bungalow
         </button>
+        {/* AE1(b), 2026-09-03: this was a FILLED gold gradient at the same 43px
+            height as the primary beside it. Three CTAs at equal weight is a
+            hierarchy problem on its own, but the specific harm was that the
+            loudest one — highest chroma, filled, warm against a cool ground —
+            was the ADVANCED path. The eye went to "Launch on Heat" first, which
+            is the action a first-time visitor is least ready for.
+            Outlined now, keeping the exact gold hue so nothing about the
+            venue's palette changes: same colour, less shout. "Pick a bungalow"
+            is the only filled button in the hero. */}
         <Link
           to="/launch"
           className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]"
-          style={{ background: 'linear-gradient(135deg, #d4a843 0%, #b8892e 100%)', color: '#0a0a0f' }}
+          style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(212,168,67,0.55)', color: '#d4a843', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
         >
           Launch on Heat
         </Link>

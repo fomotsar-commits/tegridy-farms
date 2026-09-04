@@ -268,16 +268,14 @@ export default function HomePage() {
               <Link
                 to={isSolanaSwapLive() ? '/solana' : '/scan'}
                 aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
-                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
-                style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
+                className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
                 SOLANA
               </Link>
               <Link
                 to="/eth-curve"
                 aria-label="Live on Base: launch and trade on the curve"
-                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
-                style={{ background: 'rgba(33,81,245,0.78)', color: '#fff', border: '1px solid rgba(33,81,245,0.45)' }}
+                className="badge badge-chain-base text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
               >
                 BASE
               </Link>
