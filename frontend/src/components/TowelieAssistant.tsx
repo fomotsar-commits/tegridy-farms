@@ -95,7 +95,15 @@ const ROUTE_TIPS: Record<string, string> = {
   '/community':   "Vote, post bounties, propose grants. The island demands it.",
   '/nft-finance': "Lend, borrow, trade NFTs. No oracles, no rugs.",
   '/lore':        "The story of how the island was found.",
-  '/tokenomics':  "1B supply. 100% of fees flow back to stakers.",
+  // CORRECTED 2026-09-03: this said "100% of fees flow back to stakers". That is
+  // the same overclaim the Farm strip carried — SwapFeeRouter.stakerShareBps is
+  // 10000, but ReferralSplitter carves 2000 bps off the top BEFORE the
+  // distributor sees anything, so the end-to-end ceiling is ~80% and cannot be
+  // raised from the app. No percentage here on purpose: this is a static hint
+  // string with no access to the live reads, and a hardcoded 80 would drift the
+  // moment governance retunes the split (it is settable to MAX_REFERRAL_FEE
+  // behind a timelock). The Farm strip quotes the live number; this points at it.
+  '/tokenomics':  "1B supply. Protocol fees route on-chain to stakers, after the referral carve.",
   '/security':    "Internally red-teamed to hell and back. Safer than my last job.",
   '/leaderboard': "Climb the ranks. Earn points. Brag responsibly.",
   '/changelog':   "Every shipped feature, receipts and all.",

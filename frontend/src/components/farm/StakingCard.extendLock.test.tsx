@@ -45,7 +45,11 @@ function renderExtendConfirm() {
     extendLockDuration: LOCK_OPTIONS[0]!, setExtendLockDuration: noop,
   };
   const confirms: ConfirmState = {
+    // autoMaxLock added 2026-09-03: enabling Auto-Max Lock now needs a confirm,
+    // because it commits the stake for four years on one click. False here — this
+    // spec is about extendLock and must not open a second confirm panel.
     withdraw: false, earlyWithdraw: false, emergencyExit: false, extendLock: true,
+    autoMaxLock: false,
   };
   renderWithProviders(
     <StakingCard

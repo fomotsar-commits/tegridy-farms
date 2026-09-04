@@ -159,7 +159,9 @@ export const TopNav = React.memo(function TopNav() {
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
-        <div className="max-w-[1200px] mx-auto h-14 px-4 md:px-6 flex items-center justify-between">
+        {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
+            row overflowing. Restored to px-4 the moment there is room. */}
+        <div className="max-w-[1200px] mx-auto h-14 px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
@@ -211,8 +213,17 @@ export const TopNav = React.memo(function TopNav() {
                   The venue's name is the only one the app speaks, in every room
                   including the TOWELI bungalow. Towelie keeps his farm and his
                   voice; the brand word is gone. */}
-              <span className="heading-luxury text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              {/* SIZED DOWN BELOW 480px, not truncated. The mark stays whole —
+                  both halves always render, so the venue's name is never
+                  abbreviated or forked (the 2026-08-31 identity rule). This only
+                  buys back width on the narrowest phones, where the row was
+                  overflowing its viewport by ~50px and pushing the hamburger —
+                  the ONLY nav control at that width — partly off-screen.
+                  Caught by e2e/header-reachability.spec.ts, which asserts the
+                  row never overflows; the fix for the 640-790px band left this
+                  narrower case standing. */}
+              <span className="heading-luxury text-[13px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[12px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;
@@ -239,9 +250,29 @@ export const TopNav = React.memo(function TopNav() {
           </div>
 
           {/* R038: was hidden below md (768px) so iPad portrait (820px) lost the
-              primary nav. sm: switches in at 640px so portrait tablets see
-              the full top-nav row. */}
-          <nav aria-label="Main navigation" className="hidden sm:flex items-center gap-0.5">
+              primary nav.
+              🔴 CORRECTED 2026-09-03 — R038's `sm:` (640px) overshot by 160px and
+              opened a DEAD BAND. This row needs 790px of content (left group 264
+              + this nav 427 + the wallet cluster 102 + padding). At 640px `sm:`
+              turned this nav ON while `sm:hidden` turned the hamburger AND the
+              BottomNav OFF, so the row overflowed to 809px and pushed the Connect
+              button to x=707..809 — off-canvas. The header is `fixed`, so the
+              overflow never extended the document (scrollWidth === viewport at
+              every width in the band): there was no scrolling to it either. From
+              640px to 790px the app had NO reachable wallet control and no nav
+              fallback. Measured with Playwright, not inferred.
+              The window for this breakpoint is narrow and both edges are real:
+              content needs >=791, and the iPad-gen-7 e2e project is 810px wide and
+              must keep the nav. 800px sits between them.
+              R038's actual requirement — iPad portrait keeps the primary nav — is
+              still met (810 and 820 are both >= 800).
+              SEVEN SITES MOVE TOGETHER. Splitting them re-opens the band:
+                this nav, the hamburger, the drawer overlay, the drawer itself,
+                BottomNav.tsx, AppLayout.tsx's content pb, and the two
+                max-width:799px blocks in index.css.
+              headerFitsAtEveryWidth in TopNav.responsive.test.ts pins the
+              invariant (no overflow, Connect on-canvas) rather than the literal. */}
+          <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
             {PRIMARY_NAV.map((n) => (
               <NavLink key={n.to} to={n.to}
                 className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
@@ -356,7 +387,27 @@ export const TopNav = React.memo(function TopNav() {
                 return (
                   <div className="min-w-0" {...(!mounted && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
                     {!connected ? (
-                      <button onClick={openConnectModal} aria-label="Connect wallet" className="btn-primary text-[12px] md:text-[13px] px-3 md:px-4 py-1 md:py-1.5">
+                      /* AE1(c)+(d), 2026-09-03.
+                         (c) This was `.btn-primary` — byte-identical to the hero's
+                         "Pick a bungalow" gradient, so two unrelated actions wore the
+                         same paint in the same viewport and neither read as primary.
+                         Outlined in the same kyle green: still unmistakably the wallet
+                         control, no longer competing with the page's own CTA.
+                         (d) A field review reported this button as `text-[12px] px-3
+                         py-1` — "the most important control is the smallest". Those
+                         Tailwind utilities never applied: index.css's unlayered
+                         `.btn-primary` outranks Tailwind's layered ones, so the button
+                         measured 14px / 43px on desktop and 44px on mobile, already
+                         meeting the review's ask. The classes were dead, not small.
+                         They are gone rather than "fixed", and the sizing is explicit
+                         here instead of arriving from a class this element no longer
+                         wants. min-h keeps the 44px tap target index.css was giving it. */
+                      <button
+                        onClick={openConnectModal}
+                        aria-label="Connect wallet"
+                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
+                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
+                      >
                         Connect
                       </button>
                     ) : chain.unsupported ? (
@@ -426,7 +477,7 @@ export const TopNav = React.memo(function TopNav() {
               </div>
             )}
 
-            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="sm:hidden p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
+            <button ref={menuButtonRef} onClick={() => setOpen(true)} aria-label="Open navigation menu" aria-expanded={open} className="min-[800px]:hidden p-2 -mr-1 flex-shrink-0 text-text-muted min-w-[44px] min-h-[44px] flex items-center justify-center">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
                 <path d="M3 5h14M3 10h14M3 15h14" />
               </svg>
@@ -439,7 +490,7 @@ export const TopNav = React.memo(function TopNav() {
       <AnimatePresence>
         {open && (
           <>
-            <m.div className="fixed inset-0 z-50 bg-black/50 sm:hidden"
+            <m.div className="fixed inset-0 z-50 bg-black/50 min-[800px]:hidden"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => setOpen(false)} />
             <m.div
@@ -447,7 +498,7 @@ export const TopNav = React.memo(function TopNav() {
               role="dialog"
               aria-modal="true"
               aria-label="Navigation menu"
-              className="fixed right-0 top-0 bottom-0 z-50 w-56 sm:hidden flex flex-col overflow-hidden"
+              className="fixed right-0 top-0 bottom-0 z-50 w-56 min-[800px]:hidden flex flex-col overflow-hidden"
               style={{ background: 'var(--color-bg-surface)', borderLeft: '1px solid var(--color-purple-75)' }}
               initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}>

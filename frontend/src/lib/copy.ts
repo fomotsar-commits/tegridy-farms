@@ -24,6 +24,29 @@
 // shape in TransactionReceipt.tsx so it drops in as a spread.
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * BOOTSTRAP APR — the shared threshold and the sentence that must travel with
+ * any four-digit rate.
+ *
+ * The displayed APR is the REAL on-chain rate by explicit operator choice. But
+ * pre-LP-seed it is fixed-emissions over a tiny TVL, which produces a four-digit
+ * number that pattern-matches to a rug for exactly the DeFi-native audience this
+ * venue courts. The answer is not to hide the number; it is to never show it
+ * without saying why it is that big and that it falls.
+ *
+ * Centralised because it was NOT: IncentivesStrip carried this note while
+ * BoostScheduleTable rendered the largest figure on the whole page — the max-boost
+ * row, base APR x4 — with no context at all. Two surfaces, one rule, one copy of it.
+ */
+export const BOOTSTRAP_APR_THRESHOLD = 1000; // %
+
+export const BOOTSTRAP_APR_NOTE = 'TOWELI emission incentive — bootstrap rate, falls as TVL grows';
+
+/** True when a rate is large enough that showing it bare would mislead. */
+export function isBootstrapApr(aprNum: number | undefined): boolean {
+  return (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
+}
+
 export const RECEIPT_COPY = {
   swap:             { label: 'SWAPPED, ON THE VENUE',     verb: 'swapped' },
   stake:            { label: 'LOCKED DOWN, HELD TIME ON', verb: 'locked down' },
