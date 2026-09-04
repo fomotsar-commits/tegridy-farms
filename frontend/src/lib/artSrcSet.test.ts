@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { derivedUrl, widthsFor, artSrcSet, naturalWidthOf, DERIVATIVE_WIDTHS } from './artSrcSet';
 
@@ -142,6 +142,43 @@ describe('the two manifest forms', () => {
       }
     }
     expect(checked, 'nothing was checked — the manifest read as empty').toBeGreaterThan(0);
+  });
+
+  it('NO advertised candidate is larger than the source it stands in for', () => {
+    // THE POINT OF THE SIZE GUARD, pinned as the property rather than as a
+    // count of manifest entries.
+    //
+    // A candidate bigger than its source is a REGRESSION, not a saving: with
+    // srcset a full-bleed surface picks the smallest candidate wide enough for
+    // it, so it would download more than it did before any of this existed.
+    //
+    // This is not hypothetical. splash/new/28-960.webp shipped to trunk at
+    // 170,824 B standing in for a 101,791 B source, because the guard only ran
+    // when a derivative was WRITTEN — a file left over from a run predating the
+    // guard read as "fresh" and was never weighed. The generator was correct on
+    // a clean checkout and wrong on every incremental run, which is exactly the
+    // shape that survives review.
+    const derivedRoot = join(process.cwd(), 'public', '_derived');
+    if (!existsSync(derivedRoot)) {
+      console.warn('[artSrcSet] public/_derived absent — size-guard check skipped');
+      return;
+    }
+    let checked = 0;
+    for (const src of Object.keys(manifest)) {
+      const srcPath = join(process.cwd(), 'public', src.replace(/^\//u, ''));
+      if (!existsSync(srcPath)) continue;
+      const sourceBytes = statSync(srcPath).size;
+      for (const w of widthsFor(src)) {
+        const p = join(process.cwd(), 'public', derivedUrl(src, w).replace(/^\//u, ''));
+        if (!existsSync(p)) continue; // covered by the candidate-existence test
+        expect(
+          statSync(p).size,
+          `${src} advertises ${w}w at ${statSync(p).size} B for a ${sourceBytes} B source`,
+        ).toBeLessThan(sourceBytes);
+        checked++;
+      }
+    }
+    expect(checked, 'nothing was checked — no derivatives on disk').toBeGreaterThan(0);
   });
 
   it('reads the natural width the same way from both forms', () => {
