@@ -21,6 +21,10 @@ export function PriceProvider({ children }: { children: ReactNode }) {
       // Tracks a DIFFERENT freshness window than `ethUsd` (heartbeat vs 300s), so it
       // flips independently — omitting it would hand /launch a stale memoized 0.
       price.ethUsdForLaunch,
+      // Same heartbeat window, for surfaces that only DISPLAY a dollar figure.
+      // Same reasoning as above: it flips independently of `ethUsd`, so leaving
+      // it out would hand the Farm a stale memoized 0 and re-dash the pool card.
+      price.ethUsdForDisplay,
       price.isLoaded,
       price.oracleStale,
       price.priceChange,

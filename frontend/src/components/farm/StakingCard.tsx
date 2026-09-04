@@ -12,7 +12,7 @@ import { ArtImg } from '../ArtImg';
 import { useReadContract } from 'wagmi';
 import { formatEther, parseEther } from 'viem';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
-import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS, MAX_LOCK_DURATION, TEGRIDY_RESTAKING_ADDRESS, isDeployed } from '../../lib/constants';
 
 // Derive from the canonical constant so the penalty label + math track one source.
 const EARLY_WITHDRAWAL_PENALTY_PCT = EARLY_WITHDRAWAL_PENALTY_BPS / 100;
@@ -22,6 +22,11 @@ export interface ConfirmState {
   earlyWithdraw: boolean;
   emergencyExit: boolean;
   extendLock: boolean;
+  /**
+   * Gates the ENABLE direction of Auto-Max Lock only. Enabling is the most
+   * expensive irreversible click on this card — see the panel for why.
+   */
+  autoMaxLock: boolean;
 }
 
 export interface StakeInputState {
@@ -321,11 +326,67 @@ export function StakingCard({
                   </div>
                   );
                 })()}
-                <button onClick={() => { lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
-                  disabled={actions.isPending || actions.isConfirming}
-                  className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
-                  {pos.autoMaxLock ? 'Disable Auto-Lock' : 'Enable Auto-Max Lock'}
-                </button>
+{/* AUTO-MAX LOCK — confirm the ENABLE direction only.
+                    This used to fire on a single click in both directions, and
+                    enabling is the most expensive irreversible action on the
+                    card: TegridyStaking.toggleAutoMaxLock sets
+                    `lockEnd = block.timestamp + MAX_LOCK_DURATION` immediately
+                    (contracts/src/TegridyStaking.sol:1197-1203), and its own
+                    docs record that "Disabling autoMaxLock does NOT restore
+                    original lockDuration... users who toggled then want a
+                    shorter conceptual lock must withdraw and re-stake fresh".
+                    So one tap committed four years, and the button said nothing
+                    about it.
+                    DISABLING stays one click on purpose — it is harmless, and
+                    gating it would only make an unwanted state harder to leave.
+                    A field review flagged this as a copy-placement problem
+                    ("explained even further down"). It is not: the penalty is
+                    already disclosed three times and matches the contract
+                    exactly. What was missing is this control. */}
+                {pos.autoMaxLock && (
+                  <button onClick={() => { lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
+                    disabled={actions.isPending || actions.isConfirming}
+                    className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
+                    Disable Auto-Lock
+                  </button>
+                )}
+                {!pos.autoMaxLock && !confirms.autoMaxLock && (
+                  <button onClick={() => setConfirm('autoMaxLock', true)}
+                    disabled={actions.isPending || actions.isConfirming}
+                    className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
+                    Enable Auto-Max Lock
+                  </button>
+                )}
+                {!pos.autoMaxLock && confirms.autoMaxLock && (
+                  <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
+                    <p className="text-danger text-[12px] font-semibold mb-2">
+                      This locks your {pos.stakedFormatted} TOWELI until{' '}
+                      {new Date((nowSec + MAX_LOCK_DURATION) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                      {' '}— four years from now.
+                    </p>
+                    <div className="rounded-lg p-2.5 mb-2" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.10)' }}>
+                      <p className="text-danger/80 text-[11px] mb-1">
+                        Turning it back off later stops the auto-renew but does <span className="font-semibold">not</span> shorten this lock.
+                      </p>
+                      <p className="text-white/80 text-[11px]">
+                        Need out early? You keep {100 - EARLY_WITHDRAWAL_PENALTY_PCT}% — the other {EARLY_WITHDRAWAL_PENALTY_PCT}% goes to treasury.
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setConfirm('autoMaxLock', false)}
+                        className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
+                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
+                        Cancel
+                      </button>
+                      <button onClick={() => { setConfirm('autoMaxLock', false); lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
+                        disabled={actions.isPending || actions.isConfirming}
+                        className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
+                        style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                        Lock for four years
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {pos.isPaused && pos.hasPosition && !confirms.emergencyExit && (
                   <button
                     onClick={() => setConfirm('emergencyExit', true)}

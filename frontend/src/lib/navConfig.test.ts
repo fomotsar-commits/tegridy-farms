@@ -220,9 +220,14 @@ describe('navConfig', () => {
   // invoice became a merchant-signed document carried in the URL fragment. It now has the
   // /referrals shape instead: the advertised action completes in the browser, and the one
   // input that could make it impossible is client-readable.
-  it('promotes /checkout under Engage, unpilled because a link can be minted and paid here', () => {
-    const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
-    expect(engage?.items.map((i) => i.to)).toContain('/checkout');
+  it('promotes /checkout in the More menu, unpilled because a link can be minted and paid here', () => {
+    // Heading-agnostic on purpose. This assertion is about the entry being
+    // PROMOTED and UNPILLED; which section it sits in is presentation. It named
+    // 'Engage' until 2026-09-03, when that 14-item catch-all was split into
+    // Discover / Trade / Launch / Earn — a regrouping this test had no business
+    // failing on, since nothing about /checkout changed.
+    const sections = MORE_NAV_SECTIONS.filter((s) => s.items.some((i) => i.to === '/checkout'));
+    expect(sections, '/checkout must be promoted in exactly one More section').toHaveLength(1);
 
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');

@@ -206,19 +206,47 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     const srcs = chosen.map((a) => a.src);
     const titles = chosen.map((a) => a.title);
 
-    preloadImages(srcs).then((results) => {
-      if (disposed) return;
-      const loaded = results.filter((r): r is HTMLImageElement => r !== null);
-      if (loaded.length === 0) {
-        s.images = [];
-        s.titles = [];
-      } else {
-        s.images = loaded;
-        s.titles = titles.slice(0, loaded.length);
-      }
+    /* F-LOADER-01: the intro must never wait on the network longer than this.
+     *
+     * This overlay is `position: fixed; inset: 0; z-index: 9999`, so while it is
+     * up it sits on top of the whole app — including the header Connect button,
+     * which has already painted underneath it. `preloadImages` had no bound, so
+     * on a slow connection the overlay simply stayed, and every tap on Connect
+     * landed on the canvas instead. Measured with the art route stalled:
+     * `elementFromPoint` over the Connect button returned CANVAS at 1s, 3s, 6s
+     * and 10s, indefinitely.
+     *
+     * A field review saw this and attributed it to bundle weight — "the header
+     * paints before the wallet code has streamed in, so early taps do nothing".
+     * The bundle is genuinely heavy, but it is not what eats the taps; shipping
+     * lighter art would not have moved this at all.
+     *
+     * Racing rather than cancelling: whichever resolves first wins, and a late
+     * preload is simply discarded. The zero-image path is not a new branch — it
+     * already exists and is already exercised (the tick falls straight to the
+     * 'textForm' particle phase when `images.length === 0`), so a timeout
+     * degrades to a shorter, still-branded intro rather than a blank screen.
+     *
+     * The Skip button (revealed at 400ms) stays as the deliberate opt-out. It is
+     * not a substitute for this: it asks the user to notice an escape hatch,
+     * whereas this bounds the trap. */
+    const PRELOAD_BUDGET_MS = 2500;
+    let settled = false;
+    const proceed = (loaded: HTMLImageElement[]) => {
+      if (disposed || settled) return;
+      settled = true;
+      s.images = loaded;
+      s.titles = loaded.length === 0 ? [] : titles.slice(0, loaded.length);
       s.phase = 'void';
       s.t0 = performance.now();
       rafId = requestAnimationFrame(tick);
+    };
+
+    const preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
+
+    preloadImages(srcs).then((results) => {
+      window.clearTimeout(preloadTimer);
+      proceed(results.filter((r): r is HTMLImageElement => r !== null));
     });
 
     /* Create particles from last art image */
@@ -595,6 +623,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      window.clearTimeout(preloadTimer);
       window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('touchmove', onTouchMove);

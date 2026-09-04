@@ -1,4 +1,5 @@
 import { m } from 'framer-motion';
+import { isBootstrapApr, BOOTSTRAP_APR_NOTE } from '../../lib/copy';
 
 interface IncentivesStripProps {
   apr: string;
@@ -11,19 +12,47 @@ interface IncentivesStripProps {
   secondsRemaining?: number;
   /** F109: live staker fee-share % read from SwapFeeRouter.stakerShareBps (undefined until loaded). */
   stakerSharePct?: number;
+  /**
+   * Live referrer cut from ReferralSplitter.referralFeeBps, taken off the top
+   * before the distributor sees anything. `null` = not read (NOT zero). Without
+   * it the chip cannot state what a staker actually receives — see feeShareLabel.
+   */
+  referralFeeBps?: number | null;
   /** STAKING_LOOK §2.2: reads landed AND the reward pool is EMPTY — render real zeros, never nominal figures. */
   reserveEmpty?: boolean;
 }
 
 /**
- * F109: derive the "Fee Share" chip label from the live on-chain staker share.
- * `undefined` (read not landed / router undeployed) keeps the honest current
- * default — 100% — so the chip is never empty and never asserts a stale literal
- * once governance retunes the split. Whole percentages drop the trailing ".00".
+ * F109, CORRECTED 2026-09-03: derive the "Fee Share" chip from BOTH live reads.
+ *
+ * The chip used to read "100% to stakers", and that was not true. It quoted
+ * SwapFeeRouter.stakerShareBps (genuinely 10000) on its own — but that is 100%
+ * of what REACHES the distributor. ReferralSplitter.referralFeeBps (live: 2000)
+ * takes its cut off the top first (ReferralSplitter.sol:400), so the end-to-end
+ * ceiling a staker can receive is ~80%, and the app cannot raise it. This is the
+ * same overclaim retired everywhere else on 2026-08-12; this strip was missed.
+ *
+ * `referralFeeBps` is READ, never hardcoded: it is settable up to
+ * MAX_REFERRAL_FEE (3000) behind a timelock, so a literal 2000 would be
+ * tomorrow's drift — the exact failure F109 was created to prevent.
+ *
+ * WHY THE UNREAD CASE RENDERS '–' RATHER THAN A NUMBER: the old `undefined`
+ * branch returned the "honest current default" of 100%, which is how a literal
+ * outlived the truth in the first place. A share is only quotable when both
+ * reads landed; anything else is an unread value, and this codebase does not
+ * render unread values as real ones. '–' is already this strip's vocabulary for
+ * a stat that has not loaded. Note 0 is NOT unread — a real 0% referral cut, or
+ * a real 0% staker share, both render as numbers.
+ *
+ * Whole percentages drop the trailing ".00".
  */
-export function feeShareLabel(stakerSharePct: number | undefined): string {
-  if (stakerSharePct === undefined) return '100% to stakers';
-  const pct = Number.isInteger(stakerSharePct) ? `${stakerSharePct}` : stakerSharePct.toFixed(2);
+export function feeShareLabel(
+  stakerSharePct: number | undefined,
+  referralFeeBps: number | null,
+): string {
+  if (stakerSharePct === undefined || referralFeeBps === null) return '–';
+  const endToEndPct = stakerSharePct * (1 - referralFeeBps / 10_000);
+  const pct = Number.isInteger(endToEndPct) ? `${endToEndPct}` : endToEndPct.toFixed(2);
   return `${pct}% to stakers`;
 }
 
@@ -48,12 +77,16 @@ function formatRunway(seconds: number): string {
  * audience we court. Above the threshold we keep the real number and add the
  * "early-TVL bootstrap" context line so it reads as opportunity, not bait.
  */
-const BOOTSTRAP_APR_THRESHOLD = 1000; // %
-
-export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining, stakerSharePct, reserveEmpty }: IncentivesStripProps) {
-  const isBootstrap = (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
-  // F109: derive the fee-share chip from the live on-chain split when loaded.
-  const feeShareValue = feeShareLabel(stakerSharePct);
+export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining, stakerSharePct, referralFeeBps = null, reserveEmpty }: IncentivesStripProps) {
+  const isBootstrap = isBootstrapApr(aprNum);
+  // F109: derive the fee-share chip from the live on-chain split when loaded —
+  // BOTH halves of it, since the referral cut precedes the distributor.
+  const feeShareValue = feeShareLabel(stakerSharePct, referralFeeBps);
+  // Name the deduction rather than leaving an unexplained 80%. Only rendered
+  // when the read landed, so the sentence can never quote a number we don't have.
+  const feeShareSub = referralFeeBps !== null && referralFeeBps > 0
+    ? `after the ${Number.isInteger(referralFeeBps / 100) ? referralFeeBps / 100 : (referralFeeBps / 100).toFixed(2)}% referral cut taken off the top`
+    : undefined;
   // F101: prefer the honest "rewards remaining" figure (balance − staked −
   // unsettled) over the cumulative totalFunded when it's available, and label it
   // accordingly so the chip never implies a never-decreasing number is "remaining".
@@ -71,7 +104,7 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
       l: 'Emissions APR',
       v: reserveEmpty ? '0%' : apr && apr !== '0' && apr !== '–' ? `${apr}%` : '–',
       icon: '📈',
-      sub: reserveEmpty ? drySub : isBootstrap ? 'TOWELI emission incentive — bootstrap rate, falls as TVL grows' : undefined,
+      sub: reserveEmpty ? drySub : isBootstrap ? BOOTSTRAP_APR_NOTE : undefined,
     },
     {
       l: hasRemaining ? 'Rewards Remaining' : 'Reward Pool',
@@ -81,7 +114,7 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
     },
     { l: 'Daily Emissions', v: reserveEmpty ? '0 / day' : dailyEmissions === '–' ? '–' : `${dailyEmissions} / day`, icon: '⚡' },
     { l: 'Max Boost', v: '4.0× · 4-yr lock', icon: '🚀' },
-    { l: 'Fee Share', v: feeShareValue, icon: '💎' },
+    { l: 'Fee Share', v: feeShareValue, icon: '💎', sub: feeShareSub },
   ];
   return (
     <m.div

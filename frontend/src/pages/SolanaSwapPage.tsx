@@ -137,8 +137,48 @@ function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
   const out: { label: string; tone: 'amber' | 'red' }[] = [];
   if (isUnverified(t)) out.push({ label: 'Unverified', tone: 'amber' });
   if (t.tokenProgram && t.tokenProgram !== LEGACY_TOKEN_PROGRAM) out.push({ label: 'Token-2022', tone: 'amber' });
-  if (t.audit?.freezeAuthorityDisabled === false) out.push({ label: 'Can freeze', tone: 'red' });
+  // Amber rather than red on a curated mint: USDC really can freeze, and saying
+  // so is right — but it is a known property of the asset, not a warning sign.
+  // Same mint-address-keyed check as the Shield exemption; never symbol-matched.
+  if (t.audit?.freezeAuthorityDisabled === false) {
+    out.push({ label: 'Can freeze', tone: findSolToken(t.mint) ? 'amber' : 'red' });
+  }
   return out;
+}
+
+/**
+ * Is this warning EXPECTED for this specific mint, rather than a red flag?
+ *
+ * A regulated stablecoin's freeze authority is a documented property of USDC,
+ * not a honeypot signal. Painting it the same red as a genuine one on an unknown
+ * mint is alarm-fatigue calibration: a user who sees red on the safest pair on
+ * the venue learns that red means nothing, and then ignores it on the pair where
+ * it means everything.
+ *
+ * KEYED BY MINT ADDRESS ONLY, via findSolToken's `t.mint === mint`. Never by
+ * symbol or name — a spoofed "USDC" must not be able to inherit this exemption,
+ * which is exactly the vector a symbol-matched allowlist would open.
+ *
+ * Scope is deliberately narrow: only HAS_FREEZE_AUTHORITY, only for a curated
+ * mint. Honeypot, transfer-hook and transfer-fee warnings are never exempted,
+ * and an uncurated mint is never exempted for anything.
+ */
+function isExpectedAuthority(w: ShieldWarning, mint: string): boolean {
+  return w.type === 'HAS_FREEZE_AUTHORITY' && Boolean(findSolToken(mint));
+}
+
+/**
+ * The one place a Shield warning's colour is decided.
+ *
+ * This used to be duplicated inline at three render sites as a bare
+ * `/warn|crit|danger/i.test(w.severity)`, none of which knew about the exemption
+ * that dangerousShield had applied to the very same warning — so the ack gate
+ * correctly treated USDC's freeze authority as benign while the text above it
+ * was painted red. Same input, two answers, on the venue's default pair.
+ */
+function shieldIsAlarming(w: ShieldWarning, mint: string): boolean {
+  if (isExpectedAuthority(w, mint)) return false;
+  return /warn|crit|danger/i.test(w.severity);
 }
 
 // Whether a mint's Shield warnings should FORCE the "swap anyway" ack. Jupiter
@@ -149,10 +189,13 @@ function riskBadges(t: SolToken): { label: string; tone: 'amber' | 'red' }[] {
 function dangerousShield(warnings: ShieldWarning[], mint: string): boolean {
   return warnings.some((w) => {
     if (!/warn|crit|danger|high|severe/i.test(w.severity)) return false;
-    if (w.type === 'HAS_FREEZE_AUTHORITY' && findSolToken(mint)) return false;
+    if (isExpectedAuthority(w, mint)) return false;
     return true;
   });
 }
+
+/** A Shield warning that still knows which mint it came from. */
+export type MintedShieldWarning = ShieldWarning & { mint: string };
 
 // Token icon via the CSP-safe weserv proxy, falling back to an initials avatar
 // on missing/broken images (we never load arbitrary token-image hosts directly).
@@ -591,7 +634,7 @@ function ActivityRail() {
 // deposit — surfaced as a hint, and their API refuses smaller honestly.
 function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onPickPay, onPickBuy }: {
   payToken: SolToken; buyToken: SolToken;
-  shieldWarnings: ShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
+  shieldWarnings: MintedShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
@@ -737,7 +780,7 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
         {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
         {totalAmount.trim() !== '' && totalBase && !perBuyHuman && <p className="text-amber-300">Per-buy amount rounds to zero — increase the total or reduce the buys.</p>}
         {shieldWarnings.map((w, i) => (
-          <p key={`dsh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+          <p key={`dsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
             <span aria-hidden="true">⚠</span><span>{w.message}</span>
           </p>
         ))}
@@ -813,7 +856,7 @@ function DcaTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onP
 // v1 ships fee-off (integrator fees need a referral-account setup).
 function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, onPickPay, onPickBuy }: {
   payToken: SolToken; buyToken: SolToken;
-  shieldWarnings: ShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
+  shieldWarnings: MintedShieldWarning[]; needsAck: boolean; ack: boolean; setAck: (v: boolean) => void;
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
@@ -963,7 +1006,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
         {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
         {makingAmount && Number(price) > 0 && !takingAmount && <p className="text-amber-300">Receive amount rounds to zero — increase the amount or price.</p>}
         {shieldWarnings.map((w, i) => (
-          <p key={`lsh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+          <p key={`lsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
             <span aria-hidden="true">⚠</span><span>{w.message}</span>
           </p>
         ))}
@@ -1210,7 +1253,13 @@ function SolanaSwapInner() {
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
   const feeMintSymbol = feeMintForPair === USDC_MINT ? 'USDC' : feeMintForPair === SOL_MINT ? 'SOL' : null;
-  const shieldWarnings = [...(shield[payToken.mint] ?? []), ...(shield[buyToken.mint] ?? [])];
+  // Tagged with its origin mint: flattening the two lists used to discard which
+  // token each warning described, which is why the render sites could not apply
+  // the same per-mint exemption the ack gate already used.
+  const shieldWarnings: MintedShieldWarning[] = [
+    ...(shield[payToken.mint] ?? []).map((w) => ({ ...w, mint: payToken.mint })),
+    ...(shield[buyToken.mint] ?? []).map((w) => ({ ...w, mint: buyToken.mint })),
+  ];
   // Show ALL Shield warnings, but only FORCE the ack on a genuinely dangerous
   // warning (honeypot / transfer-hook / transfer-fee / non-curated freeze) or an
   // unverified token — see dangerousShield (curated USDC freeze authority is benign).
@@ -1593,7 +1642,7 @@ function SolanaSwapInner() {
             {amount.trim() !== '' && !baseAmount && !sameToken && <p className="text-amber-300">Enter a valid amount.</p>}
             {insufficient && <p className="text-amber-300">Insufficient {payToken.symbol} balance.</p>}
             {shieldWarnings.map((w, i) => (
-              <p key={`sh-${i}`} className={`flex items-start gap-1 ${/warn|crit|danger/i.test(w.severity) ? 'text-red-300' : 'text-white/50'}`}>
+              <p key={`sh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
                 <span aria-hidden="true">⚠</span><span>{w.message}</span>
               </p>
             ))}
