@@ -233,6 +233,25 @@ export default async function handler(req, res) {
       if (truncated) {
         return res.status(502).json({ error: "Upstream response too large" });
       }
+      // INCIDENT 2026-09-04 (#385): this path had NO status check, so an
+      // upstream 401 came back to the caller as **HTTP 200** carrying a
+      // JSON-RPC error member. A client checking the status code read a
+      // rejected key as a successful call — the repo's most-repeated defect
+      // class, on a live path. The REST branch below has always checked
+      // `response.ok`; this one never did.
+      if (!rpcRes.ok) {
+        const rejected = rpcRes.status === 401 || rpcRes.status === 403;
+        console.error(
+          rejected
+            ? `Alchemy RPC REJECTED OUR CREDENTIALS: HTTP ${rpcRes.status} — rotate ALCHEMY_API_KEY.`
+            : "Alchemy RPC upstream error:",
+          rpcRes.status,
+          logSafe(text.slice(0, 500)),
+        );
+        return rejected
+          ? res.status(503).json({ error: "Upstream credentials rejected" })
+          : res.status(502).json({ error: "Upstream service error" });
+      }
       let data;
       try { data = JSON.parse(text); } catch {
         console.error("Alchemy RPC non-JSON:", logSafe(text.slice(0, 200)));
@@ -362,21 +381,44 @@ export default async function handler(req, res) {
       console.error("Alchemy upstream over-cap");
       return res.status(502).json({ error: "Upstream response too large" });
     }
+    // INCIDENT 2026-09-04 (#385): the status check MUST come before the parse.
+    // Alchemy answers a rejected key with HTTP 401, `content-type:
+    // application/json`, and a body of `Must be authenticated!` — which is not
+    // JSON. Parsing first meant a clean, unambiguous 401 was reported as
+    // "Upstream returned invalid response", so a revoked key and a corrupt
+    // payload were the same opaque 502. Diagnosing the live incident took a
+    // source read and six probes; the status was there the whole time and was
+    // simply never consulted.
+    if (!response.ok) {
+      // AUDIT API-M4 still holds: never leak upstream status or body to the
+      // CLIENT. What changes is that the server log now always carries the
+      // status, and that a credential rejection gets its own client-visible
+      // code so ops can tell "our key is bad" from "upstream is broken"
+      // without reading source. 503 says the fault is our configuration; it
+      // discloses nothing about the key itself.
+      const rejected = response.status === 401 || response.status === 403;
+      console.error(
+        rejected
+          ? `Alchemy REJECTED OUR CREDENTIALS: HTTP ${response.status} — ALCHEMY_API_KEY is set but not accepted. Rotate it.`
+          : "Alchemy upstream error:",
+        response.status,
+        logSafe(text.slice(0, 500)),
+      );
+      return rejected
+        ? res.status(503).json({ error: "Upstream credentials rejected" })
+        : res.status(502).json({ error: "Upstream service error" });
+    }
+
     let data;
     try {
       data = JSON.parse(text);
     } catch {
       // AUDIT R048: don't log full URL — sanitizer scrubs key-shaped path
-      // segments but logSafe is the canonical path.
+      // segments but logSafe is the canonical path. Reaching here now means a
+      // 2xx that is genuinely malformed, which is the only thing this message
+      // ever claimed to mean.
       console.error("Alchemy non-JSON response:", logSafe(text.slice(0, 200)));
       return res.status(502).json({ error: "Upstream returned invalid response" });
-    }
-
-    if (!response.ok) {
-      // AUDIT API-M4: don't leak upstream HTTP status or body to clients; map
-      // everything to a single opaque 502. Real status logged server-side for ops.
-      console.error("Alchemy upstream error:", response.status, logSafe(text.slice(0, 500)));
-      return res.status(502).json({ error: "Upstream service error" });
     }
 
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
