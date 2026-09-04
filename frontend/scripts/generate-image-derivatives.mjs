@@ -108,6 +108,45 @@ function walk(dir, out = []) {
   return out;
 }
 
+/**
+ * Every derivative already on disk, path -> mtime, from ONE pass over the tree.
+ *
+ * This exists because of how the freshness check used to be written: stat the
+ * output path, compare, then write to that same path. CodeQL flags that as
+ * js/file-system-race at HIGH and does not stop flagging it when the guard is
+ * rewritten as a try/catch, because the shape it objects to is not the guard --
+ * it is asking a question ABOUT A PATH and then acting on that path, with a gap
+ * in between that the filesystem is free to change. Removing the question is the
+ * only thing that removes the race.
+ *
+ * So the question is asked once, about the DIRECTORY, before any writing starts,
+ * and the answer is carried in memory. Nothing is ever consulted about `outPath`
+ * on the write side; the map is. That is also two fewer syscalls per candidate --
+ * this replaces 2 stats x 1230 candidates with one walk.
+ */
+function readDerivedMtimes(dir, map = new Map()) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return map; // nothing generated yet: every candidate is correctly "stale"
+  }
+  for (const entry of entries) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      readDerivedMtimes(p, map);
+    } else {
+      try {
+        map.set(p, statSync(p).mtimeMs);
+      } catch {
+        // Vanished mid-walk. Leaving it out of the map marks it stale, which
+        // regenerates it -- the safe direction to be wrong in.
+      }
+    }
+  }
+  return map;
+}
+
 /** `public/art/x.jpg` -> `/art/x.jpg`, the URL ArtImg actually renders. */
 function publicUrl(file) {
   return '/' + relative(PUBLIC_ROOT, file).split(/[\\/]/u).join('/');
@@ -121,6 +160,7 @@ function derivedUrl(file, width) {
 
 async function main() {
   const sources = SOURCE_DIRS.flatMap((d) => walk(join(PUBLIC_ROOT, d)));
+  const derivedMtimes = readDerivedMtimes(DERIVED_DIR);
   const manifest = {};
   let written = 0;
   let skipped = 0;
@@ -140,20 +180,25 @@ async function main() {
     }
     const naturalWidth = meta.width ?? 0;
     const entries = [];
+    // Stat the SOURCE once per file rather than once per width. A source that
+    // vanished between the walk and here gets -Infinity, which makes every
+    // candidate stale -- sharp then fails on it and the catch above skips it.
+    let sourceMtime = Infinity;
+    try {
+      sourceMtime = statSync(file).mtimeMs;
+    } catch {
+      sourceMtime = Infinity; // unknowable: never claim a derivative is current
+    }
 
     for (const width of WIDTHS) {
       // Never upscale. A source narrower than the target already IS the small one.
       if (naturalWidth <= width) continue;
 
       const outPath = join(PUBLIC_ROOT, derivedUrl(file, width).replace(/^\//u, ''));
-      // Same reason: stat the output directly and read a throw as "not there",
-      // instead of asking whether it is there and then acting on the answer.
-      let fresh = false;
-      try {
-        fresh = statSync(outPath).mtimeMs >= statSync(file).mtimeMs;
-      } catch {
-        fresh = false;
-      }
+      // Answered from the pre-read map, so nothing asks the filesystem about
+      // outPath before writing to it. A path the walk never saw is absent, and
+      // absent is stale.
+      const fresh = (derivedMtimes.get(outPath) ?? -Infinity) >= sourceMtime;
 
       if (fresh) {
         skipped++;
