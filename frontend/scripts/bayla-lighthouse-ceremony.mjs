@@ -78,6 +78,8 @@ const REHEARSE = has('--rehearse');
 const FUND = has('--fund');
 const REBALANCE = has('--rebalance');
 const SET_PERIOD = has('--set-period');
+const DYNAMIC = has('--dynamic-reward');
+const ENROLL = has('--enroll');
 const BROADCAST = has('--broadcast');
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const DAY = 86_400;
@@ -712,7 +714,191 @@ async function setPeriod() {
   log(`✓ period updated (tx ${res.txId})`);
 }
 
-(REHEARSE ? rehearse() : SET_PERIOD ? setPeriod() : REBALANCE ? rebalance() : FUND ? fund() : mainnet()).catch((e) => {
+/* ═══════════════════════════════════════════════════════════════════════════
+   DYNAMIC REWARD POOL — bounded emissions on the pool we already run.
+   ═══════════════════════════════════════════════════════════════════════════
+
+   WHY. The CLASSIC reward pool (RWRDdfRbi…) pays a rate PER STAKED TOKEN, so
+   pool-wide emission is rate x total effective stake and the daily cost grows
+   without bound as TVL grows: success is the failure mode. Read on mainnet
+   2026-09-02, the live BAYLA pool emits ~4,114 BAYLA/day against 2,022,682
+   staked — at 10M staked that becomes ~20,400/day and an 899k vault lasts 44
+   days instead of 218.
+
+   The DYNAMIC program (RWRDyfZa…) has NO rate at all: `createPool` takes only
+   (nonce, permissionless, claimPeriod, claimStartTs), and `updatePool` can
+   change only claimPeriod and permissionless. What you FUND is what is
+   emitted, split pro rata across effective stake. That is TOWELI's model —
+   a fixed budget divided over weighted stake — and it is why TOWELI's own farm
+   page calls its APR a "bootstrap rate, falls as TVL grows".
+
+   THE LADDER SURVIVES. Weight is a property of the STAKE pool, not the reward
+   pool: stake entries carry `effectiveAmount` ("accounts for Stake Weight")
+   and the pool carries `totalEffectiveStake` ("accounting for each stake
+   weight"). Both reward programs distribute over effective stake, so the
+   1.00x→5.00x ladder is untouched by this change.
+
+   WHY THIS IS NOT WRAPPED BY THE SDK. `client.createRewardPool` is hardwired
+   to the FIXED program — `CreateRewardPoolArgs` has no `rewardPoolType` and
+   REQUIRES rewardAmount/rewardPeriod, which the dynamic pool does not have. So
+   we build the instruction against Streamflow's own IDL via
+   `client.getRewardProgram('dynamic')`, mirroring their
+   prepareCreateRewardPoolInstructions exactly. The program is still theirs and
+   still audited; only the call assembly is ours.
+*/
+async function createDynamicRewardPool() {
+  const pool = val('--pool');
+  if (!pool) throw new Error('--dynamic-reward requires --pool <stakePool>');
+  const mint = val('--mint', BAYLA_MINT);
+  const nonce = Number(val('--nonce', '0'));
+  const claimPeriodDays = Number(val('--claim-period-days', '1'));
+  const permissionless = !has('--no-public-funding');
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+
+  if (!(claimPeriodDays >= 1)) {
+    throw new Error('--claim-period-days must be >= 1: the program rejects a fund period under one day (invalidFundPeriod).');
+  }
+  const claimPeriod = Math.round(claimPeriodDays * DAY);
+  // Start at the next whole period boundary rather than "now", so the first
+  // period is a full one and the first funding is not pro-rated by seconds.
+  const claimStartTs = Math.ceil(Math.floor(Date.now() / 1000) / claimPeriod) * claimPeriod;
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const dyn = client.getRewardProgram('dynamic');
+  const rewardPool = deriveRewardPoolPDA(dyn.programId, new PublicKey(pool), new PublicKey(mint), nonce);
+
+  log('DYNAMIC REWARD POOL PLAN:');
+  console.log(JSON.stringify({
+    cluster: 'mainnet',
+    stakePool: pool,
+    rewardProgram: dyn.programId.toBase58(),
+    rewardPool: rewardPool.toBase58(),
+    rewardMint: mint,
+    nonce,
+    claimPeriod: `${claimPeriodDays}d (${claimPeriod}s)`,
+    claimStartTs: `${claimStartTs} (${new Date(claimStartTs * 1000).toISOString()})`,
+    permissionless,
+    emissionModel: 'FUNDED BUDGET per period, split pro rata over EFFECTIVE (weighted) stake — no rate field exists',
+  }, null, 2));
+
+  log('');
+  log('WHAT THIS CHANGES, and what it does not:');
+  log('  • Emission becomes BOUNDED — you can never emit more than you fund.');
+  log('  • Each staker\'s APR now FALLS as more stake joins (TOWELI behaves the');
+  log('    same way; its own UI calls this a bootstrap rate). The APR display');
+  log('    must be a computed observation, not a promise.');
+  log('  • The 1.00x→5.00x lock ladder is UNCHANGED — weight lives on the stake');
+  log('    pool and both reward programs pay over effective stake.');
+  log('  • The classic reward pool is NOT removed by this. It keeps paying from');
+  log('    its own vault until you stop funding it. Nobody is migrated.');
+  log('  • Existing stakers are NOT auto-enrolled. Run --enroll after this.');
+
+  if (!BROADCAST) {
+    log('');
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <path-to-id.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()}`);
+
+  // Mirrors the SDK's own prepareCreateRewardPoolInstructions, against the
+  // dynamic program's arg order: (nonce, permissionless, claimPeriod, claimStartTs).
+  const ix = await dyn.methods
+    .createPool(nonce, permissionless, new BN(claimPeriod), new BN(claimStartTs))
+    .accounts({ creator: payer.publicKey, stakePool: pool, mint, tokenProgram: tokenProgramId })
+    .instruction();
+  const res = await client.execute([ix], { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' });
+  log(`✓ dynamic reward pool ${rewardPool.toBase58()} (tx ${res.signature ?? res.txId})`);
+  log('');
+  log('NEXT: fund it, then enroll the existing stakers:');
+  log(`  --enroll --pool ${pool} --reward-pool-type dynamic --nonce ${nonce}`);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENROLL — give existing stakers a reward entry on a newly added reward pool.
+
+   Adding a reward pool does NOT retroactively enrol anyone: rewards accrue
+   through a per-(stake entry, reward pool) RewardEntry PDA that has to exist.
+   Verified in the dynamic IDL: `createEntry` marks `payer` as the only signer
+   and `authority` as signer=false — so ANYONE can create the entry on a
+   staker's behalf and simply pays the rent. That means the operator can enrol
+   every existing staker without a single one of them signing anything, which
+   is the whole reason this migration is safe for the 8 live positions.
+*/
+async function enrollStakers() {
+  const pool = val('--pool');
+  if (!pool) throw new Error('--enroll requires --pool <stakePool>');
+  const mint = val('--mint', BAYLA_MINT);
+  const nonce = Number(val('--nonce', '0'));
+  const rewardPoolType = val('--reward-pool-type', 'dynamic');
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+
+  const entries = await client.searchStakeEntries({ stakePool: pool });
+  const open = entries.filter((e) => {
+    const a = e.account ?? e;
+    return Number(a.closedTs ?? 0) === 0;
+  });
+  log(`ENROLL PLAN — ${open.length} open stake entries on ${pool}`);
+  for (const e of open) {
+    const a = e.account ?? e;
+    const owner = String(a.payer ?? a.authority ?? a.owner ?? '?');
+    const amt = Number(BigInt(String(a.amount ?? 0))) / 1e6;
+    log(`  nonce ${String(a.nonce ?? '?').padStart(3)}  ${amt.toLocaleString().padStart(14)} BAYLA  owner ${owner}`);
+  }
+  log('');
+  log(`Each gets a RewardEntry on the ${rewardPoolType} reward pool (nonce ${nonce}).`);
+  log('The signer PAYS the rent for each; no staker signs anything.');
+
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()} (pays rent for ${open.length} entries)`);
+
+  let done = 0;
+  for (const e of open) {
+    const a = e.account ?? e;
+    const depositNonce = Number(a.nonce ?? 0);
+    const owner = String(a.payer ?? a.authority ?? a.owner ?? '');
+    try {
+      const res = await client.createRewardEntry({
+        stakePool: pool,
+        stakePoolMint: mint,
+        rewardPoolNonce: nonce,
+        depositNonce,
+        rewardMint: mint,
+        rewardPoolType,
+        tokenProgramId,
+      }, { invoker: payer, authority: owner ? new PublicKey(owner) : undefined, computePrice: 10_000, computeLimit: 'autoSimulate' });
+      done += 1;
+      log(`  ✓ entry nonce ${depositNonce} enrolled (tx ${res.txId})`);
+    } catch (err) {
+      // An entry that already exists is a success for our purposes, not a stop.
+      log(`  ! entry nonce ${depositNonce} skipped: ${String(err?.message ?? err).slice(0, 110)}`);
+    }
+  }
+  log(`enrolled ${done}/${open.length}`);
+}
+
+(REHEARSE ? rehearse()
+  : DYNAMIC ? createDynamicRewardPool()
+  : ENROLL ? enrollStakers()
+  : SET_PERIOD ? setPeriod()
+  : REBALANCE ? rebalance()
+  : FUND ? fund()
+  : mainnet()).catch((e) => {
   console.error('[lighthouse] FAILED:', e?.message ?? e);
   // Anchor/web3 simulation errors carry program logs — surface them, they
   // are the only way to see WHY a simulation failed.

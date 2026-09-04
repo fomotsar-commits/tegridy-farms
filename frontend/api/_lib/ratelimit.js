@@ -182,9 +182,10 @@ function warnDegraded(reason) {
  * @param {number} limit
  * @param {number} windowSec
  * @param {number} [nowMs] injectable clock for tests
+ * @param {number} [cost] tokens to consume (default 1) — see checkRateLimit
  * @returns {{ success: boolean, limit: number, remaining: number, reset: number }}
  */
-export function memoryRateLimit(key, limit, windowSec, nowMs = Date.now()) {
+export function memoryRateLimit(key, limit, windowSec, nowMs = Date.now(), cost = 1) {
   let slot = memBuckets.get(key);
   if (!slot || nowMs >= slot.resetAt) {
     if (!memBuckets.has(key) && memBuckets.size >= MEM_MAX_KEYS) {
@@ -199,7 +200,7 @@ export function memoryRateLimit(key, limit, windowSec, nowMs = Date.now()) {
     slot = { count: 0, resetAt: nowMs + windowSec * 1000 };
     memBuckets.set(key, slot);
   }
-  slot.count += 1;
+  slot.count += Math.max(1, Math.floor(cost));
   return {
     success: slot.count <= limit,
     limit,
@@ -223,7 +224,9 @@ function applyLimitResult(res, { success, limit, remaining, reset }) {
 }
 
 /**
- * Consume one rate-limit token.
+ * Consume rate-limit tokens — one by default, `opts.cost` when a single
+ * request represents more than one unit of upstream work (a JSON-RPC batch
+ * carries up to N calls and is billed per call, not per POST).
  *
  * Returns true (allowed), false (blocked — 429 already sent).
  *
@@ -234,31 +237,32 @@ function applyLimitResult(res, { success, limit, remaining, reset }) {
  *
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
- * @param {{ limit: number, windowSec: number, identifier: string, walletAddress?: string }} opts
+ * @param {{ limit: number, windowSec: number, identifier: string, walletAddress?: string, cost?: number }} opts
  * @returns {Promise<boolean>} true = allowed, false = blocked (response already sent)
  */
 export async function checkRateLimit(req, res, opts) {
   const limiter = getLimiter(opts);
   const key = buildRateLimitKey(req, opts.walletAddress);
+  const cost = Math.max(1, Math.floor(Number(opts.cost) || 1));
 
   if (!limiter) {
     // No Upstash configured — degraded mode, never a hard outage.
     warnDegraded('not configured');
     return applyLimitResult(
       res,
-      memoryRateLimit(`${opts.identifier}:${key}`, opts.limit, opts.windowSec),
+      memoryRateLimit(`${opts.identifier}:${key}`, opts.limit, opts.windowSec, Date.now(), cost),
     );
   }
 
   try {
-    const { success, limit, remaining, reset } = await limiter.limit(key);
+    const { success, limit, remaining, reset } = await limiter.limit(key, { rate: cost });
     return applyLimitResult(res, { success, limit, remaining, reset });
   } catch (err) {
     console.error('[ratelimit] upstash error:', err?.message ?? err);
     warnDegraded('erroring');
     return applyLimitResult(
       res,
-      memoryRateLimit(`${opts.identifier}:${key}`, opts.limit, opts.windowSec),
+      memoryRateLimit(`${opts.identifier}:${key}`, opts.limit, opts.windowSec, Date.now(), cost),
     );
   }
 }

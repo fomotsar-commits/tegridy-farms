@@ -222,6 +222,29 @@ export function unclassifiedShareOfTotal(classified: readonly ClassifiedHolder[]
   return sum;
 }
 
+/**
+ * AUDIT FIX TF-025: largest single share removed by a LOW-CONFIDENCE exclusion.
+ *
+ * The confidence model reasons about holders that were KEPT (`unclassified`),
+ * so a holder removed on a guess was invisible to it: exclude 40% of supply on
+ * the `contract` heuristic and the read still came back "High confidence",
+ * because the wallet that would have floored it is no longer in the set.
+ *
+ * The predicate keys on the MODEL property — an exclusion made on a guess —
+ * not on the literal category, so it stays correct if another heuristic
+ * exclusion is added later. Today only the `contract` heuristic matches:
+ * every other excluded classification is `confidence: 'high'`.
+ */
+export function largestHeuristicExcludedShareOfTotal(classified: readonly ClassifiedHolder[]): number {
+  let largest = 0;
+  for (const c of classified) {
+    if (c.classification.excluded && c.classification.confidence === 'low' && c.shareOfTotal > largest) {
+      largest = c.shareOfTotal;
+    }
+  }
+  return largest;
+}
+
 /** Largest single share of total held by any one `unclassified` wallet. */
 export function largestUnclassifiedShareOfTotal(classified: readonly ClassifiedHolder[]): number {
   let largest = 0;

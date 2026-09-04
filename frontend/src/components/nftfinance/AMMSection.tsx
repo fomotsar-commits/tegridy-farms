@@ -1178,7 +1178,11 @@ function PoolAdminPanel({
     }
   }, [isReverted]);
 
-  const isPaused = state?.[0]?.status === 'success' ? (state[0].result as boolean) : false;
+  // A failed paused() read used to default to false, so the panel asserted
+  // "Active - trading open" about a pool whose state it had not read, and
+  // offered a Pause button that would revert on an already-paused pool.
+  // Unknown is its own state here.
+  const isPaused = state?.[0]?.status === 'success' ? (state[0].result as boolean) : null;
   const pendingSpot = state?.[1]?.status === 'success' ? (state[1].result as bigint) : 0n;
   const pendingSpotAfter = state?.[2]?.status === 'success' ? Number(state[2].result as bigint) : 0;
   const pendingDeltaVal = state?.[3]?.status === 'success' ? (state[3].result as bigint) : 0n;
@@ -1239,23 +1243,25 @@ function PoolAdminPanel({
     <div className="pt-3 border-t border-white/20 space-y-4">
       {/* Status / Pause */}
       <div className="flex items-center justify-between rounded-lg p-3"
-        style={{ background: isPaused ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.06)', border: `1px solid ${isPaused ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
+        style={{ background: isPaused === null ? 'rgba(245,158,11,0.08)' : isPaused ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.06)', border: `1px solid ${isPaused === null ? 'rgba(245,158,11,0.3)' : isPaused ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.2)'}` }}>
         <div>
           <p className="text-[10px] uppercase tracking-wider text-white/55">Status</p>
-          <p className={`text-[13px] font-semibold ${isPaused ? 'text-red-300' : 'text-emerald-300'}`}>
-            {isPaused ? 'Paused — trading disabled' : 'Active — trading open'}
+          <p className={`text-[13px] font-semibold ${isPaused === null ? 'text-amber-300' : isPaused ? 'text-red-300' : 'text-emerald-300'}`}>
+            {isPaused === null
+              ? 'Unknown — paused() could not be read'
+              : isPaused ? 'Paused — trading disabled' : 'Active — trading open'}
           </p>
         </div>
         <button
-          onClick={() => call(isPaused ? 'unpause' : 'pause')}
-          disabled={busy}
+          onClick={() => { if (isPaused !== null) call(isPaused ? 'unpause' : 'pause'); }}
+          disabled={busy || isPaused === null}
           className={`px-3 py-1.5 rounded-lg text-[11.5px] font-semibold border transition-colors disabled:opacity-40 ${
             isPaused
               ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/25'
               : 'bg-red-500/15 text-red-200 border-red-500/30 hover:bg-red-500/25'
           }`}
         >
-          {isPaused ? 'Unpause' : 'Pause'}
+          {isPaused === null ? 'Reload' : isPaused ? 'Unpause' : 'Pause'}
         </button>
       </div>
 

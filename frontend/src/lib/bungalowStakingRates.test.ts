@@ -6,6 +6,7 @@ import {
   stakeWeightScaled,
   stakeWeight,
   isFlatWeight,
+  quotesAConfiguredRate,
   rewardRatePerPeriod,
   configuredAnnualRate,
   rateIsPercent,
@@ -62,6 +63,9 @@ const FLAT_POOL: PoolView = { ...BAYLA_POOL, maxWeightScaled: WEIGHT_SCALE };
 const BAYLA_REWARD: RewardPoolView = {
   address: '3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf',
   mint: BAYLA_POOL.mint,
+  // The live pool today is a CLASSIC (fixed-rate) reward pool: it pays a rate
+  // per staked token, which is why its emission scales with TVL.
+  kind: 'fixed',
   nonce: 0,
   vault: '5vcKG4rnmZ4TNy5ADdKNCwqcP8myQSLKitrkSeg6RHgq',
   decimals: 6,
@@ -69,7 +73,51 @@ const BAYLA_REWARD: RewardPoolView = {
   permissionless: true,
   rewardAmountRaw: '600000',
   rewardPeriodSecs: DAY,
+  // Budget accounting exists only on the dynamic program.
+  fundedAmountRaw: null,
+  claimedAmountRaw: null,
+  claimPeriodSecs: 0,
 };
+
+/**
+ * The same pool as a DYNAMIC one: no rate at all, a funded budget instead.
+ * Pinned so the rate helpers can be shown to refuse to quote a rate here
+ * rather than reporting the zeroed rate fields as a real 0%.
+ */
+const BAYLA_REWARD_DYNAMIC: RewardPoolView = {
+  ...BAYLA_REWARD,
+  kind: 'dynamic',
+  rewardAmountRaw: '0',
+  rewardPeriodSecs: 0,
+  fundedAmountRaw: 900_000_000_000n,
+  claimedAmountRaw: 0n,
+  claimPeriodSecs: DAY,
+};
+
+describe('a dynamic reward pool must not be quoted as a rate', () => {
+  // The trap this guards: a dynamic pool has no rate fields, so rewardAmountRaw
+  // reads '0' and every rate helper returns 0. Rendering that as "0% APR" would
+  // report an ABSENT figure as a measured zero — the same class of lie as
+  // rendering a failed read as a zero balance.
+  it('says the fixed pool CAN be quoted and the dynamic one cannot', () => {
+    expect(quotesAConfiguredRate(BAYLA_REWARD)).toBe(true);
+    expect(quotesAConfiguredRate(BAYLA_REWARD_DYNAMIC)).toBe(false);
+  });
+
+  it('demonstrates WHY: the rate helpers do return a bare 0 for a dynamic pool', () => {
+    // Not a bug in the helpers — they are only meaningful for a configured
+    // rate. This pins the reason the predicate above has to be checked first.
+    expect(rewardRatePerPeriod(BAYLA_POOL, BAYLA_REWARD_DYNAMIC)).toBe(0);
+    expect(configuredAnnualRate(BAYLA_POOL, BAYLA_REWARD_DYNAMIC, 365 * DAY)).toBe(0);
+    // …while the same pool as a fixed one quotes its real rate.
+    expect(rewardRatePerPeriod(BAYLA_POOL, BAYLA_REWARD)).toBeCloseTo(0.0006, 12);
+  });
+
+  it('still carries the budget the dynamic pool actually pays from', () => {
+    expect(BAYLA_REWARD_DYNAMIC.fundedAmountRaw).toBe(900_000_000_000n);
+    expect(BAYLA_REWARD_DYNAMIC.claimPeriodSecs).toBe(DAY);
+  });
+});
 
 describe('stakeWeightScaled matches the SDK exactly', () => {
   const grids: { min: number; max: number; maxWeight: bigint }[] = [

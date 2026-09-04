@@ -48,6 +48,15 @@ const ALLOWED_SOL_METHODS = new Set([
 ]);
 const MAX_RPC_BATCH = 20;
 
+// One token per HTTP request was the wrong unit. The upstream bills per RPC
+// CALL, a request may carry up to MAX_RPC_BATCH of them, and the comment on
+// the limit below already reasons in calls ("a single confirm can be ~30
+// calls") — so a client that batched 20 at a time got 20x the intended
+// budget. The handler charges one token up front (which also covers the
+// cheap reject paths) and the remaining calls.length - 1 once the batch is
+// parsed and allowlisted.
+const SOL_RATE_LIMIT = { limit: 300, windowSec: 60, identifier: "solrpc" };
+
 // 2026-08-27: the BAYLA lighthouse pool page reads Streamflow staking state via
 // the SDK's searchRewardPools/searchStakeEntries, which issue getProgramAccounts.
 // The L-1 allowlist above (correctly) rejects blanket getProgramAccounts — an
@@ -69,15 +78,33 @@ function isAllowedRpcCall(c) {
     // filterless scan is unbounded work billed to the keyed upstream even
     // when the oversized response 502s back. The SDK always narrows with
     // filters (memcmp/dataSize) — require them, bounded in count.
+    // The first version of this check tested only that a filter OBJECT was
+    // present, which is structure, not narrowing: [{ dataSize: 0 }] and
+    // [{ memcmp: {} }] both passed while still making the upstream walk the
+    // whole program. Require a well-formed memcmp — a numeric offset and a
+    // plausible base58 key — because that is what actually bounds the scan,
+    // and it is what the SDK always sends (Anchor prepends the 8-byte
+    // discriminator filter, and our own queries add the pool/mint key).
     const cfg = c.params?.[1];
     const filters = cfg && Array.isArray(cfg.filters) ? cfg.filters : null;
+    const isNarrowingMemcmp = (f) => {
+      if (!f || typeof f !== "object" || !f.memcmp || typeof f.memcmp !== "object") return false;
+      const { offset, bytes } = f.memcmp;
+      return (
+        Number.isInteger(offset) && offset >= 0 && offset <= 1024 &&
+        typeof bytes === "string" &&
+        bytes.length >= 8 && bytes.length <= 88 &&
+        /^[1-9A-HJ-NP-Za-km-z]+$/.test(bytes)
+      );
+    };
+    const isWellFormedDataSize = (f) =>
+      !!f && typeof f === "object" && Number.isInteger(f.dataSize) && f.dataSize >= 0;
     const filtersNarrow =
       filters !== null &&
       filters.length >= 1 &&
       filters.length <= 8 &&
-      filters.every(
-        (f) => f && typeof f === "object" && ("memcmp" in f || "dataSize" in f),
-      );
+      filters.every((f) => isNarrowingMemcmp(f) || isWellFormedDataSize(f)) &&
+      filters.some(isNarrowingMemcmp);
     return (
       Array.isArray(c.params) &&
       typeof c.params[0] === "string" &&
@@ -144,11 +171,7 @@ export default async function handler(req, res) {
 
   // Generous per-IP limit: an active swap polls getSignatureStatuses every ~2s
   // for up to 60s plus balance reads, so a single confirm can be ~30 calls.
-  const allowed = await checkRateLimit(req, res, {
-    limit: 300,
-    windowSec: 60,
-    identifier: "solrpc",
-  });
+  const allowed = await checkRateLimit(req, res, SOL_RATE_LIMIT);
   if (!allowed) return;
 
   const raw = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? {});
@@ -171,6 +194,15 @@ export default async function handler(req, res) {
     if (!isAllowedRpcCall(c)) {
       return res.status(403).json({ error: `RPC method not allowed: ${c && c.method}` });
     }
+  }
+
+  // Bill the rest of the batch (see SOL_RATE_LIMIT).
+  if (calls.length > 1) {
+    const batchAllowed = await checkRateLimit(req, res, {
+      ...SOL_RATE_LIMIT,
+      cost: calls.length - 1,
+    });
+    if (!batchAllowed) return;
   }
 
   let upstreamRes;

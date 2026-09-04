@@ -19,7 +19,8 @@
     "e2e": "node scripts/run-e2e-with-anvil.mjs",
     "precommit": "npm run lint && tsc -b --noEmit",
     "analyze": "ANALYZE=true vite build",
-    "prebuild": "node scripts/generate-image-derivatives.mjs"
+    "prebuild": "node scripts/generate-image-derivatives.mjs",
+    "verify:env": "node scripts/verify-env.mjs"
   },
   "dependencies": {
     "@base-org/account": "^2.5.10",

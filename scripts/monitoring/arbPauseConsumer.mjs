@@ -44,6 +44,9 @@ import {
   TWAP_CONSUMERS,
   buildPlan,
   encodeAddressArg,
+  decodeWordAt,
+  isWordAligned,
+  renderCrashOutput,
   renderGithubOutput,
   renderPlan,
   summarise,
@@ -73,17 +76,38 @@ let rpc;
  * report with faults that are not faults, and the report is only useful if every
  * line in its failure list is worth chasing.
  */
+/**
+ * AUDIT FIX TF-037: a conforming eth_call return is a whole number of 32-byte
+ * words. The sibling decoder in contracts/monitoring/lib/arbLinkage.mjs:67-74
+ * checks that; `wordAt` below did not, and the guard here rejected only the
+ * exact string '0x'. So a SHORT return — 1 to 63 hex chars — was sliced to
+ * fewer than 64 characters and `BigInt` happily decoded it into a valid but
+ * WRONG number. This consumer turns those words into authorized-caller
+ * addresses and pause targets, so a wrong decode is a wrong verdict about who
+ * can halt the protocol, printed with the same confidence as a right one.
+ * Unreadable must read as unreadable.
+ */
 async function call(label, to, data, { optional = false } = {}) {
   try {
     const hex = await rpc('eth_call', [{ to, data }, 'latest']);
-    return typeof hex === 'string' && hex !== '0x' ? hex : null;
+    if (typeof hex !== 'string' || hex === '0x') return null;
+    if (!isWordAligned(hex)) {
+      // Not a crash and not a revert: a malformed reading, which this file
+      // already has a channel for.
+      if (!optional) {
+        unreadable.push(`${label}: return is not 32-byte aligned (${hex.length - 2} hex chars)`);
+      }
+      return null;
+    }
+    return hex;
   } catch (e) {
     if (!optional) unreadable.push(`${label}: ${e.message || e}`);
     return null;
   }
 }
 
-const wordAt = (hex, i) => (hex ? BigInt(`0x${hex.slice(2 + i * 64, 2 + (i + 1) * 64)}`) : null);
+/** Second line of defence: refuse to decode a word that is not fully present. */
+const wordAt = decodeWordAt;
 const toAddress = (w) => (w === null ? null : `0x${w.toString(16).padStart(40, '0')}`);
 const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -278,5 +302,25 @@ main().catch((e) => {
   // A crash here leaves the linkage unestablished, which is exit 2 for the same
   // reason an unreadable chain is.
   console.error(`ERROR (treat as HALT) — pause consumer crashed: ${e.message || e}`);
+
+  // AUDIT FIX TF-005: a --probe crash used to exit 0 having written NOTHING to
+  // GITHUB_OUTPUT. `steps.probe.outputs.arb_status` was then the empty string,
+  // the incident step's `if:` evaluated false, and the job went GREEN — so a
+  // crash in the watcher silently BLINDED the watch instead of reporting it,
+  // which is the one failure mode a watcher must never have. Emit the same
+  // ERROR shape a blind read produces so the incident opens on a crash too.
+  // The exit code stays 0 under --probe on purpose: the incident issue is the
+  // alert channel here, and a red job would only mask it with a second signal.
+  if (PROBE && process.env.GITHUB_OUTPUT) {
+    try {
+      appendFileSync(process.env.GITHUB_OUTPUT, `${renderCrashOutput(e)}\n`);
+    } catch (writeErr) {
+      console.error(`ERROR — could not write GITHUB_OUTPUT: ${writeErr.message || writeErr}`);
+    }
+    console.log(
+      '::error::Arb linkage UNKNOWN — the pause consumer crashed. This run does NOT establish that the linkage holds.',
+    );
+  }
+
   process.exitCode = PROBE ? 0 : 2;
 });

@@ -112,9 +112,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const myPrincipalRaw = user ? big(8) : null;
   const walletRaw = user ? big(9) : null;
   const allowanceRaw = user ? big(10) : null;
-  const ids = (user && reads?.[11]?.status === 'success' ? (reads[11].result as readonly bigint[]) : []) as readonly bigint[];
+  const idsRead = user ? reads?.[11] : undefined;
+  const ids = (idsRead?.status === 'success' ? (idsRead.result as readonly bigint[]) : []) as readonly bigint[];
 
-  const { data: posReads } = useReadContracts({
+  const { data: posReads, isLoading: posLoading } = useReadContracts({
     contracts: ids.map((id) => ({ ...poolC, functionName: 'positions' as const, args: [id] as const })),
     query: { enabled: ids.length > 0, refetchInterval: 30_000 },
   });
@@ -124,6 +125,16 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
     const t = r.result as readonly [string, bigint, bigint, bigint];
     return { id, lockEnd: BigInt(t[1]), amount: t[2], boosted: t[3] };
   }).filter(Boolean) as Pos[];
+
+  // An RPC that fails must never render as "you have nothing staked". That is
+  // the outage-as-zero the Solana card was built to refuse, and here it is
+  // worse: it hides a locked principal from the person who owns it. Separate
+  // "still loading" from "the chain would not answer", and say which.
+  const positionsUnread = Boolean(user) && !isLoading && (
+    (!idsRead || idsRead.status !== 'success')
+      ? true
+      : ids.length > 0 && !posLoading && positions.length !== ids.length
+  );
 
   const { writeContractAsync } = useWriteContract();
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>();
@@ -289,6 +300,19 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   </button>
                 </div>
 
+                {positionsUnread && (
+                  <div className="rounded-xl p-3 text-[12px]" style={{ background: 'rgba(120,60,0,0.28)', border: '1px solid rgba(255,170,60,0.35)' }}>
+                    <p className="text-amber-200/95">
+                      Your positions could not be read just now — the network did not answer.
+                      This is a display problem, not a loss: anything you have staked is still
+                      staked, and the contract is the record. Retry before acting on this panel.
+                    </p>
+                    <button type="button" className="btn-secondary mt-2 px-4 py-1.5 text-[12px]" onClick={() => { void refetch(); }}>
+                      Retry
+                    </button>
+                  </div>
+                )}
+
                 {positions.length > 0 && (
                   <div className="rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Your positions</p>
@@ -317,10 +341,22 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                                 Exit early (−{fmtRaw(fee, decimals)})
                               </button>
                             )}
+                            {/* AUDIT (2026-09-01): this used to promise "Principal
+                                only" unconditionally. On a LOCKED position that is
+                                false — emergencyWithdraw applies the SAME 25%
+                                penalty as earlyExit
+                                (LighthouseLadder.sol: `if (block.timestamp <
+                                p.lockEnd) out = amount - penalty`). A user taking
+                                the escape hatch early was told they would keep
+                                their principal and lost a quarter of it. The label
+                                and the tooltip now both carry the real cost, and
+                                only the matured case claims to be free. */}
                             <button type="button" disabled={busy !== null} className="text-[11px] text-white/45 hover:text-white underline underline-offset-2"
-                              title="Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available — this is the last resort if rewards are ever broken."
+                              title={open
+                                ? 'Principal only, forfeiting unclaimed rewards, using nothing from the reward side. Always available — this is the last resort if rewards are ever broken.'
+                                : `Still locked, so this costs the same ${fmtRaw(fee, decimals)} ${bungalow.symbol} (25%) as exiting early, AND forfeits unclaimed rewards. It uses nothing from the reward side, so it works even if rewards are broken — that is the only reason to prefer it over Exit early.`}
                               onClick={() => send('x' + p.id, () => writeContractAsync({ ...poolC, functionName: 'emergencyWithdraw', args: [p.id] }))}>
-                              emergency
+                              {open ? 'emergency' : `emergency (−${fmtRaw(fee, decimals)})`}
                             </button>
                           </div>
                         );

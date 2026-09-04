@@ -14,12 +14,16 @@ import {
   readWalletBalance,
   stake,
   unstakeAndClaim,
+  unstakeAndCloseForfeitingRewards,
   claimRewards,
   lockPresets,
   defaultLockDays,
   labelForDays,
   stakeWeight,
+  stakeWeightScaled,
   isFlatWeight,
+  quotesAConfiguredRate,
+  WEIGHT_SCALE,
   configuredAnnualRate,
   rateIsPercent,
   vaultRunwaySecs,
@@ -78,6 +82,29 @@ function fmt(raw: bigint | null, decimals: number, maxFrac = 2): string {
   return neg ? `-${out}` : out;
 }
 
+/**
+ * Raw base units -> a plain, LOCALE-FREE decimal string.
+ *
+ * AUDIT (2026-09-01). MAX used to round-trip `fmt()` — a DISPLAY string — back
+ * through `toRaw()` after stripping commas. `fmt` groups with
+ * `toLocaleString()`, so in any dot-grouping locale (de-DE, pt-BR, it-IT,
+ * nl-NL) a balance of 1234 with no fraction renders as "1.234", survives the
+ * comma-strip untouched, and parses as **1.234 tokens instead of 1234** — a
+ * silent factor-of-1000 under-stake, with the wallet showing the right number
+ * the whole way. In space-grouping locales (fr-FR, es-ES) it instead fails to
+ * parse and the button dead-ends.
+ *
+ * The rule this encodes: a value that will be parsed again must never be built
+ * by a formatter whose job is to be readable. Display and data are different
+ * strings.
+ */
+function toPlain(raw: bigint, decimals: number): string {
+  const s = raw.toString().padStart(decimals + 1, '0');
+  const whole = s.slice(0, -decimals) || '0';
+  const frac = decimals > 0 ? s.slice(-decimals).replace(/0+$/, '') : '';
+  return frac ? `${whole}.${frac}` : whole;
+}
+
 function toRaw(human: string, decimals: number): bigint | null {
   const t = human.trim();
   if (!/^\d+(\.\d+)?$/.test(t)) return null;
@@ -101,6 +128,16 @@ function pct(rate: number): string {
 function humanDuration(secs: number): string {
   if (secs <= 0) return 'now';
   const d = Math.floor(secs / DAY);
+  // A well-funded vault against a small stake produces enormous runways — the
+  // first 1M BAYLA top-up rendered as "55555d", which is a five-digit number
+  // nobody can read as 152 years. Roll up past a year (and past a month) so the
+  // figure stays a quantity a person can hold. Below a year the day count is
+  // still the most useful unit, so it is kept.
+  if (d >= 365) {
+    const y = d / 365;
+    return `${y >= 10 ? Math.round(y) : y.toFixed(1)}y`;
+  }
+  if (d >= 60) return `${Math.round(d / 30)}mo`;
   if (d >= 1) return `${d}d`;
   const h = Math.floor(secs / 3600);
   if (h >= 1) return `${h}h`;
@@ -124,6 +161,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const [days, setDays] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [action, setAction] = useState<{ busy?: string; note?: string; tx?: string } | null>(null);
+  // Two-step confirm for the principal-rescue exit, keyed by entry nonce. It
+  // forfeits accrued rewards, so it must never be a single mis-click.
+  const [rescueFor, setRescueFor] = useState<number | null>(null);
   // One tick a minute keeps every "unlocks in 12d" countdown honest without a
   // render loop — same cadence the TOWELI staking card uses.
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
@@ -134,6 +174,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
 
   const walletKey = publicKey?.toBase58() ?? '';
   const poolMint = poolRead?.ok ? poolRead.pool.mint : '';
+  // AUDIT FIX TF-035: prove this pool really stakes THIS bungalow's mint before
+  // any figure is trusted. The EVM sibling has carried this guard since its
+  // design review (EvmLadderPoolLive.tsx:100); the Solana card read the pool
+  // and rendered its numbers without ever comparing the mint. A mispasted
+  // base58 in one of the four sibling `stakePool` literals (bungalows.ts:336-346
+  // — four one-liners edited in one batch, the classic mispaste shape), or a
+  // stale VITE_BAYLA_STAKE_POOL, which bungalows.ts:182-183 warns "WINS over
+  // this constant", would render a stranger pool's figures under our symbol and
+  // point the stake button at a stranger's token.
+  // base58 is case-SENSITIVE — no case folding here, unlike the EVM sibling.
+  const identityMismatch = poolMint !== '' && poolMint !== (bungalow.address ?? '');
 
   const refresh = useCallback(() => {
     let cancelled = false;
@@ -226,6 +277,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const flatWeight = pool ? isFlatWeight(pool) : true;
   const runwaySecs = pool && primaryRp ? vaultRunwaySecs(pool, primaryRp) : null;
 
+  /**
+   * DYNAMIC-POOL MODE. A dynamic reward pool has no rate fields at all, so
+   * every rate helper above returns a bare 0 for it. Printing that as "0% APR"
+   * would report an ABSENT number as a measured one — the same lie as
+   * rendering a failed read as a zero balance — so in this mode the panel does
+   * not quote a rate AT ALL.
+   *
+   * Instead it shows the two things that are actually true and checkable right
+   * now: what is in the budget, and what SHARE of it a position holds. The
+   * share is a present fact and needs no forecast. It is also the shape the
+   * venue's US regulatory review asked for — a computed observation with its
+   * inputs beside it, never a forward-looking yield on a number the operator
+   * sets.
+   */
+  const dynamicPool = primaryRp ? !quotesAConfiguredRate(primaryRp) : false;
+  const myEffectiveRaw = openEntries.reduce((a, e) => a + e.effectiveAmountRaw, 0n);
+  const poolEffectiveRaw = pool?.totalEffectiveStakeRaw ?? null;
+  // Share of everything the pool distributes while these positions stay open.
+  const myShare = poolEffectiveRaw !== null && poolEffectiveRaw > 0n && myEffectiveRaw > 0n
+    ? Number(myEffectiveRaw) / Number(poolEffectiveRaw)
+    : null;
+
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
   const pendingTotal = openEntries.reduce<bigint | null>((acc, e) => {
     if (acc === null) return null;
@@ -272,30 +345,70 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
           <p className="text-[13px]" style={{ color: '#f0b26b' }}>{poolRead.reason}</p>
         )}
 
-        {pool && (
+        {/* AUDIT FIX TF-035: a configuration error, not a network problem — so
+            no figures, and nothing below can send a transaction. Same shape and
+            styling as EvmLadderPoolLive.tsx:175-180. */}
+        {identityMismatch && (
+          <p className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
+            This pool does not stake {bungalow.symbol} — it reports {poolMint.slice(0, 6)}…{poolMint.slice(-4)} as its
+            staking mint. That is a configuration error, not a network problem, so no figures are shown and nothing
+            here will send a transaction.
+          </p>
+        )}
+
+        {pool && !identityMismatch && (
           <>
             {/* ── The four numbers that decide whether to stake ───────────── */}
             <div className={`grid grid-cols-2 sm:grid-cols-3 ${weighted ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-3 mb-4`}>
-              <Stat label="Reward vault" value={fmt(funded, decimals)} unit={bungalow.symbol} />
+              <Stat
+                label={dynamicPool ? 'Reward budget' : 'Reward vault'}
+                value={fmt(funded, decimals)}
+                unit={bungalow.symbol}
+                caption={dynamicPool ? 'what is left to distribute' : undefined}
+              />
               <Stat label="Total staked" value={fmt(pool.totalStakeRaw, decimals)} unit={bungalow.symbol} />
-              <Stat
-                label="Paying now"
-                value={ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                tone={payingNow > 0 ? 'good' : 'muted'}
-              />
-              <Stat
-                label="Configured"
-                value={
-                  !ratePercent
-                    ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
-                    : weighted
-                      ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
-                      : pct(configuredRate)
-                }
-                unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
-                caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
-              />
+              {dynamicPool ? (
+                <>
+                  {/* No rate exists on this program, so none is invented. What
+                      a position holds is its SHARE — a present fact, not a
+                      forecast — and it is the number that actually determines
+                      the payout. */}
+                  <Stat
+                    label="Your share"
+                    value={myShare === null ? '–' : pct(myShare)}
+                    unit={myShare === null ? 'nothing staked' : 'of each payout'}
+                    tone={myShare === null ? 'muted' : 'good'}
+                    caption={myShare === null ? undefined : 'moves as others stake'}
+                  />
+                  <Stat
+                    label="How it pays"
+                    value="Budget"
+                    unit="not a fixed rate"
+                    caption="split by weighted stake"
+                  />
+                </>
+              ) : (
+                <>
+                  <Stat
+                    label="Paying now"
+                    value={ratePercent ? pct(payingNow) : payingNow.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
+                    tone={payingNow > 0 ? 'good' : 'muted'}
+                  />
+                  <Stat
+                    label="Configured"
+                    value={
+                      !ratePercent
+                        ? configuredRate.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                        : weighted
+                          ? `${pct(rateAtMin)}–${pct(rateAtMax)}`
+                          : pct(configuredRate)
+                    }
+                    unit={ratePercent ? 'APR' : `per ${bungalow.symbol}/yr`}
+                    caption={weighted ? `${labelForDays(minDays)} → ${labelForDays(maxDays)}` : undefined}
+                  />
+                </>
+              )}
               {weighted && (
                 <Stat
                   label="Max boost"
@@ -305,6 +418,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 />
               )}
             </div>
+
+            {/* The whole model in two sentences, stated before anyone signs.
+                A dynamic pool cannot honestly advertise an APR: what a staker
+                earns depends on how much is funded and how many others are in,
+                and BOTH move. Saying so plainly is the only accurate option —
+                and the safest one. */}
+            {dynamicPool && (
+              <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)', color: '#bfdbfe' }}>
+                <strong>This pool pays out a funded budget, not a fixed rate.</strong>{' '}
+                Whatever is funded gets split across everyone staked, in proportion to
+                weighted stake — so a longer lock still earns a bigger share
+                {weighted ? ` (up to ${maxBoost.toFixed(2)}×)` : ''}, but the amount per
+                {' '}{bungalow.symbol} falls as more people stake and rises as fewer do.
+                There is no APR to quote here, and this venue will not invent one:
+                the honest figures are the budget above and your share of it.
+              </p>
+            )}
 
             {vaultDry && (
               <p className="text-[12px] mb-4 rounded-lg px-3 py-2" style={{ background: 'rgba(227,179,65,0.1)', border: '1px solid rgba(227,179,65,0.4)', color: '#e3b341' }}>
@@ -349,7 +479,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       <button
                         type="button"
                         disabled={walletRaw === null || walletRaw === 0n}
-                        onClick={() => walletRaw !== null && setAmount(fmt(walletRaw, decimals, decimals).replace(/,/g, ''))}
+                        onClick={() => walletRaw !== null && setAmount(toPlain(walletRaw, decimals))}
                         className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer disabled:cursor-default disabled:hover:text-white/60"
                       >
                         Balance: {walletRaw === null ? '–' : fmt(walletRaw, decimals)}{walletRaw !== null && walletRaw > 0n ? ' · MAX' : ''}
@@ -404,10 +534,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                 row of the boost schedule rather than a bare
                                 percentage — the ladder is legible without having
                                 to click through every option to compare. Hidden
-                                on a flat pool, where every row would read 1.00x. */}
+                                on a flat pool, where every row would read 1.00x.
+                                On a DYNAMIC pool the multiplier is the whole
+                                story: there is no rate to print, and printing
+                                the helpers' bare 0 would read as "this lock
+                                earns 0%", which is false. */}
                             <span className="block text-[11px] leading-tight opacity-80 font-mono">
-                              {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}× · `}
-                              {ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+                              {weighted && `${stakeWeight(pool, opt.seconds).toFixed(2)}×`}
+                              {dynamicPool
+                                ? (weighted ? ' share' : '—')
+                                : `${weighted ? ' · ' : ''}${ratePercent ? pct(optRate) : optRate.toLocaleString(undefined, { maximumFractionDigits: 3 })}`}
                             </span>
                           </button>
                         );
@@ -459,10 +595,37 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     )}
                   </div>
 
+                  {/* On a DYNAMIC pool the honest answer to "what will I earn"
+                      is a share, not an amount: the payout depends on future
+                      funding and on who else stakes, and neither is knowable.
+                      So the projection strip is replaced by the one figure that
+                      IS computable — the share this stake would take. */}
+                  {dynamicPool && amountRaw !== null && amountRaw > 0n && poolEffectiveRaw !== null && (() => {
+                    const addedEffective = (amountRaw * stakeWeightScaled(pool, chosenSecs)) / WEIGHT_SCALE;
+                    const after = poolEffectiveRaw + addedEffective;
+                    const share = after > 0n ? Number(addedEffective) / Number(after) : 0;
+                    return (
+                      <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.18)' }}>
+                        <p className="text-[11px] font-semibold mb-1 uppercase tracking-wider" style={{ color: '#93c5fd' }}>
+                          What this stake would take
+                        </p>
+                        <p className="stat-value text-2xl leading-tight" style={{ color: '#bfdbfe' }}>{pct(share)}</p>
+                        <p className="text-white/45 text-[11px] mt-1 leading-relaxed">
+                          of every payout, at a {stakeWeight(pool, chosenSecs).toFixed(2)}× weight on{' '}
+                          {labelForDays(chosenDays).toLowerCase()} — computed against the stake in the pool
+                          right now. It falls as others stake and rises as they leave. No amount is
+                          projected here because the payout depends on future funding, which is not a
+                          number this page can know.
+                        </p>
+                      </div>
+                    );
+                  })()}
+
                   {/* Projections — the TOWELI card's strip, with the vault caveat
                       welded on. Renders even at zero, because "0" IS the answer
-                      today and hiding it would be the softer lie. */}
-                  {amountRaw !== null && amountRaw > 0n && primaryRp && (
+                      today and hiding it would be the softer lie. FIXED pools
+                      only: a dynamic pool has no rate to project from. */}
+                  {!dynamicPool && amountRaw !== null && amountRaw > 0n && primaryRp && (
                     <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)' }}>
                       <p className="text-emerald-400 text-[11px] font-semibold mb-2 uppercase tracking-wider">
                         {vaultDry ? 'What it would earn once funded' : 'Projected rewards'}
@@ -586,47 +749,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     }, 0n);
                     return (
                       <li key={e.address || e.nonce} className="rounded-lg p-3" style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                        {/* LAYOUT 2026-08-31 (owner: "looks so raggedy"): this was one
-                            flex-wrap row of five unlabelled facts, so at narrow widths it
-                            broke mid-thought — "unlocks in 364d" landed under the amount
-                            and "accrued" trailed off alone. Now: a headline (amount +
-                            lock), then a labelled stat grid that wraps by CELL instead of
-                            by word. Accrued gets its own cell because it is the number
-                            people actually come back to read. */}
-                        <div className="flex items-baseline justify-between gap-3 mb-3">
+                        {/* TRIMMED 2026-08-31 (owner): this carried amount, lock,
+                            weight, unlock date and accrued — every one of which is
+                            already on screen within a few hundred pixels. The header
+                            above totals staked and accrued; the lock ladder above that
+                            prints each duration's weight and APR; and the unstake button
+                            below renders "Locked · <countdown>" itself. Only the
+                            per-entry amount is not stated elsewhere, so only it stays.
+                            entryPending is still computed — the buttons gate on it. */}
+                        <div className="mb-3">
                           <span className="stat-value text-white text-[17px] leading-none">
                             {fmt(e.amountRaw, decimals)} <span className="text-white/60 text-[13px]">{bungalow.symbol}</span>
                           </span>
-                          <span className="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap"
-                            style={locked
-                              ? { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.12)' }
-                              : { background: 'rgba(45,139,78,0.22)', color: '#7fd89d', border: '1px solid rgba(140,240,190,0.35)' }}>
-                            {locked ? `Locked · ${humanDuration(opensAt - nowSec)}` : 'Unlocked'}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 mb-3">
-                          <div>
-                            <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Lock</p>
-                            <p className="text-white/90 text-[12.5px]">{labelForDays(Math.round(e.durationSecs / DAY))}</p>
-                          </div>
-                          {!flatWeight && (
-                            <div>
-                              <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Weight</p>
-                              <p className="text-white/90 text-[12.5px]">{stakeWeight(pool, e.durationSecs).toFixed(2)}&times;</p>
-                            </div>
-                          )}
-                          <div>
-                            <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Unlocks</p>
-                            <p className="text-white/90 text-[12.5px] whitespace-nowrap">
-                              {locked ? new Date(opensAt * 1000).toLocaleDateString() : 'now'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-[9.5px] uppercase tracking-wider text-white/40 mb-0.5">Accrued</p>
-                            <p className="font-mono text-[12.5px]" style={{ color: 'var(--color-kyle)' }}>
-                              {fmt(entryPending, decimals)} <span className="text-white/50">{bungalow.symbol}</span>
-                            </p>
-                          </div>
                         </div>
                         {(() => {
                           // 6012-precise gating: the SDK's own calcRewards gives this
@@ -665,6 +799,51 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               : exceedsVault ? 'Exit blocked — vault unfunded'
                               : 'Unstake & claim'}
                           </button>
+
+                          {/* PRINCIPAL RESCUE. Only offered in the one state
+                              where the normal exit is impossible: the lock has
+                              OPENED but the reward vault cannot cover what is
+                              owed, so unstakeAndClaim reverts (6012) and the
+                              principal is otherwise stuck behind a funding gap.
+                              It closes the reward entry instead of claiming it,
+                              which is why it works — and why it costs the
+                              accrued rewards. Two-step on purpose. */}
+                          {!locked && exceedsVault && (
+                            rescueFor === e.nonce ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={!invoker || !!action?.busy}
+                                  onClick={() => {
+                                    setRescueFor(null);
+                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce }));
+                                  }}
+                                  className="px-3 py-1.5 text-[12px] rounded-lg disabled:opacity-50"
+                                  style={{ background: 'rgba(227,179,65,0.18)', border: '1px solid #e3b341', color: '#e3b341' }}
+                                >
+                                  Forfeit rewards &amp; take principal
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setRescueFor(null)}
+                                  className="btn-secondary px-2.5 py-1.5 text-[12px]"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={!invoker || !!action?.busy}
+                                title="Withdraws your principal WITHOUT claiming rewards. It closes the reward entry rather than paying it, so it cannot be blocked by the vault — and the accrued rewards are given up."
+                                onClick={() => setRescueFor(e.nonce)}
+                                className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
+                                style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
+                              >
+                                Take principal without rewards
+                              </button>
+                            )
+                          )}
                         </div>
                           );
                         })()}
