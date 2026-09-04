@@ -9,32 +9,34 @@ fails the deploy with:
 The *build* succeeds (vite/tsc compile fine); only the *deploy* step trips the cap. So a code-clean
 PR can still show a Vercel `Error` purely from function count.
 
-## Current state (origin/main, 2026-06-01): 9 functions — 3 of headroom
+## Current state (counted in the tree, 2026-09-02): 11 functions — 1 of headroom
 
 Vercel counts each top-level handler under `frontend/api/` (NOT `_lib/`, `__tests__/`, or
-`_`-prefixed files). The 9:
+`_`-prefixed files). The 11:
 
 1. `api/alchemy.js`
 2. `api/etherscan.js`
 3. `api/opensea.js`
 4. `api/orderbook.js`
 5. `api/supabase-proxy.js`
-6. `api/auth/me.js`
-7. `api/auth/siwe.js`
-8. `api/v1/index.js`
-9. `api/aggregator/[provider]/[...path].js`  ← **the catchall**
+6. `api/analytics.js`
+7. `api/solrpc.js`
+8. `api/auth/me.js`
+9. `api/auth/siwe.js`
+10. `api/v1/index.js`
+11. `api/aggregator.js`  ← **the catchall**
 
 ## The catchall is load-bearing — do not split it
 
-The 7 swap aggregators (odos, cow, lifi, kyber, openocean, paraswap, swapapi) ALL route through
-the single `aggregator/[provider]/[...path].js` function via `vercel.json` rewrites
-(`/api/odos/* → /api/aggregator/odos/*`, etc.). This was commit `9c2b0db`
+The 8 swap aggregators (odos, cow, lifi, kyber, openocean, paraswap, swapapi, jupiter) ALL route
+through the single `api/aggregator.js` function via `vercel.json` rewrites
+(`/api/odos/* → /api/aggregator?provider=odos&p=*`, etc.). This was commit `9c2b0db`
 ("consolidate 7 aggregator proxies → 1 catchall (Hobby plan 12-fn limit)"). Splitting it back into
-per-provider functions would be 9 → 15 and break the deploy. **Keep it consolidated.**
+per-provider functions would be 11 → 18 and break the deploy. **Keep it consolidated.**
 
 ## Before adding ANY new `api/*.js` route
 
-Count stays ≤ 12. At 9 today, you have room for 3 more standalone routes. Past that, either:
+Count stays ≤ 12. At 11 today, you have room for exactly 1 more standalone route. Past that, either:
 - consolidate (route multiple paths through one `[...catchall].js` handler + a `vercel.json` rewrite), or
 - upgrade to Vercel Pro (removes the cap — a billing decision).
 
@@ -57,7 +59,7 @@ into the 404.
 | `alerts` | `_lib/alerts.js` | Per-wallet alert-rule CRUD under RLS (the user's own SIWE JWT is forwarded to PostgREST) |
 | `airdrop` | `_lib/airdrop.js` | Airdrop manifest store: one claimant's own leaf + a server-generated proof; creator publish |
 | `referrals` | `_lib/referrals.js` | Short-code store for `/?r=code` referral links: one code in, at most one wallet out |
-| `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out |
+| `commerce` | `_lib/commerce.js` | Merchant invoice store + settlement record behind `/checkout`: one id in, one invoice out. OPTIONAL short-link enrichment only — the signed `#i=` payment link is verified in the buyer's browser and needs none of it, so this resource is not on the path that moves money |
 | `bot-link` | `_lib/botLink.js` | Telegram chat ↔ wallet binding: the bot's only server surface, and the reason it never holds a key |
 
 `airdrop` is the one resource here whose absent branch is the security property. It has no
@@ -123,7 +125,8 @@ is load-bearing — the SPA fallback `/((?!api/).*)` only excludes `api/…`, so
 would call it healthy.
 
 ## Known offenders / watch-list
-- **PR #25** (stale 72-file UX push) adds `api/indexer.js` → would be the 10th function. Still under
-  cap alone, but another reason that PR needs a rebuild rather than a blind merge.
+- **PR #25** (stale 72-file UX push) adds `api/indexer.js` → would be the 12th function, spending the
+  last slot exactly. It no longer leaves headroom behind it, which is another reason that PR needs a
+  rebuild rather than a blind merge.
 - **Dependabot preview deploys** occasionally show Vercel `Error` from build-cache replaying an
   older (larger) function set — transient, does not affect production `main`.

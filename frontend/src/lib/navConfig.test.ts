@@ -13,7 +13,13 @@ import {
   COMMUNITY_LIVE,
   COMMUNITY_ADDRESSES_LIVE,
 } from './navConfig';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { isIndexerConfigured } from './indexer/client';
+import { loadLocalRules } from './alerts/ruleStore';
+import { evaluableRuleKinds } from './alerts/sources';
+import { PAYMENT_LINK_CHAIN_IDS } from './commerce/settleTokens';
 // The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
 // Used here as the already-verified answer to "is this path reachable by URL at all",
 // so the assertions below can tell "routed but not promoted" apart from "not routed".
@@ -162,57 +168,89 @@ describe('navConfig', () => {
     expect(entry?.soon).toBe(true);
   });
 
-  // Alerts sits with the detection tools because four of its five rule kinds watch
-  // exactly what those tools read on demand, on any token or wallet.
-  it('promotes /alerts under Trust & Safety, unpilled now that the store exists', () => {
+  // Alerts sits with the detection tools because its rule kinds watch exactly what those
+  // tools read on demand, on any token, wallet or pool.
+  it('promotes /alerts under Trust & Safety, unpilled because the store is server-free', () => {
     const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
     expect(trust?.items.map((i) => i.to)).toContain('/alerts');
 
     const entry = ALL_NAV.find((n) => n.to === '/alerts');
     expect(entry?.label).toBe('Alerts');
-    // FLIPPED 2026-09-03. This assertion used to pin `soon === true`, and said in so
-    // many words that it was the thing to re-read and delete when the migration landed.
-    // It landed: `016_alert_rules.sql` was applied by hand to the production project,
-    // followed by `NOTIFY pgrst, 'reload schema'`. Verified three ways — the table is in
-    // information_schema, the ledger row for 016 is present (it is the file's LAST
-    // statement, so it could not be there if the file had partially run), and the
-    // endpoint answers 401 rather than 503 `schema-missing`.
-    //
-    // Kept rather than deleted, and inverted rather than dropped, so the tripwire still
-    // has an opinion: re-adding the pill now would be as wrong as removing it early was.
-    expect(entry?.soon, 'the rule store exists — a live store must not read as coming soon').toBeFalsy();
+    expect(entry?.soon, 'a store that needs nothing must not read as unavailable').toBeFalsy();
   });
 
-  // Checkout is pilled for exactly the /alerts reason, and the two must not drift apart:
-  // both are gated on a migration an operator applies BY HAND, and both therefore have no
-  // client-readable signal that could clear the pill on its own.
-  it('promotes /checkout under Engage, unpilled now that the invoice store exists', () => {
+  // The PRECONDITION, not the conclusion. The entry above is unpilled because the rule
+  // store is provably local: if someone gives it a server dependency, this fails first
+  // and the nav comment that cites it has to be re-read before the pill can stay off.
+  it('the alert rule store reaches no network, in source and at runtime', () => {
+    // Resolved from THIS file's own URL, not from the runner's cwd: a relative path
+    // here silently reads nothing when vitest is invoked from another directory, and a
+    // guard that reads nothing passes forever.
+    const storePath = join(dirname(fileURLToPath(import.meta.url)), 'alerts', 'ruleStore.ts');
+    const source = readFileSync(storePath, 'utf8');
+    // A guard that reads nothing passes forever, so prove the read landed before
+    // asserting anything about the contents.
+    expect(source.length, 'the rule store source could not be read').toBeGreaterThan(500);
+    expect(source, 'not the module this guard thinks it is').toContain('loadLocalRules');
+    expect(
+      source.includes('fetch('),
+      'a browser-local store must not fetch - see the /alerts comment in navConfig.ts',
+    ).toBe(false);
+    expect(source, 'rulesClient is the SERVER store — the local one must not use it').not.toContain(
+      './rulesClient',
+    );
+
+    vi.stubGlobal('fetch', () => {
+      throw new Error('the rule store must not make a request');
+    });
+    try {
+      expect(loadLocalRules()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('at least one alert rule kind is readable with no indexer configured', () => {
+    // If a shipped source is ever made configurable, THIS fails and the /alerts
+    // comment tells you what to do about the pill.
+    expect(evaluableRuleKinds().length).toBeGreaterThan(0);
+  });
+
+  // Checkout was pilled for the /alerts reason — a migration applied by hand — until the
+  // invoice became a merchant-signed document carried in the URL fragment. It now has the
+  // /referrals shape instead: the advertised action completes in the browser, and the one
+  // input that could make it impossible is client-readable.
+  it('promotes /checkout under Engage, unpilled because a link can be minted and paid here', () => {
     const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
     expect(engage?.items.map((i) => i.to)).toContain('/checkout');
 
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');
-    // FLIPPED 2026-09-03, same event as /alerts above: `021_commerce.sql` applied by hand
-    // to the production project, then `NOTIFY pgrst, 'reload schema'`. commerce_invoices
-    // and commerce_settlements are both in information_schema and the ledger row for 021
-    // is present.
-    //
-    // COMMERCE_WEBHOOK_SECRET is still unset and deliberately does NOT gate this: with no
-    // secret the webhook is not POSTed at all, because an unverifiable webhook is a
-    // forgeable one. The settlements read is the source of truth regardless, so an invoice
-    // resolves — which is the only claim this pill was ever making.
-    expect(entry?.soon, 'the invoice store exists — a live store must not read as coming soon').toBeFalsy();
+
+    // THE PRECONDITION, ASSERTED FIRST AND ON PURPOSE. The pill is keyed to the
+    // settle-token table, not to CONFIGURED_CHAIN_IDS (which viemChains.ts makes
+    // non-empty by construction). Emptying the table must fail HERE — naming the real
+    // cause — rather than surfacing as a confusing pill assertion two lines down.
+    expect(
+      PAYMENT_LINK_CHAIN_IDS,
+      'no served chain has a verified settlement asset, so nothing can be minted or paid',
+    ).toContain(1);
+
+    expect(entry?.soon, 'a checkout that can mint and pay a link must not read as SOON').toBe(false);
   });
 
-  // Tax Reports reads the F1 indexer and nothing else, so its pill is keyed to the same
-  // single input as /terminal, /chart, /copy-trading and /competitions. Asserted as a
-  // CONCRETE value rather than as `!isIndexerConfigured()`, which would compare the entry
-  // against itself.
-  it('pills /tax exactly while no indexer is configured to read a history from', () => {
-    expect(isIndexerConfigured(), 'no indexer should be configured in tests').toBe(false);
+  // Tax Reports is NOT keyed to the indexer any more: it reads Ethereum-mainnet history
+  // through /api/etherscan, which ships with every deployment. Asserted as a CONCRETE
+  // value — comparing against `!isIndexerConfigured()` would compare the entry with
+  // itself — plus the independence claim, which is the part that would rot silently.
+  it('does not pill /tax: its rail ships with the deployment, and the key is disclosed on the page', () => {
     const entry = ALL_NAV.find((n) => n.to === '/tax');
     expect(entry?.label).toBe('Tax Reports');
-    expect(entry?.soon, 'a report over history nobody can read must not advertise itself').toBe(true);
+    expect(entry?.soon, 'the explorer rail ships with every deployment').toBe(false);
+    // Independence: an indexer appearing or disappearing must not move this pill.
+    // (lib/tax/rails.test.ts pins the rail itself; TaxPage.test.tsx pins the
+    // ETHERSCAN_API_KEY disclosure that makes an unpilled entry honest.)
+    expect(isIndexerConfigured()).toBe(false);
     // It lives under Stats, not Trust & Safety: it is a personal accounting surface over
     // the caller's own history, not one of the detection tools that work on any address.
     const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');

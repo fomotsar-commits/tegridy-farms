@@ -10,6 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { gotoRoute } from './fixtures/routes';
+import { GITHUB_BRANCH, GITHUB_BLOB_BASE } from '../src/lib/constants';
 
 /**
  * ⚠ ROUTES ARE ENTERED THROUGH `gotoRoute`, NOT `page.goto`.
@@ -88,14 +89,19 @@ test.describe('RisksPage — protocol-specific risks', () => {
     await expect(fixStatusLink).toBeVisible();
     await expect(auditsLink).toBeVisible();
 
-    await expect(fixStatusLink).toHaveAttribute(
-      'href',
-      /github\.com\/fomotsar-commits\/tegridy-farms\/blob\/main\/FIX_STATUS\.md/,
+    // THE PRECONDITION, ASSERTED FIRST AND ON PURPOSE. This spec used to pin the
+    // literal `/blob/main/`, and `main` is ~1,048 commits behind the branch the
+    // site is actually built from — so both links resolved, to a stale ledger, and
+    // this spec was holding that in place. Pinning the deploy branch by name means
+    // a revert to `main` fails here; asserting the constant FIRST means that a
+    // deliberate branch rename fails by naming its real cause, instead of surfacing
+    // as two confusing href mismatches below.
+    expect(GITHUB_BRANCH, 'the audit ledger must be linked at the deployed branch').toBe(
+      'mvp-launch',
     );
-    await expect(auditsLink).toHaveAttribute(
-      'href',
-      /github\.com\/fomotsar-commits\/tegridy-farms\/blob\/main\/AUDITS\.md/,
-    );
+
+    await expect(fixStatusLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/FIX_STATUS.md`);
+    await expect(auditsLink).toHaveAttribute('href', `${GITHUB_BLOB_BASE}/AUDITS.md`);
     // External links must not leak opener.
     for (const link of [fixStatusLink, auditsLink]) {
       await expect(link).toHaveAttribute('target', '_blank');

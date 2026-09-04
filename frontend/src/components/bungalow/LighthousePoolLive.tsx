@@ -2,7 +2,7 @@
 import '../../lib/solanaPolyfill';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useSolanaConnect } from '../solana/useSolanaConnect';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow } from '../../lib/bungalows';
@@ -146,7 +146,7 @@ function humanDuration(secs: number): string {
 
 function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const { publicKey, wallet } = useWallet();
-  const { setVisible } = useWalletModal();
+  const openConnect = useSolanaConnect();
 
   const [poolRead, setPoolRead] = useState<{ ok: true; pool: PoolView } | { ok: false; reason: string } | null>(null);
   // Entries + balance keyed by wallet: a disconnect/switch is handled by
@@ -640,18 +640,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                           const projected = toNum(amountRaw, decimals) * configuredRate * (d / 365);
                           return (
                             <div key={label} className="text-center">
-                              <p className="text-white/40 text-[9px] uppercase mb-0.5">{label}</p>
+                              {/* A11Y-R16: 9px carried words a reader must parse to interpret the
+                                  number above it — a column label, a denomination and a
+                                  full explanatory sentence. 11px is the floor for anything
+                                  that is a word; 9px stays only for uppercase status pills
+                                  whose text is duplicated in an aria-label. */}
+                              <p className="text-white/40 text-[11px] uppercase mb-0.5">{label}</p>
                               <p className="stat-value text-white text-[13px]">
                                 {vaultDry ? '0' : projected < 0.01 ? '<0.01' : projected.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                               </p>
-                              <p className="text-white/30 text-[9px]">
+                              <p className="text-white/30 text-[11px]">
                                 {bungalow.symbol}{held < d ? ` · ${held}d locked` : ''}
                               </p>
                             </div>
                           );
                         })}
                       </div>
-                      <p className="text-white/35 text-[9px] mt-2 text-center leading-relaxed">
+                      <p className="text-white/35 text-[11px] mt-2 text-center leading-relaxed">
                         {vaultDry ? (
                           <>
                             Zero, because the vault is empty. At the configured{' '}
@@ -685,7 +690,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         lock you choose opens — not for a fee, not by the venue, not by
                         anyone. Pick a lock you can wait out.
                       </p>
-                      <button type="button" onClick={() => setVisible(true)} className="btn-primary px-6 py-2.5 text-[13px]">
+                      <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
                         Connect Solana Wallet
                       </button>
                     </>

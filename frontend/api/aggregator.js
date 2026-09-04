@@ -212,6 +212,19 @@ const CONFIGS = {
       ) {
         return true;
       }
+      // DCA (Jupiter Recurring): recurring/v1/{createOrder,cancelOrder,getRecurringOrders}.
+      // v1 is TIME-BASED only — the price-based variants (deposit/withdraw/priceDeposit/
+      // priceWithdraw) are deliberately NOT admitted.
+      if (
+        segments.length === 3 &&
+        segments[0] === "recurring" &&
+        segments[1] === "v1" &&
+        (segments[2] === "createOrder" ||
+          segments[2] === "cancelOrder" ||
+          segments[2] === "getRecurringOrders")
+      ) {
+        return true;
+      }
       return false;
     },
     allowedMethods: new Set(["GET", "POST", "OPTIONS"]),
@@ -238,6 +251,8 @@ const CONFIGS = {
       "user",
       "orderStatus",
       "page",
+      "recurringType",
+      "includeFailedTx",
     ],
     rateLimit: 60,
     rateWindowSec: 60,

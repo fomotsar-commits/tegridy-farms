@@ -12,14 +12,28 @@
 // any implementation, including a hardcoded one.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALL_NAV, MORE_NAV_SECTIONS } from '../navConfig';
 import { ROUTES } from '../../../e2e/fixtures/routes';
-import { hasRoutableYieldVenue } from './venues';
+import { depositPlan } from './deposit';
+import { YIELD_ADDRESSES } from './protocols';
+import { hasRoutableYieldVenue, routableYieldVenues } from './venues';
 
 const SRC = join(process.cwd(), 'src');
 const read = (...parts: string[]) => readFileSync(join(SRC, ...parts), 'utf-8');
+
+/**
+ * Comments are prose, not behaviour. The repo's registry scanner draws the same
+ * line (scripts/verify-addresses.mjs stripComments) for the same reason: a rule
+ * that fires on a comment EXPLAINING the rule is a rule nobody can document.
+ */
+const code = (...parts: string[]) =>
+  read(...parts)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .split('\n')
+    .map((line) => line.replace(/\/\/.*$/, ' '))
+    .join('\n');
 
 describe('the nav entry says what a visitor can actually do', () => {
   it('promotes /yield in the More menu', () => {
@@ -29,13 +43,52 @@ describe('the nav entry says what a visitor can actually do', () => {
     expect(MORE_NAV_SECTIONS.flatMap((s) => s.items).map((i) => i.to)).toContain('/yield');
   });
 
-  it('pills it, because the routing the label names cannot happen in this build', () => {
-    // Precondition as a concrete fact read out of the catalogue: no venue has a
-    // wired deposit address. Wire one and this assertion fails first, which is
-    // the point — the pill is meant to self-clear and this test is meant to force
-    // a re-read when it does.
-    expect(hasRoutableYieldVenue(), 'no yield venue should be routable in this build').toBe(false);
-    expect(ALL_NAV.find((n) => n.to === '/yield')!.soon).toBe(true);
+  it('clears the pill, because the routing the label names now happens', () => {
+    // Precondition as a concrete fact read out of the catalogue FIRST, then the
+    // pill value that must follow from it. Comparing the pill to the same
+    // function that sets it would pass for any implementation, including a
+    // hardcoded one.
+    expect(routableYieldVenues().map((v) => v.id)).toEqual([
+      'lido-steth',
+      'rocketpool-reth',
+      'etherfi-weeth',
+      'renzo-ezeth',
+      'aave-v3-usdc',
+      'compound-v3-usdc',
+      'sky-susds',
+    ]);
+    expect(hasRoutableYieldVenue()).toBe(true);
+    expect(ALL_NAV.find((n) => n.to === '/yield')!.soon).toBe(false);
+  });
+
+  it('THE VACUITY GUARD: every venue the pill counts has a button that would submit', () => {
+    // The pill says "you can route from here". This is the assertion that the
+    // sentence is true: for each venue it counts, a fully-satisfied plan reaches
+    // 'ready' and its steps are addressed to that protocol's own contract.
+    // Wiring an address without a working route clears the pill and fails here.
+    for (const venue of routableYieldVenues()) {
+      const plan = depositPlan({
+        venue,
+        amountText: '0.5',
+        chainId: 1,
+        account: '0x00000000000000000000000000000000000000A1',
+        nativeBalance: 10n ** 19n,
+        assetBalance: 10n ** 18n,
+        allowance: 10n ** 18n,
+        rocket: {
+          resolvedPool: venue.depositTarget,
+          resolvedSettings: YIELD_ADDRESSES.rocketSettingsDeposit,
+          depositEnabled: true,
+          minimumDeposit: 10n ** 16n,
+          maxPoolSize: 6_000_000n * 10n ** 18n,
+          poolBalance: 15n * 10n ** 18n,
+        },
+      });
+      expect(plan.state, `${venue.id} does not reach a submittable plan`).toBe('ready');
+      if (plan.state !== 'ready') continue;
+      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.steps[0]!.address).toBe(venue.depositTarget);
+    }
   });
 
   it('is not keyed to the yield feed, which would clear the pill on the wrong signal', () => {
@@ -92,16 +145,16 @@ describe('the DCA extension reaches the panel it was written for', () => {
   });
 });
 
-describe('this slice invents no second fee mechanism', () => {
-  it('defines no rate, recipient or bps constant of its own anywhere under lib/yield', () => {
-    // lib/fees/swapFee.ts is the single place a fee figure may come from. A
-    // literal bps or a hardcoded recipient here would be a charge no operator
-    // dial can turn off.
-    for (const file of ['venues.ts', 'feed.ts', 'metrics.ts', 'display.ts', 'dcaYield.ts', 'fee.ts']) {
+describe('this slice invents no fee mechanism, and holds its addresses in one file', () => {
+  it('lets exactly ONE file carry a live address, so nothing else can route money', () => {
+    // protocols.ts is the file scripts/verify-yield-protocols.mjs verifies
+    // against the chain. Concentrating the literals there is what makes it
+    // impossible for a destination to arrive from a prop, a query string, a
+    // feed answer, localStorage or an RPC response — there is nowhere else for
+    // one to come from.
+    for (const file of ['venues.ts', 'metrics.ts', 'display.ts', 'dcaYield.ts', 'deposit.ts', 'reads.ts', 'onchain.ts']) {
       const source = read('lib', 'yield', file);
       expect(source, `${file} declares a fee rate`).not.toMatch(/(FEE_BPS|feeBps|FEE_RATE)\s*=/);
-      // The only address literal permitted in this slice is the zero address,
-      // which is the routing gate.
       const addresses = source.match(/0x[0-9a-fA-F]{40}/g) ?? [];
       for (const address of addresses) {
         expect(address, `${file} carries a live address literal`).toBe(
@@ -111,15 +164,44 @@ describe('this slice invents no second fee mechanism', () => {
     }
   });
 
-  it('takes its figure from providerFeeAttachment and from nowhere else', () => {
-    // Checked against the IMPORTS rather than the file text: the header comment
-    // names `swapFeePolicy` on purpose, to record why it is not imported.
-    const source = read('lib', 'yield', 'fee.ts');
-    expect(source).toContain('providerFeeAttachment');
-    const imports = source.split('\n').filter((l) => l.trimStart().startsWith('import'));
-    expect(
-      imports.join('\n'),
-      'importing the policy is how a surface ends up advertising a charge no request carried',
-    ).not.toContain('swapFeePolicy');
+  it('and protocols.ts actually holds them, so the rule above is not vacuous', () => {
+    const source = read('lib', 'yield', 'protocols.ts');
+    const distinct = new Set(
+      (source.match(/0x[0-9a-fA-F]{40}/g) ?? []).filter(
+        (a) => a !== '0x0000000000000000000000000000000000000000',
+      ),
+    );
+    expect(distinct.size).toBeGreaterThanOrEqual(20);
+  });
+
+  it('imports no fee module anywhere under lib/yield', () => {
+    // The venue takes nothing on this route: there is no venue leg in the
+    // transaction for a fee to ride on. An import of lib/fees here would be the
+    // first step toward advertising a charge this surface cannot collect.
+    for (const file of ['venues.ts', 'metrics.ts', 'display.ts', 'dcaYield.ts', 'deposit.ts', 'reads.ts', 'onchain.ts', 'protocols.ts']) {
+      const imports = read('lib', 'yield', file)
+        .split('\n')
+        .filter((l) => l.trimStart().startsWith('import'));
+      expect(imports.join('\n'), `${file} imports a fee module`).not.toContain('fees');
+    }
+  });
+
+  it('reads the chain rather than a feed, and dates nothing by the browser clock', () => {
+    // The feed path is gone: no VITE_YIELD_FEED_URL, no fetch of a rate
+    // document, and no Date.now() anywhere in the hook. Every age on this page
+    // is chain timestamp minus source timestamp, both read on-chain.
+    const hook = code('hooks', 'useYieldMarkets.ts');
+    expect(hook).toContain('usePublicClient');
+    expect(hook).toContain('multicall');
+    expect(hook, 'the hook dates a figure by the visitor’s own clock').not.toContain('Date.now');
+    expect(hook).not.toContain('isYieldFeedConfigured');
+    // batchSize 0 keeps the clock legs in the same aggregate3 as the values.
+    expect(hook).toContain('batchSize: 0');
+  });
+
+  it('has actually deleted the feed and fee modules rather than orphaning them', () => {
+    for (const file of ['feed.ts', 'fee.ts', 'feed.test.ts', 'fee.test.ts']) {
+      expect(existsSync(join(SRC, 'lib', 'yield', file)), `lib/yield/${file} still exists`).toBe(false);
+    }
   });
 });

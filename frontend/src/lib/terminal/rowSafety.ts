@@ -170,6 +170,35 @@ function worse(a: SafetyVerdict, b: SafetyVerdict): SafetyVerdict {
   return VERDICT_RANK[a] >= VERDICT_RANK[b] ? a : b;
 }
 
+/**
+ * The verdict the HOLDER read alone supports, with its flags.
+ *
+ * Extracted so the partly-read path below runs exactly this code and not a
+ * second, simplified copy of it — two copies are how "a fired mint-authority
+ * gate means caution" ends up true on one path and false on the other.
+ */
+function distributionVerdict(dist: DistributionRead): {
+  observed: SafetyVerdict;
+  flags: SafetyFlag[];
+} {
+  const flags: SafetyFlag[] = [];
+  let observed = BAND_VERDICT[dist.band];
+  for (const gateId of dist.firedGateIds) {
+    flags.push({ id: `gate:${gateId}`, note: GATE_NOTES[gateId] ?? DEFAULT_GATE_NOTE });
+    // The detection core already folds a fired gate into the band as a floor, so
+    // this cannot lower `observed`; taking the worse of the two anyway means a
+    // future gate that stops forcing a band still cannot pass as clean here.
+    observed = worse(observed, 'caution');
+  }
+  return { observed, flags };
+}
+
+const LOW_CONFIDENCE_HOLDER_GAP =
+  'The holder read came back with low data confidence, so it cannot support a claim about this token either way.';
+
+const LOW_CONFIDENCE_DEPLOYER_GAP =
+  'The deployer read came back with low data confidence, so its history is not a basis for a claim.';
+
 export function assessRowSafety(inputs: SafetyInputs): RowSafety {
   const missing: SafetyComponentId[] = [];
   const reasons: string[] = [];
@@ -181,6 +210,40 @@ export function assessRowSafety(inputs: SafetyInputs): RowSafety {
     }
   }
   if (missing.length > 0) {
+    // THE ASYMMETRY, ENFORCED. A gap can raise the observed risk but can never
+    // lower it — so a gap must not ERASE a finding either.
+    //
+    // Returning 'unscored' for every incomplete read was throwing away real
+    // observations: a concentrated holder band, or a live mint authority, that
+    // the holder read did produce. On this build that is not an edge case, it is
+    // every row — no contract-creator lookup exists, so the deployer component
+    // is unread for every token on every chain unless a visitor pastes an
+    // address. "Not scored" on a token whose supply one wallet controls is a
+    // worse lie than the one this module was written to prevent.
+    //
+    // So: when the holder read came back and it found something, that finding is
+    // stated, at PARTIAL coverage, carrying the unread component's reason as a
+    // gap. `safetyRank` still returns null for it and `isKnownSafe` is still
+    // false, so it stays off the safety axis and can never be green — it is
+    // allowed to warn, never to reassure.
+    //
+    // A CLEAN holder read with an unread deployer stays 'unscored'. That is the
+    // direction that must not move: nothing positive may be stated from half a
+    // read.
+    if (inputs.distribution.state === 'read') {
+      const dist = inputs.distribution.value;
+      const { observed, flags } = distributionVerdict(dist);
+      if (observed !== 'clean') {
+        return {
+          kind: 'scored',
+          observed,
+          coverage: 'partial',
+          gaps: [...reasons, ...(dist.confidence === 'low' ? [LOW_CONFIDENCE_HOLDER_GAP] : [])],
+          flags,
+          heat: inputs.heat,
+        };
+      }
+    }
     return { kind: 'unscored', missing, reasons, heat: inputs.heat };
   }
 
@@ -189,16 +252,8 @@ export function assessRowSafety(inputs: SafetyInputs): RowSafety {
   const dist = (inputs.distribution as { state: 'read'; value: DistributionRead }).value;
   const dep = (inputs.deployer as { state: 'read'; value: DeployerRead }).value;
 
-  const flags: SafetyFlag[] = [];
-  let observed = BAND_VERDICT[dist.band];
-
-  for (const gateId of dist.firedGateIds) {
-    flags.push({ id: `gate:${gateId}`, note: GATE_NOTES[gateId] ?? DEFAULT_GATE_NOTE });
-    // The detection core already folds a fired gate into the band as a floor, so
-    // this cannot lower `observed`; taking the worse of the two anyway means a
-    // future gate that stops forcing a band still cannot pass as clean here.
-    observed = worse(observed, 'caution');
-  }
+  const { observed: distObserved, flags } = distributionVerdict(dist);
+  let observed = distObserved;
 
   // Deployer history escalates to CAUTION and stops there, on purpose. The
   // reputation core's own law is that a missing pool is "no live market found",
@@ -222,14 +277,10 @@ export function assessRowSafety(inputs: SafetyInputs): RowSafety {
   // a position it did not earn.
   const gaps: string[] = [];
   if (dist.confidence === 'low') {
-    gaps.push(
-      'The holder read came back with low data confidence, so it cannot support a claim about this token either way.',
-    );
+    gaps.push(LOW_CONFIDENCE_HOLDER_GAP);
   }
   if (dep.confidence === 'low') {
-    gaps.push(
-      'The deployer read came back with low data confidence, so its history is not a basis for a claim.',
-    );
+    gaps.push(LOW_CONFIDENCE_DEPLOYER_GAP);
   }
   // AUDIT FIX TF-026: the concentration math runs on what SURVIVES exclusion.
   // When most of the supply was set aside — pools, burns, and the low-confidence
@@ -446,6 +497,33 @@ export function safetyBadge(safety: RowSafety): SafetyBadge {
     // A gap can only add to an observed risk, never subtract, so this stays `bad`.
     detail: `${flagNote.trim()}${gapNote}`.trim(),
   };
+}
+
+/**
+ * What a trader is asked to affirm before buying a row that is not known safe.
+ *
+ * It lives here, beside `safetyBadge`, because it must agree with the badge —
+ * and it did not. The old branch order tested `coverage === 'partial'` BEFORE
+ * `observed`, so a row wearing a red "High risk (partly unread)" badge asked the
+ * trader to affirm that it "carries no safety result". That is a disclaimer
+ * arguing with the page it sits on, and the softer of the two sentences wins the
+ * argument in a hurry.
+ *
+ * ORDER IS THE INVARIANT: unscored first (nothing was measured at all), then
+ * ANY non-clean observation (partial or complete — a gap can only add to a
+ * finding), and only then the genuinely wordless case, which is a read that came
+ * back too weak to stand behind. Pinned in rowSafety.test.ts.
+ */
+export function buyAcknowledgement(safety: RowSafety): string {
+  if (safety.kind === 'unscored') {
+    return 'This row could not be scored, so nothing about this token has been measured. I am buying without a safety read.';
+  }
+  if (safety.observed !== 'clean') {
+    return 'This row was read as far as it could be and it showed findings; the part that could not be read can only add to them. I have read them and am buying anyway.';
+  }
+  // Scored, clean, and still partial: both components answered but at least one
+  // came back too weak to carry a claim. Nothing positive may be stated from it.
+  return 'This row’s read came back too weak to stand behind, so it carries no safety result. I am buying without one.';
 }
 
 // ─── Adapters from the upstream cores ────────────────────────────────────────

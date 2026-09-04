@@ -13,9 +13,15 @@
 
 import { indexerConfigProblem, isIndexerConfigured } from '../indexer/client';
 import { TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../constants';
-import type { AlertRuleKind } from './rules';
+import { ALERT_RULE_KINDS, type AlertRuleKind } from './rules';
 
-export type AlertSourceId = 'indexer' | 'heat-oracle' | 'launch-radar' | 'explorer' | 'venue-lending';
+export type AlertSourceId =
+  | 'indexer'
+  | 'heat-oracle'
+  | 'launch-radar'
+  | 'explorer'
+  | 'venue-lending'
+  | 'gecko-pool';
 
 export interface AlertSource {
   id: AlertSourceId;
@@ -62,6 +68,13 @@ export const ALERT_SOURCES: Record<AlertSourceId, AlertSource> = {
     operatorStep:
       'No operator step — loans are read straight from the chain over this app’s RPC. Note the scope this buys: the read happens in the browser tab, so a rule of this kind is evaluated only while the page is open. Nothing watches a deadline overnight.',
   },
+  'gecko-pool': {
+    id: 'gecko-pool',
+    label: 'GeckoTerminal pool feed',
+    attribution: 'GeckoTerminal’s pool quote and recent-trades feed',
+    operatorStep:
+      'No operator step — read straight from api.geckoterminal.com, which this site’s connect-src already allows. It is keyless and rate-limited, so this page holds at most 10 rules over at most 5 pools and reads each pool once a minute; a failure is an outage and is reported as one at read time.',
+  },
 };
 
 export const RULE_SOURCE: Record<AlertRuleKind, AlertSourceId> = {
@@ -71,6 +84,9 @@ export const RULE_SOURCE: Record<AlertRuleKind, AlertSourceId> = {
   'launch-live': 'launch-radar',
   'heat-tier': 'heat-oracle',
   'loan-deadline': 'venue-lending',
+  'pool-price-above': 'gecko-pool',
+  'pool-price-below': 'gecko-pool',
+  'pool-large-trade': 'gecko-pool',
 };
 
 export interface SourceReadiness {
@@ -111,11 +127,29 @@ export function sourceReadiness(): Record<AlertSourceId, SourceReadiness> {
     'heat-oracle': { readable: true, detail: null },
     'launch-radar': { readable: true, detail: null },
     explorer: { readable: true, detail: null },
+    // Third-party, keyless, and reachable from the browser under the CSP this
+    // site already ships (connect-src includes api.geckoterminal.com). There is
+    // nothing an operator could set, so `readable` is unconditional and a
+    // throttle or an outage is reported at read time like the sources above.
+    'gecko-pool': { readable: true, detail: null },
   };
 }
 
 export function readinessForRule(kind: AlertRuleKind): SourceReadiness {
   return sourceReadiness()[RULE_SOURCE[kind]];
+}
+
+/**
+ * The kinds whose source this deployment could actually ask, right now.
+ *
+ * Used by the builder to SPLIT its kind list rather than to shorten it: a kind
+ * whose source is dark is still offerable — the rule is real and starts
+ * evaluating the moment the source is wired — but it is grouped and labelled as
+ * unreadable at the moment of choosing, not discovered later as silence.
+ */
+export function evaluableRuleKinds(): AlertRuleKind[] {
+  const readiness = sourceReadiness();
+  return ALERT_RULE_KINDS.filter((kind) => readiness[RULE_SOURCE[kind]].readable);
 }
 
 /** Source ids no rule of any listed kind could be evaluated against right now. */

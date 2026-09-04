@@ -21,6 +21,7 @@ import {
   isKnownSafe,
   passesSafetyFilter,
   safetyBadge,
+  buyAcknowledgement,
   safetyRank,
   sortBySafety,
   type ComponentRead,
@@ -445,5 +446,175 @@ describe('adapters from the upstream cores', () => {
     const read = deployerReadFrom(reputation({ created: 3, unobserved: 1, noMarket: 1 }));
     expect(read.state).toBe('read');
     expect(read.state === 'read' && read.value.unobserved).toBe(1);
+  });
+});
+
+// ─── The asymmetry: a gap may raise observed risk, never erase a finding ─────
+//
+// ADDED 2026-09-02, and it is not a refinement — it closes a hole that was
+// swallowing real findings on every row of the live feed.
+//
+// Before this, ANY unread scoring component returned `unscored`, which threw
+// away a concentrated holder band or a live mint authority that the holder read
+// HAD produced. On this build the deployer component is unread for every token
+// on every chain (there is no contract-creator lookup), so "Not scored" was
+// being printed over tokens whose entire supply sits in one wallet.
+//
+// The direction matters and is pinned both ways below: a FINDING survives a gap,
+// a CLEAN read does not.
+
+describe('a holder finding survives an unread deployer', () => {
+  const DEPLOYER_GAP = 'no creator lookup on this build';
+
+  function partly(over: Partial<DistributionRead> = {}) {
+    return assessRowSafety({
+      distribution: dist(over),
+      deployer: componentUnread(DEPLOYER_GAP),
+      heat: HEAT_UNREAD,
+    });
+  }
+
+  it('a concentrated band with an unread deployer is stated, at partial coverage', () => {
+    // FAILS on the pre-change module, which returned kind 'unscored' here.
+    const safety = partly({ band: 'concentrated' });
+    expect(safety.kind).toBe('scored');
+    expect(safety.kind === 'scored' && safety.coverage).toBe('partial');
+    expect(safety.kind === 'scored' && safety.observed).toBe('high-risk');
+  });
+
+  it('a fired hard-fact gate with an unread deployer is stated too', () => {
+    const safety = partly({ band: 'well-distributed', firedGateIds: ['mint-authority-live'] });
+    expect(safety.kind).toBe('scored');
+    expect(safety.kind === 'scored' && safety.observed).toBe('caution');
+    // The gate's own words travel with it, or the badge says "caution" about
+    // nothing a reader can act on.
+    expect(safety.kind === 'scored' && safety.flags.map((f) => f.note).join(' ')).toMatch(
+      /mint authority is still live/i,
+    );
+  });
+
+  it('carries the deployer gap forward as a GAP, so the badge says "(partly unread)"', () => {
+    const safety = partly({ band: 'concentrated' });
+    expect(safety.kind === 'scored' && safety.gaps).toContain(DEPLOYER_GAP);
+    const badge = safetyBadge(safety);
+    expect(badge.label).toBe('High risk (partly unread)');
+    expect(badge.tone).toBe('bad');
+    expect(badge.detail).toContain(DEPLOYER_GAP);
+  });
+
+  it('carries BOTH the deployer gap and the low-confidence holder gap', () => {
+    // The mutation this catches: a branch that pushes only `deployer.reason` and
+    // forgets that the holder read it is quoting was itself weak.
+    const safety = partly({ band: 'concentrated', confidence: 'low' });
+    expect(safety.kind === 'scored' && safety.gaps).toHaveLength(2);
+    expect(safety.kind === 'scored' && safety.gaps.join(' ')).toContain(DEPLOYER_GAP);
+    expect(safety.kind === 'scored' && safety.gaps.join(' ')).toMatch(/low data confidence/i);
+  });
+
+  it('is STILL off the safety axis — it may warn, it may never reassure', () => {
+    const safety = partly({ band: 'concentrated' });
+    expect(isKnownSafe(safety)).toBe(false);
+    expect(safetyRank(safety)).toBeNull();
+    expect(passesSafetyFilter(safety, 'known-safe')).toBe(false);
+    expect(passesSafetyFilter(safety, 'unrated')).toBe(true);
+    // Unranked under BOTH directions, which is the rule the whole page rests on.
+    for (const direction of ['safest-first', 'riskiest-first'] as const) {
+      expect(compareBySafety(safety, CLEAN, direction)).toBe(1);
+      expect(compareBySafety(CLEAN, safety, direction)).toBe(-1);
+    }
+  });
+
+  it('a CLEAN holder read with an unread deployer stays unscored — nothing positive from half a read', () => {
+    const safety = partly({ band: 'well-distributed' });
+    expect(safety.kind).toBe('unscored');
+    expect(safety.kind === 'unscored' && safety.missing).toEqual(['deployer']);
+  });
+
+  it('an unread HOLDER read is unscored regardless, because there is no finding to state', () => {
+    const safety = assessRowSafety({
+      distribution: componentUnread('holder source unavailable'),
+      deployer: dep({ noMarket: 2 }),
+      heat: HEAT_UNREAD,
+    });
+    expect(safety.kind).toBe('unscored');
+  });
+
+  it('EXHAUSTIVE: no band x gate x deployer-unread combination yields scored+partial+clean', () => {
+    // The leak the new branch could have introduced: a row that says "clean" out
+    // loud while admitting it is partly unread. A caller reading `observed`
+    // directly would see 'clean' on a row nobody finished reading. It must
+    // simply not exist.
+    const bands = ['well-distributed', 'mixed', 'concentrated'] as const;
+    const gateSets = [[], ['mint-authority-live'], ['lp-unlocked', 'top1-share']];
+    const confidences = ['high', 'medium', 'low'] as const;
+
+    let sawScored = false;
+    for (const band of bands) {
+      for (const firedGateIds of gateSets) {
+        for (const confidence of confidences) {
+          const safety = assessRowSafety({
+            distribution: dist({ band, firedGateIds, confidence }),
+            deployer: componentUnread(DEPLOYER_GAP),
+            heat: HEAT_UNREAD,
+          });
+          if (safety.kind === 'scored') {
+            sawScored = true;
+            expect(safety.observed).not.toBe('clean');
+            expect(safety.coverage).toBe('partial');
+            expect(isKnownSafe(safety)).toBe(false);
+          }
+        }
+      }
+    }
+    // Guards the guard: a loop that never enters the branch proves nothing.
+    expect(sawScored).toBe(true);
+  });
+});
+
+describe('the buy acknowledgement cannot contradict the badge beside it', () => {
+  it('a high-risk partly-read row is asked about its FINDINGS, not about having none', () => {
+    // FAILS on the pre-change component, whose branch order tested
+    // `coverage === 'partial'` first and so asked a trader to affirm that a row
+    // wearing a red badge "carries no safety result".
+    const safety = assessRowSafety({
+      distribution: dist({ band: 'concentrated' }),
+      deployer: componentUnread('no creator lookup'),
+      heat: HEAT_UNREAD,
+    });
+    const text = buyAcknowledgement(safety);
+    expect(text).toMatch(/showed findings/i);
+    expect(text).not.toMatch(/carries no safety result/i);
+    // And it agrees with the badge the trader is looking at.
+    expect(safetyBadge(safety).tone).toBe('bad');
+  });
+
+  it('an unscored row is asked about the absence of any measurement', () => {
+    expect(buyAcknowledgement(SAFETY_NOT_REQUESTED)).toMatch(
+      /nothing about this token has been measured/i,
+    );
+  });
+
+  it('a complete read with findings uses the same findings sentence', () => {
+    const safety = assessRowSafety({
+      distribution: dist({ band: 'concentrated' }),
+      deployer: dep(),
+      heat: HEAT_UNREAD,
+    });
+    expect(safety.kind === 'scored' && safety.coverage).toBe('complete');
+    expect(buyAcknowledgement(safety)).toMatch(/showed findings/i);
+  });
+
+  it('the one genuinely wordless state — clean but too weak to stand behind — keeps its own sentence', () => {
+    // This state IS reachable: both components read, holder confidence low. The
+    // branch is not dead code, so it is pinned rather than deleted.
+    const safety = assessRowSafety({
+      distribution: dist({ band: 'well-distributed', confidence: 'low' }),
+      deployer: dep(),
+      heat: HEAT_UNREAD,
+    });
+    expect(safety.kind === 'scored' && safety.coverage).toBe('partial');
+    expect(safety.kind === 'scored' && safety.observed).toBe('clean');
+    expect(buyAcknowledgement(safety)).toMatch(/carries no safety result/i);
+    expect(safetyBadge(safety).tone).toBe('unknown');
   });
 });

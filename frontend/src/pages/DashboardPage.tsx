@@ -260,14 +260,23 @@ function ToweliDashboard() {
               { l: 'TOWELI Price', v: price.isLoaded && price.priceInUsd > 0 ? formatCurrency(price.priceInUsd, 6) : '–', showSparkline: true },
               { l: 'TVL', v: pool.isDeployed && Number(pool.totalStaked) > 0 ? `${formatWholeNumber(Number(pool.totalStaked))} TOWELI` : '–' },
               { l: 'Base APR', v: pool.isDeployed && pool.aprNum > 0 ? `${pool.apr}%` : '–' },
-              { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
-            ] as { l: string; v: string | null; showSparkline?: boolean }[]).map((s) => (
+              // Three states, never two: loading (skeleton), READ FAILED (em dash
+              // plus a named reason), and a real figure. Gating only on
+              // isDataLoading printed a hard `0.0000 ETH` whenever the contract
+              // read errored — a fabricated number about the protocol's flagship
+              // claim, on the first screen a disconnected visitor sees. Same
+              // shape RealYieldProof.tsx uses per call.
+              revenueStats.isDataError
+                ? { l: 'ETH Distributed', v: '–', sub: 'read unavailable' }
+                : { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
+            ] as { l: string; v: string | null; sub?: string; showSparkline?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
                 <span className="text-[12px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{s.l}</span>
                 <span className="stat-value text-[13px]" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
                   {s.v === null ? <span className="inline-block w-16 h-4 rounded bg-black/60 shimmer" /> : s.v}
                 </span>
+                {s.sub && <span className="text-[11px] text-white/60">{s.sub}</span>}
                 {s.showSparkline && priceHistory.length > 1 && (
                   <Sparkline data={priceHistory} width={48} height={16} />
                 )}

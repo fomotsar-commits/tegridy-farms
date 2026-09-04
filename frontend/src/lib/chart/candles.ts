@@ -57,7 +57,17 @@ export interface Candle {
   low: number;
   close: number;
   volume: number;
-  trades: number;
+  /**
+   * How many trades landed in this bucket, or null when the SOURCE does not
+   * report a count.
+   *
+   * Null is not zero and must never be rendered as one. The indexer path counts
+   * swaps it read one by one, so it writes a number. GeckoTerminal answers with
+   * a pre-aggregated bucket and no trade count at all — writing 0 there would
+   * turn "nobody told us" into "nothing traded", which is the exact substitution
+   * this whole module exists to refuse. Renderers omit the clause on null.
+   */
+  trades: number | null;
 }
 
 /**
@@ -110,6 +120,50 @@ export interface CandleSeries {
 /** Epoch-aligned bucket start containing `timeSec`. */
 export function bucketStart(timeSec: number, bucketSeconds: number): number {
   return Math.floor(timeSec / bucketSeconds) * bucketSeconds;
+}
+
+/** What the gap walk produced: the interleaved slots plus the span they cover. */
+export interface InterleavedSlots {
+  slots: Slot[];
+  emptyBuckets: number;
+  from: number | null;
+  to: number | null;
+}
+
+/**
+ * Chronological candles → candles with a Gap slot wherever a bucket is missing.
+ *
+ * Extracted from `buildCandleSeries` so the GeckoTerminal reader
+ * (lib/chart/ohlcv.ts) can reach the identical walk instead of copying it. THE
+ * GAP RULE IS THE PRODUCT, and a copied gap rule is a gap rule that drifts:
+ * whichever copy was not updated would start joining candles across empty time
+ * on one of the two sources, and the two would look the same on screen.
+ *
+ * The input must already be sorted ascending and deduplicated by bucket start;
+ * both callers do that with their own source's ordering rules, which differ
+ * (block sequence for indexed swaps, timestamp only for server-side buckets).
+ */
+export function interleaveGaps(ordered: readonly Candle[], bucketSeconds: number): InterleavedSlots {
+  const oldest = ordered[0];
+  if (oldest === undefined) return { slots: [], emptyBuckets: 0, from: null, to: null };
+
+  const slots: Slot[] = [oldest];
+  let emptyBuckets = 0;
+  // Also the running end of the series: every branch below advances it to the
+  // candle it just pushed, so `to` is the last candle's own end rather than an
+  // end recomputed from an index.
+  let prevEndSec = oldest.endSec;
+  for (const candle of ordered.slice(1)) {
+    const missing = (candle.startSec - prevEndSec) / bucketSeconds;
+    if (missing > 0) {
+      emptyBuckets += missing;
+      slots.push({ kind: 'gap', startSec: prevEndSec, endSec: candle.startSec, buckets: missing });
+    }
+    slots.push(candle);
+    prevEndSec = candle.endSec;
+  }
+
+  return { slots, emptyBuckets, from: oldest.startSec, to: prevEndSec };
 }
 
 function isUsable(t: Trade): boolean {
@@ -180,7 +234,10 @@ export function buildCandleSeries(
     return (a.sequence as number) - (b.sequence as number);
   });
 
-  const byBucket = new Map<number, Candle>();
+  // The value type narrows `trades` back to a plain number: on THIS path every
+  // trade was read individually, so the count is measured rather than absent,
+  // and `+= 1` below stays arithmetic on a number instead of on `number | null`.
+  const byBucket = new Map<number, Candle & { trades: number }>();
   for (const t of sorted) {
     const start = bucketStart(t.timeSec, bucketSeconds);
     const existing = byBucket.get(start);
@@ -232,31 +289,17 @@ export function buildCandleSeries(
     };
   }
 
-  const slots: Slot[] = [oldest];
-  let emptyBuckets = 0;
-  // Also the running end of the series: every branch below advances it to the
-  // candle it just pushed, so `to` is the last candle's own end rather than an
-  // end recomputed from an index.
-  let prevEndSec = oldest.endSec;
-  for (const candle of ordered.slice(1)) {
-    const missing = (candle.startSec - prevEndSec) / bucketSeconds;
-    if (missing > 0) {
-      emptyBuckets += missing;
-      slots.push({ kind: 'gap', startSec: prevEndSec, endSec: candle.startSec, buckets: missing });
-    }
-    slots.push(candle);
-    prevEndSec = candle.endSec;
-  }
+  const walked = interleaveGaps(ordered, bucketSeconds);
 
   return {
-    slots,
+    slots: walked.slots,
     candleCount: ordered.length,
-    emptyBuckets,
+    emptyBuckets: walked.emptyBuckets,
     droppedOldestBucket,
     rejected,
     unsequenced,
-    from: oldest.startSec,
-    to: prevEndSec,
+    from: walked.from,
+    to: walked.to,
   };
 }
 

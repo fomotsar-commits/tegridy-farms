@@ -3,22 +3,28 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { ArtCard } from '../components/ui/ArtCard';
 import { YieldRouterPanel } from '../components/yield/YieldRouterPanel';
 import { useYieldMarkets } from '../hooks/useYieldMarkets';
 import { hasRoutableYieldVenue } from '../lib/yield/venues';
 
-// YIELD ROUTING — a comparison of other people's protocols.
+// YIELD ROUTING — a comparison of other people's protocols, and a way into them.
 //
 // This venue ISSUES NOTHING here. No stablecoin, no receipt token, no vault, no
 // contract: every destination is a third party's, which is why each row leads
 // with whose balance sheet the depositor would be standing on rather than with
 // its rate.
 //
-// It COMPARES and does not execute, and the page says so in the one place a
-// reader will look — beside the buttons that are disabled. Every deposit address
-// in the catalogue is unwired (lib/yield/venues.ts), so the route controls cannot
-// fire; presenting a live-looking router over dead destinations would be the
-// worse product by a distance.
+// Every figure on this page is a viem eth_call to the protocol's own contract or
+// its Chainlink feed, over the keyless RPC roster, with the block number and
+// chain timestamp read INSIDE the same aggregate3 call as the values — so no
+// figure is dated by the browser's clock and every one names the block it came
+// from. Nothing is modelled, averaged or carried forward.
+//
+// Routing means choosing a destination and signing THAT protocol's own deposit
+// function from the visitor's wallet. Rows whose deposit path this build has not
+// verified keep a disabled button with the reason attached, and cbETH keeps one
+// permanently: there is no public mint to wire.
 //
 // The two sections use ONE panel component with different counterparties, so the
 // rules that matter — an unread rate renders as unavailable, a peg is never
@@ -45,7 +51,7 @@ const STABLE_KINDS = ['stable-lending'] as const;
 export default function YieldPage() {
   usePageTitle(
     'Yield Routing',
-    'Compare liquid staking tokens and stablecoin lending markets by rate, peg and exit liquidity — each row naming whose risk the depositor takes, and saying so when a figure could not be read.',
+    'Compare liquid staking tokens and stablecoin lending markets on live on-chain rates, protocol NAV, market price and exit depth — each row naming whose risk the depositor takes, and saying so when a figure could not be read.',
   );
 
   const [section, setSection] = useState<Section>('staking');
@@ -65,27 +71,30 @@ export default function YieldPage() {
           </p>
         </m.div>
 
-        <div className="glass-card rounded-xl p-4 mb-5">
+        <ArtCard pageId="yield" idx={1} className="mb-5" padding="p-4">
           <h2 className="text-text-primary font-semibold text-[14px] mb-2">What this page does and does not do</h2>
           <ul className="text-[13px] text-text-secondary space-y-1.5 leading-relaxed list-disc pl-4">
             <li>
-              <span className="text-text-primary">Rates are read, never modelled.</span> Each figure names the source it
-              was read from. A rate this venue could not read is shown as unavailable — never as 0%, which is a number
-              and would be a lie.
+              <span className="text-text-primary">Rates are read, never modelled.</span> Each figure names the contract
+              call or feed round it came from and the block it was read at. A rate this venue could not read is shown as
+              unavailable — never as 0%, which is a number and would be a lie.
             </li>
             <li>
               <span className="text-text-primary">The peg is a reading too.</span> A liquid staking token is not worth
-              one ETH because it is called staked ETH. Where the peg could not be read the column says so; it is never
-              filled in as 1.00.
+              one ETH because it is called staked ETH. Where a market price could not be read the column says so; it is
+              never filled in as 1.00. A feed that republishes a protocol's own rate is never used as a market price,
+              because it cannot show a discount.
             </li>
             <li>
-              <span className="text-text-primary">It compares; it does not deposit.</span>{' '}
+              <span className="text-text-primary">
+                {hasRoutableYieldVenue() ? 'It routes; it does not swap, hold or run anything.' : 'It compares; it does not deposit.'}
+              </span>{' '}
               {hasRoutableYieldVenue()
-                ? 'Some destinations on this build are wired for routing; each row states its own status.'
+                ? 'Routing here means choosing a destination and signing that protocol’s own deposit from your wallet — no swap is performed, nothing is held, no keeper runs. Rows whose deposit path this build has not verified say so on their button.'
                 : 'No destination in this build has a wired deposit address, so every route control is disabled with its reason attached. Nothing on this page can move your money.'}
             </li>
           </ul>
-        </div>
+        </ArtCard>
 
         <div className="flex gap-2 mb-5" role="group" aria-label="Yield category">
           {SECTIONS.map((s) => (
@@ -121,7 +130,7 @@ export default function YieldPage() {
           />
         )}
 
-        <div className="glass-card rounded-xl p-4 mt-4">
+        <ArtCard pageId="yield" idx={2} className="mt-4" padding="p-4">
           <h2 className="text-text-primary font-semibold text-[14px] mb-2">Buying over time instead of at once</h2>
           <p className="text-[13px] text-text-secondary leading-relaxed">
             A schedule on the{' '}
@@ -133,7 +142,7 @@ export default function YieldPage() {
             Neither parking nor staking happens on its own: this venue runs no keeper, and no server here holds or can
             derive your key, so every leg is a transaction you sign in an open tab.
           </p>
-        </div>
+        </ArtCard>
 
         <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
           None of this is advice, and inclusion here is not an endorsement — see{' '}

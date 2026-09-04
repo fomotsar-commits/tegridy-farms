@@ -68,7 +68,9 @@ export function MuseBubble({ bungalow }: { bungalow: Bungalow & { identity: Bung
           type="button"
           onClick={dismiss}
           aria-label={`Dismiss ${byline}'s line for this session`}
-          className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none"
+          /* A11Y-R12, same as the Towelie bubble's dismiss: the 24px painted
+             glyph stays, a transparent ::before takes the tap target to 44x44. */
+          className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-[13px] leading-none before:absolute before:content-[''] before:-inset-[10px]"
         >
           ×
         </button>

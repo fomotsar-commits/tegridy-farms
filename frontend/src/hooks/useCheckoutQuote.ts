@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getMetaAggregatorQuotes, DEFAULT_MAX_SLIPPAGE_PCT, type AggregatorQuote } from '../lib/aggregator';
-import { buildSettlementPlan, sizePayAmount, type SettlementPlan } from '../lib/commerce/settlement';
+import {
+  buildSettlementPlan,
+  sizePayAmount,
+  type SettlementAttestation,
+  type SettlementPlan,
+} from '../lib/commerce/settlement';
 import type { Invoice } from '../lib/commerce/invoice';
+import type { SettleTokenStanding } from '../lib/commerce/settleTokens';
 
 // Sizing an exact-out payment on exact-in rails, in two round trips.
 //
@@ -44,6 +50,14 @@ export interface UseCheckoutQuoteOptions {
   payDecimals: number;
   slippagePct?: number;
   connectedChainId: number | null;
+  /**
+   * How the caller came to believe this invoice. Passed through untouched to
+   * `buildSettlementPlan`, which refuses `unverified` outright — this hook never
+   * decides provenance, it only refuses to lose it on the way through.
+   */
+  attestation: SettlementAttestation;
+  /** What the caller's own re-read of `invoice.settleToken` found on chain. */
+  settleTokenOnChain: SettleTokenStanding;
   enabled?: boolean;
 }
 
@@ -69,6 +83,8 @@ export function useCheckoutQuote(opts: UseCheckoutQuoteOptions): UseCheckoutQuot
     payDecimals,
     slippagePct = DEFAULT_MAX_SLIPPAGE_PCT,
     connectedChainId,
+    attestation,
+    settleTokenOnChain,
     enabled = true,
   } = opts;
 
@@ -94,8 +110,12 @@ export function useCheckoutQuote(opts: UseCheckoutQuoteOptions): UseCheckoutQuot
         buyer,
         slippagePct,
         connectedChainId,
+        // Both change what the plan REFUSES, so a key without them would keep
+        // showing a plan built while the token check still said 'unread'.
+        attestation,
+        settleTokenOnChain,
       }),
-    [invoice, payToken, payDecimals, buyer, slippagePct, connectedChainId],
+    [invoice, payToken, payDecimals, buyer, slippagePct, connectedChainId, attestation, settleTokenOnChain],
   );
 
   useEffect(() => {
@@ -125,6 +145,8 @@ export function useCheckoutQuote(opts: UseCheckoutQuoteOptions): UseCheckoutQuot
           slippagePct,
           now,
           connectedChainId,
+          attestation,
+          settleTokenOnChain,
         }),
         quote: null,
         detail: null,
@@ -178,6 +200,8 @@ export function useCheckoutQuote(opts: UseCheckoutQuoteOptions): UseCheckoutQuot
               slippagePct,
               now,
               connectedChainId,
+              attestation,
+              settleTokenOnChain,
             }),
             quote: null,
             detail:
@@ -212,6 +236,8 @@ export function useCheckoutQuote(opts: UseCheckoutQuoteOptions): UseCheckoutQuot
           slippagePct,
           now,
           connectedChainId,
+          attestation,
+          settleTokenOnChain,
         });
         setState({
           status: real.best === null ? 'unavailable' : 'ready',
@@ -236,6 +262,8 @@ export function useCheckoutQuote(opts: UseCheckoutQuoteOptions): UseCheckoutQuot
             slippagePct,
             now,
             connectedChainId,
+            attestation,
+            settleTokenOnChain,
           }),
           quote: null,
           detail: 'The routers could not be reached, so nothing was priced and nothing is offered to sign.',

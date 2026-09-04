@@ -152,8 +152,11 @@
     align-items: center;
     justify-content: center;
     position: absolute;
-    top: 18px;
-    right: 18px;
+    /* index.html ships viewport-fit=cover, so the fixed full-screen modal
+       extends under the iPhone notch / home-indicator regions — keep the
+       close button out of them (upstream has no safe-area handling). */
+    top: max(18px, env(safe-area-inset-top));
+    right: max(18px, env(safe-area-inset-right));
     padding: 12px;
     cursor: pointer;
     background: #1a1f2e;
@@ -186,15 +189,23 @@
 .wallet-adapter-modal-container {
     display: flex;
     margin: 3rem;
-    min-height: calc(100vh - 6rem); /* 100vh - 2 * margin */
+    min-height: calc(100vh - 6rem); /* 100vh - 2 * margin; dvh override below */
+    /* Safari's large-viewport 100vh renders the centered wrapper off-center
+       while the URL bar is expanded; dvh tracks the real viewport. The vh
+       line above stays as the fallback for engines without dvh. */
+    min-height: calc(100dvh - 6rem);
     align-items: center;
     justify-content: center;
 }
 
 @media (max-width: 480px) {
     .wallet-adapter-modal-container {
-        margin: 1rem;
-        min-height: calc(100vh - 2rem); /* 100vh - 2 * margin */
+        /* Keep the modal edges out of the notch / home-indicator regions
+           (viewport-fit=cover) — env() falls back to 0 where unsupported. */
+        margin: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+            max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+        min-height: calc(100vh - 2rem); /* 100vh - 2 * margin; dvh override below */
+        min-height: calc(100dvh - 2rem);
     }
 }
 

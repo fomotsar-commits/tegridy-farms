@@ -34,6 +34,14 @@
  *
  * Run it against the DEPLOY environment, not a laptop. A local .env that is missing
  * everything is expected and means nothing about production.
+ *
+ * AMENDED 2026-09-04, and the amendment is the point. Two entries below overstated
+ * their reach and have been corrected in place rather than quietly edited: the indexer
+ * URL no longer pills any nav entry (PR #360 moved those to capability checks), and the
+ * yield feed never did. A checker that overstates is the same failure as the deploy it
+ * is meant to catch — it just fails in the other direction, and an operator who acts on
+ * a false alarm here has been misled as surely as one who ships a dark feature. If a row
+ * in this file ever disagrees with the code, the code wins and the row is the bug.
  */
 
 import { readFileSync } from 'node:fs';
@@ -55,9 +63,18 @@ const BAYLA_POOL_RETIRED = '4WCpdeQ2pKLNECNDTXepwsdeePZPoNCp9AQqfACNGXPp';
 const GATES = [
   {
     vars: ['VITE_INDEXER_URL'],
+    // CORRECTED 2026-09-04. This entry used to say the five nav entries pill "Soon"
+    // on this one var. That WAS true when this file was written and is not any more:
+    // PR #360 re-pointed those surfaces at capability checks that do not need Ponder
+    // (hasCopyTapeSource, hasScoreableBoard, hasChartableMarket, and /tax is now an
+    // unconditional soon:false). Unset no longer hides a single nav entry.
+    //
+    // What it still costs is DATA, not visibility: the useIndexed* hooks self-gate to
+    // an explicit "indexer unavailable" state, so the surfaces render and say they are
+    // reading nothing rather than pretending to be empty.
     severity: 'features',
-    darkens: '/terminal, /chart, /copy-trading, /competitions, /tax',
-    effect: 'all five nav entries render a "Soon" pill (navConfig.ts gates them on isIndexerConfigured()). The indexer itself is built and lives in indexer/ and indexer-solana/ — this var is only the URL the frontend asks.',
+    darkens: 'indexed history on /terminal, /chart, /copy-trading, /competitions, /tax',
+    effect: 'those surfaces render, and say plainly that the indexer is unavailable, rather than showing an empty result set that reads as "there is no data". The indexer is built (indexer/, indexer-solana/) and deployed on Railway behind an nginx proxy; this var is only the URL the frontend asks. Do NOT set it until /ready returns 200 — pointing at a mid-sync indexer is the exact empty-looks-like-zero failure the readiness gate exists to prevent.',
   },
   {
     vars: ['VITE_SWAP_FEE_BPS', 'VITE_SWAP_FEE_RECIPIENT'],
@@ -88,9 +105,17 @@ const GATES = [
   },
   {
     vars: ['VITE_YIELD_FEED_URL'],
+    // CORRECTED 2026-09-04. This claimed the nav entry pills "Soon" without it. It does
+    // not, and never did — I conflated the rate feed with the pill. hasRoutableYieldVenue()
+    // counts venues with a non-'none' route and a deployed depositTarget, and those are
+    // real mainnet addresses (Lido, Rocket Pool, ether.fi, Renzo, Aave v3, Compound,
+    // sUSDS), so /yield is live regardless of this var. venues.ts says so outright: the
+    // pill "depends on no environment variable, no server, no indexer and no stored
+    // state, which is the /solana-launch failure it was written to avoid — a flag that
+    // cleared before the action worked."
     severity: 'features',
-    darkens: '/yield',
-    effect: 'yield tiles hide and the nav entry pills "Soon" (hasRoutableYieldVenue() returns false with no routable venue).',
+    darkens: 'the APR figures on /yield',
+    effect: 'the rate tiles hide. Routing still works and the nav entry stays live, because the pill is keyed to whether a deposit can actually be routed, not to whether a rate can be quoted.',
   },
   {
     vars: ['VITE_COW_STOP_LOSS_HANDLER'],
@@ -201,7 +226,7 @@ if (dark.length === 0 && !baylaBad) {
     console.log(`!! ${revenueDark.length} REVENUE gate(s) dark — money is not being collected.`);
   }
   if (featureDark.length > 0) {
-    console.log(` * ${featureDark.length} FEATURE gate(s) dark — built surfaces present as "Soon" to users.`);
+    console.log(` * ${featureDark.length} FEATURE gate(s) dark — a built surface is degraded or partly hidden. Read each effect: some pill "Soon", some only lose data.`);
   }
   if (disclosureDark.length > 0) {
     console.log(` * ${disclosureDark.length} DISCLOSURE gate(s) unset — a fee may be charged without being shown.`);

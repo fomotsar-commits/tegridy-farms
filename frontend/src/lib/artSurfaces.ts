@@ -186,6 +186,9 @@ export const SURFACES: Surface[] = [
   { group: 'Trade', pageId: 'liquidity-tab', idx: 0, label: 'TRL1 — Liquidity header' },
   { group: 'Trade', pageId: 'liquidity-tab', idx: 1, label: 'TRL2 — Liquidity pool card' },
   { group: 'Trade', pageId: 'yield', idx: 0, label: 'YR1 — Yield routing backdrop' },
+  { group: 'Trade', pageId: 'yield', idx: 1, label: 'YR2 — What this page does card' },
+  { group: 'Trade', pageId: 'yield', idx: 2, label: 'YR3 — Buying over time card' },
+  { group: 'Trade', pageId: 'yield', idx: 3, label: 'YR4 — Venue deposit card' },
 
   // NFT Finance
   { group: 'NFT Finance', pageId: 'nft-finance', idx: 0, label: 'NF1 — Page bg' },
@@ -317,6 +320,8 @@ export const SURFACES: Surface[] = [
   // Pages that rendered NO art surface at all until 2026-09-01 — both studios
   // were blind to them, so no skin could reach either page.
   { group: 'Misc pages', pageId: 'terminal', idx: 0, label: 'TM1 — Pro Terminal page bg' },
+  { group: 'Misc pages', pageId: 'terminal', idx: 1, label: 'TM2 — Safety read card' },
+  { group: 'Misc pages', pageId: 'terminal', idx: 2, label: 'TM3 — Quick buy card' },
   { group: 'Misc pages', pageId: 'developer', idx: 0, label: 'DV1 — Developer API page bg' },
 
   { group: 'Misc widgets', pageId: 'tegridy-score', idx: 0, label: 'TS1 — TegridyScore widget' },
@@ -352,12 +357,28 @@ export const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'deployer',         idx: 0, label: 'TT2 — Deployer Graph backdrop' },
   { group: 'Trust tools',   pageId: 'wallet-exposure',  idx: 0, label: 'TT3 — Wallet Exposure backdrop' },
   { group: 'Trust tools',   pageId: 'alerts',           idx: 0, label: 'TT4 — Alerts backdrop' },
+  { group: 'Trust tools',   pageId: 'alerts',           idx: 1, label: 'TT4b — Alerts resident quick-pick' },
+  { group: 'Trust tools',   pageId: 'alerts',           idx: 2, label: 'TT4c — Alerts rule builder' },
+  { group: 'Trust tools',   pageId: 'alerts',           idx: 3, label: 'TT4d — Alerts inbox' },
+  { group: 'Trust tools',   pageId: 'alerts',           idx: 4, label: 'TT4e — Alerts delivery' },
   { group: 'Trust tools',   pageId: 'chart',            idx: 0, label: 'TT5 — Pro Charting backdrop' },
+  { group: 'Trust tools',   pageId: 'chart',            idx: 1, label: 'TT5b — Pro Charting pool picker card' },
+  { group: 'Trust tools',   pageId: 'chart',            idx: 2, label: 'TT5c — Pro Charting sources card' },
   { group: 'Engage',        pageId: 'referrals',        idx: 0, label: 'EN1 — Referrals backdrop' },
   { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
+  { group: 'Engage',        pageId: 'copy-trading',     idx: 1, label: 'EN2b — Island tape board card' },
   { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
+  { group: 'Engage',        pageId: 'competitions',     idx: 1, label: 'EN3a — Island Cup board card' },
+  { group: 'Engage',        pageId: 'competitions',     idx: 2, label: 'EN3b — Season card' },
+  { group: 'Engage',        pageId: 'competitions',     idx: 3, label: 'EN3c — Your rank / share card' },
   { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
+  // idx 1 is the merchant's minted payment link; idx 2 is the buyer's
+  // merchant-signature strip. Both are the cards a person stares at while
+  // deciding whether to trust a stranger's invoice, so both get real art.
+  { group: 'Engage',        pageId: 'checkout',         idx: 1, label: 'EN4a — Checkout: signed payment-link card' },
+  { group: 'Engage',        pageId: 'checkout',         idx: 2, label: 'EN4b — Checkout: merchant-signature card' },
   { group: 'Stats',         pageId: 'tax',              idx: 0, label: 'ST1 — Tax Reports backdrop' },
+  { group: 'Stats',         pageId: 'tax',              idx: 1, label: 'ST2 — Tax ledger status card' },
   { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
   { group: 'Launch & Solana', pageId: 'airdrop',           idx: 0, label: 'LS2d — Airdrop campaigns backdrop' },
