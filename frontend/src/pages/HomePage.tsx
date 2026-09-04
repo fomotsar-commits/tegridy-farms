@@ -749,7 +749,11 @@ export default function HomePage() {
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
-                    <img src={f.art.src} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
+                    {/* RESPONSIVE, 2026-09-04: a ~247px card fed from sources up
+                        to 2000px wide. No srcSet when the source has no derivative. */}
+                    <img src={f.art.src} alt=""
+                      {...(artSrcSet(f.art.src) ? { srcSet: artSrcSet(f.art.src), sizes: '(max-width: 640px) 50vw, 260px' } : {})}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
                     <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>
@@ -833,7 +837,11 @@ export default function HomePage() {
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
-                    <img src={f.art.src} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
+                    {/* RESPONSIVE, 2026-09-04: a ~247px card fed from sources up
+                        to 2000px wide. No srcSet when the source has no derivative. */}
+                    <img src={f.art.src} alt=""
+                      {...(artSrcSet(f.art.src) ? { srcSet: artSrcSet(f.art.src), sizes: '(max-width: 640px) 50vw, 260px' } : {})}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
                     <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>

@@ -57,15 +57,29 @@ const MANIFEST = join('src', 'lib', 'artDerivatives.generated.json');
  * Only files big enough to be worth a second copy. Below this the derivative can
  * be LARGER than the original once webp overhead and a re-encode are paid for,
  * and the build time is spent for nothing.
+ *
+ * LOWERED 150 KB -> 80 KB on 2026-09-04, from measurement rather than taste. After
+ * the first pass the homepage's remaining offenders were almost all just under the
+ * old floor — mumu-bull 143 KB, sword-of-love 142 KB, boxing-ring 126 KB,
+ * dance-night 118 KB, bayla-14 95 KB — every one of them a 271x128 thumbnail
+ * carrying a 900-2000px source. The floor was excluding exactly the files the
+ * feature exists for.
  */
-const MIN_SOURCE_BYTES = 150 * 1024;
+const MIN_SOURCE_BYTES = 80 * 1024;
 
 /**
- * 480 covers a phone at 1x and the small thumbnails that dominate the waste; 960
+ * 128 is for ICON slots and it earns its place on its own: the nav logo renders at
+ * 26x26 from a 512x512 PNG, so even the 480 candidate was ~18x its display size.
+ * 480 covers a phone at 1x and the card thumbnails that dominate the waste; 960
  * covers a phone at 2x and tablets. Anything wider keeps the original, which stays
  * in the srcset as the largest candidate so full-bleed surfaces are unaffected.
+ *
+ * Adding a width costs one more file per eligible source and a little build time;
+ * it does NOT cost the client anything, because the browser downloads exactly one
+ * candidate. Keep this list in lock-step with DERIVATIVE_WIDTHS in
+ * lib/artSrcSet.ts — artSrcSet.test.ts compares them.
  */
-const WIDTHS = [480, 960];
+const WIDTHS = [128, 480, 960];
 
 /** webp, not avif: comparable size at this quality and far cheaper to encode 347 files. */
 const WEBP_QUALITY = 78;

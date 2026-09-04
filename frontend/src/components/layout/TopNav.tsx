@@ -6,6 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
+import { artSrcSet } from '../../lib/artSrcSet';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
@@ -183,7 +184,22 @@ export const TopNav = React.memo(function TopNav() {
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
-              <img src={pageArt('nav-logo', 0).src} alt="" className="w-full h-full object-cover" />
+              {/* RESPONSIVE, 2026-09-04. This renders at 26x26 (44x44 on a
+                  phone) from a 512x512 PNG — 185 KB for an icon, fetched on
+                  EVERY route because it lives in the fixed header, which makes
+                  it the most-repeated wasted byte on the site. The generator
+                  gained a 128px width specifically for slots like this; 480 was
+                  still ~18x the display size.
+                   is a fixed pixel value because this slot genuinely is
+                  fixed — the two Tailwind sizes below are the whole range. */}
+              <img
+                src={pageArt('nav-logo', 0).src}
+                {...(artSrcSet(pageArt('nav-logo', 0).src)
+                  ? { srcSet: artSrcSet(pageArt('nav-logo', 0).src), sizes: '(min-width: 768px) 28px, 44px' }
+                  : {})}
+                alt=""
+                className="w-full h-full object-cover"
+              />
               <span
                 aria-hidden="true"
                 className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"

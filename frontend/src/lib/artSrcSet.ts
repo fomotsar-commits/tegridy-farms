@@ -23,7 +23,7 @@ import DERIVATIVES from './artDerivatives.generated.json';
  */
 
 /** Kept in lock-step with WIDTHS in scripts/generate-image-derivatives.mjs. */
-export const DERIVATIVE_WIDTHS = [480, 960] as const;
+export const DERIVATIVE_WIDTHS = [128, 480, 960] as const;
 
 const MANIFEST = DERIVATIVES as Record<string, number>;
 
