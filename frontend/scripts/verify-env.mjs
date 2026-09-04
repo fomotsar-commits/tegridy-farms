@@ -166,23 +166,68 @@ if (envFile && fromFile === null) {
 const env = { ...(fromFile ?? {}), ...process.env };
 const isSet = (k) => typeof env[k] === 'string' && env[k].trim() !== '';
 
+/**
+ * UNREADABLE IS NOT UNSET — added 2026-09-04 after this script cried wolf three times.
+ *
+ * A Vercel variable marked "Secret" (the lock icon in the dashboard, versus "Config")
+ * cannot be read back by anyone, including `vercel env pull`. The pulled file still
+ * carries the KEY, with an empty value:
+ *
+ *     VITE_SOLANA_FEE_ACCOUNT=""      <- SET, but sealed. Cannot be read.
+ *     (no line at all)                <- genuinely unset.
+ *
+ * `isSet` cannot tell those apart, so this script reported three sealed variables as
+ * dark and told the operator money was not being collected. It was collecting. That is
+ * the same failure this file exists to catch, pointed at the operator instead of the
+ * user — and a checker that cries wolf gets muted, at which point it is not a checker.
+ *
+ * The distinction only exists when reading a pulled --env-file: process.env has no
+ * concept of a sealed value, so a var absent there is absent, full stop.
+ */
+const isSealed = (k) =>
+  fromFile !== null
+  && Object.prototype.hasOwnProperty.call(fromFile, k)
+  && String(fromFile[k]).trim() === ''
+  && !(typeof process.env[k] === 'string' && process.env[k].trim() !== '');
+
 console.log('\nFeature-gating environment check');
 console.log(envFile ? `  source: process.env + ${envFile}` : '  source: process.env');
 console.log('  (run this against the DEPLOY environment — a bare laptop reports everything dark)\n');
 
 const dark = [];
+const sealedGates = [];
 for (const gate of GATES) {
   const missing = gate.vars.filter((v) => !isSet(v));
+  // A gate whose every missing var is merely SEALED is not dark — it is unreadable,
+  // and saying "dark" there is a false alarm. Reported separately, never counted as a
+  // failure, and never used to fail --strict.
+  const sealed = missing.filter(isSealed);
+  const trulyMissing = missing.filter((v) => !isSealed(v));
+  const allSealed = missing.length > 0 && trulyMissing.length === 0;
   const status = missing.length === 0
     ? 'OK  '
+    : allSealed ? 'SEAL'
     : gate.severity === 'revenue' ? 'DARK'
     : gate.severity === 'disclosure' ? 'MUTE'
     : 'soon';
-  const mark = missing.length === 0 ? '  ' : gate.severity === 'revenue' ? '!!' : ' *';
+  const mark = missing.length === 0 || allSealed ? '  ' : gate.severity === 'revenue' ? '!!' : ' *';
   console.log(`${mark} [${status}] ${gate.vars.join(' + ')}`);
+  if (allSealed) {
+    sealedGates.push({ ...gate, sealed });
+    console.log(`        sealed (Vercel "Secret"), so this check CANNOT read it: ${sealed.join(', ')}`);
+    console.log('        This is NOT a report that it is unset. Confirm in the dashboard, or');
+    console.log('        re-add it as "Config" if the value is not actually secret — a VITE_ var');
+    console.log('        compiles into the client bundle either way, so sealing one buys nothing');
+    console.log('        but costs you the ability to verify it.');
+    console.log('');
+    continue;
+  }
   if (missing.length > 0) {
-    dark.push({ ...gate, missing });
-    console.log(`        unset: ${missing.join(', ')}`);
+    dark.push({ ...gate, missing: trulyMissing, sealed });
+    console.log(`        unset: ${trulyMissing.join(', ')}`);
+    if (sealed.length > 0) {
+      console.log(`        sealed, unreadable (not counted as unset): ${sealed.join(', ')}`);
+    }
     console.log(`        darkens: ${gate.darkens}`);
     console.log(`        effect: ${gate.effect}`);
   }
@@ -230,8 +275,16 @@ const featureDark = dark.filter((d) => d.severity === 'features');
 const disclosureDark = dark.filter((d) => d.severity === 'disclosure');
 
 console.log('─'.repeat(72));
+if (sealedGates.length > 0) {
+  console.log(`   ${sealedGates.length} gate(s) SEALED — set, but this check cannot read them, so it is`);
+  console.log('   reporting nothing about them either way. Not a finding. Not an all-clear.');
+}
 if (dark.length === 0 && !baylaBad) {
-  console.log('All feature-gating vars are set. Nothing is silently dark.');
+  console.log(
+    sealedGates.length > 0
+      ? 'Nothing readable is dark. The sealed gates above are the only unknowns.'
+      : 'All feature-gating vars are set. Nothing is silently dark.',
+  );
 } else {
   if (revenueDark.length > 0) {
     console.log(`!! ${revenueDark.length} REVENUE gate(s) dark — money is not being collected.`);
