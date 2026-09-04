@@ -2,6 +2,7 @@ import { Suspense, type ComponentType } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { RouteTabs } from '../components/layout/RouteTabs';
+import { tabDomId } from '../components/layout/routeTabId';
 import type { NavSection } from '../lib/navConfig';
 
 /**
@@ -84,7 +85,7 @@ export function SectionHost({ section, idPrefix, ariaLabel, panels, fullBleed = 
       <div
         role="tabpanel"
         id={`${idPrefix}-panel`}
-        aria-labelledby={`${idPrefix}-tab-${active.replace(/\W+/g, '-')}`}
+        aria-labelledby={tabDomId(idPrefix, active)}
       >
         <Suspense fallback={<PageSkeleton />}>
           {Panel &&
