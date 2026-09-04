@@ -86,7 +86,8 @@ changed nothing, and one would have removed working code.
   against mainnet ETH/USD's **3600s** heartbeat — the same mismatch [#160
   (2026-07-30)](https://github.com/fomotsar-commits/tegridy-farms/pull/160) fixed on
   the launch path, in a second call site nobody checked.
-- **"Fee Share — 100% to stakers" was not true.** It derived from
+- **The Farm's "Fee Share" strip advertised the entire fee reaching stakers, and that
+  was not true.** It derived from
   `SwapFeeRouter.stakerShareBps`, which genuinely is `10000` — but that is 100% of what
   *reaches* the distributor, and `ReferralSplitter.referralFeeBps` takes its cut off the
   top first. The strip now quotes the end-to-end share. Correcting it left four other
@@ -1290,7 +1291,8 @@ and this repo already has one chronically-red check that everyone has learned to
 Verified on-chain 2026-08-04, as on every prior check: `RevenueDistributor` holds 0 wei and
 `SwapFeeRouter.totalETHFees()` was 0. **Nothing has ever been distributed to anyone.** Four
 surfaces said otherwise, in the present tense — the worst being `/premium`'s flat literal
-"100% of protocol fees distributed to stakers", rendered **directly above the live figures
+a flat literal announcing the whole protocol fee line as already
+distributed, rendered **directly above the live figures
 that contradict it** (0.0000 ETH, 0 epochs) on a page charging 10,000 TOWELI a month
 ([#258](https://github.com/fomotsar-commits/tegridy-farms/pull/258)).
 
