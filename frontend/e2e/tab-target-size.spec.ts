@@ -18,7 +18,13 @@ import { gotoRoute } from './fixtures/routes';
 const IPHONE_390 = { width: 390, height: 844 };
 const FLOOR = 44;
 
-for (const path of ['/community', '/nft-finance']) {
+// /trust and /launch are the 2026-09-04 SectionHost strips — seven tabs and four,
+// the primary way to move around the two biggest collapsed sections. They are
+// listed here because the markup they share (components/layout/RouteTabs.tsx) was
+// extracted from three hosts that all shipped a flat 40px, i.e. under this floor;
+// without a case here the new strips would have inherited that silently onto
+// nineteen routes.
+for (const path of ['/community', '/nft-finance', '/trust', '/launch']) {
   test(`${path} section tabs clear the 44px touch floor at 390px`, async ({
     page,
     walletMock: _w,
