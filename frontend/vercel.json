@@ -60,6 +60,11 @@
       ]
     },
     {
+      "_comment": "Generated responsive derivatives (scripts/generate-image-derivatives.mjs). Same week-long TTL as the originals they stand in for: a derivative's URL encodes its source path and width, so it only changes when the source does, and the source's own rule is the one that governs how long a stale copy can live.",
+      "source": "/_derived/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800" }]
+    },
+    {
       "source": "/art/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
