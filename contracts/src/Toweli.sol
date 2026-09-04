@@ -23,9 +23,18 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 ///      Ethereum Mainnet. The vanity address prefix (`0x420698`) was produced via
 ///      CREATE2 salt-mining pre-deployment — see docs/TOKEN_DEPLOY.md.
 ///
-///      This source file documents the intended and deployed behavior. The live
-///      bytecode is verified on Etherscan; always prefer the verified source on
-///      Etherscan as the canonical reference if any divergence is observed:
+///      🔴 THE DEPLOYED CONTRACT IS NOT THIS SOURCE. Corrected 2026-09-02
+///      (audit TF-063): this paragraph used to say the file "documents the
+///      intended and deployed behavior", and only the second half was true.
+///      Per docs/TOKEN_DEPLOY.md (selector scan of `cast code` plus live
+///      `cast call`, 2026-08-12), what is on-chain calls itself `Towelie`
+///      (symbol `Toweli`) and is a TOKEN-GENERATOR TEMPLATE. It and this file
+///      disagree on permit, on burn, and on ownership. This file is what a
+///      fresh deploy of this project's own source would produce — it is the
+///      intent, not the deployment.
+///
+///      Anything integrating against this address must read Etherscan's
+///      Contract tab, never this file:
 ///      https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D#code
 ///
 /// @dev Design goals:

@@ -301,7 +301,7 @@ const CHANGELOG: ChangelogEntry[] = [
     date: 'May 4, 2026',
     title: 'Pass-7 Adversarial Multi-Agent Audit + Remediation',
     items: [
-      'Three parallel worktree agents (oracle/AMM, staking/governance, lending/NFT) attacked everything claimed closed by the prior 6 internal passes plus the Spartan external review',
+      'Three parallel worktree agents (oracle/AMM, staking/governance, lending/NFT) attacked everything claimed closed by the prior 6 internal passes plus the Spartan review',
       'Surfaced 13 NEW findings: 1 Critical (V4 hook fee delta never settled — every V4 swap would have reverted CurrencyNotSettled if the hook deployed), 6 Highs (TWAP fail-open carve-out, gauge-removal permanent brick, lending-side missing post-condition checks on staking transferFrom, settled-vs-settled cross-loan reward drain, claimStuckCollateral retry hole), 4 Mediums (POL bypass cooldown, V4 claimFees ManagerLocked, LP-farming stale-boost siphon, NFTLending removal-cancel retry budget), 1 Low + 1 Info',
       'All 13 closed in same-week remediation using battle-tested patterns mirrored from existing in-codebase fixes (TegridyNFTLending`s `_safeOutboundTransfer`, TegridyLending`s `lastBypassUsed` cooldown) and the canonical Uniswap V4 reference (`FeeTakingHook.sol`)',
       'New regression suite at contracts/test/PASS7_*.t.sol — 9 files, 15 tests — converted from "asserts exploit" to "asserts fix" and all passing',

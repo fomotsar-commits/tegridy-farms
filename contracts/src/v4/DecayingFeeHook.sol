@@ -107,6 +107,9 @@ contract DecayingFeeHook is BaseOverrideFee, OwnableNoRenounce {
     error StartFeeBelowBaseline(uint24 startFeePips, uint24 baselineFeePips);
     error DecayOutOfRange(uint32 decaySeconds);
     error NotDynamicFeeKey();
+    /// @notice Someone other than the owner tried to initialize a scheduled pool.
+    ///         AUDIT FIX TF-016 — see `_afterInitialize`.
+    error NotLaunchInitializer(address sender);
 
     // ─── Events ───────────────────────────────────────────────────────
 
@@ -178,6 +181,29 @@ contract DecayingFeeHook is BaseOverrideFee, OwnableNoRenounce {
         PoolId poolId = key.toId();
         Schedule storage s = _schedules[poolId];
         if (!s.configured) revert PoolNotConfigured(poolId);
+        // AUDIT FIX TF-016: bind the INITIALIZER, not just the pool.
+        //
+        // `PoolManager.initialize` is permissionless, and the key this schedule
+        // is keyed on is public the moment `configurePool` is called — it is
+        // that call's own calldata, and `ScheduleConfigured` announces the
+        // poolId besides. So between configure and launch, anyone could call
+        // `initialize` on the configured key first. `_afterInitialize` took
+        // `sender` and ignored it, so that stranger both STARTED THE DECAY
+        // CLOCK (the whole anti-snipe window then elapses before the launch
+        // happens — the fee is already at baseline when the first real buyer
+        // arrives) and CHOSE THE OPENING PRICE via their own sqrtPriceX96.
+        // One comparison closes both, because both flow from the same
+        // unbound `initialize`. Same shape as the sibling hook's gate at
+        // src/v4/TegridyV4Hook.sol:214, collapsed to the owner: this hook
+        // already knows the exact key at configure time, so it needs no
+        // separate pool allowlist, and the owner is who published the schedule.
+        //
+        // OPERATOR CONSEQUENCE: the pool must be initialized by the OWNER
+        // ITSELF calling `poolManager.initialize`. A router-relayed init
+        // (e.g. PositionManager.initializePool) arrives with `sender` == the
+        // router and is rejected — and some periphery SWALLOWS that revert, so
+        // it will look like nothing happened. See DeployDecayingFeeHook.s.sol.
+        if (sender != owner()) revert NotLaunchInitializer(sender);
         if (s.startedAt != 0) revert PoolAlreadyStarted(poolId);
 
         s.startedAt = uint64(block.timestamp);

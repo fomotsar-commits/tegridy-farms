@@ -126,12 +126,16 @@ export interface CurveLaunchesGridViewProps {
   launchCount: bigint | null;
   /** Newest-first token list (already reversed by the container). */
   tokens: Address[];
+  /** The page read failed. launchCount says there ARE launches, so an empty
+   *  grid here is an outage, not an empty product — say so instead of
+   *  rendering a blank slot under a header that promises N of them. */
+  tokensUnread?: boolean;
   /** Renders one card slot — the container injects the hook-carrying card here,
    *  so the view stays pure and testable with a stub. */
   renderCard: (token: Address) => React.ReactNode;
 }
 
-export function CurveLaunchesGridView({ chainName, launchCount, tokens, renderCard }: CurveLaunchesGridViewProps) {
+export function CurveLaunchesGridView({ chainName, launchCount, tokens, tokensUnread = false, renderCard }: CurveLaunchesGridViewProps) {
   return (
     <m.section
       initial={{ opacity: 0, y: 12 }}
@@ -158,6 +162,14 @@ export function CurveLaunchesGridView({ chainName, launchCount, tokens, renderCa
           <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
             The curve is live and the first launch writes history — create one above and your coin
             opens this grid.
+          </p>
+        </div>
+      ) : tokensUnread && tokens.length === 0 ? (
+        <div className="rounded-2xl p-5" style={cardStyle}>
+          <p className="text-white/85 text-[13px] font-semibold">Could not load the launches on {chainName}.</p>
+          <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
+            The curve reports {launchCount.toString()} of them, but the page read did not come
+            back. This is a display failure, not an empty grid — reload to try again.
           </p>
         </div>
       ) : (
@@ -267,6 +279,9 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
     return [...page].reverse();
   }, [pageRaw]);
 
+  // Distinguish "the page has not arrived" from "the page came back empty".
+  const pageUnread = pageRaw ? pageRaw[0]?.status !== 'success' : false;
+
   // Identity/launch reads live in per-card components so each card carries its
   // own hooks; the grid only fans out the token list.
   return (
@@ -274,6 +289,7 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
       chainName={chainName}
       launchCount={launchCount}
       tokens={tokens}
+      tokensUnread={pageUnread}
       renderCard={(t) => <CurveGridCard launcher={launcher} chainId={chainId} token={t} />}
     />
   );

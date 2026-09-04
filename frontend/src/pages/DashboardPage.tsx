@@ -880,10 +880,21 @@ export function POLAccumulatorCard() {
   const wiringKnown = deployed && shareBps !== undefined && routerPolTarget !== undefined;
   const everFunded = totalETHReceived !== undefined && (totalETHReceived as bigint) > 0n;
 
-  const badge = !deployed ? 'Coming Soon' : wired ? 'Live' : 'Deployed · Unfunded';
+  // `wired` is false both when the contract genuinely is not wired AND when
+  // the two reads it depends on did not come back. Collapsing those made the
+  // badge assert "Deployed · Unfunded" about a contract whose funding it had
+  // simply failed to read — and contradicted the detail line below, which was
+  // already honest about it via wiringKnown. Three states, not two.
+  const badge = !deployed
+    ? 'Coming Soon'
+    : !wiringKnown ? 'Deployed · Status Unknown'
+    : wired ? 'Live'
+    : 'Deployed · Unfunded';
   const badgeStyle = wired
     ? { background: 'rgba(52,211,153,0.22)', color: '#6ee7b7', border: '1px solid rgba(52,211,153,0.45)' }
-    : { background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' };
+    : !wiringKnown && deployed
+      ? { background: 'rgba(245,158,11,0.20)', color: '#fcd34d', border: '1px solid rgba(245,158,11,0.45)' }
+      : { background: 'var(--color-purple-75)', color: '#000000', border: '1px solid var(--color-purple-20)' };
 
   return (
     <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
@@ -912,6 +923,14 @@ export function POLAccumulatorCard() {
                 {totalLPCreated !== undefined && (
                   <>Lifetime LP minted to the protocol: <span className="font-mono text-white/85">{formatWei(totalLPCreated as bigint, 18, 6)}</span> LP.</>
                 )}
+              </p>
+            ) : !wiringKnown ? (
+              <p className="text-white/70 text-[11px] leading-relaxed">
+                <span className="text-amber-300/90 font-medium">Status unknown:</span> the contract is
+                deployed and unpaused on mainnet, but SwapFeeRouter&apos;s POL share and accumulator
+                target did not come back from the network just now, so this card cannot tell you
+                whether it is funded or earning. That is a read failure, not a finding — reload
+                before treating either answer as fact.
               </p>
             ) : (
               <p className="text-white/70 text-[11px] leading-relaxed">

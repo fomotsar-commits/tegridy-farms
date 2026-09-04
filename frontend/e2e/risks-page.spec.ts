@@ -70,7 +70,7 @@ test.describe('RisksPage — protocol-specific risks', () => {
 
   test('every protocol-specific risk renders with a status chip', async ({ page }) => {
     for (const title of PROTOCOL_RISK_TITLES) {
-      const heading = page.getByRole('heading', { name: new RegExp(title.replace(/[()]/g, '\\$&'), 'i') });
+      const heading = page.getByRole('heading', { name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') });
       await expect(heading).toBeVisible();
     }
 
