@@ -1,4 +1,5 @@
 import type { ArtPiece } from './artConfig';
+import type { GeckoNetwork } from './geckoTerminal/pools';
 import { BUNGALOW_ART_FILES } from './bungalowArtPools';
 import { safeGetItem, safeSetItem } from './storage';
 import { TOWELI_ADDRESS } from './constants';
@@ -116,9 +117,11 @@ export interface Bungalow {
    *
    * `network` is GeckoTerminal's API slug, NOT this registry's `chain` word:
    * Ethereum is `eth` here (interpolated verbatim into GT URLs, where a wrong
-   * slug is a silent 404). The union is closed so a typo'd entry cannot compile.
+   * slug is a silent 404). The union is closed so a typo'd entry cannot compile
+   * — and it is now the SHARED `GeckoNetwork`, so a resident's pool can be
+   * handed to the market readers with no adapter in between.
    */
-  market?: { network: 'eth' | 'base' | 'solana'; pool: string; label: string };
+  market?: { network: GeckoNetwork; pool: string; label: string };
   /** Background art pool. Undefined = classic art system. */
   artPool?: ArtPiece[];
   /** Picker card thumbnail. */
@@ -381,10 +384,38 @@ function byId(id: string | null): Bungalow | null {
  *  2. the persisted choice;
  *  3. null (= default Towelie / classic art, and "no choice made yet").
  */
+/**
+ * `?bungalow=` from the current URL, parsing the query string at most once per
+ * distinct query string.
+ *
+ * PERF-01 (2026-09-03): `getActiveBungalow()` is called from inside React render
+ * bodies — `pageArt()` reaches it for every art surface, up to 18 per page render
+ * across 192 call sites — and each call built a fresh `URLSearchParams` from
+ * `window.location.search`.
+ *
+ * The cache key IS the whole input: `window.location.search` is the only thing
+ * this function reads, so a hit is provably the same answer rather than a
+ * plausible one. The storage read below is deliberately NOT memoised — three
+ * places write that key without going through `setActiveBungalow`
+ * (BungalowArtStudioPage's reset, the e2e harness, and the test suite), and
+ * `BungalowDoor` depends on reading its own write back synchronously, so a memo
+ * there would render one bungalow's art under another's name to save a
+ * `localStorage.getItem`.
+ */
+let queryCache: { search: string; bungalow: string | null } | null = null;
+
+function bungalowFromQuery(): string | null {
+  const search = window.location.search;
+  if (queryCache === null || queryCache.search !== search) {
+    queryCache = { search, bungalow: new URLSearchParams(search).get('bungalow') };
+  }
+  return queryCache.bungalow;
+}
+
 export function getActiveBungalow(): Bungalow | null {
   if (typeof window === 'undefined') return null;
   try {
-    const fromUrl = byId(new URLSearchParams(window.location.search).get('bungalow'));
+    const fromUrl = byId(bungalowFromQuery());
     if (fromUrl) {
       if (safeGetItem(BUNGALOW_STORAGE_KEY) !== fromUrl.id) {
         safeSetItem(BUNGALOW_STORAGE_KEY, fromUrl.id);
@@ -504,6 +535,33 @@ export function bungalowTradeBlurb(b: Bungalow, solanaSwapLive: boolean): string
   return tradable
     ? `Trade ${b.symbol} on ${chainWord}; scan any token on either chain.`
     : `${b.symbol} lives on ${chainWord} — chart and contract on its page; scan any token on either chain.`;
+}
+
+/**
+ * The island resident behind a market pool, or null if the pool is a stranger's.
+ *
+ * The market surfaces read pools from GeckoTerminal, which knows a pool by
+ * address and by whatever name the pair carries ("BOBO / SOL"). This registry
+ * knows which of those addresses is a resident of the island. Joining them here
+ * — rather than in each surface — means a row for a bungalow's own pool can say
+ * so once, consistently, and a row for any other pool says nothing rather than
+ * guessing.
+ *
+ * Matching follows each chain's own rules: EVM addresses compare
+ * case-insensitively (the same address is written both ways all over this repo),
+ * Solana keys compare EXACTLY, because base58 is case-sensitive and a
+ * lowercased key is a different, valid-looking, wrong address.
+ */
+export function residentLabelForPool(network: GeckoNetwork, pool: string): string | null {
+  const target = network === 'solana' ? pool.trim() : pool.trim().toLowerCase();
+  if (!target) return null;
+  for (const b of BUNGALOWS) {
+    const m = b.market;
+    if (!m || m.network !== network) continue;
+    const known = network === 'solana' ? m.pool : m.pool.toLowerCase();
+    if (known === target) return b.name;
+  }
+  return null;
 }
 
 /** Block-explorer link for a bungalow's token, per its chain. */

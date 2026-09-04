@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { geckoTerminalTradesSchema, parseOrNull } from '../lib/schemas/geckoTerminal';
+import { readPoolTrades, type PoolTrade } from '../lib/geckoTerminal/poolTrades';
 
 /**
  * Recent trades for ONE pool, from GeckoTerminal.
@@ -12,30 +12,21 @@ import { geckoTerminalTradesSchema, parseOrNull } from '../lib/schemas/geckoTerm
  * NOTHING POLLS. One read per mount plus a caller-driven refresh, same rule as
  * usePoolMarket. A tape that refreshed itself would imply a stream this venue
  * does not run.
+ *
+ * The fetch, the schema and the buy/sell leg rule now live in
+ * lib/geckoTerminal/poolTrades.ts, which the non-component surfaces read too.
+ * What is left here is React: an abort on re-key, a refresh nonce, and the
+ * translation from that module's state union into this hook's flat
+ * `{ trades, isLoading, error }` — unchanged, because components depend on it.
  */
 
-export interface PoolTrade {
-  /** ISO timestamp of the block the fill landed in. */
-  at: string;
-  kind: 'buy' | 'sell';
-  txHash: string;
-  wallet: string | null;
-  /** Size in the bungalow's own token. Null when unreadable. */
-  tokenAmount: number | null;
-  usd: number | null;
-}
+export type { PoolTrade };
 
 export interface PoolTradesResult {
   trades: PoolTrade[];
   isLoading: boolean;
   error: string | null;
   refresh: () => void;
-}
-
-function num(v: string | null | undefined): number | null {
-  if (v === null || v === undefined) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
 }
 
 export function usePoolTrades(
@@ -63,38 +54,16 @@ export function usePoolTrades(
       setIsLoading(true);
       setError(null);
       try {
-        const url = `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${pool}/trades`;
-        const res = await fetch(url, {
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json: unknown = await res.json();
-        const parsed = parseOrNull(geckoTerminalTradesSchema, json);
-        if (!parsed) throw new Error('Trades response failed schema validation');
+        const read = await readPoolTrades(network, pool, { signal: controller.signal });
         if (cancelled) return;
-
-        const rows: PoolTrade[] = parsed.data.slice(0, limit).map((row) => {
-          const a = row.attributes;
-          // On a BUY the bungalow token is what you RECEIVE (to_token_amount);
-          // on a SELL it is what you GIVE (from_token_amount). Getting this
-          // backwards would print the SOL leg as a token size.
-          const tokenAmount = a.kind === 'buy'
-            ? num(a.to_token_amount)
-            : num(a.from_token_amount);
-          return {
-            at: a.block_timestamp,
-            kind: a.kind,
-            txHash: a.tx_hash,
-            wallet: a.tx_from_address ?? null,
-            tokenAmount,
-            usd: num(a.volume_in_usd),
-          };
-        });
-        setTrades(rows);
-        setError(null);
-      } catch (err) {
-        if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
+        if (read.status === 'read') {
+          setTrades(read.trades.slice(0, limit));
+          setError(null);
+          return;
+        }
+        // A cancelled read is not a failure and gets no banner: it means this
+        // effect was superseded or the view went away.
+        if (read.reason === 'aborted') return;
         setError('Trades could not be read — that is an outage, not an empty tape.');
       } finally {
         if (!cancelled) setIsLoading(false);

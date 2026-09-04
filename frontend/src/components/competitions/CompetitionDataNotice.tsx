@@ -49,7 +49,7 @@ export function CompetitionDataNotice({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-md border border-white/25 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/10"
+            className="min-h-[44px] rounded-md border border-white/25 px-3 py-1 text-xs font-medium text-white hover:bg-white/10"
           >
             Try again
           </button>

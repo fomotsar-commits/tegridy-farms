@@ -17,6 +17,7 @@ export const TopNav = React.memo(function TopNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const kebabRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
@@ -48,6 +49,21 @@ export const TopNav = React.memo(function TopNav() {
     }
     if (moreOpen) document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
+  }, [moreOpen]);
+
+  // A11Y-R09: Escape closes "More" and puts focus back on the trigger.
+  // Before this the dropdown closed on an outside MOUSEDOWN or a route change
+  // and nothing else, so a keyboard user who opened it could not dismiss it
+  // without navigating away.
+  useEffect(() => {
+    if (!moreOpen) return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      setMoreOpen(false);
+      moreTriggerRef.current?.focus();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, [moreOpen]);
 
   // Close both menus on route change.
@@ -256,10 +272,22 @@ export const TopNav = React.memo(function TopNav() {
             {/* "More" dropdown — secondary destinations (Marketplace, Gallery, etc.)
                 that don't fit in the primary nav but still deserve a top-bar slot. */}
             <div className="relative" ref={moreRef}>
+              {/* A11Y-R09: this used to declare aria-haspopup="true" over a
+                  role="menu" of role="menuitem"s, which promises assistive
+                  technology the whole menu keyboard contract — arrow-key roving
+                  focus, Home/End, Escape, focus moved into the popup — and none
+                  of it existed. The honest shape is what this actually is: a
+                  disclosure button revealing a small nav of links. aria-expanded
+                  stays (it is true), the menu roles are gone, and Escape is now
+                  implemented rather than implied. */}
               <button
+                ref={moreTriggerRef}
                 onClick={() => setMoreOpen(!moreOpen)}
                 aria-expanded={moreOpen}
-                aria-haspopup="true"
+                /* Only while it exists: the audit (and axe's
+                   aria-valid-attr-value) require every idref to RESOLVE, and the
+                   popup is unmounted when closed. */
+                aria-controls={moreOpen ? 'top-nav-more' : undefined}
                 aria-label="More navigation"
                 className={`nav-link flex items-center gap-1 ${MORE_NAV.some(n => location.pathname.startsWith(n.to)) ? 'active' : ''}`}
               >
@@ -282,7 +310,9 @@ export const TopNav = React.memo(function TopNav() {
                     }}
                     initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
                     transition={{ duration: 0.15 }}
-                    role="menu"
+                    id="top-nav-more"
+                    role="navigation"
+                    aria-label="More destinations"
                   >
                     {MORE_NAV_SECTIONS.map((section) => (
                       <div key={section.heading} className="px-2">
@@ -296,7 +326,6 @@ export const TopNav = React.memo(function TopNav() {
                           <NavLink
                             key={n.to}
                             to={n.to}
-                            role="menuitem"
                             className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
                           >
                             <span>{n.label}</span>

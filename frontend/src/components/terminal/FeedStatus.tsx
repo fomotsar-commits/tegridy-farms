@@ -1,5 +1,6 @@
 import type { IndexedStatus } from '../../hooks/useTerminalFeed';
 import type { TerminalFeed } from '../../lib/terminal/feed';
+import { NOT_A_ZERO } from '../../lib/terminal/feedBanner';
 
 // What the feed is, in words, before any row is drawn.
 //
@@ -34,9 +35,6 @@ const TONES: Record<IndexedStatus, string> = {
   unavailable: 'border-amber-400/40 bg-amber-400/[0.07]',
 };
 
-const NOT_A_ZERO =
-  'Nothing on this page is a statement about what is or is not launching right now.';
-
 export function FeedStatus({ status, detail, feed, syncedAt, onRetry }: FeedStatusProps) {
   const showRetry = status === 'unavailable' || status === 'backfilling';
 
@@ -48,7 +46,7 @@ export function FeedStatus({ status, detail, feed, syncedAt, onRetry }: FeedStat
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-md border border-white/25 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/10"
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-white/25 px-3 text-xs font-medium text-white hover:bg-white/10"
           >
             Try again
           </button>

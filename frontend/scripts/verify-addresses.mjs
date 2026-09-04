@@ -24,18 +24,21 @@
  *   4. DENYLIST   — the fabricated address and the burned keypair can never be
  *                   reintroduced, even by an honest copy-paste.
  *   5. DRIFT (code → registry)
- *                 — every non-zero EVM address LITERAL in src/lib/constants.ts must be
- *                   registered here, so a new deploy cannot enter the codebase without
- *                   someone writing down what it is and who controls it.
+ *                 — every non-zero EVM address LITERAL in src/lib/constants.ts and in
+ *                   src/lib/yield/protocols.ts must be registered here, so an address
+ *                   cannot enter the codebase without someone writing down what it is and
+ *                   who controls it. The scan is a LIST of files, and the list is the
+ *                   whole of its reach: a file carrying live mainnet addresses that is not
+ *                   named in it is not "clean", it is unlooked-at.
  *   6. DRIFT (chain → registry)
  *                 — every contract this repo has actually CREATED on mainnet, read out
  *                   of the Foundry broadcast receipts, must be a live entry, denylisted,
  *                   or explicitly retired in `retiredDeploys`.
  *
  * WHY 6 EXISTS — the guard used to be one-directional and could not fail on a missing
- * entry. Check 5 walks constants.ts and asks the registry about each address it finds
- * there, so its reach is exactly "addresses the frontend already imports, written in one
- * particular syntax". Two whole classes of live contract were invisible to it:
+ * entry. Check 5 walks a fixed list of source files and asks the registry about each
+ * address it finds in them, so its reach is exactly "addresses written down in the files
+ * it was told to open". Two whole classes of live contract were invisible to it:
  *
  *   • Anything the frontend never names. The four DELEGATECALL libraries linked into
  *     TegridyStaking / TegridyFactory / SwapFeeRouter, and TegridyStakingJbacVault which
@@ -51,6 +54,15 @@
  * instead, which is the only source that grows when a new contract goes live. Check 5
  * was also widened to any literal shape, with comments stripped first so a historical
  * "Prev: 0x…" note is not mistaken for a live reference.
+ *
+ * There was a THIRD class, and it was the same hole from the other side: a file the scan
+ * had simply never been told about. src/lib/yield/protocols.ts carries twenty-seven live
+ * mainnet addresses belonging to eight outside protocols, seven of which /yield sends a
+ * visitor's ETH or USDC to. Not one of them is in constants.ts, so check 5 passed on a
+ * file it had never opened — and a check that passes because it did not look is not a
+ * pass, it is silence. It is a list now (EVM_LITERAL_SOURCES), each file counted
+ * separately, and a source that yields ZERO literals is a hard failure rather than a
+ * quiet clean bill: a moved or renamed file must not be able to drop its own coverage.
  *
  * ── THE CHAIN READ: THREE OUTCOMES, NOT TWO ─────────────────────────────────────
  *
@@ -95,6 +107,7 @@ import { getAddress, isAddress } from 'viem';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REGISTRY = join(HERE, 'addresses.json');
 const CONSTANTS = join(HERE, '..', 'src', 'lib', 'constants.ts');
+const YIELD_PROTOCOLS = join(HERE, '..', 'src', 'lib', 'yield', 'protocols.ts');
 const CURVE_PROGRAM = join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'curve', 'program.ts');
 const BROADCAST = join(HERE, '..', '..', 'contracts', 'broadcast');
 /** Ethereum mainnet. Foundry files broadcasts under broadcast/<script>/<chainId>/. */
@@ -280,25 +293,42 @@ function stripComments(src) {
 // ANY address literal in real code, not just `export const NAME = '0x…'`. The old
 // pattern was anchored to that one shape and so could not see LEGACY_STAKING_ADDRESSES,
 // an array of two live contracts that still custody user positions.
-let constantsChecked = 0;
-try {
-  const src = stripComments(readFileSync(CONSTANTS, 'utf-8'));
-  // Capture a little leading context so the failure names something a human can find.
-  const re = /(?:([A-Za-z0-9_]+)\s*[:=]\s*)?['"](0x[a-fA-F0-9]{40})['"]/g;
-  for (const m of src.matchAll(re)) {
-    const [, name, addr] = m;
-    if (addr.toLowerCase() === ZERO) continue; // not-yet-deployed placeholder
-    constantsChecked++;
-    if (!registeredLive.has(addr.toLowerCase())) {
-      const where = name ? `${name} = ${addr}` : `${addr} (inside an array or literal)`;
-      fail(
-        `constants.ts references ${where}, which is NOT in the registry. ` +
-          `Add it to scripts/addresses.json with a role and custody before shipping.`,
-      );
+//
+// And ANY file that carries such a literal, not just constants.ts. The scan's reach is
+// this list and nothing else, which is why the list is written out here rather than
+// discovered: adding a file is a deliberate edit, and DROPPING one is a visible deletion
+// rather than an address quietly ceasing to be checked. src/lib/yield/protocols.ts is
+// here because it is the only file in the /yield surface that carries an address, and one
+// of those addresses is where a visitor's ETH goes when they press a button — the same
+// stakes as a deploy of our own, on code we do not control.
+const EVM_LITERAL_SOURCES = [
+  { label: 'constants.ts', path: CONSTANTS },
+  { label: 'yield/protocols.ts', path: YIELD_PROTOCOLS },
+];
+/** literals seen per source, so a source that went blind is named rather than averaged away. */
+const literalsChecked = new Map();
+for (const source of EVM_LITERAL_SOURCES) {
+  let n = 0;
+  try {
+    const src = stripComments(readFileSync(source.path, 'utf-8'));
+    // Capture a little leading context so the failure names something a human can find.
+    const re = /(?:([A-Za-z0-9_]+)\s*[:=]\s*)?['"](0x[a-fA-F0-9]{40})['"]/g;
+    for (const m of src.matchAll(re)) {
+      const [, name, addr] = m;
+      if (addr.toLowerCase() === ZERO) continue; // not-yet-deployed placeholder
+      n++;
+      if (!registeredLive.has(addr.toLowerCase())) {
+        const where = name ? `${name} = ${addr}` : `${addr} (inside an array or literal)`;
+        fail(
+          `${source.label} references ${where}, which is NOT in the registry. ` +
+            `Add it to scripts/addresses.json with a role and custody before shipping.`,
+        );
+      }
     }
+  } catch (e) {
+    fail(`could not read ${source.label} for the drift check: ${e.message}`);
   }
-} catch (e) {
-  fail(`could not read constants.ts for the drift check: ${e.message}`);
+  literalsChecked.set(source.label, n);
 }
 
 // ── 5b. Solana code → registry ──────────────────────────────────────────────────
@@ -789,6 +819,19 @@ function selfTest() {
   );
   // 5e. The zero address is a not-yet-deployed placeholder, not a missing entry.
   t('check 5 ignores the zero address', scanConstants(`export const Z = '${ZERO}';`).length === 0);
+  // 5f. WHICH FILES the scan opens is the whole of its reach, and the failure mode is
+  //     silent: drop a source and every address in it stops being checked while the run
+  //     still prints a green line and a healthy-looking total. yield/protocols.ts carries
+  //     the addresses /yield sends a visitor's ETH to, so the list is pinned by name here
+  //     — the same reasoning as CURVE_REQUIRED_EXPORTS above.
+  t(
+    'check 5 opens BOTH constants.ts and yield/protocols.ts',
+    ['constants.ts', 'yield/protocols.ts'].every((label) => EVM_LITERAL_SOURCES.some((s) => s.label === label)),
+  );
+  t(
+    'every check-5 source names a file that exists',
+    EVM_LITERAL_SOURCES.every((s) => existsSync(s.path)),
+  );
 
   // 6a. THE MISSING-ENTRY CASE. A mainnet CREATE that is in neither list must fail.
   //     This is the one the one-directional guard structurally could not produce.
@@ -896,13 +939,17 @@ console.log(
     `${(reg.retiredDeploys?.addresses ?? []).length} retired, ${(reg.denylist ?? []).length} denylisted`,
 );
 console.log(
-  `  drift: ${constantsChecked} constants.ts literals -> registry, ` +
+  `  drift: ${[...literalsChecked].map(([label, n]) => `${n} ${label}`).join(' + ')} EVM literals -> registry, ` +
     `${solanaLiteralsChecked} curve/program.ts Solana literals -> registry, ` +
     `${broadcastsChecked} mainnet CREATEs from broadcast receipts -> registry`,
 );
-// A count of zero on either side means the check found nothing to look at, which is
+// A count of zero on any side means the check found nothing to look at, which is
 // not the same as finding nothing wrong. Say so rather than print "all checks passed".
-if (constantsChecked === 0) fail('check 5 scanned ZERO address literals in constants.ts — the scan is broken, not the file clean');
+// Per SOURCE, not summed: a total stays comfortably non-zero while one file of the two
+// has silently stopped being read, which is the failure this whole change is about.
+for (const [label, n] of literalsChecked) {
+  if (n === 0) fail(`check 5 scanned ZERO address literals in ${label} — the scan is broken or the file moved, not the file clean`);
+}
 if (solanaLiteralsChecked === 0) fail('check 5b scanned ZERO Solana literals in curve/program.ts — the scan is broken, or the module moved; it did not "find nothing wrong"');
 if (broadcastsChecked === 0) fail('check 6 scanned ZERO mainnet CREATEs — the broadcast scan is broken or the receipts are gone; it did not "find nothing wrong"');
 

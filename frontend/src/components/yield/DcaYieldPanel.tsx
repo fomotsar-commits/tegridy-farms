@@ -8,14 +8,19 @@ import { formatTokenAmount } from '../../lib/formatting';
 // A schedule that buys 0.05 ETH of something thirty times has 1.5 ETH doing
 // nothing for most of a month, and no panel in this app mentioned it. This one
 // does — and its first job is to be clear about WHOSE 1.5 ETH: it never left the
-// user's wallet, because a Tegridy schedule is a reminder rather than an escrow.
+// user's wallet, because a schedule here is a reminder rather than an escrow.
 // The figure is the size of an opportunity, not a balance under management, and
 // the copy has to keep saying so or it becomes a custody claim by implication.
 //
-// Both legs are unavailable in this build and both say why. The panel still
-// renders, because the honest answer to "is my unfilled budget earning?" is "no,
-// and here is exactly what would have to be true for it to" — which is more
-// useful than the silence it replaces.
+// Each leg is keyed to the BUDGET's own token. That distinction cost nothing
+// while every venue was unwired and every branch refused; the moment Aave's USDC
+// market became a real destination, an unkeyed lookup would have told the holder
+// of an ETH schedule their idle ETH "would route to Aave v3 — USDC market" — a
+// token they do not hold and a deposit that would revert.
+//
+// And the available branch describes a DESTINATION, not an action. This schedule
+// deposits nothing: the venue holds no funds, runs no keeper, and every leg is a
+// transaction the user signs themselves on the Yield Routing page.
 
 export interface DcaYieldPanelProps {
   amountPerSwap: string;
@@ -60,7 +65,7 @@ export function DcaYieldPanel({ amountPerSwap, totalSwaps, completedSwaps = 0, a
         <p className="text-white text-[10px] uppercase tracking-wider mb-0.5">Park it while it waits</p>
         <p className="text-white/80 text-[10px] leading-relaxed">
           {plan.parking.state === 'available'
-            ? `Would route to ${plan.parking.venue.label}. ${plan.parking.venue.counterparty}`
+            ? `Could be deposited into ${plan.parking.venue.label} from the Yield Routing page — this schedule does not do it; each deposit and withdrawal is a transaction you sign there. ${plan.parking.venue.counterparty}`
             : plan.parking.reason}
         </p>
       </div>
@@ -69,7 +74,7 @@ export function DcaYieldPanel({ amountPerSwap, totalSwaps, completedSwaps = 0, a
         <p className="text-white text-[10px] uppercase tracking-wider mb-0.5">Stake completed buys</p>
         <p className="text-white/80 text-[10px] leading-relaxed">
           {plan.autoStake.state === 'available'
-            ? `Would route to ${plan.autoStake.venue.label}. ${plan.autoStake.venue.counterparty}`
+            ? `Could be deposited into ${plan.autoStake.venue.label} from the Yield Routing page — this schedule does not do it; each deposit and withdrawal is a transaction you sign there. ${plan.autoStake.venue.counterparty}`
             : plan.autoStake.reason}
         </p>
       </div>

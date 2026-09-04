@@ -9,6 +9,7 @@
 
 import { hasConsent } from './consent';
 import { sanitize } from './errorReporting';
+import { randomUuidV4 } from './randomId';
 
 const FLUSH_INTERVAL_MS = 10_000;
 const ENDPOINT = import.meta.env.VITE_ANALYTICS_ENDPOINT as string | undefined;
@@ -20,15 +21,16 @@ const MAX_QUEUE = 200;
 // ---------------------------------------------------------------------------
 // Session ID (persisted per browser tab session)
 // ---------------------------------------------------------------------------
-// Generate a random session id without requiring a secure context (where
-// crypto.randomUUID is unavailable). Mirrors the crypto-guard style in useDCA.
+// A session id without requiring a secure context (where crypto.randomUUID is
+// unavailable). The old fallback was `Date.now()` + `Math.random()`, which CodeQL
+// flags as js/insecure-randomness: this id is what joins a visitor's events
+// together, so a collision merges two people's sessions into one. Now the shared
+// CSPRNG helper — see lib/randomId.ts for why the fallback branch is reachable.
 function randomId(): string {
-  try {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-  } catch { /* fall through to Math.random fallback */ }
-  return `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  // Bare UUID, no prefix. The old code returned a bare uuid from randomUUID and a
+  // `sess-…` string only from the Math.random fallback, so the id SHAPE silently
+  // told you whether the page was on a secure context. One shape either way.
+  return randomUuidV4();
 }
 
 function getSessionId(): string {
@@ -72,13 +74,21 @@ async function flush(useBeacon = false) {
   const batch = queue;
   queue = [];
 
-  if (IS_DEV || !ENDPOINT) {
-    // In development or when no endpoint is configured, log to console
+  // PERF-09 (2026-09-03): these two conditions used to share one branch, so a
+  // PRODUCTION build with no VITE_ANALYTICS_ENDPOINT configured — the likely
+  // state — printed every batched event to the visitor's console every ten
+  // seconds: swap token pairs and amounts, stake amounts, NFT purchase prices,
+  // wallet-connect events. "Nowhere to send this" and "show me what would be
+  // sent" are different decisions and must not collapse into one.
+  if (IS_DEV) {
     for (const evt of batch) {
       console.log('[analytics]', evt.event, evt.properties);
     }
-    return;
   }
+  // Dev never posts, and with no endpoint there is nowhere to post to. Either
+  // way the batch is DROPPED rather than re-queued: re-queuing would grow a list
+  // nothing will ever drain.
+  if (IS_DEV || !ENDPOINT) return;
 
   const body = JSON.stringify({ events: batch });
 

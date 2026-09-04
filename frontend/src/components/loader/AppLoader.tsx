@@ -5,6 +5,7 @@ import {
   T_CRACK_DURATION, T_EXIT_FINALIZE,
 } from './constants';
 import { preloadImages } from './preload';
+import { shouldSkipAtMount } from './skip';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
   buildCrackPaths, MAX_PARTICLES,
@@ -21,25 +22,12 @@ import { createMorphParticles, updateMorphParticles } from './fx/particleMorph';
 import { AudioEngine } from './fx/audio';
 import { PostFX } from './fx/postfx';
 
-// R007 Pattern B — decide skip-at-mount synchronously during state init so
-// the loader never renders for repeat visits / reduced-motion users. The
-// previous implementation called `finalize()` (which calls setState) inside
-// an effect, which the lint rule rightly flagged as a cascading render.
-function shouldSkipAtMount(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    if (sessionStorage.getItem('tf_loaded')) return true;
-  } catch { /* SSR / privacy mode */ }
-  try {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      try { sessionStorage.setItem('tf_loaded', '1'); } catch { /* noop */ }
-      return true;
-    }
-  } catch { /* matchMedia unavailable */ }
-  return false;
-}
-
-export function AppLoader({ onComplete, children }: { onComplete?: () => void; children?: React.ReactNode }) {
+// THE OVERLAY ONLY. `children` used to be rendered here; the eager shell in
+// ./index.tsx owns them now (PERF-16), so the app tree is not held behind this
+// module's lazy chunk. The prop is GONE rather than ignored: an optional
+// `children` that silently rendered nothing is the kind of prop someone passes
+// once and then debugs for an hour.
+export function AppLoader({ onComplete }: { onComplete?: () => void }) {
   const [visible, setVisible] = useState(() => !shouldSkipAtMount());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -651,7 +639,6 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
 
   return (
     <>
-      {children}
       {visible && (
         <div
           ref={overlayRef}

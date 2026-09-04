@@ -74,7 +74,7 @@ export function PairTable({
                     onClick={() => onToggleWatch(row.pair)}
                     aria-pressed={watched}
                     aria-label={`${watched ? 'Remove' : 'Add'} ${short(row.pair)} ${watched ? 'from' : 'to'} watchlist`}
-                    className="rounded-md border border-white/25 px-2 py-1 text-xs text-white hover:bg-white/10"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-white/25 px-3 text-xs text-white hover:bg-white/10"
                   >
                     {watched ? '★' : '☆'}
                   </button>
@@ -83,7 +83,7 @@ export function PairTable({
                   <button
                     type="button"
                     onClick={() => onSelect(row.pair)}
-                    className="font-mono text-xs text-white underline decoration-white/30 underline-offset-2 hover:decoration-white"
+                    className="inline-flex min-h-11 min-w-11 items-center font-mono text-xs text-white underline decoration-white/30 underline-offset-2 hover:decoration-white"
                   >
                     {short(row.pair)}
                   </button>

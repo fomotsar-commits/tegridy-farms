@@ -28,7 +28,14 @@
  * file must not imply otherwise.
  */
 
-const VERSION = 'v1';
+// BUMP THIS WHENEVER offline.html CHANGES. `install` is the only thing that
+// populates SHELL_CACHE, and it re-runs only when THIS file changes byte-wise —
+// so editing the offline page alone leaves every returning visitor on the copy
+// their worker cached, indefinitely. v1 -> v2 on 2026-09-03, when the offline
+// page dropped the retired brand and stopped claiming an indexer that is hosted
+// nowhere. The cache NAMES keep their `tegridy-` prefix on purpose: they are
+// storage keys, and `activate` deletes anything not in KEEP.
+const VERSION = 'v2';
 const SHELL_CACHE = `tegridy-shell-${VERSION}`;
 const ASSET_CACHE = `tegridy-assets-${VERSION}`;
 const KEEP = [SHELL_CACHE, ASSET_CACHE];

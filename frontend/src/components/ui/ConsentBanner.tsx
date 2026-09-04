@@ -36,8 +36,17 @@ export function ConsentBanner() {
   };
 
   return (
+    /* A11Y-R13: this declared role="dialog" with no aria-modal, no focus move,
+       no trap, no Escape and no restore — assistive technology announced a
+       dialog the user was never placed inside, and nothing told them how to
+       leave it. The honest fix is the ROLE, not a focus trap: structurally this
+       is a bottom banner, the page behind it stays fully usable, and consent is
+       fail-closed until a button is pressed, so nothing here needs to gate the
+       app. (If it ever should gate, mount it through ui/Modal with
+       dismissOnBackdrop={false}, which already carries the trap and restore —
+       don't hand-roll a fifth one.) */
     <div
-      role="dialog"
+      role="region"
       aria-live="polite"
       aria-label="Privacy consent"
       className="fixed left-0 right-0 bottom-0 z-[120] px-4 pb-4 md:pb-6"
@@ -73,14 +82,14 @@ export function ConsentBanner() {
           <button
             type="button"
             onClick={decline}
-            className="px-4 py-2 text-sm rounded-lg text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400 transition-colors"
+            className="px-4 py-2 min-h-[44px] text-sm rounded-lg text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400 transition-colors"
           >
             Decline
           </button>
           <button
             type="button"
             onClick={accept}
-            className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors"
+            className="px-4 py-2 min-h-[44px] text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors"
           >
             Accept
           </button>

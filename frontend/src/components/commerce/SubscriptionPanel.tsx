@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAccount, useChainId, useWriteContract } from 'wagmi';
 import { ERC20_ABI } from '../../lib/contracts';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
@@ -37,6 +37,19 @@ import { useCheckoutSubscription } from '../../hooks/useCheckoutSubscription';
 // the allowance. Revoking is what cancels.
 
 const STORAGE_KEY = 'tegridy_subscription_draft_v1';
+
+/**
+ * PERF-10 (2026-09-03): the draft used to be JSON-serialised and written to
+ * localStorage on EVERY change. Two of its fields are free-text inputs, so
+ * typing a 42-character merchant address cost 42 serialisations and 42
+ * synchronous, main-thread storage writes — on /checkout, while the payer is
+ * mid-keystroke. The draft is a convenience record, not a receipt; it does not
+ * need to be durable between two keystrokes.
+ *
+ * Short enough that a reader who types and immediately closes the tab is
+ * covered by the unmount flush below rather than by luck.
+ */
+const PERSIST_DEBOUNCE_MS = 250;
 
 interface Draft {
   merchant: string;
@@ -98,9 +111,26 @@ export function SubscriptionPanel() {
       },
   );
 
+  // Holds the newest draft that has NOT reached storage yet. A debounce that
+  // eats the last edit is worse than no debounce, so unmount flushes it.
+  const unpersistedRef = useRef<Draft | null>(null);
+
   useEffect(() => {
-    safeSetItem(STORAGE_KEY, JSON.stringify(draft));
+    unpersistedRef.current = draft;
+    const timer = setTimeout(() => {
+      unpersistedRef.current = null;
+      safeSetItem(STORAGE_KEY, JSON.stringify(draft));
+    }, PERSIST_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [draft]);
+
+  useEffect(
+    () => () => {
+      const pending = unpersistedRef.current;
+      if (pending !== null) safeSetItem(STORAGE_KEY, JSON.stringify(pending));
+    },
+    [],
+  );
 
   const token = useMemo(
     () => DEFAULT_TOKENS.find((t) => t.address.toLowerCase() === draft.tokenAddress.toLowerCase()) ?? null,

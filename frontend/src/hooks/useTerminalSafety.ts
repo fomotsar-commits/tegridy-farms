@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchHeat, isSupportedHeatAddress } from '../lib/heat/heatClient';
 import type { HeatReading } from '../lib/heat/heatOracle';
+import type { GeckoNetwork } from '../lib/geckoTerminal/pools';
 import { useTokenScan, type ScanStatus } from './useTokenScan';
 import { useDeployerReputation, type DeployerStatus } from './useDeployerReputation';
 import {
@@ -32,6 +33,13 @@ import {
 // that does not gets `unread` with that sentence, and the row stays unrated. The
 // alternative — treating an unknown deployer as a deployer with nothing against
 // them — is the exact inversion this page exists to refuse.
+//
+// AND THE GAP IS WIDER OFF ETHEREUM. The reputation core reads Ethereum
+// mainnet's explorer; Base creations are not read here and Solana has no
+// equivalent at all. On those chains a pasted address is IGNORED rather than
+// used, because scoring a Base row against its address's Ethereum history would
+// be a confident answer to a different question. See
+// DEPLOYER_NOT_ON_THIS_CHAIN.
 
 // Words each scan status contributes, as a statement about the READ.
 //
@@ -66,6 +74,27 @@ const DEPLOYER_UNREAD_REASON: Record<DeployerStatus, string> = {
 export const NO_CREATOR_LOOKUP_REASON =
   'The address that deployed this token has not been resolved: this build has no contract-creator lookup, so the deployer history could not be read. Paste the deployer to score this row.';
 
+/**
+ * The deployer read is an ETHEREUM-MAINNET explorer read, and there is no
+ * equivalent on the other two chains this feed covers.
+ *
+ * Stated per chain rather than with one vague sentence, because the two gaps
+ * have different shapes and different fixes: on Base the creation exists and is
+ * simply not read here, on Solana the concept the reputation core measures —
+ * "contracts this address deployed, and whether they still have a live market" —
+ * has no direct analogue at all. A trader deciding whether to wait for a better
+ * answer needs to know which of those they are looking at.
+ *
+ * Keyed by the network union, not `string`, so a fourth network cannot be added
+ * without someone writing its sentence.
+ */
+export const DEPLOYER_NOT_ON_THIS_CHAIN: Record<Exclude<GeckoNetwork, 'eth'>, string> = {
+  base:
+    'Deployer history is an Ethereum-mainnet explorer read, and Base contract creations are not read on this build — so this half of the score is missing for every Base row. The holder read (top-20 concentration, via Base’s keyless explorer) still runs.',
+  solana:
+    'Deployer history is read from the Ethereum explorer and no equivalent read exists for Solana on this build, so this half of the score is missing. The holder read — mint and freeze authority, top-20 concentration — still runs.',
+};
+
 export type HeatStatus = 'idle' | 'loading' | 'read' | 'unread';
 
 export interface TerminalSafetyState {
@@ -91,14 +120,41 @@ export interface UseTerminalSafetyOptions {
    * deployer. Heat never scores the row (see HEAT_IS_NOT_A_RISK_SIGNAL).
    */
   heatAddress?: string;
+  /**
+   * Which chain the row is on.
+   *
+   * Load-bearing for the HOLDER read: Base shares Ethereum's 0x address format,
+   * so `detectChain` cannot tell them apart and a Base token would otherwise be
+   * scanned against Ethereum's holder source — which answers about a different
+   * contract at the same address, or about nothing, and either way answers
+   * confidently. Only an explicit override is honest here (the same reason
+   * ScannerPage carries a chain toggle).
+   *
+   * Omitted means "auto-detect from the address format", which is correct for a
+   * pasted address and wrong for a feed row.
+   */
+  network?: GeckoNetwork;
 }
 
 export function useTerminalSafety(opts: UseTerminalSafetyOptions): TerminalSafetyState {
   const token = (opts.token ?? '').trim();
-  const deployer = (opts.deployer ?? '').trim();
+  const network = opts.network;
+  const suppliedDeployer = (opts.deployer ?? '').trim();
+
+  // OFF ETHEREUM THE PASTE IS IGNORED, not merely unused. The reputation core
+  // reads Ethereum mainnet, so running it against an address a visitor believes
+  // is a Base or Solana deployer would return that address's ETHEREUM history
+  // and present it as this row's — a real answer to a question nobody asked.
+  // Passing '' keeps the request from being made at all, and the row carries the
+  // per-chain sentence instead.
+  const deployerOnChain = network !== undefined && network !== 'eth';
+  const deployer = deployerOnChain ? '' : suppliedDeployer;
   const heatAddress = (opts.heatAddress ?? deployer).trim();
 
-  const scan = useTokenScan(token);
+  // Base is 0x-shaped, so it can only ever arrive as an explicit override;
+  // Solana is unambiguous from its base58 form and Ethereum is the default, so
+  // both are left to auto-detect rather than forced.
+  const scan = useTokenScan(token, network === 'base' ? 'base' : undefined);
   const deployerState = useDeployerReputation(deployer);
 
   const [heat, setHeat] = useState<{ status: HeatStatus; read: ComponentRead<HeatRead> }>({
@@ -152,11 +208,13 @@ export function useTerminalSafety(opts: UseTerminalSafetyOptions): TerminalSafet
       ? distributionReadFrom(scan.outcome.analysis)
       : componentUnread(SCAN_UNREAD_REASON[scan.status]);
 
-  const deployerRead: ComponentRead<DeployerRead> = !deployer
-    ? componentUnread(NO_CREATOR_LOOKUP_REASON)
-    : deployerState.status === 'success' && deployerState.reputation
-      ? deployerReadFrom(deployerState.reputation)
-      : componentUnread(DEPLOYER_UNREAD_REASON[deployerState.status]);
+  const deployerRead: ComponentRead<DeployerRead> = deployerOnChain
+    ? componentUnread(DEPLOYER_NOT_ON_THIS_CHAIN[network as Exclude<GeckoNetwork, 'eth'>])
+    : !deployer
+      ? componentUnread(NO_CREATOR_LOOKUP_REASON)
+      : deployerState.status === 'success' && deployerState.reputation
+        ? deployerReadFrom(deployerState.reputation)
+        : componentUnread(DEPLOYER_UNREAD_REASON[deployerState.status]);
 
   return {
     safety: assessRowSafety({ distribution, deployer: deployerRead, heat: heat.read }),
