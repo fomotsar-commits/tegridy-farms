@@ -308,6 +308,60 @@ async function main() {
     }
   }
 
+  // -- SELF-CHECK, and it has to live HERE rather than in vitest ---------------
+  //
+  // artSrcSet.test.ts asserts both of these properties, but only where
+  // public/_derived exists -- and in CI it does not. The "Lint, Type Check &
+  // Test" job runs `npm ci --ignore-scripts` then `vitest run`, so `prebuild`
+  // never fires and both checks take their skip branch. A guard that skips
+  // silently on every CI run is not a guard, it is a green tick.
+  //
+  // prebuild is exactly where the files DO exist: npm runs it before `build`,
+  // and `build` is the only way dist/ is produced. So a violation fails the
+  // build, on Vercel and in the Build job alike.
+  //
+  // Both properties are the same lie -- the manifest claiming something about a
+  // file that is not true of it:
+  //   MISSING  an advertised candidate with no file is a BROKEN IMAGE, because
+  //            a 404 in a srcset does not fall back to src.
+  //   LARGER   an advertised candidate bigger than its source is a REGRESSION;
+  //            a full-bleed surface picks it and downloads more than it would
+  //            have with no optimisation at all.
+  const violations = [];
+  for (const [url, entry] of Object.entries(manifest)) {
+    const natural = Array.isArray(entry) ? entry[0] : entry;
+    const widths = Array.isArray(entry) ? entry.slice(1) : WIDTHS.filter((w) => natural > w);
+    const sourcePath = join(PUBLIC_ROOT, url.slice(1));
+    let srcBytes;
+    try {
+      srcBytes = statSync(sourcePath).size;
+    } catch {
+      violations.push(`${url}: in the manifest but its source cannot be read`);
+      continue;
+    }
+    for (const w of widths) {
+      const p = join(PUBLIC_ROOT, derivedUrl(sourcePath, w).slice(1));
+      let bytes;
+      try {
+        bytes = statSync(p).size;
+      } catch {
+        violations.push(`${url}: advertises ${w}w but ${p} is missing`);
+        continue;
+      }
+      if (bytes >= srcBytes) {
+        violations.push(
+          `${url}: ${w}w is ${bytes.toLocaleString()} B for a ${srcBytes.toLocaleString()} B source`,
+        );
+      }
+    }
+  }
+  if (violations.length > 0) {
+    console.error('✖ derivative manifest does not match what is on disk:');
+    for (const v of violations.slice(0, 20)) console.error(`    ${v}`);
+    if (violations.length > 20) console.error(`    ... and ${violations.length - 20} more`);
+    throw new Error(`${violations.length} derivative manifest violation(s)`);
+  }
+
   mkdirSync(dirname(MANIFEST), { recursive: true });
   writeFileSync(MANIFEST, JSON.stringify(manifest, null, 0) + '\n');
 
