@@ -92,7 +92,7 @@ test.describe('header stays reachable at every width', () => {
       // wait for it rather than sampling a pre-mount frame — reading too early
       // is precisely how the original review mis-diagnosed this as the button
       // being absent from the accessibility tree.
-      const connect = page.locator('header').getByRole('button', { name: /connect/i }).first();
+      const connect = page.getByRole('banner').getByRole('button', { name: /connect/i }).first();
       await expect(connect).toBeVisible();
 
       // WAIT FOR THE WEBFONTS BEFORE MEASURING. The wordmark is the widest item
@@ -118,7 +118,15 @@ test.describe('header stays reachable at every width', () => {
         );
       }
 
-      const row = await page.locator('header').evaluate((el) => {
+      /* getByRole('banner'), NOT locator('header'). YieldCalculator renders a
+         nested <header> on the home route, gated on there being no connected
+         address, so between first paint and the wallet mock connecting, the
+         page holds TWO <header> elements and a bare tag selector is a
+         strict-mode violation.
+         It passed in isolation and failed in a full parallel run — the race is
+         the connect, not the markup. Only the fixed app header is a banner: a
+         <header> inside sectioning content carries no role. */
+      const row = await page.getByRole('banner').evaluate((el) => {
         const r = el.querySelector('div.flex.items-center.justify-between') ?? el.firstElementChild;
         return r ? { scroll: r.scrollWidth, client: r.clientWidth } : null;
       });
@@ -141,7 +149,7 @@ test.describe('header stays reachable at every width', () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
-      await expect(page.locator('header').getByRole('button', { name: /connect/i }).first()).toBeVisible();
+      await expect(page.getByRole('banner').getByRole('button', { name: /connect/i }).first()).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
 
       const visible = await page.locator('nav[aria-label="Main navigation"]').evaluateAll((els) =>
