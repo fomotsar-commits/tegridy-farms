@@ -670,6 +670,11 @@ tegriddy-farms/
 | [docs/SWAP_REVENUE_ARCHITECTURE.md](docs/SWAP_REVENUE_ARCHITECTURE.md) | Swap/liquidity revenue design |
 | [docs/SOLANA_FEE_CAPTURE_PLAN.md](docs/SOLANA_FEE_CAPTURE_PLAN.md) | Solana fee-capture strategy |
 | [docs/LAUNCHPAD_GUIDE.md](docs/LAUNCHPAD_GUIDE.md) | Creator walkthrough for the NFT launchpad |
+| [docs/TODO_OPERATOR.md](docs/TODO_OPERATOR.md) | **Start here.** The single operator entry point — every remaining item with its commands, expected results, and what a mismatch means |
+| [docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md](docs/ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md) | The island build-out: thirteen bungalows, staking on every chain |
+| [docs/ISLAND_ROSTER_DOSSIER.md](docs/ISLAND_ROSTER_DOSSIER.md) | Per-bungalow market reads, including the honest dark ones |
+| [docs/BAYLA_LIQUID_LIGHTHOUSE_DESIGN.md](docs/BAYLA_LIQUID_LIGHTHOUSE_DESIGN.md) | The liquid-wrapper design, and the gate for building it |
+| [docs/CONSOLIDATION_2026_08_28.md](docs/CONSOLIDATION_2026_08_28.md) | What merged on 08-28, and what deliberately did not |
 
 ---
 
@@ -677,7 +682,13 @@ tegriddy-farms/
 
 Tegridy Farms treats its own custom code as a known-risk attack surface: the standing mandate is **minimal surface, copy verbatim from battle-tested protocols** (OpenZeppelin, Uniswap V2/V4, Curve, Aave V3, Synthetix, Gondi, Solady, Raydium), and only conservative tweaks on top.
 
-- **Internal adversarial audits are continuous.** The protocol has been through many waves of multi-agent adversarial review (find → independent refute-by-default verify), most recently the **2026-07-16 gated-batch pre-deploy waves** — each deployed contract cleared a fresh audit — plus a dedicated **TegridyLending pre-deploy re-audit** (0 Critical/High/Medium/Low). Findings that could be expressed as a regression test have one. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
+- **Internal adversarial audits are continuous**, and every wave runs find → *independent refute-by-default* verify, because a finder grading its own findings is not a second opinion. Recent waves, all on the record:
+  - **2026-08-15** — the launch program, six lanes over `tegridy-launch` and the cp-swap fork diff: **43 findings, 0 critical**, 16 confirmed / 3 refuted on verify. It also established that both Solana program ids are closed.
+  - **2026-08-22 → 08-25** — the Slither triage. A first pass cleared 54 of 56 findings as false positives and recommended eighteen suppressions; **the adversarial pass rejected twelve of those verdicts**, including all three fee-router HIGH reentrancy findings it had argued down hardest. Those twelve were fixed, not suppressed.
+  - **2026-08-28** — a frontend audit ([#340](https://github.com/fomotsar-commits/tegridy-farms/pull/340)): 53 verified, 46 fixed.
+  - **2026-08-30** — a 45-agent island gap scan, which caught a shipped EIP-55 defect within the hour of it landing.
+  - **2026-09-03** — a four-lane review sweep (53 findings survived verification; 50 fixed, 3 declined with reasons) and an external field review of the live site (**20 findings, 9 of them misdiagnosed**).
+  Findings that can be expressed as a regression test have one, and a test only counts once it has been shown to **fail on the pre-fix code**. Historical artifacts are indexed in [`AUDITS.md`](AUDITS.md) and [`FIX_STATUS.md`](FIX_STATUS.md).
 - **One external review** (Spartan, [`SPARTAN_AUDIT.txt`](SPARTAN_AUDIT.txt)) has been done.
 - **No professional-firm audit yet.** A paid review (OpenZeppelin / Trail of Bits / Spearbit / Cyfrin / Code4rena) is on the roadmap and **not yet scheduled**. Gated surfaces each get a dedicated audit wave before they deploy.
 - **Responsible disclosure:** see [`SECURITY.md`](SECURITY.md). Please don't file security reports as public issues.
