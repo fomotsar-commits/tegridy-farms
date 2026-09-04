@@ -18,8 +18,13 @@ permissions:
   contents: read
 
 concurrency:
+  # PRs cancel their own superseded runs; TRUNK RUNS MUST FINISH. On a push to
+  # main/mvp-launch every merge shares one group, so cancel-in-progress:true made
+  # each merge kill the previous run -- and trunk is the branch that deploys.
+  # Measured 2026-09-04: six consecutive trunk commits with 5-9 cancelled checks
+  # each and as few as 0 successes. Cancelled is not red, so it reads as fine.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ── which jobs are in scope for this diff ──────────────────────────────────

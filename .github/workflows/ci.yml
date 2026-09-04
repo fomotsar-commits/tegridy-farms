@@ -12,8 +12,33 @@ permissions:
   contents: read
 
 concurrency:
+  # PRs CANCEL THEIR SUPERSEDED RUNS; TRUNK RUNS MUST FINISH.
+  #
+  # The group is per-ref, so every push to main/mvp-launch lands in the SAME
+  # group. With cancel-in-progress:true that meant each merge killed the run
+  # started by the merge before it -- on the one branch that deploys to
+  # production.
+  #
+  # Measured on trunk 2026-09-04, immediately after a burst of dependabot
+  # merges:
+  #     9b128dc2 (#389)  9 checks, 9 cancelled, 0 success
+  #     83b69ad6 (#388)  5 checks, 5 cancelled, 0 success
+  #     3 dependabot bumps   9 checks, 5 cancelled each
+  # Six consecutive commits reached production without a completed trunk run.
+  # Each had been green as a PR, so what went unverified was the COMBINATION,
+  # which is precisely what a trunk run is for.
+  #
+  # Cancelled is not red. The branch protection UI shows no failures and the
+  # commit list looks clean, which is why this survived several rounds of
+  # "trunk is green".
+  #
+  # The saving that cancel-in-progress exists for is real but belongs to PRs,
+  # where pushing a fixup should abandon the previous run. `github.event_name`
+  # is 'pull_request' there and 'push' on trunk, and the expression yields a
+  # literal true/false -- never the empty string that silently invalidates a
+  # workflow file.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-typecheck-test:
