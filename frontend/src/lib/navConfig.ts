@@ -188,6 +188,23 @@ export interface NavSection {
    * A section with no `hub` renders the old way: heading, then one row per item.
    */
   hub?: string;
+
+  /**
+   * THIS SECTION IS ALREADY IN THE TOP BAR (2026-09-04). When set, the "More"
+   * menu renders NOTHING for this section — no heading, no rows — because its
+   * destination is one click away in PRIMARY_NAV and repeating it in the
+   * dropdown is pure noise. The items are not dropped: they become the tab
+   * strip on that primary page, exactly as a `hub` section's items do.
+   *
+   * WHY THIS IS NOT JUST `hub`. A `hub` section still costs one dropdown row.
+   * Trade does not deserve even that: "Trade" sits in the top bar at every
+   * width, so a "Trade" row in the menu underneath it is the same link twice.
+   *
+   * NOTE THE ITEMS STAY SECONDARY. The primary page's own entry is NOT added
+   * here — PRIMARY_NAV already owns that path, and ALL_NAV asserts no path
+   * appears twice. The host composes [primary entry, ...items] for its strip.
+   */
+  inPrimaryNav?: boolean;
 }
 
 /**
@@ -249,6 +266,13 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Trade',
+    // HIDDEN FROM THE MENU 2026-09-04, not deleted. "Trade" is in PRIMARY_NAV at
+    // every width, so a Trade heading with two rows under it in the dropdown was
+    // the top bar repeated. These two become tabs on the trade page instead —
+    // TradeHostPage composes them with the primary entry. Solana was already
+    // reachable there via ChainSwitch; /pools was the one that would have been
+    // orphaned, which is why it is in the strip and not merely delisted.
+    inPrimaryNav: true,
     items: [
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
       // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
@@ -595,6 +619,17 @@ export const LAUNCH_SECTION = requireSection('Launch');
 export const EARN_SECTION = requireSection('Earn');
 export const STATS_SECTION = requireSection('Stats');
 export const TRUST_SECTION = requireSection('Trust & Safety');
+
+/** Trade's two secondary destinations. Its own page is in PRIMARY_NAV, so this
+ *  section renders no menu row at all — see `inPrimaryNav` on NavSection. */
+export const TRADE_SECTION = requireSection('Trade');
+
+/**
+ * What the "More" menu actually renders. MORE_NAV_SECTIONS stays the complete
+ * set — every completeness assertion, MORE_NAV and ALL_NAV all still see Trade's
+ * items — while the menu itself drops the sections the top bar already covers.
+ */
+export const MENU_NAV_SECTIONS: NavSection[] = MORE_NAV_SECTIONS.filter((s) => !s.inPrimaryNav);
 
 /** Flat list of every "More" item — used by the mobile drawer. */
 export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);

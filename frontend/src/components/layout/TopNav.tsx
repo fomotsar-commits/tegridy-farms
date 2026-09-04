@@ -3,7 +3,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
+import { PRIMARY_NAV, MORE_NAV, MENU_NAV_SECTIONS } from '../../lib/navConfig';
 import type { NavItem, NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
@@ -64,7 +64,7 @@ function SectionChevron() {
  * last expanded group and read as more of its links. -1 when nothing is
  * collapsed, which draws no rule at all.
  */
-const FIRST_HUB_INDEX = MORE_NAV_SECTIONS.findIndex((s) => !!s.hub);
+const FIRST_HUB_INDEX = MENU_NAV_SECTIONS.findIndex((s) => !!s.hub);
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -432,7 +432,7 @@ export const TopNav = React.memo(function TopNav() {
                         reason this is a rendering change — a destination cannot be
                         lost from the menu without also vanishing from its host's tab
                         bar, because there is one list, not two. */}
-                    {MORE_NAV_SECTIONS.map((section, si) => (
+                    {MENU_NAV_SECTIONS.map((section, si) => (
                       <div
                         key={section.heading}
                         className={`px-2 ${si === FIRST_HUB_INDEX ? 'mt-1 pt-1.5 border-t border-white/10' : ''}`}
@@ -633,7 +633,7 @@ export const TopNav = React.memo(function TopNav() {
                     BottomNav, so the drawer is just the secondary overflow. */}
 {/* Mirrors the desktop dropdown exactly, collapsed sections and
                     all — same array, same `hub` test. See the comment there. */}
-                {MORE_NAV_SECTIONS.map((section, si) => (
+                {MENU_NAV_SECTIONS.map((section, si) => (
                   <div
                     key={section.heading}
                     className={`mb-3 ${si === FIRST_HUB_INDEX ? 'pt-2 border-t border-white/10' : ''}`}

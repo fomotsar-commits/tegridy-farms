@@ -18,7 +18,6 @@ import { BungalowDoor } from './components/bungalow/BungalowDoor';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
-const TradePage = lazy(() => import('./pages/TradePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const GalleryPage = lazy(() => import('./pages/GalleryPage'));
 // HistoryPage, LeaderboardPage, PremiumPage, ChangelogPage merged into ActivityPage (tabs)
@@ -65,17 +64,15 @@ const TrustPage = lazy(() => import('./pages/TrustPage'));
 const EarnPage = lazy(() => import('./pages/EarnPage'));
 const StatsPage = lazy(() => import('./pages/StatsPage'));
 const LaunchHubPage = lazy(() => import('./pages/LaunchHubPage'));
+const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
 // Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
 // from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
 // so neither the price list nor the signup can claim what is not configured.
 const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
-// Solana fee-capture surface (Surface A). Lazy so the @solana/* deps load only
-// with this chunk — never the main bundle / EVM surface.
-const SolanaSwapPage = lazy(() => import('./pages/SolanaSwapPage'));
-// The venue's own Solana AMM: what its pools charge, what an LP keeps, and a
-// LIVE probe of whether the program is actually deployed. Lazy for the same
-// reason as the swap — @solana/* only loads when a Solana surface is opened.
-const PoolsPage = lazy(() => import('./pages/PoolsPage'));
+// TradePage, SolanaSwapPage and PoolsPage are now lazy-imported by
+// TradeHostPage, which owns all four trade routes. They stay lazy for the same
+// reason they always were: @solana/* must load with those chunks and never with
+// the main bundle or the EVM surface. The dist-graph gate pins that.
 // Permanent per-token record at /eth-curve/:token — the shareable page a curve
 // creator hands out and the launches grid links into.
 const CurveTokenPage = lazy(() => import('./pages/CurveTokenPage'));
@@ -302,10 +299,19 @@ function AnimatedRoutes() {
           />
         ))}
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
-        <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
-        <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradePage /></Suspense>} />
-        <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><SolanaSwapPage /></Suspense>} />
-        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsPage /></Suspense>} />
+        {/* TRADE IS A TABBED HOST 2026-09-04. These four routes all render
+            TradeHostPage, which puts one strip above them — Ethereum / Solana /
+            Pools. "Trade" is in the top bar at every width, so the "More" menu
+            no longer carries a Trade heading with these underneath it; the menu
+            was repeating the bar it sits below. Every path still renders its own
+            page standalone from a deep link, exactly as before.
+            /liquidity is not in the strip on purpose: it is TradePage's own
+            `?tab=liquidity` under an older URL, so it lands on Ethereum and
+            TradePage opens the right inner tab. */}
+        <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
         {/* /solana-launch (Meteora DBC) was REMOVED 2026-08-23 — it graduated into a
             pool this protocol does not own. /curve-launch below is the surviving Solana
             launch rail. No redirect is added on purpose: the route is gone, so the SPA
