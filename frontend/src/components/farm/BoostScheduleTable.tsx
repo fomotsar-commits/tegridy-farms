@@ -23,15 +23,23 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
         <h3 className="heading-luxury text-white text-[20px] mb-5" id="boost-schedule-heading">Boost Schedule</h3>
         <p className="text-white text-[12px] mb-4">Lock longer = higher boost + more voting power. JBAC NFT holders get +0.5x bonus.</p>
 
-        {/* Desktop / tablet: flex-table layout with horizontal scroll fallback. Hidden below 480px. */}
-        <div className="hidden max-[480px]:hidden min-[481px]:block space-y-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0" role="table" aria-labelledby="boost-schedule-heading">
-          <div className="min-w-[320px]">
+        {/* Desktop / tablet: flex-table layout with horizontal scroll fallback. Hidden below 480px.
+            A11Y-R06: this used to declare role="table" over role="row" divs that
+            contained no role="cell" at all — an invalid structure (axe
+            aria-required-children), so a screen reader was told "table" and then
+            found it empty — and it put aria-selected on a row, which is only
+            valid inside a grid/treegrid (aria-allowed-attr). The mobile branch
+            50 lines below already had the honest answer for the same data: a
+            list with aria-current. Both breakpoints now say the same thing;
+            only the visual layout still differs. */}
+        <div className="hidden max-[480px]:hidden min-[481px]:block space-y-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <ul className="min-w-[320px] list-none p-0 m-0" aria-labelledby="boost-schedule-heading">
           {LOCK_OPTIONS.map((opt) => {
             const b = calculateBoost(opt.seconds);
             const withNft = b + JBAC_BONUS_BPS;
             const isSelected = selectedLockLabel === opt.label;
             return (
-              <div key={opt.label} role="row" aria-selected={isSelected}
+              <li key={opt.label} aria-current={isSelected ? 'true' : undefined}
                 className="flex items-center justify-between rounded-lg px-3 sm:px-4 py-2 sm:py-2.5 mb-1.5"
                 style={{
                   background: isSelected ? 'var(--color-purple-75)' : 'rgba(0,0,0,0.50)',
@@ -43,10 +51,10 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
                   {baseApr > 0 && <span className="text-emerald-400 text-[10px] sm:text-[11px] font-mono">{(baseApr * b / 10000).toFixed(1)}% APR</span>}
                   {baseApr === 0 && <span className="text-[10px] sm:text-[11px]" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>({(withNft / 10000).toFixed(2)}x w/NFT)</span>}
                 </div>
-              </div>
+              </li>
             );
           })}
-          </div>
+          </ul>
         </div>
 
         {/* Mobile (<=480px): semantic card list. Drops role="table" in favor of <ul>/<li>. */}

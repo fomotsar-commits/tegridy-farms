@@ -1,10 +1,10 @@
 // THE CATALOGUE'S TWO PROMISES, pinned.
 //
-// First: nothing here routes. Every deposit target is the zero address, so the
-// page compares and cannot deposit — and the assertion is written as a CONCRETE
-// value read out of the table rather than as `expect(routable).toBe(routable)`,
-// which would pass for any implementation including one that wired a live
-// address. Wiring a destination is meant to break this file first.
+// First: exactly the verified rows route, and every other row says why it does
+// not. The routable set is written out as a CONCRETE list rather than as
+// `expect(routable).toBe(routable)`, which would pass for any implementation —
+// including one that wired an address nobody verified. Adding or dropping a
+// destination is meant to break this file first.
 //
 // Second: every row can say whose risk the depositor is taking. A yield table
 // whose rate column is populated and whose counterparty column is not is the
@@ -25,30 +25,69 @@ describe('the catalogue is a comparison, not a router', () => {
     expect(yieldVenues().length).toBeGreaterThan(4);
   });
 
-  it('carries no deposit address on any row', () => {
-    for (const venue of yieldVenues()) {
-      expect(venue.depositTarget, `${venue.id} has a wired deposit target`).toBe(
+  it('routes exactly the venues whose deposit path was verified on-chain', () => {
+    expect(routableYieldVenues().map((v) => v.id)).toEqual([
+      'lido-steth',
+      'rocketpool-reth',
+      'etherfi-weeth',
+      'renzo-ezeth',
+      'aave-v3-usdc',
+      'compound-v3-usdc',
+      'sky-susds',
+    ]);
+  });
+
+  it('requires BOTH an address and a route before it calls a row routable', () => {
+    // Either half alone is a lie: an address with no route renders an enabled
+    // button with nothing behind it, and a route with no address is a call to
+    // nowhere.
+    for (const venue of routableYieldVenues()) {
+      expect(venue.route.kind, `${venue.id} is routable with no route`).not.toBe('none');
+      expect(venue.depositTarget, `${venue.id} is routable with no address`).not.toBe(
         '0x0000000000000000000000000000000000000000',
       );
+      expect(venue.depositTarget).toMatch(/^0x[0-9a-fA-F]{40}$/);
     }
   });
 
-  it('reports every row unroutable, with a reason a reader can act on', () => {
+  it('keeps cbETH as a comparison for a reason no operator can wire away', () => {
+    // The generic "this build carries no deposit address" sentence would tell a
+    // reader an operator could fix this. Nobody can: there is no public mint.
+    const availability = yieldVenueAvailability('coinbase-cbeth');
+    expect(availability!.routable).toBe(false);
+    const refused = availability as Extract<YieldVenueAvailability, { routable: false }>;
+    expect(refused.reason).toMatch(/Coinbase/);
+    expect(refused.reason).toMatch(/no public contract/);
+    expect(refused.reason).not.toMatch(/carries no deposit address/);
+    expect(refused.venue.id).toBe('coinbase-cbeth');
+  });
+
+  it('keeps the venue attached to every refusal, so the comparison survives the gate', () => {
     for (const venue of yieldVenues()) {
       const availability = yieldVenueAvailability(venue.id);
       expect(availability, `${venue.id} is missing from availability`).not.toBeNull();
-      expect(availability!.routable, `${venue.id} claims to be routable`).toBe(false);
+      if (availability!.routable) continue;
       const refused = availability as Extract<YieldVenueAvailability, { routable: false }>;
-      // The venue travels WITH the refusal: the row still renders its
-      // counterparty and its risk note, so the comparison survives the gate.
       expect(refused.venue.id).toBe(venue.id);
       expect(refused.reason.length).toBeGreaterThan(40);
     }
   });
 
-  it('agrees with itself: nothing routable, so the nav pill stays on', () => {
-    expect(routableYieldVenues()).toEqual([]);
-    expect(hasRoutableYieldVenue()).toBe(false);
+  it('agrees with itself: something routes, so the nav pill comes off', () => {
+    expect(routableYieldVenues().length).toBeGreaterThan(0);
+    expect(hasRoutableYieldVenue()).toBe(true);
+  });
+
+  it('names the moving asset and the receipt token on every button, and never says "Route"', () => {
+    // "Route into stETH" told a visitor nothing about what leaves their wallet.
+    for (const venue of routableYieldVenues()) {
+      const route = venue.route;
+      if (route.kind === 'none') throw new Error('unreachable');
+      const moving = route.kind === 'erc20-supply' ? route.asset.symbol : 'ETH';
+      expect(route.cta, `${venue.id} does not name the asset that moves`).toContain(moving);
+      expect(route.cta, `${venue.id} does not name its receipt token`).toContain(venue.symbol);
+      expect(route.cta, `${venue.id} still says "Route"`).not.toMatch(/Route/);
+    }
   });
 });
 

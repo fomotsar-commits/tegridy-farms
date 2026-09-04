@@ -59,14 +59,18 @@ const WalletExposurePage = lazy(() => import('./pages/WalletExposurePage'));
 const DeployerPage = lazy(() => import('./pages/DeployerPage'));
 // Thin hub that frames the three detection surfaces above as one anti-rug suite.
 const TrustHubPage = lazy(() => import('./pages/TrustHubPage'));
-// The same detection stack pointed at a discovery feed: pairs from the F1 indexer,
-// each row carrying its safety read or an explicit statement that it has none.
+// The same detection stack pointed at a discovery feed, each row carrying its safety
+// read or an explicit statement that it has none. The rows themselves are a
+// browser-direct read of GeckoTerminal's market-wide pool feed on an origin the CSP
+// already allows, so the page works on every deployment with no env var and no operator
+// step. VITE_INDEXER_URL is optional here and decides only whether the venue's own
+// "Venue pairs" tab appears beside that feed.
 const TerminalPage = lazy(() => import('./pages/TerminalPage'));
-// Alert rules over the same subjects (token / wallet / deployer), pushed instead of
-// pulled. NOT flag-gated: the rule store lives behind a migration an operator applies
-// by hand, so until `016_alert_rules.sql` lands every alerts call answers 503
-// `schema-missing` and the panels print that with the operator step attached. Routing it
-// while it says so is the point — a flag here would hide the one honest state it has.
+// Alert rules over the same subjects (token / wallet / deployer / pool), pushed instead
+// of pulled. NOT flag-gated and no longer gated at all: the rule store is this browser's
+// own localStorage, so the page works with no wallet, no session and no migration. Each
+// panel still prints its own honest state — a rule whose source is dark says so at pick
+// time, and a write that did not reach storage is a warning on a form that still works.
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 // Referral links, the staking threshold that decides whether sharing one earns
 // anything at all, and the on-chain claim. NOT flag-gated and not pilled: the
@@ -125,44 +129,51 @@ const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow
 // and its refusal states, and each venue reports its own availability from constants.ts.
 // Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
 const ZapPage = lazy(() => import('./components/zap/ZapPage'));
-// Copy trading (#7) and trading competitions (#50). Both are read-only views over
-// the F1 indexer, so with VITE_INDEXER_URL unset every panel renders its own
-// "could not be read" state and no table is drawn. NOT flag-gated, and routing them
-// while they say that is the point: the copy page's honesty (no wallet is ranked by
-// profit, nothing executes for you) and the competition page's (no prize, no
-// settlement, self-reversals struck) are the product, and a flag would hide the
-// only states they can currently be in.
+// Copy trading (#7) and trading competitions (#50). Both read the ISLAND TAPE —
+// GeckoTerminal's pool-trade feed for the registry's resident pools plus the venue's
+// own TOWELI/WETH pool — so neither needs an env var, a key or a proxy. NOT flag-gated,
+// and the refusals rather than the feed are what make routing them right: no wallet on
+// either board carries a profit figure (a pool fill is one leg of a trade), nothing
+// executes for you because this venue runs no keeper, and no season pays or settles.
+// A read that fails is named by each page's own ledger, not flattened into an empty table.
 const CopyTradingPage = lazy(() => import('./pages/CopyTradingPage'));
 const CompetitionsPage = lazy(() => import('./pages/CompetitionsPage'));
-// Pro charting (#47). Candles built in-browser from indexed TegridyPair swaps by a
-// dependency-free SVG renderer — no charting library, no price oracle. NOT gated by a
-// flag: the whole page hangs off the F1 indexer, so with VITE_INDEXER_URL unset it
-// renders the unavailable banner and NO PLOT. A blank plot area with an axis on it
-// reads as a pool that did not trade, which is the one thing it must never say.
-// Lives under components/chart/ with the renderer it mounts, as ZapPage does.
+// Pro charting (#47). Candles from GeckoTerminal's OHLCV feed, drawn by a
+// dependency-free SVG renderer — no charting library, no price oracle. The pool list is
+// a registry read, so the picker is fully rendered even when the feed cannot be reached,
+// and a timeframe that returned nothing draws NO PLOT: a blank plot area with an axis on
+// it reads as a pool that did not trade, which is the one thing it must never say. Not
+// flag-gated. VITE_INDEXER_URL adds the venue's own indexed-swap panel when set and
+// changes nothing else. Lives under components/chart/ with the renderer it mounts, as
+// ZapPage does.
 const ChartPage = lazy(() => import('./components/chart/ChartPage'));
 // Yield routing (#32 / #21 / #34) — a comparison of THIRD-PARTY liquid staking and
-// stablecoin lending venues. Tegridy issues nothing here and there is no contract:
-// every deposit address in lib/yield/venues.ts is unwired, so the page compares and
-// its route controls are disabled with the reason attached. Not flag-gated, because
-// the comparison and the counterparty disclosures are the product while the routing
-// is dark, and a flag would hide the one honest state it has.
+// stablecoin lending venues. This venue issues nothing here and deploys no contract:
+// every figure is read live from Ethereum mainnet over the public RPC roster, and each
+// route sends the deposit straight to that protocol's own permissionless entry function
+// in lib/yield/venues.ts. Not flag-gated. The counterparty disclosures and the
+// structural refusals (a venue with no on-chain growth rate, or no market leg, says so)
+// are as much the product as the routing.
 const YieldPage = lazy(() => import('./pages/YieldPage'));
 // Merchant checkout + recurring billing (#68 / #69). NOT flag-gated, because the
 // states it can be in are the product: the buyer is shown the exact amount and the
 // exact settlement asset before signing, and no signature is offered at all when the
 // route cannot guarantee the merchant's exact amount. Non-custodial by construction —
 // both legs are signed in the buyer's own wallet with the merchant as the direct
-// recipient, and api/_lib/commerce.js holds no key. The invoice store sits behind
-// `021_commerce.sql`, applied by hand, so until then every lookup answers 503
-// `schema-missing` and the widget prints that rather than "no such invoice".
+// recipient, and api/_lib/commerce.js holds no key. The invoice itself needs no server:
+// it is an EIP-712 document the merchant signs and carries in the link's `#i=` fragment,
+// which the buyer's browser verifies against the merchant address. `021_commerce.sql`
+// still gates only the optional short `?invoice=` form, and that lookup answers 503
+// `schema-missing` rather than "no such invoice" until an operator applies it.
 const CheckoutPage = lazy(() => import('./pages/CheckoutPage'));
-// Capital-gains and income reports (#71). Read-only over the F1 indexer, so with
-// VITE_INDEXER_URL unset the whole requested period is a declared GAP on the export
-// itself — not an omission and not an empty year. The cost-basis method is selected by
-// the filer and stamped on every file, because FIFO and specific identification are
-// different numbers and an unlabelled report cannot be reproduced. Every surface states
-// it is not tax advice.
+// Capital-gains and income reports (#71). Ethereum-mainnet history is read through
+// /api/etherscan — a same-origin function that ships with every deployment of this repo
+// — so a report is built from real history rather than from a whole-period gap; the
+// F1 indexer is optional enrichment now. A period the ledger could not read is still a
+// declared GAP on the export itself, never an omission and never an empty year. The
+// cost-basis method is selected by the filer and stamped on every file, because FIFO and
+// specific identification are different numbers and an unlabelled report cannot be
+// reproduced. Every surface states it is not tax advice.
 const TaxPage = lazy(() => import('./pages/TaxPage'));
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)

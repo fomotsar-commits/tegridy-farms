@@ -6,7 +6,12 @@ import {
   type FollowConfig,
   type FollowValidation,
 } from '../../lib/copytrade/follows';
-import { DEFAULT_QUOTE_TOKEN, QUOTE_TOKENS, formatQuoteAmount, parseQuoteAmount } from '../../lib/copytrade/quoteTokens';
+import {
+  formatQuoteAmount,
+  parseQuoteAmount,
+  quoteTokensForFamily,
+} from '../../lib/copytrade/quoteTokens';
+import type { PoolFamily } from '../../lib/copytrade/tape';
 import { MIRROR_EXECUTION } from '../../lib/copytrade/mirror';
 import { shortenAddress } from '../../lib/formatting';
 
@@ -21,6 +26,14 @@ import { shortenAddress } from '../../lib/formatting';
 // `MIRROR_EXECUTION` is rendered above the button rather than in a footnote.
 // "Follow" is a word that implies an automaton, and the honest correction has to
 // arrive before the click, not after it.
+//
+// ─── THE VENUE IS A CONTROL, NOT AN INFERENCE ────────────────────────────────
+//
+// The island spans Ethereum, Base and Solana, and the quote token list is
+// per-chain: WETH on Ethereum and WETH on Base are different contracts. The venue
+// is chosen explicitly and the token list follows it, so a cap can never be
+// entered against a chain the address does not live on — the failure that would
+// otherwise sit in the list looking like a working follow and never match a fill.
 
 export interface FollowFormProps {
   follows: readonly FollowConfig[];
@@ -32,7 +45,11 @@ export interface FollowFormProps {
    */
   leader: string;
   onLeaderChange: (value: string) => void;
+  /** Also controlled, so "Use address" can pick the row's own chain family. */
+  venue: PoolFamily;
+  onVenueChange: (venue: PoolFamily) => void;
   onAdd: (input: {
+    venue: PoolFamily;
     leader: string;
     quoteToken: string;
     maxNotionalWei: bigint;
@@ -44,25 +61,42 @@ export interface FollowFormProps {
 
 const DEFAULT_SLIPPAGE_BPS = 100;
 
+const VENUE_LABEL: Record<PoolFamily, string> = {
+  evm: 'Ethereum / Base (0x address)',
+  solana: 'Solana (base58 address)',
+};
+
 export function FollowForm({
   follows,
   account,
   leader,
   onLeaderChange,
+  venue,
+  onVenueChange,
   onAdd,
   onRemove,
   persistError,
 }: FollowFormProps) {
-  const [quoteToken, setQuoteToken] = useState(DEFAULT_QUOTE_TOKEN.address);
+  const options = quoteTokensForFamily(venue);
+  const fallback = options[0];
+  const [quoteToken, setQuoteToken] = useState<string | null>(null);
   const [cap, setCap] = useState('');
   const [slippage, setSlippage] = useState(String(DEFAULT_SLIPPAGE_BPS));
   const [error, setError] = useState<string | null>(null);
+
+  // The selected token has to belong to the selected venue. Rather than syncing
+  // two pieces of state in an effect, the selection is DERIVED: a token that is
+  // not on this venue's list falls back to the venue's first, so switching venue
+  // can never leave a Solana cap attached to an Ethereum follow.
+  const selected = options.some((t) => t.address === quoteToken) && quoteToken !== null
+    ? quoteToken
+    : (fallback ? fallback.address : '');
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
 
-    const maxNotionalWei = parseQuoteAmount(cap, quoteToken);
+    const maxNotionalWei = parseQuoteAmount(cap, selected);
     if (maxNotionalWei === null) {
       setError(
         'The per-trade cap must be a plain decimal amount with no more places than the token has. Nothing was saved.',
@@ -70,7 +104,7 @@ export function FollowForm({
       return;
     }
     const slippageBps = Number(slippage);
-    const result = onAdd({ leader: leader.trim(), quoteToken, maxNotionalWei, slippageBps });
+    const result = onAdd({ venue, leader: leader.trim(), quoteToken: selected, maxNotionalWei, slippageBps });
     if (!result.ok) {
       setError(FOLLOW_REJECTION_TEXT[result.reason]);
       return;
@@ -81,22 +115,41 @@ export function FollowForm({
 
   return (
     <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
-      <h2 className="text-sm font-semibold text-white">Follow a wallet</h2>
+      <h2 className="text-sm font-semibold text-white">Follow an address</h2>
       <p className="mt-1.5 text-xs leading-relaxed text-white/70">{MIRROR_EXECUTION}</p>
 
       <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
-        <div className="sm:col-span-2">
+        <div>
+          <label htmlFor="copy-venue" className="block text-[11px] font-medium uppercase tracking-wide text-white/60">
+            Venue
+          </label>
+          <select
+            id="copy-venue"
+            value={venue}
+            onChange={(e) => onVenueChange(e.target.value === 'solana' ? 'solana' : 'evm')}
+            className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
+          >
+            <option value="evm">{VENUE_LABEL.evm}</option>
+            <option value="solana">{VENUE_LABEL.solana}</option>
+          </select>
+        </div>
+
+        <div>
           <label htmlFor="copy-leader" className="block text-[11px] font-medium uppercase tracking-wide text-white/60">
-            Leader address
+            Address to follow
           </label>
           <input
             id="copy-leader"
             value={leader}
             onChange={(e) => onLeaderChange(e.target.value)}
-            placeholder="0x…"
+            placeholder={venue === 'solana' ? 'base58 address…' : '0x…'}
             spellCheck={false}
-            className="mt-1 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 font-mono text-xs text-white"
+            className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 font-mono text-xs text-white"
           />
+          <p className="mt-1 text-[10px] leading-snug text-white/55">
+            Addresses on the board are the ones that SENT each transaction. A bot or a relayer
+            appears under its own address, so following one follows the sender, not a person.
+          </p>
         </div>
 
         <div>
@@ -105,19 +158,20 @@ export function FollowForm({
           </label>
           <select
             id="copy-quote"
-            value={quoteToken}
+            value={selected}
             onChange={(e) => setQuoteToken(e.target.value)}
-            className="mt-1 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
+            className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
           >
-            {QUOTE_TOKENS.map((token) => (
+            {options.map((token) => (
               <option key={token.address} value={token.address}>
-                {token.symbol}
+                {token.label}
               </option>
             ))}
           </select>
           <p className="mt-1 text-[10px] leading-snug text-white/55">
-            Only trades that SPEND this token are mirrored. A leader selling into something else is
-            shown and refused rather than converted — the indexer stores no price to convert with.
+            Only fills that SPEND this token in a pool quoted in it are sized. A fill on another
+            chain, or against another quote asset, is shown and refused rather than converted —
+            there is no price here to convert with.
           </p>
         </div>
 
@@ -131,7 +185,7 @@ export function FollowForm({
             onChange={(e) => setCap(e.target.value)}
             inputMode="decimal"
             placeholder="0.05"
-            className="mt-1 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
+            className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
           />
           <p className="mt-1 text-[10px] leading-snug text-white/55">
             A mirror is sized at the smaller of the leader's amount and this. It never scales up to
@@ -148,7 +202,7 @@ export function FollowForm({
             value={slippage}
             onChange={(e) => setSlippage(e.target.value)}
             inputMode="numeric"
-            className="mt-1 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
+            className="mt-1 min-h-11 w-full rounded-md border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs text-white"
           />
           <p className="mt-1 text-[10px] leading-snug text-white/55">
             {MIN_SLIPPAGE_BPS}–{MAX_SLIPPAGE_BPS} bps. Applied to a live quote when you confirm, not
@@ -156,8 +210,8 @@ export function FollowForm({
           </p>
         </div>
 
-        <div className="sm:col-span-2 flex items-center gap-3">
-          <button type="submit" className="btn-primary px-4 py-2 text-[13px]">
+        <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
+          <button type="submit" className="btn-primary min-h-11 px-4 py-2 text-[13px]">
             Save follow
           </button>
           {account ? null : (
@@ -177,7 +231,7 @@ export function FollowForm({
       {persistError ? <p className="mt-2 text-[11px] text-amber-200">{persistError}</p> : null}
 
       <h3 className="mt-5 text-[11px] font-medium uppercase tracking-wide text-white/60">
-        Followed wallets ({follows.length})
+        Followed addresses ({follows.length})
       </h3>
       {follows.length === 0 ? (
         <p className="mt-2 text-xs text-white/70">
@@ -200,7 +254,7 @@ export function FollowForm({
               <button
                 type="button"
                 onClick={() => onRemove(follow.leader, follow.quoteToken)}
-                className="rounded-md border border-white/25 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-white/10"
+                className="min-h-11 min-w-11 rounded-md border border-white/25 px-3 py-1 text-[11px] font-medium text-white hover:bg-white/10"
               >
                 Unfollow
               </button>

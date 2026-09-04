@@ -16,6 +16,10 @@ const OUT = '0x2222222222222222222222222222222222222222';
 const NOW = 1_780_000_000;
 
 const follow: FollowConfig = {
+  // planMirror itself never reads the venue - it matches on leader and quote
+  // token - but a follow now carries one, and LEADER and QUOTE are hex
+  // addresses, so the only venue this fixture can honestly claim is 'evm'.
+  venue: 'evm',
   leader: LEADER,
   quoteToken: QUOTE,
   maxNotionalWei: 10n ** 17n, // 0.1

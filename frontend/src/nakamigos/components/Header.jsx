@@ -431,11 +431,13 @@ export default memo(function Header({
     <header className="header" role="banner">
       <div className="header-inner">
         <div className="header-logo" style={{ cursor: "pointer", gap: 14, display: "flex", alignItems: "center" }}>
-          {/* Back to Tegridy Farms */}
+          {/* Back to the venue. The brand word was retired 2026-08-31; this
+              link was the marketplace's only exit and still announced the old
+              name as the site's identity to screen readers and on hover. */}
           <a
             href="/"
-            title="Back to Tegridy Farms"
-            aria-label="Back to Tegridy Farms"
+            title="Back to memetics.finance"
+            aria-label="Back to memetics.finance"
             style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "6px 12px", borderRadius: 8,
@@ -450,7 +452,7 @@ export default memo(function Header({
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            Tegridy
+            memetics
           </a>
           {!isLanding && (
             <button

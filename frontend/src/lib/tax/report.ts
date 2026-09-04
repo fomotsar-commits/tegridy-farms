@@ -15,7 +15,7 @@
 //   2. Every total carries a `complete` flag, false whenever a row was excluded
 //      for having an unknown figure. An unknown is never summed as zero.
 
-import { computeCoverage, type Coverage, type CoverageInput } from './coverage';
+import { computeCoverageUnion, type Coverage, type CoverageInput } from './coverage';
 import { mergeEventSets, withinPeriod, type AdapterLimitation, type IncomeEvent, type InformationalRow, type TaxEventSet } from './events';
 import { matchLots, type TaxLotEvent, type TaxLotResult } from './lots';
 import type { CostBasisMethod } from './methods';
@@ -30,6 +30,9 @@ export interface IncomeSchedule {
   complete: boolean;
 }
 
+/** One read's coverage, with the period filled in by `buildTaxReport`. */
+export type ReportCoverageInput = Omit<CoverageInput, 'periodStart' | 'periodEnd'>;
+
 export interface TaxReportInput {
   /** Unix seconds, inclusive both ends. */
   periodStart: number;
@@ -37,12 +40,24 @@ export interface TaxReportInput {
   method: CostBasisMethod;
   /** Named once and stamped on the export; every value is its minor units. */
   quoteCurrency: string;
-  /** What the indexer produced, via lib/tax/events.ts adapters. */
+  /**
+   * Decimal places of that currency's minor unit — 2 for USD, 18 for ETH.
+   *
+   * Defaulted to 2 rather than required, because a report that silently renders
+   * 5e17 wei as "5000000000000000.00" is a wrong number in a filing, and every
+   * caller that does not say otherwise is a caller in a 2-decimal currency.
+   */
+  quoteScale?: number;
+  /** What the venue's own reads produced, via the lib/tax adapters. */
   indexed: TaxEventSet;
   /** What the filer pasted, via lib/tax/import.ts. Never mixed with the above silently. */
   supplied?: { lotEvents: TaxLotEvent[]; income: IncomeEvent[] };
-  /** How far the indexed read actually got. Period fields are filled in here. */
-  coverage: Omit<CoverageInput, 'periodStart' | 'periodEnd'>;
+  /**
+   * How far each read actually got. One entry per ENABLED source: a source that
+   * was never asked contributes no gap, and a source that was asked and failed
+   * contributes one whichever way it failed.
+   */
+  coverage: ReportCoverageInput | ReportCoverageInput[];
   /** Unix seconds. Written onto the export so a stale file can be spotted. */
   generatedAt: number;
   /** Wallet the report is about, for the export header. Null when none. */
@@ -54,6 +69,8 @@ export interface TaxReport {
   periodEnd: number;
   method: CostBasisMethod;
   quoteCurrency: string;
+  /** Minor-unit decimals of `quoteCurrency`. Every money column is formatted at it. */
+  quoteScale: number;
   generatedAt: number;
   account: `0x${string}` | null;
   coverage: Coverage;
@@ -78,11 +95,10 @@ const SUPPLIED_LIMITATION: AdapterLimitation = {
 };
 
 export function buildTaxReport(input: TaxReportInput): TaxReport {
-  const coverage = computeCoverage({
-    ...input.coverage,
-    periodStart: input.periodStart,
-    periodEnd: input.periodEnd,
-  });
+  const sources = Array.isArray(input.coverage) ? input.coverage : [input.coverage];
+  const coverage = computeCoverageUnion(
+    sources.map((c) => ({ ...c, periodStart: input.periodStart, periodEnd: input.periodEnd })),
+  );
 
   const supplied: TaxEventSet = {
     lotEvents: input.supplied?.lotEvents ?? [],
@@ -128,6 +144,7 @@ export function buildTaxReport(input: TaxReportInput): TaxReport {
     periodEnd: input.periodEnd,
     method: input.method,
     quoteCurrency: input.quoteCurrency,
+    quoteScale: input.quoteScale ?? 2,
     generatedAt: input.generatedAt,
     account: input.account,
     coverage,

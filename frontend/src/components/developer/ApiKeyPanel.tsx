@@ -210,6 +210,14 @@ export function ApiKeyPanel({ status }: { status: ApiStatusState }) {
           )}
 
           {keys !== null && (
+            /* A11Y-R04: five columns with no scroll container. The page body is
+               `overflow-x: hidden`, so at 390px the Tier/Label/State/Revoke
+               columns weren't merely pushed off-screen — they were CLIPPED, with
+               no way to scroll to them, which took "revoke a key" off the table
+               from a phone entirely. Wrapper copied from ErrorSemantics.tsx,
+               the only other table in this directory; tabIndex + a named region
+               so the scroll container is reachable by keyboard. */
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Your API keys">
             <table className="w-full text-sm" data-testid="key-list">
               <thead>
                 <tr className="text-left opacity-70">
@@ -252,6 +260,7 @@ export function ApiKeyPanel({ status }: { status: ApiStatusState }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}
