@@ -218,9 +218,12 @@ export function AppLayout() {
 
 
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices.
-          F13: drop the reserved band at `sm:` (640px) to match BottomNav's
-          `sm:hidden` — `md:pb-0` left dead padding at 640-767px where the nav
-          is already hidden.
+          F13, RE-POINTED 2026-09-03: drop the reserved band at `min-[800px]:` to
+          match BottomNav's own breakpoint. It used to be `sm:` (640px), tracking a
+          BottomNav that hid at 640px — the boundary that opened the 640-790px dead
+          band (see TopNav.tsx). This padding must move with BottomNav or it
+          re-introduces the dead space F13 removed; index.css's
+          `safe-area-content-bottom` block is the third site and ends at 799px.
           F8: the content top-offset matches the header's safe-area-aware height
           (calc(3.5rem + env(safe-area-inset-top))) so nothing tucks under the
           fixed header on a notched standalone launch. */}

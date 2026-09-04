@@ -338,8 +338,12 @@ function ToweliFarm() {
               season={season}
             />
 
-            {/* Real-yield thesis surfaced in the staking loop: 100% of swap fees → stakers
-                as ETH, live-cumulative once the flywheel turns (graceful pre-volume state). */}
+            {/* Real-yield thesis surfaced in the staking loop: swap fees → stakers as
+                ETH, live-cumulative once the flywheel turns (graceful pre-volume state).
+                NOT "100%" — that was this comment's old wording and it is wrong the same
+                way the strip above was: the referral carve precedes the distributor, so
+                the end-to-end ceiling is ~80%. IncentivesStrip now reads both values live
+                and states the real figure; RealYieldProof itself was always correct. */}
             <RealYieldProof showWhenEmpty />
 
             {/* Native LP Pools — read-only pool cards (TVL, reserves, fees). */}
@@ -421,7 +425,8 @@ function ToweliFarm() {
           season={season}
         />
 
-        {/* Real-yield thesis in the staking loop — 100% swap fees → stakers as ETH. */}
+        {/* Real-yield thesis in the staking loop — swap fees → stakers as ETH. Not
+            "100%": see the twin comment on the other RealYieldProof mount above. */}
         <RealYieldProof showWhenEmpty />
 
         {/* Season banner */}

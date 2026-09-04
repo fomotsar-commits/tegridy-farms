@@ -618,7 +618,9 @@ body,
  *
  * Two bars overlay the scrollport and neither is in flow:
  *   header  .fixed top-0 … z-50            56px tall, every width
- *   nav[aria-label="Main navigation"]      65px tall, below sm: only (sm:hidden)
+ *   nav[aria-label="Main navigation"]      65px tall, below 800px only
+ *                                          (BottomNav, min-[800px]:hidden — was
+ *                                          sm:hidden until 2026-09-03)
  *
  * Nothing reserved room for them on the scroll container, so every scroll-into-view
  * the browser performs — an in-page anchor, a `:target` jump, focus moving to an

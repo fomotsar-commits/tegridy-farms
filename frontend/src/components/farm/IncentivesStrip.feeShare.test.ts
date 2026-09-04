@@ -39,6 +39,12 @@ describe('feeShareLabel — end-to-end staker share', () => {
   it('renders the full share only when the referral cut is genuinely zero', () => {
     // 0 is a real reading, not a missing one: with no referral cut the router
     // share IS the end-to-end share, and 100% is then the true statement.
+    //
+    // DEFENSIVE, NOT LIVE: ReferralSplitter.proposeReferralFee carries
+    // `require(_feeBps > 0, "FEE_CANNOT_BE_ZERO")`, so on-chain this branch is
+    // unreachable today. It is pinned anyway so that 0 can never collapse into
+    // the same output as an unread value — the distinction is the whole point of
+    // the function, and a future contract could relax that require.
     expect(feeShareLabel(100, 0)).toBe('100% to stakers');
   });
 
