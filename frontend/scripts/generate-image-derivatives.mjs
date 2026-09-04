@@ -133,7 +133,7 @@ function walk(dir, out = []) {
  * on the write side; the map is. That is also two fewer syscalls per candidate --
  * this replaces 2 stats x 1230 candidates with one walk.
  */
-function readDerivedMtimes(dir, map = new Map()) {
+function readDerivedStats(dir, map = new Map()) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -143,10 +143,11 @@ function readDerivedMtimes(dir, map = new Map()) {
   for (const entry of entries) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
-      readDerivedMtimes(p, map);
+      readDerivedStats(p, map);
     } else {
       try {
-        map.set(p, statSync(p).mtimeMs);
+        const st = statSync(p);
+        map.set(p, { mtimeMs: st.mtimeMs, size: st.size });
       } catch {
         // Vanished mid-walk. Leaving it out of the map marks it stale, which
         // regenerates it -- the safe direction to be wrong in.
@@ -169,7 +170,7 @@ function derivedUrl(file, width) {
 
 async function main() {
   const sources = SOURCE_DIRS.flatMap((d) => walk(join(PUBLIC_ROOT, d)));
-  const derivedMtimes = readDerivedMtimes(DERIVED_DIR);
+  const derivedStats = readDerivedStats(DERIVED_DIR);
   const manifest = {};
   let written = 0;
   let skipped = 0;
@@ -190,9 +191,14 @@ async function main() {
     }
     const naturalWidth = meta.width ?? 0;
     const entries = [];
-    // Stat the SOURCE once per file rather than once per width. A source that
-    // vanished between the walk and here gets -Infinity, which makes every
-    // candidate stale -- sharp then fails on it and the catch above skips it.
+    // Stat the SOURCE once per file rather than once per width.
+    //
+    // The initialisers ARE the failure behaviour, so the catch body is empty on
+    // purpose. If the stat throws, mtime stays Infinity — no derivative can ever
+    // be newer, so nothing is claimed current — and size stays 0, so nothing can
+    // ever measure smaller and no candidate is advertised. Both defaults fall the
+    // same way: serve the original. (In practice sharp has already read this file
+    // one line up, so a throw here is close to unreachable.)
     let sourceMtime = Infinity;
     let sourceSize = 0;
     try {
@@ -200,8 +206,7 @@ async function main() {
       sourceMtime = st.mtimeMs;
       sourceSize = st.size;
     } catch {
-      sourceMtime = Infinity; // unknowable: never claim a derivative is current
-      sourceSize = 0; // and never claim a derivative is smaller than it
+      // deliberately empty — see above
     }
 
     for (const width of WIDTHS) {
@@ -212,9 +217,25 @@ async function main() {
       // Answered from the pre-read map, so nothing asks the filesystem about
       // outPath before writing to it. A path the walk never saw is absent, and
       // absent is stale.
-      const fresh = (derivedMtimes.get(outPath) ?? -Infinity) >= sourceMtime;
+      const existing = derivedStats.get(outPath);
+      const fresh = (existing?.mtimeMs ?? -Infinity) >= sourceMtime;
 
       if (fresh) {
+        // THE SIZE RULE HAS TO BE CHECKED HERE TOO, and originally was not.
+        //
+        // The guard below only ran when a derivative was WRITTEN. A file that
+        // was already on disk from a run predating the guard read as fresh, so
+        // it was never weighed and its width was advertised anyway. Found in
+        // trunk: splash/new/28-960.webp, 170,824 B standing in for a 101,791 B
+        // source, recorded in the manifest as if it were a saving.
+        //
+        // That made the generator non-idempotent in the worst way -- correct on
+        // a clean checkout, quietly wrong on every incremental run, and the
+        // committed manifest came from an incremental run.
+        if (existing !== undefined && existing.size >= sourceSize) {
+          oversized++;
+          continue;
+        }
         skipped++;
       } else {
         // toBuffer BEFORE the write, because the buffer has to be weighed first.
