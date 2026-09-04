@@ -100,7 +100,14 @@ export function containsAddress(value, depth = 0) {
   }
   if (Array.isArray(value)) return value.some((v) => containsAddress(v, depth + 1));
   if (value && typeof value === "object") {
-    return Object.values(value).some((v) => containsAddress(v, depth + 1));
+    // AUDIT FIX TF-034: scan KEYS as well as values. `properties` is
+    // caller-shaped, so an address can just as easily be a key
+    // (`{"0xabc…": 1}`) as a value — and a key-only address used to sail
+    // straight through this gate into the analytics table.
+    return (
+      Object.keys(value).some((k) => containsAddress(k, depth + 1)) ||
+      Object.values(value).some((v) => containsAddress(v, depth + 1))
+    );
   }
   return false;
 }
@@ -127,7 +134,11 @@ export function validateEvent(e) {
   }
   // The session id is opaque by construction (see analytics.ts) — but if a
   // caller ever puts an address there, it is still an address.
-  if (containsAddress(sessionId) || containsAddress(props)) {
+  // AUDIT FIX TF-033: the event NAME was never scanned. It is a caller-supplied
+  // string of up to 64 chars, which comfortably holds a 42-char EVM address or a
+  // 32-44 char Solana pubkey, and it is stored verbatim in the `event` column —
+  // outside the reach of the properties-only DB backstop.
+  if (containsAddress(event) || containsAddress(sessionId) || containsAddress(props)) {
     return { ok: false, reason: "address-shaped-value" };
   }
 

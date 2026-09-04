@@ -27,7 +27,14 @@ const GlitchTransition = lazy(() =>
 );
 import type { GlitchConfig } from '../GlitchTransition';
 import { LiveActivity } from '../LiveActivity';
-import { TowelieAssistant } from '../TowelieAssistant';
+// PERF-15 (2026-09-03): the floating assistant (20,823 B) and its answer corpus
+// (lib/towelieKnowledge, 28,495 B) rode the always-loaded layout chunk — ~49 KB
+// of source on the critical path for a component that is conditionally rendered,
+// purely supplementary, and never part of first paint. It is also the ONLY
+// importer of that corpus, so lazying it moves both.
+const TowelieAssistant = lazy(() =>
+  import('../TowelieAssistant').then((m) => ({ default: m.TowelieAssistant })),
+);
 import { TowelieProvider } from '../../hooks/useTowelie';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { PageTransition } from '../motion';
@@ -39,6 +46,7 @@ import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
+import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
 
 const NAV_ORDER = [
   '/', '/dashboard', '/farm', '/swap', '/nft-finance', '/gallery', '/tokenomics',
@@ -139,10 +147,23 @@ export function AppLayout() {
     window.addEventListener(OPEN_BUNGALOWS_EVENT, openPicker);
     return () => window.removeEventListener(OPEN_BUNGALOWS_EVENT, openPicker);
   }, []);
+  // ARRIVAL FLOW 2026-08-31: the venue welcome opens by invitation only.
+  const [welcomeRequested, setWelcomeRequested] = useState(false);
+  useEffect(() => {
+    const openWelcome = () => setWelcomeRequested(true);
+    window.addEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
+    return () => window.removeEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
+  }, []);
   // Derived, not set in an effect (react-hooks/set-state-in-effect): auto-open
   // exactly once — first real splash, no persisted choice, not yet dismissed.
   const pickerOpen = pickerRequested
-    || (splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
+    // ARRIVAL IDENTITY 2026-08-31: the VENUE arrival never auto-opens the picker.
+    // The venue home carries the hall of doors in the page itself now, so the
+    // first impression is intro → hero → hall, not a modal wall. The picker
+    // stays one click away (hero CTA, footer); inside a bungalow the classic
+    // flow is untouched (a walked door has already persisted its choice, so the
+    // auto-open leg was only ever reachable on venue arrivals anyway).
+    || (isToweliVoice() && splashDone && freshSplash && !bungalowChosenAtMount && !pickerDismissed);
   const closePicker = () => { setPickerDismissed(true); setPickerRequested(false); };
   // Token-first bungalow (Bayla): mute the Towelie personality surfaces —
   // the assistant bubble and the TOWELI-scripted onboarding are the wrong
@@ -177,43 +198,50 @@ export function AppLayout() {
       <SeasonalEventBanner />
       <RouteGlitch />
 
-      {/* #82 audit + R039: wrong-network banner. `top` clears the 56px header
-          AND respects safe-area-inset-top so notched iPhones don't render the
-          banner under the notch. */}
-      {wrongNetwork && (
-        <div
-          className="fixed left-0 right-0 z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
-          style={{
-            top: 'calc(56px + env(safe-area-inset-top, 0px))',
-            paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-            paddingRight: 'max(1rem, env(safe-area-inset-right))',
-          }}
-        >
-          You are connected to <strong>{unconfiguredChainLabel(walletChainId)}</strong>,
-          which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
-          {switchChain && (
-            <button
-              onClick={() => switchChain({ chainId: mainnet.id })}
-              className="ml-3 underline underline-offset-2 hover:text-white transition-colors"
-            >
-              Switch now
-            </button>
-          )}
-        </div>
-      )}
-
-
       {/* pb-20 for bottom nav height + safe-area-inset-bottom for notched devices.
-          F13: drop the reserved band at `sm:` (640px) to match BottomNav's
-          `sm:hidden` — `md:pb-0` left dead padding at 640-767px where the nav
-          is already hidden.
+          F13, RE-POINTED 2026-09-03: drop the reserved band at `min-[800px]:` to
+          match BottomNav's own breakpoint. It used to be `sm:` (640px), tracking a
+          BottomNav that hid at 640px — the boundary that opened the 640-790px dead
+          band (see TopNav.tsx). This padding must move with BottomNav or it
+          re-introduces the dead space F13 removed; index.css's
+          `safe-area-content-bottom` block is the third site and ends at 799px.
           F8: the content top-offset matches the header's safe-area-aware height
           (calc(3.5rem + env(safe-area-inset-top))) so nothing tucks under the
           fixed header on a notched standalone launch. */}
       <div
-        className="min-h-screen relative z-10 pb-20 sm:pb-0 safe-area-content-bottom"
+        className="min-h-screen relative z-10 pb-20 min-[800px]:pb-0 safe-area-content-bottom"
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}
       >
+        {/* #82 audit + R039: wrong-network banner.
+            A11Y-R08: this was `position: fixed` directly under the header while
+            the content wrapper's paddingTop stayed at the header height alone —
+            so the banner sat ON TOP of the first ~40px of whatever page the user
+            had navigated to (three wrapped lines at 390px), covering the h1 and
+            the top of the hero. As the first child INSIDE the wrapper it
+            reserves its own height in flow, with no magic number to keep in sync
+            with the copy, and `sticky` at the same header offset keeps what made
+            it fixed in the first place: it stays visible as the page scrolls. */}
+        {wrongNetwork && (
+          <div
+            className="sticky z-50 bg-red-600/95 backdrop-blur-sm text-white text-center py-2 px-4 text-[12px] md:text-[13px] font-medium shadow-lg"
+            style={{
+              top: 'calc(56px + env(safe-area-inset-top, 0px))',
+              paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+              paddingRight: 'max(1rem, env(safe-area-inset-right))',
+            }}
+          >
+            You are connected to <strong>{unconfiguredChainLabel(walletChainId)}</strong>,
+            which this app doesn&apos;t serve. Supported: Ethereum, Base, Robinhood Chain.
+            {switchChain && (
+              <button
+                onClick={() => switchChain({ chainId: mainnet.id })}
+                className="ml-3 underline underline-offset-2 hover:text-white transition-colors"
+              >
+                Switch now
+              </button>
+            )}
+          </div>
+        )}
         {/* F29: tabIndex={-1} so the skip-link target reliably receives focus —
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
@@ -231,24 +259,37 @@ export function AppLayout() {
       {/* LiveActivity's ticker is TOWELI-denominated (price pill, protocol
           feed) — muted alongside the assistant in a token-first bungalow,
           where the muse's quiet line takes the corner instead. */}
-      {!bungalowIdentity && !onSettledDoorstep && <LiveActivity />}
+      {!bungalowIdentity && !onSettledDoorstep && isToweliVoice() && <LiveActivity />}
       {/* NO VOICE ON ANOTHER RESIDENT'S DOORSTEP: a settled door renders that
           token's landing inside this layout while the visitor's own skin
           stays active — without this gate, Bayla's welcome modal and muse
           line (or Towelie's assistant) greeted people arriving at /pepe.
           Caught live on the 2026-08-30 island sweep; pinned by the doors
           e2e ("no other resident's voice on a settled doorstep"). */}
-      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : <TowelieAssistant />)}
+      {/* ARRIVAL IDENTITY 2026-08-27: Towelie floats only inside his own
+          bungalow. Identity bungalows keep the muse; the venue default
+          keeps the arrival clean. */}
+      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : isToweliVoice() ? (
+        <Suspense fallback={null}>
+          <TowelieAssistant />
+        </Suspense>
+      ) : null)}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →
           bungalow choice → onboarding, not all three stacked. In a
           token-first bungalow the TOWELI-scripted tour is replaced by the
-          bungalow's own three-step welcome. */}
+          bungalow's own three-step welcome.
+          ARRIVAL FLOW 2026-08-31: the venue arrival auto-opens nothing — the
+          intro hands straight to the hero and the hall of doors. The venue's
+          five-step welcome renders in INVITED mode (opens only from the
+          hero's tour pill via OPEN_VENUE_WELCOME_EVENT). */}
       {splashDone && !pickerOpen && !onSettledDoorstep && (
         bungalowIdentity
           ? <BungalowOnboarding bungalow={bungalowIdentity} />
-          : <OnboardingModal />
+          : isToweliVoice()
+            ? <OnboardingModal />
+            : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />
       )}
       {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
           (consent === 'pending'); analytics + error reporting are blocked

@@ -8,15 +8,21 @@ import type { MetricDisplay } from '../../lib/yield/display';
 // numbers, and skimming does not hover. It also keeps the disclosure on the touch
 // path, which a hover affordance never reaches.
 //
-// The unavailable branch is styled DOWN, not up — muted rather than alarmed. An
+// The absent branches are styled DOWN, not up — muted rather than alarmed. An
 // unread figure is a gap in what this venue could measure, not a warning about
 // the protocol in that row, and colouring it red would turn a missing reading
 // into an accusation.
+//
+// The two absences read differently to a screen reader on purpose. "Not
+// available" means the read failed and might succeed on a reload; "not
+// applicable" means there is nothing there to read and never will be. A reader
+// who cannot tell them apart will keep reloading a cell that has already given
+// its final answer.
 
 export interface YieldMetricCellProps {
   label: string;
   display: MetricDisplay;
-  /** Draws attention to a real reading (a peg discount). Never set on an absence. */
+  /** Draws attention to a real reading (a discount to NAV). Never set on an absence. */
   notable?: boolean;
 }
 
@@ -26,7 +32,7 @@ export function YieldMetricCell({ label, display, notable = false }: YieldMetric
     <div className="min-w-0">
       <p className="text-[10px] uppercase tracking-wider text-text-muted mb-0.5">{label}</p>
       <p
-        className={`font-mono text-[15px] leading-tight ${
+        className={`font-mono text-[15px] leading-tight break-words ${
           display.unavailable
             ? 'text-text-muted'
             : emphasise
@@ -37,9 +43,11 @@ export function YieldMetricCell({ label, display, notable = false }: YieldMetric
         }`}
       >
         {display.text}
-        {display.unavailable && <span className="sr-only"> not available</span>}
+        {display.unavailable && (
+          <span className="sr-only">{display.notApplicable ? ' not applicable' : ' not available'}</span>
+        )}
       </p>
-      <p className="text-[10px] text-text-muted leading-snug mt-0.5">{display.detail}</p>
+      <p className="text-[10px] text-text-muted leading-snug mt-0.5 break-words">{display.detail}</p>
     </div>
   );
 }

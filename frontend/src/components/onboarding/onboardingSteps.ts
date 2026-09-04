@@ -23,6 +23,7 @@ import {
 } from '../../lib/constants';
 import { isLauncherEnabled } from '../../lib/launcher/config';
 import { isSolanaSwapLive } from '../../lib/solana';
+import { VENUE } from '../../lib/arrival';
 
 export type OnboardingSurfaceId =
   | 'trade'
@@ -142,7 +143,7 @@ export function onboardingSteps(): OnboardingStep[] {
       id: 'what',
       title: 'What this place is',
       body: [
-        'Tegridy Farms is a DeFi venue on Ethereum and Solana. You can swap tokens, stake TOWELI on Ethereum, and read a token’s holder concentration and deployer history before you touch it.',
+        `${VENUE.name} is a DeFi venue on Ethereum and Solana. You can swap tokens, stake TOWELI on Ethereum, and read a token’s holder concentration and deployer history before you touch it.`,
         'It is not a bank, a broker, or a custodian. Nothing here holds your funds: you sign transactions from your own wallet and they settle on-chain, where anyone can check them.',
       ],
       actions: pick('scan'),

@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import {
   BUNGALOWS,
-  DEFAULT_BUNGALOW_ID,
   getActiveBungalow,
   setActiveBungalow,
 } from '../../lib/bungalows';
@@ -54,7 +53,11 @@ export function BungalowDoor({ id, children }: { id: string; children: ReactNode
       }
     } catch { /* URL API unavailable — the storage read below still decides */ }
     const target = BUNGALOWS.find((b) => b.id === id && b.live);
-    const activeId = getActiveBungalow()?.id ?? DEFAULT_BUNGALOW_ID;
+    // ARRIVAL IDENTITY 2026-08-27: no more implicit default. The venue's own
+    // voice is the no-choice state now, so walking ANY door (the TOWELI door
+    // included) is an explicit entry that persists the choice. Before this,
+    // /toweli fell through as "already the default" and never persisted.
+    const activeId = getActiveBungalow()?.id ?? null;
     if (!target || activeId === id) return false;
     return setActiveBungalow(id);
   });

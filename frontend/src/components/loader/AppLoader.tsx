@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { LoaderState, Particle } from './types';
 import {
-  ART_COLLECTION, GOLD, T_VOID_END, T_ART_DURATION, T_ART_COUNT,
+  LOADER_GALLERY, LOADER_WORDS, GOLD, T_VOID_END, T_ART_DURATION, T_ART_COUNT,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
 } from './constants';
 import { preloadImages } from './preload';
+import { shouldSkipAtMount } from './skip';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
   buildCrackPaths, MAX_PARTICLES,
@@ -21,25 +22,12 @@ import { createMorphParticles, updateMorphParticles } from './fx/particleMorph';
 import { AudioEngine } from './fx/audio';
 import { PostFX } from './fx/postfx';
 
-// R007 Pattern B — decide skip-at-mount synchronously during state init so
-// the loader never renders for repeat visits / reduced-motion users. The
-// previous implementation called `finalize()` (which calls setState) inside
-// an effect, which the lint rule rightly flagged as a cascading render.
-function shouldSkipAtMount(): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    if (sessionStorage.getItem('tf_loaded')) return true;
-  } catch { /* SSR / privacy mode */ }
-  try {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      try { sessionStorage.setItem('tf_loaded', '1'); } catch { /* noop */ }
-      return true;
-    }
-  } catch { /* matchMedia unavailable */ }
-  return false;
-}
-
-export function AppLoader({ onComplete, children }: { onComplete?: () => void; children?: React.ReactNode }) {
+// THE OVERLAY ONLY. `children` used to be rendered here; the eager shell in
+// ./index.tsx owns them now (PERF-16), so the app tree is not held behind this
+// module's lazy chunk. The prop is GONE rather than ignored: an optional
+// `children` that silently rendered nothing is the kind of prop someone passes
+// once and then debugs for an hour.
+export function AppLoader({ onComplete }: { onComplete?: () => void }) {
   const [visible, setVisible] = useState(() => !shouldSkipAtMount());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -214,23 +202,51 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     let exitDOMState: ReturnType<typeof buildExitDOM> | null = null;
 
     /* Load images */
-    const chosen = shuffle(ART_COLLECTION).slice(0, T_ART_COUNT);
+    const chosen = shuffle(LOADER_GALLERY).slice(0, T_ART_COUNT);
     const srcs = chosen.map((a) => a.src);
     const titles = chosen.map((a) => a.title);
 
-    preloadImages(srcs).then((results) => {
-      if (disposed) return;
-      const loaded = results.filter((r): r is HTMLImageElement => r !== null);
-      if (loaded.length === 0) {
-        s.images = [];
-        s.titles = [];
-      } else {
-        s.images = loaded;
-        s.titles = titles.slice(0, loaded.length);
-      }
+    /* F-LOADER-01: the intro must never wait on the network longer than this.
+     *
+     * This overlay is `position: fixed; inset: 0; z-index: 9999`, so while it is
+     * up it sits on top of the whole app — including the header Connect button,
+     * which has already painted underneath it. `preloadImages` had no bound, so
+     * on a slow connection the overlay simply stayed, and every tap on Connect
+     * landed on the canvas instead. Measured with the art route stalled:
+     * `elementFromPoint` over the Connect button returned CANVAS at 1s, 3s, 6s
+     * and 10s, indefinitely.
+     *
+     * A field review saw this and attributed it to bundle weight — "the header
+     * paints before the wallet code has streamed in, so early taps do nothing".
+     * The bundle is genuinely heavy, but it is not what eats the taps; shipping
+     * lighter art would not have moved this at all.
+     *
+     * Racing rather than cancelling: whichever resolves first wins, and a late
+     * preload is simply discarded. The zero-image path is not a new branch — it
+     * already exists and is already exercised (the tick falls straight to the
+     * 'textForm' particle phase when `images.length === 0`), so a timeout
+     * degrades to a shorter, still-branded intro rather than a blank screen.
+     *
+     * The Skip button (revealed at 400ms) stays as the deliberate opt-out. It is
+     * not a substitute for this: it asks the user to notice an escape hatch,
+     * whereas this bounds the trap. */
+    const PRELOAD_BUDGET_MS = 2500;
+    let settled = false;
+    const proceed = (loaded: HTMLImageElement[]) => {
+      if (disposed || settled) return;
+      settled = true;
+      s.images = loaded;
+      s.titles = loaded.length === 0 ? [] : titles.slice(0, loaded.length);
       s.phase = 'void';
       s.t0 = performance.now();
       rafId = requestAnimationFrame(tick);
+    };
+
+    const preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
+
+    preloadImages(srcs).then((results) => {
+      window.clearTimeout(preloadTimer);
+      proceed(results.filter((r): r is HTMLImageElement => r !== null));
     });
 
     /* Create particles from last art image */
@@ -287,8 +303,8 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
       // Larger font sizes on mobile so text has enough pixel targets
       const mainSize = s.isMobile ? Math.min(130, W * 0.19) : Math.min(130, W * 0.15);
       const subSize = s.isMobile ? Math.min(60, W * 0.09) : Math.min(60, W * 0.07);
-      const mainPts = getTextPixels('TEGRIDY', mainSize, W, H, -subSize * 0.5);
-      const subPts = getTextPixels('FARMS', subSize, W, H, mainSize * 0.45);
+      const mainPts = getTextPixels(LOADER_WORDS.main, mainSize, W, H, -subSize * 0.5);
+      const subPts = getTextPixels(LOADER_WORDS.sub, subSize, W, H, mainSize * 0.45);
       // Shuffle text pixel targets so particles spread evenly across the full text
       // Without this, scan-order (L→R, T→B) means the right side gets no coverage
       // when particle count < target count (1000 particles vs 3000+ targets on mobile)
@@ -502,9 +518,9 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
         ctx!.font = `bold ${mainSize}px "Inter", "Helvetica Neue", sans-serif`;
         ctx!.textAlign = 'center'; ctx!.textBaseline = 'middle';
         ctx!.fillStyle = '#fff'; ctx!.shadowColor = '#fff'; ctx!.shadowBlur = 20;
-        ctx!.fillText('TEGRIDY', W / 2, H / 2 - subSize * 0.5);
+        ctx!.fillText(LOADER_WORDS.main, W / 2, H / 2 - subSize * 0.5);
         ctx!.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
-        ctx!.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
+        ctx!.fillText(LOADER_WORDS.sub, W / 2, H / 2 + mainSize * 0.45);
         ctx!.restore();
         }
 
@@ -607,6 +623,7 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      window.clearTimeout(preloadTimer);
       window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('touchmove', onTouchMove);
@@ -622,7 +639,6 @@ export function AppLoader({ onComplete, children }: { onComplete?: () => void; c
 
   return (
     <>
-      {children}
       {visible && (
         <div
           ref={overlayRef}

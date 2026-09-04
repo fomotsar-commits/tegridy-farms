@@ -35,55 +35,61 @@ describe('OnboardingModal', () => {
 
   it('renders when localStorage has no onboarding-seen key', () => {
     renderWithRouter();
-    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to memetics.finance')).toBeInTheDocument();
   });
 
   it('does NOT render when localStorage has onboarding-seen = 1', () => {
     localStorage.setItem('tegridy-onboarding-seen', '1');
     renderWithRouter();
-    expect(screen.queryByText('Welcome to Tegridy Farms')).not.toBeInTheDocument();
+    expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
   });
 
   it('shows step 1 title by default', () => {
     renderWithRouter();
-    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to memetics.finance')).toBeInTheDocument();
   });
 
   it('advances to step 2 on Next click', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
-    expect(screen.getByText('How It Works')).toBeInTheDocument();
+    expect(screen.getByText('Bungalows')).toBeInTheDocument();
   });
 
   it('advances to step 3 on two Next clicks', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
-    expect(screen.getByText('Stay Safe')).toBeInTheDocument();
+    expect(screen.getByText('Heat')).toBeInTheDocument();
   });
 
   it('goes back to step 1 from step 2 via Back button', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
-    expect(screen.getByText('How It Works')).toBeInTheDocument();
+    expect(screen.getByText('Bungalows')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Back'));
-    expect(screen.getByText('Welcome to Tegridy Farms')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to memetics.finance')).toBeInTheDocument();
   });
 
-  it('shows Start Farming button on the last step', () => {
+  // ARRIVAL FLOW 2026-08-31: the venue tour's first move is the island, not the
+  // farm. Start Farming renders only inside the TOWELI bungalow's tour.
+  it('shows Walk the doors + Scan a token on the last step (venue voice)', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
-    expect(screen.getByText('Start Farming')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Next'));
+    expect(screen.getByText('Walk the doors')).toBeInTheDocument();
+    expect(screen.getByText('Scan a token')).toBeInTheDocument();
+    expect(screen.queryByText('Start Farming')).not.toBeInTheDocument();
   });
 
-  it('Start Farming sets localStorage and closes modal', () => {
+  it('Walk the doors sets localStorage and closes modal', () => {
     renderWithRouter();
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
     fireEvent.click(screen.getByText('Next'));
-    fireEvent.click(screen.getByText('Start Farming'));
+    fireEvent.click(screen.getByText('Next'));
+    fireEvent.click(screen.getByText('Walk the doors'));
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
     expect(screen.queryByText('Stay Safe')).not.toBeInTheDocument();
   });
@@ -96,13 +102,13 @@ describe('OnboardingModal', () => {
     renderWithRouter();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
-    expect(screen.queryByText('Welcome to Tegridy Farms')).not.toBeInTheDocument();
+    expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
   });
 
-  it('renders 3 step dots', () => {
+  it('renders one step dot per venue step', () => {
     const { container } = renderWithRouter();
     const dots = container.querySelectorAll('.rounded-full.w-2');
-    expect(dots.length).toBe(4);
+    expect(dots.length).toBe(5);
   });
 
   it('Back button is invisible on step 1', () => {
@@ -126,6 +132,26 @@ describe('OnboardingModal', () => {
     const backdrop = container.querySelector('.fixed.inset-0') as HTMLElement;
     fireEvent.click(backdrop);
     expect(localStorage.getItem('tegridy-onboarding-seen')).toBe('1');
-    expect(screen.queryByText('Welcome to Tegridy Farms')).not.toBeInTheDocument();
+    expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
+  });
+
+  it('ARRIVAL IDENTITY: the classic farm welcome renders inside the TOWELI bungalow', async () => {
+    // The steps array resolves at module scope (voice is stable per document,
+    // switching bungalows reloads), so the toweli variant needs a fresh
+    // module graph with the choice already stored — same contract as prod.
+    localStorage.setItem('tegridy-bungalow', 'toweli');
+    vi.resetModules();
+    // Import the render helper from the SAME fresh module graph — the reset
+    // recreates ThemeContext, and mixing old provider with new consumer
+    // throws useTheme's guard.
+    const [{ OnboardingModal: ToweliModal }, { renderWithProviders: renderFresh }] =
+      await Promise.all([import('./OnboardingModal'), import('../../test-utils/render')]);
+    renderFresh(<ToweliModal />);
+    // RETIRED 2026-08-31 (owner): the brand word is gone from every room, so
+    // the TOWELI tour is titled by its bungalow now. What this still pins is
+    // the CONTAINMENT — the toweli welcome is a different document from the
+    // venue's, and only one of them renders per voice.
+    expect(screen.getByText('Welcome to the TOWELI bungalow')).toBeInTheDocument();
+    expect(screen.queryByText('Welcome to memetics.finance')).not.toBeInTheDocument();
   });
 });

@@ -69,7 +69,11 @@ export function getFriendlyError(error) {
   const cleaned = raw
     .replace(/^Error:\s*/i, "")
     .replace(/\(action="[^"]*",\s*/g, "")
-    .replace(/,\s*code=[A-Z_]+.*$/g, "")
+    // `[\s\S]*` not `.*$`: `.` excludes U+2028/U+2029, which HTML's newline
+    // stripping does NOT remove, so a revert string carrying one made this
+    // pattern backtrack quadratically -- 95ms at 40k chars, and `raw` here is
+    // an arbitrary RPC/revert message, not first-party text.
+    .replace(/,\s*code=[A-Z_]+[\s\S]*/g, "")
     .replace(/\(reason="[^"]*",\s*/g, "")
     .replace(/0x[a-fA-F0-9]{8,}/g, '[hex]')
     .replace(/https?:\/\/[^\s"']+/g, '[url]');

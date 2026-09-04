@@ -32,6 +32,8 @@ import { CurveTradePanel } from '../components/launcher/CurveTradePanel';
 import { EvmCurveChart } from '../components/launcher/EvmCurveChart';
 import { CopyButton } from '../components/ui/CopyButton';
 import { getTokenUrl } from '../lib/explorer';
+import { ERC20_ABI } from '../lib/contracts';
+import { shortenAddress } from '../lib/formatting';
 
 const PAGE_ID = 'eth-curve';
 const cardStyle = { border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(6,12,26,0.6)' } as const;
@@ -146,8 +148,24 @@ function CurveCreatorClaim({ launcher, chainId, token, creator }: { launcher: Ad
 
 // ────────────────────────────────────── the page ──────────────────────────────────────
 
+/**
+ * A token symbol is written by whoever deployed the token, so it is displayed
+ * but never trusted as identity: control characters are stripped, the length is
+ * capped, and the address travels with it in the title. An unreadable or empty
+ * symbol falls back to the address alone — never to an invented name.
+ */
+function safeSymbol(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw
+    .split('')
+    .filter((c) => { const n = c.charCodeAt(0); return n >= 0x20 && !(n >= 0x7f && n <= 0x9f); })
+    .join('')
+    .trim()
+    .slice(0, 16);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 export default function CurveTokenPage() {
-  usePageTitle('Tegridy Curve', 'A token on the zero-toll Tegridy bonding curve.');
   useEffect(() => {
     trackPageView('/eth-curve/:token');
   }, []);
@@ -200,6 +218,42 @@ export default function CurveTokenPage() {
 
   const chainName = resolved ? (getChainConfig(resolved.chainId)?.name ?? `chain ${resolved.chainId}`) : null;
 
+  // The token's own ERC-20 symbol, off the chain it actually resolved on. One
+  // extra call, and it is what turns a shared link into a link to something.
+  const { data: symbolRaw } = useReadContract({
+    address: token ?? undefined,
+    abi: ERC20_ABI,
+    functionName: 'symbol',
+    chainId: resolved?.chainId,
+    query: { enabled: Boolean(token && resolved) },
+  });
+  const symbol = safeSymbol(symbolRaw);
+
+  // THIS ROUTE EXISTS TO BE SHARED — it has a Share button that copies its own
+  // URL — and every token on the curve used to produce the same browser tab,
+  // the same meta description and the same social preview. A creator sharing
+  // their coin got a link indistinguishable from every other coin's.
+  //
+  // Driven from what the page actually resolved, and nothing else: the symbol
+  // when the chain returned one, otherwise the shortened address. Never a
+  // placeholder name, and never a chain or state we did not read.
+  const shortToken = token ? shortenAddress(token, 6) : null;
+  const pageTitle = !token
+    ? 'Memetics Curve'
+    : symbol
+      ? `${symbol} · ${shortToken} on the Memetics Curve`
+      : `${shortToken} on the Memetics Curve`;
+  const pageDescription = !token
+    ? 'A token on the zero-toll Memetics bonding curve.'
+    : resolved
+      ? `${symbol ?? shortToken} on the zero-toll Memetics bonding curve on ${chainName} — ${
+          resolved.launch.graduated
+            ? 'graduated into its own pool with the liquidity burned.'
+            : 'still on the curve, trading toward graduation.'
+        }`
+      : `Looking up ${shortToken} on every chain the Memetics curve is deployed on.`;
+  usePageTitle(pageTitle, pageDescription);
+
   const share = () => {
     const url = `${window.location.origin}/eth-curve/${token}?c=${resolved?.chainId ?? ''}`;
     void navigator.clipboard?.writeText(url).then(
@@ -213,7 +267,7 @@ export default function CurveTokenPage() {
       <PageArtBackdrop pageId={PAGE_ID} />
       <div className="relative z-10 max-w-xl mx-auto px-4 py-8 space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h1 className="heading-luxury text-2xl">Tegridy Curve</h1>
+          <h1 className="heading-luxury text-2xl">Memetics Curve</h1>
           {resolved && (
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold leading-none px-2 py-1 uppercase tracking-wide">
@@ -246,7 +300,7 @@ export default function CurveTokenPage() {
           <div className="rounded-2xl p-5" style={cardStyle}>
             <p className="text-white/85 text-sm font-semibold">No curve launch at this address.</p>
             <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
-              Checked every chain the Tegridy curve is deployed on — nothing launched from our
+              Checked every chain the Memetics curve is deployed on — nothing launched from our
               launcher lives at{' '}
               <span className="font-mono break-all">{token}</span>. If it was just created, give
               the RPC a few seconds and reload.{' '}
@@ -284,7 +338,7 @@ export default function CurveTokenPage() {
               <div className="rounded-2xl p-4" style={cardStyle}>
                 <p className="text-white/85 text-sm font-semibold mb-1">Graduated — it lives on the venue now</p>
                 <p className="text-white/55 text-[12px] leading-relaxed mb-3">
-                  The curve closed and its liquidity is live in the Tegridy pool with the LP burned.
+                  The curve closed and its liquidity is live in our own pool with the LP burned.
                   This is the aftermarket the island runs on:
                 </p>
                 <div className="flex flex-wrap gap-2">

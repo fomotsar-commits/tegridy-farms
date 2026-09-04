@@ -1,9 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { marketsForKind, type YieldMarketsState } from '../../hooks/useYieldMarkets';
-import { apyDisplay, exitLiquidityDisplay, feedStatusLine, pegDisplay } from '../../lib/yield/display';
+import {
+  exitDisplay,
+  marketDisplay,
+  navDisplay,
+  rateDisplay,
+  readStatusLine,
+  vsNavDisplay,
+} from '../../lib/yield/display';
 import { bestRateClaim } from '../../lib/yield/metrics';
-import { yieldRouteFee, yieldRouteFeeValue, YIELD_THIRD_PARTY_NOTE } from '../../lib/yield/fee';
 import { yieldVenueAvailability, type YieldVenueKind } from '../../lib/yield/venues';
+import { YieldDepositPanel } from './YieldDepositPanel';
 import { YieldMetricCell } from './YieldMetricCell';
 
 // ONE panel, configured twice — liquid staking and stablecoin lending are the
@@ -15,10 +22,14 @@ import { YieldMetricCell } from './YieldMetricCell';
 // from the table because its rate was unreadable is a venue silently excluded
 // from a comparison the reader believes is complete.
 //
-// The route control is disabled with its reason beside it rather than absent.
-// A missing button says the feature does not exist; a disabled one with a
-// sentence says what would have to change — and this build's answer, on every
-// row, is that no deposit address is wired.
+// The block and chain time are hoisted to ONE line per row rather than repeated
+// in five cells. Every figure on the row came from the same aggregate3 call, so
+// five copies of the same block number would be five chances to imply they came
+// from five different reads.
+//
+// `aria-controls` is set ONLY while the deposit panel is mounted. A control that
+// names a panel absent from the DOM is an invalid-attribute finding, and the
+// panel here is genuinely conditional.
 
 export interface YieldRouterPanelProps {
   id: string;
@@ -30,6 +41,7 @@ export interface YieldRouterPanelProps {
 
 export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRouterPanelProps) {
   const { rows, ranking } = useMemo(() => marketsForKind(markets.rows, kinds), [markets.rows, kinds]);
+  const [openVenue, setOpenVenue] = useState<string | null>(null);
 
   // Ranked first, then the unrankable, with the catalogue's own order preserved
   // inside each group.
@@ -41,10 +53,6 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
     ];
   }, [ranking, rows]);
 
-  // No provider is chosen because nothing routes from here, so the fee module is
-  // asked with a null source and answers with the reason rather than a rate.
-  const fee = yieldRouteFee(null);
-
   return (
     <section id={id} aria-labelledby={`${id}-heading`} className="mb-6">
       <h2 id={`${id}-heading`} className="heading-luxury text-xl text-text-primary mb-1.5">
@@ -54,16 +62,12 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
 
       <div className="glass-card rounded-xl p-3 mb-3">
         <p className="text-[12px] text-text-secondary leading-relaxed">
-          {feedStatusLine(markets.status, markets.detail)}
+          {readStatusLine(markets.status, markets.block, markets.asOf, markets.unreadCells, markets.totalCells, markets.detail)}
         </p>
         <p className="text-[12px] text-text-primary leading-relaxed mt-1.5">{bestRateClaim(ranking)}</p>
-        {markets.status === 'unavailable' && (
-          <button
-            type="button"
-            onClick={markets.reload}
-            className="btn-secondary mt-2 px-4 py-2 min-h-[44px] text-[12px]"
-          >
-            Try reading the feed again
+        {(markets.status === 'unavailable' || markets.status === 'partial') && (
+          <button type="button" onClick={markets.reload} className="btn-secondary mt-2 px-4 py-2 min-h-11 text-[12px]">
+            Read the chain again
           </button>
         )}
       </div>
@@ -72,20 +76,30 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
         {ordered.map((row) => {
           const availability = yieldVenueAvailability(row.venue.id);
           const routable = availability?.routable === true;
-          const peg = pegDisplay(row.peg, row.venue.pegReference);
+          const vs = vsNavDisplay(row.vsNav);
+          const open = openVenue === row.venue.id;
+          const panelId = `${id}-${row.venue.id}-deposit`;
           return (
             <li key={row.venue.id} className="glass-card rounded-xl p-4">
               <div className="flex items-baseline justify-between gap-3 mb-1">
-                <span className="text-text-primary font-semibold text-[15px]">{row.venue.label}</span>
+                <h3 className="text-text-primary font-semibold text-[15px] m-0">{row.venue.label}</h3>
                 <span className="text-[11px] font-mono text-text-muted shrink-0">{row.venue.symbol}</span>
               </div>
               <p className="text-[11px] text-text-muted mb-3">Issued by {row.venue.issuer}</p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-                <YieldMetricCell label="APY" display={apyDisplay(row.apy)} />
-                <YieldMetricCell label={`Peg vs ${row.venue.pegReference}`} display={peg} notable={peg.notable} />
-                <YieldMetricCell label="Exit liquidity" display={exitLiquidityDisplay(row.exitLiquidity)} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-2">
+                <YieldMetricCell label="Rate" display={rateDisplay(row.rate)} />
+                <YieldMetricCell label="Protocol rate (NAV)" display={navDisplay(row.nav)} />
+                <YieldMetricCell label="Market price" display={marketDisplay(row.market)} />
+                <YieldMetricCell label="vs NAV" display={vs} notable={vs.notable} />
+                <YieldMetricCell label="Exit" display={exitDisplay(row.exit)} />
               </div>
+              {row.block !== null && (
+                <p className="text-[10px] text-text-muted mb-3 leading-snug">
+                  Read at block {row.block} · chain time{' '}
+                  {row.asOf === null ? 'unknown' : new Date(row.asOf * 1000).toISOString().replace('.000Z', 'Z')}
+                </p>
+              )}
 
               <div className="rounded-lg p-3 mb-3" style={{ background: 'rgba(0,0,0,0.30)' }}>
                 <p className="text-[11px] uppercase tracking-wider text-text-muted mb-1">Whose risk you take</p>
@@ -97,27 +111,30 @@ export function YieldRouterPanel({ id, heading, intro, kinds, markets }: YieldRo
                 type="button"
                 disabled={!routable}
                 aria-disabled={!routable}
-                className="btn-primary w-full py-3 min-h-[44px] text-[13px] disabled:opacity-70 disabled:cursor-not-allowed"
+                aria-expanded={open}
+                {...(open ? { 'aria-controls': panelId } : {})}
+                onClick={() => setOpenVenue(open ? null : row.venue.id)}
+                className="btn-primary w-full py-3 min-h-11 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Route into {row.venue.symbol}
+                {row.venue.route.kind === 'none' ? `${row.venue.symbol} — comparison only` : row.venue.route.cta}
               </button>
               {!routable && availability && (
                 <p className="text-[11px] text-text-muted mt-1.5 leading-snug">{availability.reason}</p>
+              )}
+              {routable && open && (
+                <div id={panelId}>
+                  <YieldDepositPanel
+                    venue={row.venue}
+                    rocket={markets.rocket}
+                    depositFee1e18={markets.rocket?.depositFee1e18 ?? null}
+                    block={markets.block}
+                  />
+                </div>
               )}
             </li>
           );
         })}
       </ul>
-
-      <div className="glass-card rounded-xl p-3 mt-3">
-        <div className="flex justify-between items-baseline gap-3">
-          <span className="text-[12px] text-text-secondary">Tegridy fee on this route</span>
-          <span className="font-mono text-[12px] text-text-primary">{yieldRouteFeeValue(fee)}</span>
-        </div>
-        <p className="text-[11px] text-text-muted mt-1 leading-snug">
-          {fee.charged ? YIELD_THIRD_PARTY_NOTE : `${fee.reason} ${YIELD_THIRD_PARTY_NOTE}`}
-        </p>
-      </div>
     </section>
   );
 }

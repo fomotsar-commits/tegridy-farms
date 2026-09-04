@@ -8,6 +8,8 @@ import { GALLERY_ORDER, UNIQUE_GALLERY_COUNT, pageArt, artStyle } from '../lib/a
 import { isLauncherEnabled } from '../lib/launcher/config';
 import { isSolanaSwapLive } from '../lib/solana';
 import { useFarmStats } from '../hooks/useFarmStats';
+import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
+import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
 import { usePoolData } from '../hooks/usePoolData';
 import { useRevenueStats } from '../hooks/useRevenueStats';
 import { Sparkline } from '../components/Sparkline';
@@ -28,29 +30,31 @@ import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
 import { ProofOfClaims } from '../components/ProofOfClaims';
 import { CopyButton } from '../components/ui/CopyButton';
-import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, GITHUB_REPO_URL, SOCIAL_LINKS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
+import { arrivalVoice, VENUE } from '../lib/arrival';
+import { VenueHero } from '../components/VenueHero';
+import { VenueDoors } from '../components/VenueDoors';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
-
-// F91: surfaced from the Footer's community links — keep one source so Home
-// and Footer can't drift. (Footer still owns its own copy; these mirror it.)
-const SOCIAL_LINKS = [
-  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
-] as const;
 
 // F92: persist a valid ?ref= address so attribution survives navigation and
 // the connect-ordering (referred visitor clicks Buy → connects on /swap). Uses
 // the safe storage wrapper, never overwrites an existing stash.
 const REF_STORAGE_KEY = 'tegridy_ref';
 
+// ARRIVAL IDENTITY 2026-08-27: the loop and how-it-works copy follow the
+// arrival voice. Same mechanics both ways (the fee loop is a venue fact);
+// only the Tegridy personality words are contained to the TOWELI bungalow.
+const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
+
 const CORE_LOOP_STEPS = [
-  { label: 'People trade TOWELI',     sub: 'on the Tegridy DEX' },
+  IS_TOWELI_ARRIVAL
+    ? { label: 'People trade TOWELI', sub: 'on the venue DEX' }
+    : { label: 'People trade here', sub: 'on the venue DEX' },
   // F82: sub no longer just restates the label — it adds the "where" (router,
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
   // rather than hardcode a number that can drift.
@@ -65,11 +69,11 @@ const CORE_LOOP_STEPS = [
   { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
 ];
 
-const HOW_IT_WORKS_STEPS = [
+const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
   {
     step: '1',
     title: 'Get Some Towelies',
-    desc: 'Swap ETH for TOWELI on the Tegridy DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
+    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked \u2014 Randy does the math so you don\u2019t have to.',
     to: '/swap',
   },
   {
@@ -80,8 +84,27 @@ const HOW_IT_WORKS_STEPS = [
   },
   {
     step: '3',
-    title: 'Harvest the Tegridy',
+    title: 'Harvest the Yield',
     desc: 'Emissions pay you in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim whenever the crop looks ripe.',
+    to: '/dashboard',
+  },
+] : [
+  {
+    step: '1',
+    title: 'Get the token',
+    desc: 'Swap ETH for TOWELI on the venue DEX. Nine routes checked, best price picked.',
+    to: '/swap',
+  },
+  {
+    step: '2',
+    title: 'Lock it down',
+    desc: 'Lock from 7 days to 4 years. Longer lock + NFT boost = up to 4.5x share.',
+    to: '/farm',
+  },
+  {
+    step: '3',
+    title: 'Harvest, verified',
+    desc: 'Emissions pay in TOWELI today; the ETH fee-share is wired on-chain and opens with the native pool. Claim any time.',
     to: '/dashboard',
   },
 ];
@@ -101,10 +124,16 @@ export default function HomePage() {
     bungalowIdentity ? `${bungalowIdentity.symbol} — ${bungalowIdentity.identity.heroLine}` : 'Home',
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
-      : 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.',
+      : IS_TOWELI_ARRIVAL
+        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens via Jupiter, and scan any token on either chain.'
+        : VENUE.description,
   );
   const { address } = useAccount();
   const stats = useFarmStats();
+  // The Farm card's stat and its body are ONE claim about the same two pools, so
+  // they come off ONE read. They used to disagree: a hardcoded "2 pools" beside a
+  // body admitting the LP pool is dormant.
+  const lpPhase = useLpEmissionsPhase();
   const pool = usePoolData();
   const revenueStats = useRevenueStats();
   const price = useTOWELIPrice();
@@ -162,7 +191,7 @@ export default function HomePage() {
   // later correction we make to the site. So it describes what the protocol IS rather
   // than what it has paid.
   const shareTweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    'Fee-routed staking, on-chain and in ETH, on @TegridyFarms \u{1F33F}',
+    'Fee-routed staking, on-chain and in ETH, on @JungleBayAC \u{1F33F}',
   )}&url=${encodeURIComponent(shareUrl)}`;
 
   // Rotating Towelie one-liner under the hero CTAs — pure personality surface,
@@ -222,7 +251,7 @@ export default function HomePage() {
                 aria-label="Live on Ethereum: farm and stake TOWELI"
                 className="badge badge-primary text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#8b5cf6]"
               >
-                ETHEREUM &middot; FARM &amp; LAUNCH
+                ETHEREUM
               </Link>
               {/* FAIL-CLOSED. The Solana swap surface is gated behind
                   VITE_SOLANA_FEE_ACCOUNT: when that is unset, SolanaSwapPage renders a
@@ -237,10 +266,16 @@ export default function HomePage() {
               <Link
                 to={isSolanaSwapLive() ? '/solana' : '/scan'}
                 aria-label={isSolanaSwapLive() ? 'Live on Solana: swap and scan' : 'Live on Solana: scan any token'}
-                className="badge text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
-                style={{ background: 'rgba(76,175,80,0.78)', color: '#000', border: '1px solid var(--color-kyle-40)' }}
+                className="badge badge-chain-solana text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
               >
-                {isSolanaSwapLive() ? <>SOLANA &middot; SWAP &amp; SCAN</> : <>SOLANA &middot; SCAN</>}
+                SOLANA
+              </Link>
+              <Link
+                to="/eth-curve"
+                aria-label="Live on Base: launch and trade on the curve"
+                className="badge badge-chain-base text-[10px] no-underline hover:brightness-110 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#2151f5]"
+              >
+                BASE
               </Link>
             </div>
 
@@ -251,6 +286,11 @@ export default function HomePage() {
                 is untouched for the Toweli default. */}
             {bungalowIdentity ? (
               <BungalowHero bungalow={bungalowIdentity} />
+            ) : !IS_TOWELI_ARRIVAL ? (
+              /* ARRIVAL IDENTITY 2026-08-27: the venue's own hero is the
+                 default first impression. The classic Tegridy cluster below
+                 is byte-identical and renders inside the TOWELI bungalow. */
+              <VenueHero />
             ) : (
             <>
             {/* H1 2026-07-19: "Yield with Tegridy Farms" was generic — it could have
@@ -276,7 +316,7 @@ export default function HomePage() {
               Stake TOWELI on Ethereum. Every protocol fee flows on-chain &mdash; to stakers, the
               liquidity engine, and operations. Every core contract is source-verified on Etherscan,
               so you can read the code that holds your stake. On Solana we swap through Jupiter and
-              scan any token &mdash; same tegridy, second chain.
+              scan any token &mdash; same rails, second chain.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -374,7 +414,7 @@ export default function HomePage() {
               and Dashboard are the better signal. Suppressed in a token-first
               bungalow: it computes TOWELI staking yield, which is the wrong
               token there (Bayla's farm panel owns that story). */}
-          {!address && !bungalowIdentity && (
+          {!address && !bungalowIdentity && IS_TOWELI_ARRIVAL && (
             <div className="mt-10 max-w-xl">
               <YieldCalculator />
             </div>
@@ -397,7 +437,7 @@ export default function HomePage() {
               the TOWELI contract strip are the wrong token there — the
               BungalowHero carries its own contract chip. Everything inside
               this gate is untouched for the Toweli default. */}
-          {!bungalowIdentity && (
+          {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
           <>
           <m.div className="mt-14 flex flex-wrap gap-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
             {([
@@ -495,7 +535,7 @@ export default function HomePage() {
               GeckoTerminal <span className="text-white/40">↗</span>
             </a>
             <a href={shareTweetUrl} target="_blank" rel="noopener noreferrer"
-              aria-label="Share Tegridy Farms on X (opens in new tab)"
+              aria-label="Share MEMETICS.FINANCE on X (opens in new tab)"
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[12px] text-white hover:text-white transition-colors"
               style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid var(--color-purple-40)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -560,7 +600,21 @@ export default function HomePage() {
           </div>
         )}
 
-        {!bungalowIdentity && (
+        {/* ARRIVAL IDENTITY 2026-08-31: THE HALL OF DOORS. The venue arrival
+            opens onto the island itself — every bungalow door in one hall,
+            the open ones lit and the settled ones greyed while their people
+            move in. Venue voice only: toweli keeps the classic home whole,
+            an identity bungalow keeps its token-first home. */}
+        {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <VenueDoors />}
+
+        {/* ARRIVAL FLOW 2026-08-31 (the noise cut): the farm's body speaks
+            only in the farm's room. Core Loop, By the Numbers, the pulse and
+            the proof strips are TOWELI protocol furniture; on the venue
+            arrival they were three competing how-it-works blocks and one
+            resident's numbers wearing the venue's name. The venue line is
+            now: hero → the hall → Launch & Verify → Ecosystem → the
+            Collection → FAQ. Nothing deleted; it all renders inside /toweli. */}
+        {!bungalowIdentity && IS_TOWELI_ARRIVAL && (
         <>
         {/* Core Loop — the 10-second explainer.
             Directly addresses the critique that new visitors don't grasp
@@ -650,7 +704,11 @@ export default function HomePage() {
         </>
         )}
 
-        {/* Protocol Overview */}
+        {/* Protocol Overview — farm-shaped product grid (Stake TOWELI to earn
+            now…). The venue arrival keeps its clean line; the nav and the
+            hero CTAs carry the product routes there. Toweli and bungalow
+            homes keep the grid exactly as it was. */}
+        {(bungalowIdentity || IS_TOWELI_ARRIVAL) && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
@@ -672,7 +730,11 @@ export default function HomePage() {
               // pool's funded period (periodFinish 2026-06-15, lpEmissions.ts) —
               // the exact literal-vs-phase drift dayTwoEconomyPhrase() exists to
               // prevent. State what pays now without promising the dormant pool.
-              { to: '/farm', title: 'Farm', desc: 'Stake TOWELI to earn now; the LP pool rejoins when its next emissions round is funded.', stat: '2 pools', label: 'Ethereum', art: pageArt('home', 7) },
+              // 2026-09-03: the BODY was corrected then; the stat beside it was not,
+              // so the same object literal rendered "2 pools" in large type over
+              // "the LP pool rejoins when…" in small type. Both now derive from
+              // periodFinish, and an unread period gets its own third answer.
+              { to: '/farm', title: 'Farm', desc: farmCardDesc(lpPhase), stat: farmCardStat(lpPhase), label: 'Ethereum', art: pageArt('home', 7) },
               // Spread-gated on the SAME predicate navConfig uses to decide whether
               // /solana appears in the nav at all. Unset fee account => the page is a
               // SOON wall, so the card is simply absent and the grid falls back to
@@ -701,6 +763,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* Launch & Verify — ADDITIVE section (2026-07-27).
             The two most-built, most-differentiated surfaces — the token launcher
@@ -719,7 +782,7 @@ export default function HomePage() {
               Protocol Overview for the same tablet-width reason. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              // Tegridy Curve — our OWN zero-toll launch curve, LIVE on mainnet
+              // Memetics Curve — our OWN zero-toll launch curve, LIVE on mainnet
               // 2026-08-24. Placed first because it is the flagship launch surface and
               // the one that just went live. Spread-gated on the SAME live read the
               // page and nav gate on (isDeployed(CURVE_LAUNCHER_ADDRESS)) — if the
@@ -729,8 +792,8 @@ export default function HomePage() {
               ...(isDeployed(CURVE_LAUNCHER_ADDRESS)
                 ? [{
                     to: '/eth-curve',
-                    title: 'Tegridy Curve',
-                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into a Tegridy pool with the LP burned — no Airlock, no petition, no third-party cut.',
+                    title: 'Memetics Curve',
+                    desc: 'Our own zero-toll bonding curve. Launch in one signature, then graduate into our own pool with the LP burned — no Airlock, no petition, no third-party cut.',
                     stat: 'Zero-toll',
                     label: 'Live · Ethereum, Base & Robinhood',
                     art: pageArt('home', 17),
@@ -785,9 +848,10 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* How It Works — the three-step TOWELI farm walkthrough; default-only
-            (a bungalow's farm story lives on its own /farm panel). */}
-        {!bungalowIdentity && (
+        {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
+            only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
+            the farm; a bungalow's farm story lives on its own /farm panel). */}
+        {!bungalowIdentity && IS_TOWELI_ARRIVAL && (
         <div className="pb-16">
           <m.div initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             {/* 2026-08-07: "How It Works" -> "How the Farm Works". All three steps are
@@ -797,7 +861,7 @@ export default function HomePage() {
                 told the product is a three-step TOWELI farm. Scoping the title, not the
                 steps. */}
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1 text-center" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>How the Farm Works</h2>
-            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Three steps, on Ethereum. No bullshit. Real tegridy.</p>
+            <p className="text-white/90 text-[12px] text-center mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{IS_TOWELI_ARRIVAL ? 'Three steps, on Ethereum. No bullshit. Held time counts.' : 'Three steps, on Ethereum. No bullshit. Held time counts.'}</p>
           </m.div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {HOW_IT_WORKS_STEPS.map((s, i) => (
@@ -841,7 +905,7 @@ export default function HomePage() {
               { label: 'Contracts Verified', to: '/contracts' },
               { label: 'Timelocked Admin', to: '/security' },
               { label: 'Responsible Disclosure', to: '/security' },
-              { label: 'Open Source', href: 'https://github.com/fomotsar-commits/tegridy-farms' },
+              { label: 'Open Source', href: GITHUB_REPO_URL },
             ].map((b) => (
               'href' in b ? (
                 <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
@@ -874,10 +938,11 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Ecosystem */}
+        {/* Ecosystem — ARRIVAL FLOW 2026-08-31: the subline places the island
+            ABOVE the venue (the island is the world; the venue lives on it). */}
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
-          <p className="text-white text-[12px] mb-5">The Jungle Bay universe</p>
+          <p className="text-white text-[12px] mb-5">Jungle Bay Island. The world this venue lives on.</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0, type: 'spring', damping: 20, stiffness: 100 }}>
             <a href="https://opensea.io/collection/junglebay" target="_blank" rel="noopener noreferrer"
@@ -892,7 +957,13 @@ export default function HomePage() {
             </a>
             </m.div>
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
-            <a href="https://app.uniswap.org/swap?chain=base" target="_blank" rel="noopener noreferrer"
+            {/* This card named a specific token and opened a generic Uniswap
+                page for the whole of Base — an empty ETH -> ? form the visitor
+                cannot buy JBM from, while the registry has held JBM's address,
+                its JBM/WETH pool and a working market link all along. The door
+                at /jbm is that registry-driven landing, so the card now leads
+                where its own words point. */}
+            <Link to="/jbm"
               className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
                 <ArtImg pageId="home" idx={13} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -901,7 +972,7 @@ export default function HomePage() {
                 <p className="text-white text-[14px] font-semibold group-hover:text-white transition-colors mb-1">$JBM on Base</p>
                 <p className="text-white text-[12px]">The accidental community token. Born from a bot glitch, adopted by the degens.</p>
               </div>
-            </a>
+            </Link>
             </m.div>
             <m.div initial={{ opacity: 0, y: 40, scale: 0.9 }} whileInView={{ opacity: 1, y: 0, scale: 1 }} viewport={{ once: true, margin: '-50px' }} transition={{ delay: 0.3, type: 'spring', damping: 20, stiffness: 100 }}>
             <Link to="/lore" className="relative overflow-hidden rounded-xl glass-card-animated group block" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -965,10 +1036,10 @@ export default function HomePage() {
             viewport={{ once: true }}
           >
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {FAQ_INTRO.headline}
+              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.headline : 'Questions about the venue'}
             </h2>
             <p className="text-white/90 text-[13px] max-w-xl mx-auto mb-5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {FAQ_INTRO.subheading}
+              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.subheading : 'Plain answers, checkable claims. Below are the questions we hear most.'}
             </p>
             <Link to="/faq" className="btn-primary px-6 py-2.5 text-[13px] inline-flex items-center gap-1.5">
               Read the FAQ

@@ -19,7 +19,7 @@
         { "key": "X-DNS-Prefetch-Control", "value": "on" },
         { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" },
         { "key": "Cross-Origin-Resource-Policy", "value": "same-site" },
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-gNlKV1MAn0sWTjogJCJzBZG6DWGS8fAD1TCGOXoiHMM=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://nft2-cdn.alchemy.com https://nft-cdn.alchemy.com https://*.cloudinary.com https://res.cloudinary.com https://assets.mgxs.co https://*.coingecko.com https://assets.coingecko.com https://raw.githubusercontent.com https://i.seadn.io https://openseauserdata.com https://cloudflare-ipfs.com https://dweb.link https://ipfs.io https://nftstorage.link https://w3s.link https://gateway.pinata.cloud https://arweave.net https://*.arweave.net https://*.amazonaws.com https://geckoterminal-prod-staging.geckoterminal.com https://wsrv.nl; font-src 'self' data:; connect-src 'self' https://*.publicnode.com https://eth.drpc.org https://base.drpc.org https://mainnet.base.org https://rpc.mainnet.chain.robinhood.com https://cloudflare-eth.com https://api.geckoterminal.com https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://verify.walletconnect.com https://verify.walletconnect.org https://*.alchemy.com wss://*.alchemy.com https://nft-cdn.alchemy.com wss://eth-mainnet.g.alchemy.com https://pulse.walletconnect.org https://api.web3modal.org https://*.reown.com https://*.supabase.co wss://*.supabase.co https://uploader.irys.xyz https://arweave.net; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-WR/hd42NyzJ3gQFnlod56e7EhmUcVi4Hj2JOmKk/eC4=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://nft2-cdn.alchemy.com https://nft-cdn.alchemy.com https://*.cloudinary.com https://res.cloudinary.com https://assets.mgxs.co https://*.coingecko.com https://assets.coingecko.com https://raw.githubusercontent.com https://i.seadn.io https://openseauserdata.com https://cloudflare-ipfs.com https://dweb.link https://ipfs.io https://nftstorage.link https://w3s.link https://gateway.pinata.cloud https://arweave.net https://*.arweave.net https://*.amazonaws.com https://geckoterminal-prod-staging.geckoterminal.com https://wsrv.nl; font-src 'self' data:; connect-src 'self' https://*.publicnode.com https://eth.drpc.org https://base.drpc.org https://mainnet.base.org https://rpc.mainnet.chain.robinhood.com https://cloudflare-eth.com https://api.geckoterminal.com https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://rpc.walletconnect.com https://explorer-api.walletconnect.com https://*.infura.io https://verify.walletconnect.com https://verify.walletconnect.org https://*.alchemy.com wss://*.alchemy.com https://nft-cdn.alchemy.com wss://eth-mainnet.g.alchemy.com https://pulse.walletconnect.org https://api.web3modal.org https://*.reown.com https://*.supabase.co wss://*.supabase.co https://uploader.irys.xyz https://arweave.net; frame-src https://www.geckoterminal.com https://verify.walletconnect.com https://verify.walletconnect.org; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }
       ]
     },
     {
@@ -61,6 +61,36 @@
     },
     {
       "source": "/art/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/splash/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/collections/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/nakamigos/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/videos/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=604800" }
+      ]
+    },
+    {
+      "source": "/tokens/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
       ]

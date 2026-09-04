@@ -1,5 +1,6 @@
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PricingTiers } from '../components/developer/PricingTiers';
+import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { EndpointReference } from '../components/developer/EndpointReference';
 import { ErrorSemantics } from '../components/developer/ErrorSemantics';
 import { ApiKeyPanel } from '../components/developer/ApiKeyPanel';
@@ -26,48 +27,53 @@ export default function DeveloperPage() {
   const status = useApiPlatformStatus();
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-10 space-y-12">
-      <header>
-        <h1 className="text-4xl font-bold mb-3">Developer API</h1>
-        <p className="opacity-80 max-w-3xl">
-          The same holder-distribution read the scanner runs, served under a key with a per-tier
-          rate limit and a monthly quota. Responses state what was read and where it came from, and
-          a failed read is never dressed up as a clean one.
-        </p>
-      </header>
+    <div className="relative min-h-screen">
+      {/* ART 2026-09-01: this page rendered no art surface at all, so it was
+          invisible to both studios — a skin could not touch it. */}
+      <PageArtBackdrop pageId="developer" />
+      <div className="relative z-10 max-w-5xl mx-auto px-4 py-10 space-y-12">
+        <header>
+          <h1 className="text-4xl font-bold mb-3">Developer API</h1>
+          <p className="opacity-80 max-w-3xl">
+            The same holder-distribution read the scanner runs, served under a key with a per-tier
+            rate limit and a monthly quota. Responses state what was read and where it came from, and
+            a failed read is never dressed up as a clean one.
+          </p>
+        </header>
 
-      {/*
-        Placed first and unconditional. The whole value of a trust API is that its
-        silence is trustworthy, so the reader should meet that promise before the
-        price list rather than after it.
-      */}
-      <ErrorSemantics />
+        {/*
+          Placed first and unconditional. The whole value of a trust API is that its
+          silence is trustworthy, so the reader should meet that promise before the
+          price list rather than after it.
+        */}
+        <ErrorSemantics />
 
-      <EndpointReference />
+        <EndpointReference />
 
-      <PricingTiers />
+        <PricingTiers />
 
-      <ApiKeyPanel status={status} />
+        <ApiKeyPanel status={status} />
 
-      <section aria-labelledby="operator-heading" className="text-sm opacity-75">
-        <h2 id="operator-heading" className="text-lg font-semibold mb-2">
-          Current limits of this deployment
-        </h2>
-        <ul className="list-disc pl-5 space-y-1">
-          <li>
-            Scanning covers Ethereum ERC-20 holder distribution. Deployer reputation, wallet
-            exposure and launch simulation run in the app and are not sold here yet.
-          </li>
-          <li>
-            Keyed calls are refused unless usage metering is configured. There is no unmetered paid
-            path, degraded or otherwise.
-          </li>
-          <li>
-            No payment processor is connected. Paid tiers exist in the catalog so integrators can
-            model cost; only the free tier can be issued.
-          </li>
-        </ul>
-      </section>
+        <section aria-labelledby="operator-heading" className="text-sm opacity-75">
+          <h2 id="operator-heading" className="text-lg font-semibold mb-2">
+            Current limits of this deployment
+          </h2>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              Scanning covers Ethereum ERC-20 holder distribution. Deployer reputation, wallet
+              exposure and launch simulation run in the app and are not sold here yet.
+            </li>
+            <li>
+              Keyed calls are refused unless usage metering is configured. There is no unmetered paid
+              path, degraded or otherwise.
+            </li>
+            <li>
+              No payment processor is connected. Paid tiers exist in the catalog so integrators can
+              model cost; only the free tier can be issued.
+            </li>
+          </ul>
+        </section>
+      </div>
     </div>
   );
 }

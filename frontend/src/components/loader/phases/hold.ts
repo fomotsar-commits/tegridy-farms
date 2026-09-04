@@ -1,4 +1,4 @@
-import { GOLD } from '../constants';
+import { GOLD, LOADER_WORDS } from '../constants';
 import { coverFit } from '../geometry';
 import type { LoaderState } from '../types';
 
@@ -123,9 +123,9 @@ export function drawHoldPhase(
     ctx.fillStyle = '#fff';
     ctx.shadowColor = '#fff';
     ctx.shadowBlur = 20;
-    ctx.fillText('TEGRIDY', W / 2, H / 2 - subSize * 0.5);
+    ctx.fillText(LOADER_WORDS.main, W / 2, H / 2 - subSize * 0.5);
     ctx.font = `bold ${subSize}px "Inter", "Helvetica Neue", sans-serif`;
-    ctx.fillText('FARMS', W / 2, H / 2 + mainSize * 0.45);
+    ctx.fillText(LOADER_WORDS.sub, W / 2, H / 2 + mainSize * 0.45);
     ctx.restore();
   }
 

@@ -226,6 +226,13 @@ export const REFERRAL_SPLITTER_ABI = [
   { type: 'function', name: 'pendingETH', inputs: [{ name: '', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getReferralInfo', inputs: [{ name: '_referrer', type: 'address' }], outputs: [{ name: 'referred', type: 'uint256' }, { name: 'earned', type: 'uint256' }, { name: 'pending', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'totalReferralsPaid', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The referrer's cut, taken off the top of every fee BEFORE anything reaches
+  // the staking distributor (ReferralSplitter.sol:400). Needed by the Farm
+  // strip's "Fee Share" chip: SwapFeeRouter.stakerShareBps is 100% *of what
+  // arrives*, so quoting it alone overstates what a staker actually receives.
+  // Settable up to MAX_REFERRAL_FEE (3000) behind a timelock, so it must be
+  // READ, never hardcoded.
+  { type: 'function', name: 'referralFeeBps', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyFactory (Native DEX Factory) ───────────────────────
@@ -409,6 +416,47 @@ export const LIGHTHOUSE_STAKING_ABI = [
   { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
   { type: 'function', name: 'getRewardForDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The identity guard (TF-035) reads this to prove a pool really stakes the
+  // token the registry claims, before any figure is trusted. It was missing
+  // here while present on the LADDER abi, so EvmLighthousePoolLive failed to
+  // typecheck and blocked every build. It is a real selector: the vendored
+  // StakingRewards declares `IERC20 public stakingToken` (line 28), and a
+  // public state variable has a getter — so this is an omission from the ABI,
+  // not a capability the deployed pools lack.
+  { type: 'function', name: 'stakingToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+] as const;
+
+// ─── Island lighthouse LADDER (contracts/src/LighthouseLadder.sol) ───────────
+// The locked build that supersedes the plain StakingRewards pools: 0d..4y
+// locks, 1.00x..4.00x boost, 25% early-exit penalty, an always-open emergency
+// hatch, and reward payouts capped at balanceOf(pool) - totalSupply() so a
+// payout can never spend principal. `withdraw` is deliberately NOT the
+// canonical selector here — it takes a position id, not an amount, and reusing
+// the name would have been a silent meaning change (a design-review finding).
+export const LIGHTHOUSE_LADDER_ABI = [
+  { type: 'function', name: 'stake', inputs: [{ name: 'amount', type: 'uint256' }, { name: 'duration', type: 'uint256' }], outputs: [{ name: 'id', type: 'uint256' }], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'withdrawPosition', inputs: [{ name: 'id', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'earlyExit', inputs: [{ name: 'id', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'emergencyWithdraw', inputs: [{ name: 'id', type: 'uint256' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'getReward', inputs: [], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'earned', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'balanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalSupply', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'totalBoosted', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'boostedBalanceOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  // The honest vault figure, straight from the contract: what it can pay
+  // without touching principal.
+  { type: 'function', name: 'rewardSurplus', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'boostFor', inputs: [{ name: 'duration', type: 'uint256' }], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'positionsOf', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256[]' }], stateMutability: 'view' },
+  { type: 'function', name: 'positions', inputs: [{ name: '', type: 'uint256' }], outputs: [{ name: 'owner', type: 'address' }, { name: 'lockEnd', type: 'uint64' }, { name: 'amount', type: 'uint256' }, { name: 'boosted', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardRate', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'periodFinish', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardsDuration', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'stakingToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'rewardsToken', inputs: [], outputs: [{ name: '', type: 'address' }], stateMutability: 'view' },
+  { type: 'function', name: 'MAX_LOCK_DURATION', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
+  { type: 'function', name: 'EARLY_EXIT_PENALTY_BPS', inputs: [], outputs: [{ name: '', type: 'uint256' }], stateMutability: 'view' },
 ] as const;
 
 // ─── TegridyLending (P2P NFT-Collateralized Lending) ───────────

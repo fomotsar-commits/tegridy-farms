@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
+// Static, not `await import('viem')` inside the test: the dynamic form times
+// out against vitest's 5s default whenever the machine is busy, which made
+// this pin — the one guarding the checksum bug that broke four cards — the
+// flakiest test in the suite. A pin that cries wolf gets ignored.
+import { isAddress } from 'viem';
 import { resolve } from 'node:path';
 import {
   BUNGALOWS,
@@ -13,6 +18,7 @@ import {
   bungalowArtPool,
   bungalowTradeRoute,
   bungalowScanRoute,
+  residentLabelForPool,
 } from './bungalows';
 import { pageArt } from './artConfig';
 
@@ -48,17 +54,29 @@ describe('bungalow registry', () => {
     expect(bayla?.artPool).toBe(BAYLA_ART);
   });
 
-  it('placeholder skins: every settled resident is live, voiced, and wears CLASSIC art', () => {
-    // Owner call 2026-08-30: skins on now, custom art later. The contract:
-    // live + an honest registry identity + NO artPool — pageArt's classic
-    // fallback IS the placeholder, so the community drop later swaps walls,
-    // never rails. Only the quiet unmarked slot stays not-live.
+  it('every settled resident is live, voiced, and wears its OWN art', () => {
+    // Owner call 2026-08-30 was: skins on now, custom art later — live + an
+    // honest identity + NO artPool, so pageArt's classic fallback WAS the
+    // placeholder. THE DROP LANDED 2026-08-31: the owner delivered a folder
+    // per community, so each resident now paints from public/art/<id>/ via
+    // the generated manifest. The rails did not move — only the walls, which
+    // is exactly the swap the placeholder contract was designed to allow.
+    // Only the quiet unmarked slot stays not-live.
     const notLive = BUNGALOWS.filter((x) => !x.live).map((b) => b.id);
     expect(notLive).toEqual(['nb1']);
     for (const b of BUNGALOWS.filter((x) => x.live && x.id !== 'toweli' && x.id !== 'bayla')) {
       expect(b.identity, `${b.id} placeholder skin needs a voice`).toBeTruthy();
       expect(b.identity?.heroTitle).toBe(`${b.symbol}.`);
-      expect(b.artPool, `${b.id} wears classic art until its community's drop`).toBeUndefined();
+      // Its own drop, resolved from the real directory. QR has no folder yet,
+      // so it honestly keeps the classic fallback until one arrives.
+      if (b.id === 'qr') {
+        expect(b.artPool, 'qr has no folder yet — classic fallback is the honest state').toBeUndefined();
+      } else {
+        expect(b.artPool?.length, `${b.id} paints from its own drop`).toBeGreaterThan(0);
+        for (const piece of b.artPool!) {
+          expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
+        }
+      }
       expect(b.identity?.museVoice, `${b.id} bubble speaks as the island, never another resident`).toBe('the island');
     }
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
@@ -115,12 +133,23 @@ describe('bungalow registry', () => {
 });
 
 describe('Bayla art pool', () => {
-  it('holds 24 unique pieces under /art/bayla/', () => {
-    expect(BAYLA_ART).toHaveLength(24);
-    expect(new Set(BAYLA_ART.map((p) => p.id)).size).toBe(24);
-    expect(new Set(BAYLA_ART.map((p) => p.src)).size).toBe(24);
+  it('holds her whole drop under /art/bayla/, every piece unique', () => {
+    // Not pinned to a count: the pool is SCANNED from public/art/bayla/, so a
+    // literal here would fail every time the curator adds a piece — the exact
+    // brittleness the generated manifest exists to remove. What must hold is
+    // that ids and sources stay unique (a duplicate id would make two surfaces
+    // fight over one placement) and that every piece comes from her folder.
+    expect(BAYLA_ART.length).toBeGreaterThanOrEqual(24);
+    expect(new Set(BAYLA_ART.map((p) => p.id)).size).toBe(BAYLA_ART.length);
+    expect(new Set(BAYLA_ART.map((p) => p.src)).size).toBe(BAYLA_ART.length);
     for (const p of BAYLA_ART) {
-      expect(p.src).toMatch(/^\/art\/bayla\/bayla-\d{2}\.jpg$/);
+      expect(p.src).toMatch(/^\/art\/bayla\/[^/]+\.(jpe?g|png|webp|avif)$/i);
+    }
+    // The 2026-08-24 drop is still addressable by its original ids — the
+    // curator's saved placements in bungalowArtOverrides.ts key off them.
+    for (let i = 1; i <= 24; i += 1) {
+      const id = `bayla-${String(i).padStart(2, '0')}`;
+      expect(BAYLA_ART.some((p) => p.id === id), `${id} must stay addressable`).toBe(true);
     }
   });
 
@@ -214,7 +243,7 @@ describe('resolution order', () => {
     expect(boboExt && 'kind' in boboExt ? boboExt.kind : null).toBe('swap');
   });
 
-  it('every EVM address in the registry passes viem isAddress (the exact wagmi gate)', async () => {
+  it('every EVM address in the registry passes viem isAddress (the exact wagmi gate)', () => {
     // SHIPPED BUG, 2026-08-30: four Base lighthouse addresses were hand-typed
     // with INVENTED mixed case. Nothing threw at build or in getAddress() —
     // but viem's isAddress rejects a mixed-case address whose EIP-55 checksum
@@ -228,7 +257,6 @@ describe('resolution order', () => {
     // the island's token addresses arrive that way from canon), canonical
     // mixed case is FINE, and mixed case that fails the checksum is REJECTED.
     // Never hand-type mixed case — derive it with getAddress(addr.toLowerCase()).
-    const { isAddress } = await import('viem');
     for (const b of BUNGALOWS) {
       for (const [field, value] of [['address', b.address], ['stakePool', b.stakePool]] as const) {
         if (!value || !value.startsWith('0x')) continue;
@@ -241,19 +269,24 @@ describe('resolution order', () => {
   });
 
   it('pins every deployed lighthouse pool (verified on-chain at deploy time)', () => {
-    // Deployed 2026-08-30 via script/DeployLighthouseStaking.s.sol; each was
+    // The five Base rows are LADDER pools (LighthouseLadder, 7d..4y /
+    // 0.4x..4.0x, TOWELI parity) deployed 2026-08-30 and verified on-chain:
+    // right token both sides, fee-remittance Safe as notifier, boostFor(7d)
+    // == 4000 and boostFor(4y) == 40000, nothing staked, never funded. The
+    // no-lock pools they replaced were empty, so nobody was migrated.
+    // Deployed via the deploy scripts; each was
     // read back on-chain before landing here: stakingToken == rewardsToken ==
     // the resident's own token, notifier == the Base fee-remittance Safe,
     // real code present. A wrong address here points the staking card at a
     // stranger's contract — the same class of harm the RIZZ pin guards.
     const POOLS: Record<string, string> = {
-      qr: '0x820246A4eB6e1AD7e571E8581Bdb127020AdB469',
-      mfer: '0x79ff1bDf7ed6b09C24d4766fB4A82Aa28398b548',
-      bnkr: '0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2',
-      drb: '0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5',
-      jbm: '0xF261940cdC04D8F2422345ff6091D6FA601541fa',
+      qr: '0xdcc3a95A0921b83326157132B17770f02094c8E3',
+      mfer: '0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273',
+      bnkr: '0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178',
+      drb: '0xB62BaD165997E95C503044787b2Dcc85DC6D83F1',
+      jbm: '0xA0D43eF39C4940e68b2f81d51E6316a45C136D93',
       // Ethereum mainnet — the last lighthouse (deployed 2026-08-30).
-      pepe: '0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32',
+      pepe: '0xdC0B34cE782029f30382F42097f6b33F0544329c',
       // Solana lighthouses (Streamflow ceremonies, 2026-08-30). Each was read
       // back through the app's OWN SDK path before landing here: the pool's
       // mint matches the resident's corrected contract, and the ladder is the
@@ -329,6 +362,37 @@ describe('resolution order', () => {
     }
     // The quiet slot never grows a market.
     expect(BUNGALOWS.find((x) => x.id === 'nb1')!.market).toBeUndefined();
+  });
+
+  // The market surfaces read pools from GeckoTerminal, which knows a pool only
+  // by address. This is the join back to the island: which of those pools has a
+  // resident behind it. Getting it wrong in the permissive direction is the
+  // dangerous half — a stranger's pool badged as a bungalow's.
+  describe('residentLabelForPool', () => {
+    it('names the resident behind a registered pool', () => {
+      expect(residentLabelForPool('eth', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f')).toBe('Pepe');
+      expect(residentLabelForPool('solana', '31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX')).toBe('BOBO');
+    });
+
+    it('says nothing about a pool the island does not own', () => {
+      // Silence is the honest answer for the other ~million pools GeckoTerminal
+      // lists; a fallback label here would badge strangers as residents.
+      expect(residentLabelForPool('eth', '0x0000000000000000000000000000000000000001')).toBeNull();
+      expect(residentLabelForPool('eth', '')).toBeNull();
+    });
+
+    it('matches EVM pools case-insensitively — the same address is written both ways', () => {
+      expect(residentLabelForPool('eth', '0xA43FE16908251EE70EF74718545E4FE6C5CCEC9F')).toBe('Pepe');
+    });
+
+    it('matches Solana keys EXACTLY, because base58 is case-sensitive', () => {
+      // Lowercased, that key is a different, valid-looking, wrong address.
+      expect(residentLabelForPool('solana', '31zmtzeufrdbgksj7nicckekxtpqgaemqvdbcuufe6gx')).toBeNull();
+    });
+
+    it('does not cross networks: the same string on another chain is another pool', () => {
+      expect(residentLabelForPool('base', '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f')).toBeNull();
+    });
   });
 
   it("keeps Bayla's canon voice in the registry (lore + muse pool)", () => {

@@ -159,7 +159,7 @@ export function HeatCard({ address: pinned, variant = 'panel', showEligibility =
           </div>
           <p className="text-white/60 text-[12.5px] leading-relaxed mb-4 max-w-2xl">
             Heat measures <strong className="text-white/85">how much of a token you held, and for how long</strong>.
-            It is not a Tegridy score and it pays nothing — it is the island&apos;s own instrument, read live.
+            It is not a venue score and it pays nothing — it is the island&apos;s own instrument, read live.
             Price never enters it, a fresh bag starts near zero however big it is, and trading in and out earns nothing.
           </p>
         </>
@@ -510,7 +510,7 @@ function Maths({ degrees }: { degrees: number }) {
       <p className="text-white/40 text-[11px]">
         Three properties make it hard to fake: time before you first held counts as zero, so a new
         bag starts cold however large; churn earns nothing, only balance held across time; and price
-        never enters the formula at all. Tegridy reads this number — the island computes it, and
+        never enters the formula at all. The venue reads this number — the island computes it, and
         wherever the two disagree, the island is right.
       </p>
     </div>

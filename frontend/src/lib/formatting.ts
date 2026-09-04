@@ -119,7 +119,7 @@ export function formatTimeUntil(timestamp: number): string {
  */
 export function sanitizeDecimalInput(raw: string): string {
   return raw
-    .replace(/[eE].*$/, '')      // terminate at scientific notation
+    .replace(/[eE][\s\S]*/, '')  // terminate at scientific notation ([\s\S] avoids the quadratic .*$ backtrack)
     .replace(/[^0-9.]/g, '')     // drop separators / letters / signs
     .replace(/(\..*)\./g, '$1'); // keep only the first decimal point
 }

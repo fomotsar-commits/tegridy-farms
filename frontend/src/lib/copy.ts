@@ -1,10 +1,10 @@
 /**
- * copy.ts — Centralized product copy for Tegridy Farms (Full Tegridy voice).
+ * copy.ts — Centralized product copy for memetics.finance (the farm's own voice).
  *
  * Why this file exists:
  *   The Spartan Battle Plan brand audit rated meme-integration at 4.1/10.
  *   Engineering was good; voice was generic DeFi ("STAKE CONFIRMED", "7 Days").
- *   This file replaces those strings with Randy-Marsh-era Tegridy Farms voice
+ *   This file replaces those strings with Randy-Marsh-era memetics.finance voice
  *   across receipts, lock durations, error surfaces, and tooltip flavor.
  *
  * Why centralized:
@@ -24,19 +24,42 @@
 // shape in TransactionReceipt.tsx so it drops in as a spread.
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * BOOTSTRAP APR — the shared threshold and the sentence that must travel with
+ * any four-digit rate.
+ *
+ * The displayed APR is the REAL on-chain rate by explicit operator choice. But
+ * pre-LP-seed it is fixed-emissions over a tiny TVL, which produces a four-digit
+ * number that pattern-matches to a rug for exactly the DeFi-native audience this
+ * venue courts. The answer is not to hide the number; it is to never show it
+ * without saying why it is that big and that it falls.
+ *
+ * Centralised because it was NOT: IncentivesStrip carried this note while
+ * BoostScheduleTable rendered the largest figure on the whole page — the max-boost
+ * row, base APR x4 — with no context at all. Two surfaces, one rule, one copy of it.
+ */
+export const BOOTSTRAP_APR_THRESHOLD = 1000; // %
+
+export const BOOTSTRAP_APR_NOTE = 'TOWELI emission incentive — bootstrap rate, falls as TVL grows';
+
+/** True when a rate is large enough that showing it bare would mislead. */
+export function isBootstrapApr(aprNum: number | undefined): boolean {
+  return (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
+}
+
 export const RECEIPT_COPY = {
-  swap:             { label: 'SWAPPED, WITH TEGRIDY',     verb: 'swapped' },
-  stake:            { label: 'LOCKED DOWN, WITH TEGRIDY', verb: 'locked down' },
+  swap:             { label: 'SWAPPED, ON THE VENUE',     verb: 'swapped' },
+  stake:            { label: 'LOCKED DOWN, HELD TIME ON', verb: 'locked down' },
   unstake:          { label: 'HARVEST WITHDRAWN',         verb: 'pulled off the farm' },
   claim:            { label: 'HARVEST COMPLETE',          verb: 'harvested' },
-  vote:             { label: 'TEGRIDY REGISTERED',        verb: 'voted with tegridy' },
+  vote:             { label: 'VOTE REGISTERED',           verb: 'voted on-chain' },
   bounty:           { label: 'BOUNTY ON THE BOARD',       verb: 'put up a bounty' },
-  lock:             { label: 'LOCKED DOWN, WITH TEGRIDY', verb: 'locked it down' },
+  lock:             { label: 'LOCKED DOWN, HELD TIME ON', verb: 'locked it down' },
   approve:          { label: 'PERMISSION GRANTED',        verb: 'granted the farm permission' },
   liquidity_add:    { label: 'CROP EXPANDED',             verb: 'grew the crop' },
   liquidity_remove: { label: 'CROP ROTATED',              verb: 'pulled crop out' },
   subscribe:        { label: "RANDY'S GOLD CARD ACTIVE",  verb: 'joined the Gold Card' },
-  claim_revenue:    { label: 'TEGRIDY PAID OUT',          verb: 'collected the tegridy' },
+  claim_revenue:    { label: 'REVENUE PAID OUT',          verb: 'collected the ETH' },
 } as const;
 
 export type ReceiptCopyKey = keyof typeof RECEIPT_COPY;
@@ -49,11 +72,11 @@ export type ReceiptCopyKey = keyof typeof RECEIPT_COPY;
 
 export const LOCK_DURATIONS = [
   { days: 7,    label: 'The Taste Test',           sublabel: '7 days',   flavor: "Just a sample, Randy-style." },
-  { days: 30,   label: 'One Month of Integrity',   sublabel: '30 days',  flavor: 'Short commitment. Real tegridy.' },
+  { days: 30,   label: 'One Month of Integrity',   sublabel: '30 days',  flavor: 'Short commitment. Real held time.' },
   { days: 90,   label: 'The Harvest Season',       sublabel: '90 days',  flavor: 'Through the growing cycle.' },
   { days: 365,  label: 'The Long Haul',            sublabel: '1 year',   flavor: 'A full year on the farm.' },
   { days: 730,  label: 'In It For The Kids',       sublabel: '2 years',  flavor: "For the kids' college fund." },
-  { days: 1460, label: 'Till Death Do Us Farm',    sublabel: '4 years',  flavor: 'Maximum tegridy. Maximum boost.' },
+  { days: 1460, label: 'Till Death Do Us Farm',    sublabel: '4 years',  flavor: 'Maximum held time. Maximum boost.' },
 ] as const;
 
 // Map seconds → meme label. Call with an epoch-based duration.
@@ -88,7 +111,7 @@ export const GOVERNANCE_COPY = {
   bribesSectionTag: 'Totally Not Bribes. Just Donations.',
   bribesSubheading:
     "Incentivize voters to back your pool. Is it bribery? Cartman says no — call it community-funded campaign contributions. Either way, it works.",
-  voteCtaLabel: 'Register Your Tegridy',
+  voteCtaLabel: 'Register Your Vote',
   revealLabel: 'Reveal Your Hand',
   commitLabel: 'Commit in Secret',
 } as const;
@@ -120,7 +143,7 @@ export const COMMUNITY_TAB_INTRO = {
 export const FAQ_INTRO = {
   headline: 'Questions about the farm',
   subheading:
-    "Look. We're not gonna bullshit you. This is a real farm. With real yield. Earned with tegridy. Below are the questions we hear most.",
+    "Look. We're not gonna bullshit you. This is a real farm. With real yield. Earned with held time. Below are the questions we hear most.",
 } as const;
 
 // ═══════════════════════════════════════════════════════════════
@@ -135,7 +158,7 @@ export const TOWELIE_QUOTES = [
   "I have no idea what's going on.",
   "I'm just a towel, but these rewards look real.",
   "Remember: always bring a towel. And your LP tokens.",
-  "This farm has tegridy. I'm pretty sure.",
+  "This farm has receipts. I'm pretty sure.",
 ] as const;
 
 export function randomToweliQuote(): string {
@@ -149,7 +172,7 @@ export function randomToweliQuote(): string {
 // ═══════════════════════════════════════════════════════════════
 
 export const ERROR_COPY = {
-  insufficientBalance: "You're short on tegridy, buddy.",
+  insufficientBalance: "You're short, buddy.",
   walletNotConnected:  'Gotta connect a wallet to farm here.',
   txRejected:          "Changed your mind. That's fine — the farm'll still be here.",
   networkError:        "The barn's Wi-Fi is acting up. Try again.",

@@ -44,8 +44,21 @@
  */
 export type CoverageReadStatus = 'idle' | 'loading' | 'ready' | 'backfilling' | 'unavailable';
 
+/**
+ * WHICH READ a gap is about.
+ *
+ * Coverage stopped being one read's business the moment the page grew a second
+ * source: "the explorer could not be reached" and "no indexer is configured"
+ * are different facts with different fixes, and a reader deciding whether the
+ * file is usable needs to know which one they are looking at. Every gap carries
+ * it and every export prints it.
+ */
+export type CoverageSource = 'explorer' | 'indexer';
+
 export type GapReason =
   | 'not-read'
+  | 'explorer-unavailable'
+  | 'head-unavailable'
   | 'indexer-unavailable'
   | 'indexer-backfilling'
   | 'page-truncated'
@@ -57,6 +70,7 @@ export interface CoverageGap {
   from: number;
   /** Unix seconds, inclusive. */
   to: number;
+  source: CoverageSource;
   reason: GapReason;
   /** Plain language, written for whoever reads the CSV, not for a developer. */
   detail: string;
@@ -66,6 +80,8 @@ export interface CoverageInput {
   /** Unix seconds, the period the report claims to be about. */
   periodStart: number;
   periodEnd: number;
+  /** Required: a gap that does not say which read produced it is half a fact. */
+  source: CoverageSource;
   status: CoverageReadStatus;
   /** Head the indexer reported, or null when it reported none. */
   syncedAt: number | null;
@@ -125,13 +141,14 @@ function unionSeconds(gaps: CoverageGap[]): number {
 }
 
 export function computeCoverage(input: CoverageInput): Coverage {
-  const { periodStart, periodEnd } = input;
+  const { periodStart, periodEnd, source } = input;
   const raw: CoverageGap[] = [];
 
   if (input.status === 'idle' || input.status === 'loading') {
     raw.push({
       from: periodStart,
       to: periodEnd,
+      source,
       reason: 'not-read',
       detail:
         'No history has been read for this period yet, so nothing below is a statement about what happened in it.',
@@ -139,20 +156,35 @@ export function computeCoverage(input: CoverageInput): Coverage {
   }
 
   if (input.status === 'unavailable') {
-    raw.push({
-      from: periodStart,
-      to: periodEnd,
-      reason: 'indexer-unavailable',
-      detail:
-        'The indexed history could not be read at all, so the entire period is uncovered. An empty report ' +
-        'here means the service could not answer — it does not mean there were no transactions.',
-    });
+    raw.push(
+      source === 'explorer'
+        ? {
+            from: periodStart,
+            to: periodEnd,
+            source,
+            reason: 'explorer-unavailable',
+            detail:
+              'The explorer proxy answered without data, so nothing about this wallet was concluded and the ' +
+              'entire period is uncovered. An empty report here means the read failed — it does not mean ' +
+              'there were no transactions.',
+          }
+        : {
+            from: periodStart,
+            to: periodEnd,
+            source,
+            reason: 'indexer-unavailable',
+            detail:
+              'The indexed history could not be read at all, so the entire period is uncovered. An empty report ' +
+              'here means the service could not answer — it does not mean there were no transactions.',
+          },
+    );
   }
 
   if (input.status === 'backfilling') {
     raw.push({
       from: periodStart,
       to: periodEnd,
+      source,
       reason: 'indexer-backfilling',
       detail:
         'The indexer is still replaying history, so what came back is an incomplete prefix and the missing ' +
@@ -165,36 +197,50 @@ export function computeCoverage(input: CoverageInput): Coverage {
       raw.push({
         from: periodStart,
         to: input.oldestRowAt - 1,
+        source,
         reason: 'page-truncated',
         detail:
-          'More rows exist before the oldest one that was read — the read is capped at one page, newest ' +
-          'first — so this stretch was never looked at.',
+          source === 'explorer'
+            ? 'The read is bounded, and rows older than this point exist in at least one of the transaction ' +
+              'lists and were not fully read — so this stretch was never looked at, and transactions in it ' +
+              'are not classified even where some of their legs did come back.'
+            : 'More rows exist before the oldest one that was read — the read is capped at one page, newest ' +
+              'first — so this stretch was never looked at.',
       });
     }
     if (input.syncedAt !== null && input.syncedAt < periodEnd) {
       raw.push({
         from: input.syncedAt + 1,
         to: periodEnd,
+        source,
         reason: 'after-sync-head',
         detail:
-          'The indexer had not reached the end of this period, so anything after its synced head is not ' +
-          'indexed by anyone yet.',
+          source === 'explorer'
+            ? 'The block this read was pinned to is older than the end of this period, so anything after it ' +
+              'either had not happened yet or had not reached the explorer when the read was taken.'
+            : 'The indexer had not reached the end of this period, so anything after its synced head is not ' +
+              'indexed by anyone yet.',
       });
     }
     if (input.syncedAt === null) {
       raw.push({
         from: periodStart,
         to: periodEnd,
+        source,
         reason: 'after-sync-head',
         detail:
-          'The indexer did not report how far it has synced, so how much of this period it actually holds ' +
-          'cannot be established.',
+          source === 'explorer'
+            ? 'The chain head this read was taken against is unknown, so how much of this period it covers ' +
+              'cannot be established.'
+            : 'The indexer did not report how far it has synced, so how much of this period it actually holds ' +
+              'cannot be established.',
       });
     }
     if (input.indexedFrom !== null && input.indexedFrom > periodStart) {
       raw.push({
         from: periodStart,
         to: input.indexedFrom - 1,
+        source,
         reason: 'before-indexed-range',
         detail:
           'This venue’s indexer starts after this point and has never held history from before it. Nothing ' +
@@ -214,6 +260,26 @@ export function computeCoverage(input: CoverageInput): Coverage {
   };
 }
 
+/**
+ * Coverage over SEVERAL reads.
+ *
+ * Gaps are concatenated rather than intersected: a period the explorer read and
+ * the indexer did not is still a period one of this report's sources could not
+ * speak for, and collapsing that would let one source quietly vouch for the
+ * other. So `complete` needs EVERY enabled source complete, while `gapSeconds`
+ * is the UNION — two sources failing over the same year must not report two
+ * years missing.
+ *
+ * A source that is not enabled contributes nothing at all: it was not asked, so
+ * it has no opinion. That is why useTaxReport omits the indexer entry entirely
+ * when none is configured rather than passing it as `unavailable`, which would
+ * bury every real finding under a permanent whole-period gap.
+ */
+export function computeCoverageUnion(inputs: CoverageInput[]): Coverage {
+  const gaps = inputs.flatMap((i) => computeCoverage(i).gaps);
+  return { gaps, complete: gaps.length === 0, gapSeconds: unionSeconds(gaps) };
+}
+
 /** One line per gap, in the wording that goes onto the export. */
 export function gapLines(coverage: Coverage): string[] {
   if (coverage.complete) {
@@ -221,6 +287,6 @@ export function gapLines(coverage: Coverage): string[] {
   }
   return coverage.gaps.map(
     (g) =>
-      `GAP ${new Date(g.from * 1000).toISOString()} → ${new Date(g.to * 1000).toISOString()} [${g.reason}] ${g.detail}`,
+      `GAP ${new Date(g.from * 1000).toISOString()} → ${new Date(g.to * 1000).toISOString()} [${g.source}/${g.reason}] ${g.detail}`,
   );
 }

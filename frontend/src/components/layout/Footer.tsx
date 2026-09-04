@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom';
-import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS } from '../../lib/constants';
+import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
 import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
+import { isToweliVoice, VENUE } from '../../lib/arrival';
 
 /**
  * Footer — four-column IA: Product / Resources / Community / Legal.
@@ -31,7 +32,7 @@ const PRODUCT_LINKS: { to: string; label: string }[] = [
   // Community column below (both gate on COMMUNITY_LIVE).
   ...(PREMIUM_LIVE ? [{ to: '/premium', label: 'Gold Card' }] : []),
   { to: '/leaderboard', label: 'Points' },
-  { to: '/nakamigos', label: 'Tradermigos' },
+  { to: '/nakamigos', label: 'Marketplace' },
 ];
 
 const RESOURCE_LINKS: { to: string; label: string }[] = [
@@ -49,12 +50,6 @@ const EXTERNAL_RESOURCES: { href: string; label: string }[] = [
   { href: UNISWAP_BUY_URL, label: 'Trade on Uniswap' },
   { href: ETHERSCAN_TOKEN, label: 'Etherscan' },
   { href: GECKOTERMINAL_URL, label: 'GeckoTerminal' },
-];
-
-const COMMUNITY_LINKS: { href: string; label: string }[] = [
-  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
 ];
 
 const LEGAL_LINKS: { to: string; label: string }[] = [
@@ -110,8 +105,9 @@ export function Footer() {
           <div className="col-span-2 md:col-span-1">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-[18px] font-bold tracking-wide" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)', fontFamily: 'var(--font-family-heading)' }}>
-                <span>TEGRIDY</span>{' '}
-                <span>FARMS</span>
+                {/* ARRIVAL IDENTITY 2026-08-27: wordmark follows the arrival
+                    voice; classic TEGRIDY FARMS lives in the TOWELI bungalow. */}
+                <><span>{VENUE.markMain}</span><span>{VENUE.markSub}</span></>
               </span>
             </div>
             {/* 2026-08-07: same two fixes as OnboardingModal.tsx — see the long note
@@ -126,14 +122,23 @@ export function Footer() {
                 {bungalowIdentity.name} bungalow — Jungle Bay Island. {bungalowIdentity.tagline}{' '}
                 {bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}
               </p>
-            ) : (
+            ) : isToweliVoice() ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
                 Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
               </p>
+            ) : (
+              <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
+                {VENUE.tagline}. Bungalows for meme communities, launches that open on Heat, and fees you can read onchain. Ethereum, Base and Solana.
+              </p>
             )}
+            {/* ARRIVAL FLOW 2026-08-31: the venue pins no single resident's
+                contract. A bungalow footer shows its own token's CA; the
+                TOWELI card renders inside the TOWELI bungalow. The venue
+                footer stays the island's: name, vow, doors. */}
+            {(bungalowIdentity || isToweliVoice()) && (
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-                {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'Contract'}
+                {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'TOWELI contract'}
               </p>
               <CopyButton
                 text={bungalowIdentity?.address ?? TOWELI_ADDRESS}
@@ -148,6 +153,7 @@ export function Footer() {
                 </a>
               )}
             </div>
+            )}
           </div>
 
           {/* Product */}
@@ -218,7 +224,7 @@ export function Footer() {
                   Governance
                 </Link>
               )}
-              {COMMUNITY_LINKS.map((l) => (
+              {SOCIAL_LINKS.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className={LINK_CLASS} style={LINK_SHADOW}>
@@ -248,7 +254,7 @@ export function Footer() {
             Experimental protocol. Use at your own risk. Not financial advice. <Link to="/risks" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Risk Disclosure</Link> · <Link to="/security" className="text-white hover:text-white/80 underline" style={LINK_SHADOW}>Security</Link>
           </span>
           <span className="text-white/60 text-[11px]" style={LINK_SHADOW}>
-            © 2026 Tegridy Farms
+            © 2026 memetics.finance
           </span>
         </div>
       </div>

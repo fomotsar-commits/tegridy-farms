@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <!-- R077: point at the W3C-spec manifest filename. `manifest.webmanifest`
          is the canonical extension for Web App Manifests; `manifest.json`
          can confuse some PWA tooling. -->
@@ -32,44 +32,51 @@
          NOTE for whoever edits og.png: the rendered social image itself may still carry
          Ethereum-only wording. It is generated from og.svg by
          `node scripts/render-og-png.mjs` and is NOT covered by this change. -->
-    <meta name="description" content="Tegridy Farms — DeFi protocol for swapping, staking, farming, and NFT finance on Ethereum, token launches on the Tegridy Curve (Ethereum, Base, Robinhood Chain), plus Solana token swaps">
+    <!-- ARRIVAL IDENTITY 2026-08-27: the static head is the venue's own voice,
+         MEMETICS.FINANCE on Jungle Bay Island. Crawlers and unfurlers read this
+         file before React runs, so this is the first impression every share
+         link carries. The classic Tegridy Farms identity lives whole inside
+         the TOWELI bungalow (/toweli); in-app titles per route come from
+         usePageTitle. No certification claim rides here: the venue reads the
+         island's standard and never self-declares. -->
+    <meta name="description" content="memetics.finance is the venue of Jungle Bay Island. Bungalows for meme communities, Heat-gated launches, and verifiable staking and swaps on Ethereum, Base and Solana.">
     <!-- R077: serve a purpose-built 192px PNG, not a JPG of the logo. iOS
          home-screen icons render best when the image is a square PNG with
          the correct sizes attribute; JPG works but lacks transparency. -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="192x192">
     <!-- CSP enforced via Vercel headers in vercel.json (not meta tag — avoids mobile Safari issues) -->
-    <link rel="canonical" href="https://memetic.fun/" />
-    <title>Tegridy Farms | TOWELI Yield Farm</title>
-    <meta property="og:title" content="Tegridy Farms | TOWELI Yield Farm" />
+    <link rel="canonical" href="https://memetics.finance/" />
+    <title>MEMETICS.FINANCE | Memetic Finance on Jungle Bay Island</title>
+    <meta property="og:title" content="MEMETICS.FINANCE | Memetic Finance on Jungle Bay Island" />
     <!-- F69: align with the 2026-06-11 honesty pass — every protocol fee flows
          on-chain to stakers, the liquidity engine, and operations (the rendered
          hero no longer claims a fixed "100% to stakers"; crawlers read this
          static HTML, so it must match). -->
-    <meta property="og:description" content="Art-first DeFi on Ethereum and Solana. Stake TOWELI on Ethereum — every protocol fee flows on-chain to stakers, the liquidity engine, and operations. Swap Solana tokens via Jupiter, and scan any token on either chain." />
+    <meta property="og:description" content="The venue of Jungle Bay Island. Bungalows for meme communities, launches that open on Heat instead of hype, and every fee routed on-chain where you can read it. Ethereum, Base and Solana." />
     <!-- Purpose-built social preview — see docs/SOCIAL_PREVIEW_SPEC.md.
          PNG is the primary for crawler compatibility (Discord/Slack/
          Facebook image proxies only accept raster). SVG is served as
          secure_url for modern crawlers that want sharpness. Both are
          regenerated via `node scripts/render-og-png.mjs`. -->
-    <meta property="og:image" content="https://memetic.fun/og.png" />
+    <meta property="og:image" content="https://memetics.finance/og.png" />
     <!-- R077: secure_url must declare a raster URL so Facebook/Discord
          crawlers don't reject the SVG fallback for failing to match
          og:image:type. Both are functionally identical PNGs. -->
-    <meta property="og:image:secure_url" content="https://memetic.fun/og.png" />
+    <meta property="og:image:secure_url" content="https://memetics.finance/og.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
-    <meta property="og:image:alt" content="Tegridy Farms — DeFi on Ethereum and Solana, where protocol fees flow on-chain to stakers" />
+    <meta property="og:image:alt" content="MEMETICS.FINANCE — the venue of Jungle Bay Island, where held time counts" />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://memetic.fun/" />
-    <meta property="og:site_name" content="Tegridy Farms" />
+    <meta property="og:url" content="https://memetics.finance/" />
+    <meta property="og:site_name" content="MEMETICS.FINANCE" />
     <meta property="og:locale" content="en_US" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Tegridy Farms | TOWELI Yield Farm" />
-    <meta name="twitter:description" content="Art-first DeFi on Ethereum and Solana. Stake TOWELI on Ethereum, swap Solana tokens via Jupiter, scan any token on either chain." />
-    <meta name="twitter:image" content="https://memetic.fun/og.png" />
-    <meta name="twitter:image:alt" content="Tegridy Farms — DeFi on Ethereum and Solana" />
-    <meta name="twitter:url" content="https://memetic.fun/" />
+    <meta name="twitter:title" content="MEMETICS.FINANCE | Memetic Finance on Jungle Bay Island" />
+    <meta name="twitter:description" content="The venue of Jungle Bay Island. Bungalows for meme communities, Heat-gated launches, verifiable staking and swaps on Ethereum, Base and Solana." />
+    <meta name="twitter:image" content="https://memetics.finance/og.png" />
+    <meta name="twitter:image:alt" content="MEMETICS.FINANCE — the venue of Jungle Bay Island" />
+    <meta name="twitter:url" content="https://memetics.finance/" />
     <!-- Preconnect to NFT image CDNs for faster loading -->
     <link rel="preconnect" href="https://assets.mgxs.co" crossorigin>
     <link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
@@ -89,19 +96,24 @@
     <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/playfair-display-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/fonts/fonts.css">
-    <!-- F19: the splash picks 4 random art pieces from a 41-entry pool, so
-         preloading specific splash JPGs was <10% likely to be used (and repeat
-         visitors skip the splash entirely yet still paid the bytes). Keep only
-         bobowelie — it's the TopNav replay button and the Towelie avatar, so
-         it's genuinely warmed on every page. -->
-    <link rel="preload" as="image" href="/art/bobowelie.jpg">
-    <!-- F66: the home hero (home:0 → /art/iphone/IMG_0148.jpg) is the LCP image,
-         rendered full-viewport. Preload it at high priority so the browser
-         fetches it ahead of below-the-fold art instead of discovering it late.
-         Keep this in lock-step with the home:0 override in src/lib/artOverrides.ts. -->
-    <link rel="preload" as="image" href="/art/iphone/IMG_0148.jpg" fetchpriority="high">
+    <!-- PERF-14 (2026-09-03): there were two unconditional image preloads here,
+         463,341 bytes fetched ahead of the entry chunk on EVERY route — the eight
+         SOON routes and every bungalow door included, where neither image is
+         rendered at all.
+
+         bobowelie (189,398 B) is gone outright: it is the TopNav replay button
+         and the Towelie avatar, both rendered small and neither ever the LCP
+         element, so it was buying a warm cache with first-paint bandwidth.
+
+         The home hero (274 KB) IS the LCP element — but only on `/`, and only
+         when the classic skin is active; a bungalow visitor's home:0 resolves
+         into that bungalow's own pool, so the tag was fetching an image they
+         never see. It is emitted from /theme-init.js now, which already runs
+         synchronously above and can read both conditions. That is EARLIER than
+         this tag was, not later.
+         Lock-step with pageArt('home', 0) is pinned by src/lib/heroPreload.test.ts. -->
     <script type="application/ld+json">
-    {"@context":"https://schema.org","@type":"WebApplication","name":"Tegridy Farms","description":"Art-first DeFi protocol on Ethereum and Solana","url":"https://memetic.fun","applicationCategory":"DeFi","operatingSystem":"Web"}
+    {"@context":"https://schema.org","@type":"WebApplication","name":"MEMETICS.FINANCE","description":"The venue of Jungle Bay Island. Memetic finance on Ethereum, Base and Solana.","url":"https://memetics.finance","applicationCategory":"DeFi","operatingSystem":"Web"}
     </script>
   </head>
   <body>
@@ -109,7 +121,7 @@
     <!-- F30: JS-disabled visitors otherwise get a blank #root. -->
     <noscript>
       <div style="max-width:640px;margin:48px auto;padding:24px;font-family:system-ui,sans-serif;color:#ede9fe;text-align:center;line-height:1.5">
-        <h1 style="font-size:20px;margin:0 0 12px">Tegridy Farms requires JavaScript</h1>
+        <h1 style="font-size:20px;margin:0 0 12px">MEMETICS.FINANCE requires JavaScript</h1>
         <p style="font-size:14px;color:#a599c9;margin:0">
           This DeFi app needs JavaScript enabled to connect your wallet and read on-chain data.
           Please enable JavaScript and reload the page.

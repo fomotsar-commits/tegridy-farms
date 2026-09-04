@@ -17,7 +17,9 @@ import { gotoRoute } from './fixtures/routes';
 test.describe('Smoke Tests', () => {
   test('homepage loads and shows hero', async ({ page }) => {
     await gotoRoute(page, '/');
-    await expect(page).toHaveTitle(/Tegridy/i);
+    // ARRIVAL IDENTITY 2026-08-27: the default arrival is the venue's own
+    // voice; the Tegridy title lives inside the TOWELI bungalow.
+    await expect(page).toHaveTitle(/MEMETICS/i);
     await expect(page.locator('h1')).toBeVisible();
   });
 

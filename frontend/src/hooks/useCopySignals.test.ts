@@ -23,6 +23,10 @@ const QUOTE = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
 const OUT = '0x1111111111111111111111111111111111111111';
 
 const follow: FollowConfig = {
+  // A follow is qualified by chain family now, because the same 0x address is a
+  // different pool on Ethereum than on Base. Every address in this file is hex,
+  // so 'evm' is the venue these fixtures always implied - now written down.
+  venue: 'evm',
   leader: LEADER,
   quoteToken: QUOTE,
   maxNotionalWei: 10n ** 18n,

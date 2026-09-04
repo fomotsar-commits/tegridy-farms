@@ -1,6 +1,7 @@
-import { useRef, useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useRef, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useChainId, useWaitForTransactionReceipt } from 'wagmi';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   TransactionReceiptContext,
   useTransactionReceiptState,
@@ -12,6 +13,7 @@ import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
+import { VENUE } from '../lib/arrival';
 
 type TxStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -185,6 +187,17 @@ function TransactionReceiptOverlay({
   const chainId = useChainId();
   const config = TYPE_CONFIG[receipt.type];
   const rows = useMemo(() => buildDetailRows(receipt), [receipt]);
+  // A11Y-R01: this overlay is a modal in every way except the semantics — it
+  // covers the viewport at z-[9999] and dismisses on a backdrop click. Without
+  // a dialog role, a focus trap and Escape, a keyboard or screen-reader user
+  // who completes ANY transaction on the site is left tabbing the page behind
+  // an opaque sheet with no announced way out. The trap/restore contract is the
+  // shared one (hooks/useFocusTrap — the same logic ui/Modal runs); it lives on
+  // a hook precisely so inline overlays like this one can adopt it without
+  // being restructured onto Modal, which would re-chrome the card and drop the
+  // gradient/art that html2canvas captures for "Copy Image".
+  const trapRef = useFocusTrap<HTMLDivElement>(true);
+  const titleId = useId();
 
   // Capture timestamp once when the receipt is first shown (stable across re-renders).
   // If receipt data includes a blockTimestamp, prefer that over wall-clock time.
@@ -229,9 +242,24 @@ function TransactionReceiptOverlay({
   // Share-to-X gating: pending shows a confirmation modal; failed disables.
   const [showPendingShareModal, setShowPendingShareModal] = useState(false);
 
+  // Escape closes the topmost layer only: the pending-share confirm sits INSIDE
+  // the receipt card, so dismissing it must not also throw away the receipt.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showPendingShareModal) {
+        setShowPendingShareModal(false);
+        return;
+      }
+      onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [showPendingShareModal, onClose]);
+
   const performShare = useCallback(() => {
     const verb = config.verb;
-    const text = `Just ${verb} on @TegridyFarms! \u{1F33F} #TOWELI #DeFi`;
+    const text = `Just ${verb} on @JungleBayAC! \u{1F33F} #TOWELI #DeFi`;
     // F11: fall back to the canonical live origin, not the unowned tegridyfarms.io.
     const url = etherscanUrl ?? SITE_URL;
     window.open(
@@ -298,8 +326,17 @@ function TransactionReceiptOverlay({
 
       {/* Card */}
       <m.div
-        ref={cardRef}
-        className="relative w-full max-w-[400px] mx-4 rounded-2xl overflow-hidden"
+        // Two consumers, one node: html2canvas captures this card for "Copy
+        // Image", and the focus trap needs it as the dialog container.
+        ref={(node: HTMLDivElement | null) => {
+          cardRef.current = node;
+          trapRef.current = node;
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="relative w-full max-w-[400px] mx-4 rounded-2xl overflow-hidden outline-none"
         style={{
           background: 'linear-gradient(145deg, rgba(6,12,26,0.95) 0%, rgba(16,30,54,0.95) 100%)',
           border: '1px solid var(--color-purple-25)',
@@ -336,7 +373,7 @@ function TransactionReceiptOverlay({
                 className="heading-luxury text-white text-[16px] tracking-wide"
                 style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
               >
-                Tegridy Farms
+                {VENUE.name}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -366,6 +403,7 @@ function TransactionReceiptOverlay({
           <div className="flex items-center gap-2 mb-5">
             <span className="text-[20px]">{config.icon}</span>
             <span
+              id={titleId}
               className="stat-value text-[18px] text-white tracking-wider"
               style={{ fontFamily: "'JetBrains Mono', monospace" }}
             >
@@ -522,7 +560,7 @@ function buildReceiptText(
   chainId?: number,
 ): string {
   const lines = [
-    '\u{1F33F} Tegridy Farms',
+    `\u{1F33F} ${VENUE.name}`,
     '━'.repeat(30),
     '',
     config.label,

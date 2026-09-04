@@ -16,6 +16,11 @@ const LighthousePoolLive = lazy(() =>
 const EvmLighthousePoolLive = lazy(() =>
   import('./EvmLighthousePoolLive').then((m) => ({ default: m.EvmLighthousePoolLive })),
 );
+// The LOCKED build (LighthouseLadder). Which card renders is decided by the
+// registry's poolKind, i.e. by what the deployed contract actually IS.
+const EvmLadderPoolLive = lazy(() =>
+  import('./EvmLadderPoolLive').then((m) => ({ default: m.EvmLadderPoolLive })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -60,7 +65,10 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           every established page (fixed, scrimmed, content above). */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="bungalow-farm" idx={2} alt="" loading="lazy" className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.55)' }} />
+        {/* ART VISIBILITY 2026-08-31 (owner): 0.55 -> 0.38. The card scrims
+            above it were lightened in the same pass; leaving this heavy would
+            have kept the resident's art muddy anyway. */}
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.38)' }} />
       </div>
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6 pt-8 pb-16">
       {/* Header */}
@@ -103,6 +111,8 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
           }>
             {bungalow.chain === 'solana' ? (
               <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+            ) : bungalow.poolKind === 'ladder' ? (
+              <EvmLadderPoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
             ) : (
               <EvmLighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
             )}

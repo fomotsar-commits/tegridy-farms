@@ -44,7 +44,7 @@ export interface ShieldVenue {
 export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
   'tegridy-nft-lending': {
     id: 'tegridy-nft-lending',
-    label: 'Tegridy NFT lending',
+    label: 'Venue NFT lending',
     mechanism: 'deadline-default',
     lossOnTrigger:
       'The lender claims the entire collateral NFT. There is no partial liquidation and no penalty percentage — the whole item is gone, and the borrowed ETH stays borrowed.',
@@ -53,7 +53,7 @@ export const SHIELD_VENUES: Record<ShieldVenueId, ShieldVenue> = {
   },
   'tegridy-lending': {
     id: 'tegridy-lending',
-    label: 'Tegridy token lending',
+    label: 'Venue token lending',
     mechanism: 'deadline-default',
     lossOnTrigger:
       'The lender claims the staking position posted as collateral. There is no partial liquidation and no penalty percentage.',

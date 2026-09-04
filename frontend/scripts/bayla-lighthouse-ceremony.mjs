@@ -34,7 +34,10 @@ import {
   mintTo,
 } from '@solana/spl-token';
 import BN from 'bn.js';
-import { SolanaStakingClient, calculateRewardAmountFromRate, deriveStakeMintPDA } from '@streamflow/staking';
+import {
+  SolanaStakingClient, calculateRewardAmountFromRate, deriveStakeMintPDA,
+  deriveRewardPoolPDA, deriveRewardVaultPDA, constants as sfConstants,
+} from '@streamflow/staking';
 import { PublicKey } from '@solana/web3.js';
 
 // Streamflow's treasury — the .d.ts names it STREAMFLOW_TREASURY_PUBLIC_KEY
@@ -43,6 +46,19 @@ import { PublicKey } from '@solana/web3.js';
 const STREAMFLOW_TREASURY = new PublicKey('5SEpbdjFK5FxwTvfsGMXVQTD2v4M2c5tyRTxhdsPkgDw');
 import { ICluster } from '@streamflow/common';
 
+//   REBALANCE (operator): hold DAILY EMISSIONS flat so runway is a straight
+//   line you can plan a reload against.
+//     node scripts/bayla-lighthouse-ceremony.mjs --rebalance --pool <stakePool> \
+//          --target-daily 2739 [--keypair <authority.json> --broadcast]
+//   Streamflow pays a RATE PER STAKED TOKEN, so total emissions scale with TVL
+//   and the runway moves every time someone stakes. This recomputes the rate as
+//   target ÷ current weighted stake and writes it with the program's own
+//   updatePool instruction — no custom program, no custody, just the audited
+//   rail re-pointed. Re-run whenever stake moves materially (or on a schedule);
+//   between runs the emission drifts with TVL exactly as much as stake changed.
+//   ⚠ THE SIGNER MUST BE THE POOL AUTHORITY (updatePool passes `authority:
+//   invoker`) — the ceremony key, not the permissionless funding wallet.
+//
 //   FUNDING (operator, task #13 — deliberately its own mode, run LAST):
 //     node scripts/bayla-lighthouse-ceremony.mjs --fund --pool <stakePool> \
 //          --amount 50000 --keypair C:\path\to\creator.json [--broadcast]
@@ -60,6 +76,10 @@ const val = (f, d = undefined) => {
 
 const REHEARSE = has('--rehearse');
 const FUND = has('--fund');
+const REBALANCE = has('--rebalance');
+const SET_PERIOD = has('--set-period');
+const DYNAMIC = has('--dynamic-reward');
+const ENROLL = has('--enroll');
 const BROADCAST = has('--broadcast');
 const BAYLA_MINT = '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump';
 const DAY = 86_400;
@@ -480,11 +500,34 @@ async function fund() {
   const amountRaw = new BN(Math.round(amountWhole * 10 ** decimals).toString());
   const tokenLabel = mint === BAYLA_MINT ? 'BAYLA' : `tokens (mint ${mint})`;
 
+  // SHOW THE DESTINATION BEFORE SIGNING (2026-08-31). The plan used to print
+  // the STAKE pool and a bare nonce, so an operator could not check where the
+  // tokens would actually land without trusting the flag. Reward pools live
+  // under their OWN program (RWRDdfRb…, not STAKEvGqQ…), and the nonce here is
+  // the REWARD pool's index inside the stake pool — NOT the stake pool's own
+  // nonce, which the runbook also calls "nonce" (the live pool is stake-pool
+  // nonce 1 carrying reward pool nonce 0). Deriving both addresses and reading
+  // the live vault turns "trust the default" into something eyeballable
+  // against the runbook before --broadcast.
+  const nonce = Number(val('--nonce', '0'));
+  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+  const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
+  const rewardVault = deriveRewardVaultPDA(rewardProgram, rewardPool);
+  let vaultNow = 'unreadable';
+  try {
+    const bal = await connection.getTokenAccountBalance(rewardVault);
+    vaultNow = `${bal.value.uiAmountString} ${tokenLabel}`;
+  } catch { vaultNow = 'does not exist yet'; }
+
   log('FUNDING PLAN (task #13 — the deliberately-LAST step):');
   console.log(JSON.stringify({
     cluster: 'mainnet', stakePool: pool, rewardMint: mint,
     amount: `${amountWhole.toLocaleString()} ${tokenLabel} (${amountRaw.toString()} raw, ${decimals} decimals — read on-chain)`,
-    rewardPoolNonce: Number(val('--nonce', '0')),
+    rewardPoolNonce: nonce,
+    rewardPool: rewardPool.toBase58(),
+    rewardVault: rewardVault.toBase58(),
+    vaultBalanceNow: vaultNow,
+    verify: 'rewardPool + rewardVault MUST match docs/BAYLA_BUNGALOW.md §6g before --broadcast',
     prerequisite: "Streamflow treasury ATA for the reward mint (created idempotently if missing — devnet-proven)",
     note: 'feeValue: null routes the fee check to the fee-manager default config (devnet-proven).',
   }, null, 2));
@@ -509,7 +552,7 @@ async function fund() {
     stakePool: pool,
     stakePoolMint: mint,
     rewardMint: mint,
-    nonce: Number(val('--nonce', '0')),
+    nonce,
     amount: amountRaw,
     feeValue: null,
     tokenProgramId,
@@ -519,7 +562,343 @@ async function fund() {
   log('the vault balance on /farm (bayla mode) reflects this within one refresh.');
 }
 
-(REHEARSE ? rehearse() : FUND ? fund() : mainnet()).catch((e) => {
+async function rebalance() {
+  const pool = val('--pool');
+  const targetDaily = Number(val('--target-daily', '0'));
+  const mint = val('--mint', BAYLA_MINT);
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+  const nonce = Number(val('--nonce', '0'));
+  if (!pool) throw new Error('--rebalance requires --pool <stake pool address>');
+  if (!(targetDaily > 0)) throw new Error('--rebalance requires --target-daily <whole tokens/day>, e.g. --target-daily 2739');
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const decimals = await readVerifiedDecimals(connection, mint, tokenProgramId);
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+
+  const sp = await client.getStakePool(pool);
+  // Same normalisation the app uses (bungalowStaking.ts): the program stores
+  // effective stake scaled by WEIGHT_SCALE (1e9).
+  const WEIGHT_SCALE = 1_000_000_000n;
+  const effRaw = sp?.totalEffectiveStake ? BigInt(sp.totalEffectiveStake.toString()) / WEIGHT_SCALE : 0n;
+  const stakedTokens = Number(effRaw) / 10 ** decimals;
+
+  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+  const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
+  const rewardVault = deriveRewardVaultPDA(rewardProgram, rewardPool);
+  let vaultTokens = null;
+  try {
+    const bal = await connection.getTokenAccountBalance(rewardVault);
+    vaultTokens = Number(bal.value.uiAmountString);
+  } catch { /* vault not created yet */ }
+
+  const rps = await client.searchRewardPools({ stakePool: pool });
+  const rp = (rps ?? []).find((r) => String(r?.publicKey ?? r?.address ?? '') === rewardPool.toBase58()) ?? rps?.[0];
+  const periodSecs = rp?.account?.rewardPeriod ? Number(rp.account.rewardPeriod.toString()) : 86400;
+  const perDayFactor = 86400 / periodSecs;
+
+  if (stakedTokens <= 0) {
+    log('NOTHING IS STAKED YET — a per-token rate cannot be solved against zero stake.');
+    log('Fund first, let real stake arrive, then rebalance against it.');
+    return;
+  }
+
+  // rate = tokens paid per staked token per PERIOD, so that
+  // stakedTokens * rate * periodsPerDay === targetDaily
+  const newRatePerPeriod = targetDaily / stakedTokens / perDayFactor;
+  const newRewardAmount = calculateRewardAmountFromRate(newRatePerPeriod, decimals, decimals);
+  const runwayDays = vaultTokens === null ? null : vaultTokens / targetDaily;
+
+  log('REBALANCE PLAN — hold daily emissions flat:');
+  console.log(JSON.stringify({
+    cluster: 'mainnet', stakePool: pool, rewardPool: rewardPool.toBase58(), rewardVault: rewardVault.toBase58(),
+    weightedStake: `${stakedTokens.toLocaleString()} (weight-adjusted)`,
+    vaultBalanceNow: vaultTokens === null ? 'unreadable' : `${vaultTokens.toLocaleString()} tokens`,
+    targetDailyEmission: `${targetDaily.toLocaleString()} tokens/day`,
+    newRatePerStakedTokenPerPeriod: newRatePerPeriod,
+    rewardPeriodSecs: periodSecs,
+    runwayAtTarget: runwayDays === null ? 'unknown' : `${runwayDays.toFixed(1)} days`,
+    caveat: 'Emissions stay flat only until stake moves. Re-run then, or on a schedule.',
+    authority: 'updatePool signs as the POOL AUTHORITY — the ceremony key, not the funding wallet',
+  }, null, 2));
+
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <pool-authority.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-authority.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()} (must be the pool authority)`);
+  const res = await client.updateRewardPool({
+    stakePool: pool,
+    rewardPool: rewardPool.toBase58(),
+    rewardAmount: newRewardAmount,
+    rewardPeriod: null,
+  }, { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' });
+  log(`\u2713 rate updated (tx ${res.txId})`);
+  log(`solscan: https://solscan.io/tx/${res.txId}`);
+}
+
+async function setPeriod() {
+  const pool = val('--pool');
+  const newPeriod = Number(val('--set-period', '0'));
+  const mint = val('--mint', BAYLA_MINT);
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+  const nonce = Number(val('--nonce', '0'));
+  if (!pool) throw new Error('--set-period requires --pool <stake pool address>');
+  // WHOLE SECONDS ONLY, and this guard is not pedantry: rewardPeriod is a BN,
+  // and `new BN(0.5)` does not throw — it silently becomes 0. Broadcasting a
+  // fractional period would therefore write rewardPeriod = 0 into the pool and
+  // put a divide-by-zero in the reward math. The chain has no sub-second clock
+  // to spend anyway (Clock::unix_timestamp is seconds), so 1 is the floor.
+  if (!Number.isInteger(newPeriod) || newPeriod < 1) {
+    throw new Error(
+      `--set-period takes WHOLE SECONDS >= 1 (got ${val('--set-period')}). `
+      + 'Solana measures time in whole seconds, and a fractional value would be '
+      + 'truncated to 0 by BN — writing a zero period into the pool.',
+    );
+  }
+
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+  const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
+
+  const rps = await client.searchRewardPools({ stakePool: pool });
+  const found = (rps ?? []).find((r) => String(r.publicKey ?? r.address ?? '') === rewardPool.toBase58()) ?? rps?.[0];
+  const acct = found?.account ?? found;
+  const curAmount = BigInt(acct?.rewardAmount?.toString() ?? '0');
+  const curPeriod = Number(acct?.rewardPeriod?.toString() ?? '0');
+  if (!(curPeriod > 0)) throw new Error('could not read the current rewardPeriod');
+
+  // Hold the DAILY rate constant and only change how finely it is credited.
+  // rewardAmount is an integer scaled by REWARD_AMOUNT_DECIMALS, so a shorter
+  // period costs precision — the plan prints the resulting drift instead of
+  // hiding it, because a rounded rate is a promise the pool then keeps.
+  const perDayRawNow = Number(curAmount) * (86400 / curPeriod);
+  const exact = perDayRawNow * (newPeriod / 86400);
+  const newAmount = BigInt(Math.max(1, Math.round(exact)));
+  const perDayRawNew = Number(newAmount) * (86400 / newPeriod);
+  const driftPct = ((perDayRawNew - perDayRawNow) / perDayRawNow) * 100;
+
+  log('SET-PERIOD PLAN — change how finely rewards are credited:');
+  console.log(JSON.stringify({
+    rewardPool: rewardPool.toBase58(),
+    currentPeriodSecs: curPeriod,
+    currentRewardAmount: curAmount.toString(),
+    newPeriodSecs: newPeriod,
+    newRewardAmount: newAmount.toString(),
+    exactUnrounded: exact.toFixed(4),
+    dailyRateDrift: `${driftPct >= 0 ? '+' : ''}${driftPct.toFixed(3)}%`,
+    creditsPerDay: Math.floor(86400 / newPeriod).toLocaleString(),
+    note: 'Daily emission is held constant; only the tick granularity changes.',
+    authority: 'updatePool signs as the POOL AUTHORITY — the ceremony key',
+  }, null, 2));
+
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <pool-authority.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-authority.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()} (must be the pool authority)`);
+  const res = await client.updateRewardPool({
+    stakePool: pool,
+    rewardPool: rewardPool.toBase58(),
+    rewardAmount: new BN(newAmount.toString()),
+    rewardPeriod: new BN(newPeriod),
+  }, { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' });
+  log(`✓ period updated (tx ${res.txId})`);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DYNAMIC REWARD POOL — bounded emissions on the pool we already run.
+   ═══════════════════════════════════════════════════════════════════════════
+
+   WHY. The CLASSIC reward pool (RWRDdfRbi…) pays a rate PER STAKED TOKEN, so
+   pool-wide emission is rate x total effective stake and the daily cost grows
+   without bound as TVL grows: success is the failure mode. Read on mainnet
+   2026-09-02, the live BAYLA pool emits ~4,114 BAYLA/day against 2,022,682
+   staked — at 10M staked that becomes ~20,400/day and an 899k vault lasts 44
+   days instead of 218.
+
+   The DYNAMIC program (RWRDyfZa…) has NO rate at all: `createPool` takes only
+   (nonce, permissionless, claimPeriod, claimStartTs), and `updatePool` can
+   change only claimPeriod and permissionless. What you FUND is what is
+   emitted, split pro rata across effective stake. That is TOWELI's model —
+   a fixed budget divided over weighted stake — and it is why TOWELI's own farm
+   page calls its APR a "bootstrap rate, falls as TVL grows".
+
+   THE LADDER SURVIVES. Weight is a property of the STAKE pool, not the reward
+   pool: stake entries carry `effectiveAmount` ("accounts for Stake Weight")
+   and the pool carries `totalEffectiveStake` ("accounting for each stake
+   weight"). Both reward programs distribute over effective stake, so the
+   1.00x→5.00x ladder is untouched by this change.
+
+   WHY THIS IS NOT WRAPPED BY THE SDK. `client.createRewardPool` is hardwired
+   to the FIXED program — `CreateRewardPoolArgs` has no `rewardPoolType` and
+   REQUIRES rewardAmount/rewardPeriod, which the dynamic pool does not have. So
+   we build the instruction against Streamflow's own IDL via
+   `client.getRewardProgram('dynamic')`, mirroring their
+   prepareCreateRewardPoolInstructions exactly. The program is still theirs and
+   still audited; only the call assembly is ours.
+*/
+async function createDynamicRewardPool() {
+  const pool = val('--pool');
+  if (!pool) throw new Error('--dynamic-reward requires --pool <stakePool>');
+  const mint = val('--mint', BAYLA_MINT);
+  const nonce = Number(val('--nonce', '0'));
+  const claimPeriodDays = Number(val('--claim-period-days', '1'));
+  const permissionless = !has('--no-public-funding');
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+
+  if (!(claimPeriodDays >= 1)) {
+    throw new Error('--claim-period-days must be >= 1: the program rejects a fund period under one day (invalidFundPeriod).');
+  }
+  const claimPeriod = Math.round(claimPeriodDays * DAY);
+  // Start at the next whole period boundary rather than "now", so the first
+  // period is a full one and the first funding is not pro-rated by seconds.
+  const claimStartTs = Math.ceil(Math.floor(Date.now() / 1000) / claimPeriod) * claimPeriod;
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const dyn = client.getRewardProgram('dynamic');
+  const rewardPool = deriveRewardPoolPDA(dyn.programId, new PublicKey(pool), new PublicKey(mint), nonce);
+
+  log('DYNAMIC REWARD POOL PLAN:');
+  console.log(JSON.stringify({
+    cluster: 'mainnet',
+    stakePool: pool,
+    rewardProgram: dyn.programId.toBase58(),
+    rewardPool: rewardPool.toBase58(),
+    rewardMint: mint,
+    nonce,
+    claimPeriod: `${claimPeriodDays}d (${claimPeriod}s)`,
+    claimStartTs: `${claimStartTs} (${new Date(claimStartTs * 1000).toISOString()})`,
+    permissionless,
+    emissionModel: 'FUNDED BUDGET per period, split pro rata over EFFECTIVE (weighted) stake — no rate field exists',
+  }, null, 2));
+
+  log('');
+  log('WHAT THIS CHANGES, and what it does not:');
+  log('  • Emission becomes BOUNDED — you can never emit more than you fund.');
+  log('  • Each staker\'s APR now FALLS as more stake joins (TOWELI behaves the');
+  log('    same way; its own UI calls this a bootstrap rate). The APR display');
+  log('    must be a computed observation, not a promise.');
+  log('  • The 1.00x→5.00x lock ladder is UNCHANGED — weight lives on the stake');
+  log('    pool and both reward programs pay over effective stake.');
+  log('  • The classic reward pool is NOT removed by this. It keeps paying from');
+  log('    its own vault until you stop funding it. Nobody is migrated.');
+  log('  • Existing stakers are NOT auto-enrolled. Run --enroll after this.');
+
+  if (!BROADCAST) {
+    log('');
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    log('to execute: add --keypair <path-to-id.json> --broadcast');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()}`);
+
+  // Mirrors the SDK's own prepareCreateRewardPoolInstructions, against the
+  // dynamic program's arg order: (nonce, permissionless, claimPeriod, claimStartTs).
+  const ix = await dyn.methods
+    .createPool(nonce, permissionless, new BN(claimPeriod), new BN(claimStartTs))
+    .accounts({ creator: payer.publicKey, stakePool: pool, mint, tokenProgram: tokenProgramId })
+    .instruction();
+  const res = await client.execute([ix], { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' });
+  log(`✓ dynamic reward pool ${rewardPool.toBase58()} (tx ${res.signature ?? res.txId})`);
+  log('');
+  log('NEXT: fund it, then enroll the existing stakers:');
+  log(`  --enroll --pool ${pool} --reward-pool-type dynamic --nonce ${nonce}`);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENROLL — give existing stakers a reward entry on a newly added reward pool.
+
+   Adding a reward pool does NOT retroactively enrol anyone: rewards accrue
+   through a per-(stake entry, reward pool) RewardEntry PDA that has to exist.
+   Verified in the dynamic IDL: `createEntry` marks `payer` as the only signer
+   and `authority` as signer=false — so ANYONE can create the entry on a
+   staker's behalf and simply pays the rent. That means the operator can enrol
+   every existing staker without a single one of them signing anything, which
+   is the whole reason this migration is safe for the 8 live positions.
+*/
+async function enrollStakers() {
+  const pool = val('--pool');
+  if (!pool) throw new Error('--enroll requires --pool <stakePool>');
+  const mint = val('--mint', BAYLA_MINT);
+  const nonce = Number(val('--nonce', '0'));
+  const rewardPoolType = val('--reward-pool-type', 'dynamic');
+  const clusterUrl = val('--rpc', 'https://api.mainnet-beta.solana.com');
+
+  const connection = new Connection(clusterUrl, 'confirmed');
+  const tokenProgramId = await detectTokenProgram(connection, mint);
+  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+
+  const entries = await client.searchStakeEntries({ stakePool: pool });
+  const open = entries.filter((e) => {
+    const a = e.account ?? e;
+    return Number(a.closedTs ?? 0) === 0;
+  });
+  log(`ENROLL PLAN — ${open.length} open stake entries on ${pool}`);
+  for (const e of open) {
+    const a = e.account ?? e;
+    const owner = String(a.payer ?? a.authority ?? a.owner ?? '?');
+    const amt = Number(BigInt(String(a.amount ?? 0))) / 1e6;
+    log(`  nonce ${String(a.nonce ?? '?').padStart(3)}  ${amt.toLocaleString().padStart(14)} BAYLA  owner ${owner}`);
+  }
+  log('');
+  log(`Each gets a RewardEntry on the ${rewardPoolType} reward pool (nonce ${nonce}).`);
+  log('The signer PAYS the rent for each; no staker signs anything.');
+
+  if (!BROADCAST) {
+    log('dry run (no --broadcast): nothing signed, nothing sent.');
+    return;
+  }
+  const keyPath = val('--keypair');
+  if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
+  const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
+  log(`signer ${payer.publicKey.toBase58()} (pays rent for ${open.length} entries)`);
+
+  let done = 0;
+  for (const e of open) {
+    const a = e.account ?? e;
+    const depositNonce = Number(a.nonce ?? 0);
+    const owner = String(a.payer ?? a.authority ?? a.owner ?? '');
+    try {
+      const res = await client.createRewardEntry({
+        stakePool: pool,
+        stakePoolMint: mint,
+        rewardPoolNonce: nonce,
+        depositNonce,
+        rewardMint: mint,
+        rewardPoolType,
+        tokenProgramId,
+      }, { invoker: payer, authority: owner ? new PublicKey(owner) : undefined, computePrice: 10_000, computeLimit: 'autoSimulate' });
+      done += 1;
+      log(`  ✓ entry nonce ${depositNonce} enrolled (tx ${res.txId})`);
+    } catch (err) {
+      // An entry that already exists is a success for our purposes, not a stop.
+      log(`  ! entry nonce ${depositNonce} skipped: ${String(err?.message ?? err).slice(0, 110)}`);
+    }
+  }
+  log(`enrolled ${done}/${open.length}`);
+}
+
+(REHEARSE ? rehearse()
+  : DYNAMIC ? createDynamicRewardPool()
+  : ENROLL ? enrollStakers()
+  : SET_PERIOD ? setPeriod()
+  : REBALANCE ? rebalance()
+  : FUND ? fund()
+  : mainnet()).catch((e) => {
   console.error('[lighthouse] FAILED:', e?.message ?? e);
   // Anchor/web3 simulation errors carry program logs — surface them, they
   // are the only way to see WHY a simulation failed.

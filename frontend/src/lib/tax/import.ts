@@ -26,7 +26,16 @@
 import type { IncomeEvent } from './events';
 import type { TaxLotEvent } from './lots';
 
-/** Minor-unit scale of the quote currency every `value` column is expressed in. */
+/**
+ * Default minor-unit scale of the quote currency every `value` column is in.
+ *
+ * A DEFAULT, not a constant of the format: the report's quote currency decides
+ * it, and the explorer ledger reports in ETH at 18. When this was hard-wired,
+ * pasting `0.5` alongside an ETH-denominated report parsed it to 50 wei — the
+ * pasted lot and the read lot went into the SAME matcher sixteen orders of
+ * magnitude apart, and the resulting gain was arithmetic nobody could trace.
+ * Callers pass the scale the report is stamped with.
+ */
 export const VALUE_SCALE = 2;
 
 export const IMPORT_COLUMNS = [
@@ -123,7 +132,7 @@ function splitRow(line: string): string[] {
  * `errors` non-empty means NOTHING was imported — the event arrays are empty.
  * Callers must not render a partial result; see the header.
  */
-export function importTaxRows(text: string): ImportResult {
+export function importTaxRows(text: string, valueScale: number = VALUE_SCALE): ImportResult {
   const errors: ImportError[] = [];
   const lotEvents: TaxLotEvent[] = [];
   const income: IncomeEvent[] = [];
@@ -183,11 +192,11 @@ export function importTaxRows(text: string): ImportResult {
     const valueRaw = get('value');
     let value: bigint | null = null;
     if (valueRaw.length > 0) {
-      value = parseScaledDecimal(valueRaw, VALUE_SCALE);
+      value = parseScaledDecimal(valueRaw, valueScale);
       if (value === null) {
         errors.push({
           line: lineNo,
-          message: `value "${valueRaw}" is not a decimal with at most ${VALUE_SCALE} fractional digits.`,
+          message: `value "${valueRaw}" is not a decimal with at most ${valueScale} fractional digits.`,
         });
         continue;
       }
@@ -223,6 +232,9 @@ export function importTaxRows(text: string): ImportResult {
         quantity,
         decimals,
         costBasis: value,
+        // `supplied` is the honest provenance and it is not flattering: nothing
+        // checked this figure against a chain, a broker or the other rows.
+        costSource: value === null ? undefined : 'supplied',
         timestamp,
         txHash,
       });
@@ -235,6 +247,7 @@ export function importTaxRows(text: string): ImportResult {
         quantity,
         decimals,
         proceeds: value,
+        proceedsSource: value === null ? undefined : 'supplied',
         timestamp,
         txHash,
         nominatedLotIds: nominates.length > 0 ? nominates : undefined,
@@ -247,6 +260,7 @@ export function importTaxRows(text: string): ImportResult {
         quantity,
         decimals,
         value,
+        valueSource: value === null ? undefined : 'supplied',
         timestamp,
         txHash,
         kind: 'other',

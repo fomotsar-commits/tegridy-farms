@@ -390,6 +390,69 @@ contract NftfiBnplTest is Test {
 
     // ─── Helpers ─────────────────────────────────────────────────────
 
+    // ─── AUDIT TF-002: the loan cleared by someone other than this desk ──
+    //
+    // `vault.repay` is permissionless and takes whoever pays. When it clears
+    // the loan it releases the collateral to the loan's BORROWER, which is this
+    // desk — so the plan's own exits all shut at once. The invariant pinned
+    // here is the outcome, not the revert: the buyer ends up owning the token,
+    // and it is never left sitting in the desk, which has no rescue path.
+
+    /// @dev Pay the loan off at the vault directly, from `payer`, bypassing the desk.
+    function _clearLoanAtVault(uint256 planId, address payer) internal {
+        (uint256 principal, uint256 interest) = vault.quoteRepay(_loanId(planId));
+        uint256 due = principal + interest;
+        weth.mint(payer, due);
+        vm.startPrank(payer);
+        weth.approve(address(vault), due);
+        vault.repay(_loanId(planId), due);
+        vm.stopPrank();
+        // Precondition for everything below: the loan really is clear and the
+        // vault really did hand the token to the desk.
+        (uint256 pLeft, uint256 iLeft) = vault.quoteRepay(_loanId(planId));
+        assertEq(pLeft + iLeft, 0, "setup: loan should be clear");
+    }
+
+    function test_aStrangerClearingTheLoanAtTheVaultStillDeliversTheTokenToTheBuyer() public {
+        (uint256 planId, uint256 tokenId) = _open();
+
+        address stranger = address(0xBADBEEF);
+        _clearLoanAtVault(planId, stranger);
+        // The vault released to its borrower — the desk — not to the payer.
+        assertEq(nft.ownerOf(tokenId), address(desk), "setup: desk holds the token");
+
+        // Pre-fix this reverted PlanClosed and the token was stranded for good:
+        // forfeit() also reverts, because vault.surrender needs a LIVE loan.
+        desk.payInstalment(planId, 0);
+
+        assertEq(nft.ownerOf(tokenId), buyer, "the buyer must end up with the token");
+        assertTrue(_settled(planId), "the plan must be settled, not merely unpayable");
+        assertEq(nft.ownerOf(tokenId) == stranger, false, "the payer must gain nothing");
+    }
+
+    function test_aBuyerWhoSettlesAtTheVaultDirectlyIsNotPunishedForIt() public {
+        // The likeliest way this happens in the wild is not a griefer: it is the
+        // buyer paying the vault off early to stop interest accruing.
+        (uint256 planId, uint256 tokenId) = _open();
+        _clearLoanAtVault(planId, buyer);
+
+        desk.payInstalment(planId, 0);
+        assertEq(nft.ownerOf(tokenId), buyer);
+        assertTrue(_settled(planId));
+    }
+
+    function test_anExternallyClearedPlanCannotBeSettledTwiceOrForfeited() public {
+        (uint256 planId,) = _open();
+        _clearLoanAtVault(planId, address(0xBADBEEF));
+        desk.payInstalment(planId, 0);
+
+        // _livePlan closes both doors once settled.
+        vm.expectRevert();
+        desk.payInstalment(planId, 0);
+        vm.expectRevert();
+        desk.forfeit(planId);
+    }
+
     function _loanId(uint256 planId) internal view returns (uint256 loanId) {
         (,,,,,, loanId,,,,) = desk.plans(planId);
     }

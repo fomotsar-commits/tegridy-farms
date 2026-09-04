@@ -271,7 +271,7 @@ export function BountiesSection() {
             <textarea id="bounty-description" value={newDescription}
               onChange={(e) => setNewDescription(e.target.value.slice(0, DEFAULT_DESCRIPTION_LIMIT))}
               maxLength={DEFAULT_DESCRIPTION_LIMIT}
-              placeholder="Create the best Tegridy Farms meme..." rows={2}
+              placeholder="Create the best island meme..." rows={2}
               className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm focus:border-emerald-500 outline-none transition-colors resize-none" />
             <p className={`mt-1 text-[10px] text-right font-mono ${descriptionRemaining < 50 ? 'text-amber-400' : 'text-white/40'}`}>
               {descriptionRemaining} chars remaining

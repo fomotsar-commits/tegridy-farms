@@ -36,8 +36,17 @@ export function ConsentBanner() {
   };
 
   return (
+    /* A11Y-R13: this declared role="dialog" with no aria-modal, no focus move,
+       no trap, no Escape and no restore — assistive technology announced a
+       dialog the user was never placed inside, and nothing told them how to
+       leave it. The honest fix is the ROLE, not a focus trap: structurally this
+       is a bottom banner, the page behind it stays fully usable, and consent is
+       fail-closed until a button is pressed, so nothing here needs to gate the
+       app. (If it ever should gate, mount it through ui/Modal with
+       dismissOnBackdrop={false}, which already carries the trap and restore —
+       don't hand-roll a fifth one.) */
     <div
-      role="dialog"
+      role="region"
       aria-live="polite"
       aria-label="Privacy consent"
       className="fixed left-0 right-0 bottom-0 z-[120] px-4 pb-4 md:pb-6"
@@ -64,7 +73,7 @@ export function ConsentBanner() {
         <div className="relative z-10 text-sm text-gray-200 leading-relaxed flex-1" style={{ textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 0 3px rgba(0,0,0,0.9)' }}>
           <p className="font-semibold text-white mb-1">Privacy &amp; telemetry</p>
           <p className="text-gray-300">
-            We use anonymous analytics and error reports to keep Tegridy Farms healthy.
+            We use anonymous analytics and error reports to keep the venue healthy.
             Nothing is sent until you choose. You can change your mind in your browser&apos;s storage
             (<code className="text-xs px-1 py-0.5 rounded bg-black/40 text-purple-200">tegridy_telemetry_consent</code>).
           </p>
@@ -73,14 +82,14 @@ export function ConsentBanner() {
           <button
             type="button"
             onClick={decline}
-            className="px-4 py-2 text-sm rounded-lg text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400 transition-colors"
+            className="px-4 py-2 min-h-[44px] text-sm rounded-lg text-gray-300 hover:text-white border border-gray-600 hover:border-gray-400 transition-colors"
           >
             Decline
           </button>
           <button
             type="button"
             onClick={accept}
-            className="px-4 py-2 text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors"
+            className="px-4 py-2 min-h-[44px] text-sm font-semibold rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-colors"
           >
             Accept
           </button>

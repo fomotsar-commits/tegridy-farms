@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { usePublicClient, useWriteContract } from 'wagmi';
+import { usePublicClient, useReadContract, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { parseEventLogs, type Address } from 'viem';
 import { sanitizeDecimalInput } from '../../lib/formatting';
@@ -80,6 +80,13 @@ export interface CurveCreateViewProps {
   onReset: () => void;
   /** Hand the created token to the page (e.g. to prefill the trade panel). */
   onTrade?: (token: Address) => void;
+  /**
+   * AUDIT FIX TF-023: the launch terms READ from the launcher, formatted as
+   * percentages. `null` while the read is in flight — the view says it is
+   * still reading rather than quoting a number from memory, because this is
+   * the screen on which a creator commits to these economics.
+   */
+  terms?: { creatorShare: string; fee: string; reserve: string } | null;
 }
 
 export function CurveCreateView({
@@ -90,6 +97,7 @@ export function CurveCreateView({
   onRetryIdentity,
   onReset,
   onTrade,
+  terms = null, // AUDIT FIX TF-023
 }: CurveCreateViewProps) {
   const [name, setName] = useState('');
   const [symbol, setSymbol] = useState('');
@@ -279,9 +287,28 @@ export function CurveCreateView({
         <input className={inputCls} style={inputStyle} inputMode="decimal" aria-label={`Opening buy in ${nativeSymbol}`} placeholder="0.0" value={opening} onChange={(e) => setOpening(sanitizeDecimalInput(e.target.value))} />
       </div>
       <p className="text-white/45 text-[11px] leading-relaxed">
-        <span className="text-white/70 font-medium">You earn 40% of every trade’s fee while the curve runs — accrued on-chain, claimable only by you.</span>{' '}
-        Fixed supply, no team unlock beyond your opening buy. Graduation seeds the Tegridy pool
-        with the LP burned; a 3.69% reserve goes to protocol custody for discretionary ecosystem support.
+        {/* AUDIT FIX TF-023: read, not hardcoded. Until the read lands we say we
+            are still reading — an unread term is never quoted as a number, the
+            same rule the pool cards follow for figures they could not fetch. */}
+        {terms ? (
+          <>
+            <span className="text-white/70 font-medium">
+              You earn {terms.creatorShare} of every trade’s fee (the fee is {terms.fee} of each trade) while the
+              curve runs — accrued on-chain, claimable only by you.
+            </span>{' '}
+            Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool
+            with the LP burned; a {terms.reserve} reserve goes to protocol custody for discretionary ecosystem support.{' '}
+            <span className="text-white/35">These terms are read live from the launcher and snapshot onto your launch when you create.</span>
+          </>
+        ) : (
+          <>
+            <span className="text-white/70 font-medium">Reading the current launch terms from the launcher…</span>{' '}
+            Fixed supply, no team unlock beyond your opening buy. Graduation seeds our own pool with the LP burned,
+            and a reserve is carved off total supply for protocol custody. The exact creator share, trade fee and
+            reserve are shown here once the read lands — they are set on-chain and can be retuned, so this panel
+            will not quote them from memory.
+          </>
+        )}
       </p>
       <p className="text-white/40 text-[11px] leading-relaxed">
         By launching you become the <span className="text-white/55">issuer</span> of this token and are
@@ -329,6 +356,35 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
   const { writeContractAsync } = useWriteContract();
   // Pinned to the curve's chain — reads must never follow the wallet's chain.
   const publicClient = usePublicClient({ chainId });
+
+  // AUDIT FIX TF-023: the terms a creator SIGNS ON are read, never hardcoded.
+  // `create()` snapshots the owner-tunable `launchConfig` onto the launch, and
+  // `setLaunchConfig` can retune it — immediately, for every subsequent create,
+  // with no frontend deploy and no signal this panel consumed. The copy below
+  // used to state a flat "40%" and "3.69%"; after any retune it would have kept
+  // stating them, on the one screen where someone commits to those economics.
+  // Same read shape as CurveTradePanel.tsx:438-445.
+  const { data: cfgRaw } = useReadContract({
+    address: launcher,
+    abi: CURVE_LAUNCHER_ABI,
+    functionName: 'launchConfig',
+    chainId,
+    query: { refetchInterval: 15_000 },
+  });
+  const terms = useMemo(() => {
+    // The getter returns the struct as a positional tuple.
+    const c = cfgRaw as readonly unknown[] | undefined;
+    if (!c || c.length < 6) return null;
+    const pct = (bps: number) => {
+      const v = bps / 100;
+      return `${Number.isInteger(v) ? v : v.toFixed(2).replace(/\.?0+$/, '')}%`;
+    };
+    return {
+      creatorShare: pct(Number(c[3])),  // creatorFeeShareBps — share OF THE FEE
+      fee: pct(Number(c[2])),           // feeBps — the trade fee itself
+      reserve: pct(Number(c[5])),       // reserveBps — carved off total supply
+    };
+  }, [cfgRaw]);
   const { uploadFile, uploadJson } = useIrysUpload();
 
   const [stage, setStage] = useState<CurveCreateStage>('idle');
@@ -426,6 +482,7 @@ export function CurveCreatePanel({ launcher, chainId, onCreated, onTrade }: Curv
       onRetryIdentity={() => void onRetryIdentity()}
       onReset={onReset}
       onTrade={onTrade}
+      terms={terms}
     />
   );
 }

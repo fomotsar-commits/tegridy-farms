@@ -44,7 +44,7 @@ describe('ConnectPrompt', () => {
 
   it('renders farm-specific copy when surface="farm"', () => {
     renderPrompt('farm');
-    expect(screen.getByText(/Connect to farm with tegridy/i)).toBeInTheDocument();
+    expect(screen.getByText(/Connect to farm with held time/i)).toBeInTheDocument();
     // Tegridy-voice touchpoint: staking NFT language in the description.
     expect(screen.getByText(/staking position is an ERC-721/i)).toBeInTheDocument();
   });

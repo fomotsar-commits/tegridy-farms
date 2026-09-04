@@ -30,7 +30,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // launch seed; the ETH swap-fee share is deployed but has distributed 0 ETH
     // until the native pool is seeded. Don't claim "real yield" in present tense.
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
-    answer: "Tegridy Farms is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
+    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
   },
   {
     keywords: ['supply', 'total', 'circulating', 'mint'],
@@ -56,7 +56,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Staking ──────────────────────────────────────────────────
   {
     keywords: ['stake', 'staking', 'farm'],
-    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. Tegridy demands it.",
+    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
     priority: 2,
   },
   {
@@ -158,14 +158,14 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "Trade → Liquidity → Remove tab. Pick how much LP to burn, get both tokens back at the current ratio.",
   },
 
-  // ── Token launches (the Tegridy Curve) ──────────────────────
+  // ── Token launches (the Memetics Curve) ──────────────────────
   {
     // ADDED 2026-08-28: the flagship launch surface had NO entry — a user
     // typing "curve" or "launch" got the NFT-AMM answer or silence. priority
     // bump wins keyword ties against older entries.
     priority: 1,
     keywords: ['launch', 'launcher', 'curve', 'tegridy', 'create', 'token', 'memecoin', 'graduate'],
-    answer: "The Tegridy Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. One signature launches a token; trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into a Tegridy pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
+    answer: "The Memetics Curve is our own bonding-curve launcher, live on Ethereum, Base and Robinhood Chain at /eth-curve. One signature launches a token; trades pay a 1% fee split 40% to the creator, 25% treasury, 35% protocol; hit the raise target and it graduates into our own pool with the LP burned — nobody can pull it. Browse live launches right on the page, or open any token's own page at /eth-curve/<address>.",
   },
 
   // ── NFTs ─────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     // 2026-08-28: 'curve'/'bonding' moved OFF this entry — those words now
-    // belong to the live Tegridy Curve launcher entry below; a user typing
+    // belong to the live Memetics Curve launcher entry below; a user typing
     // "curve" was getting an NFT answer about the flagship's name.
     keywords: ['amm', 'nft', 'pool', 'swap'],
     answer: "NFT AMM lets you trade NFTs against on-chain pools, live on mainnet — add NFTs as inventory, earn fees on every swap.",
@@ -258,11 +258,11 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // below so the keywords actually match what someone would type.
   {
     // HONESTY PASS 2026-08-28: "two chains" and "its own launch rail" were both
-    // false — the Tegridy Curve is live on Ethereum, Base AND Robinhood since
+    // false — the Memetics Curve is live on Ethereum, Base AND Robinhood since
     // 08-25, and the Solana launch rail was retired 08-23 with nothing
     // launchable there. Four chains total, one of them swap-only.
     keywords: ['network', 'chain', 'switch', 'mainnet', 'chains'],
-    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Tegridy Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. Solana is swap-only: /solana routes SPL trades through Jupiter (no Solana launches right now). The token scanner reads EVM and Solana both.",
+    answer: "Four chains. TOWELI staking, farming and the launchers run on Ethereum mainnet; the Memetics Curve also launches on Base and Robinhood Chain — wrong chain and your wallet shows a 'Switch' button, hit it. Solana is swap-only: /solana routes SPL trades through Jupiter (no Solana launches right now). The token scanner reads EVM and Solana both.",
   },
   {
     keywords: ['solana', 'sol', 'phantom', 'spl'],
@@ -278,14 +278,14 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // Curve — their audited program, not ours". True at the time, and live to users.
     // The keywords stay so anyone who asks about Meteora gets the retirement rather
     // than silence, which would read as the old answer still being right.
-    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement exists and is LIVE on the EVM side: the Tegridy Curve at /eth-curve launches on Ethereum, Base and Robinhood, graduates into our own AMM and burns the LP outright. The SOLANA version is not live — those programs were closed and need fresh addresses — so nothing can be launched on Solana here for now.",
+    answer: "We don't run on Meteora any more. That rail graduated into a pool we didn't own, so we retired it — we only want launchers that graduate into our own venue. The replacement exists and is LIVE on the EVM side: the Memetics Curve at /eth-curve launches on Ethereum, Base and Robinhood, graduates into our own AMM and burns the LP outright. The SOLANA version is not live — those programs were closed and need fresh addresses — so nothing can be launched on Solana here for now.",
   },
   {
     // HONESTY PASS 2026-08-28: "No L2 yet" went false on 2026-08-25 — the
-    // Tegridy Curve launcher is live on Base (OP-stack L2) and Robinhood Chain
+    // Memetics Curve launcher is live on Base (OP-stack L2) and Robinhood Chain
     // (Arbitrum Orbit L2). Keep this in sync with lib/chains/registry.ts.
     keywords: ['l2', 'layer', 'rollup', 'arbitrum', 'optimism', 'base', 'robinhood'],
-    answer: "Two L2s, live: the Tegridy Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana handles swap-only.",
+    answer: "Two L2s, live: the Memetics Curve launches tokens on Base and on Robinhood Chain — /eth-curve follows whichever chain your wallet's on. The core protocol (staking, farming, swap) stays on Ethereum mainnet, and Solana handles swap-only.",
   },
   {
     keywords: ['gas', 'expensive', 'cost'],
@@ -363,7 +363,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['tegridy', 'score'],
-    answer: "Tegridy Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
+    answer: "Venue Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
   },
 
   // ── Misc ────────────────────────────────────────────────────

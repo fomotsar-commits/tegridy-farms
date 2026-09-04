@@ -14,14 +14,23 @@ interface FAQSection {
   items: FAQItem[];
 }
 
-const FAQ_DATA: FAQSection[] = [
+// Exported for the honesty guard in trustCopyHonesty.test.ts, which checks the
+// opening answer against the network answer rather than against a copied literal.
+export const FAQ_DATA: FAQSection[] = [
   {
     category: 'Getting Started',
     items: [
-      { q: 'What is Tegridy Farms?', a: 'Tegridy Farms is a yield farming protocol on Ethereum. Stake TOWELI tokens to earn rewards from the protocol. Today’s rewards are TOWELI emissions from a fixed launch seed; the ETH fee-share pipeline — protocol swap fees routed on-chain to stakers — is deployed and switches on when the native pool goes live.' },
+      // The opening answer is also the FIRST item in the schema.org FAQPage payload this
+      // page emits, so it is the sentence search engines quote. It read "a yield farming
+      // protocol on Ethereum" — the same single-chain framing OnboardingModal and Footer
+      // were both corrected for on 2026-08-07 — while the network answer three items below
+      // correctly describes four chains, a launcher and a Solana swap. The venue framing
+      // now matches index.html's meta description and the onboarding's first step; the
+      // TOWELI-staking sentence stays, as the Ethereum-specific detail it always was.
+      { q: 'What is memetics.finance?', a: 'memetics.finance is the venue of Jungle Bay Island: bungalows for meme communities, launches gated on Heat rather than hype, and staking and swaps on Ethereum, Base, Robinhood Chain and Solana with every fee routed on-chain where you can read it. On Ethereum you stake TOWELI to earn. Today’s rewards are TOWELI emissions from a fixed launch seed; the ETH fee-share pipeline — protocol swap fees routed on-chain to stakers — is deployed and switches on when the native pool goes live.' },
       { q: 'How do I get TOWELI tokens?', a: 'Buy TOWELI on Uniswap V2. Simply swap ETH for TOWELI at app.uniswap.org. Make sure you are connected to Ethereum Mainnet.' },
       { q: 'What wallets are supported?', a: 'MetaMask, WalletConnect, Coinbase Wallet, and most Ethereum wallets are supported via RainbowKit. Any wallet that supports Ethereum Mainnet should work.' },
-      { q: 'What network does Tegridy Farms run on?', a: 'The core protocol — staking, farming, swap, NFT finance — runs on Ethereum Mainnet. The Tegridy Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens through Jupiter. Your wallet prompts a network switch when a page needs a different chain.' },
+      { q: 'What network does memetics.finance run on?', a: 'The core protocol — staking, farming, swap, NFT finance — runs on Ethereum Mainnet. The Memetics Curve launcher is also live on Base and Robinhood Chain, and /solana swaps SPL tokens through Jupiter. Your wallet prompts a network switch when a page needs a different chain.' },
     ],
   },
   {
@@ -40,7 +49,7 @@ const FAQ_DATA: FAQSection[] = [
     items: [
       { q: 'Where do rewards come from?', a: 'Right now, from a one-time 6.4M TOWELI emissions seed funded at launch — no new tokens are ever minted, supply is fixed. The next stage is already on-chain: protocol swap fees route through the SwapFeeRouter to the RevenueDistributor and out to stakers as ETH. That ETH stream starts flowing when the native pool launches; both contracts are verifiable on Etherscan today.' },
       { q: 'How often can I claim rewards?', a: 'Anytime. Rewards accrue continuously in real-time and can be claimed whenever you want with no minimum threshold.' },
-      { q: 'What is the Tegridy Score?', a: 'A points system based on your on-chain activity — staking, swapping, and referrals all earn points (voting joins once gauge voting goes live). Higher scores unlock tier benefits and leaderboard rankings.' },
+      { q: 'What is the Venue Score?', a: 'A points system based on your on-chain activity — staking, swapping, and referrals all earn points (voting joins once gauge voting goes live). Higher scores unlock tier benefits and leaderboard rankings.' },
     ],
   },
   {
@@ -70,7 +79,7 @@ const FAQ_DATA: FAQSection[] = [
 ];
 
 export default function FAQPage() {
-  usePageTitle('FAQ', 'Frequently asked questions about Tegridy Farms');
+  usePageTitle('FAQ', 'Frequently asked questions about memetics.finance');
   const [openIndex, setOpenIndex] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 

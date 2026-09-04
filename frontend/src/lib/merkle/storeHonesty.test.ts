@@ -322,7 +322,7 @@ describe('the store is never asked for a list', () => {
 
     // There is no client-side way to ask for the list, because there is no parameter
     // that would mean it. A future "all" / "limit" / "offset" parameter fails here.
-    expect(seen).toContain(`account=${encodeURIComponent(CLAIMANT)}`.replace('%2F', '/'));
+    expect(seen).toContain(`account=${encodeURIComponent(CLAIMANT)}`);
     expect(seen.toLowerCase()).not.toMatch(/[?&](all|list|limit|offset|page)=/);
   });
 });

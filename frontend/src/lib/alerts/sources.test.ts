@@ -12,6 +12,7 @@ import {
   ALERT_SOURCES,
   RULE_SOURCE,
   darkSources,
+  evaluableRuleKinds,
   readinessForRule,
   sourceReadiness,
 } from './sources';
@@ -84,5 +85,33 @@ describe('readiness never claims uptime', () => {
       if (readiness.readable) expect(readiness.detail).toBeNull();
       else expect(readiness.detail?.length ?? 0).toBeGreaterThan(20);
     }
+  });
+});
+
+describe('which kinds this deployment could actually ask about', () => {
+  it('is non-empty even with no indexer — the pill on /alerts rests on this', () => {
+    vi.stubEnv('VITE_INDEXER_URL', '');
+    // Four sources ship with every deployment (same-origin heat, launch radar and
+    // explorer proxies, plus the keyless GeckoTerminal feed), so there is no
+    // build of this app in which the page can do nothing. If someone makes one of
+    // them configurable, THIS assertion fails first and the nav comment that
+    // cites it has to be re-read.
+    expect(evaluableRuleKinds().length).toBeGreaterThan(0);
+  });
+
+  it('excludes exactly the indexer-backed kinds, and nothing else', () => {
+    vi.stubEnv('VITE_INDEXER_URL', '');
+    const missing = ALERT_RULE_KINDS.filter((k) => !evaluableRuleKinds().includes(k));
+    expect(missing.sort()).toEqual(['lp-unlock', 'whale-move']);
+  });
+
+  it('the GeckoTerminal source is readable, and states the quota it works inside', () => {
+    const readiness = sourceReadiness()['gecko-pool'];
+    expect(readiness.readable).toBe(true);
+    expect(readiness.detail).toBeNull();
+    // The ceilings are not decoration: they are what keeps a pass inside a
+    // keyless per-IP budget shared with the chart and the market strip.
+    expect(ALERT_SOURCES['gecko-pool'].operatorStep).toContain('10 rules');
+    expect(ALERT_SOURCES['gecko-pool'].operatorStep).toContain('5 pools');
   });
 });

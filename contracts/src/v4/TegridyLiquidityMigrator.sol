@@ -125,6 +125,14 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     /// @dev The launch declared an LP lock duration this migrator does not implement.
     error LockDurationUnsupported();
 
+    // AUDIT FIX TF-017: the invariants TegridyFeeLocker.lockPosition enforces
+    // (:172-183), declared here with the SAME names and shapes so both contracts
+    // revert in one vocabulary. `DuplicateOrUnsortedBeneficiary` is raised here
+    // only for genuine DISORDER — an adjacent duplicate is merged, not refused.
+    error SharesMustSumToWad(uint256 got);
+    error ZeroShare();
+    error DuplicateOrUnsortedBeneficiary();
+
     // ─── Events ───────────────────────────────────────────────────────
     event MigrationConfigured(address indexed asset, address indexed numeraire, PoolId indexed poolId, int24 tickSpacing);
     event Migrated(
@@ -149,6 +157,11 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
     ///         dropped it would be asking Whetstone to whitelist a module that removes
     ///         their own revenue, and no honest petition survives that.
     uint96 public constant PROTOCOL_OWNER_MIN_SHARES = 5e16; // 5% of 1e18
+
+    /// @dev AUDIT FIX TF-017 — shares are WAD-denominated and must sum to exactly
+    ///      this, the same total TegridyFeeLocker requires. A constant costs no
+    ///      runtime bytes.
+    uint256 internal constant WAD = 1e18;
 
     address public immutable airlock;
     IPoolManager public immutable poolManager;
@@ -288,15 +301,42 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
             address protocolOwner = IAirlockOwner(airlock).owner();
             uint96 ownerShares = 0;
             bool found = false;
+            uint256 total = 0;
+            address previous = address(0);
             for (uint256 i = 0; i < beneficiaries.length; ++i) {
-                if (beneficiaries[i].beneficiary == protocolOwner) {
-                    // Sum rather than break: a list may legitimately name an address twice,
-                    // and taking only the first entry would under-count the owner's real
-                    // take and reject a list Doppler itself would accept.
-                    ownerShares += beneficiaries[i].shares;
+                address who = beneficiaries[i].beneficiary;
+                uint96 share = beneficiaries[i].shares;
+                // AUDIT FIX TF-017: the three checks TegridyFeeLocker.lockPosition
+                // enforces (:172-183) and this gate did not. `migrate` hands the
+                // STORED list to `lockPosition` verbatim (:463), so anything this
+                // gate accepts and the locker refuses becomes a revert at
+                // GRADUATION — after the Airlock has already transferred the
+                // graduated funds here, which the ROUNDING HEADROOM note in
+                // `migrate` names as stranding rather than failing. A config-time
+                // revert costs a creator one transaction; a graduation-time one
+                // costs them the launch.
+                if (who == address(0)) revert ZeroAddress();
+                if (share == 0) revert ZeroShare();
+                // ASCENDING, duplicates allowed. Deliberately `<` and not `<=`:
+                // the locker demands strictly ascending, but the petition promises
+                // Whetstone that "duplicate owner entries are summed ... rather
+                // than reject a list you would have accepted"
+                // (docs/WHETSTONE_MIGRATOR_PETITION.md:277, :595). Both hold only
+                // if we ACCEPT the duplicate here and merge it below, so the list
+                // we store is one the locker can honour while the list we accept
+                // is one Doppler sends. Merging IS summing, so that sentence stays
+                // literally true.
+                if (who < previous) revert DuplicateOrUnsortedBeneficiary();
+                previous = who;
+                total += share;
+                if (who == protocolOwner) {
+                    // Still summed across duplicates — the merge below collapses
+                    // them into one entry with exactly this total.
+                    ownerShares += share;
                     found = true;
                 }
             }
+            if (total != WAD) revert SharesMustSumToWad(total);
             if (!found) revert InvalidProtocolOwnerBeneficiary();
             if (ownerShares < PROTOCOL_OWNER_MIN_SHARES) {
                 revert InvalidProtocolOwnerShares(PROTOCOL_OWNER_MIN_SHARES, ownerShares);
@@ -325,9 +365,34 @@ contract TegridyLiquidityMigrator is ILiquidityMigrator {
         MigrationConfig storage cfg = _configs[Currency.unwrap(key.currency0)][Currency.unwrap(key.currency1)];
         cfg.key = key;
         cfg.lockDuration = lockDuration;
+        // AUDIT FIX TF-017 — NORMALISE ON THE WAY IN. Store the merged list, not
+        // the caller's, so what `migrate` hands `lockPosition` is always something
+        // the locker accepts.
+        //
+        // NO SORT. The validation loop above already required non-descending
+        // order, which is what BOTH producers emit — the Doppler SDK ("Sorting is
+        // how the SDK emits them", TegridyFeeLocker.sol:175) and our own frontend
+        // ("beneficiaries are returned sorted ascending by address",
+        // lib/launcher/airlock.ts:69). Duplicates are therefore always ADJACENT,
+        // so collapsing them is a single linear pass and no ordering algorithm
+        // ever runs on a fee-splitting path.
+        //
+        // ⚠️ ON THE BATTLE-TESTED-CODE RULE: this is hand-written logic on a money
+        // path, which that rule exists to prevent. It was weighed for this one
+        // change rather than waived: the alternative (rejecting duplicates)
+        // falsifies two passages in a petition currently in front of Whetstone
+        // and refuses configs their own Airlock accepts, and this migrator is our
+        // own contract rather than a fork we would be diverging from. Kept as
+        // small as the problem allows — one comparison and one accumulator.
         delete cfg.beneficiaries;
         for (uint256 i; i < beneficiaries.length; ++i) {
-            cfg.beneficiaries.push(beneficiaries[i]);
+            uint256 stored = cfg.beneficiaries.length;
+            if (stored > 0 && cfg.beneficiaries[stored - 1].beneficiary == beneficiaries[i].beneficiary) {
+                // Adjacent duplicate: fold its shares into the entry already stored.
+                cfg.beneficiaries[stored - 1].shares += beneficiaries[i].shares;
+            } else {
+                cfg.beneficiaries.push(beneficiaries[i]);
+            }
         }
 
         emit MigrationConfigured(asset, numeraire, key.toId(), tickSpacing);

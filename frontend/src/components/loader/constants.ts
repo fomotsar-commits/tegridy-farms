@@ -1,4 +1,19 @@
 import { pageArt } from '../../lib/artConfig';
+import { loaderIdentity } from '../../lib/arrival';
+
+/**
+ * ARRIVAL IDENTITY 2026-08-27: the intro used to hardcode TEGRIDY / FARMS
+ * for every visitor. The words, the subliminal set and the gallery now
+ * resolve per arrival voice (see lib/arrival.ts): the venue's own name for
+ * the default arrival, the classic Tegridy intro inside the TOWELI
+ * bungalow. Resolved once at module scope, same synchronous contract as
+ * pageArt(): the loader mounts before any React state exists.
+ */
+const IDENTITY = loaderIdentity();
+
+/** The words the particle vortex forms (main over sub). */
+export const LOADER_WORDS = { main: IDENTITY.main, sub: IDENTITY.sub } as const;
+
 export const ART_COLLECTION: Array<{ src: string; title: string }> = [
   { src: pageArt('loader', 0).src, title: 'All MFers Go to Heaven' },
   { src: pageArt('loader', 1).src, title: 'Mumu the Bull' },
@@ -42,8 +57,17 @@ export const ART_COLLECTION: Array<{ src: string; title: string }> = [
   { src: pageArt('loader', 39).src, title: 'Naka #39' },
 ];
 
+/**
+ * The gallery the intro actually shows: the classic collection inside the
+ * TOWELI bungalow, the arrival identity's own set (Bayla canon) for the
+ * venue default. The last piece shown is the one that shatters into the
+ * vortex that forms the venue's name.
+ */
+export const LOADER_GALLERY: Array<{ src: string; title: string }> =
+  IDENTITY.gallery ?? ART_COLLECTION;
+
 export const GOLD = '#d4a017';
-export const SUBLIMINAL = ['TEGRIDY', 'FAFO', 'DM+T', 'WAGMI'];
+export const SUBLIMINAL = IDENTITY.subliminal;
 export const STIFFNESS = 0.07;
 export const DAMPING = 0.87;
 

@@ -52,7 +52,7 @@ export function venueFeeDisclosure(
     return {
       label: 'Venue fee',
       value: 'None',
-      note: `Tegridy adds no fee to this route. ${THIRD_PARTY_NOTE}`,
+      note: `The venue adds no fee to this route. ${THIRD_PARTY_NOTE}`,
     };
   }
   const who = AGGREGATOR_NAMES[quote!.source];
@@ -66,7 +66,7 @@ export function venueFeeDisclosure(
   return {
     label: 'Venue fee',
     value: formatBpsPct(bps),
-    note: `Added by Tegridy to this ${who} route before you sign. ${THIRD_PARTY_NOTE}`,
+    note: `Added by the venue to this ${who} route before you sign. ${THIRD_PARTY_NOTE}`,
   };
 }
 

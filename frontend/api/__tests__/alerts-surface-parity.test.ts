@@ -113,11 +113,46 @@ function migrationKinds(): string[] {
 }
 
 describe('the rule vocabulary is one vocabulary', () => {
-  it('browser, API and database agree on the kinds', () => {
+  // THE RELATION IS A SUBSET NOW, NOT AN EQUALITY, AND THAT IS THE POINT.
+  //
+  // The rule STORE moved into the browser (src/lib/alerts/ruleStore.ts): the server
+  // table needs a SIWE session this venue has no control for, and behind that a
+  // migration nobody has applied, so no rule is written to it by anything today. The
+  // browser vocabulary therefore leads, and it has grown kinds the server table cannot
+  // hold — 016's own CHECKs constrain `subject` to `^0x[0-9a-f]{40}$` and allow a
+  // threshold only on whale-move, which rejects the pool kinds AND loan-deadline.
+  //
+  // What still has to be true is the direction that could hurt someone: nothing may
+  // exist on the SERVER side that the browser cannot render or evaluate, because a
+  // synced row of an unknown kind would arrive as a rule that saves and never fires.
+  // Server and migration must still match each other exactly — they are the deferred
+  // sync pair and are useless to each other otherwise.
+  it('every server and database kind exists in the browser vocabulary', () => {
     const client = clientKinds();
     expect(client.length).toBeGreaterThan(0);
-    expect(serverKinds(), 'api/_lib/alerts.js drifted from src/lib/alerts/rules.ts').toEqual(client);
-    expect(migrationKinds(), 'migration 016 drifted from the code').toEqual(client);
+    // Non-vacuity: a regex that stopped matching would make both loops below pass
+    // over an empty list and guard nothing.
+    expect(serverKinds().length).toBeGreaterThan(0);
+    expect(migrationKinds().length).toBeGreaterThan(0);
+    for (const kind of serverKinds()) {
+      expect(client, `api/_lib/alerts.js accepts "${kind}", which the browser cannot evaluate`).toContain(kind);
+    }
+    for (const kind of migrationKinds()) {
+      expect(client, `migration 016 allows "${kind}", which the browser cannot evaluate`).toContain(kind);
+    }
+  });
+
+  it('the server half and the migration still agree with each other', () => {
+    expect(migrationKinds(), 'migration 016 drifted from api/_lib/alerts.js').toEqual(serverKinds());
+  });
+
+  it('names the kinds a sync step would have to widen 016 for', () => {
+    // Not decoration: this list IS the follow-up migration's scope. If it ever
+    // empties, sync needs only 016 and the deferred note in
+    // docs/WHAT_I_NEED_FROM_YOU.md §2.2 should go with it.
+    const serverSide = new Set(serverKinds());
+    const browserOnly = clientKinds().filter((k) => !serverSide.has(k));
+    expect(browserOnly).toEqual(['pool-large-trade', 'pool-price-above', 'pool-price-below']);
   });
 });
 

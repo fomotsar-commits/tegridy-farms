@@ -48,6 +48,16 @@ function periodSlug(report: TaxReport): string {
     .slice(0, 10)}`;
 }
 
+/**
+ * How many unclassified rows are drawn on screen.
+ *
+ * A busy wallet produces a fee row per transaction and a listing per transfer,
+ * which is thousands of list items — a page that stops scrolling. The count is
+ * always stated in full, the remainder is named rather than dropped, and the
+ * file has every one of them; what is capped is the drawing, not the report.
+ */
+const INFORMATIONAL_ON_SCREEN = 50;
+
 export function TaxReportPanel({ report }: { report: TaxReport }) {
   const cg = report.capitalGains;
 
@@ -105,19 +115,19 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
           <div>
             <dt className="text-white/50">Proceeds (counted rows)</dt>
             <dd className="text-white/90">
-              {formatScaled(cg.totals.proceeds, 2)} {report.quoteCurrency}
+              {formatScaled(cg.totals.proceeds, report.quoteScale)} {report.quoteCurrency}
             </dd>
           </div>
           <div>
             <dt className="text-white/50">Cost basis (counted rows)</dt>
             <dd className="text-white/90">
-              {formatScaled(cg.totals.costBasis, 2)} {report.quoteCurrency}
+              {formatScaled(cg.totals.costBasis, report.quoteScale)} {report.quoteCurrency}
             </dd>
           </div>
           <div>
             <dt className="text-white/50">Realised gain (counted rows)</dt>
             <dd className="text-white/90">
-              {formatScaled(cg.totals.realisedGain, 2)} {report.quoteCurrency}
+              {formatScaled(cg.totals.realisedGain, report.quoteScale)} {report.quoteCurrency}
             </dd>
           </div>
         </dl>
@@ -133,7 +143,7 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
           </p>
         ) : (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[36rem] text-left text-[12px]">
+            <table className="w-full min-w-[44rem] text-left text-[12px]">
               <thead className="text-white/50">
                 <tr>
                   <th scope="col" className="py-1 pr-3 font-medium">Disposed</th>
@@ -142,7 +152,8 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
                   <th scope="col" className="py-1 pr-3 font-medium">Proceeds</th>
                   <th scope="col" className="py-1 pr-3 font-medium">Basis</th>
                   <th scope="col" className="py-1 pr-3 font-medium">Gain</th>
-                  <th scope="col" className="py-1 font-medium">Held</th>
+                  <th scope="col" className="py-1 pr-3 font-medium">Held</th>
+                  <th scope="col" className="py-1 font-medium">Figure from</th>
                 </tr>
               </thead>
               <tbody className="text-white/85">
@@ -151,10 +162,13 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
                     <td className="py-1.5 pr-3">{new Date(d.disposedAt * 1000).toISOString().slice(0, 10)}</td>
                     <td className="py-1.5 pr-3">{d.assetSymbol}</td>
                     <td className="py-1.5 pr-3">{formatScaled(d.quantity, d.decimals)}</td>
-                    <td className="py-1.5 pr-3">{d.proceeds === null ? '—' : formatScaled(d.proceeds, 2)}</td>
-                    <td className="py-1.5 pr-3">{d.costBasis === null ? '—' : formatScaled(d.costBasis, 2)}</td>
-                    <td className="py-1.5 pr-3">{d.gain === null ? '—' : formatScaled(d.gain, 2)}</td>
-                    <td className="py-1.5">{d.heldDays === null ? '—' : `${d.heldDays}d`}</td>
+                    <td className="py-1.5 pr-3">{d.proceeds === null ? '—' : formatScaled(d.proceeds, report.quoteScale)}</td>
+                    <td className="py-1.5 pr-3">{d.costBasis === null ? '—' : formatScaled(d.costBasis, report.quoteScale)}</td>
+                    <td className="py-1.5 pr-3">{d.gain === null ? '—' : formatScaled(d.gain, report.quoteScale)}</td>
+                    <td className="py-1.5 pr-3">{d.heldDays === null ? '—' : `${d.heldDays}d`}</td>
+                    <td className="py-1.5 text-white/60">
+                      {[d.proceedsSource, d.costBasisSource].filter(Boolean).join(' / ') || '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -175,7 +189,7 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
         <h2 className="text-sm font-semibold text-white">Income</h2>
         <p className="mt-2 text-[12px] text-white/60">
           {report.income.rows.length} receipt(s), {report.income.unpricedRows} of them with no value attached.
-          Priced total: {formatScaled(report.income.valueTotal, 2)} {report.quoteCurrency}.
+          Priced total: {formatScaled(report.income.valueTotal, report.quoteScale)} {report.quoteCurrency}.
         </p>
         {report.income.rows.length === 0 ? (
           <p className="mt-2 text-[13px] leading-relaxed text-white/70">
@@ -199,7 +213,7 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
                     <td className="py-1.5 pr-3">{new Date(row.timestamp * 1000).toISOString().slice(0, 10)}</td>
                     <td className="py-1.5 pr-3">{row.assetSymbol}</td>
                     <td className="py-1.5 pr-3">{formatScaled(row.quantity, row.decimals)}</td>
-                    <td className="py-1.5 pr-3">{row.value === null ? '—' : formatScaled(row.value, 2)}</td>
+                    <td className="py-1.5 pr-3">{row.value === null ? '—' : formatScaled(row.value, report.quoteScale)}</td>
                     <td className="py-1.5">{row.source}</td>
                   </tr>
                 ))}
@@ -211,14 +225,33 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
 
       {report.informational.length > 0 ? (
         <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
-          <h2 className="text-sm font-semibold text-white">Recorded, but not classified</h2>
-          <ul className="mt-2 space-y-2 text-[12px] leading-relaxed text-white/75">
-            {report.informational.map((i) => (
+          <h2 className="text-sm font-semibold text-white">
+            Recorded, but not classified — {report.informational.length} row(s)
+          </h2>
+          <p className="mt-1 text-[12px] leading-relaxed text-white/60">
+            Every one of these is in the income export in full, with its legs. They are transactions this
+            venue read and refused to turn into a trade, which is not the same as transactions it missed.
+          </p>
+          <ul className="mt-3 space-y-2 text-[12px] leading-relaxed text-white/75">
+            {report.informational.slice(0, INFORMATIONAL_ON_SCREEN).map((i) => (
               <li key={i.id}>
                 <span className="text-white/90">{i.label}</span> — {i.detail}
+                {i.legs && i.legs.length > 0 ? (
+                  <span className="mt-1 block font-mono text-[11px] text-white/55">
+                    {i.legs
+                      .map((l) => `${l.delta > 0n ? '+' : ''}${formatScaled(l.delta, l.decimals ?? 18)} ${l.symbol}`)
+                      .join('  ·  ')}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
+          {report.informational.length > INFORMATIONAL_ON_SCREEN ? (
+            <p className="mt-3 text-[12px] leading-relaxed text-white/60">
+              {report.informational.length - INFORMATIONAL_ON_SCREEN} more row(s) are not drawn here. They are
+              NOT missing: every one is in the income export, which is where a list this long is readable.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -226,20 +259,21 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
         <h2 className="text-sm font-semibold text-white">Export</h2>
         <p className="mt-1 text-[12px] leading-relaxed text-white/60">
           Every file starts with the method, the period, each coverage gap and this notice, above the header
-          row. A CSV outlives the screen it was made on.
+          row — and every money column has a source column beside it, so the chain scope and where each
+          figure came from travel in the file. A CSV outlives the screen it was made on.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => downloadCsv(`capital-gains_${report.method}_${periodSlug(report)}.csv`, capitalGainsCsv(report))}
-            className="btn-secondary px-4 py-1.5 text-[12px]"
+            className="btn-secondary min-h-[44px] px-4 py-1.5 text-[12px]"
           >
             Capital gains (CSV)
           </button>
           <button
             type="button"
             onClick={() => downloadCsv(`income_${periodSlug(report)}.csv`, incomeCsv(report))}
-            className="btn-secondary px-4 py-1.5 text-[12px]"
+            className="btn-secondary min-h-[44px] px-4 py-1.5 text-[12px]"
           >
             Income (CSV)
           </button>
@@ -251,7 +285,7 @@ export function TaxReportPanel({ report }: { report: TaxReport }) {
                 capitalGainsFormExport(report),
               )
             }
-            className="btn-secondary px-4 py-1.5 text-[12px]"
+            className="btn-secondary min-h-[44px] px-4 py-1.5 text-[12px]"
           >
             Capital gains (form layout)
           </button>
