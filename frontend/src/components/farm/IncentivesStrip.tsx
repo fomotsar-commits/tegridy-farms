@@ -1,4 +1,5 @@
 import { m } from 'framer-motion';
+import { isBootstrapApr, BOOTSTRAP_APR_NOTE } from '../../lib/copy';
 
 interface IncentivesStripProps {
   apr: string;
@@ -76,10 +77,8 @@ function formatRunway(seconds: number): string {
  * audience we court. Above the threshold we keep the real number and add the
  * "early-TVL bootstrap" context line so it reads as opportunity, not bait.
  */
-const BOOTSTRAP_APR_THRESHOLD = 1000; // %
-
 export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewardsRemaining, secondsRemaining, stakerSharePct, referralFeeBps = null, reserveEmpty }: IncentivesStripProps) {
-  const isBootstrap = (aprNum ?? 0) > BOOTSTRAP_APR_THRESHOLD;
+  const isBootstrap = isBootstrapApr(aprNum);
   // F109: derive the fee-share chip from the live on-chain split when loaded —
   // BOTH halves of it, since the referral cut precedes the distributor.
   const feeShareValue = feeShareLabel(stakerSharePct, referralFeeBps);
@@ -105,7 +104,7 @@ export function IncentivesStrip({ apr, aprNum, rewardPool, dailyEmissions, rewar
       l: 'Emissions APR',
       v: reserveEmpty ? '0%' : apr && apr !== '0' && apr !== '–' ? `${apr}%` : '–',
       icon: '📈',
-      sub: reserveEmpty ? drySub : isBootstrap ? 'TOWELI emission incentive — bootstrap rate, falls as TVL grows' : undefined,
+      sub: reserveEmpty ? drySub : isBootstrap ? BOOTSTRAP_APR_NOTE : undefined,
     },
     {
       l: hasRemaining ? 'Rewards Remaining' : 'Reward Pool',

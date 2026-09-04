@@ -1,6 +1,7 @@
 import { m } from 'framer-motion';
 import { JBAC_BONUS_BPS, LOCK_OPTIONS, EARLY_WITHDRAWAL_PENALTY_BPS } from '../../lib/constants';
 import { calculateBoost } from '../../lib/boostCalculations';
+import { isBootstrapApr, BOOTSTRAP_APR_NOTE } from '../../lib/copy';
 import { ArtImg } from '../ArtImg';
 
 // Derive from the canonical constant so this table can't drift from the on-chain penalty.
@@ -22,6 +23,15 @@ export function BoostScheduleTable({ selectedLockLabel, aprNum }: BoostScheduleT
         <div className="relative z-10 p-4 sm:p-6">
         <h3 className="heading-luxury text-white text-[20px] mb-5" id="boost-schedule-heading">Boost Schedule</h3>
         <p className="text-white text-[12px] mb-4">Lock longer = higher boost + more voting power. JBAC NFT holders get +0.5x bonus.</p>
+        {/* The max-boost row shows base APR x4 — the largest number anywhere on
+            the page. IncentivesStrip already refused to show a four-digit rate
+            without this sentence; this table was rendering a bigger one without
+            it. Same threshold, same words, one source (lib/copy.ts). */}
+        {isBootstrapApr(baseApr) && (
+          <p className="text-white/70 text-[11px] mb-4 leading-snug">
+            {BOOTSTRAP_APR_NOTE}. These are the current rate multiplied by each lock's boost, not a promised yield.
+          </p>
+        )}
 
         {/* Desktop / tablet: flex-table layout with horizontal scroll fallback. Hidden below 480px. */}
         <div className="hidden max-[480px]:hidden min-[481px]:block space-y-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0" role="table" aria-labelledby="boost-schedule-heading">
