@@ -161,8 +161,13 @@ export const TopNav = React.memo(function TopNav() {
         }} />
         {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
             row overflowing. Restored to px-4 the moment there is room. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        {/* GUTTERS STEP DOWN TWICE. CI (Linux) renders Archivo wider than a Windows
+            box does, so 360px measured 370 there while fitting locally - the CI
+            number is the one that counts. px-2 below 400px buys the difference. */}
+        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+          {/* gap-1 below 480px: two gaps in this group, 8px reclaimed, and at
+              360px that is the difference between fitting and not. */}
+          <div className="flex items-center gap-1 min-[480px]:gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
                 an off-logo click can't trigger a ~15s replay). A hover play-icon
@@ -227,8 +232,8 @@ export const TopNav = React.memo(function TopNav() {
                   Caught by e2e/header-reachability.spec.ts, which asserts the
                   row never overflows; the fix for the 640-790px band left this
                   narrower case standing. */}
-              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              <span className="heading-luxury text-[11px] min-[400px]:text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[10px] min-[400px]:text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;
