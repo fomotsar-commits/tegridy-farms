@@ -42,7 +42,7 @@
  * repeat builds cost almost nothing.
  */
 import sharp from 'sharp';
-import { readdirSync, statSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readdirSync, statSync, mkdirSync, existsSync, writeFileSync, renameSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 
 /** Source roots to scan. Everything under them is fair game. */
@@ -122,8 +122,16 @@ async function main() {
       if (naturalWidth <= width) continue;
 
       const outPath = join(PUBLIC_ROOT, derivedUrl(file, width).replace(/^\//u, ''));
-      const fresh =
-        existsSync(outPath) && statSync(outPath).mtimeMs >= statSync(file).mtimeMs;
+      // Ask once and handle the answer, rather than testing existence and then
+      // trusting it: between an existsSync and the stat that follows, the file
+      // it reported can already be gone. A missing derivative is not an error
+      // here, it is the reason we are about to write one.
+      let fresh;
+      try {
+        fresh = statSync(outPath).mtimeMs >= statSync(file).mtimeMs;
+      } catch {
+        fresh = false;
+      }
 
       if (fresh) {
         skipped++;
@@ -132,7 +140,14 @@ async function main() {
         // toBuffer + write rather than toFile: toFile has been seen to fail on
         // this OneDrive-backed tree while a plain write to the same path succeeds.
         const buf = await sharp(file).resize({ width }).webp({ quality: WEBP_QUALITY }).toBuffer();
-        writeFileSync(outPath, buf);
+        // Write somewhere nobody is reading, then move it into place in one
+        // step. A reader — vite's own dev server, a parallel build, the next
+        // run of this script deciding whether the file is fresh — never gets
+        // to observe a half-written derivative, and the path we checked above
+        // is not the path we write to, so the check cannot go stale under us.
+        const tmpPath = `${outPath}.${process.pid}.tmp`;
+        writeFileSync(tmpPath, buf);
+        renameSync(tmpPath, outPath);
         written++;
         derivedBytes += buf.length;
       }
