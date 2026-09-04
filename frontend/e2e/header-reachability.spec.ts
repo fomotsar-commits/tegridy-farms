@@ -58,7 +58,11 @@ import { test, expect } from './fixtures/wallet';
  * band (640-790), the new boundary (799/800), the iPad-gen-7 project width that
  * constrains how high the breakpoint may go (810), and true desktop.
  */
-const WIDTHS = [375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
+// 360 leads the list deliberately: it is a very common Android width, it was
+// NOT in the original sweep, and the row was silently 7px over there the whole
+// time - found only when a font change forced a re-measure. A sweep is only as
+// honest as its narrowest entry.
+const WIDTHS = [360, 375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
 
 test.describe('header stays reachable at every width', () => {
   // Own-viewport sweep: the device projects pin their own viewport and DPR, so

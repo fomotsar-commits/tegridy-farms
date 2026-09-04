@@ -213,7 +213,12 @@ export const TopNav = React.memo(function TopNav() {
                   The venue's name is the only one the app speaks, in every room
                   including the TOWELI bungalow. Towelie keeps his farm and his
                   voice; the brand word is gone. */}
-              {/* SIZED DOWN BELOW 480px, not truncated. The mark stays whole —
+              {/* SIZED DOWN BELOW 480px, not truncated. Re-tightened 2026-09-04
+                  when the display face changed: Archivo at 900 sets wider than
+                  Playfair did, pushing this row back over its budget at 375px
+                  (379 > 375 in CI). The e2e overflow guard caught it before merge,
+                  which is exactly why that guard exists.
+                  The mark stays whole —
                   both halves always render, so the venue's name is never
                   abbreviated or forked (the 2026-08-31 identity rule). This only
                   buys back width on the narrowest phones, where the row was
@@ -222,8 +227,8 @@ export const TopNav = React.memo(function TopNav() {
                   Caught by e2e/header-reachability.spec.ts, which asserts the
                   row never overflows; the fix for the 640-790px band left this
                   narrower case standing. */}
-              <span className="heading-luxury text-[13px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[12px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              <span className="heading-luxury text-[12px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[11px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;
