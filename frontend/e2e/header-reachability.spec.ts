@@ -63,10 +63,22 @@ const WIDTHS = [375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
 test.describe('header stays reachable at every width', () => {
   // Own-viewport sweep: the device projects pin their own viewport and DPR, so
   // running this there would re-test one width four times and tell us nothing.
-  test.skip((_fixtures, testInfo) => testInfo.project.name !== 'chromium',
-    'viewport sweep — chromium project only');
+  /* WHY THE SKIP LIVES INSIDE EACH TEST, not at describe level.
+   *
+   * A describe-level `test.skip(cb)` hands the callback FIXTURES ONLY — there is
+   * no second testInfo argument, so reading `testInfo.project` there throws
+   * "Cannot read properties of undefined". Playwright also rejects a plain
+   * identifier as that callback's first argument ("First argument must use the
+   * object destructuring pattern"), which takes the whole file down at
+   * COLLECTION time — a failure mode with no passing tests to point at it.
+   * Both were hit on this file. A test body's second argument IS testInfo, so
+   * the per-test form below is the one that actually works.
+   *
+   * This is a viewport sweep: the device projects pin their own viewport and DPR,
+   * so running it there would re-test one width four times and prove nothing. */
 
-  test('the wallet control is inside the viewport and the header never overflows', async ({ page, walletMock: _w }) => {
+  test('the wallet control is inside the viewport and the header never overflows', async ({ page, walletMock: _w }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'viewport sweep — chromium project only');
     const failures: string[] = [];
 
     for (const width of WIDTHS) {
@@ -78,6 +90,16 @@ test.describe('header stays reachable at every width', () => {
       // being absent from the accessibility tree.
       const connect = page.locator('header').getByRole('button', { name: /connect/i }).first();
       await expect(connect).toBeVisible();
+
+      // WAIT FOR THE WEBFONTS BEFORE MEASURING. The wordmark is the widest item
+      // in this row, and its width depends on Playfair being loaded. Every face
+      // here is `font-display: swap` (public/fonts/fonts.css), so the row renders
+      // once in a fallback metric and again in the real one. Measuring between
+      // those two is how this test failed intermittently in a full parallel run
+      // while passing every time in isolation — the fallback happens to be
+      // narrower, so the flake reported an overflow that no user would see, and
+      // could equally have hidden a real one.
+      await page.evaluate(() => document.fonts.ready);
 
       const box = await connect.boundingBox();
       if (!box) {
@@ -103,7 +125,8 @@ test.describe('header stays reachable at every width', () => {
     expect(failures, `header reachability failures:\n  ${failures.join('\n  ')}`).toEqual([]);
   });
 
-  test('exactly one primary navigation is rendered at every width', async ({ page, walletMock: _w }) => {
+  test('exactly one primary navigation is rendered at every width', async ({ page, walletMock: _w }, testInfo) => {
+    test.skip(testInfo.project.name !== 'chromium', 'viewport sweep — chromium project only');
     // The dead band existed because TopNav's nav and BottomNav were driven by
     // the SAME breakpoint from opposite directions, and drifting them apart left
     // widths with neither. Both-at-once is a lesser bug but the same root cause,
@@ -114,6 +137,7 @@ test.describe('header stays reachable at every width', () => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
       await expect(page.locator('header').getByRole('button', { name: /connect/i }).first()).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
 
       const visible = await page.locator('nav[aria-label="Main navigation"]').evaluateAll((els) =>
         els.filter((el) => {

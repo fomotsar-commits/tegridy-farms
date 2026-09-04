@@ -159,7 +159,9 @@ export const TopNav = React.memo(function TopNav() {
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
-        <div className="max-w-[1200px] mx-auto h-14 px-4 md:px-6 flex items-center justify-between">
+        {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
+            row overflowing. Restored to px-4 the moment there is room. */}
+        <div className="max-w-[1200px] mx-auto h-14 px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
@@ -211,8 +213,17 @@ export const TopNav = React.memo(function TopNav() {
                   The venue's name is the only one the app speaks, in every room
                   including the TOWELI bungalow. Towelie keeps his farm and his
                   voice; the brand word is gone. */}
-              <span className="heading-luxury text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
-              <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
+              {/* SIZED DOWN BELOW 480px, not truncated. The mark stays whole —
+                  both halves always render, so the venue's name is never
+                  abbreviated or forked (the 2026-08-31 identity rule). This only
+                  buys back width on the narrowest phones, where the row was
+                  overflowing its viewport by ~50px and pushing the hamburger —
+                  the ONLY nav control at that width — partly off-screen.
+                  Caught by e2e/header-reachability.spec.ts, which asserts the
+                  row never overflows; the fix for the 640-790px band left this
+                  narrower case standing. */}
+              <span className="heading-luxury text-[13px] min-[480px]:text-[16px] tracking-wide text-white">{VENUE.markMain}</span>
+              <span className="text-[12px] min-[480px]:text-[15px] font-semibold tracking-tight" style={{ color: 'var(--color-kyle)' }}>{VENUE.markSub}</span>
             </Link>
             {/* Jungle Bay: the always-visible way back to the bungalow chooser
                 (the footer link alone was undiscoverable). Shows where you are;
@@ -394,7 +405,7 @@ export const TopNav = React.memo(function TopNav() {
                       <button
                         onClick={openConnectModal}
                         aria-label="Connect wallet"
-                        className="text-[14px] font-semibold rounded-lg px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
+                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
                       >
                         Connect
