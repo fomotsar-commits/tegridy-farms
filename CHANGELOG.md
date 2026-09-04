@@ -31,6 +31,1435 @@ ships; a tagged release will cut from here once Wave 0 redeploys are complete.
 > runs are attributed to the commit that recorded them. They are internally
 > consistent but are **not** reproducible from the repository.
 
+### Security — External audit CSV remediated, and ten failed reads that rendered as facts (2026-09-04)
+
+`254fb8de`, two agent lanes over 47 commits.
+
+**Contracts — 35 of 71 audit findings fixed**, each pinned by a test that **fails on the
+pre-fix tree**. A permissionless vault repay that stranded a BNPL NFT forever; an anti-snipe
+hook a stranger could start the clock on; a bribe trap that locked a voter's earned share
+behind a second governance action; a commit-reveal scheme the legacy `vote()` path made
+optional.
+
+**Three fixes were written and then WITHDRAWN when the tests proved them wrong**, and the
+reverts stay in the history with their reasoning: two would have traded a bug for a worse
+one, and the third would have falsified a representation currently in front of Whetstone. A
+fix that does not survive its own test is a finding about the fix.
+
+**Frontend — ten instances of one bug class:** a failed read whose fallback is *itself a
+valid value*, so the failure renders as a confident false claim. "You own 100% of the crop"
+on an existing pool. "0% penalty" while the contract takes its cut. A position panel deleted
+from the person who owns the position. The repo already had the rule written down and
+unenforced — **a zero is only publishable when a read returned it** — which is why this is
+the most-repeated defect class in the file above.
+
+Also: **four mainnet contracts that were deployed and recorded nowhere**, surfaced by fixing
+a receipt-selection bug that made the registry check read a *superseded* deploy; two Supabase
+migrations closing a world-readable watchlist; and a GitHub Actions workflow that executed
+its input before validating it. CodeQL's one real HIGH — clear-text logging of an environment
+value in `verify-env.mjs` — was found and fixed in the same wave.
+
+**Known-red on merge, and stated rather than hidden:** Slither (fail-on:medium). It is
+pre-existing on trunk — `mvp-launch`'s own runs have failed on five consecutive pushes since
+2026-08-28, and a pure `codeql-action` version bump touching no contracts fails it too. PR
+[#348](https://github.com/fomotsar-commits/tegridy-farms/pull/348) is the backlog fix.
+Everything else green: 35 checks, both E2E suites, the Anvil money-path fork, the V2
+provenance gate, every forge slice, and CodeQL. Local full suite **548 files, 7,652 tests,
+exit 0**.
+
+### Fixed — Field review: 20 findings, 9 of them misdiagnosed (2026-09-03)
+
+[#367](https://github.com/fomotsar-commits/tegridy-farms/pull/367). An outside field
+review of the live site produced 20 findings. Nine were wrong in their diagnosis, and
+recording which is the point of this entry — several prescribed a fix that would have
+changed nothing, and one would have removed working code.
+
+- **640–790px had no reachable wallet control and no nav at all.** The review blamed a
+  responsive branch hiding the Connect button from the accessibility tree. Measured,
+  both halves are wrong: `TopNav.tsx` renders the control unconditionally and it is in
+  the a11y tree at every width. The real defect is worse — in that band the desktop nav
+  is gone, the mobile menu has not appeared, and the header is `position: fixed`, so
+  scrolling cannot recover either. A dead band with no fallback, not a hidden element.
+- **The pool card dashed out roughly 85% of the time on a healthy oracle.** Reported as
+  an RPC failure; it is not, the reads land fine. `usePoolTVL` priced off
+  `price.ethUsd`, which carries the **300s** freshness window sized for swap quoting,
+  against mainnet ETH/USD's **3600s** heartbeat — the same mismatch [#160
+  (2026-07-30)](https://github.com/fomotsar-commits/tegridy-farms/pull/160) fixed on
+  the launch path, in a second call site nobody checked.
+- **The Farm's "Fee Share" strip advertised the entire fee reaching stakers, and that
+  was not true.** It derived from
+  `SwapFeeRouter.stakerShareBps`, which genuinely is `10000` — but that is 100% of what
+  *reaches* the distributor, and `ReferralSplitter.referralFeeBps` takes its cut off the
+  top first. The strip now quotes the end-to-end share. Correcting it left four other
+  surfaces saying the opposite; a contradiction sweep in the same branch caught them,
+  including the live chatbot telling users "100% of fees flow back to stakers".
+- **Auto-Max Lock committed four years on one click.** `TegridyStaking.toggleAutoMaxLock`
+  sets `p.lockEnd = block.timestamp + MAX_LOCK_DURATION` the instant it is enabled, and
+  the contract's own docs record that disabling it does **not** restore the original
+  duration. The control now says so before it is thrown.
+- **The two-wallet-stack diagnosis was wrong in its consequence.** The review prescribed
+  stripping Reown AppKit, its provider and its CSS. Investigated: AppKit boots at
+  `createConfig`, not at reconnect, so the prescribed removal has no effect on the
+  symptom. Recorded in [`docs/`](docs/) rather than acted on, with what does *not* fix it.
+- **The 403 wall in the console was ours.** viem's fallback ranker pings `net_listening`
+  every 4s against every endpoint of every configured chain; two of ours do not implement
+  it (`mainnet.base.org` → HTTP 403, err `-32601`). Not a dead endpoint — our own health
+  ranker, and roughly 98% of the app's RPC traffic.
+- **The marketplace stylesheet was restyling the whole app.** `main.tsx` imports
+  `nakamigos/App.css` eagerly and *after* `index.css`; that import is deliberate (moving
+  it into the lazy chunk made Vite emit a `modulepreload` that 404s on the Vercel edge),
+  but every unscoped selector in it was global and won at equal specificity.
+- **USDC's freeze authority was painted as a red flag** on the venue's default pair
+  (SOL → USDC) before the user touched anything. It is a documented property of every
+  regulated stablecoin, not a honeypot signal.
+- **The intro's image preload was unbounded.** The overlay is `position: fixed; inset: 0;
+  z-index: 9999`, so a slow or absent art fetch left it covering the app — including the
+  header Connect button that had already painted underneath it.
+
+Also here: the 14-item "Engage" nav catch-all split into Discover / Trade / Launch / Earn;
+one primary CTA on the hero with a plain-language line above the island writing; Heat
+defined truthfully; `/start` un-orphaned. Additive throughout — no lore removed, no
+section replaced, all three hero CTAs left in their original positions.
+
+**And the header spec was never executing.** Two mistakes, both introduced while
+silencing a lint error: Playwright *requires* a skip predicate's first argument to be a
+destructuring pattern and throws at collection time otherwise, so the spec never ran at
+all. Made to run, it immediately found a real mobile overflow.
+
+### Added — Every SOON surface became a live product, on rails that already exist (2026-09-03)
+
+[#360](https://github.com/fomotsar-commits/tegridy-farms/pull/360). Eight nav entries
+carried an amber SOON pill. Six were keyed to `VITE_INDEXER_URL` — a Ponder indexer that
+is complete, hosted nowhere, and may never be hosted — and two to Supabase migrations an
+operator applies by hand. A visitor clicking any of them got a banner instead of a
+product. All eight now render something real, built on rails that already exist rather
+than on the hosting that does not.
+
+The review sweep behind it produced **53 findings** that survived adversarial
+verification; **50 were fixed, 3 declined with reasons.** Notable, because they are the
+class this venue keeps re-learning:
+
+- **No fetch in the GeckoTerminal read family had a timeout.** A hung upstream is
+  indistinguishable from a slow one, so `/terminal`, `/chart`, `/copy-trading` and
+  `/competitions` would sit on "Reading the market feed…" with no end. Every read is now
+  bounded, and a deadline gets its own words rather than an eternal spinner.
+- **A price rule described itself as a different rule.** `describeRule` formatted one
+  shape and evaluated another, so a stored alert's own summary could contradict what it
+  would fire on. Found by driving the production bundle in a browser, not by a test run.
+- **Local alert rule ids came from `Math.random`.** The id is the delete/toggle target
+  for a stored rule and the de-duplication key when two tabs reconcile — two colliding
+  ids silently make one rule address the other. Now drawn from the CSPRNG.
+- **The analytics session id fell back to `Date.now()` + `Math.random()`** when
+  `crypto.randomUUID` was unavailable. CodeQL flagged it at HIGH and it was worth fixing
+  rather than suppressing.
+- **Nine new CodeQL alerts** were introduced by the branch itself. Six were fixed; the
+  remaining three are CodeQL being wrong and are documented as such rather than worked
+  around — including a `let minOut = 0n` in `useDCA.ts` whose flag was real and the one
+  worth reading twice.
+
+The 27 mainnet addresses `/yield` reads live are now registered in
+`lib/yield/protocols.ts` and covered by the address registry, closing the drift hole a
+new live read always opens. The a11y worry about four of the new routes was **disproved
+by measurement** — and the "fix" it would have prompted would have been actively wrong.
+
+Art infrastructure moved with it: the studio's coverage guard only ever asked whether a
+`pageId` appeared in the inventory, so it passed the moment *one* surface of a page was
+registered — a page could paint eight walls while the studio listed one, and `/contracts`
+did exactly that. The guard now counts `idx`, and `/solana` (1,149 lines, nine card
+sections, **one** `ArtImg` and no backdrop), `/terminal` and the API page got walls to
+hang art on.
+
+### Added — Phantom and Trust in both wallet modals, and a 2026-shaped Solana swap (2026-09-03)
+
+[#359](https://github.com/fomotsar-commits/tegridy-farms/pull/359).
+
+**The EVM modal never listed Phantom.** `getDefaultConfig` ships no entry, an installed
+extension surfaced only via EIP-6963, and the **mobile** modal renders RainbowKit
+entries only — so on a phone Phantom was invisible in every state. The five 2.2.11
+defaults are now passed verbatim (`baseAccount`, **not** `coinbaseWallet` — the third
+default is the Base Account wallet, and swapping it would silently change production's
+wallet list), with Phantom and Trust added beside them.
+
+**Both wallet definitions are vendored, and that is not a preference.** The only public
+path to `phantomWallet` is `@rainbow-me/rainbowkit/wallets`, and that barrel re-exports
+every wallet — including `portoWallet` and `geminiWallet`, whose chunks import
+`{ porto }` / `{ gemini }` from `wagmi/connectors`. Those named exports do not exist in
+the installed wagmi 3.7.6, so importing the barrel fails the **production** build with
+`MISSING_EXPORT` while dev is perfectly happy. Trust needed one thing Phantom did not:
+`getWalletConnectConnector`, because with no injected Trust provider it connects over
+WalletConnect (QR on desktop, `trust://wc` deep link on mobile).
+
+**Trust is deliberately not on the Solana side.** Its Solana adapter declares
+`supportedTransactionVersions = null`, which means legacy-only — such an adapter connects
+happily and then throws on *every* versioned swap. An adapter that connects and cannot
+trade is worse than one that is absent.
+
+**Mobile was two different causes, neither of them "the modal is broken."** Trust was
+rendering but appended last of five, and RainbowKit's mobile modal is a horizontal strip
+showing about four wallets before you swipe — so on an iPhone it sat off-screen.
+Reordering fixed it. Phantom's EVM entry cannot work in mobile Safari at all, which is a
+platform fact and is now stated rather than papered over.
+
+**The swap surface itself moved to what a 2026 Solana venue ships:** DCA through Jupiter
+Recurring as a third mode beside Instant and Limit (deposit once, keepers buy on a
+cadence, cancel returns unspent), a price chart, a speed/priority control, USD-denominated
+input, remembered pairs and real receipts.
+
+CodeQL flagged the amount-input guard's `\d*\.?\d*` as polynomial backtracking — correctly:
+with the dot optional between two unbounded digit runs the engine can split a long digit
+string at every position, and while typed input is short the `?amt=` deep-link parameter
+is attacker-length. Both regexes went to unambiguous shapes with the dot anchored to its
+digit run.
+
+### Security — Five npm advisories closed by upgrading, not by suppressing (2026-09-03)
+
+[#366](https://github.com/fomotsar-commits/tegridy-farms/pull/366) plus four landed
+inside [#359](https://github.com/fomotsar-commits/tegridy-farms/pull/359) as they
+arrived through the day.
+
+- **`toml`** — both new HIGHs, fixed by upgrading within the major rather than adding a
+  suppression.
+- **`fast-uri` 3.1.7** — GHSA-f65p-4m7j-42xc (SSRF via malformed IPv6 normalization) and
+  GHSA-jqff-g426-hqxp (host confusion via percent-encoded scheme normalization), both
+  patched at 3.1.6 within our major.
+- **`nanoid` 3.3.18** — GHSA-xwg4-73v4-xw9w, patched at >= 3.3.12.
+
+In every case the lockfile delta is the named package alone and the gate was re-run to
+exit 0. All three are indexer-side transitive dependencies and exist in no other lockfile
+here (all three checked). **Suppressions were not used**: the repo's standing position is
+that an advisory suppressed is an advisory that will be re-derived by the next session.
+
+### Internal — Trunk's E2E red was four stale specs from the identity retirement (2026-09-01)
+
+Trunk E2E had been content-red since 08-31 and the last two pushes went red at **lint**
+in ~90 seconds, which blacked E2E out entirely — so nobody saw it. Flagged by a parallel
+lane whose PR inherited the red without touching the surfaces involved.
+
+All four failures were **stale specs, not app bugs**; no product code changed. Two pinned
+designs the owner reversed in the 2026-08-31 identity retirement (`17fe6fcc`), and two
+more were the same class from the arrival wave that preceded it. Both fixes were verified
+in a browser rather than by re-running the suite alone.
+
+The lesson worth keeping: a red **lint** gate hides every downstream job, so "E2E is
+green" and "E2E did not run" look identical on the checks list.
+
+### Changed — The Tegridy name retired from every rendered surface; the venue speaks as itself (2026-08-31)
+
+Owner call, 2026-08-31, and it **reverses §0 of the island's own document** — the wave
+doc relocated the classic identity behind `/toweli`; the owner chose to retire it from the
+venue's voice instead. Recorded as the owner's decision, not the island's.
+
+**171 sites.** The toweli room first (wordmark, footer, install prompt), then every
+surface that hardcoded the name. Four names cannot move and are listed as such: the
+repository, the Solidity contracts, the on-chain token, and the legal/provenance
+documents. The parody disclosure was reworded by hand rather than deleted, because
+deleting it would change what the venue discloses.
+
+The arrival inversion that made this possible landed the same day: one new choke point,
+`src/lib/arrival.ts`, resolves `'venue' | 'toweli' | 'bungalow'` **synchronously** —
+pathname first, so a first-ever `/toweli` visit is Tegridy-voiced before storage exists.
+Every surface that hardcoded the identity now asks it. The classic experience is
+relocated whole behind its own door, not edited: `/toweli` still renders the classic hero,
+the TEGRIDY FARMS wordmark and the farm body.
+
+Walked cold on the deployed site, all four ways plus every door: venue arrival shows the
+hero and the hall (13 doors — 2 LIVE, 10 SETTLED, 1 QUIET), no farm body, and **zero
+Tegridy strings on the page**; `/toweli` shows the classic surface whole; `/pepe` →
+picker → venue card returns.
+
+### Added — The hall of doors, the island mark, and a lighthouse that can hold a flat budget (2026-08-31)
+
+- **The hall.** `VenueDoors` renders every bungalow under the venue hero: TOWELI and BAYLA
+  lit in their own accent, the ten settled residents greyed but still walkable to their
+  plaque landings, and the unmarked spot dark and not a link. Every resident gets its own
+  walls rather than borrowing the venue's.
+- **The mark.** The island — palm, bolt, green ring — replaces the purple crop and the
+  purple bolt favicon across every icon surface: browser tab, the TopNav button in all
+  thirteen skins, the Apple touch icon and both PWA icons.
+- **A rebalance mode for the lighthouse.** The owner wants **fixed daily emissions** —
+  1M over 365 days is 2,739/day — so the runway is a straight line and a reload can be
+  planned. Streamflow pays a **rate per staked token**, so total emissions scale with TVL
+  and the runway moves every time somebody stakes; that is the opposite of what a budget
+  needs. `--rebalance` re-rates the reward pool against current stake.
+- **`--set-period` for accrual granularity**, and then a guard on it: the script happily
+  printed an executable-looking plan for a **0.5-second** period. There is no sub-second
+  period — `rewardPeriod` is a BN and Solana's `Clock::unix_timestamp` is whole seconds —
+  so a fractional value writes a **zero** period. It is now refused with the reason.
+- **The stake card was rebuilt.** Owner: "looks so raggedy." It was one flex-wrap row of
+  five unlabelled facts, so at narrow widths it broke mid-thought. Now a headline
+  (amount + a `Locked · 364d` pill) over a labelled 2/4-column stat grid.
+
+### Added — Thirteen of thirteen bungalows stake: ten lighthouse pools across three chains (2026-08-30)
+
+The island's staking build-out, merged as
+[#341](https://github.com/fomotsar-commits/tegridy-farms/pull/341) with the master plan in
+[#347](https://github.com/fomotsar-commits/tegridy-farms/pull/347). Everything except the
+signing was already built; the deploy kit was written first, deliberately, because **no
+signing key exists on the build machine** (verified: `contracts/.env` `PRIVATE_KEY` is the
+literal `0x` placeholder, and no Solana keypair is present). Ten copy-paste broadcasts
+stood between every bungalow and live staking, and the operator ran them.
+
+- **Four Solana lighthouses** (BOBO, SOY, BRAINLET, RIZZ) — the pool addresses were not
+  pasted anywhere; they were recovered by tracing the operator wallet's own transactions
+  and then **read back through the app's own SDK path**, which is the same path the
+  staking card uses. So "the frontend can read it" is demonstrated, not assumed.
+- **Five Base lighthouses**, ~4 cents of gas in total. Addresses read from forge's own
+  broadcast receipts and then verified on-chain before landing: real code present,
+  `stakingToken == rewardsToken ==` that resident's verified token, and the right Safe as
+  the only privileged role.
+- **PEPE on Ethereum mainnet** — the thirteenth. Deployed first as a vendored Synthetix
+  `StakingRewards` at `0xA43F3F1C4171A8C9A1Be4dc6EAA9a16AB94f6c32`, notifier the mainnet
+  treasury Safe (the L2-set Safes hold no mainnet code) — then **retired the same day,
+  never funded and never staked**, and replaced by the ladder build at
+  `0xdC0B34cE782029f30382F42097f6b33F0544329c`. Both entries are kept in the registry with
+  the retired one marked as such, because deleting it would erase why the live address
+  changed.
+
+**Two ticker collisions were caught before funding.** RIZZ, then SOY and BRAINLET, had
+dossier mints carrying the **identical name and symbol** as the island's actual residents,
+so no name check separates them. Market scale does: the SOY impostor showed FDV $17.8k
+against the real mint's $82k. RIZZ additionally moved to the chain it actually lives on.
+
+**All six EVM lighthouses became LADDER pools** — TOWELI's ladder exactly:
+`MIN_LOCK` 7 days at 0.4×, `MAX_LOCK` 4 years at 4.0×, the same linear interpolation line
+for line, and the card renders the venue's own six named tiers. Verified directly on-chain
+rather than trusted from receipts: real code (12,199 B), `boostFor(7 days) == 4000` and
+`boostFor(4 years) == 40000`. The EVM ladder can offer an exit hatch that the Solana rail
+structurally cannot.
+
+**And the ladder is public, like TOWELI's.** Caught by a browser pass across all twelve
+farms: TOWELI shows its tiers and multipliers to every visitor, while the new card hid the
+whole picker behind the wallet gate — a disconnected visitor to `/drb` saw a vault and a
+rate with no reason to lock and no way to learn what locking bought.
+
+Two confirmed blockers from a 45-agent island gap scan closed in the same wave: a
+**dust-funded vault printed the full APR in green directly above its own banner saying it
+pays 0%** (the card derived "Paying now" from `funded > 0n` while the banner, the stake
+gate and the positions note all used a real threshold), and the operator doc could no
+longer walk somebody into deploying an impostor token's pool.
+
+### Fixed — Four Base staking cards were dead on arrival: hand-typed checksums viem refuses (2026-08-30)
+
+A shipped bug, caught by the island gap scan within the hour. The five Base lighthouse
+addresses went into the registry with **invented mixed case** instead of a derived EIP-55
+checksum. Nothing threw — the build passed, `tsc` passed, 6,331 tests passed, and
+`getAddress()` accepts such a string — but viem's request path refuses it, so four cards
+were inert in production while looking entirely healthy in CI.
+
+The pin that guards this class then became the flakiest test in the repo, because it did
+`await import('viem')` **inside the test body** against vitest's 5s default timeout. viem
+is hoisted out of the pin now; the one test protecting the address registry had failed two
+consecutive full runs while the bug it guards was live.
+
+Also 2026-08-30: **the EVM dashboard offered staking buttons that could only revert** —
+after a real approve. It mounted the plain Synthetix card while all six EVM pools are now
+`LighthouseLadder`; every read the plain card issues also exists on the ladder, so the
+numbers looked entirely believable and only the writes were impossible. And a first visit
+rendered **three stacked dialogs** — welcome modal, consent banner and install prompt —
+before a single word of the page was legible; `shouldOfferInstall()` now waits for the
+first-run sequence.
+
+### Added — The Solana LP venue: a cp-swap client, an own-pool router, and /pools (2026-08-29)
+
+The AMM the venue would host pools on is a **verbatim fork of `raydium-cp-swap` @
+78f254e1** — CI's diff-guard clones upstream, refuses any differing file outside two, and
+sha256-hashes the remaining 86-line delta, which is authority constants and comments. The
+curve, swap, deposit, withdraw and fee maths are Raydium's, unmodified. This lands the
+client, the own-pool router and the `/pools` surface, with behaviour tests for both new
+surfaces and the exact fee split pinned.
+
+The two PDA implementations were pinned equal in the same pass — a worktree sweep finding,
+per the repo's own standing lesson that two sessions on adjacent ground produce two
+truths.
+
+`docs/TODO_OPERATOR.md` gained the five-step operator critical path for the AMM redeploy:
+fresh keypair → signable **and** funded `admin::ID` → WSOL ATA for the pool-fee receiver
+→ deploy + `create_amm_config` → publish `VITE_SOLANA_CPSWAP_PROGRAM`.
+
+### Fixed — A lock ladder that bought nothing, and a default lock with no exit (2026-08-29)
+
+- **The live BAYLA pool was created with `maxWeight = 1.00×`**, so its 1–365 day picker
+  bought nothing: a 1-day lock earned exactly what a 365-day lock earned. `maxWeight` is a
+  **stake-pool** field and the program exposes no update instruction for it (only reward
+  pools can be re-rated), so it is fixed for the life of the pool. The ceremony script now
+  makes the ladder an explicit choice and prints what it costs.
+- **The picker defaulted to 30 days on a rail with no early exit.** Verified three
+  independent ways that no early exit exists: the stake program has only stake/unstake,
+  unstake is refused before the duration elapses (`6013 LockedStake`), and the position
+  cannot be sold (owner-derived entry PDA, frozen stake mint). A pre-selected value is
+  simply what an inattentive staker gets held to. The ceremony now defaults to a **7-day
+  ceiling** and gates long locks behind an explicit acknowledgement.
+- The operator asked for an emergency withdraw, then for a penalty exit. **Neither is
+  possible on this rail**, and saying so is the fix. `docs/BAYLA_LIQUID_LIGHTHOUSE_DESIGN.md`
+  designs the wrapper-vault alternative the owner chose instead, and states the gate for
+  building it — the load-bearing finding being that a wrapper does **not** break the lock:
+  it cannot unstake early any more than a user can; it changes who holds the illiquidity.
+- **The Bayla farm claimed a venue swap fee that was not being taken.** The funding-routes
+  card said the Solana swap "captures a platform fee that can route a share here" while
+  `VITE_SOLANA_FEE_ACCOUNT` was unset — i.e. while it captured nothing.
+- **Tablet nav overflow**: at 768px the Connect button was cut off by the right viewport
+  edge (measured `right=789` against a 768 viewport), found by an 18-combination
+  responsive sweep. And the lock warning now comes **before** the wallet prompt, not after.
+
+### Internal — Ten branches merged, and two stranded worktree fixes rescued (2026-08-28)
+
+The 2026-08-28 consolidation sweep, recorded in `docs/CONSOLIDATION_2026_08_28.md`: ten
+branches merged to trunk — the frontend avant-garde audit
+([#340](https://github.com/fomotsar-commits/tegridy-farms/pull/340)), the oracle
+re-anchor, the v2 forfeit and additive-power-legs fixes, the mounted-components guard, the
+V4 boosted-LP principal trap, and the NFT-FI vault seizure race, restaking bonus
+insolvency, staking reward overmint and native-buy-router coverage audit branches. What
+was deliberately **not** merged is recorded with its reason (refuted v2 forfeit attempts;
+duplicates already on trunk), because a branch that vanishes without a verdict gets
+rebuilt.
+
+Two reentrancy fixes were finished in worktrees that day and **never committed** — the
+same fix applied to sibling suites. `receive()` runs inside `WETHFallbackLib`'s gas
+stipend, so every slot it touches matters. Rescued here, along with the real reason CI is
+pinned. This is the third time this repo has recovered completed work from an uncommitted
+worktree; the pattern is now a standing check.
+
+### Added — Bayla's staking module rebuilt, her swap wired, her market visible (2026-08-28)
+
+Three operator complaints, all read off the live pool on mainnet before any UI was written
+(`docs/BAYLA_STAKING_SWAP_2026_08_28.md` §0).
+
+- **Staking** was rebuilt on the venue's own TOWELI `StakingCard`: lock duration is a
+  radiogroup of preset buttons rather than free text, and the dashboard card now prints
+  the pool's configured rate **and** the vault that has to back it — never one without the
+  other, which is the half-truth the staking-look doc exists to stop. Reward-vault decimals
+  come from the reward mint's own read.
+- **The market surface.** The bungalow could say who she was and where to trade, but not
+  what she was worth: the venue's chart was hardcoded to TOWELI/WETH on Ethereum and
+  rendered only on the dashboard, which a token-first bungalow replaces wholesale. She now
+  has a chart, a trade tape and a holder distribution.
+- **`/bayla-studio`.** `pageArt()` short-circuits into a bungalow's own art pool before
+  the override lookup, so in Bayla mode the only thing deciding which of 24 pieces landed
+  on which of ~250 surfaces was a hash of the `pageId` — no pick, no pan, no zoom. The
+  studio gives the bungalow skin the same placement control the main art system has.
+
+### Fixed — Three production-only failures, and a toolchain that floated mid-day (2026-08-27)
+
+All three were invisible in dev and in CI, and each masked the next.
+
+1. **The prod Solana stack crashed on a CSP'd `@import`.** The wallet-adapter-react-ui
+   package CSS opens with a Google-Fonts `@import`; under Vite 8 that survives into the
+   built stylesheet, the site CSP has never allowed that host, and the failure took
+   `/solana`, `/curve-launch`, `/nakamigos` and bayla-mode `/farm` + `/dashboard` into the
+   route error boundary. Found by crawling all 44 routes in both modes after an operator
+   report, not by a test.
+2. **The Buffer polyfill was not on the entry chunk.** Post-redeploy verification of the
+   CSS fix surfaced the next masked failure: `vendor-solana`'s top-level code threw
+   `Buffer is not defined` in production builds. Every Solana surface imports the polyfill
+   first, which holds in dev — but the production chunk graph can evaluate `vendor-solana`
+   through an importer that does not.
+3. **Nakamigos injected a Google-Fonts `<link>` the CSP always blocked** — the font never
+   loaded in production and the only observable effect was a CSP-violation console error
+   on every visit. The last red in a 74-page production crawl.
+
+**And foundry `stable` floated to 1.8.0 mid-day.** Two runs of the *same* contract code
+hours apart got different EVMs: the 08:1x run (forge 1.7.1) was fully green; the 17:0x run
+failed two boundary-sensitive tests with zero code change, and a `--failed` rerun
+reproduced it. Every workflow is now pinned to **v1.7.1** across all seven sites. One of
+the two failures was a genuine test defect the new EVM exposed — under 1.8.0 the test
+contract's deployment addresses shift, the rebase token sorts after `tokenA` and the pair
+makes it `token1`, so asserting on `reserve0` read the flat side.
+
+The registry's daily on-chain check told the truth twice in two days: first that five
+`l2-*` entries were recorded lowercase (the values were right, the case was wrong, and the
+registry's own rule is EIP-55), and then — once checksummed and actually reaching the chain
+read — that **every** Ethereum-section address was being sent to the mainnet RPC. "Expects
+a contract; the address has no code" was true on chain 1 and meaningless about Base.
+
+### Added — Curve discovery: a live-launches grid, a permanent per-token page, creator claim (2026-08-27)
+
+Punch-list items #2 and #3 from the 08-26 competitive review: a launched token was
+unreachable except by pasting its address, the creator had no shareable destination, and
+`claimCreatorFees` had **zero UI callers** anywhere. `/eth-curve` grows a Live Launches
+grid reading `launchCount` + `allLaunchesPaginated`, every launch gets a permanent
+`/eth-curve/:token` page, and the creator can claim.
+
+### Added — Base and Robinhood launchpads live; the island's first lighthouse lit (2026-08-26)
+
+**The multichain legs went live.** Base 8453 and Robinhood 4663 MVP + curve launchers were
+deployed 2026-08-25 with every slot on-chain read-back verified, and wired into the
+frontend here ([#334](https://github.com/fomotsar-commits/tegridy-farms/pull/334)): the
+registry's Base and Robinhood entries are filled — factory, router, TWAP, swapFeeRouter,
+admin, feeSink, treasury and the curve launcher — and the curve page is chain-aware. Both
+L2 fee sinks are **remittance Safes, not distributors**: a fee captured on Base is "queued
+for the bridge", not staker yield, and the surfaces say so. Robinhood carries a deployed
+`AttestedSequencerUptimeFeed`, because Chainlink publishes no uptime feed for 4663 and
+`SequencerCheck` reverts off-mainnet on a zero feed.
+
+**The lighthouse exists.** Stake pool `4WCpdeQ2…GXPp` and reward pool `HdapJt3c…L9XL` were
+created on Solana mainnet 2026-08-26 and verified through the app's own read path: pool
+live, `totalStake 0`, reward rate readable. Getting there took the whole day:
+
+- **The first mainnet ceremony broadcast died in simulation** with `IncorrectProgramId`
+  during vault init. BAYLA's mint is owned by **Token-2022**, while every call assumed
+  legacy SPL — and the devnet rehearsal could not catch it because its test mint was
+  legacy. The token program is now detected, never assumed.
+- **The whole pool lifecycle was rehearsed on devnet with real transactions** — create
+  stake pool → create reward pool → fund → stake → claim → unstake, ending `totalStake = 0`
+  with signatures recorded — before a mainnet lamport was spent.
+- **Funding became one command** (`--fund`, dry-run by default, re-runnable) with the two
+  devnet-proven prerequisites baked in.
+
+Also 2026-08-26: **token identity for the EVM curve** — image, description and socials
+uploaded through Irys and bound by **signature**, with the immutable contract untouched
+and no redeploy needed. The launchpad's #1 competitive gap was that create was
+name + symbol + opening buy, and an imageless memecoin is dead on arrival.
+
+**Battle-tested-upstream became standing rule 0.** Operator instruction, 2026-08-26:
+"we should only use battle tested billion dollar unhacked contracts from protocols as our
+ethos." Recorded with how to apply it to new code, to forks, and to what already exists —
+plus the honest limit, which is that ~47,000 lines across 72 contracts cannot be
+retroactively re-sourced.
+
+Half of the audit's top remediation row was answered by a read rather than a plan: mainnet
+`eth_getBalance` on `RevenueDistributor` returns **0.0 ETH**, so the untimelocked-drain
+question is about a float that does not exist yet.
+
+### Security — Twelve refutation-confirmed Slither defects closed (2026-08-25)
+
+`3acd395b`. All twelve are pre-deploy — none touches a live deployment. Each fix is
+minimal-surface, copies a pattern the codebase already models, and carries a test that
+**fails on pre-fix code**; every fix was independently adversarially re-reviewed before
+landing, and the v2 confiscation path went with them.
+
+The reason these were fixed rather than suppressed is worth recording. A first triage pass
+cleared 54 of 56 findings as false positives with careful, line-cited reasoning, and
+recommended eighteen inline suppressions. **The adversarial pass rejected twelve of those
+verdicts** — including all three fee-router HIGH reentrancy findings it had argued down
+most forcefully. The triage is persisted in full (56 verdicts with their reasoning and the
+caveat) rather than left in a scratch file, because losing ~620k tokens of Solidity reading
+means the next session re-derives it.
+
+### Fixed — A repay that could not cover its own floor, a dead RPC, and 332KB on first paint (2026-08-25)
+
+- **Repay must cover the min-interest FLOOR, not just per-second staleness.** The
+  2026-08-24 fix was incomplete, and this was the money-path E2E's actual failure — masked
+  on trunk by run cancellation and visible only on completed PR runs.
+  `getRepaymentAmount` returns principal + **raw** interest while `repayLoan` requires the
+  floor, so a repay quoted honestly still reverted.
+- **`eth.merkle.io` dropped from all five failover rosters** — the keyless tier got
+  rate-limited off (re-probed that day), and a dead third slot closed every mainnet
+  failover chain and burned a retry per rotation on every page load. Rosters are now
+  publicnode + drpc, both re-verified live.
+- **332KB off first paint.** `eventemitter3` is shared plumbing between the wagmi stack
+  and the Solana wallet adapter. Left unassigned by `manualChunks`, the bundler folded it
+  **into** `vendor-solana`, so the eager `vendor-wagmi` chunk statically imported the whole
+  Solana graph and `index.html` preloaded it.
+- **The orderbook's fill-verification calls were the last consumers pinned to a single
+  Alchemy key** — a single-key outage would have 502'd exactly the requests that settle
+  trades. Both now ride the failover chain.
+- **`swap-fee-router`'s registry status was falsified.** Live re-read 2026-08-25:
+  `totalETHFees()` is `3e12` wei, and 80% of it is parked in
+  `ReferralSplitter.callerCredit` awaiting the permissionless `recoverCallerCredit()`. The
+  entry had said "earned 0 wei". Recorded so the pre-deepening precondition cannot be lost
+  again.
+- **The four role-Safe addresses existed only in a worktree-local broadcast JSON** — the
+  exact registry hole that once produced a fabricated address. Receipts are now tracked on
+  trunk and all four Safes are registered in full, with the both-chain CREATE2 note, their
+  owners, and the `nonce() == 0` fact that says no ceremony has run yet.
+
+Two trunk reds were cleared the same day, and neither was what it looked like: a lint
+failure on two `preserve-caught-error` violations that dropped an Alchemy error's stack
+entirely, and a Type Check red from two direct casts of const-asserted ABI entries that the
+branch's older `tsc` baseline had tolerated. Un-skipping the downstream jobs then revealed
+the NFT-lending repay failure above — **revealed by the fix, not caused by it.**
+
+`docs/ISLAND_ROSTER_DOSSIER.md` landed with live Dexscreener reads for all 12 token
+bungalows (PEPE $1.59B down to SOY $17k; DRB the activity outlier at $1.24M/day on $13M)
+**plus the honest dark reads** — TOWELI, JBM and RIZZ had no indexed pair that day, so
+those rows say "no pair indexed", not "no volume".
+
+### Added — Multichain: Base 8453 and Robinhood 4663 legs, and our own EVM curve (2026-08-24)
+
+`d48864e6` brings 18 commits onto trunk: the Base and Robinhood contract legs with the
+attested uptime feed, the graduation stacks, the 3.69% ecosystem reserve, the fee flips
+wired dark, and **`TegridyCurveLauncher`, live on Ethereum mainnet at
+`0xF4Dfa741…34dE`** — the venue's own bonding curve on the EVM side, which graduates into a
+pool the protocol owns rather than a third party's.
+
+The merge surfaced three type errors the branch's older baseline had tolerated (trunk's
+baseline is zero) and three post-merge CI reds, all cleared in follow-ups the same day: the
+Solana diff-guard re-pinned for a comment-only header deletion (verified from the guard's
+own printed delta — every changed line is a comment), an external WETH interface, and
+unused imports.
+
+### Fixed — A reverted transaction rendered as success on every remaining write path (2026-08-24)
+
+viem's `waitForTransactionReceipt` **resolves for reverted transactions** — it only rejects
+when the receipt cannot be fetched. Five imperative sites treated resolution as success,
+including a stop-loss create that reported "registered" for a stop that does not exist —
+a bug the hook's own header already declared and nobody had closed.
+
+The declarative half was the same shape. The earlier receipt-status fix covered
+`useSwap` / `useFarmActions` / `useLPFarming` only; every remaining write path still keyed
+success UI off wagmi's raw `isSuccess` — liquidity, restaking, revenue claims, bribes and
+NFT mints, where a revert additionally **latched the in-flight guard permanently**.
+
+And the R044 reorg-defense hook was reading `receiptStatus` / `blockNumber` / `errorName`
+from the **top level** of `useWaitForTransactionReceipt`'s return — fields that existed
+only in the shared test scaffold's fictional mock. On real wagmi the receipt lives on
+`data` and the error on `error`, so the reverted branch was unreachable in production and
+green in tests.
+
+### Fixed — Same-origin GETs were 403'd at every ?resource= gate (2026-08-24)
+
+Same-origin `GET`/`HEAD` requests carry **no `Origin` header**, so the fail-closed gate each
+`?resource=` branch re-implements rejected every real user's read in production while every
+`curl` from a terminal passed. Heat (the launch gate), launch-radar, launcher-outcomes,
+alerts, referrals, commerce and airdrop were all dead in the browser.
+
+Alongside it: the **indexer CORS allowlist named a different product's domains** and omitted
+`memetic.fun` / `memetics.finance` entirely — every browser fetch would have been blocked
+the day the frontend pointed at a hosted indexer — and `pg` clients got an `error` listener
+so an idle-connection reset exits loudly instead of hanging.
+
+### Added — Jungle Bay Island: thirteen bungalow doors, and Bayla speaks for herself (2026-08-24)
+
+The URL format the operator chose: `memetics.finance/<bungalow>` is each bungalow's
+address. `BungalowDoor` plus one route per island slug gives **all 13 doors from day one**
+(`/towelie` aliases the `toweli` slug); a door persists the choice and reloads in place so
+the address bar keeps the bungalow path.
+
+The registry carries Jungle Bay Island's **published canon**, read from the island's own
+`SPOTS` and `SIGNSV2` registries — all 13 bungalows with chains and addresses verbatim:
+TOWELI and PEPE on Ethereum, QR / MFER / BNKR / DRB / JBM on Base, BAYLA / BOBO / SOY /
+BRAINLET / RIZZ on Solana, and one unmarked spot. The bungalow layer is **additive** over
+the art system: `pageArt()` consults `bungalowArtPool()` first, so an active bungalow
+re-skins every surface without a single art file being replaced.
+
+Sharing a door now unfurls as that bungalow: the build renders `dist/<slug>/index.html`
+with its own title, description, canonical URL and og/twitter tags via
+`scripts/render-bungalow-doors.mjs`, chained **into** the build command rather than left as
+a step somebody must remember.
+
+A **complete in-progress bungalows feature was found sitting untracked in the working
+tree** during a loose-ends audit — four untracked files including a 24-piece, 8.5 MB art
+directory, plus four modified integration files. The session that found it had reported the
+tree clean minutes earlier. That correction is in the record because `git clean -fd` has
+already eaten real work in this repo twice.
+
+### Removed — The Meteora DBC rail, and light mode (2026-08-23)
+
+**The Meteora rail is gone.** Operator decision: only launchers that graduate into our own
+venue survive. This one graduated into Meteora DAMM v2 — a pool the protocol does not own
+and could not own without deploying a different program — and that asymmetry, not the fee
+split, is what made it and not the EVM rail the one to retire. Six lib modules removed,
+plus every user-facing surface that pointed at it.
+
+The retirement was staged so the tree was never half-broken: consumers moved first
+(**the production chatbot was the urgent one** — `towelieKnowledge` was telling users, live,
+about a rail being deleted), then the graduation facts were re-pointed at our own venue,
+then the modules were deleted. Two artefacts exist specifically to stop it quietly
+reversing: the address registry **keeps both entries, rewritten** — deleting them would pass
+CI and erase the evidence that a rail really did go live on mainnet — and a `meteoraRetired`
+tripwire fails the build if the copy comes back.
+
+Two rescues went with it. `squads.ts` had **no test file of its own** — its only coverage
+lived inside `dbcClient.test.ts`, which the retirement deletes, and its only importers were
+DBC modules, which makes the module *look* deletable. It is not. And the provenance
+paragraph recording that the 16-point curve shape was implemented from Meteora's **public
+documentation**, with nothing taken from Meteora's program source, was deleted along with
+`segmented.rs`; it is restored in `NOTICE.md`, because that paragraph is a legal position,
+not a comment.
+
+**Light mode was dropped rather than fixed.** Operator decision. It carried an app-wide
+~1.5:1 contrast defect, and the mechanism is worth the record because it was not one bad
+colour: every art-backed page paints a fixed near-black ground in **both** themes (the art
+mandate), while light mode flipped foregrounds to navy. Fixing it meant re-tuning every
+surface for a theme nobody had asked for.
+
+### Fixed — The Anvil money-path specs now test the money paths (2026-08-23)
+
+Four legs, four different bugs, and only one of them was the missing fork state this repo
+spent days looking for. Liquidity was clicking an **approval** and reading its receipt as
+an add. Stake was clicking the first half of a two-step cascade. The lending leg's failure
+is the truth surfacing: it now fails on the assertion that replaced its false green — "the
+repay was submitted but the loan never read back as Repaid" — which is a real defect, found
+because the test stopped lying.
+
+Alongside: `playwright.config.ts` declared no `timeout`, so Playwright's default 30,000ms
+applied — **the same 30,000ms** that `expectTxReceipt` passes to its own `toBeVisible`. Two
+equal budgets race, the test-level one wins, and the assertion could therefore never reach
+its own limit or print its own message. Every receipt failure in the suite's history had
+been reported without its reason.
+
+The segmented curve mode was removed from the Solana program before the redeploy, and the
+client had already been written against the post-removal program — it said so in a comment
+— so trunk had been client/program inconsistent. The CI gate guarding a now-deleted vendor
+directory was one of three restart blockers cleared in the same wave.
+
+### Changed — Twelve Dependabot bumps as one verified batch, and framer-motion 13 (2026-08-23)
+
+Fourteen PRs were open, **all** reporting `Lint, Type Check & Test` red. That red was
+**stale in every case**: the runs dated from 2026-08-22 20:23 and failed on a
+`no-fallthrough` error introduced and fixed hours later in `a0c83c42`. None of the PRs had
+re-run, so none of the failures said anything about the bumps.
+
+Landed as one batch rather than fourteen sequential merges, each verified on the resolved
+tree. framer-motion 12 → 13 went in directly rather than through its Dependabot PR (which
+pinned 13.0.0 while npm now resolves 13.1.1), after reading the change rather than trusting
+the changelog: the entire breaking change in 13.0.0 is one optional removal. Verified on
+all four gates. `@vitejs/plugin-react` 6.1.0 followed the next day with the same treatment:
+`tsc -b` clean, lint 0 errors, **5,957 tests across 417 files**, build clean.
+
+### Internal — Four required checks a two-second echo could satisfy, and a gate that never ran (2026-08-22)
+
+Measured on a real PR: **two check runs named `Slither / Static analysis` existed at
+once.** The real 4-minute analysis **failed**; a 2-second shim **passed**; the PR's check
+list surfaced only the pass, with the real result absent entirely. `all-tests-pass` was
+doubled on the same PR and agreed by luck. Four required checks were in this state.
+
+**The npm-advisory gate had never executed once** since it was armed on 2026-08-18. GitHub
+runs every `run:` block under `bash -e`, and `set -uo pipefail` does not clear errexit, so
+the unguarded `npm audit --json > audit.json` ended the step the moment npm found anything
+— and the job's red said nothing about advisories the whole time. Same shape as the revenue
+watch two weeks earlier; the class is now a named check.
+
+**foundry-toolchain 1.3.1 → 1.9.1** ([#205](https://github.com/fomotsar-commits/tegridy-farms/pull/205))
+finally landed, and the recorded reason for the old pin had been **wrong** — which matters,
+because it would have misdirected the next attempt. Two blockers were stacked: context-scoped
+remappings producing a doubled `lib/solmate/src/src/…`, and, only visible once that was
+fixed, the test EVM's `code_size_limit`. Nine green slices lifted the ignore that had named
+exactly that condition.
+
+Contracts CI had been **red on trunk since ~08-20**, and the nine forge slices plus
+fuzz-invariant all `needs:` the job that was failing — so **every merge in that window
+landed with zero contract test coverage, silently.** The cause was two unregistered frontend
+ABIs the selector guard could not resolve. Separately, `check-test-slice-coverage.mjs`
+reported **15 test files matched by no slice and no exclusion** — never run in CI on any
+push, not latent, dark. Among them was the Base MVP deploy suite.
+
+### Fixed — E2E green for the first time: 524 passed, 0 failed (2026-08-22)
+
+That job had been red across **every** hypothesis the to-do had carried — order-dependence,
+seeding, reduced motion — and none of them was it.
+
+**The service worker was answering stubbed fetches before `page.route` could see them.**
+`webServer` runs `vite preview`, which serves a **production** build, and the service worker
+enables itself on `import.meta.env.PROD`. So the network stubs were never applying, and
+"element(s) not found" for WARM and 41.20° was the **honesty gate working correctly** — the
+app could not read the island, so it refused to render a verdict. Fixed Chrome was
+independently eating the click.
+
+A third cause was found by an independent worktree that reached the same two conclusions
+and carried one more: a **316px layout race** in the COLD branch, where `HeatCard
+variant="embedded"` mounts and reads the island on its own after the verdict word appears.
+
+The chromium suite's three remaining failures were all genuine, and two were accessibility
+bugs: the onboarding step dots carried `role="tablist"` / `role="tab"` on plain spans —
+not focusable, no click handler, no `aria-controls`, no tabpanel. Fake tabs, announced to a
+screen reader as real ones.
+
+### Fixed — The Solana client called a closed program deployed (2026-08-22)
+
+Both own-venue program ids were closed on mainnet **2026-08-13** — ProgramData deleted,
+verified on two independent RPCs — and eight header claims across the client still read
+LIVE ON MAINNET. Two of those were not in the brief and were found by scanning rather than
+by working a list.
+
+The mechanism is the part to remember: `solana program close` deletes the ProgramData
+account and leaves the 36-byte program stub in place, **still executable-flagged**. So
+`getAccountInfo` alone answers "a program is here" for a program that is permanently gone,
+and `readDeployment` believed it. The check now reads ProgramData, not the executable flag.
+
+A launched token's metadata URI is **permanent** — tokens are created
+`AUTHORITY_IMMUTABLE`, with no mint authority and no update authority — so whatever a
+launcher types is the name, symbol and image every wallet and explorer shows forever. The
+page accepted any non-empty string; it now catches a bad URI while it is still free to fix
+([#265](https://github.com/fomotsar-commits/tegridy-farms/pull/265)). And the frontend
+restakers ABI declared five outputs against an on-chain six-field `RestakeInfo`
+([#304](https://github.com/fomotsar-commits/tegridy-farms/pull/304)).
+
+### Internal — Gates that measured nothing: the size gate, the slices, the typecheck (2026-08-21)
+
+Three gates were tightened, and **verifying the tightening is what found the defects** —
+each had been producing verdicts it had not earned.
+
+- **The EIP-170 size gate measured libraries and test artifacts and blamed `src/`,** the
+  three contract jobs shared one cache key on `contracts/out`, and a missing `jq` made
+  every contract measure **0 B and pass**. It now measures `src/` only and **refuses to
+  pass when it measured nothing**. The deferral tier was emptied and every size comment now
+  traces to a measured artifact.
+- **`tsc -b` still typechecked no test file.** `tsconfig.app.json` excludes them and
+  `tsconfig.test.json` was referenced by nothing. Compiling the orphan gave **53 errors
+  across 24 files**; the reference was wired only after they were cleared, because a red
+  gate that lands red gets ignored rather than fixed. This is the *second* vacuous
+  typecheck region found in two days.
+- **Every test file now has a slice**, and the monitoring rules got a pull-request gate.
+
+**The factory guardian could not be set, and the fee rotation its runbook described could
+not complete** — two identical unreachable sequences sitting directly beside each other,
+one of which a recovered worktree had fixed while leaving the other. The guardian is now
+set at construction. The live guardian on the deployed factory is **still the deployer
+EOA**, and rotating it must happen *after* `acceptFeeToSetter`, not before.
+
+Three of that day's commits were recovered from **uncommitted worktrees** and re-verified
+against this tree's own artifacts rather than trusted, because the originating sessions had
+measured five commits earlier.
+
+### Fixed — 27 real type errors a vacuous typecheck had been hiding (2026-08-20)
+
+`npx tsc --noEmit` in this project checks **zero files** and exits 0, because
+`frontend/tsconfig.json` is a solution file with an empty `files` array and no `include`.
+That is the most convincing green tick in the repo and it means nothing. It had been used
+as the verification gate after every build for a day, and it hid 27 real errors — one of
+which was a checkout calling an ERC-20 with the wrong argument shape. The guard now asserts
+**coverage**, not command spelling, and is mutation-proven in both directions.
+
+### Added — Charting, PWA, yield routing, pooled NFT lending, BNPL, copy-trading, competitions (2026-08-20)
+
+Four build lanes, and in three of them the honesty constraint changed the product.
+
+- **Charting** draws candles for venue tokens with the repo's own dependency-free SVG
+  precedent. **Gaps render as gaps**: an interpolated candle is a price that never traded,
+  and on a chart people make entry decisions from, a smooth line across missing data is a
+  lie that looks like competence.
+- **Pooled NFT lending and BNPL**, sized honestly against a market that has shrunk roughly
+  **97%** from its 2024 peak. Both ride rails that already exist, which is the only reason
+  they are worth adding, and neither surface implies liquidity that is not there.
+- **Copy-trading and competitions rank by what the schema can prove.** The discovery that
+  shaped both is a schema fact, not editorial caution: the indexed swap row carries **no
+  output amount and no price**, so a round trip's proceeds cannot be reconstructed and **no
+  realised return exists for anybody** — leader or follower. That is a far stronger reason
+  not to print a leader's PnL than any amount of caution would have been.
+
+### Added — The build spree: eighteen surfaces in one day, every one of them switched off (2026-08-19)
+
+The largest single day in the repo's history, working the `BATTLE_PLAN` waves. Everything
+here ships **dark** — enabling each is an operator config change, so nothing silently
+re-prices or arms. Grouped by what the honesty constraint did to it, because in most of
+these it is the design:
+
+- **Alerts** — a rules engine with **four** verdicts, because "quiet" and "could not look"
+  are different facts. `evaluate.ts` returns fired / quiet / cannot-evaluate / off, and
+  cannot-evaluate can never collapse into quiet: it refuses on an unavailable source, a
+  reading for the wrong rule kind, a change-rule with no baseline (the first read records
+  one and says so), and a reading too stale for the rule.
+- **Portfolio** — positions were scattered across staking, the LP farm, the launcher, NFT
+  holdings and balances, each with its own freshness. One view now, built on the rule that
+  **a total silently omitting an unavailable source is a fabricated number**: every source
+  reports its own availability, the total states when it is PARTIAL, and sources of
+  differing freshness are never summed.
+- **The trenches terminal** — the largest verified revenue pool in the plan. The
+  competitors each cleared roughly $400M in fees showing **no risk data at all**; the venue
+  already owns the scanner, the deployer graph, exposure and Heat, so the score *is* the
+  product — which makes the honesty problem the product too. An unread row cannot look
+  clean.
+- **Referrals** — the fact that had to reach the screen first: a referrer below the stake
+  threshold does not earn a reduced share; their referees' carve routes to the treasury in
+  full, and the referee pays exactly the same fee either way. The failure mode is not a
+  wrong dashboard number, it is somebody sharing a link that pays them nothing.
+- **The liquidation shield** — built as monitoring plus a prepared transaction the user
+  signs, never as automated rescue, because the venue runs no keeper. **The brief was wrong
+  and the build refused it**: it described the feature in Aave terms — health factors, 5–13%
+  liquidation penalties — and `TegridyNFTLending` is a fixed-term P2P escrow with no oracle,
+  no LTV and no partial liquidation. It monitors deadlines and refuses to invent a health
+  factor.
+- **A green health light must be earned by a read.** `LiveActivity` rendered a green pulse
+  and "Protocol Active" **unconditionally** — independent of RPC health, price freshness
+  and pause state. A static green health indicator is a fabricated signal.
+- **Airdrop manifests are hosted per-claimant, and a missing one never reads as
+  ineligible.** One correction to the operator's brief, and it is load-bearing: the
+  manifests do **not** go in the indexer. A Ponder table is written only by an event handler
+  from chain data and is rebuilt from chain on every re-index; a creator-uploaded recipient
+  list cannot be reconstructed from a 32-byte root.
+- **Creator fee share, Heat-tier launch pricing and trigger orders**, all three dark. A
+  launch can route a share of ongoing trading fees to its creator, published in the fee
+  constitution before launch and **immutable after** — a mutable creator share is a rug with
+  extra steps.
+- **The Solana indexer leg.** Nothing anywhere indexed Solana — no pool trades, no fee
+  accrual, no launch history — so nobody could answer whether the Solana fee rail earns
+  anything. `indexer-solana/` runs beside the Ponder app against the same Postgres.
+- **The API platform** — key issuance, verification, per-key rate tiers and metering, with
+  the error semantics a security API needs: 429 carries a reset, and an outage never reads
+  as a clean scan. The `/api/v1` shell had been advertising an API key it never read.
+- **Three finished surfaces were routed at last** — built complete and left unreachable only
+  because the build slices ran inside ownership fences that stopped them touching
+  integration files. Nothing new was written; three things were connected.
+- **Launch-buy finished** — the named go-live to-do. The lib and hook were complete except
+  the Doppler swap encoding, so the hook could not be honestly mounted and sat exempted from
+  the mounted-hooks ratchet. A quote that cannot be obtained now **blocks** the buy with a
+  stated reason.
+
+**The database became rebuildable.** Five live tables — `messages`, `user_profiles`,
+`user_favorites`, `user_watchlist`, `votes` — had **no `CREATE TABLE` anywhere in the
+repo**. The weekly backup was green and always had been; the gap was that a restore had
+nothing to restore *into*. `000_base_schema.sql` derives each table from what the code
+actually demands of it. Two slices had also independently written a migration numbered
+`016`, which in a database with no ledger is not a cosmetic clash — an operator applies one,
+sees "016 done", and the other never lands.
+
+**The arb-linkage monitor is on a real schedule.** It is the load-bearing safety condition
+under every TWAP-dependent feature and had been run **exactly once, by hand**. Now every 15
+minutes — deliberately not the 5 specified, because GitHub's scheduler delays and drops runs
+under load and disables schedules in an idle repo, so 5 would be a number that reads reliable
+and is not.
+
+**The incident-response fast path did not work.** `INCIDENT_RESPONSE.md` §3 told the pause
+guardian to call `pause()`, which is `onlyOwner` on every contract — so the guardian calling
+it reverts. That is the worst failure a runbook has: the responder follows it correctly, the
+transaction fails, and the opening minutes of an emergency go on debugging the document.
+
+### Added — Contracts: an ERC-4626 auto-compounder, a position market, rug-refund escrow, anti-snipe fee (2026-08-19)
+
+- **The auto-compounder** (`#18`) — the repo's own "single biggest yield uplift available".
+  Depositors put in TOWELI/WETH LP, the vault farms and re-deposits, and the performance fee
+  is charged **at harvest only**, so it exists only when yield does. Built on the pinned
+  OpenZeppelin `ERC4626` (imported, not copied), with the first-deposit inflation attack
+  mitigated the way the battle-tested implementations do it.
+- **The staking-position market** (`#60`) — an escrowed order book for veTOWELI position
+  NFTs, so a locker has an exit before maturity without the protocol lending against or
+  fractionalising the position. Custody safety is ours; price discovery is the participants'.
+  Its tests mirror the **real** staking constraints, read from the contract rather than
+  remembered.
+- **Rug-refund escrow** (`#26`) — the battle plan calls this a net-new category, and the hard
+  part is not the escrow, it is the trigger. A subjective trigger is worse than no product:
+  it either seizes an honest creator's money or fails to fire when it matters. The breach
+  condition is narrow, objective and published up front.
+- **An anti-snipe decaying fee**, creator-funded like the escrow.
+- **The restaking EIP-170 split landed** — designed weeks earlier, executed essentially
+  verbatim here, and the design doc that still opened "DESIGN ONLY — not code" was corrected
+  two days later along with three inventory entries the execution falsified.
+- **Airdrop and vesting rails** (`#65`, `#28`), deployed nowhere, both **verbatim forks with
+  the upstream pinned in-tree**: Uniswap's merkle-distributor at `25a79e8e`, vendored under
+  `src/vendor/` with a `VENDOR.md` carrying the pin and the diff command. The only delta from
+  upstream is the pragma — no statement, slot, event or signature changed.
+- **Their front ends** shipped the next day, every surface `isDeployed()`-gated. Merkle trees
+  are built client-side from a CSV with the root previewed before funding, and the leaf
+  encoding is **derived from the Solidity** rather than assumed — a round-trip test proves a
+  generated proof is one the contract accepts.
+- **Fifteen deploy receipts were committed** — nine deploy scripts covering the 2026-06-06
+  relaunch and the 2026-07-16 gated batch — having sat untracked since the day they were
+  produced.
+
+### Added — The data spine, the fee layer, and the Heat hardening backlog (2026-08-18)
+
+- **The Ponder indexer had been complete, deployed nowhere, and consumed by nothing** since
+  it was written. Everything that does not require an operator's hosting account now exists:
+  a typed GraphQL client reading `VITE_INDEXER_URL` with zod-parsed responses and the repo's
+  abort/timeout discipline, honesty-gated so an unconfigured indexer reads as unconfigured.
+- **The swap fee layer exists and charges nothing.** The 7-aggregator meta-router has always
+  routed with no venue fee. `lib/fees/swapFee.ts` is the single policy — one function returns
+  the bps and recipient for a route, read at call time from env, defaulting to zero.
+- **Heat's hardening backlog closed**: CORS parity (the `setCors` path now decides via the
+  same `isOriginAllowed` as the 403 gate, closing a drift where an admitted origin passed the
+  gate, spending island quota, and never received the header), the first server-side test
+  suite for the Heat proxy (46 tests), and the tenure helper deleted. A **denied wallet now
+  gets its own record** — the gate-audit ring was written on every decision and read by
+  nobody, so a wallet told COLD had no way to see why.
+- **The a11y smoke covered 2 of 43 routes** against a standing three-device requirement. It
+  now walks every routed page, including the ones that are lazily-imported tabs inside hub
+  pages rather than routes of their own — invisible to a route-table scan, which is part of
+  why coverage had stalled.
+- **The coverage ratchet was armed against nothing.** `.github/coverage-floor.json` did not
+  exist, so the weekly job errored rather than ratcheted. Seeded at **zero**, deliberately,
+  because a floor must never claim more than measured reality.
+
+### Security — Nakamigos: outage fixtures presented as measured facts, a theme leak, an anon-key write (2026-08-18)
+
+The marketplace surfaces went through the same read-honesty pass the rest of the venue had.
+The serious one: **`ComparableSales` rendered the outage fixture as real sales** — when the
+upstream failed, the fallback data was drawn as though it were observed market history.
+
+- **`ThemeContext` wrote `data-theme` on the document root with no unmount cleanup**, so
+  visiting the marketplace permanently overrode the main app's theme for the rest of the
+  session.
+- **Two components built raw providers against a hardcoded public endpoint**, bypassing the
+  shared failover provider entirely.
+- **`castVote` was the last direct anon-key mutation in the app**, and these functions
+  returned a bare boolean — so once migration 015 drops the permissive policies, a denial
+  would have been indistinguishable from success. Routed through the proxy and made loud.
+- **Cancel was sent to a hardcoded Seaport constant** rather than the order's own protocol
+  address, so an order signed on another Seaport version got its cancel sent where the hash
+  does not exist: `cancel()` succeeds vacuously and the real order stays fillable while the
+  UI says cancelled. Fixed here and, for the other call path, in
+  [#224](https://github.com/fomotsar-commits/tegridy-farms/pull/224) two weeks earlier.
+- **The full 20,000-token rarity dataset landed** (186 distinct traits, dense ranks
+  1–19,429), flipping `hasPrecomputedRarity()` true with zero code changes and un-breaking a
+  documented defect cluster that had been rendering rarity from 40 tokens.
+
+Four Solana client bugs landed in the same window as pre-redeploy corrections, all verified
+against the program source first. The one that matters most: `CONFIG_OFFSETS.feeClaimer` read
+offset **72**, which is `leftover_receiver`; `fee_claimer` is at **40**. Both keys are
+identical on the v1 config so nothing was exposed — but the moment a v2 config exists with
+different values, that read points at the wrong account.
+
+### Added — TOP_100_BUILDS, the battle plan, and the year plan (2026-08-17 → 2026-08-18)
+
+Three planning documents that set the direction for everything above.
+
+- **`YEAR_PLAN_2026_2027`** — a season-by-season build plan grounded in the 08-15 ledger, the
+  08-13 inventory, the island wave status, `WORKORDER_V2`, `CONTRACTS.md` and direct source
+  reads, plus the Heat-score completion checklist split by who can act.
+- **`TOP_100_BUILDS`** — six web-grounded research lanes (trading, yield, launch, credit,
+  social, infra) plus an adversarial revenue fact-check pass, in four tiers. Net-positive
+  builds lead; the **highest-revenue house-law-conflict items** (perps, stablecoin, RWA,
+  gambling) are included and flagged rather than quietly dropped, because a plan that omits
+  the money it refused is not a plan.
+- **`BATTLE_PLAN`** — per-item build instructions for all 100: nine foundation tracks and
+  eight implementation waves with preconditions, file-level steps, fee wiring, house-law
+  gates and acceptance criteria.
+- **`WHAT_I_NEED_FROM_YOU`** — the operator-only list, ordered by unlock-per-minute:
+  everything that structurally cannot be built without a key, a credential, a payment, a
+  human signature, a legal identity, or a decision that is theirs.
+
+The repo's own `docsClaimHonesty` guard then **caught the plan documents committed the day
+before** — a totality claim about fee arrival that ignored the referral carve sitting in
+front of it, and a copy-law bullet that reproduced the banned phrase verbatim while
+forbidding it. Which is exactly what the guard exists for.
+
+### Security — The launch-program audit, and both Solana programs are closed on mainnet (2026-08-15)
+
+The audit machine had never been pointed at the launch program. Six lanes over
+`tegridy-launch` and the vendored cp-swap fork diff, then every critical/high/medium handed
+to an independent verifier told to **default to REFUTED**.
+
+**43 findings · 0 critical · 9 high · 10 medium · 10 low · 14 info.** Verify pass: 16
+CONFIRMED, 3 REFUTED, each with a disposition.
+
+And the finding that reframes the wave: **both Solana programs are closed on mainnet.** The
+program ids are permanently spent and not reusable. This contradicted the island's own wave
+premise — phase 02 had no live target — so it was reported as a fact for them to check
+rather than as a question for them to answer, since the closure is the venue's to report and
+not theirs to decide.
+
+Repo hygiene from the same sweep: `git status` listed **20 untracked paths at the root**,
+mixing real work with build junk — which is the dangerous combination, because it makes
+`git clean -fd` look safe when it is not. This repo has already lost that bet twice.
+
+### Fixed — A constant the island never confirmed, and the mechanic built on it (2026-08-14)
+
+`heatOracle.ts` exported `TWAB_WINDOW_DAYS = 180` under the header "CONFIRMED BY THE ISLAND
+2026-08-07". **It was not confirmed.** On top of it the venue had built a decay mechanic —
+"the window rolls, warmth is not banked, a wallet that sells decays out of the average over
+the following 180 days" — and rendered both the number and the mechanic to users on
+`/leaderboard`. Both removed.
+
+Two Heat/Solana phases closed the same day:
+
+- **Fee custody is now verified on the path the public actually walks.** The venue's
+  strongest Solana guarantee is that the config's `feeClaimer` is the Squads vault, so fees
+  cannot be redirected to a person. `squads.ts` implemented that check properly — and
+  `submitLaunch` never called it. The reason for skipping it was sound and still true (the
+  check reaches `findProgramAddressSync`, which web3.js stubs out in its browser build), so
+  the fix routes around the stub rather than dropping the check.
+- **The garden lane was mounted.** `lib/heat/certification.ts` was written correctly and had
+  **no importer** — no lane rendered it, so the island's promise was invisible and the
+  module's tests guarded unreachable code. Mounted on `/launch` beside the tiers, and
+  deliberately **not** a selectable tier.
+
+### Fixed — The app gave three different answers about the same four contracts (2026-08-13)
+
+`/community` linked gauge voting, vote incentives, community grants and meme bounties to
+Etherscan as **live**. `/contracts` rendered them as **awaiting deployment** behind a `0x0`.
+`/risks` said they **are not deployed at all**. All on one site, and all wrong except the
+first: the four have been deployed and unpaused on mainnet since 2026-07-16.
+
+Root cause was a missing state. `ContractsPage` inferred `isPending` from
+`!isDeployed(address)`, which collapses "no address in `constants.ts`" into "no deploy
+exists" — the same third-read-state defect the scanner surfaces spent August closing, in a
+different disguise.
+
+The **352-item unfinished inventory** landed the same day, from a 13-agent sweep partitioned
+**by tree region rather than by theme**, so coverage is provable: a file nobody opened looks
+identical to a file with nothing wrong. 271 small / 69 medium / 12 large; 34 need the
+operator; 18 flagged deliberate and listed separately rather than as debt. The dominant
+category is STALE (125), and most of that is one defect — copy and comments still describing
+the pre-deploy world that ended on 2026-07-16/21.
+
+### Security — Audit remediation and the RLS drop: a live signature leak, wrong-wallet payments, a bricked kick() (2026-08-12)
+
+Two audit branches merged together:
+[#273](https://github.com/fomotsar-commits/tegridy-farms/pull/273) (audit remediation — a
+live signature leak, payments routed to the wrong wallet, a bricked `kick()`, an
+untimelocked sweep) and
+[#299](https://github.com/fomotsar-commits/tegridy-farms/pull/299) (**RLS is on but enforces
+nothing**).
+
+The database finding is the one to carry: Row-Level Security was enabled on every table and
+the owner policies were **OR'd with `PERMISSIVE true` policies**, which is not a weaker
+gate — it is *no* gate. Every ownership check was defeated by a policy sitting beside it.
+`PrivacyPage` §5 tells every visitor that RLS is "enforced on every row by the wallet claim
+in your SIWE-issued JWT"; nothing verified either half of that sentence, which is the same
+shape as the holder-gate finding that had to move server-side ten days earlier.
+
+**Two of the remediation's own "safe" patches merged into a fund-stranding bug that only the
+merged suite caught** — each was correct alone. That is now a standing reason to run the
+combined suite rather than per-branch greens.
+
+### Added — Full buildout: correctness, honesty, and gates that can actually fail (2026-08-12)
+
+[#300](https://github.com/fomotsar-commits/tegridy-farms/pull/300). 28 checks pass; three
+known-red, each for a stated reason rather than a shrug — the Anvil money-path job at 16/20
+(one fixture gap: the fork seeds no TOWELI balance), Slither (chronically red on every trunk
+run since 2026-07-30, pre-existing), and registry-vs-chain (**true**: the Solana deploy
+authority holds 0 lamports and needs funding).
+
+The E2E fork seeding landed with it, and half of it was a correction to the tests rather
+than the app: four specs failed with their own message ("the fork account holds no TOWELI")
+because a mainnet fork inherits mainnet state and `anvil_setBalance` covers ETH only, and
+**five more specs were asserting a receipt that was already on the page** — passing for the
+wrong reason.
+
+### Added — Heat wave two: the ruler, the gate, the births (2026-08-11)
+
+[#286](https://github.com/fomotsar-commits/tegridy-farms/pull/286). Implements the island's
+build directive, launch-gate spec and birth-socket card in the directive's strict phase
+order, plus the chain-derived birth-record route.
+
+**One deviation from a prior operator decision, flagged rather than silent:** the 180-day
+tenure floor is gone, replaced by a degrees floor of 80° (Resident). The island's spec
+retires the day-rule twice over, and the directive's own conflict rule is that the newer
+document wins and the disagreement gets flagged. Operator confirmed 2026-08-09. Held time is
+already priced inside the number, because Heat is TWAB-based and zero-anchored.
+
+The follow-up ([#298](https://github.com/fomotsar-commits/tegridy-farms/pull/298)) stopped
+`/record/:chain/:ca.json` depending on how Vercel parses `:ca.json`. `.` is not an ordinary
+literal to path-to-regexp — it is a delimiter — so depending on the platform's version `:ca`
+may swallow the extension or the rewrite may not match at all. path-to-regexp is not a
+dependency of this repo, so that parse is unreproducible locally **and** in CI, and preview
+deploys are auth-protected. That URL is the one the island stores **permanently**.
+
+### Added — The own Solana venue reached mainnet: tegridy-launch deployed, the curve modes built (2026-08-08)
+
+`tegridy_launch` went live on Solana mainnet at
+`CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED` (slot 438,055,726). The on-chain bytecode's
+sha256 **matches the CI artifact it was built from** — dumped back off mainnet and compared,
+not assumed. cp-swap's four mainnet identity constants moved off their fail-closed sentinels
+in the same change.
+
+> **Superseded (2026-08-13/15):** both program ids were **closed on mainnet** and are
+> permanently spent. See the 2026-08-15 entry. The work below is recorded because the
+> instruction builders, decoders and guards it produced all survive the closure and are what
+> the restart is built on; the deployment itself did not.
+
+**Two curve modes on audited math, both graduating into our own venue**
+([#277](https://github.com/fomotsar-commits/tegridy-farms/pull/277)). The own-venue curve
+paid creators **nothing** while every surviving launchpad pays a streaming cut (pump.fun
+0.30% of volume; our own partner rail 0.48%) — a curve that pays zero loses every launch to
+the rails that pay. `curve::split_fee` is a pure creator/protocol split where the creator
+rounds down, the protocol keeps the remainder, and the sum is always exact.
+
+**The deploy float was measured before it was spent, and the first measurement was wrong.**
+A first pass replaced the runbook's guessed "~5 SOL per program" with "~17.3 SOL total",
+derived by assuming `solana program deploy` reserves 2× the binary size. A real devnet
+deploy of the 514,320-byte binary produced **3.58 SOL**, so the real float is ~8.4 SOL.
+Correcting a correction, from a measurement rather than an assumption.
+
+### Fixed — Four client/program drifts that would each have failed in production, one silently (2026-08-08)
+
+Found by wiring the client against the **live mainnet program** and reading the accounts back
+rather than trusting the sends.
+
+1. **`initialize_global` was silently mis-configuring the protocol.** It takes
+   `creator_fee_share_bps` as its **second** argument; the client never encoded it. Borsh is
+   positional, so every field after `trade_fee_bps` landed one slot early —
+   `initial_virtual_sol` (30 SOL) would have been read as the creator fee share, and every
+   economic parameter after it would be wrong. **Not a revert. A protocol configured to
+   something nobody chose.**
+2. **Every launch would have reverted.** `create_launch` gained `mode: u8` when the curve
+   modes landed; the client still sent a bare 8-byte discriminator, and a 9-byte handler
+   cannot deserialize 8 bytes.
+3. **`update_global` encoded 9 of the program's 10 `Option`s, so it always reverted**
+   ([#283](https://github.com/fomotsar-commits/tegridy-farms/pull/283)). A missing *trailing*
+   Option does not mis-shift fields; it leaves the buffer one byte under the minimum, so
+   Borsh rejects the instruction outright. Nothing on the venue could be reconfigured —
+   which blocked both steps that finish the launch: setting `cp_swap_program` + `amm_config`
+   (the only way to enable graduation) and handing `global.authority` to the Squads vault.
+   **The old test asserted `8 + 9` bytes, so it pinned the bug**: encoder and test shared one
+   wrong belief and CI stayed green.
+4. **The `GlobalConfig` decoder could not read a real account**
+   ([#279](https://github.com/fomotsar-commits/tegridy-farms/pull/279)). `GLOBAL_CONFIG_SIZE`
+   was 186; the program writes **723**. Every real account returned `bad-length`, and every
+   offset after `trade_fee_bps` was 8 bytes early. Nothing caught it because the fixtures are
+   built from the same constant and field list as the decoder — encoder and decoder agreed
+   with each other and disagreed with the chain. The replacement test pins the layout against
+   **bytes taken off the live mainnet PDA**, which is the one thing that cannot drift along
+   with our idea of the struct.
+
+The breadth check that should have followed the *first* such fix was done properly this
+time: every `pub fn` in `lib.rs` compared against its client builder's writer chain, argument
+for argument. That found the one instruction with **no builder at all** —
+`set_curve_segments`, added in [#284](https://github.com/fomotsar-commits/tegridy-farms/pull/284)
+with the account order pinned by test, because it is the **reverse** of `update_global` and
+both carry `has_one = authority`, so getting it wrong does not fail a signer check: Anchor
+matches positionally and hands the program a Signer where it expects the config account.
+
+`create_amm_config` — the last missing instruction, and the one that unblocks graduation —
+landed in [#285](https://github.com/fomotsar-commits/tegridy-farms/pull/285), with the trap
+that `index` is encoded **little-endian** as the Borsh argument and **big-endian** in the PDA
+seed. Index 0, the value we would actually use, is a palindrome and would have hidden that
+completely; the test uses `0x0102`.
+
+### Security — cp-swap's admin::ID was the Squads multisig account, so graduation was bricked (2026-08-08)
+
+[#281](https://github.com/fomotsar-commits/tegridy-farms/pull/281). `create_amm_config`
+declares its `owner` as a `Signer` with `address = admin::ID` **and** `payer = owner`. That
+address was set to the Squads **multisig account**, which can do neither job:
+
+- **It cannot sign.** Squads v4 executes CPIs signed by the **vault PDA**. Nothing produces a
+  signature for the multisig account itself.
+- **It cannot pay.** `payer` under Anchor `init` is a System-Program `create_account`, and the
+  System Program only debits accounts it owns with no data. That account is owned by the
+  Squads program and holds 495 bytes.
+
+Either alone is fatal. So the AmmConfig could never be created — verified: the deployed
+program owned **zero accounts** — and `migrate_to_amm` was stuck on `AmmNotConfigured (6015)`
+forever. Tokens could launch and trade but **never graduate**. It would also have bricked fee
+collection, since `create_amm_config` sets `protocol_owner = fund_owner = owner.key()`.
+
+The mistake was not local to the code: the mainnet runbook instructed `admin::ID → Squads
+multisig`, and it was followed literally. That line is corrected with the account-level check
+that distinguishes the two (`owner 1111…1111` / `space 0` for the vault, versus `owner
+SQDS4ep65T…` / `space 495` for the multisig). This is the same class as the Squads-vault
+confusion the custody gate closed a week earlier, in the opposite direction.
+
+Found by **reading the gate instead of assuming it**, while writing the "create the
+AmmConfig" runbook step.
+
+### Added — One registry for every protocol address, and a check that decodes them (2026-08-08)
+
+[#274](https://github.com/fomotsar-commits/tegridy-farms/pull/274). On 2026-08-08 an operator
+wallet holding 0.496 SOL nearly could not be found, because it had only ever been written
+down **truncated**: `5hNA2MXk…927v`. Nobody could look it up, spend from it, or prove it was
+the right wallet.
+
+Then, asked to expand that truncation, a session **invented** a full address that fit the
+pattern — 45 characters decoding to **33 bytes**, not a Solana pubkey at all. It sat in the
+notes looking entirely plausible next to the real one. Both were recorded. Nobody funded the
+fake. **That was luck, not process.**
+
+A wrong address is visually indistinguishable from a right one, so review cannot catch this
+and a markdown table would not have helped. Only decoding catches it. So this is a **check**,
+not a document: `frontend/scripts/addresses.json` holds 14 Solana and 30 Ethereum addresses
+in **full**, each with its role, who holds the key and its live status, plus a denylist
+carrying the fabricated address and a burned keypair with the reasons they can never be used
+again. `verify-addresses.mjs` runs in CI and enforces six rules — structure (EVM to 20 bytes
+with a valid EIP-55 checksum; Solana base58 to **exactly** 32 bytes), no truncation, no
+duplicates, the denylist, drift against `constants.ts`, and an optional live read.
+
+Mutation-tested against all four real failure modes, each exiting non-zero. **Deliberately
+not in the file:** private keys, seed phrases, and keyfile *paths* — this repository is
+public, and a path tells an attacker where to look. `custody` says **who** controls a key,
+never where it lives.
+
+The verifier's own two CodeQL findings were fixed rather than silenced, including a markdown
+escaper whose backslash-then-pipe ordering was load-bearing.
+
+### Fixed — The two HIGH CodeQL alerts that had been marking every PR red (2026-08-08)
+
+- **An incomplete multi-character sanitization** in the chat SSR fallback
+  ([#275](https://github.com/fomotsar-commits/tegridy-farms/pull/275)). The primary path uses
+  `DOMParser` and was never in question; the fallback — reached only under SSR — was a
+  single-pass `str.replace(/<[^>]*>?/g, "")`. **Honest scope: no input was constructed that
+  defeats the old code.** It is made complete by construction rather than argued safe.
+- **A missing regex anchor** in the scanner's unknown-fact matcher
+  ([#276](https://github.com/fomotsar-commits/tegridy-farms/pull/276)). CodeQL called it
+  misleading operator precedence and it was right: `$` bound only to the last alternative, so
+  four of the five phrases matched anywhere in a string.
+
+And the front door stopped saying Ethereum-only
+([#272](https://github.com/fomotsar-commits/tegridy-farms/pull/272)). The Solana swap had been
+fully live — Jupiter routing, limit orders, liquid staking, a platform fee we collect — and
+`/scan` read both chains, yet the hero badge read "LIVE ON ETHEREUM", both card grids were
+Ethereum-only, and the Solana entries sat two clicks deep in the More menu.
+
+### Security — A command injection in a workflow written the day before (2026-08-04)
+
+[#267](https://github.com/fomotsar-commits/tegridy-farms/pull/267). `revenue-watch.yml:200`
+spliced `${{ steps.read.outputs.unknown }}` directly into a `run:` block. A `${{ }}` inside
+`run:` is substituted into the script **text** before bash parses it, so any shell
+metacharacter in the value executes — and that value is built from `jq -c '.error'` on a
+**public RPC's response body**, which is attacker-influenceable. Found by the batch-1 audit,
+in code written the previous day.
+
+The same workflow taught two other lessons in 24 hours. It **died under errexit before it
+could report anything** on its first real dispatch — GitHub runs `run:` with `-e`, and a
+`[ -n "$x" ] && VAR=…` guard returns 1 whenever the value is empty, which is the normal case
+here since every rail currently reads zero. And once fixed, it went **permanently red for a
+correct reason stated wrongly**: an unset `SOLANA_FEE_ACCOUNT` was routed into UNKNOWN, which
+set `state=partial`, which failed the run. An unwatched rail is a **decision, not a fault**,
+and this repo already has one chronically-red check that everyone has learned to ignore.
+
+### Fixed — Six surfaces claimed an ETH yield that has never been paid (2026-08-04)
+
+Verified on-chain 2026-08-04, as on every prior check: `RevenueDistributor` holds 0 wei and
+`SwapFeeRouter.totalETHFees()` was 0. **Nothing has ever been distributed to anyone.** Four
+surfaces said otherwise, in the present tense — the worst being `/premium`'s flat literal
+a flat literal announcing the whole protocol fee line as already
+distributed, rendered **directly above the live figures
+that contradict it** (0.0000 ETH, 0 epochs) on a page charging 10,000 TOWELI a month
+([#258](https://github.com/fomotsar-commits/tegridy-farms/pull/258)).
+
+**The breadth check was done on pages and missed components**
+([#266](https://github.com/fomotsar-commits/tegridy-farms/pull/266)). Driving the live site
+found two more making the same claim: the **Footer**, on every page, and the
+**OnboardingModal** — the first thing a new visitor reads. The rule the first fix established
+("are routed to", not "go to") now covers both, and the guard no longer trusts a list of
+files.
+
+Also 2026-08-04: the `/nakamigos` splash **reported the wrong collection's supply on the
+first screen** ([#264](https://github.com/fomotsar-commits/tegridy-farms/pull/264)) —
+`/nakamigos` is both the route mount prefix and a collection key, and the resolver scanned
+path segments forwards and returned the first match, so entering a 9,696-piece collection
+announced Nakamigos' 20,000 as fact about it. Wrong by more than 2×.
+
+### Added — The public can sign and submit their own Solana launch, and creators get their token's page (2026-08-04)
+
+[#259](https://github.com/fomotsar-commits/tegridy-farms/pull/259) mounts a signer on
+`/solana-launch`: a member of the public builds, signs and sends their own launch
+transaction, gated on a published partner config for that build. Config *creation* stays
+out-of-band in the operator CLI, because that is the step that forces the fee claimer to be
+the derived Squads vault and it must never run in a browser.
+
+[#257](https://github.com/fomotsar-commits/tegridy-farms/pull/257) hands the creator their
+token's page at the moment they launch. The success panel had linked **only** to Etherscan,
+so the funnel's most engaged moment ended on a block explorer, and `/launch/:token` — the
+permalink, 611 lines of live on-chain reads — was reachable from exactly one place in the
+whole app.
+
+And a **pre-flight guard for irreversible one-shot setters**
+([#256](https://github.com/fomotsar-commits/tegridy-farms/pull/256)): several setters here
+succeed exactly once and revert `…AlreadySet` after, so a typo is not a bug you fix — it is
+the permanent state of a live contract. The danger is never a revert; a revert is free. It is
+a call that **succeeds** against a plausible-but-wrong address.
+
+### Added — Read-back verifiers for every privileged role, and for the Safes themselves (2026-08-02)
+
+[#251](https://github.com/fomotsar-commits/tegridy-farms/pull/251) was written **before** the
+custody sprint, deliberately. The Safe re-home moves the protocol's privileged roles off a
+hot deployer EOA across ~40 privileged transactions, several two-step, at least one one-shot
+and permanent. The failure mode is not a revert — a revert is loud. It is a transaction that
+**succeeds against the wrong target**, or a step skipped in a long checklist, discovered
+months later. **A receipt is not proof of state.**
+
+[#252](https://github.com/fomotsar-commits/tegridy-farms/pull/252) then went past the Safe
+boundary, because the ownership half was measuring the easy question: a Safe can be correctly
+wired as the owner of all 21 contracts and still be **controlled by one key**. It now reads
+`getOwners`/`getThreshold` plus `eth_getCode` on every signer and asserts the three properties
+the September gate actually depends on — threshold ≥ 2, signers not collapsible to a single
+key, and owner sets **disjoint** across the three Safes.
+
+Also: a guard on the CLI deploy path ([#248](https://github.com/fomotsar-commits/tegridy-farms/pull/248)),
+because Vercel's CLI deploys the **working tree**, not a git ref — it uploads whatever bytes
+are on disk, with no branch checkout and no comparison to any remote. That has cost this
+project twice in opposite directions, once reverting **262 frontend files in production** for
+~10 minutes from a checkout 26 commits ahead and 165 behind.
+
+### Fixed — Production served a throwing stub instead of wallet code (2026-08-02)
+
+[#245](https://github.com/fomotsar-commits/tegridy-farms/pull/245). Verbatim from the
+production bundle:
+
+```
+throw Error(`Could not resolve "@metamask/connect-evm" imported by
+"@wagmi/connectors". Is it installed?`);
+```
+
+`@wagmi/connectors` declares these under `peerDependenciesMeta` as `optional: true` and
+reaches them via a lazy `await import(...)` inside each connector. Uninstalled, the bundler
+substitutes a ~110-byte throwing stub — so **every wallet but the injected path was dead in
+production** while the build was perfectly green.
+
+[#246](https://github.com/fomotsar-commits/tegridy-farms/pull/246) caught the sixth connector
+the first fix missed, because it is not a row in the RainbowKit list:
+`wagmi.ts` wires `coinbaseWallet()` directly in the **no-projectId fallback config**.
+Production always has a projectId and never reaches that branch — so it was invisible in
+prod, and broken in exactly the places that run that config: CI, preview deploys, E2E and
+every fresh clone.
+
+[#226](https://github.com/fomotsar-commits/tegridy-farms/pull/226) closed the third of the
+set: RainbowKit shows "Opening MetaMask… / Confirm connection in the extension" and then
+waits on the connector promise with **no timeout and no error path**, so a wallet that never
+answers spins until the user gives up — which is exactly what a stuck extension looks like
+from the outside.
+
+### Added — memetics.finance as a co-equal production origin (2026-08-02)
+
+[#225](https://github.com/fomotsar-commits/tegridy-farms/pull/225). Both domains serve the
+same frontend and neither redirects to the other.
+
+A new production origin is **not just DNS**. The origin allowlist is duplicated inline across
+13 `api/` handlers, and three of them reject **server-side with a hard 403** rather than
+merely omitting CORS headers — miss one and login, Solana or swap POSTs die on the new
+domain only. The follow-up ([#227](https://github.com/fomotsar-commits/tegridy-farms/pull/227))
+removed an origin the project does **not control** from the default allowlist of all thirteen
+surfaces, where it was additionally the `ALLOWED_ORIGIN` default on four — so a
+non-matching origin was echoed a domain we do not own.
+
+### Security — The holder-exclusive chat gate was client-side only, and 98 .jsx files were never linted (2026-08-02)
+
+[#217](https://github.com/fomotsar-commits/tegridy-farms/pull/217) /
+[#219](https://github.com/fomotsar-commits/tegridy-farms/pull/219). The chat UI advertises
+the room as holder-exclusive — "HOLDER EXCLUSIVE / Own a {collection} to post" — and the only
+enforcement was **hiding the textarea**. Any SIWE-authenticated wallet holding zero NFTs
+could POST to the proxy and land a message in the room. Worse, the holder count the client
+trusted came from **unsigned localStorage**. Now enforced server-side.
+
+It was found because **98 `.jsx` files were passing ESLint by never being linted at all** —
+the config's file globs did not include them. Extending the trail exposed two live defects,
+of which the chat gate was one.
+
+### Fixed — Read-honesty sweep: exposure, the deployer graph, the scanner, Premium (2026-08-02)
+
+The class the whole month is about: a read that failed rendering as an answer.
+
+- **`/exposure` deleted positions it could not read.** `balRes?.status === 'success' ? … :
+  0n` followed by a `<= 0n` skip meant one failed leg of a multicall removed that token from
+  your exposure entirely — **and took its weight out of the headline concentration figure
+  with it** ([#220](https://github.com/fomotsar-commits/tegridy-farms/pull/220)). An
+  unreadable balance is now disclosed, not deleted.
+- **The deployer reputation graph published our own failed reads as verdicts about somebody's
+  wallet** ([#216](https://github.com/fomotsar-commits/tegridy-farms/pull/216)).
+- **A wallet address is "not a token", not a scan that failed**
+  ([#223](https://github.com/fomotsar-commits/tegridy-farms/pull/223)), plus the last residue
+  of the 78-agent review: the TypeScript port had diverged from its own JS source of truth,
+  where `fetchMarket` returning `null` conflated "there is no pool" with "the upstream never
+  answered".
+- **A $14 pool is not a price source**, and Premium stopped promising unpaid yield
+  ([#215](https://github.com/fomotsar-commits/tegridy-farms/pull/215)).
+- **Four live surfaces claimed more than the code does**, verified against the production
+  render and then against the code (`71714237`). The worst sat directly above the signature
+  button: the tier label advertised "Static / multicurve (Doppler V4)" while
+  `buildTegridyLaunchParams` calls `.buildDynamicAuction()` unconditionally.
+- **The chain the adapters argue from is now pinned by test**
+  ([#218](https://github.com/fomotsar-commits/tegridy-farms/pull/218)) — code → status →
+  rendered copy, so the distinction between `error` ("couldn't complete the scan", a statement
+  about the read) and `empty` ("no holder data for this token", a claim about somebody's
+  token) cannot silently collapse again.
+- **The native pool was drained, and the docs still described it as seeded and farming**
+  ([#229](https://github.com/fomotsar-commits/tegridy-farms/pull/229)). Re-read from mainnet
+  by hand: 146,258 TOWELI + 0.0038 WETH (~$14) against a documented 776,678 TOWELI + 0.0203
+  WETH, and ~83% of the LP burned.
+- **The bonding curve exists — stop telling auditors it does not**
+  ([#228](https://github.com/fomotsar-commits/tegridy-farms/pull/228)). Two scope documents
+  that had reached no remote asserted `programs/` contains only `cp-swap`, five days after
+  `tegridy-launch` landed on trunk.
+
+### Changed — Fourteen Dependabot bumps, and codeql-action unified on one major (2026-08-02)
+
+Eleven dependency PRs landed with the batch, plus the two GitHub Action majors
+(`actions/checkout` 4 → 7, `actions/cache` 4 → 6) the following day.
+
+**The codeql-action family was split across majors in two different workflows** —
+`codeql.yml` pinned a v3.26.10 ref from 2024-09-30 while `slither.yml` uploaded SARIF with
+v4.37.3. CodeQL expects one version across init → analyze → upload-sarif; a v3 init against a
+v4 upload is not a supported combination
+([#247](https://github.com/fomotsar-commits/tegridy-farms/pull/247)).
+
+**foundry-toolchain was held at 1.3.1 with the reason corrected**
+([#230](https://github.com/fomotsar-commits/tegridy-farms/pull/230)). 1.9.x turned all nine
+forge slices red plus the aggregator — the repo's only real contracts gate — so a Dependabot
+bump nobody could merge cost ten red checks per rebase. The **recorded** reason was wrong,
+which matters because it would have misdirected the next attempt; the ignore named exactly
+one condition for lifting it, and [#205](https://github.com/fomotsar-commits/tegridy-farms/pull/205)
+met that condition three weeks later.
+
 ### Fixed — The token scanner turned failed reads into verdicts, and rebuilt balances from a rounded percentage (2026-08-01)
 
 `/scan` is live and the Ethereum holder route behind it is serving real data —
