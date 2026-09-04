@@ -49,10 +49,36 @@
 --
 -- ⛔ PREFLIGHT — DO NOT APPLY BLIND.
 --
---      # 1. Is the anon read open today? (200 = open, this file matters)
---      curl -s -o /dev/null -w '%{http_code}\n' \
+--      # 1. Is the anon read open today?
+--      #
+--      #    A STATUS CODE CANNOT ANSWER THIS. PostgREST serves an RLS-DENIED
+--      #    select as `200` with a body of `[]`, not 403 -- so the obvious
+--      #    `curl -o /dev/null -w '%{http_code}'` prints 200 whether the table is
+--      #    wide open or already fully locked. That check can never fail, which
+--      #    makes it worse than no check: it reads as reassurance.
+--      #    (This file shipped with exactly that check until 2026-09-04.)
+--      #
+--      #    Ask for the COUNT instead, and compare the two roles.
+--      #
+--      #    anon -- what a stranger holding the published key can see:
+--      curl -s -D- -o /dev/null \
 --        -H "apikey: $SUPABASE_ANON_KEY" \
---        "$SUPABASE_URL/rest/v1/user_watchlist?select=wallet&limit=1"
+--        -H "Prefer: count=exact" -H "Range: 0-0" \
+--        "$SUPABASE_URL/rest/v1/user_watchlist?select=wallet" | grep -i '^content-range'
+--
+--      #    service role -- ground truth, what is actually in the table:
+--      curl -s -D- -o /dev/null \
+--        -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+--        -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+--        -H "Prefer: count=exact" -H "Range: 0-0" \
+--        "$SUPABASE_URL/rest/v1/user_watchlist?select=wallet" | grep -i '^content-range'
+--
+--      #    Content-Range is `0-0/<total>`; read the total after the slash.
+--      #      service > 0 and anon == service -> OPEN. This file matters. Apply it.
+--      #      service > 0 and anon == 0       -> already locked. This file is a no-op.
+--      #      service == 0                    -> INCONCLUSIVE, the table is empty.
+--      #                                         Decide on step 2 (pg_policies), which
+--      #                                         does not depend on there being rows.
 --
 --      # 2. Is the owner-scoped twin actually present? It is what survives.
 --      #    Expect one row per table; if it is missing, STOP — dropping the

@@ -3,7 +3,7 @@
 
   "_compilation": "Slither uses crytic-compile under the hood; pointing at this contracts/ subdir picks up foundry.toml automatically (solc 0.8.26, via_ir=true, optimizer_runs=200, evm_version=cancun, code_size_limit=24576).",
   "compile_force_framework": "foundry",
-  "filter_paths": "lib/|node_modules/|test/|script/|out/|cache/|broadcast/|.audit_2026_freshlook/|.audit_101/|.spartan_unpacked/",
+  "filter_paths": "^lib/|^node_modules/|^test/|^script/|^out/|^cache/|^broadcast/|^.audit_2026_freshlook/|^.audit_101/|^.spartan_unpacked/",
 
   "_scope": "mvp-launch includes only these 15 contracts under src/: Toweli, TegridyFactory, TegridyPair, TegridyRouter, TegridyTWAP, TegridyStaking, TegridyStakingJbacVault, TegridyStakingAdmin, TegridyRestaking, RevenueDistributor, ReferralSplitter, SwapFeeRouter, SwapFeeRouterAdmin, POLAccumulator, TegridyTokenURIReader. Plus base/PauseGuardian, OwnableNoRenounce, TimelockAdmin. Plus lib/SequencerCheck, lib/WETHFallbackLib, lib/VotePowerOracle. Lending, NFTLending, NFTPool, Gauges, VoteIncentives, Drop, Launchpad, FeeHook, LPFarming, CommunityGrants, MemeBountyBoard, PremiumAccess have been moved off this branch and are NOT in scope.",
 

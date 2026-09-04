@@ -218,6 +218,10 @@ contract LighthouseLadder is ReentrancyGuard {
 
     function rewardPerToken() public view returns (uint256) {
         // FORK HUNK 1/2: boosted weight is the divisor.
+        // SLITHER 2026-09-04: division-by-zero guard on the DIVISOR of the very next
+        // expression - the canonical Synthetix StakingRewards shape. Zero is the only
+        // value that must branch, so there is no tolerance to widen into.
+        // slither-disable-next-line incorrect-equality
         if (_totalBoosted == 0) {
             return rewardPerTokenStored;
         }
@@ -422,8 +426,14 @@ contract LighthouseLadder is ReentrancyGuard {
     ///      later top-up settles it — accrual is never lost, only deferred.
     function _payRewards(address account) private {
         uint256 owed = rewards[account];
+        // SLITHER 2026-09-04: nothing-owed early return on an internal accrual counter,
+        // not a token balance. Exact zero is the whole condition.
+        // slither-disable-next-line incorrect-equality
         if (owed == 0) return;
         uint256 payable_ = Math.min(owed, rewardSurplus());
+        // SLITHER 2026-09-04: nothing-payable early return. Anything unpayable STAYS
+        // owed (see the dev-note above), so this branch defers, it never forfeits.
+        // slither-disable-next-line incorrect-equality
         if (payable_ == 0) return;
         rewards[account] = owed - payable_;
         rewardsPaid += payable_; // AUDIT C2: retires the matching liability.
