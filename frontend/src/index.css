@@ -119,7 +119,9 @@
   --color-text-muted: #9990b3;
 
   /* ─── Typography ─── */
-  --font-family-heading: 'Playfair Display', 'Georgia', serif;
+  /* Archivo, not Playfair (2026-09-04). The fallback is a GROTESQUE stack now:
+     falling back to Georgia would have swapped a sans for a serif mid-load. */
+  --font-family-heading: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
   --font-family-body: 'Inter', system-ui, sans-serif;
   --font-family-mono: 'JetBrains Mono', 'Courier Prime', monospace;
 
@@ -692,15 +694,11 @@ html {
 /* ─── Luxury Heading ─── */
 .heading-luxury {
   font-family: var(--font-family-heading);
-  /* 700 -> 900. The self-hosted Playfair is a VARIABLE face declared
-     `font-weight: 400 900` in public/fonts/fonts.css, so the heavier cut is
-     already in the woff2 we ship and costs nothing: no new file, no new
-     preload, no CSP change. A field review called the display face a "safe
-     default" carrying "no jungle, no venue, no heat" — this is the part of that
-     answerable without adding a font binary, and it gives the headline real
-     presence against the paintings behind it.
-     NOT the family swap the review asked for; see the commit for why that is a
-     separate, owner-sized decision. */
+  /* 900. Archivo is declared `font-weight: 400 900` in public/fonts/fonts.css,
+     so the heavy cut ships in the woff2 we already serve. This was 700 under
+     Playfair and was raised to 900 on 2026-09-03 as the part of the review's
+     "no jungle, no venue, no heat" note that was answerable without a new font
+     binary; the family swap has now landed too, so the two are consistent. */
   font-weight: 900;
   letter-spacing: 0.01em;
   text-shadow: 0 2px 8px rgba(0,0,0,1), 0 0 16px rgba(0,0,0,0.7);

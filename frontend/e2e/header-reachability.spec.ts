@@ -92,7 +92,8 @@ test.describe('header stays reachable at every width', () => {
       await expect(connect).toBeVisible();
 
       // WAIT FOR THE WEBFONTS BEFORE MEASURING. The wordmark is the widest item
-      // in this row, and its width depends on Playfair being loaded. Every face
+      // in this row, and its width depends on the display face (Archivo) being
+      // loaded. Every face
       // here is `font-display: swap` (public/fonts/fonts.css), so the row renders
       // once in a fallback metric and again in the real one. Measuring between
       // those two is how this test failed intermittently in a full parallel run

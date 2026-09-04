@@ -371,7 +371,7 @@ function TransactionReceiptOverlay({
               <span className="text-[18px]">{'\u{1F33F}'}</span>
               <span
                 className="heading-luxury text-white text-[16px] tracking-wide"
-                style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+                style={{ fontFamily: 'var(--font-family-heading)' }}
               >
                 {VENUE.name}
               </span>
