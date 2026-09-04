@@ -213,23 +213,37 @@ export const TopNav = React.memo(function TopNav() {
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
-        {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
-            row overflowing. Restored to px-4 the moment there is room. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* gap-1 BELOW 480px. 🔴 Found 2026-09-04 by e2e/header-reachability.spec.ts,
-              which was already red on this branch before the nav condensation: at
-              375px this row measured scrollWidth 378 against clientWidth 375, so
-              the header overflowed its own viewport on the narrowest phones.
+        {/* px-2 below 400px, px-3 to 480, then px-4. The narrowest phones need
+            every pixel of this back; each step is restored the moment there is
+            room for it. See the gap comment below for what this is paying for. */}
+        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+          {/* 🔴 THE 360px ROW. e2e/header-reachability.spec.ts measured
+              scrollWidth 362 against clientWidth 360 in CI — the header
+              overflowing its own viewport on the narrowest supported phone.
               CAUSE: the display face moved from Playfair Display to Archivo
-              (03552f3c) and the wordmark got ~3px wider — the identity comment
-              below sized the TYPE down for exactly this reason in August and the
-              new face ate the margin it bought.
-              FIXED IN THE GAPS, NOT THE TYPE, on purpose: the 2026-08-31 owner
-              rule is that the mark stays whole and un-abbreviated at every width,
-              so shrinking it again is the one lever that is not available. Two
-              8px gaps become 4px, which buys 8px against a 3px overrun — margin
-              for the next face, rather than a fix that is exactly big enough. */}
-          <div className="flex items-center gap-1 min-[480px]:gap-2">
+              (03552f3c) and the wordmark got wider; the identity comment below
+              had already sized the TYPE down for exactly this reason in August,
+              and the new face ate the margin that bought. CI rasterises Archivo
+              a shade wider than a local run, so 360px passes here and fails
+              there — do not trust a local green on this one.
+
+              WHY IT WAS INVISIBLE UNTIL NOW: the spec measured `locator('header')`,
+              which matched a second <header> inside YieldCalculator, so it threw
+              a strict-mode violation BEFORE it ever reached this measurement.
+              The overflow is older than the fix that revealed it.
+
+              FIXED IN THE GAPS AND THE PADDING, NOT THE TYPE, on purpose: the
+              2026-08-31 owner rule is that the mark stays whole and
+              un-abbreviated at every width, so shrinking it again is the one
+              lever that is not available. Three levers, all below 400px, all
+              measured at 360: row padding px-3→px-2 buys 8px of content box
+              (336→344), these two gaps 4px→2px take the left group 222→218, and
+              the right group's gap-1.5→gap-1 takes it 121.3→119.3 — note that
+              group is `flex-shrink-0`, so its width is a hard floor and the
+              wordmark is what silently absorbs any shortfall. 14px bought
+              against a 2px overrun: margin for the next face, not a fix that is
+              exactly big enough. */}
+          <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
                 an off-logo click can't trigger a ~15s replay). A hover play-icon
@@ -455,7 +469,7 @@ export const TopNav = React.memo(function TopNav() {
               budget by the chip-label rule above; the nav itself is deliberately
               NOT given min-w-0/overflow-hidden, because that would clip the
               "More" dropdown, which is absolutely positioned inside it.) */}
-          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
+          <div className="flex items-center gap-1 min-[400px]:gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
             {/* AUDIT 2026-05-30 (mobile+iPad re-pass): was `hidden md:block` which (a) failed
                 to actually hide at 390 in the wild and (b) collided with the Connect button
                 at the 768 iPad-portrait breakpoint (50px allocated slot vs 85px text width).
