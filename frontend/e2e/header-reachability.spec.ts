@@ -63,7 +63,7 @@ const WIDTHS = [375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
 test.describe('header stays reachable at every width', () => {
   // Own-viewport sweep: the device projects pin their own viewport and DPR, so
   // running this there would re-test one width four times and tell us nothing.
-  test.skip(({}, testInfo) => testInfo.project.name !== 'chromium',
+  test.skip((_fixtures, testInfo) => testInfo.project.name !== 'chromium',
     'viewport sweep — chromium project only');
 
   test('the wallet control is inside the viewport and the header never overflows', async ({ page, walletMock: _w }) => {
