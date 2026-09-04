@@ -209,8 +209,19 @@ if (baylaOverride === null) {
   console.log('        farm page will look broken or empty. UNSET this var in the deploy.');
 } else {
   baylaBad = true;
-  console.log(`!!      SET TO AN UNRECOGNISED POOL: ${baylaOverride}`);
-  console.log(`        It overrides the canonical ${BAYLA_POOL_CANONICAL}. Unset it unless this is deliberate.`);
+  // NEVER echo a raw environment value, even one that is public by construction.
+  // CodeQL flags this as js/clear-text-logging (HIGH) and it is right to: this
+  // script reads whatever is in `env`, so the PATTERN leaks whatever the checked
+  // set grows to include, not just today's contents. A VITE_ var is compiled into
+  // the client bundle and is therefore already public — but the next var added
+  // here might not be, and a logging habit does not know the difference.
+  //
+  // The diagnostic survives without the value: the operator knows which var is
+  // wrong, what it overrides, and what to do. They can read their own env.
+  console.log('!!      SET TO AN UNRECOGNISED POOL (value not printed - see below)');
+  console.log(`        It overrides the canonical ${BAYLA_POOL_CANONICAL}. Compare your`);
+  console.log('        VITE_BAYLA_STAKE_POOL against that address, and unset it unless the');
+  console.log('        override is deliberate.');
 }
 console.log('');
 
