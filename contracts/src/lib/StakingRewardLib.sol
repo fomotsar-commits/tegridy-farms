@@ -868,13 +868,51 @@ library StakingRewardLib {
         }
 
         // AUDIT FIX #2 + NEW-L2 + FRESH-2026 F-60-3: EOA single-position guard (incl.
-        // EIP-7702 delegated EOAs, code.length == 23), relaxed on lending round-trip.
+        // EIP-7702 delegated EOAs, code.length == 23), relaxed on an ESCROW round-trip.
+        //
+        // AUDIT FIX 2026-09-04 [RESTAKE-RETURN-STRAND]: the relaxation named
+        // `isLendingContract[from]` alone, while the MAX_POSITIONS cap above and `escrowHop`
+        // below both also carve out `restakingContract` — this was the only one of the three
+        // that did not. `restakingContract` and `isLendingContract` are DISJOINT registries
+        // (applyRestakingContract vs applyLendingContract) and every other site tests them
+        // together (TegridyStaking:800, :863), so the restaking escrow never relaxed it.
+        //
+        // Four ordinary calls then dead-ended a user's NFT: `restake(#1)` zeroes
+        // `userTokenId` at the bottom of this function, which is exactly what frees
+        // `stake()`'s `userTokenId[msg.sender] != 0` gate to open #2 — and the return leg
+        // then found `userTokenId[to] != 0` and reverted.
+        //
+        // The exits do NOT surface that revert: both `unrestake` and `emergencyWithdrawNFT`
+        // route the return through `TegridyRestaking._returnNftSettleResidual`, whose
+        // try/catch swallows it and books `strandedRestakeRecipient` instead. The exit
+        // reports success with the restaking-side record already deleted, which closes both
+        // admin escapes (`applyRescueNFT` refuses while a stranded record exists;
+        // `emergencyForceReturn` requires the now-deleted `tokenIdToRestaker`). The user's
+        // only retry, `claimStrandedRestakeNFT`, is a BARE safeTransferFrom that reverts for
+        // as long as #2 is held.
+        //
+        // The `restakingContract != address(0)` conjunct is deliberate. `restakingContract`
+        // is an uninitialised `address public` (TegridyStaking:362, never set in the
+        // constructor), so it reads as address(0) until `applyRestakingContract` runs. A bare
+        // `from == restakingContract` would therefore be TRUE for every MINT
+        // (`from == address(0)`) on a deployment that has not yet registered — or never
+        // registers — a restaking contract, quietly disabling this guard on that path.
+        //
+        // Not exploitable today: `stake` and `stakeWithBoost` each reject a second position at
+        // TegridyStaking:1016 / :1086 (`userTokenId[msg.sender] != 0 -> AlreadyStaked`) BEFORE
+        // reaching `_mint`, so the mint path is already bounded upstream. This keeps the guard
+        // from depending on that upstream check for its correctness. Same pairing as
+        // TegridyStaking:1725.
+        //
+        // NOTE the MAX_POSITIONS cap above is deliberately NOT given this relaxation — it is
+        // what BOUNDS this one.
+        // Pinned by test/StakingRestakeReturnStranding_2026_09_04.t.sol.
         uint256 toCodeLen = to.code.length;
         if (
             to != address(0) &&
             userTokenId[to] != 0 &&
             (toCodeLen == 0 || toCodeLen == 23) &&
-            !isLendingContract[from]
+            !(isLendingContract[from] || (restakingContract != address(0) && from == restakingContract))
         ) revert AlreadyHasPosition();
 
         // AUDIT TF-07: only reset autoMaxLock on a genuine ownership change; round-trips
