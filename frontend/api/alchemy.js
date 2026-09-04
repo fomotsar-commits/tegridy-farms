@@ -238,6 +238,17 @@ export default async function handler(req, res) {
         console.error("Alchemy RPC non-JSON:", logSafe(text.slice(0, 200)));
         return res.status(502).json({ error: "Upstream returned invalid response" });
       }
+      // AUDIT API-M5: parity with the NFT path below, which maps any failed
+      // upstream to an opaque 502. This RPC path did not check rpcRes.ok, so a
+      // 401 (revoked/lapsed key) or 429 reached the browser as HTTP 200 with a
+      // JSON-RPC error body: every res.ok check passed and an authentication
+      // failure rendered as an ordinary empty read. Status is logged for ops,
+      // never echoed to the client.
+      if (!rpcRes.ok) {
+        console.error("Alchemy RPC upstream error:", rpcRes.status, logSafe(text.slice(0, 500)));
+        return res.status(502).json({ error: "Upstream service error" });
+      }
+
       // AUDIT R050 HIGH: method-specific edge-cache contract. Only the public
       // chain-tip method gets shared cache; everything else is private
       // (defence in depth — if a future RPC method becomes user-bound, it
