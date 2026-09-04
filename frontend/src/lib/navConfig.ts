@@ -280,7 +280,18 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // executes the swap leg. lib/aggregator.ts is quote-only here, so the checkout
       // signs the exact transfer and states that step 1 happens on the trade surface.
       // Remove the pill when 021 is applied — navConfig.test.ts holds you to the reason.
-      { to: '/checkout', label: 'Checkout', soon: true },
+      //
+      // PILL REMOVED 2026-09-03, same event as /alerts: `021_commerce.sql` applied by
+      // hand against the production project, then `NOTIFY pgrst, 'reload schema'`.
+      // commerce_invoices and commerce_settlements are both in information_schema and
+      // the ledger row for 021 is present.
+      //
+      // NOT yet set, and it does not gate this surface: COMMERCE_WEBHOOK_SECRET. Without
+      // it no webhook is POSTed at all — deliberately, because "a webhook a merchant
+      // cannot verify is one anybody on the internet can forge". The settlements read is
+      // the source of truth either way and every response says so, so checkout works; a
+      // merchant polls instead of being nudged.
+      { to: '/checkout', label: 'Checkout' },
     ],
   },
   {
@@ -351,7 +362,21 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // (internal id 'limit', heading "Limit Order" — a browser-tab price watcher beside
       // a CoW limit order). It is a different surface and is not in the nav. This entry
       // is the rule store + inbox at /alerts.
-      { to: '/alerts',   label: 'Alerts', soon: true },
+      //
+      // PILL REMOVED 2026-09-03: `016_alert_rules.sql` was applied by hand against the
+      // production project (wzoznutkedierwxgfpwn), followed by `NOTIFY pgrst, 'reload
+      // schema'` — without which the table exists and PostgREST keeps answering
+      // PGRST205, so the migration looks like it did nothing. Verified after: the table
+      // is in information_schema, the ledger row for 016 is present (it is the file's
+      // LAST statement, so its presence proves the whole file ran), and the endpoint
+      // now answers 401 "Not authenticated" rather than 503 `schema-missing` — it got
+      // past the schema check and is asking for a login.
+      //
+      // Still true, and disclosed in every response's `delivery` block rather than
+      // here: nothing evaluates a stored rule on a schedule. Rules run while the app is
+      // open. The pill said "you cannot save a rule", which is now false; it never said
+      // "something watches this for you", and removing it must not start saying that.
+      { to: '/alerts',   label: 'Alerts' },
     ],
   },
 ];

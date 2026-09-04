@@ -164,35 +164,44 @@ describe('navConfig', () => {
 
   // Alerts sits with the detection tools because four of its five rule kinds watch
   // exactly what those tools read on demand, on any token or wallet.
-  it('promotes /alerts under Trust & Safety, pilled because nothing can be saved yet', () => {
+  it('promotes /alerts under Trust & Safety, unpilled now that the store exists', () => {
     const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
     expect(trust?.items.map((i) => i.to)).toContain('/alerts');
 
     const entry = ALL_NAV.find((n) => n.to === '/alerts');
     expect(entry?.label).toBe('Alerts');
-    // Hardcoded `true`, and asserted as a concrete value for the same reason the
-    // /solana-launch pill is: there is no client-readable signal to compare against.
-    // Whether `alert_rules` exists is a SERVER fact — the store answers 503
-    // `schema-missing` until `016_alert_rules.sql` is applied by hand — so the pill
-    // cannot self-clear and this assertion is the thing that has to be re-read (and
-    // deleted) when the migration lands. See docs/WHAT_I_NEED_FROM_YOU.md §2.2.
-    expect(entry?.soon, 'a store that cannot save a rule must not read as live').toBe(true);
+    // FLIPPED 2026-09-03. This assertion used to pin `soon === true`, and said in so
+    // many words that it was the thing to re-read and delete when the migration landed.
+    // It landed: `016_alert_rules.sql` was applied by hand to the production project,
+    // followed by `NOTIFY pgrst, 'reload schema'`. Verified three ways — the table is in
+    // information_schema, the ledger row for 016 is present (it is the file's LAST
+    // statement, so it could not be there if the file had partially run), and the
+    // endpoint answers 401 rather than 503 `schema-missing`.
+    //
+    // Kept rather than deleted, and inverted rather than dropped, so the tripwire still
+    // has an opinion: re-adding the pill now would be as wrong as removing it early was.
+    expect(entry?.soon, 'the rule store exists — a live store must not read as coming soon').toBeFalsy();
   });
 
   // Checkout is pilled for exactly the /alerts reason, and the two must not drift apart:
   // both are gated on a migration an operator applies BY HAND, and both therefore have no
   // client-readable signal that could clear the pill on its own.
-  it('promotes /checkout under Engage, pilled because no invoice can exist yet', () => {
+  it('promotes /checkout under Engage, unpilled now that the invoice store exists', () => {
     const engage = MORE_NAV_SECTIONS.find((s) => s.heading === 'Engage');
     expect(engage?.items.map((i) => i.to)).toContain('/checkout');
 
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');
-    // Hardcoded `true`. Whether `commerce_invoices` exists is a SERVER fact — the store
-    // answers 503 `schema-missing` until `021_commerce.sql` is applied — so nothing in the
-    // browser can decide this. Delete this assertion when the migration lands, and not
-    // before: a payment link that cannot resolve must not read as live.
-    expect(entry?.soon, 'a store that cannot publish an invoice must not read as live').toBe(true);
+    // FLIPPED 2026-09-03, same event as /alerts above: `021_commerce.sql` applied by hand
+    // to the production project, then `NOTIFY pgrst, 'reload schema'`. commerce_invoices
+    // and commerce_settlements are both in information_schema and the ledger row for 021
+    // is present.
+    //
+    // COMMERCE_WEBHOOK_SECRET is still unset and deliberately does NOT gate this: with no
+    // secret the webhook is not POSTed at all, because an unverifiable webhook is a
+    // forgeable one. The settlements read is the source of truth regardless, so an invoice
+    // resolves — which is the only claim this pill was ever making.
+    expect(entry?.soon, 'the invoice store exists — a live store must not read as coming soon').toBeFalsy();
   });
 
   // Tax Reports reads the F1 indexer and nothing else, so its pill is keyed to the same
