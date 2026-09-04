@@ -100,6 +100,7 @@ function ToweliFarm() {
     earlyWithdraw: false,
     emergencyExit: false,
     extendLock: false,
+    autoMaxLock: false,
   });
   // F118: stable identity so useAutoReset's effect (which lists the setter in
   // its deps) doesn't clear + re-arm the 5s confirm-dismiss timer on every
