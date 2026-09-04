@@ -39,9 +39,30 @@ export function formatScaled(value: bigint, decimals: number): string {
   return negative ? `-${body}` : body;
 }
 
-/** RFC4180 field: quote when it must be, double any embedded quote. */
+/**
+ * A cell that is only ever data — never a formula.
+ *
+ * RFC4180 quoting first, and then the part that is not about RFC4180 at all: a
+ * cell whose first character is `=`, `+`, `-`, `@`, a tab or a carriage return
+ * is executed as a formula by Excel, LibreOffice and Sheets on import. Token
+ * names in this file are ATTACKER-AUTHORED — anyone can deploy an ERC-20 whose
+ * `symbol()` returns `=HYPERLINK("http://evil","click")` and airdrop it into a
+ * stranger's wallet — so an unguarded export turns "read my own history" into
+ * "run a stranger's code in my accountant's spreadsheet". The leading
+ * apostrophe is the OWASP-documented neutraliser: spreadsheets treat the rest
+ * of the cell as literal text and the character is not part of the value.
+ *
+ * Numeric cells are EXEMPT, and that exemption is the whole reason the test is
+ * written as a whole-cell match rather than a first-character one: every
+ * negative figure this file writes starts with `-`, and quoting those as text
+ * would make a loss unsummable in the spreadsheet somebody is filing from.
+ */
+const NUMERIC_CELL = /^-?\d+(\.\d+)?$/;
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
+
 export function csvField(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const neutralised = FORMULA_LEAD.test(value) && !NUMERIC_CELL.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(neutralised) ? `"${neutralised.replace(/"/g, '""')}"` : neutralised;
 }
 
 function csvRow(cells: string[]): string {
@@ -64,7 +85,10 @@ export function reportHeaderLines(report: TaxReport, exportName: string): string
     `# Generated ${iso(report.generatedAt)} by memetic.fun. Wallet: ${report.account ?? '(none connected)'}`,
     `# Period ${iso(report.periodStart)} → ${iso(report.periodEnd)} (inclusive, UTC)`,
     `# ${methodStatement(report.method)}`,
-    `# Values are ${report.quoteCurrency}. An empty value column means the figure is UNKNOWN — it is not zero.`,
+    `# Values are ${report.quoteCurrency} to ${report.quoteScale} decimal places. An empty value column means ` +
+      'the figure is UNKNOWN — it is not zero.',
+    '# Every money column has a _source column beside it saying where the figure came from. An empty source ' +
+      'is an unpriced row.',
     '#',
   ];
 
@@ -110,6 +134,12 @@ export const CAPITAL_GAINS_COLUMNS = [
   'lots_consumed',
   'status',
   'notes',
+  // Appended rather than inserted: an importer or a script reading the money
+  // columns by position keeps working, and a human reading the row still gets
+  // the provenance beside the reasons.
+  'proceeds_source',
+  'cost_basis_source',
+  'initiator',
 ] as const;
 
 export function capitalGainsCsv(report: TaxReport): string {
@@ -130,12 +160,15 @@ export function capitalGainsCsv(report: TaxReport): string {
         d.unmatchedQuantity > 0n ? formatScaled(d.unmatchedQuantity, d.decimals) : '0',
         earliest === null ? '' : iso(earliest),
         d.heldDays === null ? '' : String(d.heldDays),
-        d.proceeds === null ? '' : formatScaled(d.proceeds, 2),
-        d.costBasis === null ? '' : formatScaled(d.costBasis, 2),
-        d.gain === null ? '' : formatScaled(d.gain, 2),
+        d.proceeds === null ? '' : formatScaled(d.proceeds, report.quoteScale),
+        d.costBasis === null ? '' : formatScaled(d.costBasis, report.quoteScale),
+        d.gain === null ? '' : formatScaled(d.gain, report.quoteScale),
         String(d.lots.length),
         complete ? 'complete' : 'incomplete',
         d.incompleteReasons.map((r) => INCOMPLETE_REASON_TEXT[r]).join(' '),
+        d.proceedsSource ?? '',
+        d.costBasisSource ?? '',
+        d.initiator ?? '',
       ]),
     );
   }
@@ -146,9 +179,9 @@ export function capitalGainsCsv(report: TaxReport): string {
   lines.push('#');
   lines.push(
     `# TOTALS over ${report.capitalGains.totals.countedRows} complete row(s): ` +
-      `proceeds ${formatScaled(report.capitalGains.totals.proceeds, 2)} ${report.quoteCurrency}, ` +
-      `cost basis ${formatScaled(report.capitalGains.totals.costBasis, 2)} ${report.quoteCurrency}, ` +
-      `realised gain ${formatScaled(report.capitalGains.totals.realisedGain, 2)} ${report.quoteCurrency}.`,
+      `proceeds ${formatScaled(report.capitalGains.totals.proceeds, report.quoteScale)} ${report.quoteCurrency}, ` +
+      `cost basis ${formatScaled(report.capitalGains.totals.costBasis, report.quoteScale)} ${report.quoteCurrency}, ` +
+      `realised gain ${formatScaled(report.capitalGains.totals.realisedGain, report.quoteScale)} ${report.quoteCurrency}.`,
   );
   lines.push(
     report.capitalGains.totals.complete
@@ -170,6 +203,8 @@ export const INCOME_COLUMNS = [
   'kind',
   'source',
   'notes',
+  'value_source',
+  'category',
 ] as const;
 
 export function incomeCsv(report: TaxReport): string {
@@ -185,26 +220,49 @@ export function incomeCsv(report: TaxReport): string {
         row.asset,
         row.assetSymbol,
         formatScaled(row.quantity, row.decimals),
-        row.value === null ? '' : formatScaled(row.value, 2),
+        row.value === null ? '' : formatScaled(row.value, report.quoteScale),
         row.kind,
         row.source,
         row.value === null
           ? 'No fair-market value is recorded for this receipt. The value is unknown, not zero — price it from your own source.'
           : '',
+        row.valueSource ?? '',
+        'income',
       ]),
     );
   }
 
+  // Informational rows ride in the income file rather than in a file of their
+  // own: they are the transactions this venue read and REFUSED to classify, and
+  // a filer who never opens the second attachment is a filer who never learns
+  // that a third of their year was left unclassified. Their legs travel with
+  // them, in smallest units beside the asset that moved.
   for (const info of report.informational) {
+    const legs = (info.legs ?? [])
+      .map((l) => `${l.delta > 0n ? '+' : ''}${l.delta.toString()} ${l.symbol} [${l.asset}]`)
+      .join('; ');
     lines.push(
-      csvRow([info.id, iso(info.timestamp), info.txHash, '', '', '', '', 'informational', 'indexer', `${info.label} — ${info.detail}`]),
+      csvRow([
+        info.id,
+        iso(info.timestamp),
+        info.txHash,
+        '',
+        '',
+        '',
+        '',
+        info.category ?? 'informational',
+        info.source,
+        `${info.label} — ${info.detail}${legs.length > 0 ? ` Legs: ${legs}` : ''}`,
+        '',
+        info.category ?? 'informational',
+      ]),
     );
   }
 
   lines.push('#');
   lines.push(
     `# TOTAL over ${report.income.rows.length - report.income.unpricedRows} priced row(s): ` +
-      `${formatScaled(report.income.valueTotal, 2)} ${report.quoteCurrency}.`,
+      `${formatScaled(report.income.valueTotal, report.quoteScale)} ${report.quoteCurrency}.`,
   );
   if (!report.income.complete) {
     lines.push(`# ${report.income.unpricedRows} row(s) carry no value and are EXCLUDED from that total.`);

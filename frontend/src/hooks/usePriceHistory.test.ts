@@ -84,6 +84,22 @@ describe('usePriceHistory', () => {
     expect(result.current.history).toEqual([1, 2, 4]);
   });
 
+  it('does not re-ask a refused read — a 429 is spent budget, not a hiccup', async () => {
+    // Migrated onto lib/chart/ohlcv.ts's single reader (2026-09-02). Before that
+    // this hook retried EVERY failure twice with backoff, 429 included, against
+    // a keyless limit shared with every other GeckoTerminal reader in the tab.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ status: { error_code: 429 } }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const { result } = renderHook(() => usePriceHistory());
+    await waitFor(() => expect(result.current.error).toBe('Price data unavailable'));
+    expect(result.current.history).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses the whole response when any candle carries a non-finite number', async () => {
     // Infinity is where zod stops, so this is an envelope rejection, not a
     // dropped candle — the series is never partially rebuilt from a bad payload.

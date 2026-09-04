@@ -61,7 +61,7 @@ export function NotificationInbox({
   return (
     <section
       className="rounded-xl p-4"
-      style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}
+      style={{ background: 'transparent' }}
       aria-label="Notification inbox"
     >
       <div className="flex items-baseline justify-between gap-2">
@@ -89,7 +89,7 @@ export function NotificationInbox({
             <button
               type="button"
               onClick={onMarkAllRead}
-              className="mt-3 text-white/70 text-[11px] underline"
+              className="mt-3 min-h-11 min-w-11 px-2 text-white/70 text-[11px] underline"
             >
               Mark all read
             </button>
@@ -114,7 +114,12 @@ export function NotificationInbox({
                         the source said. */}
                     {entry.kind === 'event' ? (
                       <p className="mt-1 text-white/45 text-[11px] leading-snug">
-                        Source: {entry.provenance} · as of {whenLabel(entry.at)}
+                        {/* "as of" is the SOURCE'S claim about when a fact was
+                            true. A GeckoTerminal pool quote carries no such
+                            claim, so those rows say "read at" — our clock,
+                            labelled as ours. */}
+                        Source: {entry.provenance} ·{' '}
+                        {entry.observedAtKind === 'read' ? 'read at' : 'as of'} {whenLabel(entry.at)}
                         {entry.anchor && ` · ${entry.anchor.chain}:${entry.anchor.ref.slice(0, 12)}…`}
                       </p>
                     ) : (
@@ -122,9 +127,15 @@ export function NotificationInbox({
                         Nothing was read, so there is no source to cite. Recorded {whenLabel(entry.at)}.
                       </p>
                     )}
-                    {entry.kind === 'event' && !entry.channels.includes('web-push') && (
+                    {/* The row states what was DELIVERED, not what was planned:
+                        `channels` is stamped after a send returned true, so a
+                        notification the browser refused or threw on leaves this
+                        line saying nothing was shown. */}
+                    {entry.kind === 'event' && (
                       <p className="mt-1 text-white/40 text-[11px] leading-snug">
-                        Recorded in this inbox only — no push was sent.
+                        {entry.channels.includes('web-notification')
+                          ? 'Shown as a browser notification (a tab was open).'
+                          : 'Recorded in this inbox only — no notification was shown.'}
                       </p>
                     )}
                   </div>
@@ -133,7 +144,7 @@ export function NotificationInbox({
                       <button
                         type="button"
                         onClick={() => onMarkRead(entry.id)}
-                        className="text-white/70 text-[11px] underline"
+                        className="min-h-11 min-w-11 px-2 text-white/70 text-[11px] underline"
                       >
                         Mark read
                       </button>
@@ -141,7 +152,7 @@ export function NotificationInbox({
                     <button
                       type="button"
                       onClick={() => onDismiss(entry.id)}
-                      className="text-white/50 text-[11px] underline"
+                      className="min-h-11 min-w-11 px-2 text-white/50 text-[11px] underline"
                     >
                       Dismiss
                     </button>

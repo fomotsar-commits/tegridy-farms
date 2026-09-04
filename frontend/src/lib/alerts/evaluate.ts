@@ -31,7 +31,15 @@
 // one of the four answers fails a test rather than a review.
 
 import { ALERT_SOURCES, RULE_SOURCE } from './sources';
-import { RULE_KIND_LABELS, describeRule, type AlertRule, type AlertRuleKind } from './rules';
+import {
+  RULE_KIND_LABELS,
+  SUBJECT_SHAPE,
+  describeRule,
+  describeSubject,
+  parsePoolSubject,
+  type AlertRule,
+  type AlertRuleKind,
+} from './rules';
 
 /** A fact that was read, or the reason there is no fact. Never both, never neither. */
 export type SourceReading<T> =
@@ -112,13 +120,38 @@ export interface ChangeFact {
   staleDetail?: string | null;
 }
 
+/**
+ * One swap on one pool, as GeckoTerminal's recent-trades feed reported it.
+ *
+ * `usd` is nullable and is NEVER coerced to zero on the way here: a trade whose
+ * USD size the feed did not publish is a trade of unknown size, and counting it
+ * as $0 would silently exclude it from every threshold while looking like a
+ * comparison that ran. It is excluded explicitly instead, and counted out loud.
+ */
+export interface PoolSwapFact {
+  txHash: string;
+  /** Unix seconds, from the block timestamp the feed published. */
+  at: number;
+  usd: number | null;
+  kind: 'buy' | 'sell';
+  wallet: string | null;
+}
+
 export type RuleFacts =
   | { kind: 'whale-move'; transfers: WhaleTransfer[] }
   | { kind: 'lp-unlock'; unlocks: LpUnlockFact[] }
   | { kind: 'launch-live'; launches: LaunchFact[] }
   | { kind: 'heat-tier'; change: ChangeFact }
   | { kind: 'deployer-reputation'; change: ChangeFact }
-  | { kind: 'loan-deadline'; loans: LoanDeadlineFact[] };
+  | { kind: 'loan-deadline'; loans: LoanDeadlineFact[] }
+  | {
+      kind: 'pool-price-above' | 'pool-price-below';
+      /** Never null: a reader with no price returns `unavailable` instead. */
+      priceUsd: number;
+      /** GeckoTerminal's own name for the pool, when it gave one. */
+      poolName: string | null;
+    }
+  | { kind: 'pool-large-trade'; trades: PoolSwapFact[] };
 
 export interface AlertEvent {
   /**
@@ -134,6 +167,15 @@ export interface AlertEvent {
   provenance: string;
   /** Unix seconds the source says the fact is as-of. */
   observedAt: number;
+  /**
+   * Whether `observedAt` is the SOURCE'S own as-of time or merely when we read.
+   *
+   * Absent means `source`, which is what every original kind carries. The pool
+   * QUOTE kinds carry `read`, because GeckoTerminal publishes no as-of time for a
+   * quote: labelling our fetch clock "as of" would attribute a timestamp to the
+   * source that the source never gave, and a stale quote would read as a fresh one.
+   */
+  observedAtKind?: 'source' | 'read';
   /** The on-chain anchor, when the source gave one. Null when it did not. */
   anchor: { chain: string; ref: string } | null;
 }
@@ -168,15 +210,70 @@ export interface EvaluateResult {
   nextPrior: PriorSnapshot | null;
 }
 
-const NO_BASELINE_DETAIL =
+export const NO_BASELINE_DETAIL =
   'This is the first reading for this rule, so there is nothing to compare it against. The baseline is recorded — a change can only be reported once a second reading exists.';
 
-function chainForKind(kind: AlertRuleKind): string {
-  return kind === 'heat-tier' ? 'multi' : 'ethereum';
+/**
+ * The chain an event's anchor belongs to, taken from the RULE rather than from
+ * the kind.
+ *
+ * The previous shape (`chainForKind`) answered "ethereum" for everything that was
+ * not Heat, which was true while every subject was an EVM address. A pool rule on
+ * Base or Solana anchored to `ethereum` would send a reader to an explorer where
+ * the transaction does not exist — a wrong link is worse than no link, because it
+ * reads as a fact that failed to load.
+ */
+function chainForRule(rule: AlertRule): string {
+  if (SUBJECT_SHAPE[rule.kind] === 'pool') {
+    return parsePoolSubject(rule.subject)?.network ?? 'multi';
+  }
+  return rule.kind === 'heat-tier' ? 'multi' : 'ethereum';
 }
 
 function shortAddr(a: string): string {
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+/** Money as a user reads it, not as a float prints it. */
+function usd(value: number): string {
+  const digits = Math.abs(value) >= 1 ? 2 : 8;
+  return `$${value.toLocaleString(undefined, { maximumFractionDigits: digits })}`;
+}
+
+function whenRead(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleString();
+}
+
+/**
+ * Advance the large-swap watermark, or refuse to.
+ *
+ * Two rules, both about not skipping a swap:
+ *   - An EMPTY feed never advances an existing watermark. Nothing was seen, so
+ *     nothing may be marked as past; advancing to the read clock would silently
+ *     step over any trade the feed had not yet published.
+ *   - A watermark at the SAME second unions its hashes rather than replacing
+ *     them, so a second swap arriving in an already-marked block does not erase
+ *     the memory of the first and let it fire again.
+ */
+function nextTradeWatermark(
+  prior: PriorSnapshot | null,
+  trades: readonly PoolSwapFact[],
+  readAt: number,
+): PriorSnapshot {
+  if (trades.length === 0) return prior ?? { signature: '', label: '', at: readAt };
+
+  let newest = trades[0]!.at;
+  for (const t of trades) if (t.at > newest) newest = t.at;
+  const hashesAtNewest = trades.filter((t) => t.at === newest).map((t) => t.txHash);
+
+  if (!prior || newest > prior.at) {
+    return { signature: hashesAtNewest.join(','), label: '', at: newest };
+  }
+  if (newest === prior.at) {
+    const merged = new Set([...(prior.signature ? prior.signature.split(',') : []), ...hashesAtNewest]);
+    return { signature: [...merged].join(','), label: '', at: newest };
+  }
+  return prior;
 }
 
 /**
@@ -248,7 +345,7 @@ export function evaluateRule(
         body: `A transfer worth $${Math.round(t.valueUsd).toLocaleString()} settled in block ${t.blockNumber}.`,
         provenance,
         observedAt: t.at,
-        anchor: { chain: chainForKind(rule.kind), ref: t.txHash },
+        anchor: { chain: chainForRule(rule), ref: t.txHash },
       }));
       return {
         evaluation: {
@@ -273,7 +370,7 @@ export function evaluateRule(
         body: `A lock held by ${shortAddr(u.locker)} reached its unlock time. This reports the lock reaching its time, not what the holder does next.`,
         provenance,
         observedAt: u.unlockAt,
-        anchor: u.txHash ? { chain: chainForKind(rule.kind), ref: u.txHash } : null,
+        anchor: u.txHash ? { chain: chainForRule(rule), ref: u.txHash } : null,
       }));
       return {
         evaluation: {
@@ -300,7 +397,7 @@ export function evaluateRule(
           : 'A pool for this token appeared in the market-wide new-pool feed.',
         provenance,
         observedAt: l.launchedAt,
-        anchor: l.pool ? { chain: chainForKind(rule.kind), ref: l.pool } : null,
+        anchor: l.pool ? { chain: chainForRule(rule), ref: l.pool } : null,
       }));
       return {
         evaluation: {
@@ -327,7 +424,7 @@ export function evaluateRule(
         body: l.consequence,
         provenance,
         observedAt: reading.observedAt,
-        anchor: { chain: chainForKind(rule.kind), ref: l.contract },
+        anchor: { chain: chainForRule(rule), ref: l.contract },
       }));
       return {
         evaluation: {
@@ -341,6 +438,114 @@ export function evaluateRule(
               : `This wallet has no open borrow on ${shortAddr(rule.subject)}.`,
         },
         nextPrior: null,
+      };
+    }
+
+    // ── pool price crossings ───────────────────────────────────────────────
+    //
+    // A LEVEL is not an event; a CROSSING is. Firing on "the price is above X"
+    // would notify once a minute forever while the price sat there, so the prior
+    // reading's SIDE is the state and the rule fires only on the transition into
+    // the side it names. With no prior there is no transition and no way to know
+    // whether one happened before we looked — `cannot-evaluate`, never `quiet`.
+    case 'pool-price-above':
+    case 'pool-price-below': {
+      const threshold = rule.threshold ?? 0;
+      const wanted: 'above' | 'below' = facts.kind === 'pool-price-above' ? 'above' : 'below';
+      // ONE comparison for both directions, so the two kinds cannot disagree
+      // about what happens exactly at the threshold.
+      const side: 'above' | 'below' = facts.priceUsd >= threshold ? 'above' : 'below';
+      const label = usd(facts.priceUsd);
+      const snapshot: PriorSnapshot = { signature: side, label, at: reading.observedAt };
+      const poolName = facts.poolName ?? describeSubject(rule);
+
+      if (!prior) {
+        return {
+          evaluation: { ...base, verdict: 'cannot-evaluate', events: [], detail: NO_BASELINE_DETAIL },
+          nextPrior: snapshot,
+        };
+      }
+      if (prior.signature === wanted || side !== wanted) {
+        return {
+          evaluation: {
+            ...base,
+            verdict: 'quiet',
+            events: [],
+            detail: `The quote for this pool is ${label} and did not cross ${wanted} ${usd(threshold)} between the last reading and this one.`,
+          },
+          nextPrior: snapshot,
+        };
+      }
+      const event: AlertEvent = {
+        idempotencyKey: `${rule.kind}:${rule.id}:${prior.at}->${reading.observedAt}`,
+        ruleId: rule.id,
+        kind: rule.kind,
+        title: `${RULE_KIND_LABELS[rule.kind]} ${usd(threshold)} — ${poolName}`,
+        body: `Quote ${prior.label} → ${label}, read at ${whenRead(reading.observedAt)}; GeckoTerminal publishes no as-of time for this quote, and it is a quote rather than a fill you could get.`,
+        provenance,
+        observedAt: reading.observedAt,
+        observedAtKind: 'read',
+        anchor: null,
+      };
+      return {
+        evaluation: {
+          ...base,
+          verdict: 'fired',
+          events: [event],
+          detail: `The quote crossed ${wanted} ${usd(threshold)} between two readings: ${prior.label} → ${label}.`,
+        },
+        nextPrior: snapshot,
+      };
+    }
+
+    // ── large swaps on a pool ──────────────────────────────────────────────
+    //
+    // The prior slot is used as a WATERMARK rather than as a comparable value:
+    // the newest trade time already seen, plus the hashes that shared that exact
+    // second. Time alone is not enough — two swaps land in the same block — and
+    // hashes alone would grow without bound.
+    case 'pool-large-trade': {
+      const threshold = rule.threshold ?? 0;
+      const trades = facts.trades;
+      const watermark = nextTradeWatermark(prior, trades, reading.observedAt);
+
+      if (!prior) {
+        return {
+          evaluation: { ...base, verdict: 'cannot-evaluate', events: [], detail: NO_BASELINE_DETAIL },
+          nextPrior: watermark,
+        };
+      }
+
+      const seen = new Set(prior.signature ? prior.signature.split(',') : []);
+      const fresh = trades.filter((t) => t.at > prior.at || (t.at === prior.at && !seen.has(t.txHash)));
+      const unsized = fresh.filter((t) => t.usd === null).length;
+      const hits = fresh.filter((t): t is PoolSwapFact & { usd: number } => t.usd !== null && t.usd >= threshold);
+      const poolLabel = describeSubject(rule);
+
+      const events: AlertEvent[] = hits.map((t) => ({
+        idempotencyKey: `pool-large-trade:${rule.id}:${t.txHash}`,
+        ruleId: rule.id,
+        kind: rule.kind,
+        title: `Large swap — ${poolLabel}`,
+        body: `A ${t.kind} worth ${usd(t.usd)} landed in this pool. It is a swap on the pool, not a token movement, and only the trades GeckoTerminal returned were looked at.`,
+        provenance,
+        observedAt: t.at,
+        anchor: { chain: chainForRule(rule), ref: t.txHash },
+      }));
+
+      const unsizedNote = unsized
+        ? ` ${unsized} trade${unsized === 1 ? '' : 's'} carried no USD size and could not be measured against the threshold.`
+        : '';
+      return {
+        evaluation: {
+          ...base,
+          verdict: events.length ? 'fired' : 'quiet',
+          events,
+          detail: events.length
+            ? `${events.length} swap${events.length === 1 ? '' : 's'} of at least ${usd(threshold)} since the last reading.${unsizedNote}`
+            : `No swap of at least ${usd(threshold)} landed in the ${trades.length} most recent trade${trades.length === 1 ? '' : 's'} GeckoTerminal returned for this pool since the last reading.${unsizedNote}`,
+        },
+        nextPrior: watermark,
       };
     }
 

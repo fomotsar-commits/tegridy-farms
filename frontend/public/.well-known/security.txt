@@ -1,16 +1,26 @@
-# Tegridy Farms — security disclosure policy (RFC 9116)
-# https://memetic.fun
+# memetics.finance — security disclosure policy (RFC 9116)
+# https://memetics.finance
 
 Contact: mailto:fomotsar@gmail.com
 Expires: 2027-07-12T00:00:00.000Z
 Preferred-Languages: en
+# BOTH served origins are declared. RFC 9116 §3 says a Canonical URI that does not
+# match where the file was actually fetched from is grounds to distrust the whole
+# file, and this listed only memetic.fun while the app's own SITE_URL
+# (frontend/src/lib/constants.ts) is memetics.finance — so a strict parser fetching
+# the canonical origin could reject the policy it came from.
+Canonical: https://memetics.finance/.well-known/security.txt
 Canonical: https://memetic.fun/.well-known/security.txt
 
 # ── In scope ──────────────────────────────────────────────────────────────
 #   - TOWELI token: 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D (Ethereum mainnet)
-#   - Tegridy Farms smart contracts (the verified/GitHub source is authoritative)
-#   - The dapp at https://memetic.fun and its serverless API, also served at
-#     https://memetics.finance and https://tegridyfarms.vercel.app
+#   - memetics.finance smart contracts (the verified/GitHub source is authoritative)
+#   - The dapp at https://memetics.finance and its serverless API, also served at
+#     https://memetic.fun
+# Nothing else is in scope. The tegridyfarms.vercel.app deploy alias was listed here
+# and is not: this document cannot promise safe harbour on a hostname under a domain
+# the project does not own, and a researcher following it could have tested someone
+# else's deployment.
 #
 # ── How to report ─────────────────────────────────────────────────────────
 # Please report vulnerabilities PRIVATELY to the contact above BEFORE any public
@@ -22,4 +32,3 @@ Canonical: https://memetic.fun/.well-known/security.txt
 #   https://securityalliance.org/our-work/seal-911   (responders NEVER need your keys)
 #
 # No paid bug-bounty program is live yet. If/when one launches it will be linked here.
-# TODO(owner): consider a dedicated `security@` alias + a PGP key (Encryption: line).

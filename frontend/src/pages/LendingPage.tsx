@@ -315,7 +315,8 @@ export default function LendingPage() {
               aria-controls={`nft-finance-panel-${key}`}
               tabIndex={tabKeys.tabIndex(key)}
               ref={tabKeys.ref(key)}
-              className={`relative px-3 py-2 md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap snap-start flex-shrink-0 ${
+              /* A11Y-R07: same ~32px tab strip as /community; /swap's is 44px. */
+              className={`relative px-3 py-2 min-h-[44px] md:px-5 md:py-2.5 rounded-xl text-xs md:text-sm font-medium transition-all duration-300 whitespace-nowrap snap-start flex-shrink-0 ${
                 section === key
                   ? 'text-white'
                   : 'text-white/70 hover:text-white hover:bg-white/5'

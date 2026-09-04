@@ -258,10 +258,16 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
         // let the dust rule below force fee=1 and underflow `received - fee` (Panic 0x11), and
         // at tiny deltas the dust fee blows past the caller's feeBpsMax bound. Fail closed with
         // a typed revert; this also makes the dust rule provably harmless (received >= 1).
+        // SLITHER 2026-08-30: fail-closed sentinel (AUDIT FIX 2026-08-25) — a zero delta reverts,
+        // which also makes the dust rule below provably harmless (received >= 1)
+        // slither-disable-next-line incorrect-equality
         if (received == 0) revert ZeroAmount();
 
         // Skim fee in the input token (dust rule mirrors SwapFeeRouter).
         uint256 fee = (received * feeBps) / BPS;
+        // SLITHER 2026-08-30: rounded-to-zero dust sentinel (mirrors SwapFeeRouter); fee=1 cannot
+        // underflow because received >= 1 is enforced above
+        // slither-disable-next-line incorrect-equality
         if (fee == 0 && feeBps > 0) fee = 1;
         uint256 net = received - fee;
         if (fee > 0) {
@@ -274,6 +280,9 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
 
         // Scoped approval (exact net) → execute → reset to 0 (INVARIANT-1).
         IERC20(tokenIn).forceApprove(spender, net);
+        // SLITHER 2026-08-30: deliberate FoT-safe balance-delta accounting; nonReentrant entrypoint,
+        // allowlisted target, SameToken guard — re-entry is exercised by the rewritten guard test
+        // slither-disable-next-line reentrancy-balance
         _execSwap(target, 0, swapData);
         IERC20(tokenIn).forceApprove(spender, 0);
         if (IERC20(tokenIn).allowance(address(this), spender) != 0) revert ResidualAllowance();
@@ -314,6 +323,9 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
 
         uint256 outBefore = _selfBalance(tokenOut);
         // Native input: forward `net` as value to the allowlisted target. No approval/spender.
+        // SLITHER 2026-08-30: deliberate FoT-safe balance-delta accounting; nonReentrant entrypoint
+        // + allowlisted target — same accepted shape as swapERC20 above
+        // slither-disable-next-line reentrancy-balance
         _execSwap(target, net, swapData);
 
         amountOut = _selfBalance(tokenOut) - outBefore;
@@ -367,6 +379,9 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
     /// @dev Forward output to the recipient. ETH uses WETHFallbackLib (handles non-receiving
     ///      contracts); ERC20 uses SafeERC20.
     function _payout(address tokenOut, address to, uint256 amountOut) internal {
+        // SLITHER 2026-08-30: == 0 on a uint has no near-miss band; both call sites enforce
+        // minOut first and the early return moves nothing
+        // slither-disable-next-line incorrect-equality
         if (amountOut == 0) return;
         if (tokenOut == ETH) {
             WETHFallbackLib.safeTransferETHOrWrap(WETH, to, amountOut);
@@ -390,6 +405,9 @@ contract TegridyFeeExecutorRouter is OwnableNoRenounce, ReentrancyGuard, Pausabl
         uint256 treasuryAmount = amount - stakerAmount - polAmount;
 
         if (stakerAmount > 0) {
+            // SLITHER 2026-08-30: verbatim SwapFeeRouter split — nonReentrant, accumulator zeroed
+            // pre-call (CEI), 50k-gas-capped pushes; deferral credits are pull-only (C4 / M-4)
+            // slither-disable-next-line reentrancy-eth
             (bool okStaker,) = revenueDistributor.call{value: stakerAmount, gas: 50_000}("");
             if (!okStaker) {
                 pendingDistribution[revenueDistributor] += stakerAmount;

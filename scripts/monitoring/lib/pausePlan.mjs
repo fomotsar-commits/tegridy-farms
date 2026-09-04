@@ -375,6 +375,68 @@ export function summarise(linkage, plan) {
  * broken" and "we could not look" demand different responses, and collapsing
  * them would let an outage read as an incident or, far worse, the reverse.
  */
+/**
+ * AUDIT FIX TF-037 — is this eth_call return a whole number of 32-byte words?
+ *
+ * `arbLinkage.word()` has always checked this; the pause consumer's own decoder
+ * did not, and its `call()` guard rejected only the exact string '0x'. So a
+ * SHORT return (1-63 hex chars) was sliced to fewer than 64 characters and
+ * `BigInt` decoded it into a valid but WRONG number. Those words become
+ * authorized-caller addresses and pause targets, so a wrong decode is a wrong
+ * verdict about who can halt the protocol, printed as confidently as a right one.
+ *
+ * Lives here, not in the consumer, so `node --test` actually covers it.
+ */
+export function isWordAligned(hex) {
+  return typeof hex === 'string' && /^0x([0-9a-fA-F]{64})+$/.test(hex);
+}
+
+/** Decode word `i`, or null when it is not fully present. Never a wrong number. */
+export function decodeWordAt(hex, i) {
+  if (!hex) return null;
+  const slice = hex.slice(2 + i * 64, 2 + (i + 1) * 64);
+  if (slice.length !== 64) return null;
+  return BigInt(`0x${slice}`);
+}
+
+/**
+ * AUDIT FIX TF-005 — the GITHUB_OUTPUT block for a consumer that CRASHED.
+ *
+ * The consumer's `--probe` mode used to exit 0 having written nothing at all
+ * when `main()` threw. `steps.probe.outputs.arb_status` was then the empty
+ * string, the incident step's `if:` evaluated false, and the job went green:
+ * a crash in the watcher silently BLINDED the watch rather than reporting it.
+ *
+ * A crash establishes exactly as much about the linkage as an unreadable chain
+ * does — nothing — so it renders as the same ERROR/blind shape a failed read
+ * produces, and the incident opens either way.
+ *
+ * Pure, so the crash path is provable without spawning a process or a chain.
+ */
+export function renderCrashOutput(err, { delimiter } = {}) {
+  const delim = delimiter || `EOF_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  const message = String((err && err.message) || err || 'unknown error');
+  // Same heredoc-delimiter defence renderGithubOutput applies. A crash message
+  // can carry RPC-supplied text, and a line equal to the delimiter would close
+  // the value early and let the remainder parse as further outputs.
+  const body = String((err && err.stack) || message)
+    .split('\n')
+    .map((line) => (line.trim() === delim ? '[redacted: heredoc delimiter in crash text]' : line))
+    .join('\n');
+
+  return [
+    'arb_status=ERROR',
+    'arb_blind=true',
+    `arb_summary=pause consumer CRASHED before it could establish the linkage: ${message.replace(/[\r\n]+/g, ' ')}`,
+    // Constant on purpose: every crash folds into ONE incident issue rather
+    // than opening a fresh one every 15 minutes for as long as it keeps failing.
+    'arb_fingerprint=consumer-crash',
+    `arb_report<<${delim}`,
+    body,
+    delim,
+  ].join('\n');
+}
+
 export function renderGithubOutput(linkage, plan, { delimiter } = {}) {
   const delim = delimiter || `EOF_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
   const body = renderPlan(linkage, plan)

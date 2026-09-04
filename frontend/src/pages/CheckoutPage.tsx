@@ -5,10 +5,11 @@ import { PageArtBackdrop } from '../components/PageArtBackdrop';
 import { CheckoutWidget } from '../components/commerce/CheckoutWidget';
 import { InvoiceBuilder } from '../components/commerce/InvoiceBuilder';
 import { SubscriptionPanel } from '../components/commerce/SubscriptionPanel';
+import { usePaymentLink } from '../hooks/usePaymentLink';
 
-// CHECKOUT — pay an invoice, publish one, or set up recurring billing.
+// CHECKOUT — pay an invoice, sign one, or set up recurring billing.
 //
-// Three refusals hold this page together, all of them enforced in lib/commerce
+// Four refusals hold this page together, all of them enforced in lib/commerce
 // rather than here:
 //
 //   1. The buyer sees the exact amount and the exact settlement asset before a
@@ -25,11 +26,27 @@ import { SubscriptionPanel } from '../components/commerce/SubscriptionPanel';
 //      every charge is either payer-signed or merchant-pulled, and
 //      subscription.ts makes the panel say which — a subscription that silently
 //      never renews is worse than none.
+//   4. An invoice a stranger handed you is not believed until its merchant
+//      signature verifies in THIS browser — paymentLink.ts — and `verified`,
+//      `forged` and `unverifiable` are three different answers with three
+//      different sentences.
 //
-// The invoice store lives behind a migration an operator applies by hand, so
-// until `021_commerce.sql` is run every lookup answers 503 `schema-missing` and
-// the widget prints that with the operator step attached — deliberately NOT "no
-// such invoice", which would tell a buyer their merchant's link is fake.
+// ─── TWO LINK SHAPES, AND THE PAGE NEVER PICKS BETWEEN THEM ─────────────────
+//
+//   #i=<payload>   the signed document. Self-contained: no server, no database,
+//                  no migration, no account. The fragment is never sent to any
+//                  server (RFC 3986 §3.5), so the invoice exists only in the two
+//                  browsers that hold the link.
+//   ?invoice=<id>  the short form. Needs `021_commerce.sql` applied by hand plus
+//                  Supabase env, so until an operator runs it every lookup
+//                  answers 503 `schema-missing` and the widget prints that with
+//                  the operator step attached — deliberately NOT "no such
+//                  invoice", which would tell a buyer their merchant's link is
+//                  fake.
+//
+// A URL carrying BOTH names two different invoices. Silently preferring one is
+// how a buyer reads figures from document A and pays the merchant on document B,
+// so the page refuses and offers no pay controls at all.
 
 type Tab = 'pay' | 'sell' | 'subscriptions';
 
@@ -47,11 +64,14 @@ export default function CheckoutPage() {
       'Non-custodial: both legs are signed in your own wallet.',
   );
 
-  const { search } = useLocation();
+  const { search, hash } = useLocation();
   const invoiceId = new URLSearchParams(search).get('invoice');
+  const link = usePaymentLink(hash);
+
+  const bothPresent = invoiceId !== null && link.status !== 'none';
   // A link with an invoice on it opens on Pay; a merchant arriving cold does not
   // land on a form asking them to pay themselves.
-  const [tab, setTab] = useState<Tab>(invoiceId ? 'pay' : 'sell');
+  const [tab, setTab] = useState<Tab>(invoiceId !== null || link.status !== 'none' ? 'pay' : 'sell');
 
   return (
     <div className="relative">
@@ -60,10 +80,11 @@ export default function CheckoutPage() {
         <header>
           <h1 className="text-2xl font-bold text-white">Checkout</h1>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/75">
-            A merchant names an exact amount of an exact asset. A buyer pays in whatever they hold, sees the
-            exact figure on both sides before signing, and sends the merchant's amount straight to the
-            merchant. Nothing on this venue holds, forwards or escrows any of it, and no server here holds a
-            key.
+            A merchant signs an exact amount of an exact asset with their own wallet, and the link they hand out
+            IS that signed invoice. A buyer's browser verifies the signature, re-reads the token on chain, shows
+            the exact figure on both sides before signing, and sends the merchant's amount straight to the
+            merchant. Nothing on this venue holds, forwards or escrows any of it, no server here holds a key,
+            and no database has to exist for any of it to work.
           </p>
         </header>
 
@@ -74,7 +95,7 @@ export default function CheckoutPage() {
               type="button"
               onClick={() => setTab(t.id)}
               aria-current={tab === t.id ? 'page' : undefined}
-              className={`rounded-full px-4 py-1.5 text-[13px] ${
+              className={`min-h-11 rounded-full px-4 py-1.5 text-[13px] ${
                 tab === t.id ? 'bg-white/15 text-white' : 'bg-white/[0.04] text-white/70'
               }`}
             >
@@ -84,7 +105,24 @@ export default function CheckoutPage() {
         </nav>
 
         <div className="mt-6">
-          {tab === 'pay' ? <CheckoutWidget invoiceId={invoiceId} /> : null}
+          {tab === 'pay' ? (
+            bothPresent ? (
+              <section className="rounded-xl border border-white/15 bg-white/[0.02] p-4">
+                <h2 className="text-sm font-semibold text-white">This link names two invoices</h2>
+                <p className="mt-2 text-[13px] leading-relaxed text-white/75">
+                  The address bar carries a signed invoice (<code className="text-white/85">#i=…</code>) and a
+                  short-link id (<code className="text-white/85">?invoice=…</code>) at the same time. Those are
+                  two different documents and this page will not choose between them. Open one or the other.
+                </p>
+                <p className="mt-2 text-[12px] leading-relaxed text-white/60">
+                  Nothing is offered to pay here, because reading the figures from one document and paying
+                  against the other is exactly the mistake a checkout must not make on your behalf.
+                </p>
+              </section>
+            ) : (
+              <CheckoutWidget invoiceId={invoiceId} link={link} />
+            )
+          ) : null}
           {tab === 'sell' ? <InvoiceBuilder /> : null}
           {tab === 'subscriptions' ? <SubscriptionPanel /> : null}
         </div>

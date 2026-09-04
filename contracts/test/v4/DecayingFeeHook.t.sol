@@ -89,6 +89,72 @@ contract DecayingFeeHookTest is Test, Deployers {
         manager.initialize(unconfigured, SQRT_PRICE_1_1);
     }
 
+    // ─── AUDIT TF-016: only the launch may open the pool ──────────────
+    //
+    // `PoolManager.initialize` is permissionless and the configured key is
+    // public — it is `configurePool`'s own calldata, and `ScheduleConfigured`
+    // announces the poolId. So between configure and launch a stranger could
+    // call `initialize` first. `_afterInitialize` took `sender` and ignored it,
+    // which handed that stranger BOTH the decay clock and the opening price.
+    //
+    // These pin the economic outcome, not the revert selector: the anti-snipe
+    // window must still be in front of the first real buyer.
+
+    /// @dev A configured-but-uninitialized pool at a hook `owner` controls.
+    ///      Mined against `owner` so it lands at a different address than the
+    ///      hook `setUp` already initialized.
+    function _freshConfiguredPool(address owner_)
+        internal
+        returns (DecayingFeeHook h, PoolKey memory k)
+    {
+        h = _mineAndDeployHook(owner_);
+        k = PoolKey(currency0, currency1, LPFeeLibrary.DYNAMIC_FEE_FLAG, int24(60), IHooks(address(h)));
+        vm.prank(owner_);
+        h.configurePool(k, START_FEE, BASELINE_FEE, DECAY);
+    }
+
+    function test_AStrangerCannotStartTheDecayClock() public {
+        (DecayingFeeHook h, PoolKey memory k) = _freshConfiguredPool(stranger);
+
+        vm.prank(address(this)); // anyone who is not the owner
+        vm.expectRevert();
+        manager.initialize(k, SQRT_PRICE_1_1);
+
+        // The clock must not have started. This is the load-bearing assertion:
+        // a revert that still stamped startedAt would be no defence at all.
+        (,,,,,, uint64 startedAt,,) = h.decaySchedule(k);
+        assertEq(startedAt, 0, "a rejected initialize must not start the schedule");
+    }
+
+    function test_TheOwnerCanStillOpenItsOwnPool() public {
+        // Non-vacuity: the gate must not have bricked the launch it protects.
+        (DecayingFeeHook h, PoolKey memory k) = _freshConfiguredPool(stranger);
+        vm.prank(stranger);
+        manager.initialize(k, SQRT_PRICE_1_1);
+        (,,,,,, uint64 startedAt,,) = h.decaySchedule(k);
+        assertEq(startedAt, uint64(block.timestamp), "the owner's initialize must start the clock");
+    }
+
+    function test_AntiSnipeSurvivesAStrangerFrontRunningTheLaunch() public {
+        (DecayingFeeHook h, PoolKey memory k) = _freshConfiguredPool(stranger);
+
+        // The sniper front-runs the launch and tries to burn the decay window.
+        vm.prank(address(this));
+        try manager.initialize(k, SQRT_PRICE_1_1) {} catch {}
+
+        // Time passes — the whole decay window, in fact. Pre-fix, the clock was
+        // already running, so by now the fee would have reached BASELINE and the
+        // sniper would buy the launch at 0.30% instead of 99%.
+        skip(DECAY + 1);
+
+        // The real launch opens the pool.
+        vm.prank(stranger);
+        manager.initialize(k, SQRT_PRICE_1_1);
+
+        (,, uint24 quotedFeePips,,,,,,) = h.decaySchedule(k);
+        assertEq(quotedFeePips, START_FEE, "the first buyer must still meet the full anti-snipe fee");
+    }
+
     // ─── Configuration ────────────────────────────────────────────────
 
     function test_ConfigureRejectsStaticFeeKey() public {

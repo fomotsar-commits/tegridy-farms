@@ -30,7 +30,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     // launch seed; the ETH swap-fee share is deployed but has distributed 0 ETH
     // until the native pool is seeded. Don't claim "real yield" in present tense.
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
-    answer: "Tegridy Farms is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
+    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed; the ETH swap-fee share is deployed on-chain and kicks in when the native pool goes live. Supply's fixed — no printer.",
   },
   {
     keywords: ['supply', 'total', 'circulating', 'mint'],
@@ -56,7 +56,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Staking ──────────────────────────────────────────────────
   {
     keywords: ['stake', 'staking', 'farm'],
-    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. Tegridy demands it.",
+    answer: "Go to /farm, type how much TOWELI to lock, pick a duration (longer = bigger boost), hit Stake. The island demands it.",
     priority: 2,
   },
   {
@@ -363,7 +363,7 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     keywords: ['tegridy', 'score'],
-    answer: "Tegridy Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
+    answer: "Venue Score measures commitment: stake size, lock length, NFT boost, vote activity. Higher = better perks.",
   },
 
   // ── Misc ────────────────────────────────────────────────────

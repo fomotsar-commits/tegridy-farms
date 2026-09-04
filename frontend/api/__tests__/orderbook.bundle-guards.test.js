@@ -171,6 +171,41 @@ describe("orderbook create-bundle — order-shape pin", () => {
     expect(c.json.error).toMatch(/zoneHash/i);
   });
 
+  // AUDIT TF-021. Seaport interpolates every consideration item linearly from
+  // startAmount to endAmount across [startTime, endTime]. This orderbook derives
+  // the price it DISPLAYS and STORES from startAmount alone, so a hand-crafted
+  // order listing at 0.01 and ending at 100 would show "0.01" and charge the
+  // curve. One price field means one price.
+  it("rejects a consideration whose price decays (startAmount != endAmount)", async () => {
+    const c = await postBundle(handler, bundleParams([1, 2], {
+      consideration: [{
+        itemType: 0, token: ZERO_ADDR, identifierOrCriteria: "0",
+        startAmount: "10000000000000000",      // lists as 0.01 ETH
+        endAmount: "100000000000000000000",    // actually charges up to 100 ETH
+        recipient: SELLER,
+      }],
+    }));
+    expect(c.status).toBe(400);
+    expect(c.json.error).toMatch(/fixed price/i);
+  });
+
+  it("rejects an offer whose quantity decays", async () => {
+    const c = await postBundle(handler, bundleParams([1, 2], {
+      offer: [
+        { itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" },
+        { itemType: 2, token: NAKAMIGOS, identifierOrCriteria: "2", startAmount: "1", endAmount: "5" },
+      ],
+    }));
+    expect(c.status).toBe(400);
+    expect(c.json.error).toMatch(/fixed quantity/i);
+  });
+
+  it("still accepts an ordinary fixed-price listing", async () => {
+    // Non-vacuity: the guard must not have closed the normal path.
+    const c = await postBundle(handler, bundleParams([1, 2]));
+    expect(c.status).not.toBe(400);
+  });
+
   it("rejects a non-canonical conduitKey", async () => {
     const c = await postBundle(handler, bundleParams([1, 2], { conduitKey: "0x" + "1".repeat(64) }));
     expect(c.status).toBe(400);

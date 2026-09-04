@@ -5,8 +5,13 @@ import { test, expect, type Page } from '@playwright/test';
 // lib/arrival.test.ts pins the RESOLVER (which voice a given URL + storage
 // resolves to). This file pins what a visitor actually SEES, which is the
 // claim the wave is really making and the one no unit test can prove: the
-// front door speaks as MEMETICS.FINANCE, and the whole classic Tegridy Farms
+// front door speaks as MEMETICS.FINANCE, and the whole classic TOWELI
 // experience is still there, whole, behind /toweli.
+//
+// UPDATED 2026-08-31 (owner call, commit 17fe6fcc): the classic identity was
+// RETIRED, not relocated. The room behind /toweli keeps its hero, its art and
+// Towelie as a character — but the brand word is gone from every rendered
+// surface, that room included. The assertions below pin exactly that.
 //
 // Deliberately fixture-free, exactly like bungalow-doors.spec.ts: the wallet
 // fixture pins `tegridy-bungalow` to toweli, which would silently put every
@@ -51,7 +56,7 @@ test.describe('arrival voice', () => {
     await expect(page.locator('text=Ask me')).toHaveCount(0);
   });
 
-  test('/toweli still holds the whole classic Tegridy Farms experience', async ({ page }) => {
+  test('/toweli still holds the whole classic TOWELI experience', async ({ page }) => {
     await seedOverlays(page);
     await page.goto('/toweli');
 
@@ -61,7 +66,15 @@ test.describe('arrival voice', () => {
     expect(await page.evaluate(() => localStorage.getItem('tegridy-bungalow'))).toBe('toweli');
     // The venue hero is the thing that got replaced here.
     await expect(page.locator('h1:has-text("Held time counts here.")')).toHaveCount(0);
-    // The classic wordmark and copyright come back with it.
-    await expect(page.getByText('© 2026 Tegridy Farms')).toBeVisible();
+
+    // OWNER CALL 2026-08-31 (commit 17fe6fcc): this assertion used to require
+    // "© 2026 Tegridy Farms" here, because the wave doc RELOCATED the classic
+    // identity behind /toweli. The owner retired the name instead — "the toweli
+    // room first (wordmark, footer, ...)" — which reverses §0 of that doc. So
+    // the room is now proved by what it actually keeps (the TOWELI hero, above)
+    // and the brand word must be gone even in here. Towelie survives as a
+    // CHARACTER; only the brand word went.
+    await expect(page.getByText('© 2026 memetics.finance')).toBeVisible();
+    await expect(page.getByText('Tegridy Farms')).toHaveCount(0);
   });
 });

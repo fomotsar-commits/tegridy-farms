@@ -10,6 +10,8 @@ process.env.ALLOWED_ORIGIN = "https://test.invalid";
 // Rate-limiter pass-through
 vi.mock("../_lib/ratelimit.js", () => ({
   checkRateLimit: vi.fn(async () => true),
+  // AUDIT FIX TF-019: global circuit-breaker, mirroring alchemy/etherscan.
+  checkGlobalLimit: vi.fn(async () => true),
 }));
 
 const fetchMock = vi.fn();

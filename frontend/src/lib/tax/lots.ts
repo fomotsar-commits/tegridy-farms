@@ -37,6 +37,36 @@
 
 import type { CostBasisMethod } from './methods';
 
+/**
+ * WHERE A FIGURE CAME FROM — carried onto every export row.
+ *
+ * A number in a tax file is only as good as its provenance, and these are not
+ * interchangeable: `settle-leg` is the other half of the same transaction (an
+ * exact fact), `supplied` is the filer's own record (unverified by anything),
+ * and the two priced sources reserved for the valuation follow-up are
+ * approximations that must say so. A row with no source string has no
+ * defensible figure and is excluded from the totals — see `IncompleteReason`.
+ *
+ * Declared in this file rather than in events.ts because the event interfaces
+ * that carry it live here; events.ts re-exports it so adapters have one import.
+ */
+export type ValueSource =
+  /** The ETH counter-leg of the same transaction, read from the explorer. */
+  | 'settle-leg'
+  /** The WETH counter-leg — 1:1 with ETH by deposit()/withdraw(), not by market. */
+  | 'settle-leg-weth'
+  /** Typed in by the filer through lib/tax/import.ts. Nothing checked it. */
+  | 'supplied'
+  /** A price sheet the filer pasted (valuation follow-up). */
+  | 'filer-sheet'
+  /** A Chainlink feed round at or before the trade (valuation follow-up). */
+  | 'chainlink-round'
+  /** A pool's daily close (valuation follow-up) — a day, not the fill. */
+  | 'gt-daily-close';
+
+/** Whether the wallet itself sent the transaction the event was read from. */
+export type EventInitiator = 'self' | 'third-party';
+
 export interface AcquisitionEvent {
   kind: 'acquire';
   /** Stable per-event id. `spec-id` nominations point at these. */
@@ -49,6 +79,10 @@ export interface AcquisitionEvent {
   decimals: number;
   /** Total cost of the whole lot, in the report's quote currency. Null when unrecorded. */
   costBasis: bigint | null;
+  /** Where `costBasis` came from. Absent exactly when it is null. */
+  costSource?: ValueSource;
+  /** Whether the wallet sent the transaction this was read from. */
+  initiator?: EventInitiator;
   /** Unix seconds. */
   timestamp: number;
   txHash: string;
@@ -63,6 +97,10 @@ export interface DisposalEvent {
   decimals: number;
   /** Total proceeds, in the report's quote currency. Null when unrecorded. */
   proceeds: bigint | null;
+  /** Where `proceeds` came from. Absent exactly when it is null. */
+  proceedsSource?: ValueSource;
+  /** Whether the wallet sent the transaction this was read from. */
+  initiator?: EventInitiator;
   timestamp: number;
   txHash: string;
   /**
@@ -104,6 +142,8 @@ export interface ConsumedLot {
   quantity: bigint;
   /** Apportioned share of the lot's cost, or null when the lot had none. */
   costBasis: bigint | null;
+  /** Where that cost came from. Carried so the export can print it per row. */
+  costSource?: ValueSource;
 }
 
 export interface MatchedDisposal {
@@ -126,6 +166,19 @@ export interface MatchedDisposal {
   heldDays: number | null;
   /** Empty when the row is fully priced. */
   incompleteReasons: IncompleteReason[];
+  /** Provenance of `proceeds`, verbatim onto the export. */
+  proceedsSource?: ValueSource;
+  /**
+   * Provenance of `costBasis`.
+   *
+   * Present only when EVERY consumed lot agrees. A disposal matched against a
+   * pasted lot and an explorer-priced lot has a basis with two provenances, and
+   * printing either one of them would be a claim about the other — so the
+   * column is left empty and the lots_consumed count is the reader's cue.
+   */
+  costBasisSource?: ValueSource;
+  /** Whether the wallet sent the disposing transaction. */
+  initiator?: EventInitiator;
 }
 
 export interface LotTotals {
@@ -172,6 +225,7 @@ interface OpenLot {
   /** Original lot size — the denominator for apportioning cost. */
   original: bigint;
   costBasis: bigint | null;
+  costSource?: ValueSource;
   acquiredAt: number;
 }
 
@@ -267,6 +321,7 @@ export function matchLots(input: TaxLotInput): TaxLotResult {
         remaining: ev.quantity,
         original: ev.quantity,
         costBasis: ev.costBasis,
+        costSource: ev.costSource,
         acquiredAt: ev.timestamp,
       });
       openByAsset.set(ev.asset, list);
@@ -294,7 +349,13 @@ export function matchLots(input: TaxLotInput): TaxLotResult {
         share = take === lot.original ? lot.costBasis : (lot.costBasis * take) / lot.original;
       }
 
-      consumed.push({ lotId: lot.id, acquiredAt: lot.acquiredAt, quantity: take, costBasis: share });
+      consumed.push({
+        lotId: lot.id,
+        acquiredAt: lot.acquiredAt,
+        quantity: take,
+        costBasis: share,
+        costSource: share === null ? undefined : lot.costSource,
+      });
       lot.remaining -= take;
       remaining -= take;
     }
@@ -312,6 +373,11 @@ export function matchLots(input: TaxLotInput): TaxLotResult {
 
     const earliest = consumed.length > 0 ? Math.min(...consumed.map((c) => c.acquiredAt)) : null;
 
+    // One provenance or none — see MatchedDisposal.costBasisSource.
+    const sources = new Set(consumed.map((c) => c.costSource));
+    const costBasisSource =
+      costBasis !== null && sources.size === 1 ? [...sources][0] : undefined;
+
     disposals.push({
       disposalId: ev.id,
       asset: ev.asset,
@@ -327,6 +393,9 @@ export function matchLots(input: TaxLotInput): TaxLotResult {
       gain,
       heldDays: earliest === null ? null : Math.max(0, Math.floor((ev.timestamp - earliest) / DAY)),
       incompleteReasons: [...reasons],
+      proceedsSource: ev.proceeds === null ? undefined : ev.proceedsSource,
+      costBasisSource,
+      initiator: ev.initiator,
     });
 
     // Drop exhausted lots so `pickLot` stays linear in what is actually open.

@@ -494,7 +494,7 @@ export default function AdminPage() {
             <PendingDeployCard name="Premium Access" />
           )}
           <ContractCard
-            name="Tegridy Staking"
+            name="Venue Staking"
             address={TEGRIDY_STAKING_ADDRESS}
             explorerBaseUrl={explorerBaseUrl}
             items={stakingItems}

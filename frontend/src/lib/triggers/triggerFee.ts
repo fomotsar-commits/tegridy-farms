@@ -112,6 +112,6 @@ export function triggerFeeDisclosure(path: TriggerPath): TriggerFeeDisclosure {
   return {
     label: 'Venue fee on execution',
     value: formatBpsPct(fee.bps),
-    note: `Taken by Tegridy from the proceeds when — and only when — this order fills. An order that never triggers costs nothing. ${THIRD_PARTY_NOTE}`,
+    note: `Taken by the venue from the proceeds when — and only when — this order fills. An order that never triggers costs nothing. ${THIRD_PARTY_NOTE}`,
   };
 }

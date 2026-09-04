@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import { useSolanaConnect } from '../solana/useSolanaConnect';
 import { SolanaProviders } from '../solana/SolanaProviders';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
 import { bungalowTradeRoute, bungalowExplorerUrl, bungalowScanRoute } from '../../lib/bungalows';
@@ -82,7 +82,7 @@ function fmtRaw(raw: bigint | null, decimals: number): string {
 function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
   const { connection } = useConnection();
   const { publicKey, disconnect } = useWallet();
-  const { setVisible } = useWalletModal();
+  const openConnect = useSolanaConnect();
 
   // Balance read, keyed by wallet: `loading` is DERIVED (result key ≠ current
   // wallet key), so the effect never sets state synchronously
@@ -230,7 +230,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     a separate signature you make on the {' '}
                     <Link to="/farm" className="underline underline-offset-2 hover:text-white">pool page</Link>.
                   </p>
-                  <button type="button" onClick={() => setVisible(true)} className="btn-primary px-5 py-2.5 text-[13px] mt-auto self-start">
+                  <button type="button" onClick={openConnect} className="btn-primary px-5 py-2.5 text-[13px] mt-auto self-start">
                     Connect Solana Wallet
                   </button>
                 </>

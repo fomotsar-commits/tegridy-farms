@@ -1,83 +1,122 @@
 import { useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePageTitle } from '../../hooks/usePageTitle';
-import { useChartCandles } from '../../hooks/useChartCandles';
-import { useTerminalFeed } from '../../hooks/useTerminalFeed';
-import { resolvePairTokens, type PairTokenResolution } from '../../lib/chart/pairTokens';
-import type { PairPricing } from '../../lib/chart/pairSwaps';
-import { TIMEFRAME_IDS, TIMEFRAMES, DEFAULT_TIMEFRAME, type TimeframeId } from '../../lib/chart/timeframes';
-import { shortenAddress } from '../../lib/formatting';
+import { useGeckoCandles } from '../../hooks/useGeckoCandles';
+import { isIndexerConfigured } from '../../lib/indexer/client';
+import { chartPoolUrl } from '../../lib/chart/market';
+import { resolveChartParams } from '../../lib/chart/chartParams';
+import {
+  NETWORK_LABELS,
+  chartableMarkets,
+  marketKey,
+  type ChartableMarket,
+} from '../../lib/chart/markets';
+import { GECKO_TIMEFRAMES, GECKO_TIMEFRAME_IDS, type GeckoTimeframeId } from '../../lib/chart/ohlcv';
+import { GECKO_NETWORKS } from '../../lib/geckoTerminal/pools';
+import { ETH_ADDRESS_RE, SOL_ADDRESS_RE } from '../../lib/scanner/scanner';
 import { PageArtBackdrop } from '../PageArtBackdrop';
+import { ArtCard } from '../ui/ArtCard';
 import { CandleChart } from './CandleChart';
 import { ChartStatus } from './ChartStatus';
+import { IndexedVenueChart } from './IndexedVenueChart';
 
-// PRO CHARTING (#47) — candles for venue pools, built from indexed swaps.
+// PRO CHARTING — candles for the island's pools, read from GeckoTerminal.
 //
-// The pool list and the candles come from the SAME indexer (lib/indexer/client.ts),
-// so both halves of this page are gated by one environment variable and both say
-// so in their own words. That is deliberate: a pool picker that worked while the
-// chart did not would invite the reading that the pools are real and only the
-// prices are missing, when in fact neither was read.
+// WHAT CHANGED AND WHY. This page used to read the F1 indexer for BOTH halves —
+// the pool list and the candles — and that indexer is hosted nowhere, so the
+// whole surface was two "could not read" banners under a heading. Meanwhile the
+// same app has been drawing GeckoTerminal candles in production on every
+// bungalow page for weeks (components/bungalow/BungalowMarket.tsx). The fix was
+// not to build anything: it was to point this page at the rail the rest of the
+// venue already trusts, and to keep the gap-honest renderer that was already
+// here and already tested.
 //
-// NO KEEPER, NO STREAM. This page reads one page of swaps when it mounts and
-// when the reader asks again. Nothing refreshes it in the background, and it
-// never claims to be live — the coverage lines state the indexer's own sync
-// position instead of a "last updated" that would tick on its own.
+// The pool list is a REGISTRY READ (lib/chart/markets.ts): TOWELI's own pool
+// plus every island resident carrying a `market`. Nothing here is discovered at
+// runtime, so the picker is fully rendered even when GeckoTerminal cannot be
+// reached — and that degraded page is the fully labelled page, not a stub.
+//
+// NO KEEPER, NO STREAM. One read per (pool, timeframe), cached 60 s, and the
+// as-of printed anywhere is the SOURCE's own newest bucket rather than a clock
+// this page ticks. Nothing refreshes on its own and the footer says so.
+//
+// The indexer is not gone: it is a SECOND source (IndexedVenueChart) that
+// self-enables when VITE_INDEXER_URL lands, because it is the only path that can
+// carry trade counts, within-block ordering, and venue pairs GeckoTerminal has
+// never indexed.
 
 /**
- * Placeholder pricing for the render passes where no pool is resolved.
+ * Is this base-token address safe to hand to the in-venue scanner?
  *
- * The hook is called unconditionally (rules of hooks) but is `enabled: false`
- * in exactly those passes, so these numbers never reach a division. They exist
- * so the disabled path cannot be reached with a half-built pricing object.
+ * The address arrives in GeckoTerminal's `meta` block — third-party data — and
+ * it is about to be interpolated into a route. It is matched against the SAME
+ * strict regexes the scanner itself validates with (lib/scanner/scanner.ts), on
+ * the network the market says it is on, before it becomes a link. Anything else
+ * renders no link at all: an unusable link into a scan page is worse than none,
+ * and an unvalidated one is a hole.
  */
-const NO_PRICING: PairPricing = { base: 'token0', token0Decimals: 18, token1Decimals: 18 };
+function scanHrefFor(market: ChartableMarket, baseAddress: string | null): string | null {
+  if (!baseAddress) return null;
+  const addr = baseAddress.trim();
+  if (market.network === 'solana') {
+    return SOL_ADDRESS_RE.test(addr) ? `/scan?token=${encodeURIComponent(addr)}` : null;
+  }
+  if (!ETH_ADDRESS_RE.test(addr)) return null;
+  // ScannerPage reads `?chain=base` and defaults to Ethereum without it
+  // (ScannerPage.tsx). A 0x address is format-ambiguous between the two chains,
+  // so omitting it on a Base pool would scan a different token of the same name.
+  return market.network === 'base'
+    ? `/scan?token=${encodeURIComponent(addr)}&chain=base`
+    : `/scan?token=${encodeURIComponent(addr)}`;
+}
 
 export default function ChartPage() {
   usePageTitle(
     'Pro Charting',
-    'Candlestick charts for venue pools, drawn from indexed swaps — with every empty bucket shown as a gap rather than filled in with a price that never traded.',
+    "Candlestick charts for the island's pools, read from GeckoTerminal's own OHLCV feed — with every bucket the source did not return drawn as a gap rather than filled in with a price that never traded.",
   );
 
-  const feed = useTerminalFeed();
-  const [selectedPair, setSelectedPair] = useState<string | null>(null);
-  const [timeframe, setTimeframe] = useState<TimeframeId>(DEFAULT_TIMEFRAME);
+  const [params, setParams] = useSearchParams();
 
-  // Memoised so the empty-array fallback is not a new identity on every render,
-  // which would re-run every downstream memo including the one that resolves the
-  // pair's tokens.
-  const rows = useMemo(() => feed.feed?.rows ?? [], [feed.feed]);
-  const activeRow = useMemo(
-    () => rows.find((r) => r.pair.toLowerCase() === (selectedPair ?? '').toLowerCase()) ?? rows[0] ?? null,
-    [rows, selectedPair],
+  // Resolved ONCE, from the URL as it arrived. Re-resolving on every render
+  // would re-raise a refusal the reader has already read past, and writing the
+  // corrected values back into the URL inside a render is a loop.
+  const [initial] = useState(() =>
+    resolveChartParams({
+      network: params.get('network'),
+      pool: params.get('pool'),
+      tf: params.get('tf'),
+    }),
   );
 
-  const resolution: PairTokenResolution | null = useMemo(
-    () => (activeRow ? resolvePairTokens(activeRow.token0, activeRow.token1) : null),
-    [activeRow],
-  );
+  const markets = useMemo(() => chartableMarkets(), []);
+  const [market, setMarket] = useState<ChartableMarket | null>(initial.market);
+  const [timeframe, setTimeframe] = useState<GeckoTimeframeId>(initial.timeframe);
 
-  const pricing = resolution?.ok ? resolution.pricing : NO_PRICING;
+  const candles = useGeckoCandles({ market, timeframe });
 
-  const chart = useChartCandles({
-    pair: resolution?.ok ? activeRow!.pair : null,
-    pricing,
-    timeframe,
-    enabled: resolution?.ok === true,
-  });
+  // Selection rides the URL so a chart is a link someone can send. `replace` so
+  // switching timeframes does not fill the reader's Back button with steps.
+  const commit = (next: ChartableMarket | null, tf: GeckoTimeframeId) => {
+    if (!next) return;
+    setParams({ network: next.network, pool: next.pool, tf }, { replace: true });
+  };
 
-  const feedAnswered = feed.status === 'ready' || feed.status === 'backfilling';
+  const selectMarket = (next: ChartableMarket) => {
+    setMarket(next);
+    commit(next, timeframe);
+  };
 
-  // Why nothing was asked, in the caller's words. The chart hook parks in `idle`
-  // whenever there is no resolved pool, and `idle` on its own is indistinguishable
-  // from "the reader has not picked one yet" — which in this build is never the
-  // reason. The reason is one level up, so it is stated one level up.
-  const idleReason = !feedAnswered
-    ? 'No pool could be read, so no candles were requested. The pool list above says why — and neither statement is about whether this venue trades.'
-    : rows.length === 0
-      ? 'The indexer listed no allowlisted pool, so there is nothing to chart.'
-      : resolution && !resolution.ok
-        ? resolution.reason
-        : null;
+  const selectTimeframe = (tf: GeckoTimeframeId) => {
+    setTimeframe(tf);
+    commit(market, tf);
+  };
+
+  const activeKey = market ? marketKey(market.network, market.pool) : null;
+  const pairHeading = market
+    ? `${candles.baseSymbol ?? market.label} / ${candles.quoteSymbol ?? 'quote token (unnamed upstream)'}`
+    : 'No pool selected';
+  const scanHref = market ? scanHrefFor(market, candles.baseAddress) : null;
 
   return (
     <div className="relative min-h-screen">
@@ -87,106 +126,180 @@ export default function ChartPage() {
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-white sm:text-3xl">Pro Charting</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/70">
-            Candles for venue pools, derived from the swaps the indexer recorded. A bucket where
-            nothing traded is drawn as a gap: this chart will never draw a candle for a price that
-            was not paid.
+            Candles for the island's pools, read from GeckoTerminal's own OHLCV feed and drawn by
+            this venue. A bucket the source did not return is drawn as a gap: this chart will never
+            draw a candle for a price that was not paid.
           </p>
         </header>
 
-        <section className="mb-5" aria-label="Pool">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">Pool</h2>
-          {feedAnswered ? (
-            rows.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {rows.map((row) => {
-                  const active = activeRow?.pair === row.pair;
-                  const resolved = resolvePairTokens(row.token0, row.token1);
-                  return (
-                    <button
-                      key={row.pair}
-                      type="button"
-                      onClick={() => setSelectedPair(row.pair)}
-                      aria-pressed={active}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-                        active
-                          ? 'border-white/40 bg-white/15 text-white'
-                          : 'border-white/15 bg-white/[0.04] text-white/70 hover:bg-white/10'
-                      }`}
-                    >
-                      {resolved.ok
-                        ? `${resolved.base.symbol} / ${resolved.quote.symbol}`
-                        : shortenAddress(row.pair)}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="rounded-lg border border-white/15 bg-white/[0.03] px-4 py-3 text-xs text-white/75">
-                The indexer answered and listed no allowlisted pool, so there is nothing to chart.
-              </p>
-            )
-          ) : (
-            <p className="rounded-lg border border-amber-400/40 bg-amber-400/[0.07] px-4 py-3 text-xs leading-relaxed text-white/80">
-              {feed.detail ??
-                'The pool list could not be read, so no pool can be offered. This says nothing about which pools exist.'}
-            </p>
-          )}
-        </section>
-
-        {resolution && !resolution.ok ? (
-          <p className="mb-5 rounded-lg border border-amber-400/40 bg-amber-400/[0.07] px-4 py-3 text-xs leading-relaxed text-white/80">
-            {resolution.reason}
-          </p>
+        {initial.refusals.length > 0 ? (
+          <ul className="mb-5 space-y-2" aria-label="Link refusals">
+            {initial.refusals.map((refusal) => (
+              <li
+                key={refusal.param}
+                className="rounded-lg border border-amber-400/40 bg-amber-400/[0.07] px-4 py-3 text-xs leading-relaxed text-white/80"
+              >
+                {refusal.message}
+              </li>
+            ))}
+          </ul>
         ) : null}
+
+        <ArtCard pageId="chart" idx={1} className="mb-5">
+          <section aria-label="Pool">
+            <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-white/50">Pool</h2>
+            <p className="mb-3 max-w-2xl text-xs leading-relaxed text-white/60">
+              Every pool the island's own registry names — this venue's token and each resident's
+              primary pair. The list is a fact this page can read without asking anyone, so it is
+              complete here even when the price source is not answering.
+            </p>
+
+            {markets.length === 0 ? (
+              <p className="rounded-lg border border-white/15 bg-white/[0.03] px-4 py-3 text-xs text-white/75">
+                The registry names no pool, so there is nothing to chart. That is a statement about
+                this list, not about which pools exist.
+              </p>
+            ) : (
+              GECKO_NETWORKS.map((network) => {
+                const group = markets.filter((m) => m.network === network);
+                if (group.length === 0) return null;
+                return (
+                  <div key={network} className="mb-3 last:mb-0">
+                    <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/40">
+                      {NETWORK_LABELS[network]}
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {group.map((m) => {
+                        const key = marketKey(m.network, m.pool);
+                        const active = key === activeKey;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => selectMarket(m)}
+                            aria-pressed={active}
+                            className={`min-h-[44px] rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                              active
+                                ? 'border-white/40 bg-white/15 text-white'
+                                : 'border-white/15 bg-white/[0.04] text-white/70 hover:bg-white/10'
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </section>
+        </ArtCard>
 
         <section aria-label="Chart">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="mr-auto text-xs font-semibold uppercase tracking-wider text-white/50">
-              {resolution?.ok ? `${resolution.base.symbol} / ${resolution.quote.symbol}` : 'Candles'}
+              {pairHeading}
             </h2>
-            {TIMEFRAME_IDS.map((id) => (
+            {GECKO_TIMEFRAME_IDS.map((id) => (
               <button
                 key={id}
                 type="button"
-                onClick={() => setTimeframe(id)}
+                onClick={() => selectTimeframe(id)}
                 aria-pressed={timeframe === id}
-                className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                className={`min-h-[44px] rounded-md border px-3 py-1 text-[11px] font-medium transition-colors ${
                   timeframe === id
                     ? 'border-white/40 bg-white/15 text-white'
                     : 'border-white/15 bg-white/[0.04] text-white/65 hover:bg-white/10'
                 }`}
               >
-                {TIMEFRAMES[id].label}
+                {GECKO_TIMEFRAMES[id].label}
               </button>
             ))}
           </div>
 
-          {chart.status === 'ready' && chart.series && resolution?.ok ? (
+          {/* Mounted ONLY with something to draw. A zero-candle series renders as
+              a bare axis, which reads as a market that traded nothing — the
+              banner below says what actually happened instead. */}
+          {candles.status === 'ready' && candles.series && candles.series.candleCount > 0 && market ? (
             <div className="mb-3 rounded-xl border border-white/12 bg-black/25 p-3">
               <CandleChart
-                series={chart.series}
-                baseSymbol={resolution.base.symbol}
-                quoteSymbol={resolution.quote.symbol}
+                series={candles.series}
+                baseSymbol={candles.baseSymbol ?? market.label}
+                quoteSymbol={candles.quoteSymbol ?? 'quote token (unnamed upstream)'}
+                newestMayBeOpen
               />
             </div>
           ) : null}
 
-          <ChartStatus
-            status={chart.status}
-            detail={chart.status === 'idle' ? idleReason : chart.detail}
-            series={chart.series}
-            swapsRead={chart.swapsRead}
-            unpriceable={chart.unpriceable}
-            truncated={chart.truncated}
-            syncedAt={chart.syncedAt}
-            onRetry={chart.reload}
-          />
+          {market ? (
+            <ChartStatus
+              source="gecko"
+              state={candles}
+              market={market}
+              timeframeLabel={GECKO_TIMEFRAMES[timeframe].label}
+            />
+          ) : (
+            <div className="rounded-xl border border-white/20 bg-white/[0.03] px-4 py-3" role="status">
+              <h2 className="text-sm font-semibold text-white">No pool to chart</h2>
+              <p className="mt-1.5 text-xs leading-relaxed text-white/80">
+                No pool is selected, so nothing was asked of any source.
+              </p>
+            </div>
+          )}
         </section>
 
+        <ArtCard pageId="chart" idx={2} className="mt-6">
+          <section aria-label="Sources">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/50">
+              Sources
+            </h2>
+            <ul className="space-y-2 text-xs leading-relaxed text-white/75">
+              <li>
+                Candles: GeckoTerminal per-bucket OHLC for this pool, read by this venue — not
+                computed or oracled by it.
+              </li>
+              {!isIndexerConfigured() ? (
+                <li>
+                  Indexed swaps: not configured on this deployment. Trade counts and per-swap
+                  ordering come only from that source; GeckoTerminal candles above do not carry
+                  them.
+                </li>
+              ) : null}
+            </ul>
+
+            {market ? (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <a
+                  href={chartPoolUrl(market)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-[44px] items-center rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/85 hover:bg-white/10"
+                >
+                  Pool page ↗
+                </a>
+                {scanHref ? (
+                  <Link
+                    to={scanHref}
+                    className="inline-flex min-h-[44px] items-center rounded-lg border border-white/20 px-3 py-1.5 text-xs font-medium text-white/85 hover:bg-white/10"
+                  >
+                    Scan this token
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        </ArtCard>
+
+        {/* The indexed source, kept mounted and self-enabling. It renders only
+            where an indexer resolves; otherwise the Sources card above is the
+            one place its absence is stated, rather than a second failed panel. */}
+        {isIndexerConfigured() ? <IndexedVenueChart /> : null}
+
         <p className="mt-6 text-[11px] leading-relaxed text-white/45">
-          Prices are computed per swap from the pool's own amount legs — quote received divided by
-          base sent — and are not read from any oracle or aggregator. Nothing on this page refreshes
-          on its own; there is no keeper and no stream behind it.
+          Prices are GeckoTerminal's per-bucket OHLC for this pool; this venue reads them, it does
+          not compute or oracle them. Nothing on this page refreshes on its own; there is no keeper
+          and no stream behind it.
         </p>
       </div>
     </div>

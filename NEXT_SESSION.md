@@ -2,6 +2,10 @@
 
 **This file is no longer the handoff. Do not follow it. Retired 2026-08-19.**
 
+> Since 2026-08-21 the single canonical to-do list is
+> [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md). The table below still resolves, but that
+> file is the one to open first. *(Pointer added 2026-09-04.)*
+
 Everything below the line used to be a session-13 handoff written 2026-04-18. It was
 left in place for four months while the repo moved, and by August it had stopped being
 merely stale and become dangerous: its "immediate priorities" walked the operator through
@@ -20,7 +24,8 @@ fossilised at session 13).
 
 | You want | Read |
 |---|---|
-| The ordered list of things only the operator can do | [`docs/OPERATOR_NEXT.md`](docs/OPERATOR_NEXT.md) |
+| **The single canonical to-do list — start here** | [`docs/TODO_OPERATOR.md`](docs/TODO_OPERATOR.md) |
+| The ordered list of things only the operator can do | [`docs/OPERATOR_NEXT.md`](docs/OPERATOR_NEXT.md) (older; TODO_OPERATOR supersedes it where they disagree) |
 | The same list ranked by unlock-per-minute | [`docs/WHAT_I_NEED_FROM_YOU.md`](docs/WHAT_I_NEED_FROM_YOU.md) |
 | What to build next, per item, with preconditions | [`docs/BATTLE_PLAN.md`](docs/BATTLE_PLAN.md) |
 | The 12-month plan and its quarter gates | [`docs/YEAR_PLAN_2026_2027.md`](docs/YEAR_PLAN_2026_2027.md) |

@@ -265,3 +265,30 @@ export const UNISWAP_BUY_URL = `https://app.uniswap.org/swap?outputCurrency=${TO
 export const UNISWAP_ADD_LIQUIDITY_URL = `https://app.uniswap.org/add/v2/ETH/${TOWELI_ADDRESS}`;
 export const GECKOTERMINAL_URL = `https://www.geckoterminal.com/eth/pools/${TOWELI_WETH_LP_ADDRESS}`;
 export const GECKOTERMINAL_EMBED = `https://www.geckoterminal.com/eth/pools/${TOWELI_WETH_LP_ADDRESS}?embed=1&info=0&swaps=0&light_chart=0`;
+
+// The repository a skeptic is sent to for evidence. ONE constant, because the
+// pages that link it kept inventing their own branch: /contracts already pointed
+// at `mvp-launch` (the branch this site actually ships from) while /security and
+// /risks still linked `main`, which is 1,048 commits behind it and serves a
+// genuinely different audit ledger. An evidence link that resolves to a snapshot
+// the project abandoned is worse than no link, because it looks checkable.
+export const GITHUB_REPO_URL = 'https://github.com/fomotsar-commits/tegridy-farms';
+/** The branch the deployed site is built from — not the repo's `main`. */
+export const GITHUB_BRANCH = 'mvp-launch';
+/** File links: `${GITHUB_BLOB_BASE}/<path>`. */
+export const GITHUB_BLOB_BASE = `${GITHUB_REPO_URL}/blob/${GITHUB_BRANCH}`;
+/** Directory / anchor links: `${GITHUB_TREE_BASE}#security`. */
+export const GITHUB_TREE_BASE = `${GITHUB_REPO_URL}/tree/${GITHUB_BRANCH}`;
+
+// The venue's community channels. Previously declared TWICE — once in
+// components/layout/Footer.tsx and once in pages/HomePage.tsx, whose comment
+// claimed "keep one source so Home and Footer can't drift" while being the
+// second copy. One list now, so a handle change is one edit and cannot half-land.
+export const SOCIAL_LINKS: readonly { href: string; label: string }[] = [
+  { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
+  { href: 'https://discord.gg/junglebay', label: 'Discord' },
+  // ⚠ OPERATOR: this handle is the RETIRED brand's. It is left in place rather
+  // than guessed at because only the operator can say whether the channel moved
+  // or should be dropped; when the answer lands, this is the single line to edit.
+  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
+];

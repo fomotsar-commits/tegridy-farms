@@ -62,6 +62,65 @@ regexTarget = "match"
 # ⚠ What this DOES cost, stated plainly: a genuine 20-byte-hex secret would now
 # be exempt, and so are SHA-1 hashes. If a credential format like that ever
 # enters this repo, this entry must be reconsidered.
+#
+# \ SOLANA, added 2026-09-03 \\\\\\\\\\\\\\\\\\\\\\\\@
+#
+# Same false positive, second chain. Seven findings on one PR, every one a public
+# Solana mint or pool id sitting in a test fixture — the SOY and BOBO pump.fun
+# mints and a sender pubkey, all three of which ALREADY live on trunk in
+# lib/bungalows.ts, lib/bungalows.test.ts and hooks/usePoolTrades.test.ts. They
+# had never been flagged only because a PR scan walks the PR's own commit range;
+# re-stating a long-public address in a new file made the same constant "new".
+#
+# These are listed as EXACT ids, deliberately, and NOT as a base58 shape rule.
+# A base58 class rule of the form {32,44} was written first and then withdrawn,
+# because the length argument that justifies the 40-hex entry above does NOT
+# carry over to base58. The reasoning that failed, recorded so it is not
+# re-derived by the next person who sees seven public mints red a branch:
+#
+#   The claim was "a Solana public key is 32 bytes -> 32..44 base58 chars, a
+#   secret key is 64 bytes -> 87..88, the ranges do not overlap, so the
+#   exemption cannot reach a key." The premise is false. 87..88 chars is the
+#   EXPANDED 64-byte keypair. The 32-byte Ed25519 SEED is by itself a complete,
+#   sufficient private key — it is what solana-keygen recovers from and what
+#   wallets export — and 32 bytes of base58 is 43..44 chars. That is exactly
+#   the width of a public key. Length cannot separate a Solana secret from a
+#   Solana pubkey, because on this curve they are the same number of bytes.
+#
+# Measured against gitleaks 8.24.3 by planting synthetic credentials and
+# scanning with the shape rule present vs absent. Of six planted seeds the
+# default ruleset flagged five; the shape rule flagged none. It suppressed:
+#   32-byte Ed25519 seed in base58 (a usable private key)   every instance
+#   SendGrid SG.<22>.<43>, tail segment base58-clean         ~1.6% of keys
+#   AWS secret access key, 40 chars, base58-clean            ~2% of keys
+#   any bare 32..44 base58 credential carrying no prefix
+# The dot- and hyphen-delimited cases are the ones a prefix argument misses:
+# underscore is a word character, so ghp_ and sk_live_ really are unreachable,
+# but "." and "-" are not, so each segment of a multi-part token gets its own
+# word boundary and becomes a candidate by itself. That is how a dedicated,
+# high-confidence rule (sendgrid-api-token) ended up silenced by a shape rule
+# aimed at an entropy heuristic: this allowlist is global and applies to EVERY
+# rule, not only to the one that motivated it.
+#
+# So this stays a closed list of exact strings. Each was verified present on
+# origin/mvp-launch before being added, and each is a public on-chain identifier
+# the app already prints in its own UI. An exact string cannot hide a second
+# value the way a shape can. The treadmill this costs — a future public id
+# trips the heuristic and reds the branch until it is listed here — is the
+# correct price, because the alternative measurably blinds the scanner to the
+# one secret format a Solana repo is most likely to leak. The better fix sits
+# upstream of this file: have the fixtures import these ids from
+# lib/bungalows.ts rather than restating them, so entries get DELETED not added.
 regexes = [
   '''(?i)\b0x[a-f0-9]{40}\b''',
+  # BOBO mint (bungalows.ts:336), also inside its jup.ag swap URL
+  '''\b4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump\b''',
+  # SOY mint (bungalows.ts:338)
+  '''\b8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump\b''',
+  # RIZZ mint (bungalows.ts:346)
+  '''\b5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k\b''',
+  # BOBO / SOL pool id (bungalows.ts:336)
+  '''\b31ZmTzEufRDBGKsJ7NicCkEKxtPQgAEMQvdbCuUfE6GX\b''',
+  # sender pubkey in the pool-trades fixture (usePoolTrades.test.ts:22)
+  '''\bDJFP3qJroFzcvZj3YowPmrNu6WoMo6njVB3dywTewua5\b''',
 ]
