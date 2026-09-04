@@ -58,7 +58,11 @@ import { test, expect } from './fixtures/wallet';
  * band (640-790), the new boundary (799/800), the iPad-gen-7 project width that
  * constrains how high the breakpoint may go (810), and true desktop.
  */
-const WIDTHS = [375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
+// 360 leads the list deliberately: it is a very common Android width, it was
+// NOT in the original sweep, and the row was silently 7px over there the whole
+// time - found only when a font change forced a re-measure. A sweep is only as
+// honest as its narrowest entry.
+const WIDTHS = [360, 375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
 
 test.describe('header stays reachable at every width', () => {
   // Own-viewport sweep: the device projects pin their own viewport and DPR, so
@@ -92,7 +96,8 @@ test.describe('header stays reachable at every width', () => {
       await expect(connect).toBeVisible();
 
       // WAIT FOR THE WEBFONTS BEFORE MEASURING. The wordmark is the widest item
-      // in this row, and its width depends on Playfair being loaded. Every face
+      // in this row, and its width depends on the display face (Archivo) being
+      // loaded. Every face
       // here is `font-display: swap` (public/fonts/fonts.css), so the row renders
       // once in a fallback metric and again in the real one. Measuring between
       // those two is how this test failed intermittently in a full parallel run

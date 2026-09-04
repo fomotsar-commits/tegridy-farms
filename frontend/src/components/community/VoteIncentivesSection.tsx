@@ -18,6 +18,7 @@ import { InfoTooltip, StepIndicator } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
+import { artImgProps } from '../../lib/artSrcSet';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -293,7 +294,7 @@ function OverviewStrip({ epoch, epochCount, feeBps }: { epoch: number; epochCoun
       {items.map(({ label, value, tip }, i) => (
         <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
           <div className="absolute inset-0">
-            <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+            <img src={STAT_ARTS[i % STAT_ARTS.length]!.src} {...artImgProps(STAT_ARTS[i % STAT_ARTS.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
           </div>
           <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.72)' }} />
           <div className="relative z-10 p-4">

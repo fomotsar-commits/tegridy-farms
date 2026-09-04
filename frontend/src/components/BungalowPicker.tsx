@@ -1,4 +1,5 @@
 import { Modal } from './ui/Modal';
+import { artSrcSet } from '../lib/artSrcSet';
 import { isToweliVoice } from '../lib/arrival';
 // The island's presentation ruling (which doors count as OPEN) lives in one
 // place — the hall — and the picker reads it so the two can never disagree.
@@ -120,8 +121,13 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
               }}
             >
               <div className="h-16 w-full overflow-hidden">
+                {/* RESPONSIVE, 2026-09-04 — same rails as VenueDoors, which
+                    renders the same thumbnails on the page behind this modal. */}
                 <img
                   src={b.thumb}
+                  {...(artSrcSet(b.thumb)
+                    ? { srcSet: artSrcSet(b.thumb), sizes: '(max-width: 640px) 50vw, 300px' }
+                    : {})}
                   alt=""
                   loading="lazy"
                   width={300}

@@ -6,6 +6,7 @@ import { pageArt } from '../../lib/artConfig';
 import { CHAIN_ID } from '../../lib/constants';
 import { PHASE_LABELS, LABEL } from './launchpadConstants';
 import { shortenAddress } from '../../lib/formatting';
+import { artImgProps } from '../../lib/artSrcSet';
 
 /** Return the block explorer address URL for the current chain */
 // eslint-disable-next-line react-refresh/only-export-components
@@ -37,7 +38,7 @@ export function ArtCard({
       style={{ border: '1px solid var(--color-purple-75)' }}
     >
       <div className="absolute inset-0">
-        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />
+        <img src={art.src} {...artImgProps(art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />
         <div className="absolute inset-0" style={{ background: overlay }} />
       </div>
       <div className="relative z-10 p-5">{children}</div>

@@ -1,4 +1,4 @@
-/* Self-hosted Google Fonts — Inter, JetBrains Mono, Playfair Display (latin + latin-ext) */
+/* Self-hosted Google Fonts — Inter, JetBrains Mono, Archivo (latin + latin-ext) */
 
 /* Inter — variable weight 400-700 */
 @font-face {
@@ -36,20 +36,34 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-/* Playfair Display — variable weight 400-900 */
+/* Archivo — variable weight 400-900.
+   Replaces Playfair Display as the display face (2026-09-04). Playfair is a
+   high-contrast didone: elegant, and reading as "luxury editorial" rather than
+   as this venue. Archivo is a grotesque with real mass at the top of its range,
+   which is what a headline needs to hold its own against the hand-painted art
+   behind it.
+   BYTES, BOTH WAYS, because one number alone would flatter this:
+     preloaded latin only   34,928 B vs Playfair's 38,404 B   -3,476 B
+     total shipped          67,536 B vs Playfair's 59,544 B   +7,992 B
+   The first is what a visitor actually downloads on a latin page; the second is
+   what the repo carries. Archivo's latin-ext subset is simply larger. Net: most
+   users pay slightly less, the deployment carries slightly more.
+   A width axis was fetched and rejected — the wdth+wght cut is 90,104 B, and
+   +52 KB for a condensed look applied in one place is not a trade worth making,
+   which is why "condensed" is the one part of the review's ask not taken. */
 @font-face {
-  font-family: 'Playfair Display';
+  font-family: 'Archivo';
   font-style: normal;
   font-weight: 400 900;
   font-display: swap;
-  src: url('/fonts/playfair-display-latin.woff2') format('woff2');
+  src: url('/fonts/archivo-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: 'Playfair Display';
+  font-family: 'Archivo';
   font-style: normal;
   font-weight: 400 900;
   font-display: swap;
-  src: url('/fonts/playfair-display-latin-ext.woff2') format('woff2');
+  src: url('/fonts/archivo-latin-ext.woff2') format('woff2');
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }

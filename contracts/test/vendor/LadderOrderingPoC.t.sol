@@ -214,8 +214,10 @@ contract LadderOrderingPoC is Test {
     function testFuzz_03_singleFundedNotify_orderingIsLatent(
         uint96 aliceAmt, uint96 bobAmt, uint96 reward, uint32 dur
     ) public {
-        aliceAmt = uint96(bound(aliceAmt, 1e15, 5_000e18));
-        bobAmt   = uint96(bound(bobAmt,   1e15, 5_000e18));
+        // Lower bound is the pool's own MIN_STAKE floor (2026-09-04 dust-
+        // divisor fix): below it a stake is inadmissible.
+        aliceAmt = uint96(bound(aliceAmt, pool.MIN_STAKE(), 5_000e18));
+        bobAmt   = uint96(bound(bobAmt,   pool.MIN_STAKE(), 5_000e18));
         reward   = uint96(bound(reward,   1e15, 500e18));
         dur      = uint32(bound(dur, 7 days, 90 days));
 

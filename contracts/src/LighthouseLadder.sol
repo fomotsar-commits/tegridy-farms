@@ -98,6 +98,49 @@ contract LighthouseLadder is ReentrancyGuard {
     uint256 public constant MIN_BOOST_BPS = 4_000;  // 0.4x at 7 days
     uint256 public constant MAX_BOOST_BPS = 40_000; // 4.0x at 4 years
     uint256 public constant BPS = 10_000;
+    /// @notice THE DUST FLOOR. TOWELI PARITY again, and carried for the same
+    ///         reason TegridyStaking has carried it since AUDIT FIX #33.
+    ///
+    ///         The arithmetic that forces it: `boosted = received * 4_000 /
+    ///         10_000`, so THREE WEI is the smallest stake with a NON-ZERO
+    ///         weight — it rounds to exactly 1 (one and two wei round to 0).
+    ///         `_totalBoosted` is this accumulator's DIVISOR, so with 1 in it
+    ///         `earned()` collapses to `dt * rewardRate` — the pool's WHOLE
+    ///         emission — against three wei of principal. There is no lock gate
+    ///         on claiming, so it is collectable every block via getReward(),
+    ///         and the three wei come back penalty-free after seven days.
+    ///
+    ///         Worse than the theft, it silently REPEALS THE EMPTY-POOL BURN.
+    ///         `rewardPerToken()` deliberately declines to convert an interval
+    ///         while nothing is staked, so those emissions stay in the contract
+    ///         as surplus for real stakers. A three-wei position is
+    ///         economically empty but takes the OTHER branch, and because it
+    ///         never has to close, `_totalBoosted` never returns to 0 and the
+    ///         burn never fires again for the life of the pool.
+    ///
+    ///         Nothing outside the code could have stopped it. This fork
+    ///         dropped Synthetix's setters, so there is no recoverERC20, no
+    ///         setRewardsDuration, no setRewardsDistribution and no pause;
+    ///         `notifyRewardAmount(0)` mid-period re-spreads the leftover over
+    ///         a fresh duration and EXTENDS periodFinish, which stretches the
+    ///         bleed rather than ending it. The floor had to be a constant.
+    ///
+    ///         WHAT THIS BUYS, AND WHAT IT DOES NOT. It makes a wei-scale
+    ///         position inadmissible, so the divisor is always a real quantity
+    ///         and "effectively empty" means what the burn branch says it
+    ///         means. It does NOT change the fact that a SOLE staker earns the
+    ///         whole emission — that is the Synthetix reward model, it is what
+    ///         bootstraps a pool, and the panel tells the first staker so in as
+    ///         many words. The defect was never "the only staker earns it all";
+    ///         it was "three wei is enough to be that staker".
+    uint256 public constant MIN_STAKE = 100e18;
+    /// @dev The same floor expressed in WEIGHT: MIN_STAKE on the 0.4x rung, the
+    ///      least weight any admissible position can carry. It is its own
+    ///      constant so that `stake()`'s floor and `rewardPerToken()`'s
+    ///      "effectively empty" test are derived from one number and cannot
+    ///      drift apart — the drift between them is precisely what the
+    ///      three-wei position exploited.
+    uint256 public constant MIN_BOOST = (MIN_STAKE * MIN_BOOST_BPS) / BPS;
     /// @notice Paid by anyone leaving before their lock ends. It stays in the
     ///         pool as reward budget — no treasury address, no external call,
     ///         nothing to misconfigure, and the people who kept their word are
@@ -218,11 +261,17 @@ contract LighthouseLadder is ReentrancyGuard {
 
     function rewardPerToken() public view returns (uint256) {
         // FORK HUNK 1/2: boosted weight is the divisor.
-        // SLITHER 2026-09-04: division-by-zero guard on the DIVISOR of the very next
-        // expression - the canonical Synthetix StakingRewards shape. Zero is the only
-        // value that must branch, so there is no tolerance to widen into.
-        // slither-disable-next-line incorrect-equality
-        if (_totalBoosted == 0) {
+        //
+        // The test is MIN_BOOST, not zero. Every admissible position carries at
+        // least MIN_BOOST of weight, so a live pool sits either at zero or at
+        // or above the floor: in normal operation this branch means exactly
+        // what it always meant, "nothing is staked". What the raised threshold
+        // adds is a backstop for a DESYNCHRONISED ledger, where `_close`'s
+        // deliberately floored decrements could otherwise leave a residue small
+        // enough to act as a dust divisor. Burning the interval there is the
+        // safe direction — it errs toward surplus, exactly as the empty-pool
+        // case does, instead of paying a residue the whole pool's emission.
+        if (_totalBoosted < MIN_BOOST) {
             return rewardPerTokenStored;
         }
         return
@@ -272,7 +321,11 @@ contract LighthouseLadder is ReentrancyGuard {
         uint256 before = stakingToken.balanceOf(address(this));
         stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         uint256 received = stakingToken.balanceOf(address(this)) - before;
-        require(received > 0, "Lighthouse: no tokens received");
+        // The floor is measured on what ARRIVED, never on what was asked for:
+        // `received` is what becomes principal and what `boosted` is computed
+        // from, so a fee-on-transfer token cannot be used to slip a position in
+        // under it. This subsumes the old `received > 0` check.
+        require(received >= MIN_STAKE, "Lighthouse: stake below minimum");
 
         uint256 boosted = (received * boostFor(duration)) / BPS;
         id = nextPositionId++;

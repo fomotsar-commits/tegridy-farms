@@ -77,9 +77,40 @@ describe('fromBaseUnits strips trailing zeros without a backtracking regex', () 
   // comes off the token, so a hostile mint declaring a large value chooses the
   // length of the string this walks.
   it('handles a pathological all-zeros fraction', () => {
-    // Under /0+$/ this is the quadratic case: one long run, no match to anchor.
+    // CORRECTED: the first of these is the FAST case, not the quadratic one. An
+    // all-zeros fraction lets `/0+$/` match at position 0 and run straight to the
+    // anchor, so it never backtracks. The quadratic shape is the SECOND line -
+    // zeros that do NOT reach the end - because `$` then rejects and the engine
+    // restarts at every zero in the run.
+    //
+    // Both survive either implementation at this size, which is the point of the
+    // case below: measured against the old regex, 5000 characters is only ~1e7
+    // steps and passes in milliseconds. These two pin OUTPUT on long input; they
+    // are not, and were never, evidence about complexity.
     expect(fromBaseUnits(`1${'0'.repeat(5000)}`, 5000)).toBe('1');
     expect(fromBaseUnits(`${'0'.repeat(5000)}1`, 5000)).toContain('.');
+  });
+
+  // A BEHAVIOURAL TEST *CAN* TELL THEM APART - IT JUST HAS TO BE BIG ENOUGH.
+  //
+  // The note at the top of this block says a behavioural test cannot separate the
+  // two implementations because their output is identical. That is true of output
+  // and false of cost, and cost is observable: past some length the quadratic one
+  // simply does not return. 5000 characters is far below that line; 200k is well
+  // over it.
+  //
+  // MEASURED, both directions, 2026-09-04 - restore `/0+$/` and this case times
+  // out at 5000ms (the engine ran ~21s before the runner gave up) while all the
+  // other cases in this file, including the pathological one above, still PASS.
+  // That is what makes this the discriminating test and them the output pins.
+  //
+  // Deliberately NO wall-clock assertion: a millisecond budget is the classic
+  // flake on a loaded runner. The guard is vitest's own 5s test timeout, and a
+  // linear scan of 200k characters is sub-millisecond even on a busy box.
+  it('returns at all on a 200k run of zeros that does not reach the end', () => {
+    const decimals = 200_000;
+    const raw = `1${'0'.repeat(decimals - 1)}7`;
+    expect(fromBaseUnits(raw, decimals)).toBe(`1.${'0'.repeat(decimals - 1)}7`);
   });
 
   it('still trims exactly as before on ordinary values', () => {

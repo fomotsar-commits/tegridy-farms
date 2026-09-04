@@ -233,12 +233,19 @@ export default async function handler(req, res) {
       if (truncated) {
         return res.status(502).json({ error: "Upstream response too large" });
       }
-      // INCIDENT 2026-09-04 (#385): this path had NO status check, so an
-      // upstream 401 came back to the caller as **HTTP 200** carrying a
-      // JSON-RPC error member. A client checking the status code read a
-      // rejected key as a successful call — the repo's most-repeated defect
-      // class, on a live path. The REST branch below has always checked
+      // INCIDENT 2026-09-04 (#385) / AUDIT API-M5: this path had NO status
+      // check, so an upstream 401 came back to the caller as **HTTP 200**
+      // carrying a JSON-RPC error member. A client checking the status code
+      // read a rejected key as a successful call — the repo's most-repeated
+      // defect class, on a live path. The REST branch below has always checked
       // `response.ok`; this one never did.
+      //
+      // MERGE NOTE (#386 + #387, both landed 2026-09-04): #386 added an opaque
+      // 502 guard here and #387 added this credential-aware one. Git stacked
+      // BOTH — two sequential `if (!rpcRes.ok)` blocks, the second unreachable.
+      // The dead one was removed; this guard is its superset (it still never
+      // answers 200, and additionally separates a rejected credential from a
+      // generic upstream failure). Status is logged for ops, never echoed.
       if (!rpcRes.ok) {
         const rejected = rpcRes.status === 401 || rpcRes.status === 403;
         console.error(

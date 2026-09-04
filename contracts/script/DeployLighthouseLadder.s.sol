@@ -82,8 +82,17 @@ contract DeployLighthouseLadderScript is Script {
         BaseChainConfig.requireSafe(cfg.rewardsDistribution, "REWARDS_DISTRIBUTION");
         BaseChainConfig.requireHasCode(cfg.stakingToken, "STAKING_TOKEN");
 
+        // EIGHTEEN EXACTLY, not 1..18 as this once allowed. The 2026-09-04
+        // dust-divisor fix put a RAW-UNIT floor in the contract
+        // (MIN_STAKE = 100e18), and a raw-unit floor is only a sane quantity
+        // against an 18-decimal token: on a 6-decimal one it would read as
+        // a hundred trillion whole tokens and no human could ever open a
+        // position. Refusing the token here is the honest failure — a pool
+        // nobody can stake in is worse than a deployment that stopped.
+        // All six live bungalow tokens are 18-decimal (verified on-chain
+        // 2026-09-04); widening this again means revisiting MIN_STAKE first.
         uint8 dec = IERC20MetadataLike(cfg.stakingToken).decimals();
-        require(dec > 0 && dec <= 18, "STAKING_TOKEN: decimals outside 1..18");
+        require(dec == 18, "STAKING_TOKEN: must be 18 decimals (MIN_STAKE is a raw-unit floor)");
         require(
             IERC20MetadataLike(cfg.stakingToken).totalSupply() > 0,
             "STAKING_TOKEN: zero total supply - wrong address or unlaunched token"
@@ -115,6 +124,16 @@ contract DeployLighthouseLadderScript is Script {
         require(pool.boostFor(7 days) == 4_000, "L-INV-8: seven days must be 0.4x");
         require(pool.boostFor(4 * 365 days) == 40_000, "L-INV-9: four years must be 4.00x");
         require(pool.rewardSurplus() == 0, "L-INV-10: surplus must start empty");
+        // The dust floor, pinned so a pre-fix build cannot be deployed by
+        // accident. Without these two, the ONLY difference between the fixed
+        // and vulnerable ladder is invisible at deploy time — same ABI, same
+        // ceremony, same summary — and three wei walks off with every empty
+        // interval the pool ever emits.
+        require(pool.MIN_STAKE() == 100e18, "L-INV-11: dust floor missing or moved (pre-fix build?)");
+        require(
+            pool.MIN_BOOST() == (pool.MIN_STAKE() * pool.MIN_BOOST_BPS()) / pool.BPS(),
+            "L-INV-12: MIN_BOOST drifted from MIN_STAKE - the two must stay one number"
+        );
     }
 
     function _printSummary(Config memory cfg, Deployed memory d) internal view {
@@ -124,6 +143,11 @@ contract DeployLighthouseLadderScript is Script {
         console.log("Token:     ", cfg.stakingToken);
         console.log("Decimals:  ", IERC20MetadataLike(cfg.stakingToken).decimals());
         console.log("Notifier:  ", cfg.rewardsDistribution);
+        console.log("");
+        console.log("MIN STAKE: 100 tokens (TOWELI parity - TegridyStaking.MIN_STAKE).");
+        console.log("        Below it a position is inadmissible: its boost weight");
+        console.log("        would be small enough to act as a dust divisor and take");
+        console.log("        every interval the pool emits. 3 wei used to be enough.");
         console.log("");
         console.log("LADDER: 7 days = 0.40x (TOWELI parity - the same ladder)");
         console.log("        4 years = 4.00x, linear in between. Ten-fold spread.");
@@ -140,10 +164,18 @@ contract DeployLighthouseLadderScript is Script {
         console.log("NEXT STEPS:");
         console.log("  1. Give the address to the agent: it derives the EIP-55 form,");
         console.log("     wires the registry + addresses.json, and pushes.");
-        console.log("  2. FUND LAST, IN PUBLIC. Transfer reward tokens to the pool,");
+        console.log("  2. STAKE BEFORE YOU NOTIFY. MIN_STAKE stops a WEI-SCALE position");
+        console.log("     from being the divisor; it cannot stop the first real staker");
+        console.log("     from earning the whole emission while nobody else is in - that");
+        console.log("     is the Synthetix reward model and it is what bootstraps a pool.");
+        console.log("     So open an honest position at a long lock BEFORE the notify.");
+        console.log("     Funding an empty pool hands its first seven days to whoever is");
+        console.log("     watching the mempool, for the price of 100 tokens.");
+        console.log("");
+        console.log("  3. FUND LAST, IN PUBLIC. Transfer reward tokens to the pool,");
         console.log("     then notifyRewardAmount(R) from the distribution Safe.");
         console.log("     The contract itself now refuses an over-notify - R is");
         console.log("     bounded by the surplus, not the whole balance.");
-        console.log("  3. rewardsDuration is 60 days; each notify starts/extends it.");
+        console.log("  4. rewardsDuration is 60 days; each notify starts/extends it.");
     }
 }
