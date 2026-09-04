@@ -49,9 +49,25 @@
 --         and table_name in ('user_profiles','user_favorites','user_watchlist','votes')
 --       order by table_name, privilege_type;
 --
---      # 2. Confirm the DEPLOYED bundle writes these tables only via the proxy.
---      #    Grep the LIVE bundle for 'rest/v1/user_favorites' etc. with a
---      #    non-GET verb. Zero hits = the proxy is the only writer.
+--      # 2. Confirm nothing writes these tables with the ANON key.
+--      #
+--      #    DO NOT grep the built bundle for 'rest/v1/user_favorites'.
+--      #    supabase-js builds that path by concatenation -- `${url}/rest/v1/${table}`
+--      #    -- so the literal string never appears in the bundle and "zero hits" is
+--      #    guaranteed whether or not the app writes the table. That check proves
+--      #    nothing. (This file shipped with it until 2026-09-04.)
+--      #
+--      #    Grep the SOURCE for the client call, which is what actually exists:
+--      grep -rnE '[.]from[(]("|'"'"')(user_profiles|user_favorites|user_watchlist|votes)("|'"'"')[)]' \
+--        frontend/src --include=*.js --include=*.ts --include=*.tsx -A4 \
+--        | grep -E '[.](insert|upsert|update|delete)[(]'
+--
+--      #    Zero hits = no anon writer, and this migration is safe to apply.
+--      #    VERIFIED 2026-09-04: zero. The only textual match is a COMMENT at
+--      #    frontend/src/nakamigos/lib/userdata.js:466 describing the `.upsert()`
+--      #    that was already removed. Every surviving `.from(...)` on these four
+--      #    tables is a `.select(...)`, and user_favorites / user_watchlist now read
+--      #    through `proxyRead()` (supabaseProxy.js:59) rather than the anon client.
 --
 -- IDEMPOTENCY
 --   REVOKE on a privilege that is not held is a no-op, and the ledger insert is
