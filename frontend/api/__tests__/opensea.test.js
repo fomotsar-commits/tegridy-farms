@@ -322,3 +322,87 @@ describe("upstream status forwarding", () => {
     expect(second.headerSpy).not.toHaveBeenCalledWith("Retry-After", expect.stringContaining("injected"));
   });
 });
+
+// ─── THE LISTINGS/OFFERS ALLOWLIST ASYMMETRY ────────────────────────────────
+//
+// `offers/collection/{slug}/` admitted any sub-path; `listings/collection/{slug}/`
+// admitted only the exact `/best`. So OUR proxy 400'd `listings/collection/
+// nakamigos/all` — a route OpenSea serves (OPTIONS -> 200, "allow: GET,HEAD,
+// OPTIONS", verified 2026-09-05). With `orders/{chain}/seaport/listings` now
+// POST-only upstream, the collection-scoped listings routes are the only read
+// path left for My Listings, so the asymmetry had to go.
+//
+// These pin BOTH directions: the new paths open, and the slug scoping that keeps
+// the rule from becoming an open proxy stays shut.
+describe("listings sub-path allowlist", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    checkGlobalLimitMock.mockResolvedValue(true);
+    process.env.OPENSEA_API_KEY = "test-key";
+  });
+
+  const okUpstream = () => vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    text: async () => JSON.stringify({ listings: [] }),
+  }));
+
+  const call = async (path) => {
+    vi.stubGlobal("fetch", okUpstream());
+    const { res, statusSpy } = makeRes();
+    const mod = await import("../opensea.js");
+    await mod.default(makeReq({ method: "GET", query: { path } }), res);
+    return statusSpy;
+  };
+
+  it("admits listings sub-paths for an allowed slug", async () => {
+    for (const p of [
+      "listings/collection/nakamigos/all",
+      "listings/collection/nakamigos/best",
+      "listings/collection/nakamigos/nfts/1/best",
+      "listings/collection/junglebay/all",
+    ]) {
+      const statusSpy = await call(p);
+      expect(statusSpy, `${p} should be admitted`).not.toHaveBeenCalledWith(400);
+    }
+  });
+
+  // THE HALF THAT MATTERS. A prefix rule is only safe while it stays inside the
+  // slug loop; written as a bare `listings/collection/` prefix it would proxy
+  // ANY collection, which is the open-proxy shape this allowlist exists to stop.
+  it("still refuses a slug that is not on the list", async () => {
+    for (const p of [
+      "listings/collection/not-our-collection/all",
+      "listings/collection/boredapeyachtclub/all",
+      "listings/collection/nakamigos-evil/all",
+    ]) {
+      const statusSpy = await call(p);
+      expect(statusSpy, `${p} must be refused`).toHaveBeenCalledWith(400);
+    }
+  });
+
+  it("refuses a path carrying a query string or fragment", async () => {
+    // A prefix rule should not double as a query-injection primitive. Harmless
+    // today (the api key is a header), but the reach grows with every prefix.
+    for (const p of [
+      "listings/collection/nakamigos/all?limit=999",
+      "listings/collection/nakamigos/all#frag",
+      "offers/collection/nakamigos/all?maker=0x1",
+    ]) {
+      const statusSpy = await call(p);
+      expect(statusSpy, `${p} must be refused`).toHaveBeenCalledWith(400);
+    }
+  });
+
+  it("keeps refusing traversal and encoded paths through the new rule", async () => {
+    for (const p of [
+      "listings/collection/nakamigos/../../admin",
+      "listings/collection/nakamigos//all",
+      "listings/collection/nakamigos/%2e%2e/admin",
+    ]) {
+      const statusSpy = await call(p);
+      expect(statusSpy, `${p} must be refused`).toHaveBeenCalledWith(400);
+    }
+  });
+});
