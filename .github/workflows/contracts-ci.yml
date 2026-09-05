@@ -29,12 +29,15 @@ permissions:
   contents: read
 
 concurrency:
-  # PRs cancel their own superseded runs; TRUNK RUNS MUST FINISH. On a push to
-  # main/mvp-launch every merge shares one group, so cancel-in-progress:true made
-  # each merge kill the previous run -- and trunk is the branch that deploys.
-  # Measured 2026-09-04: six consecutive trunk commits with 5-9 cancelled checks
-  # each and as few as 0 successes. Cancelled is not red, so it reads as fine.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # PRs share a group and cancel; TRUNK COMMITS EACH GET THEIR OWN GROUP (keyed
+  # on github.sha). Sharing one group on trunk meant each merge killed the run
+  # before it -- on the branch that deploys. Making cancel-in-progress
+  # conditional was NOT enough: it only governs a run already in progress, and a
+  # run still queued in an occupied group is pending, which GitHub evicts
+  # unconditionally. A pending kill creates zero jobs and so zero check-runs,
+  # which made the starvation invisible as well as unfixed. See ci.yml for the
+  # full write-up.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
