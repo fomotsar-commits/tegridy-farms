@@ -202,6 +202,8 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     error ETHTransferFailed();
     error FeeTooHigh();
     error ZeroAddress();
+    /// @dev AUDIT FIX 2026-09-05 [ADMIN-ROTATION-EOA] — one-shot restaking wire type-filter.
+    error NotAContract();
     error NotApprovedCaller();
     error CooldownNotElapsed();
     error NoReferrerSet();
@@ -554,6 +556,18 @@ contract ReferralSplitter is OwnableNoRenounce, ReentrancyGuard, TimelockAdmin {
     function setRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
         if (restakingContract != address(0)) revert RestakingAlreadySet();
+        // AUDIT FIX 2026-09-05 [ADMIN-ROTATION-EOA] — refuse an EOA / 7702-delegated EOA,
+        // completing the governance-gates 2026-08 batch that gave this exact one-shot setter
+        // the filter in MemeBountyBoard (MBB-WIRE-01) and VoteIncentives (VI-WIRE-01) but
+        // missed ReferralSplitter. The slot is ONE-SHOT with no rotation path and no admin
+        // sister, so a mistake here is permanent: `restakingContract` is read through a
+        // high-level `try` call that expects return data, and a high-level call to a codeless
+        // address does NOT degrade into the catch — it reverts in this frame. Every `recordFee`
+        // would then revert, SwapFeeRouter would swallow it and route 100% of the referral
+        // slice to treasury forever, and the forfeiture paths would revert outright.
+        // Custom error rather than a string, per VI-WIRE-01's bytecode rationale.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         restakingContract = _restaking;
         emit RestakingContractSet(_restaking);
     }

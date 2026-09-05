@@ -230,6 +230,8 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     /// (closes the multi-NFT sybil-vote bypass).
     error ProposerMustHaveSinglePosition();
     error ZeroAddress();
+    /// @dev AUDIT FIX 2026-09-05 [ADMIN-ROTATION-EOA] — one-shot restaking wire type-filter.
+    error NotAContract();
     error InsufficientFunds();
     error ProposalNotActive();
     error VotingEnded();
@@ -1107,6 +1109,15 @@ contract CommunityGrants is OwnableNoRenounce, ReentrancyGuard, Pausable, Timelo
     function setRestakingContract(address _restaking) external onlyOwner {
         if (_restaking == address(0)) revert ZeroAddress();
         if (restakingContract != address(0)) revert RestakingAlreadySet();
+        // AUDIT FIX 2026-09-05 [ADMIN-ROTATION-EOA] — refuse an EOA / 7702-delegated EOA.
+        // Completes the governance-gates 2026-08 batch, which added this same filter to the
+        // identical one-shot setter in MemeBountyBoard (MBB-WIRE-01) and VoteIncentives
+        // (VI-WIRE-01) but missed CommunityGrants. The slot is ONE-SHOT with no rotation path,
+        // so a mistake is permanent, and this contract's own natspec above already states the
+        // consequence: voting power reads back 0 and every grant proposal silently loses
+        // voting eligibility.
+        uint256 codeLen = _restaking.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
         restakingContract = _restaking;
         emit RestakingContractSet(_restaking);
     }

@@ -1072,6 +1072,18 @@ So the operator holds only the VAPID keys and the migration apply. The evaluator
 
 **A correction that runs the other way — line 180 is too optimistic, not too pessimistic.** The audit marked it `buildableNow: YES, 20h`. Two of its five sub-items (IVotes delegation, staking-AMM change) edit `contracts/src/TegridyStaking.sol`, and `c178eb14` (2026-08-21) re-measured that contract at **24,554 B — 22 B of headroom**. `contracts/foundry.toml:19-25` marks it *"FROZEN for launch"* and rules: *"ANY further growth must extract more to a lib or sister; do NOT consume buffer… 22 B is less than one line of code, and this contract is live + on the redeploy list. Extract BEFORE the next edit."* `.github/workflows/contracts-ci.yml:211-219` says the same. Neither sub-item can land as scoped; both require a prerequisite extraction to `StakingViewLib` or the `StakingMonitorView` sister that appears nowhere on the plan.
 
+> **Addendum 2026-09-05 — the quoted figures moved; the conclusion did not.** The paragraph
+> above is accurate as of its 2026-08-22 date, but the text it quotes no longer exists at the
+> cited lines. `TegridyStaking` was re-measured at **24,521 B — 55 B of headroom** after the
+> `[LEND-EOA-WHITELIST]` / `[LEND-RESIDUE-DEADLOCK]` pass, which shipped two security fixes and
+> still returned 33 B by folding three duplicated code-length checks into one `_requireContract`
+> helper. `contracts/foundry.toml` and the CI allowlist comment were updated to match, so the
+> verbatim quotes here ("22 B is less than one line of code") will not be found in either file.
+> The line-180 verdict STANDS: 55 B is still far less than either sub-item costs, and the
+> prerequisite extraction is still unplanned. The measured size is now ratcheted by
+> `contracts/test/Audit_StakingEIP170Size.t.sol`, so this figure can no longer drift silently —
+> which is what let the number in this document go stale in the first place.
+
 ## 4. Plan lines now wrong as written
 
 **Line 77 (the Q1 acceptance gate) is now unreachable by decision.** It reads *"**Q1 done when:** every contract Safe-owned · login live with RLS verified · …"*. On 2026-08-21, `347f6586` recorded the opposite as a standing instruction in `docs/WHAT_I_NEED_FROM_YOU.md` §0.3: *"**Instruction on the record, 2026-08-21: leave the Safe situation alone.** It is not an open question waiting on an answer, and no session should reopen it, propose topologies, or fold it into a plan as a blocker."* The commit body adds that the ownership-migration chain is "parked, by choice." Q1 can therefore never be marked done against its own written bar, and lines 30, 31, 33, 91, 164 and 187 all prescribe Safe work that a session is now instructed not to raise. Line 164's parenthetical precondition ("launchpad Safe-owned") is parked by choice, not pending.
