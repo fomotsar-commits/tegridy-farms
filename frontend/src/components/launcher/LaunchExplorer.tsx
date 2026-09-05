@@ -160,7 +160,13 @@ function LaunchRow({
         <span className="tabular-nums">tier {breakdown.tier.toFixed(0)}</span>
         <span className="tabular-nums">recency {breakdown.recency.toFixed(1)}</span>
         <span className="tabular-nums">activity {breakdown.activity.toFixed(1)}</span>
-        <span className="tabular-nums">· {summary.holderCount.toLocaleString()} holders</span>
+        {/* OUTAGE-AS-ZERO. holderCount was 0 for every count we could not read — Etherscan
+            Pro-gates the stat — so a graduated token with a live pool was published to
+            every visitor as "· 0 holders". A count we did not read says so, in the same
+            register as the "Market data unavailable" line below. */}
+        <span className="tabular-nums">
+          · {summary.holderCount == null ? 'holders unavailable' : `${summary.holderCount.toLocaleString()} holders`}
+        </span>
         <span className="tabular-nums">· {summary.liquidityEth.toLocaleString()} ETH liq</span>
       </div>
 

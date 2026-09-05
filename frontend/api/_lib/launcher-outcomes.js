@@ -91,6 +91,19 @@ async function buildOutcomeRecord(baseline, fetcher, observedAt) {
   const marketObserved = !marketReadFailed && marketIsObserved(rawMarket);
   const market = normalizeMarket(rawMarket);
   const chain = normalizeChain(await safeCall(() => fetcher.fetchChainStats(baseline.token, baseline.creator)));
+  // OUTAGE-AS-ZERO. `holderCount: chain.holderCount ?? 0` asserted "this token has 0
+  // holders" for every holder count we could not read — and on a free-tier key that is
+  // EVERY token on EVERY request: `tokenholdercount` is a PRO stat and answers
+  // {status:"0",message:"NOTOK"}, which fetchChainStats maps to the same null as a 429,
+  // a non-2xx, an over-cap body or a throw. The 0 then left on the wire and was spent
+  // twice: the explorer published a graduated token with a live pool as "· 0 holders",
+  // and ordering.ts fed log10p(0) into the number that row calls a published,
+  // deterministic score. An unread count is null — a 0 nobody read is itself a false
+  // zero — and the pair below is the same third state the market read already carries.
+  // Plain booleans: a record written before they existed defaults to false/false, so it
+  // degrades to "unavailable" instead of inheriting either meaning.
+  const holderCountObserved = chain.holderCount != null;
+  const holderCountReadFailed = chain.holderCount == null;
   const launchPriceEth = nonNegOr(baseline.launchPriceEth, 0);
   const launchLiquidityEth = nonNegOr(baseline.launchLiquidityEth, 0);
   return {
@@ -102,7 +115,9 @@ async function buildOutcomeRecord(baseline, fetcher, observedAt) {
     launchPriceEth,
     liquidityEth: marketObserved ? market.liquidityEth : launchLiquidityEth,
     launchLiquidityEth,
-    holderCount: chain.holderCount ?? 0,
+    holderCount: chain.holderCount,
+    holderCountObserved,
+    holderCountReadFailed,
     unlocks: baseline.unlocks ?? [],
     lastTeamActivityAt: chain.lastTeamActivityAt,
     marketObserved,
@@ -130,7 +145,14 @@ async function buildLaunchSummary(baseline, fetcher) {
     uniqueBuyers24h: market.uniqueBuyers24h,
     liquidityEth: market.liquidityEth,
     feeRevenueEth24h: market.feeRevenueEth24h,
-    holderCount: chain.holderCount ?? 0,
+    // OUTAGE-AS-ZERO. The same unread count, spent by the SCORE instead of the render:
+    // log10p(0) scored a launch with 40,000 holders exactly like a launch with none,
+    // because OUR Etherscan read did not land. Null so ordering.ts can leave the term
+    // out rather than assert an absence. No Observed/ReadFailed pair here: a summary is
+    // rebuilt on every request and never cached (this handler is POST-only and sets no
+    // Cache-Control), so there is no older summary whose 0 needs interpreting — the
+    // OutcomeRecord above is the shape with history behind it.
+    holderCount: chain.holderCount,
   };
 }
 async function buildOutcomeRecords(baselines, fetcher, observedAt) {
@@ -358,7 +380,10 @@ async function fetchChainStats(token, creator) {
   // awaited sequentially — per token, on the heaviest fan-out path. Run them
   // concurrently; each still fails to null on its own.
 
-  // Holder count — Pro-gated stat; free tier returns status "0" → stays null.
+  // Holder count — Pro-gated stat; free tier returns status "0" → stays null. That null
+  // is the NORMAL production state on this deployment, not an exotic one, which is why
+  // it now travels onto the wire as null + holderCountReadFailed instead of being
+  // coerced to a 0 that reads as an answer.
   const holderCountP = (async () => {
     try {
       const j = await etherscanCall({
