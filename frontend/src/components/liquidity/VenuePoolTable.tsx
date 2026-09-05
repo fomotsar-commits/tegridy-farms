@@ -47,6 +47,14 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
     },
   ];
 
+  // ⚠️ THE HEADERS AND THE FOOTNOTE READ THE SAME FLAG, and they did not in the
+  // first cut: the columns were hardcoded "Est. APR" / "Est. 24h volume" while
+  // the footnote branched on `aprIsEstimated`, so the live page rendered
+  // "EST. APR" above a sentence reading "APR and 24h volume are measured."
+  // Two labels for one fact is how a table starts lying about its own numbers.
+  const aprEstimated = rows.some((r) => r.aprIsEstimated);
+  const volEstimated = rows.some((r) => r.volIsEstimated);
+
   return (
     <section aria-labelledby="venue-pools-heading" className="mb-8">
       <div className="flex items-baseline justify-between gap-3 mb-3">
@@ -71,8 +79,8 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
               <tr className="text-[10px] uppercase tracking-wider text-white/50">
                 <th scope="col" className="font-semibold px-4 py-3">Pool</th>
                 <th scope="col" className="font-semibold px-4 py-3 text-right">TVL</th>
-                <th scope="col" className="font-semibold px-4 py-3 text-right">Est. APR</th>
-                <th scope="col" className="font-semibold px-4 py-3 text-right">Est. 24h volume</th>
+                <th scope="col" className="font-semibold px-4 py-3 text-right">{aprEstimated ? 'Est. APR' : 'APR'}</th>
+                <th scope="col" className="font-semibold px-4 py-3 text-right">{volEstimated ? 'Est. 24h volume' : '24h volume'}</th>
                 <th scope="col" className="font-semibold px-4 py-3 text-right">
                   <span className="sr-only">Action</span>
                 </th>
@@ -127,9 +135,9 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
           as "nothing". */}
       <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
         TVL is a live read of the pair&apos;s reserves.{' '}
-        {rows.some((r) => r.aprIsEstimated || r.volIsEstimated)
+        {aprEstimated || volEstimated
           ? 'APR and 24h volume are estimated from those reserves and the fees the pool has accrued since it opened — not a measured trailing window. '
-          : 'APR and 24h volume are measured. '}
+          : 'APR and 24h volume are read from the pool’s own accrued fees. '}
         A dash means the read did not land, never that the number is zero.
       </p>
 

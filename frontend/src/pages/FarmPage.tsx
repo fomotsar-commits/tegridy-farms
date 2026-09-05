@@ -84,25 +84,44 @@ export default function FarmPage() {
     return <BungalowFarmPanel bungalow={bungalow} />;
   }
   // The venue speaks for the whole island, not for one resident.
-  if (!isToweliVoice()) {
-    return (
-      <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-        <header className="mb-6">
-          <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-            Jungle Bay Island
-          </p>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
-          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
-            swap that routes through it. Held time counts here: the longer you lock, the larger your
-            share of the same rewards.
-          </p>
-        </header>
-        <VenuePoolIndex />
-      </div>
-    );
-  }
+  if (!isToweliVoice()) return <VenueEarn />;
   return <ToweliFarm />;
+}
+
+/**
+ * The venue's own /farm.
+ *
+ * ⚠️ ITS OWN COMPONENT, NOT JSX INLINED IN THE WRAPPER, and the reason is the
+ * same one the wrapper's note gives for keeping the bungalow branch out of
+ * ToweliFarm: hooks. This branch needs `usePageTitle`, and calling it inside a
+ * wrapper that returns three different trees would make it conditional. As a
+ * component it owns its own hook order.
+ *
+ * It shipped without a title for exactly one build, and e2e/smoke.spec.ts caught
+ * it — the document kept the venue's default title, so "did this route mount?"
+ * had no honest answer on the page a stranger sees first.
+ */
+function VenueEarn() {
+  usePageTitle(
+    'Earn',
+    'Every resident pool on Jungle Bay Island — stake a token for a share of its rewards, or provide liquidity and earn a cut of the swaps.',
+  );
+  return (
+    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+      <header className="mb-6">
+        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
+          Jungle Bay Island
+        </p>
+        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
+        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+          Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
+          swap that routes through it. Held time counts here: the longer you lock, the larger your
+          share of the same rewards.
+        </p>
+      </header>
+      <VenuePoolIndex />
+    </div>
+  );
 }
 
 function ToweliFarm() {
