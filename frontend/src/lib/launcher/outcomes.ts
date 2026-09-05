@@ -30,7 +30,28 @@ export interface OutcomeRecord {
   launchPriceEth: number;
   liquidityEth: number;
   launchLiquidityEth: number;
-  holderCount: number;
+  /**
+   * Distinct holder count at `observedAt`, or null when the read did not land.
+   * Null, never 0: `tokenholdercount` is an Etherscan PRO stat and a free-tier key is
+   * refused for it on every token, so "0 holders" was published about live tokens as a
+   * matter of routine. Read `holderCountObserved` before rendering or scoring it.
+   */
+  holderCount: number | null;
+  /**
+   * Whether a holder count was actually read at `observedAt`. Render and score the
+   * number only when this is `true`: undefined (a record written before this field
+   * existed) means we cannot tell whether its `holderCount` was read or defaulted, so it
+   * degrades to "unavailable" rather than inheriting a false zero.
+   */
+  holderCountObserved?: boolean;
+  /**
+   * The holder-count read FAILED — 429, non-2xx, unparseable, or Etherscan's Pro-gate
+   * refusal envelope — as opposed to answering with a number. Undefined = the read did
+   * not fail (back-compat with records written before this field existed). Distinct from
+   * `holderCountsAvailable` on the deployer surface, which says a holder-count source is
+   * not wired AT ALL on this deployment; this says we asked and got nothing back.
+   */
+  holderCountReadFailed?: boolean;
   unlocks: UnlockEvent[];
   /** Last on-chain activity from the creator/team address (unix seconds). */
   lastTeamActivityAt: number | null;

@@ -247,10 +247,43 @@ export function useMyLoans() {
   const tokenReadFailed = tokenCountError || (tokenResults.length > 0 && tokenResults.every((r) => r.status === 'failure'));
   const nftReadFailed = nftCountError || (nftResults.length > 0 && nftResults.every((r) => r.status === 'failure'));
 
+  // OUTAGE-AS-COMPLETE. The two flags above fire only when NOTHING came back, so
+  // a chunk sweep that lost SOME ids returned a shorter list under the same
+  // "these are your loans" heading: the dashboard counted it, summed the
+  // principal and badged the overdue ones off a set it had no reason to believe
+  // was whole, and the shield watched a book with holes in it. A partial read is
+  // still unread - carry how many records did not answer, and let every claim of
+  // completeness gate on that rather than on the length of the list.
+  //
+  // `null`, never 0, when a loanCount read failed: those ids were never
+  // enumerated, so the size of the gap is itself unread, and "0 could not be
+  // read" is exactly the false zero this exists to refuse.
+  const loanCountUnread = Boolean(tokenCountError || nftCountError);
+  const unreadCount = loanCountUnread
+    ? null
+    : tokenResults.filter((r) => r.status === 'failure').length
+      + nftResults.filter((r) => r.status === 'failure').length;
+  const loansUnread = unreadCount === null || unreadCount > 0;
+
   return {
     loans: outstanding,
     isLoading: tokenLoading || nftLoading,
     isError: Boolean(tokenReadFailed || nftReadFailed),
+    /**
+     * The list is real but NOT known to be complete: at least one loan record
+     * did not answer, or a `loanCount` read failed so a contract was never
+     * enumerated. Strictly weaker than `isError`, which means nothing was read.
+     * Every consumer that states or implies "this is all of them" - totals,
+     * counts, the empty state, the shield's watch list - must branch on this,
+     * never on `loans.length`.
+     */
+    loansUnread,
+    /**
+     * How many loan records were asked for and did not answer. Null when a
+     * `loanCount` read failed, because the size of the gap is unread too and
+     * must render as unknown rather than as a number. A 0 means a whole sweep.
+     */
+    unreadCount,
     deployed: tokenDeployed || nftDeployed,
   };
 }

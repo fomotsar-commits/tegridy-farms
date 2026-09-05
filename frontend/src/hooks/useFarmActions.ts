@@ -22,7 +22,14 @@ export function useFarmActions() {
     chainId: CHAIN_ID,
     query: { enabled: !!address && onRightChain, refetchInterval: 15_000 },
   });
-  const pendingEth = (pendingEthRaw as bigint | undefined) ?? 0n;
+  // OUTAGE-AS-ZERO. `?? 0n` handed pendingEthGuard the one value that means
+  // "nothing unclaimed to forfeit" every time the read failed or had not landed
+  // yet - so an RPC hiccup silently disarmed the only thing standing between a
+  // withdraw and the user's ETH revenue. Unknown stays unknown: `null` is "we
+  // did not read it", and a successful 0n is still a real zero that withdraws
+  // normally. wagmi leaves `data` undefined for a pending, failed or disabled
+  // read and a bigint for a landed one - that is the whole distinction.
+  const pendingEth: bigint | null = typeof pendingEthRaw === 'bigint' ? pendingEthRaw : null;
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   const pendingStakeRef = useRef<{ amount: string; lockDuration: string } | null>(null);
   // 2026-07-26: track whether the in-flight tx is the ERC20 approval, so the
@@ -166,7 +173,25 @@ export function useFarmActions() {
     });
   };
 
+  /**
+   * Refuse an exit unless the unclaimed-ETH balance is actually KNOWN.
+   *
+   * Fails CLOSED on `null`, and does so BEFORE `force`: `force` is the user
+   * overriding a figure they have been shown, and during an outage there is no
+   * figure - nobody can consent to forfeiting an amount nobody can read. Only a
+   * successful on-chain `0n` opens the gate silently. Blocking costs the user a
+   * reload; the direction that must not move is the other one.
+   */
   const pendingEthGuard = (force: boolean): boolean => {
+    if (pendingEth === null) {
+      toast.error(
+        `Your unclaimed ETH revenue could not be read - the network did not answer. ` +
+        `This is not a statement that you have none: withdrawing now could forfeit ETH ` +
+        `you cannot see. Reload and try again, or claim your ETH revenue first.`,
+        { duration: 8000 }
+      );
+      return false;
+    }
     if (force) return true;
     if (pendingEth > 0n) {
       toast.error(
@@ -288,6 +313,9 @@ export function useFarmActions() {
     emergencyExit,
     claimUnsettled,
     revalidateBoost,
+    /** Unclaimed ETH revenue in wei, or `null` when the read did not land.
+        `null` is NOT zero - it is the state pendingEthGuard refuses to exit on.
+        Never render it as a figure; a successful 0n is the only real zero. */
     pendingEth,
     isPending,
     isConfirming,

@@ -185,8 +185,30 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             </div>
           ) : (
             <>
-              {/* User position */}
-              {lpFarm.stakedBalance > 0n && (
+              {/* User position - three branches, never two. The unread notice sits
+                  BEFORE the card, so a failed read can no longer fall through to the
+                  silent "no position" state (and, below, to the first-time-staker
+                  impermanent-loss panel gated on the same flag). */}
+              {lpFarm.positionUnread ? (
+                <div
+                  className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 mb-4 text-[13px] text-amber-100"
+                  data-testid="lp-farming-position-unread"
+                >
+                  <p>
+                    Your staked LP could not be read just now - the network did not answer.
+                    This is not a statement that you have nothing staked: anything you staked
+                    is still staked, and the contract is the record. Retry before acting on
+                    this panel.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
+                    onClick={() => { void lpFarm.refetch(); }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : lpFarm.stakedBalance > 0n ? (
                 <div className="rounded-lg p-4 mb-4" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.15)' }}>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-center">
                     <div>
@@ -219,7 +241,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Stake / Withdraw inputs */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -239,7 +261,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       onClick={() => setLpStakeAmount(lpFarm.walletLPBalanceFormatted)}
                     >MAX</button>
                   </div>
-                  <p className="text-white text-[10px] mb-2 font-mono">Wallet: {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} LP</p>
+                  <p className="text-white text-[10px] mb-2 font-mono">Wallet: {lpFarm.positionUnread ? '–' : formatTokenAmount(lpFarm.walletLPBalanceFormatted)} LP</p>
                   {(() => {
                     const amt = parseFloat(lpStakeAmount) || 0;
                     let stakeWei = 0n;
@@ -277,7 +299,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   {lpFarm.minStake > 0n && (
                     <p className="text-white/50 text-[10px] mt-2">
                       Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
-                      {parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
+                      {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
                         <> &middot; you hold {formatTokenAmount(lpFarm.walletLPBalanceFormatted)} &mdash; <Link to="/liquidity" className="underline hover:text-white">add liquidity</Link></>
                       )}
                     </p>
@@ -300,7 +322,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       onClick={() => setLpWithdrawAmount(lpFarm.stakedBalanceFormatted)}
                     >MAX</button>
                   </div>
-                  <p className="text-white text-[10px] mb-2 font-mono">Staked: {formatTokenAmount(lpFarm.stakedBalanceFormatted)} LP</p>
+                  <p className="text-white text-[10px] mb-2 font-mono">Staked: {lpFarm.positionUnread ? '–' : formatTokenAmount(lpFarm.stakedBalanceFormatted)} LP</p>
                   {(() => {
                     // F111: pre-check against the staked balance so an over-staked
                     // amount can't build a tx that reverts in-wallet (mirrors the
@@ -327,8 +349,11 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                 </div>
               </div>
 
-              {/* IL Warning for first-time LP stakers */}
-              {lpFarm.stakedBalance === 0n && (
+              {/* IL Warning for first-time LP stakers. The `!positionUnread` gate is
+                  the load-bearing half: without it a failed read renders the
+                  you-have-never-staked panel at the same moment the notice above
+                  says the position is unknown. */}
+              {!lpFarm.positionUnread && lpFarm.stakedBalance === 0n && (
                 <div className="rounded-lg p-3 mt-4 text-[11px]" style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
                   <p className="text-amber-400 font-medium mb-1">Impermanent loss risk</p>
                   <p className="text-white/60">When TOWELI price changes relative to ETH, your LP position may be worth less than holding the tokens separately. Farm rewards can offset this over time.</p>
