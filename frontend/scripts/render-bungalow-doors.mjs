@@ -29,7 +29,7 @@ const DIST = resolve(process.cwd(), 'dist');
 const settledDesc = (name, chain) =>
   `${name} has a settled bungalow on Jungle Bay Island — contract, trade route ` +
   `and held-time heat live today on ${chain}. The full art skin opens with the ` +
-  `community's drop. DM+T = Memetic Finance.`;
+  `community's drop. Dank Memes + Time = Memetic Finance.`;
 const settledAlt = (name) =>
   `${name}'s bungalow door on Jungle Bay Island — classic island art until the community's drop`;
 
@@ -40,7 +40,7 @@ const DOORS = [
     description:
       'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
       'Artists Collective, living on Solana. Trade her, hold her for heat, and stake ' +
-      'at the lighthouse — the pool is live on-chain. DM+T = Memetic Finance.',
+      'at the lighthouse — the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
     image: '/art/bayla/bayla-23.jpg',
     imageType: 'image/jpeg',
     imageWidth: '2048',

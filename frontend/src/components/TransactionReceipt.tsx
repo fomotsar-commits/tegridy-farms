@@ -14,6 +14,7 @@ import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
 import { VENUE } from '../lib/arrival';
+import { getActiveBungalow } from '../lib/bungalows';
 import { artImgProps } from '../lib/artSrcSet';
 
 type TxStatus = 'pending' | 'confirmed' | 'failed';
@@ -260,7 +261,14 @@ function TransactionReceiptOverlay({
 
   const performShare = useCallback(() => {
     const verb = config.verb;
-    const text = `Just ${verb} on @JungleBayAC! \u{1F33F} #TOWELI #DeFi`;
+    // THE HASHTAG FOLLOWS THE ROOM, 2026-09-05. This was a hardcoded `#TOWELI`,
+    // and TransactionReceipt is mounted app-wide from AppLayout — so a BAYLA
+    // staker's celebratory tweet carried another resident's ticker. Read the
+    // active bungalow the same way every other token-aware surface does; with
+    // nothing chosen the venue tags itself, never a resident.
+    const active = getActiveBungalow();
+    const tag = active?.symbol ? `#${active.symbol}` : '#MemeticFinance';
+    const text = `Just ${verb} on @JungleBayAC! \u{1F33F} ${tag} #DeFi`;
     // F11: fall back to the canonical live origin, not the unowned tegridyfarms.io.
     const url = etherscanUrl ?? SITE_URL;
     window.open(

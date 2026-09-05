@@ -165,7 +165,13 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
                   ? 'the Solana swap surface captures a platform fee, and a share of it can route here.'
                   : 'the Solana swap surface is live here, but it takes no platform fee today — there is nothing to share until one is switched on.'}
               </li>
-              <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way the TOWELI seed was funded.</li>
+              {/* NAMED THE MECHANISM, NOT A NEIGHBOUR, 2026-09-05. This read
+                  "the same way the TOWELI seed was funded" — one resident's
+                  ticker quoted as the reference implementation inside every
+                  OTHER resident's room. The sentence loses nothing by naming
+                  what actually happens, and the venue stops speaking about one
+                  bungalow while standing in another. */}
+              <li><strong>Community top-ups</strong> — direct, visible transfers into the reward pool, the same way every pool here is seeded.</li>
             </ul>
           </div>
         </div>

@@ -226,17 +226,17 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
 
             <p className="text-[11px] text-white/60 mb-4 leading-relaxed">
               Longer locks earn a larger <em>share</em> — 0.40× at seven days up to 4.00× at four years, the
-              same ladder the TOWELI farm uses. Rewards are
+              venue&apos;s standard lock ladder. Rewards are
               never paid out of anyone&apos;s principal: the contract caps every payout at its surplus, so your
               deposit can always come back. Leaving before your lock opens costs 25%, which stays in the pool for
               the stakers who waited. <strong>Emergency withdraw is always open</strong> and needs nothing from the
               reward side.
             </p>
 
-            {/* THE LADDER IS PUBLIC. TOWELI's farm shows its lock tiers to every
-                visitor, connected or not — a ladder you must connect a wallet
-                to even SEE is a ladder nobody climbs. Only the amount field
-                and the buttons below need a wallet. */}
+            {/* THE LADDER IS PUBLIC. Every pool on the venue shows its lock
+                tiers to every visitor, connected or not — a ladder you must
+                connect a wallet to even SEE is a ladder nobody climbs. Only the
+                amount field and the buttons below need a wallet. */}
             <p className="text-[10px] uppercase tracking-wider text-white/50 mb-2">Lock duration</p>
             <div className="grid grid-cols-3 gap-2 mb-3">
               {RUNGS.map((r, i) => (

@@ -530,12 +530,21 @@ export const TopNav = React.memo(function TopNav() {
                          meeting the review's ask. The classes were dead, not small.
                          They are gone rather than "fixed", and the sizing is explicit
                          here instead of arriving from a class this element no longer
-                         wants. min-h keeps the 44px tap target index.css was giving it. */
+                         wants. min-h keeps the 44px tap target index.css was giving it.
+                         (e) OFF GREEN, 2026-09-05. (c) stopped this competing on WEIGHT
+                         but left it competing on HUE: outlined kyle-green here, and a
+                         filled kyle-green "Stake X" in the hero directly below it, so
+                         one colour carried two unrelated jobs in a single viewport. It
+                         now wears the brand purple — the hue this bar is already built
+                         from (--color-purple-75 borders here, text-purple-400 for the
+                         active tab in BottomNav), so the wallet control reads as part
+                         of the chrome it lives in rather than as a page action. Green
+                         goes back to meaning exactly one thing: stake. */
                       <button
                         onClick={openConnectModal}
                         aria-label="Connect wallet"
-                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
-                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
+                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
+                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(139,92,246,0.60)', color: 'var(--color-primary)' }}
                       >
                         Connect
                       </button>

@@ -24,13 +24,29 @@ export function ChainSwitch({ active }: { active: 'ethereum' | 'solana' }) {
   const out = params.get('out');
   const solanaTo = out ? `/solana?out=${encodeURIComponent(out)}` : '/solana';
 
-  // A Solana bungalow makes the point louder: the active token lives over
-  // there, so name it rather than leaving the visitor to guess.
+  // A bungalow makes the point louder: the active token lives on one of these
+  // chains, so name it rather than leaving the visitor to guess.
+  //
+  // BOTH HALVES READ THE BUNGALOW, 2026-09-05. The Solana half always did; the
+  // Ethereum half was the hardcoded literal `'TOWELI · Uniswap / CoW'`, which
+  // meant a PEPE or BAYLA holder — and, worse, a visitor who had chosen no
+  // bungalow at all and was being spoken to by the VENUE — read one resident's
+  // ticker as the name of the whole Ethereum rail. The venue does not have a
+  // token; its residents do. With nothing chosen the sub is now just the venues
+  // this chain routes through, which is the honest answer to "what is over
+  // there" and is what the label above it was always carrying anyway.
   const bungalow = getActiveBungalow();
   const solanaToken = bungalow?.chain === 'solana' ? bungalow.symbol : null;
+  const ethToken =
+    bungalow?.chain === 'ethereum' || bungalow?.chain === 'base' ? bungalow.symbol : null;
 
   const options = [
-    { id: 'ethereum' as const, label: 'Ethereum', sub: 'TOWELI · Uniswap / CoW', to: '/swap' },
+    {
+      id: 'ethereum' as const,
+      label: 'Ethereum',
+      sub: ethToken ? `${ethToken} · Uniswap / CoW` : 'Uniswap / CoW',
+      to: '/swap',
+    },
     { id: 'solana' as const, label: 'Solana', sub: solanaToken ? `${solanaToken} · Jupiter` : 'Jupiter', to: solanaTo },
   ];
 
