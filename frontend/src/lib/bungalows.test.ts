@@ -280,13 +280,20 @@ describe('resolution order', () => {
     // real code present. A wrong address here points the staking card at a
     // stranger's contract — the same class of harm the RIZZ pin guards.
     const POOLS: Record<string, string> = {
-      qr: '0xdcc3a95A0921b83326157132B17770f02094c8E3',
-      mfer: '0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273',
-      bnkr: '0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178',
-      drb: '0xB62BaD165997E95C503044787b2Dcc85DC6D83F1',
-      jbm: '0xA0D43eF39C4940e68b2f81d51E6316a45C136D93',
-      // Ethereum mainnet — the last lighthouse (deployed 2026-08-30).
-      pepe: '0xdC0B34cE782029f30382F42097f6b33F0544329c',
+      // REPINNED 2026-09-05 after the C1 redeploy. The 2026-08-30 pools these
+      // replace paid rewards out of other stakers' principal
+      // (docs/LIGHTHOUSE_AUDIT_2026_09_01.md, PROVEN by LadderOrderingPoC).
+      // Each address below was read back on-chain before landing here:
+      // MIN_STAKE() == 100e18 — a function that exists ONLY in the post-fix
+      // build, and which the retired six revert on — and rewardsDistribution
+      // == the chain's own remittance Safe.
+      qr: '0x55B72f09d31f43834bf7Eba42f53a419a716F554',
+      mfer: '0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6',
+      bnkr: '0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf',
+      drb: '0x0aCB93fcFD5b1950D94064998017a2601b36D7bB',
+      jbm: '0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465',
+      // Ethereum mainnet — the last lighthouse (redeployed 2026-09-05).
+      pepe: '0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D',
       // Solana lighthouses (Streamflow ceremonies, 2026-08-30). Each was read
       // back through the app's OWN SDK path before landing here: the pool's
       // mint matches the resident's corrected contract, and the ladder is the

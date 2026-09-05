@@ -181,58 +181,63 @@ describe('the exit costs', () => {
 // The UI gate is the only thing standing in front of a first deposit, so these
 // pin the two ways it could silently stop working.
 describe('the C1 deposit freeze', () => {
-  it('matches regardless of address checksum casing', () => {
-    // The registry stores checksummed addresses and wagmi hands back
-    // checksummed addresses; the list is lowercased. A case-sensitive compare
-    // would leave the gate open on every real call site while still passing a
-    // naive lowercase-only test.
-    const checksummed = '0xdC0B34cE782029f30382F42097f6b33F0544329c'; // PEPE, as addresses.json spells it
-    expect(isC1UnsafeLadder(checksummed)).toBe(true);
-    expect(isC1UnsafeLadder(checksummed.toLowerCase())).toBe(true);
-    expect(isC1UnsafeLadder(checksummed.toUpperCase().replace('0X', '0x'))).toBe(true);
+  // The freeze is EMPTY as of 2026-09-05: the six pre-fix ladders were redeployed
+  // and the registry repinned, which is the condition it existed to wait for.
+  //
+  // The old coverage test asserted "every live ladder is frozen". That was true
+  // only DURING the freeze, and it did its job on the way out — it refused to pass
+  // until the repin touched all three places at once. Keeping it now would assert
+  // something false. These replace it with the MECHANISM, so the guard is armed
+  // for whoever needs it next rather than pinned to a situation that has passed.
+
+  it('stores every entry lowercase, and matches it in any checksum casing', () => {
+    // Vacuous while the list is empty, and ACTIVE the moment an address is added
+    // — which is the point: the next person to freeze a pool gets the casing
+    // guarantee without having to know it was ever a problem. The registry stores
+    // checksummed addresses and wagmi returns checksummed addresses, so a
+    // case-sensitive compare would fail OPEN at every real call site.
+    for (const entry of C1_UNSAFE_LADDER_POOLS) {
+      expect(entry, 'entries must be stored lowercase').toBe(entry.toLowerCase());
+      expect(isC1UnsafeLadder(entry)).toBe(true);
+      expect(isC1UnsafeLadder(entry.toUpperCase().replace('0X', '0x'))).toBe(true);
+    }
   });
 
-  it('does not freeze an address that is not on the list, and tolerates absent input', () => {
+  it('never freezes an address that is not listed, and tolerates absent input', () => {
     expect(isC1UnsafeLadder('0x000000000000000000000000000000000000dEaD')).toBe(false);
     expect(isC1UnsafeLadder(null)).toBe(false);
     expect(isC1UnsafeLadder(undefined)).toBe(false);
     expect(isC1UnsafeLadder('')).toBe(false);
   });
 
-  // THE ONE THAT ACTUALLY GUARDS THE USERS' MONEY.
+  // THE ONE THAT STILL GUARDS SOMETHING REAL.
   //
-  // The gate is keyed on the pool address so a repin lifts it automatically.
-  // The failure mode that buys is: someone edits addresses.json to a redeployed
-  // pool and the gate correctly opens. The failure mode it COSTS is the mirror
-  // image — a ladder that is still the pre-fix deployment but whose address
-  // never made it into the list, which fails open and silently. So derive the
-  // expectation from the registry itself rather than restating the constant.
-  it('covers every ladder the registry still serves as live', () => {
+  // A frozen address that the registry no longer serves is dead weight: the pool
+  // it names is unreachable, so the entry can never lift and nobody will notice it
+  // is stale. That is how a gate rots into a lie about what is protected. Derived
+  // from addresses.json rather than restated, so a typo cannot satisfy it.
+  it('freezes only pools the registry actually serves', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const registry = JSON.parse(
       readFileSync(join(here, '..', '..', 'scripts', 'addresses.json'), 'utf8'),
     );
-
-    const liveLadders: string[] = [];
+    const served = new Set<string>();
     const walk = (node: unknown): void => {
       if (Array.isArray(node)) { node.forEach(walk); return; }
       if (node && typeof node === 'object') {
         const o = node as Record<string, unknown>;
-        if (typeof o.id === 'string' && o.id.startsWith('ladder-')
-            && o.status === 'live' && typeof o.address === 'string') {
-          liveLadders.push(o.address.toLowerCase());
+        if (typeof o.id === 'string' && o.id.startsWith('ladder-') && typeof o.address === 'string') {
+          served.add(o.address.toLowerCase());
         }
         Object.values(o).forEach(walk);
       }
     };
     walk(registry);
 
-    expect(liveLadders.length, 'the registry should still list ladder pools').toBeGreaterThan(0);
-    const unguarded = liveLadders.filter((a) => !C1_UNSAFE_LADDER_POOLS.includes(a));
+    const orphaned = C1_UNSAFE_LADDER_POOLS.filter((a) => !served.has(a));
     expect(
-      unguarded,
-      'every live ladder in addresses.json must be frozen until it is REDEPLOYED and repinned — '
-      + 'if you repinned to a fixed deployment, drop that address from C1_UNSAFE_LADDER_POOLS in the same change',
+      orphaned,
+      'these are frozen but the registry no longer serves them — drop them, the freeze is dead weight',
     ).toEqual([]);
   });
 });
