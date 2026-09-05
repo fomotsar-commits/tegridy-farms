@@ -102,7 +102,12 @@ describe("v1 — R049 body cap on Alchemy response", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    process.env.ALCHEMY_API_KEY = "demo";
+    // A REAL key, not "demo". Now that the demo default is gone, "demo" MEANS
+    // absence and short-circuits to 503 before any fetch — which would quietly
+    // make this test vacuous. The invariant here is the 5 MB body cap, not the
+    // key, so the key has to be one that lets the fetch happen. (Verified: with
+    // this value the test passes on both pre- and post-fix code.)
+    process.env.ALCHEMY_API_KEY = "bodycap-key-dddddddddddddddddddd";
     process.env.NODE_ENV = "test";
     // The previous describe block installed a 429-denying mock via
     // `vi.doMock`; that registration survives `resetModules`, so we must

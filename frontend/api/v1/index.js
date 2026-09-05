@@ -26,7 +26,7 @@
 import { checkRateLimit, checkGlobalLimit } from "../_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "../_lib/bodycap.js";
 import { logSafe } from "../_lib/logSafe.js";
-import { fetchAlchemyWithFailover } from "../_lib/alchemy-failover.js";
+import { fetchAlchemyWithFailover, alchemyKeyChain } from "../_lib/alchemy-failover.js";
 import { readErc20Distribution, readBaseErc20Distribution, handleScanRoute } from "../_lib/scannerApi.js";
 import {
   admitKeyedCall,
@@ -44,16 +44,33 @@ import { API_TIERS, API_TIER_ORDER, API_ROUTES, API_ROADMAP, API_PRICING_STATE, 
 // deeply-nested-JSON CPU DoS the same way supabase-proxy.js does.
 export const config = { api: { bodyParser: { sizeLimit: "8kb" } } };
 
-// AUDIT R048: header auth — Alchemy NFT base URL drops the /${KEY} segment
-// when a real key is configured; the bearer header is injected per-fetch.
-// RESIL-1: fetches route through fetchAlchemyWithFailover so a lapsed primary
-// key retries once with ALCHEMY_API_KEY_FALLBACK; builders are keyed per
-// attempt (same convention as api/alchemy.js).
-const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
+// AUDIT R048: header auth — the bearer header is injected per-fetch, so the key
+// never reaches a URL, an access log, or an upstream error page.
+// RESIL-1: fetches route through fetchAlchemyWithFailover so a lapsed primary key
+// retries once with ALCHEMY_API_KEY_FALLBACK.
+//
+// INCIDENT 2026-09-04 (#385) follow-on — the ABSENCE half of what #387 fixed for
+// REJECTION in api/alchemy.js. `|| "demo"` was never a default; it was a
+// SYNTHESIZED CREDENTIAL. With ALCHEMY_API_KEY unset the deleted builder emitted
+// `${ALCHEMY_NFT_ROOT}/demo` — Alchemy's PUBLIC demo key — which answers HTTP 200
+// with real data (measured live 2026-09-04). An unconfigured deployment was
+// therefore byte-indistinguishable from a configured one to every caller AND to
+// ops: no status, no log line, nothing to probe. Worse, it silently ate RESIL-1 —
+// with the primary unset and a REAL fallback configured, attempt #1 was the demo
+// URL and it SUCCEEDED, so the fallback key was never reached.
+//
+// "demo" is already this codebase's sentinel for "no Alchemy key": six modules
+// read it as absence and fail closed (_lib/eth-code.js:37, _lib/ethcall.js:27 and
+// :61, _lib/seaport-verify.js:144 and :178, _lib/alchemy-failover.js:39,
+// orderbook.js:1543 and :2128). This file is the seventh. The predicate below is
+// orderbook.js's, verbatim — the chain-aware form, so a deployment carrying only
+// a fallback key still serves. With the demo URL shape gone, a keyless attempt
+// now goes to the real root and its 401 can hand off to that fallback.
 const ALCHEMY_NFT_ROOT = "https://eth-mainnet.g.alchemy.com/nft/v3";
 
-function alchemyNftBaseFor(key) {
-  return key ? ALCHEMY_NFT_ROOT : `${ALCHEMY_NFT_ROOT}/${ALCHEMY_KEY}`;
+/** At least one usable key anywhere in the failover chain. "demo" is not one. */
+function hasUsableAlchemyKey() {
+  return alchemyKeyChain().some((k) => k && k !== "demo");
 }
 function alchemyAuthHeadersFor(key, extra = {}) {
   const headers = { Accept: "application/json", ...extra };
@@ -119,8 +136,13 @@ function setCors(req, res) {
 }
 
 async function alchemyFetch(endpoint, params = {}) {
+  // Refuse BEFORE the fetch. Every route that calls this is an Alchemy read, and
+  // a read we cannot make is not a result — spending the request on a credential
+  // we invented is precisely how a demo-key answer got stamped s-maxage=30 and
+  // served to everyone as ours.
+  if (!hasUsableAlchemyKey()) throw new Error("alchemy-unconfigured");
   const res = await fetchAlchemyWithFailover((key) => {
-    const url = new URL(`${alchemyNftBaseFor(key)}/${endpoint}`);
+    const url = new URL(`${ALCHEMY_NFT_ROOT}/${endpoint}`);
     Object.entries(params).forEach(([k, v]) => {
       if (v != null && v !== "") url.searchParams.set(k, String(v));
     });
@@ -553,6 +575,32 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Unknown route" });
     }
   } catch (err) {
+    // A missing upstream credential is a CONFIGURATION fault, not an unknown one,
+    // and it must not be filed under the same opaque 500 as everything else —
+    // #385 cost hours precisely because a credential problem was indistinguishable
+    // from a generic failure. This is NOT a new refusal contract: 503 +
+    // `source_not_configured` is the row API_ERROR_SEMANTICS already publishes for
+    // "this data source has no key on this deployment" (_lib/apiTiers.js:181-185),
+    // emitted the way _lib/scannerApi.js:352-357 already emits it for Ethplorer.
+    // It composes with #387 rather than duplicating it: that one says a key was
+    // PRESENT AND REJECTED, this one says there was no key to present. AUDIT
+    // API-M4 holds — the client learns about OUR configuration, never an upstream
+    // status or body.
+    if (err?.message === "alchemy-unconfigured") {
+      console.error(
+        'API v1: ALCHEMY_API_KEY is not configured (unset, or the literal "demo") — the NFT routes are refusing rather than proxying to Alchemy\'s public demo key. Set a real ALCHEMY_API_KEY (or ALCHEMY_API_KEY_FALLBACK).',
+      );
+      // Never edge-cache a refusal: an s-maxage here would serve one misconfigured
+      // moment to every caller for the next 30-300 seconds.
+      res.setHeader("Cache-Control", "no-store");
+      // settle(503) refunds, exactly like the keyed-shed above: our missing key is
+      // our decision, not the customer's usage.
+      await admission.settle(503);
+      return res.status(503).json({
+        error: "The NFT data source is not configured on this deployment, so no upstream call was made.",
+        code: "source_not_configured",
+      });
+    }
     console.error("API v1 error:", logSafe(err));
     // Refund before responding: a 500 is our failure, and a customer must never be
     // metered for it.
