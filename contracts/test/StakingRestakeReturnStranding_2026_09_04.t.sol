@@ -225,7 +225,9 @@ contract StakingRestakeReturnStrandingTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(TegridyRestaking.NotRestakedToken.selector);
-        restaking.claimStrandedRestakeNFT(t1);
+        // Signature widened to (tokenId, recipient) by the stranded-exit fix; alice is
+        // the pranked caller, so this is the unchanged "return it to me" semantic.
+        restaking.claimStrandedRestakeNFT(t1, alice);
     }
 
     // ================= BREADTH: the guard must still bite =================
@@ -419,7 +421,9 @@ contract CapHolder {
     }
 
     function doClaimStranded(uint256 tokenId) external {
-        restaking.claimStrandedRestakeNFT(tokenId);
+        // The helper is msg.sender AND the entitled recipient; address(this) keeps the
+        // pre-widening behaviour (the NFT comes back to the caller) exactly.
+        restaking.claimStrandedRestakeNFT(tokenId, address(this));
     }
 
     function send(address to, uint256 tokenId) external {

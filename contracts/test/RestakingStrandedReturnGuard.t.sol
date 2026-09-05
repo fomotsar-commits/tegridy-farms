@@ -15,7 +15,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
 contract SRG_MockTOWELI is ERC20 {
     constructor() ERC20("Towelie", "TOWELI") {
-        _mint(msg.sender, 10_000_000_000 ether);
+        _mint(msg.sender, 1_000_000_000 ether);
     }
 }
 
@@ -29,41 +29,86 @@ contract SRG_MockWETH is ERC20 {
     }
 }
 
-/// @title Stranded-restake return guard: the restaking round-trip has an exit
+/// @notice A contract staker whose ERC721 hook can be switched off after it has
+///         already taken custody. This is the ONE thing that still strands a
+///         restake NFT after the upstream guard fix, and it is not contrived:
+///         a contract wallet, a paused Safe module, or an EIP-7702 delegated EOA
+///         whose hook starts reverting all present exactly this way. It accepts
+///         the NFT on the way in (so it can stake and restake at all) and refuses
+///         it on the way back.
+contract ToggleReceiver {
+    TegridyStaking public immutable staking;
+    TegridyRestaking public immutable restaking;
+    bool public rejecting;
+
+    constructor(TegridyStaking _staking, TegridyRestaking _restaking) {
+        staking = _staking;
+        restaking = _restaking;
+    }
+
+    function setRejecting(bool v) external {
+        rejecting = v;
+    }
+
+    function doStake(IERC20 token, uint256 amount, uint256 lock) external {
+        token.approve(address(staking), amount);
+        staking.stake(amount, lock);
+    }
+
+    function doRestake(uint256 tokenId) external {
+        staking.approve(address(restaking), tokenId);
+        restaking.restake(tokenId);
+    }
+
+    function doUnrestake() external {
+        restaking.unrestake();
+    }
+
+    function doClaimStranded(uint256 tokenId, address recipient) external {
+        restaking.claimStrandedRestakeNFT(tokenId, recipient);
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
+        require(!rejecting, "ToggleReceiver: refusing");
+        return this.onERC721Received.selector;
+    }
+}
+
+/// @title  Stranded-restake return: the recovery path needs a destination
 ///
-/// @notice WHAT THIS PINS. `StakingRewardLib.afterTokenTransfer`
-///         (src/lib/StakingRewardLib.sol:872-878) reverts `AlreadyHasPosition`
-///         when an EOA that already holds a staking position receives another.
-///         It relaxes for `isLendingContract[from]` but NOT for
-///         `from == restakingContract`, even though the sibling `escrowHop`
-///         computation twelve lines below (:880-884) DOES treat the restaking hop
-///         as an escrow hop. The two guards disagree about the same hop.
+/// @notice REBASED 2026-09-05. This suite originally proved the fix against the
+///         `stake -> restake -> stake` guard disagreement in
+///         `StakingRewardLib.afterTokenTransfer`. **That path is CLOSED** — PR
+///         #397 (`56ed6bd2`) relaxed the EOA single-position guard on the escrow
+///         hop, so the return now delivers and nothing is stranded. Every test
+///         here used to construct that scenario, and after #397 they failed for
+///         the best possible reason: the bug they described was gone.
 ///
-///         That disagreement is reachable on the ordinary path, because `restake`
-///         zeroes `userTokenId[user]` -- exactly the field `TegridyStaking.stake`
-///         gates on -- so `stake -> restake -> stake` is permitted (and is
-///         documented as permitted in v2/StreamingRevenueDistributor.sol:553,
-///         whose two power legs are additive precisely to serve it). The return
-///         hop then hits the guard and strands the NFT.
+///         The fix under test is NOT gone, because stranding is still reachable.
+///         `TegridyRestaking._returnNftSettleResidual` wraps the return in a
+///         try/catch that books `strandedRestakeRecipient` on ANY
+///         `safeTransferFrom` failure — the guard was only one cause. A recipient
+///         whose `onERC721Received` reverts still strands the NFT today.
 ///
-/// @dev    WHY THE FIX IS ON THE RESTAKING SIDE. `StakingRewardLib` is deployed at
-///         0xb86A763a92A24e0951658E52d54CE50A5D52C1Ea and linked into the live
-///         `TegridyStaking` (0xcaDc93E96De58EA554c71ca609974625615E046D), so the
-///         guard cannot be changed without redeploying staking and migrating live
-///         positions. `TegridyRestaking` is NOT deployed (`restakingContract()`
-///         reads address(0) on mainnet), so the recovery path is free to change.
-///         `claimStrandedRestakeNFT` therefore takes an explicit `recipient`,
-///         mirroring `TegridyPositionMarket.cancel(orderId, recipient)` which
-///         carries one for the identical trap.
+///         And on the pre-fix code that is terminal: `claimStrandedRestakeNFT`
+///         took only a tokenId and transferred to `msg.sender`, which is the same
+///         address that just refused delivery. The retry re-runs the identical
+///         failing transfer forever. The `recipient` parameter is the whole exit.
 ///
-/// @dev    MUTATION CHECK. `test_strandedNFT_recoversToAnAddressWithoutAPosition`
-///         is the test that fails without the fix: pre-fix the function has no
-///         `recipient` parameter and hardcodes `msg.sender`, so the retry re-runs
-///         the same reverting transfer. Reverting the fix (transferring to `to`
-///         instead of `recipient`) turns that test red while the three refusal
-///         tests below stay green -- they are the anti-vacuity half, proving the
-///         fix widened WHERE the NFT may land and not WHO may move it, and did not
-///         weaken the EOA single-position guard.
+/// @dev    WHY THE FIX STAYS ON THE RESTAKING SIDE. `StakingRewardLib` is deployed
+///         and linked into the live `TegridyStaking`, so guard-side changes reach
+///         production only through a redeploy. `TegridyRestaking` is not deployed
+///         at all (`restakingContract()` reads address(0) on mainnet), so this
+///         path is free to change today. Mirrors
+///         `TegridyPositionMarket.cancel(orderId, recipient)`, which already
+///         carries a recipient for the identical trap.
+///
+/// @dev    MUTATION CHECK. `test_strandedNFT_recoversToAnAddressThatCanReceive`
+///         is the one that dies without the fix — revert the signature to
+///         `(tokenId)` transferring to `msg.sender` and the recovery becomes
+///         impossible, while the three refusal tests stay green. Those are the
+///         anti-vacuity half: they prove the change widened WHERE the NFT may
+///         land, not WHO may move it.
 contract RestakingStrandedReturnGuardTest is Test {
     SRG_MockTOWELI toweli;
     SRG_MockJBAC jbac;
@@ -72,9 +117,10 @@ contract RestakingStrandedReturnGuardTest is Test {
     StakingMonitorView monitor;
     TegridyStakingAdmin stakingAdmin;
     TegridyRestaking restaking;
+    ToggleReceiver receiver;
 
     address alice = makeAddr("alice");
-    address aliceAlt = makeAddr("aliceAlt"); // fresh address, holds no position
+    address aliceAlt = makeAddr("aliceAlt"); // fresh EOA, always able to receive
     address bob = makeAddr("bob");
     address treasury = makeAddr("treasury");
 
@@ -107,6 +153,9 @@ contract RestakingStrandedReturnGuardTest is Test {
 
         toweli.transfer(alice, STAKE_AMOUNT * 4);
         toweli.transfer(bob, STAKE_AMOUNT * 4);
+
+        receiver = new ToggleReceiver(staking, restaking);
+        toweli.transfer(address(receiver), STAKE_AMOUNT * 2);
     }
 
     // --- helpers ------------------------------------------------------
@@ -119,64 +168,46 @@ contract RestakingStrandedReturnGuardTest is Test {
         vm.stopPrank();
     }
 
-    /// @dev Drives the real reachable flow all the way to the stranded state.
-    function _driveToStrandedState() internal returns (uint256 restakedId, uint256 secondId) {
-        restakedId = _stake(alice, STAKE_AMOUNT);
+    /// @dev Drives the still-reachable flow to the stranded state: the receiver
+    ///      takes custody while its hook accepts, then stops accepting before the
+    ///      return leg runs.
+    function _driveToStrandedState() internal returns (uint256 restakedId) {
+        receiver.doStake(IERC20(address(toweli)), STAKE_AMOUNT, LOCK);
+        restakedId = staking.userTokenId(address(receiver));
+        assertTrue(restakedId != 0, "receiver should hold a position");
 
         // TRANSFER_COOLDOWN is 24h from stakeTimestamp; the restaking hop is exempt
         // from the 1h rate limit but not from the cooldown.
         vm.warp(block.timestamp + 24 hours + 1);
+        receiver.doRestake(restakedId);
+        assertEq(staking.ownerOf(restakedId), address(restaking), "restaking should custody it");
 
-        vm.startPrank(alice);
-        staking.approve(address(restaking), restakedId);
-        restaking.restake(restakedId);
-        vm.stopPrank();
+        // The hook goes hostile only AFTER custody moved — the shape a contract
+        // wallet takes when it is paused or upgraded mid-position.
+        receiver.setRejecting(true);
 
-        // restake zeroed userTokenId[alice], so stake() no longer sees a position.
-        assertEq(staking.userTokenId(alice), 0, "restake should zero the legacy pointer");
-
-        secondId = _stake(alice, STAKE_AMOUNT);
-        assertTrue(secondId != 0 && secondId != restakedId, "second position should open");
-
-        // The return hop now trips the EOA guard and is caught into the strand record.
-        vm.prank(alice);
-        restaking.unrestake();
+        receiver.doUnrestake();
 
         assertEq(
             staking.ownerOf(restakedId),
             address(restaking),
-            "NFT should still be custodied after the failed return"
+            "NFT should still be custodied after the refused return"
         );
         assertEq(
-            restaking.strandedRestakeRecipient(restakedId), alice, "strand record should name alice"
+            restaking.strandedRestakeRecipient(restakedId),
+            address(receiver),
+            "strand record should name the receiver"
         );
     }
 
-    // --- characterization: the bug is reachable -----------------------
+    // --- the upstream fix, pinned so nobody rebuilds this on sand ------
 
-    /// @notice `stake -> restake -> stake` is a permitted flow. This pins the
-    ///         premise the whole defect rests on; if this ever starts reverting,
-    ///         the flow was closed elsewhere and this suite needs revisiting.
-    function test_restakeThenStake_isAPermittedFlow() public {
-        uint256 first = _stake(alice, STAKE_AMOUNT);
-        vm.warp(block.timestamp + 24 hours + 1);
-
-        vm.startPrank(alice);
-        staking.approve(address(restaking), first);
-        restaking.restake(first);
-        vm.stopPrank();
-
-        assertEq(staking.userTokenId(alice), 0, "restake zeroes the pointer stake() gates on");
-
-        uint256 second = _stake(alice, STAKE_AMOUNT);
-        assertTrue(second != first, "a second position is openable while restaked");
-        assertEq(staking.ownerOf(second), alice, "alice owns the second position");
-    }
-
-    /// @notice The return hop strands the NFT instead of delivering it. Passes both
-    ///         pre- and post-fix: it characterizes the defect, it does not test the
-    ///         fix. The `RestakeNFTStranded` event is the operator-visible symptom.
-    function test_unrestakeWhileHoldingSecondPosition_strandsTheNFT() public {
+    /// @notice #397 CLOSED THE ORIGINAL PATH. `stake -> restake -> stake` no
+    ///         longer strands anything: the guard now relaxes on the escrow hop,
+    ///         so `unrestake` delivers. This test exists so that if anyone
+    ///         reintroduces the old scenario as a regression test, they find out
+    ///         here instead of debugging a suite that cannot fail.
+    function test_theOriginalGuardScenario_noLongerStrands() public {
         uint256 restakedId = _stake(alice, STAKE_AMOUNT);
         vm.warp(block.timestamp + 24 hours + 1);
 
@@ -185,113 +216,94 @@ contract RestakingStrandedReturnGuardTest is Test {
         restaking.restake(restakedId);
         vm.stopPrank();
 
-        _stake(alice, STAKE_AMOUNT);
-
-        vm.expectEmit(true, true, false, true, address(restaking));
-        emit TegridyRestaking.RestakeNFTStranded(restakedId, alice);
+        assertEq(staking.userTokenId(alice), 0, "restake zeroes the legacy pointer");
+        uint256 secondId = _stake(alice, STAKE_AMOUNT);
+        assertTrue(secondId != 0 && secondId != restakedId, "second position opens");
 
         vm.prank(alice);
         restaking.unrestake();
 
-        assertEq(staking.ownerOf(restakedId), address(restaking), "NFT stayed custodied");
+        assertEq(staking.ownerOf(restakedId), alice, "post-#397 the NFT comes home");
+        assertEq(
+            restaking.strandedRestakeRecipient(restakedId), address(0), "and nothing is stranded"
+        );
+    }
+
+    // --- characterization: stranding is STILL reachable ----------------
+
+    /// @notice Passes pre- and post-fix. It characterizes the remaining defect
+    ///         rather than the fix: a recipient that refuses delivery strands the
+    ///         NFT, and the exit still reports success.
+    function test_refusingReceiver_stillStrandsTheNFT() public {
+        uint256 restakedId = _driveToStrandedState();
+        assertTrue(restakedId != 0, "stranded state reached");
     }
 
     // --- the fix ------------------------------------------------------
 
-    /// @notice THE FIX. The entitled user recovers the stranded NFT to an address
-    ///         that holds no position, WITHOUT unwinding their second position.
-    ///         Fails pre-fix: the function hardcoded `msg.sender`, so the only
-    ///         reachable destination was the one address the guard refuses.
-    function test_strandedNFT_recoversToAnAddressWithoutAPosition() public {
-        (uint256 restakedId, uint256 secondId) = _driveToStrandedState();
+    /// @notice THE FIX. The entitled holder redirects the stranded NFT to an
+    ///         address that can actually receive it, without needing its own hook
+    ///         to start working again. FAILS pre-fix: the function hardcoded
+    ///         `msg.sender`, the one destination guaranteed to refuse.
+    function test_strandedNFT_recoversToAnAddressThatCanReceive() public {
+        uint256 restakedId = _driveToStrandedState();
 
-        vm.prank(alice);
-        restaking.claimStrandedRestakeNFT(restakedId, aliceAlt);
+        receiver.doClaimStranded(restakedId, aliceAlt);
 
-        assertEq(staking.ownerOf(restakedId), aliceAlt, "stranded NFT delivered to the fresh address");
-        assertEq(restaking.strandedRestakeRecipient(restakedId), address(0), "strand record cleared");
-        // The second position is untouched -- recovery cost the user nothing.
-        assertEq(staking.ownerOf(secondId), alice, "second position survived the recovery");
-        assertEq(staking.userTokenId(aliceAlt), restakedId, "recipient pointer now names the returned NFT");
+        assertEq(staking.ownerOf(restakedId), aliceAlt, "NFT recovered to a working address");
+        assertEq(
+            restaking.strandedRestakeRecipient(restakedId), address(0), "strand record cleared"
+        );
     }
 
-    // --- anti-vacuity: the guard is NOT weakened ----------------------
+    // --- anti-vacuity: WHO may move it is unchanged --------------------
 
-    /// @notice The fix must not disable the EOA single-position guard. Redirecting
-    ///         to an address that already holds a position is still refused, and the
-    ///         strand record survives the reverted attempt.
-    function test_redirectToAddressHoldingAPosition_isRefused() public {
-        (uint256 restakedId,) = _driveToStrandedState();
-        _stake(bob, STAKE_AMOUNT); // bob now holds a position
+    /// @notice Retrying to the refusing address still fails. This is inherent to
+    ///         the receiver, not a regression — and it is exactly why a recipient
+    ///         parameter had to exist at all.
+    function test_retryToSelf_stillFails_whichIsWhyTheParameterExists() public {
+        uint256 restakedId = _driveToStrandedState();
 
-        vm.prank(alice);
-        vm.expectRevert(TegridyStaking.AlreadyHasPosition.selector);
-        restaking.claimStrandedRestakeNFT(restakedId, bob);
+        vm.expectRevert();
+        receiver.doClaimStranded(restakedId, address(receiver));
 
         assertEq(
             restaking.strandedRestakeRecipient(restakedId),
-            alice,
-            "a reverted claim must roll the delete back and keep the record"
+            address(receiver),
+            "strand record must survive a failed retry"
         );
-        assertEq(staking.ownerOf(restakedId), address(restaking), "NFT not moved");
     }
 
-    /// @notice Retrying to the SAME address is still blocked while the second
-    ///         position is held. This is inherent to the deployed guard, not a
-    ///         regression -- and it is precisely why the recipient parameter exists.
-    function test_redirectToSelfWhileHoldingSecondPosition_stillReverts() public {
-        (uint256 restakedId,) = _driveToStrandedState();
-
-        vm.prank(alice);
-        vm.expectRevert(TegridyStaking.AlreadyHasPosition.selector);
-        restaking.claimStrandedRestakeNFT(restakedId, alice);
-
-        assertEq(restaking.strandedRestakeRecipient(restakedId), alice, "record survives");
-    }
-
-    /// @notice Entitlement is unchanged: the parameter widens WHERE the NFT may
-    ///         land, never WHO may move it. A stranger cannot redirect it away.
+    /// @notice The parameter widened WHERE the NFT lands, never WHO may move it.
+    ///         A stranger cannot redirect someone else's stranded NFT.
     function test_onlyTheEntitledRecipientMayRedirect() public {
-        (uint256 restakedId,) = _driveToStrandedState();
+        uint256 restakedId = _driveToStrandedState();
 
         vm.prank(bob);
         vm.expectRevert(TegridyRestaking.NotRestakedToken.selector);
         restaking.claimStrandedRestakeNFT(restakedId, bob);
 
-        assertEq(staking.ownerOf(restakedId), address(restaking), "stranger moved nothing");
-        assertEq(restaking.strandedRestakeRecipient(restakedId), alice, "record intact");
+        assertEq(
+            restaking.strandedRestakeRecipient(restakedId),
+            address(receiver),
+            "strand record intact after an unauthorized attempt"
+        );
     }
 
-    /// @notice A zero recipient would burn the position to address(0). Refused.
+    /// @notice A zero recipient is refused with a typed error. Honest scope: this
+    ///         is clarity, not security — Solady's transfer already reverts on the
+    ///         zero address. It is pinned so the error cannot silently regress to
+    ///         an opaque one.
     function test_zeroRecipient_isRefused() public {
-        (uint256 restakedId,) = _driveToStrandedState();
+        uint256 restakedId = _driveToStrandedState();
 
-        vm.prank(alice);
         vm.expectRevert(TegridyRestaking.ZeroAddress.selector);
-        restaking.claimStrandedRestakeNFT(restakedId, address(0));
+        receiver.doClaimStranded(restakedId, address(0));
 
-        assertEq(restaking.strandedRestakeRecipient(restakedId), alice, "record intact");
-    }
-
-    // --- severity pin: recoverable, not permanent ---------------------
-
-    /// @notice Pins the severity claim. Even without the recipient parameter the
-    ///         NFT was never permanently lost -- exiting the second position clears
-    ///         `userTokenId[alice]` and the same-address claim then succeeds. The
-    ///         defect is a bad, confusing dead-end, not a fund loss. If this ever
-    ///         goes red the severity assessment in the PR is wrong.
-    function test_exitingTheSecondPosition_unblocksTheSameAddressClaim() public {
-        (uint256 restakedId, uint256 secondId) = _driveToStrandedState();
-
-        vm.warp(block.timestamp + LOCK + 1);
-        vm.prank(alice);
-        staking.withdraw(secondId);
-
-        assertEq(staking.userTokenId(alice), 0, "exiting the second position clears the pointer");
-
-        vm.prank(alice);
-        restaking.claimStrandedRestakeNFT(restakedId, alice);
-
-        assertEq(staking.ownerOf(restakedId), alice, "same-address claim works once unblocked");
+        assertEq(
+            restaking.strandedRestakeRecipient(restakedId),
+            address(receiver),
+            "strand record intact after a rejected zero-recipient call"
+        );
     }
 }
