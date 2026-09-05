@@ -337,4 +337,117 @@ contract SwapFeeRouter_TF010 is Test {
 
 
 
+
+
+    // ───────────── convertTokenFeesToETHFoT — first coverage ─────────────
+    //
+    // This function is PERMISSIONLESS (SwapFeeRouter external, nonReentrant whenNotPaused;
+    // the owner gate fires only for path.length > 2) and had ZERO tests before this block.
+    //
+    // ⚠️ WHAT IS DELIBERATELY *NOT* TESTED HERE, AND WHY. Nothing below asserts on the
+    //    TWAP FLOOR VALUE, because this rig cannot yet produce a trustworthy one.
+    //    Measured 2026-09-05: with reserves 100 WETH : 100_000 TOK (spot 1e-3 ETH/TOK) and
+    //    a 100 TOK pile, the enforced floor came back 4.925e16 — exactly HALF the correct
+    //    9.85e16. Cause: `_bootstrapPriced` pokes the cumulative once before the clock
+    //    advances and once after, so the snapshot captures 7200s of accumulation while the
+    //    delta over the consulted window is only 3600s worth. The floor therefore sits at
+    //    half spot and never binds.
+    //    That is why the withdrawn TF-015 tests were vacuous — its headline test passed
+    //    under the mutation that restores the pre-fix source. DO NOT write a floor
+    //    assertion against this rig until the poke sequence is fixed and a test proves the
+    //    enforced floor matches spot. See docs/TODO_OPERATOR.md D1.
+
+    function test_FoT_rejectsWETHAsTheFeeToken() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        vm.prank(keeper);
+        vm.expectRevert(SwapFeeRouter.ZeroAddress.selector);
+        g.sfr.convertTokenFeesToETHFoT(address(g.weth), _path(g), 0, _dl());
+    }
+
+    function test_FoT_rejectsZeroToken() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        vm.prank(keeper);
+        vm.expectRevert(SwapFeeRouter.ZeroAddress.selector);
+        g.sfr.convertTokenFeesToETHFoT(address(0), _path(g), 0, _dl());
+    }
+
+    function test_FoT_rejectsAnExpiredDeadline() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        _seed(g, 10 ether);
+        vm.prank(keeper);
+        vm.expectRevert(bytes("DEADLINE_EXPIRED"));
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, block.timestamp - 1);
+    }
+
+    function test_FoT_rejectsADeadlineBeyondTheCap() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        _seed(g, 10 ether);
+        vm.prank(keeper);
+        vm.expectRevert(SwapFeeRouter.DeadlineTooFar.selector);
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, block.timestamp + 365 days);
+    }
+
+    /// An empty pile must not reach the swap. Without this the owner — exempt from the
+    /// TF-010 value gate — would stamp the cooldown and rewrite the snapshot for nothing.
+    function test_FoT_zeroPileReverts() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        vm.prank(keeper);
+        vm.expectRevert(SwapFeeRouter.ZeroAmount.selector);
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
+    }
+
+    /// The per-token cooldown is the anti-grief property TF-010 re-dimensioned rather than
+    /// removed: a second conversion inside the window is refused.
+    function test_FoT_perTokenCooldownIsEnforced() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, true);
+        _seed(g, 50 ether);
+        vm.prank(keeper);
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
+
+        _seed(g, 50 ether);
+        vm.prank(keeper);
+        vm.expectRevert();
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
+    }
+
+    /// Multi-hop stays owner-only on the FoT path too — a stranger cannot choose the route.
+    function test_FoT_multiHopIsOwnerOnly() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        _seed(g, 10 ether);
+        address[] memory hop3 = new address[](3);
+        hop3[0] = address(g.tok);
+        hop3[1] = makeAddr("middle");
+        hop3[2] = address(g.weth);
+        vm.prank(attacker);
+        vm.expectRevert();
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), hop3, 0, _dl());
+    }
+
+    /// The happy path, and the one property that makes this function exist: a
+    /// fee-on-transfer token delivers LESS to the pair than the router sent, and the
+    /// conversion still settles against what actually arrived.
+    ///
+    /// MUTATION: give MockToken_TF a zero fee (`_rig(18, 0, ...)`) and the strict
+    /// inequality below fails — which is what proves the FoT shrink is real and not an
+    /// artefact of the mock.
+    function test_FoT_settlesAgainstWhatThePairActuallyReceived() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, true);
+        _seed(g, 100 ether);
+
+        uint256 ethBefore = g.sfr.accumulatedETHFees();
+        uint256 pairBefore = g.tok.balanceOf(address(g.pair));
+        uint256 routerHeld = g.tok.balanceOf(address(g.sfr));
+
+        vm.prank(keeper);
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
+
+        assertEq(g.sfr.accumulatedTokenFees(address(g.tok)), 0, "the pile must be retired");
+        assertGt(g.sfr.accumulatedETHFees(), ethBefore, "ETH fees must grow");
+
+        // The FoT burn is real: strictly less arrived downstream than the router sent.
+        uint256 delivered = g.tok.balanceOf(address(g.uniRouter)) - pairBefore;
+        assertLt(delivered, routerHeld, "an FoT token must deliver less than was sent");
+    }
 }
