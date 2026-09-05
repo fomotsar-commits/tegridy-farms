@@ -468,7 +468,7 @@ contract SwapFeeRouter_TF010 is Test {
     }
 
 
-    /// ⚠️ CHARACTERISATION OF A KNOWN, UNFIXED DEFECT — TF-015.
+    /// TF-015, HALF ONE: with NO haircut configured the strand persists — BY DESIGN.
     ///
     /// This test asserts the CURRENT behaviour, which is WRONG. It exists because the
     /// behaviour was previously invisible: the rig's TWAP floor came out at half spot, so
@@ -482,9 +482,11 @@ contract SwapFeeRouter_TF010 is Test {
     /// and `withdrawTokenFees` / `sweepTokens` both reject any token WITH a WETH pair, so
     /// those fees have no exit at all. Real FoT tokens are 2-10%.
     ///
-    /// ⛔ WHEN TF-015 LANDS, THIS TEST MUST BE INVERTED, not deleted. Its failure is the
-    ///    signal that the fix works. See docs/TODO_OPERATOR.md D1.
-    function test_TF015_KNOWNBUG_grossSizedFloorStrandsAnFoTToken() public {
+    /// The haircut is OPT-IN PER TOKEN and defaults to 0, so this is the untouched path:
+    /// a 5% FoT token still cannot convert until governance sets a haircut for it. That is
+    /// deliberate — a global default would loosen the floor for every token routed through
+    /// this permissionless entry point, including plain ERC20s.
+    function test_TF015_withNoHaircutConfigured_theFoTStrandPersists() public {
         Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH); // 5%, a realistic FoT fee
         _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, false);
         _seed(g, 100 ether);
@@ -531,5 +533,98 @@ contract SwapFeeRouter_TF010 is Test {
         // 1 wei of integer rounding is fine; a factor of two is the bug this guards.
         assertApproxEqAbs(seen, expected, 2, "enforced floor must equal the spot-derived floor");
         assertGt(seen * 2, expected * 3 / 2, "floor is half spot - the poke order regressed");
+    }
+
+    /// @dev Governance path, end to end: propose, wait out the timelock, execute.
+    function _setHaircut(Rig memory g, uint256 bps) internal {
+        g.sfr.proposeFoTFloorHaircut(address(g.tok), bps);
+        skip(g.sfr.TWAP_SNAPSHOT_RESET_TIMELOCK() + 1);
+        g.sfr.executeFoTFloorHaircut();
+        assertEq(g.sfr.fotFloorHaircutBps(address(g.tok)), bps, "haircut not applied");
+    }
+
+    /// TF-015, HALF TWO — THE FIX. The same 5% FoT token that is stranded above converts
+    /// once governance sets a matching haircut, because the floor is now sized on what the
+    /// PAIR RECEIVES rather than on the gross balance.
+    ///
+    /// MUTATION: pass `swapAmount` instead of `floorAmountIn` at the FoT 2-hop call site —
+    /// that is literally the pre-fix source — and this reverts INSUFFICIENT_OUTPUT.
+    /// This is the test whose absence made TF-015 unshippable: the previous version passed
+    /// under that mutation because the rig's floor came out at half spot and never bound.
+    function test_TF015_aGovernanceSetHaircutMakesTheFoTConversionReachable() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        _setHaircut(g, 500);
+        _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, false);
+        _seed(g, 100 ether);
+
+        uint256 ethBefore = g.sfr.accumulatedETHFees();
+        vm.prank(keeper);
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
+
+        assertEq(g.sfr.accumulatedTokenFees(address(g.tok)), 0, "the pile must be retired");
+        assertGt(g.sfr.accumulatedETHFees(), ethBefore, "ETH fees must grow");
+    }
+
+    /// The haircut must NOT reach the non-FoT path. `Cfg` is shared by both convert
+    /// functions and consumed inside the shared `_enforceTWAPMinETHOut`, so a haircut
+    /// carried there would loosen the SFR-H-01 floor on the PERMISSIONLESS non-FoT entry
+    /// point too. It rides as a scalar on the FoT call only, and this pins that.
+    ///
+    /// MUTATION: move the haircut into `Cfg` (the design a reviewer killed) and the two
+    /// floors below stop matching.
+    function test_TF015_haircutDoesNotLeakIntoTheNonFoTPath() public {
+        Rig memory clean = _rig(18, 0, R18_TOKEN, R18_WETH);
+        _bootstrapPriced(clean, 1 ether, R18_TOKEN, R18_WETH, false);
+        _seed(clean, 100 ether);
+        vm.recordLogs();
+        vm.prank(keeper);
+        clean.sfr.convertTokenFeesToETH(address(clean.tok), _path(clean), 0, _dl());
+        uint256 floorClean = _lastFloor();
+
+        Rig memory hair = _rig(18, 0, R18_TOKEN, R18_WETH);
+        _setHaircut(hair, 1000);
+        _bootstrapPriced(hair, 1 ether, R18_TOKEN, R18_WETH, false);
+        _seed(hair, 100 ether);
+        vm.recordLogs();
+        vm.prank(keeper);
+        hair.sfr.convertTokenFeesToETH(address(hair.tok), _path(hair), 0, _dl());
+        uint256 floorWithHaircut = _lastFloor();
+
+        assertEq(floorWithHaircut, floorClean, "a haircut must not move the non-FoT floor");
+    }
+
+    /// The setter is owner-only, capped, and timelocked — the same discipline the only
+    /// other floor-relaxing lever on this contract carries.
+    function test_TF015_haircutSetterIsOwnerOnlyCappedAndTimelocked() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        address t = address(g.tok);
+
+        vm.prank(attacker);
+        vm.expectRevert();
+        g.sfr.proposeFoTFloorHaircut(t, 100);
+
+        // HOIST THE GETTER. A staticcall inside the argument list is consumed by the
+        // preceding vm.expectRevert, which then reports "next call did not revert" against
+        // the getter rather than the function under test. Same trap as a getter eating a
+        // vm.prank.
+        uint256 cap = g.sfr.MAX_FOT_FLOOR_HAIRCUT_BPS();
+        uint256 bpsDenom = g.sfr.BPS();
+        assertLt(cap, bpsDenom, "cap must stay below BPS");
+        vm.expectRevert(SwapFeeRouter.HaircutTooHigh.selector);
+        g.sfr.proposeFoTFloorHaircut(t, cap + 1);
+
+        g.sfr.proposeFoTFloorHaircut(t, 500);
+        // ANTI-VACUITY: without this, moving the write into propose() would leave the
+        // early-execute assertion below green (it would revert "nothing pending").
+        assertEq(g.sfr.fotFloorHaircutBps(t), 0, "propose must not apply instantly");
+
+        vm.expectRevert(SwapFeeRouter.FoTHaircutChangeUnavailable.selector);
+        g.sfr.executeFoTFloorHaircut();
+
+        uint256 delay = g.sfr.TWAP_SNAPSHOT_RESET_TIMELOCK();
+        skip(delay + 1);
+        g.sfr.executeFoTFloorHaircut();
+        assertEq(g.sfr.fotFloorHaircutBps(t), 500, "execute must apply");
+        assertEq(g.sfr.fotHaircutReadyAt(), 0, "pending must be cleared");
     }
 }

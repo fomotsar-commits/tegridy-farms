@@ -457,6 +457,10 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         are restricted to non-Uniswap-pair tokens (genuine "exotic / non-swappable
     ///         token" escape hatches).
     error UseConvertTokenFeesToETH();
+    /// @notice AUDIT TF-015: proposed haircut exceeds MAX_FOT_FLOOR_HAIRCUT_BPS.
+    error HaircutTooHigh();
+    /// @notice AUDIT TF-015: no pending haircut change, or outside its execution window.
+    error FoTHaircutChangeUnavailable();
     /// @notice AUDIT FIX 2026-05-26 [H-10 / L-06]: typed errors for setSwapFeeRouterAdmin
     ///         — distinct from `Unauthorized()` (semantic: caller lacks permission) and
     ///         `ZeroAddress()` (semantic: input is zero). Lets off-chain monitors
@@ -1505,6 +1509,75 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         Zero when no proposal is pending.
     uint256 public sweepETHReadyAt;
 
+    // --- AUDIT TF-015 - per-token FoT conversion-floor haircut (timelocked) ---
+    /// @notice Basis points deducted from the swap INPUT before the TWAP floor is sized,
+    ///         for `convertTokenFeesToETHFoT` only. A fee-on-transfer token delivers less
+    ///         than gross to the pair, so a floor priced on gross is unreachable for any
+    ///         FoT fee above TWAP_SAFETY_BPS (1.5%); real FoT tokens are 2-10%. With no
+    ///         haircut those fees have NO exit at all - `withdrawTokenFees` and
+    ///         `sweepTokens` both reject any token that has a WETH pair.
+    /// @dev    Governance sets it, so it is a quantity THE TOKEN CANNOT FORGE - unlike a
+    ///         pair `balanceOf` delta, which would put an attacker-influenced number under
+    ///         a floor on a PERMISSIONLESS entry point (SFR-H-01 reopened) and does not
+    ///         exist yet at floor-sizing time anyway, because the swap has not happened.
+    ///         Default 0 for every token, and 0 is an EXACT identity:
+    ///         `Math.mulDiv(x, BPS, BPS) == x`. Non-FoT tokens are untouched, no migration.
+    /// @dev    Storage: APPENDED after the last pre-existing state variable on purpose.
+    ///         `accumulatedTokenFees` must keep its slot - seven tests hardcode it for
+    ///         `vm.store`. Re-run `forge inspect ... storage-layout` before any deploy.
+    mapping(address => uint256) public fotFloorHaircutBps;
+    /// @notice Token of the pending haircut change. Zero when none is pending.
+    address public pendingFoTHaircutToken;
+    /// @notice Bps of the pending haircut change.
+    uint256 public pendingFoTHaircutBps;
+    /// @notice `block.timestamp` after which `executeFoTFloorHaircut` is callable.
+    uint256 public fotHaircutReadyAt;
+    /// @notice Hard cap, governance-immutable: raising it needs a redeploy. 10% covers the
+    ///         real FoT population and bounds what a captured owner can extract. It is also
+    ///         what makes `BPS - haircut` underflow-proof by construction. Re-derive if
+    ///         either constant moves.
+    uint256 public constant MAX_FOT_FLOOR_HAIRCUT_BPS = 1000;
+
+    event FoTFloorHaircutProposed(address indexed token, uint256 bps, uint256 readyAt);
+    event FoTFloorHaircutSet(address indexed token, uint256 oldBps, uint256 newBps);
+
+    /// @notice Propose a per-token FoT conversion-floor haircut.
+    /// @dev    Timelocked, NOT a one-line owner setter, deliberately. This is the only other
+    ///         lever on this contract that RELAXES the TWAP slippage floor, and the existing
+    ///         one (`proposeResetTWAPSnapshot`) carries a 7-day delay for exactly the stated
+    ///         reason - so a rare admin path cannot be quietly fired by a temporarily
+    ///         compromised owner key. Same floor, same delay, so the SAME constant.
+    ///         `setFee`/`setTreasury` hard-revert under the same house rule.
+    /// @dev    No `cancel`: re-proposing overwrites and always restarts the full delay, so
+    ///         overwrite can never shorten it, and an un-executed proposal is inert because
+    ///         `executeFoTFloorHaircut` is onlyOwner. One fewer function.
+    function proposeFoTFloorHaircut(address token, uint256 bps) external onlyOwner {
+        if (token == address(0)) revert ZeroAddress();
+        if (bps > MAX_FOT_FLOOR_HAIRCUT_BPS) revert HaircutTooHigh();
+        pendingFoTHaircutToken = token;
+        pendingFoTHaircutBps = bps;
+        fotHaircutReadyAt = block.timestamp + TWAP_SNAPSHOT_RESET_TIMELOCK;
+        emit FoTFloorHaircutProposed(token, bps, fotHaircutReadyAt);
+    }
+
+    /// @notice Execute a previously proposed haircut change after the delay.
+    /// @dev    7-day validity window once executable, mirroring `executeResetTWAPSnapshot`.
+    function executeFoTFloorHaircut() external onlyOwner {
+        uint256 readyAt = fotHaircutReadyAt;
+        if (readyAt == 0) revert FoTHaircutChangeUnavailable();
+        if (block.timestamp < readyAt) revert FoTHaircutChangeUnavailable();
+        if (block.timestamp > readyAt + 7 days) revert FoTHaircutChangeUnavailable();
+        address token = pendingFoTHaircutToken;
+        if (token == address(0)) revert ZeroAddress();
+        uint256 bps = pendingFoTHaircutBps;
+        uint256 old = fotFloorHaircutBps[token];
+        fotFloorHaircutBps[token] = bps;
+        pendingFoTHaircutToken = address(0);
+        pendingFoTHaircutBps = 0;
+        fotHaircutReadyAt = 0;
+        emit FoTFloorHaircutSet(token, old, bps);
+    }
+
     event SweepETHProposed(uint256 amount, uint256 readyAt);
     event SweepETHExecuted(uint256 amount);
     event SweepETHCancelled();
@@ -1736,7 +1809,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
             token,
             path,
             minETHOut,
-            deadline
+            deadline,
+            // AUDIT TF-015: the haircut rides as a SCALAR on this call and this call only.
+            // NOT a `Cfg` field: `Cfg` comes from the shared `_convertCfg()` that
+            // `convertTokenFeesToETH` also uses, and is consumed inside the shared
+            // `_enforceTWAPMinETHOut` - a field there would loosen the SFR-H-01 floor on the
+            // PERMISSIONLESS non-FoT path too. A parameter here physically cannot leak.
+            fotFloorHaircutBps[token]
         );
     }
 
