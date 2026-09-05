@@ -12,6 +12,7 @@
     "diff-addresses": "npx tsx scripts/diff-addresses.ts",
     "predeploy": "node scripts/predeploy-check.mjs",
     "verify-ownership": "node scripts/verify-ownership.mjs",
+  "verify-ladders": "node scripts/verify-ladder-builds.mjs",
     "oneshot-guard": "node scripts/oneshot-guard.mjs"
   },
   "devDependencies": {
