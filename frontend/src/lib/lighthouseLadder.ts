@@ -88,12 +88,17 @@ export const MIN_STAKE_RAW = 100n * 10n ** 18n;
  * gate that traps funds is a worse bug than the one it is guarding against.
  */
 export const C1_UNSAFE_LADDER_POOLS: readonly string[] = [
-  '0xdc0b34ce782029f30382f42097f6b33f0544329c', // PEPE  - ethereum
-  '0xdcc3a95a0921b83326157132b17770f02094c8e3', // QR    - base
-  '0x7288dbf43d3bdbfc439b6e8a47aef225d4816273', // MFER  - base
-  '0xe0a152ebc21891fd47a7dcd6018cfe3a64363178', // BNKR  - base
-  '0xb62bad165997e95c503044787b2dcc85dc6d83f1', // DRB   - base
-  '0xa0d43ef39c4940e68b2f81d51e6316a45c136d93', // JBM   - base
+  // EMPTIED 2026-09-05 — the six pre-fix ladders were REDEPLOYED and the registry
+  // repinned in this same change, which is the condition this list exists to wait
+  // for. Verified on-chain before emptying it: every new pool answers MIN_STAKE()
+  // with 100e18, and that function exists ONLY in the post-fix build — the old six
+  // revert on it. The old addresses are gone from addresses.json and bungalows.ts
+  // in this commit, so nothing can route a deposit at them any more.
+  //
+  // KEEP THIS LIST AND ITS TEST. If a ladder is ever found shipping bytecode its
+  // audit has not cleared, put the address here and deposits close again with no
+  // other change — the panel reads it, and the coverage test in
+  // lighthouseLadder.test.ts fails the moment a live ladder is not covered.
 ];
 
 /**

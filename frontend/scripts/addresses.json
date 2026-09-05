@@ -832,7 +832,7 @@
     },
     {
       "id": "ladder-pepe",
-      "address": "0xdC0B34cE782029f30382F42097f6b33F0544329c",
+      "address": "0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D",
       "role": "PEPE lighthouse LADDER — LighthouseLadder.sol on Ethereum mainnet, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, payouts capped at balance-minus-principal. Notifier = mainnet treasury Safe; no owner role exists.",
       "status": "live",
       "expect": {
@@ -1554,7 +1554,7 @@
     },
     {
       "id": "ladder-qr",
-      "address": "0xdcc3a95A0921b83326157132B17770f02094c8E3",
+      "address": "0x55B72f09d31f43834bf7Eba42f53a419a716F554",
       "role": "QR lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
       "expect": {
@@ -1563,7 +1563,7 @@
     },
     {
       "id": "ladder-mfer",
-      "address": "0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273",
+      "address": "0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6",
       "role": "MFER lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
       "expect": {
@@ -1572,7 +1572,7 @@
     },
     {
       "id": "ladder-bnkr",
-      "address": "0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178",
+      "address": "0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf",
       "role": "BNKR lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
       "expect": {
@@ -1581,7 +1581,7 @@
     },
     {
       "id": "ladder-drb",
-      "address": "0xB62BaD165997E95C503044787b2Dcc85DC6D83F1",
+      "address": "0x0aCB93fcFD5b1950D94064998017a2601b36D7bB",
       "role": "DRB lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
       "expect": {
@@ -1590,7 +1590,7 @@
     },
     {
       "id": "ladder-jbm",
-      "address": "0xA0D43eF39C4940e68b2f81d51E6316a45C136D93",
+      "address": "0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465",
       "role": "JBM lighthouse LADDER — LighthouseLadder.sol, 7d..4y locks at 0.4x..4.0x (TOWELI parity), 25% early-exit penalty retained in-pool, always-open emergency hatch, reward payouts capped at balance-minus-principal. Notifier = fee-remittance-safe; no owner role exists.",
       "status": "live",
       "expect": {
