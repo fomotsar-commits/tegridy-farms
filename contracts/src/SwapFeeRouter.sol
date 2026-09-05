@@ -1533,9 +1533,28 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     /// @notice `block.timestamp` after which `executeFoTFloorHaircut` is callable.
     uint256 public fotHaircutReadyAt;
     /// @notice Hard cap, governance-immutable: raising it needs a redeploy. 10% covers the
-    ///         real FoT population and bounds what a captured owner can extract. It is also
-    ///         what makes `BPS - haircut` underflow-proof by construction. Re-derive if
-    ///         either constant moves.
+    ///         real FoT population, and it is what makes `BPS - haircut` underflow-proof by
+    ///         construction. Re-derive if either constant moves.
+    ///
+    /// @dev    CORRECTED 2026-09-05. This used to say the cap "bounds what a captured owner
+    ///         can extract". It does not, and sizing key custody against that sentence would
+    ///         be a mistake. A captured owner does not need this lever at all:
+    ///         `executeResetTWAPSnapshot` deletes `lastConversionSnapshot[token]`, and
+    ///         `_enforceTWAPMinETHOut` then takes its bootstrap branch — owner-only,
+    ///         `effectiveMin = callerMinETHOut`, i.e. NO TWAP floor — so a hostile owner
+    ///         passes `minETHOut = 0` and takes up to 100%, on the SAME
+    ///         `TWAP_SNAPSHOT_RESET_TIMELOCK` this haircut uses. The cap bounds THIS LEVER
+    ///         only, to ~11.35% of TWAP-fair notional once it composes with
+    ///         `TWAP_SAFETY_BPS` (1.5%). What actually bounds a captured owner is key
+    ///         custody plus the untimelocked `pause()` / `guardianPause()`.
+    ///
+    ///         The cap's real job is the case that needs NO compromise: a token that
+    ///         behaves at 10% fee-on-transfer while the owner sizes the haircut to match,
+    ///         then drops its fee to zero or whitelists the router. Nothing re-validates the
+    ///         haircut against the token's live rate, so the floor is left sitting up to
+    ///         11.35% below what the pair now delivers. That is why the cap stays a
+    ///         governance-immutable ceiling rather than a dial, and why the haircut is
+    ///         opt-in per token with a default of 0.
     uint256 public constant MAX_FOT_FLOOR_HAIRCUT_BPS = 1000;
 
     event FoTFloorHaircutProposed(address indexed token, uint256 bps, uint256 readyAt);
