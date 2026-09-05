@@ -1895,3 +1895,80 @@ front-door fees reach ~1.25 ETH anyway, roughly 417 ETH of routed volume at 0.3%
 router address. Once a new router is live, the old balance is reachable only through the
 owner-gated `recoverCallerCreditFrom(oldSplitter)`. The standing note "wire it before deepening" is
 really *before redeploying*. This matters because TF-010 and TF-015 both land on a router redeploy.
+
+## What is left after the 2026-09-04 audit sweep
+
+The sweep closed TF-011, TF-012, TF-016, TF-043 and (in this change) TF-010 + TF-015. Nothing below
+is a known-exploitable hole in a live contract. It is the honest remainder: decisions, deploy-gated
+work, and things worth watching.
+
+### ⛔ Blocked on you — nobody else can do these
+
+| | What | Why it cannot be automated |
+| - | - | - |
+| **O1** | **Apply migrations 024 then 025** by hand in the Supabase SQL editor. Runbook above. | Needs the service-role credential. Never `supabase db push` — filename order runs 014 before 015 and publishes every user's rows. |
+| **O2** | **Call `recoverCallerCredit()`** — but only when the alert flips, and **before any router redeploy**. | It moves protocol funds and must be signed from hardware. No signing key belongs in CI. |
+
+**O2 has become time-ordered, which it was not before.** TF-010 and TF-015 land on a
+`SwapFeeRouter` redeploy. `ReferralSplitter.callerCredit` is keyed to the **router address**, so once
+a new router is live the old balance is reachable only through the owner-gated
+`recoverCallerCreditFrom`. Pull first, redeploy second.
+
+### ❓ Decisions only you can make
+
+- **D1 - TF-015 is OPEN, and the reason is worth reading.** The fix was designed, implemented and
+  then WITHDRAWN before commit, because its tests did not actually test it. Mutation **M9**
+  (`floorAmountIn` -> `swapAmount` at the FoT 2-hop call site) is *literally the pre-fix state*, and
+  the headline test `test_TF015_haircutMakesFoTConversionReachable` **passed under it**. So the test
+  suite could not tell the fixed contract from the broken one.
+  The root cause is the rig, not the fix: `_bootstrapPriced` performs an owner bootstrap conversion
+  with `minETHOut = 0`, which moves the pool, so the TWAP-derived floor the second conversion faces
+  sits well below spot and never binds. With a non-binding floor, neither the gross-sizing bug nor
+  its correction is observable.
+  **To reopen it:** build a rig where the TWAP floor demonstrably binds (assert the floor value
+  itself, not just that the call reverted), then re-apply the design - it is recorded in full in the
+  PR that ships TF-010. Until then, fee-on-transfer token fees remain stranded, which is the status
+  quo rather than a regression, and no new governance lever exists.
+- **D2 - if TF-015 is revived, it adds a lever that does not exist today.** The withdrawn design put
+  a per-token `fotFloorHaircutBps` behind a 7-day timelock, capped at 1000 bps. That still lets a
+  patient compromised owner loosen the sandwich floor on any token routed through
+  `convertTokenFeesToETHFoT`, including a plain ERC20 - bounded, delayed, and strictly weaker than
+  the existing reset-then-bootstrap route which removes the floor entirely on the same delay. The
+  cap is a constant: trivial to change before a deploy, impossible after.
+- **D3 - the owner's bootstrap conversion still has no ETH floor but the one they type.** The owner
+  conjunct in `_enforceMinETHValue` preserves today's behaviour exactly; it does not worsen it.
+  Flooring the bootstrap too would red six audit-pinned tests and could permanently strand a token
+  whose first pile is genuinely small. Separate change-set if you want it.
+
+### 🚀 Deploy-gated — correct in source, not yet on chain
+
+- **P1 — `SwapFeeRouter` + `SwapFeeRouterConvertLib` redeploy** carries TF-010 and TF-015. The
+  library is **link-time delegatecall**, its address baked into the router bytecode at two offsets,
+  so both must be redeployed together. `SwapFeeRouterAdmin` is forced too (its constructor takes the
+  router address). Before the ceremony:
+  - `forge inspect src/SwapFeeRouter.sol:SwapFeeRouter storage-layout` and confirm
+    `accumulatedTokenFees` has not moved — **seven** existing tests hardcode its slot for `vm.store`.
+  - `forge build --sizes` against EIP-170. Baseline was 21,531 B (3,045 B headroom).
+  - `MIN_TOKEN_FEE_FOR_CONVERSION()` **disappears from the ABI.** Nothing on- or off-chain was found
+    to read it — re-check any dashboard before you deploy.
+  - Do O2 first (see above).
+- **P2 — `POLAccumulator` redeploy** carries TF-011's fee-netting. Live and not upgradeable.
+- **P3 — first deploy of `LaunchRugEscrow`** carries TF-012's two fixes.
+- **P4 — first deploy of `DecayingFeeHook`** is constrained by TF-016: the owner Safe must open the
+  pool itself, and steps 1-3 must go as ONE MultiSend batch. See the TF-016 bullet above.
+
+### 👀 Worth watching, not blocking
+
+- **W1 — Slither now analyses `contracts/src/lib/`** for the first time. `filter_paths` was
+  unanchored and silently excluded all nine files there; anchoring it took findings 323 → 345 and
+  Medium 3 → 4. The gate is `fail-on: medium`. When a red appears on a branch touching that
+  directory, **diff the findings against a trunk run before believing it is yours.**
+- **W2 — TF-010 lowers the permissionless conversion bar** from "1 whole token" to ">= 1e14 wei of
+  value (~$0.30)". More conversions will happen, so more sandwich *opportunities* exist — each still
+  TWAP-floored and rate-limited by the 1h cooldown. This is the point of the finding, but it is a
+  real change to keeper economics; watch the first weeks after P1.
+- **W3 — `convertTokenFeesToETHFoT` had ZERO tests before this change.** Eleven now exist. If you
+  extend that function, extend them: the FoT mock must genuinely shrink what reaches the pair, or
+  the gross-floor bug is untested and the suite will still be green.
+- **W4 — the 640-790px viewport dead band** still has no reachable Connect control and no nav
+  fallback. Unrelated to this sweep; still open.
