@@ -48,12 +48,22 @@ import { AUDITABLE_ROUTES, gotoNakamigos, gotoRoute, navigablePath } from '../e2
  * quietly becomes wrong. CodeQL failed this PR on exactly that, correctly.
  */
 const NOISE_HOSTS: readonly { host: string; why: string }[] = [
-  // 46 of 64 routes. `connect-src` DOES allow api.geckoterminal.com, so this is
-  // not the CSP — it is the upstream refusing the browser origin, which is what a
-  // rate-limited response looks like from a host that omits CORS headers on
-  // errors. `?resource=pool-market` is the intended fix and today covers only
-  // usePoolMarket; /trades, /ohlcv and /simple/token_price still go direct.
-  { host: 'geckoterminal.com', why: 'GeckoTerminal browser-direct reads refused in prod — proxy migration incomplete' },
+  // 46 of 64 routes log `blocked by CORS policy` -> net::ERR_FAILED for
+  // /trades, /ohlcv/* and /simple/networks/*/token_price.
+  //
+  // ⚠️ IT IS RATE LIMITING, NOT A CORS POLICY, and an earlier version of this
+  // comment had it wrong. `connect-src` in vercel.json allows the host, AND the
+  // upstream answers `200` with `access-control-allow-origin: *` for all three
+  // of those exact paths when curled (measured 2026-09-05). What the browser
+  // reports as CORS is a 429 whose ERROR response omits the ACAO header — the
+  // header is present on success and absent on throttle, so a throttled read is
+  // indistinguishable from a blocked one from inside the page.
+  //
+  // That inverts the obvious fix: a bare proxy would put every visitor's reads
+  // on ONE Vercel egress IP and exhaust the keyless budget FASTER. Only a
+  // CACHING proxy helps, because it collapses N visitors into one upstream call.
+  // ZERO GeckoTerminal reads are proxied on trunk today — 8 direct call sites.
+  { host: 'geckoterminal.com', why: 'GeckoTerminal keyless rate limit under burst — needs a CACHING proxy, not a bare one' },
   // The RPC ranker pings every endpoint in the roster on boot; the losers answer
   // 4xx and that is the ranker working, not a page failing.
   { host: 'drpc.org', why: 'RPC roster ranking pings — reference_viem_rank_ping_storm' },

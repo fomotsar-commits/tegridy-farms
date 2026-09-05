@@ -73,12 +73,109 @@ fee-remittance Safe `0xfc5D…fbf1`; no owner role exists): QR, MFER, BNKR, DRB,
 JBM. Solana (Streamflow, 1→365d ladder ramping 1.00x→5.00x): BAYLA, BOBO, SOY,
 BRAINLET, RIZZ. Every reward vault is EMPTY and every card says so.
 
-**⬜ THE ONLY DEPLOY LEFT — PEPE on Ethereum mainnet** (~$5-15 gas; the L2-set
-Safes hold no mainnet code, so the notifier is the mainnet treasury Safe):
+**🔴 ⬜ REDEPLOY ALL SIX EVM LADDERS — C1.** `docs/LIGHTHOUSE_AUDIT_2026_09_01.md`
+proved rewards are payable out of other stakers' principal. The SOURCE is fixed
+(`LighthouseLadder.sol:350` `withdrawPosition` and `:367` `earlyExit` now call
+`_payRewards` before `_close`); the six LIVE pools still carry pre-fix bytecode.
+**Exposure is zero only while they stay unstaked** — all six read
+`totalSupply() == 0`. That is the whole window.
+
+> ⚠️ **The command that used to sit here named `DeployLighthouseStaking.s.sol`.**
+> That is the SUPERSEDED vendored-Synthetix contract whose own header (`:21`,
+> `:37`) says "reward payouts spend other stakers' principal" — i.e. following
+> the old runbook deployed the C1 bug again. The correct script is
+> **`DeployLighthouseLadder.s.sol`**. It deploys ONE pool per invocation from
+> three env vars, so this is **six separate gas-spending broadcasts**.
+>
+> ⚠️ **Never put `--private-key` on a PowerShell command line** — it is written
+> verbatim to `ConsoleHost_history.txt`. Use `--interactive`, or a
+> `cast wallet` keystore.
+
+**PHASE A — preflight, no gas.** Stop if any step disagrees.
 
 ```powershell
-cd "C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\contracts"; $env:EXPECTED_CHAIN_ID='1'; $env:REWARDS_DISTRIBUTION='0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d'; $env:STAKING_TOKEN='0x6982508145454ce325ddbe47a25d4ec3d2311933'; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployLighthouseStaking.s.sol --rpc-url https://ethereum-rpc.publicnode.com --broadcast --private-key "0xYOUR_KEY"
+cd "C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\contracts"
+& "C:\Users\jimbo\.foundry\bin\forge.exe" test --match-path "test/vendor/*Ladder*.t.sol"
+cd "C:\Users\jimbo\OneDrive\Desktop\tegriddy farms"
+node scripts/verify-ladder-builds.mjs --self-test
+node scripts/verify-ladder-builds.mjs
 ```
+
+Note the path: the script is at **repo-root `scripts/`**, not `frontend/scripts/`
+— that is what `.github/workflows/registry-onchain.yml:188` runs.
+
+**What it actually prints today (measured 2026-09-05):** PEPE reads
+`prefix / replaceable`, and **the five Base pools read `UNREADABLE — eth_call
+failed (transport)`**, so it reports only "1 of 6 are still inert". That is a
+GUARD bug, not a chain fact — **PR #424 is the fix in flight.** Until it lands,
+the guard cannot clear Base, so confirm those five yourself:
+
+```powershell
+$pools = @{ QR='0xdcc3a95A0921b83326157132B17770f02094c8E3'; MFER='0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273'; BNKR='0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178'; DRB='0xB62BaD165997E95C503044787b2Dcc85DC6D83F1'; JBM='0xA0D43eF39C4940e68b2f81d51E6316a45C136D93' }
+foreach ($k in $pools.Keys) {
+  $body = @{ jsonrpc='2.0'; id=1; method='eth_call'; params=@(@{ to=$pools[$k]; data='0x18160ddd' }, 'latest') } | ConvertTo-Json -Depth 5 -Compress
+  $r = Invoke-RestMethod -Uri 'https://mainnet.base.org' -Method Post -ContentType 'application/json' -Body $body
+  "{0,-5} totalSupply = {1}" -f $k, $r.result
+}
+```
+
+**Every one must be all zeroes.** Measured 2026-09-05: all five returned
+`0x000…000`, and PEPE is `replaceable` — so all six are unstaked and this is a
+REPLACEMENT, not a migration. **Re-run it immediately before Phase B**, because
+the window closes the moment anyone stakes. A non-zero result on any pool means
+STOP: that pool now holds someone's principal and needs a migration plan.
+
+**PHASE A2 — dry run each pool (no `--broadcast`, costs nothing).** This
+exercises every `_validate` gate, including the decimals assumption:
+
+```powershell
+cd "C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\contracts"; $env:EXPECTED_CHAIN_ID='8453'; $env:REWARDS_DISTRIBUTION='0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1'; $env:STAKING_TOKEN='0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf'; & "C:\Users\jimbo\.foundry\bin\forge.exe" script script/DeployLighthouseLadder.s.sol --rpc-url https://mainnet.base.org
+```
+
+**PHASE B — deploy. SPENDS GAS. IRREVERSIBLE.** Each broadcast creates a
+permanent address with an **immutable** `rewardsDistribution` — there is no
+setter and no undo. Do **QR first** as the cheap rehearsal, then the other four
+Base pools, then PEPE on mainnet last. Add `--broadcast --interactive` to the
+Phase A2 line, changing only `STAKING_TOKEN`:
+
+| # | Pool | Chain | `STAKING_TOKEN` | replaces `stakePool` |
+|---|------|-------|-----------------|----------------------|
+| 1 | QR   | Base 8453 | `0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf` | `0xdcc3a95A0921b83326157132B17770f02094c8E3` |
+| 2 | MFER | Base 8453 | `0xe3086852a4b125803c815a158249ae468a3254ca` | `0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273` |
+| 3 | BNKR | Base 8453 | `0x22af33fe49fd1fa80c7149773dde5890d3c76f3b` | `0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178` |
+| 4 | DRB  | Base 8453 | `0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2` | `0xB62BaD165997E95C503044787b2Dcc85DC6D83F1` |
+| 5 | JBM  | Base 8453 | `0x3313338fe4bb2a166b81483bfcb2d4a6a1ebba8d` | `0xA0D43eF39C4940e68b2f81d51E6316a45C136D93` |
+| 6 | PEPE | Ethereum 1 | `0x6982508145454ce325ddbe47a25d4ec3d2311933` | `0xdC0B34cE782029f30382F42097f6b33F0544329c` |
+
+Base rows use `EXPECTED_CHAIN_ID='8453'`,
+`REWARDS_DISTRIBUTION='0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1'`,
+`--rpc-url https://mainnet.base.org`. PEPE uses `EXPECTED_CHAIN_ID='1'`,
+`REWARDS_DISTRIBUTION='0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d'`,
+`--rpc-url https://ethereum-rpc.publicnode.com`.
+
+If `L-INV-11` / `L-INV-12` revert, the build is pre-fix: **abandon that
+contract and rebuild — do not repin it.**
+
+**PHASE C — repin, in this order, no gas.** Hand the printed addresses to the
+agent; it derives EIP-55 with `getAddress(addr.toLowerCase())`, **never
+hand-typed** (a hand-typed checksum silently broke four Base cards on
+2026-08-30). Order matters — `bungalows.ts` is what the CI gate parses:
+
+1. `frontend/src/lib/bungalows.ts` — the six `stakePool` values (`:334-340`).
+2. `frontend/scripts/addresses.json` — the `ladder-*` address fields; flip the
+   superseded entries to `"status": "retired"` with a reason, don't delete them.
+3. `frontend/src/lib/bungalows.test.ts:283-289`.
+4. **Leave `frontend/src/lib/lighthouseLadder.ts` `C1_UNSAFE_LADDER_POOLS`
+   ALONE** — it is keyed by address and self-lifts on repin. Clearing it by hand
+   would un-freeze the abandoned pools.
+
+**Why C1 cannot be proven directly on-chain:** the fix is a pure statement
+reorder — no selector change, no readable value. But the C1 commit `4164294c` is
+an ancestor of the `MIN_STAKE` dust-floor commit `3cba6608`, so an on-chain
+`MIN_STAKE() == 100e18` transitively proves the ordering fix is in the deployed
+bytecode. That is exactly what `verify-ladder-builds.mjs` gates on, and why
+"registry vs chain" in `.github/workflows/registry-onchain.yml` is the check
+that closes this out.
 
 Hand the printed address to the agent: it derives the EIP-55 form with
 `getAddress(addr.toLowerCase())` — NEVER hand-typed, since a hand-typed
