@@ -20,6 +20,7 @@ import { isIndexerConfigured } from './indexer/client';
 import { loadLocalRules } from './alerts/ruleStore';
 import { evaluableRuleKinds } from './alerts/sources';
 import { PAYMENT_LINK_CHAIN_IDS } from './commerce/settleTokens';
+import { deployedCurveChains } from './launcher/curveChains';
 // The route table, which src/test/a11yRouteCoverage.test.ts holds equal to src/App.tsx.
 // Used here as the already-verified answer to "is this path reachable by URL at all",
 // so the assertions below can tell "routed but not promoted" apart from "not routed".
@@ -268,6 +269,110 @@ describe('navConfig', () => {
   // fact read out of constants.ts. Reachable-by-URL-only is the state a surface earns while
   // 100% dark — the same CREDIBILITY GATING rule at the top of navConfig.ts — so promoting
   // either one is a deliberate act that has to delete this test first.
+  // ───────────── THE 2026-09-04 CONDENSATION ─────────────
+  // The dropdown listed twenty-one rows under six headings. Four sections now
+  // carry a `hub` and render as ONE row each, their items becoming the tab strip
+  // on the page that row opens. These pin the properties that make that safe;
+  // every one of them fails on the pre-change file, where no section had a hub.
+
+  it('condenses the More menu to one row per collapsed section', () => {
+    const rows = MORE_NAV_SECTIONS.reduce((n, s) => n + (s.hub ? 1 : s.items.length), 0);
+    // The whole point: fewer rendered rows than destinations. Un-collapse every
+    // section and the two are equal again, and this fails.
+    expect(rows, 'nothing was condensed - every section still renders one row per item').toBeLessThan(
+      MORE_NAV.length,
+    );
+    // Not a literal count (entries are gated, so the total moves): the claim is
+    // that the menu stays scannable at a glance.
+    expect(rows).toBeLessThanOrEqual(10);
+  });
+
+  it('opens every collapsed section on its own first tab', () => {
+    const collapsed = MORE_NAV_SECTIONS.filter((s) => s.hub);
+    expect(collapsed.map((s) => s.heading)).toEqual(['Launch', 'Earn', 'Stats', 'Trust & Safety']);
+    for (const s of collapsed) {
+      // SectionHost lands on items[0]. A hub pointing anywhere else opens the
+      // page with a tab highlighted that the visitor did not click.
+      expect(s.hub, `${s.heading}'s hub must be its own first item`).toBe(s.items[0]?.to);
+    }
+  });
+
+  it('gives every collapsed section a tab strip that fits and has no two tabs alike', () => {
+    for (const s of MORE_NAV_SECTIONS.filter((x) => x.hub)) {
+      const shown = s.items.map((i) => i.tabLabel ?? i.label);
+      for (const t of shown) {
+        expect(t.length, `"${t}" is too long for a tab in the ${s.heading} strip`).toBeLessThanOrEqual(20);
+        expect(t.length).toBeGreaterThan(0);
+      }
+      // Two tabs reading the same thing is unusable, and it is exactly what a
+      // careless `tabLabel` produces — "Memetics Curve" on both curve entries,
+      // say. `label` disambiguates them; the shorthand has to as well.
+      expect(new Set(shown).size, `duplicate tab labels in the ${s.heading} strip`).toBe(shown.length);
+    }
+  });
+
+  // `tabLabel` is a display shorthand for the tab strip and must never be
+  // mistaken for a rename: `label` is the canonical name, and e2e specs plus
+  // lib/yield/surface.test.ts pin it.
+  it('never lets a tabLabel replace the canonical label', () => {
+    for (const item of MORE_NAV) {
+      expect(item.label.length, `${item.to} has no canonical label`).toBeGreaterThan(0);
+      if (item.tabLabel !== undefined) {
+        expect(item.tabLabel, `${item.to}'s tabLabel just restates its label`).not.toBe(item.label);
+      }
+    }
+  });
+
+  // THE FINDABILITY BUG, 2026-09-04. This entry read 'Memetics Curve (EVM)' with
+  // `soon`/`live` keyed to the MAINNET address alone, while the launcher has been
+  // live on Base and Robinhood Chain since 2026-08-25. "(EVM)" is not a string
+  // anyone hunting for the Robinhood launcher would type, and the operator's
+  // report was exactly that: they could not find it.
+  it('names every chain the curve is deployed on, so each launcher is findable by name', () => {
+    const chains = deployedCurveChains();
+    // PRECONDITIONS FIRST, so removing a deployment fails here — naming the real
+    // cause — instead of surfacing as a confusing label assertion below.
+    expect(
+      chains.map((c) => c.chainId),
+      'the curve rail must still be deployed on Robinhood Chain (4663) for this entry to name it',
+    ).toContain(4663);
+    expect(chains.length, 'a single-chain rail has nothing to enumerate').toBeGreaterThan(1);
+
+    const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
+    for (const c of chains) {
+      expect(entry?.label, `the menu never names the ${c.name} launcher`).toContain(c.name);
+    }
+  });
+
+  it('pills /eth-curve on whether the curve launches ANYWHERE, not just on mainnet', () => {
+    const chains = deployedCurveChains();
+    const entry = ALL_NAV.find((n) => n.to === '/eth-curve');
+    expect(entry?.live, 'a launcher that launches must not be missing its LIVE pill').toBe(true);
+    expect(entry?.soon, 'a launcher that launches must never read as SOON').toBe(false);
+
+    // ⚠️ THE TWO ASSERTIONS ABOVE DO NOT, ON THEIR OWN, PROVE THE FIX. The old
+    // expression was `isDeployed(CURVE_LAUNCHER_ADDRESS)` — mainnet alone — and
+    // mainnet IS deployed today, so both of them passed before this change and
+    // would pass again if someone reverted it. They pin the OUTCOME; what
+    // follows pins the INPUT, which is the part that was wrong.
+    const nonMainnet = chains.filter((c) => c.chainId !== 1);
+    expect(
+      nonMainnet.map((c) => c.chainId),
+      'precondition: the curve must be live somewhere other than mainnet for this to mean anything',
+    ).toContain(4663);
+
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'navConfig.ts'), 'utf8');
+    expect(source.length, 'navConfig.ts could not be read').toBeGreaterThan(1000);
+    const start = source.indexOf("to: '/eth-curve'");
+    expect(start, "the /eth-curve entry is not where this guard looks").toBeGreaterThan(-1);
+    const entrySource = source.slice(start, source.indexOf('},', start));
+    expect(entrySource, 'the pill must read the registry, not one chain').toContain('isCurveLive()');
+    expect(
+      entrySource,
+      'a mainnet-only address cannot answer "can I launch?" for a three-chain rail',
+    ).not.toContain('CURVE_LAUNCHER_ADDRESS');
+  });
+
   it('leaves /airdrop and /vesting reachable by URL but out of the nav', () => {
     const routed = ROUTES.map((r) => r.path);
     const promoted = ALL_NAV.map((n) => n.to);

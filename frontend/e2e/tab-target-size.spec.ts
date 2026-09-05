@@ -18,7 +18,22 @@ import { gotoRoute } from './fixtures/routes';
 const IPHONE_390 = { width: 390, height: 844 };
 const FLOOR = 44;
 
-for (const path of ['/community', '/nft-finance']) {
+// /trust and /launch are the 2026-09-04 SectionHost strips — seven tabs and four,
+// the primary way to move around the two biggest collapsed sections. They are
+// listed here because the markup they share (components/layout/RouteTabs.tsx) was
+// extracted from three hosts that all shipped a flat 40px, i.e. under this floor;
+// without a case here the new strips would have inherited that silently onto
+// nineteen routes.
+//
+// /lore, /contracts and /leaderboard are those three hosts — LearnPage, InfoPage
+// and ActivityPage. RouteTabs was extracted FROM them and then left them behind,
+// so for one change-set the app shipped the 44px floor on the four new strips and
+// the old flat 40px on the three originals: the same defect this file was written
+// for, on the surfaces it was copied from. They now render RouteTabs too, and
+// these three cases are what stops that from silently regressing. They fail on
+// the pre-migration files — each host's own `min-h-[40px]` button class is about
+// 4px under the floor at this viewport.
+for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/leaderboard']) {
   test(`${path} section tabs clear the 44px touch floor at 390px`, async ({
     page,
     walletMock: _w,

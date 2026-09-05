@@ -14,8 +14,13 @@ permissions:
   contents: read
 
 concurrency:
+  # PRs cancel their own superseded runs; TRUNK RUNS MUST FINISH. On a push to
+  # main/mvp-launch every merge shares one group, so cancel-in-progress:true made
+  # each merge kill the previous run -- and trunk is the branch that deploys.
+  # Measured 2026-09-04: six consecutive trunk commits with 5-9 cancelled checks
+  # each and as few as 0 successes. Cancelled is not red, so it reads as fine.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   analyze:
@@ -37,7 +42,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -47,9 +52,9 @@ jobs:
           config-file: .github/codeql-config.yml
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/autobuild@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
 
       - name: Perform analysis
-        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: "/language:${{ matrix.language }}"

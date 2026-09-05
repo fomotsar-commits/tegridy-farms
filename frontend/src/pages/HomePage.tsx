@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { artSrcSet } from '../lib/artSrcSet';
 import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -748,7 +749,11 @@ export default function HomePage() {
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
-                    <img src={f.art.src} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
+                    {/* RESPONSIVE, 2026-09-04: a ~247px card fed from sources up
+                        to 2000px wide. No srcSet when the source has no derivative. */}
+                    <img src={f.art.src} alt=""
+                      {...(artSrcSet(f.art.src) ? { srcSet: artSrcSet(f.art.src), sizes: '(max-width: 640px) 50vw, 260px' } : {})}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
                     <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>
@@ -832,7 +837,11 @@ export default function HomePage() {
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to={f.to} className="block group relative rounded-xl overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
                   <div className="absolute inset-0">
-                    <img src={f.art.src} alt="" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
+                    {/* RESPONSIVE, 2026-09-04: a ~247px card fed from sources up
+                        to 2000px wide. No srcSet when the source has no derivative. */}
+                    <img src={f.art.src} alt=""
+                      {...(artSrcSet(f.art.src) ? { srcSet: artSrcSet(f.art.src), sizes: '(max-width: 640px) 50vw, 260px' } : {})}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" style={artStyle(f.art)} />
                   </div>
                   <div className="relative z-10 p-6 min-h-[220px] flex flex-col">
                     <h3 className="heading-luxury text-[17px] text-white mb-2 group-hover:text-white transition-colors" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{f.title}</h3>
@@ -1007,7 +1016,15 @@ export default function HomePage() {
                 viewport={{ once: true, margin: '-50px' }} transition={{ delay: i * 0.15, type: 'spring', damping: 20, stiffness: 100 }}>
                 <Link to="/gallery" className="block group">
                   <div className="rounded-xl aspect-square relative overflow-hidden glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
+                    {/* RESPONSIVE, 2026-09-04: a square gallery tile ~247px on
+                        desktop, fed from sources up to 2000px wide. Explicit
+                        `sizes` because the slot IS known — a grid cell — and an
+                        explicit value works everywhere, unlike `sizes=auto`.
+                        No srcSet when the source has no derivative. */}
                     <img src={piece.src} alt={piece.title}
+                      {...(artSrcSet(piece.src)
+                        ? { srcSet: artSrcSet(piece.src), sizes: '(max-width: 640px) 50vw, 260px' }
+                        : {})}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/35 transition-all flex items-end">
                       <div className="w-full p-3 opacity-0 group-hover:opacity-100 transition-opacity"

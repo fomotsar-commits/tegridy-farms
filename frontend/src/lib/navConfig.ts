@@ -9,12 +9,15 @@ import {
   VOTE_INCENTIVES_ADDRESS,
   GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
-  CURVE_LAUNCHER_ADDRESS,
 } from './constants';
 import { isSolanaSwapLive } from './solana';
 import { getActiveBungalow } from './bungalows';
 import { hasRoutableYieldVenue } from './yield/venues';
 import { isLauncherEnabled } from './launcher/config';
+// The curve rail is deployed on three chains, not one. Both the label and the
+// pill on the /eth-curve entry below read this registry-derived list rather than
+// the mainnet address constant they used to key on — see that entry's comment.
+import { curveChainNames, isCurveLive } from './launcher/curveChains';
 // The four predicates below replaced `isIndexerConfigured` on their entries when
 // those surfaces stopped depending on the unhosted Ponder indexer. Each is pure,
 // side-effect-free at import, and reads config this build already carries — a
@@ -39,6 +42,16 @@ import { hasPaymentLinkChain } from './commerce/settleTokens';
 export interface NavItem {
   to: string;
   label: string;
+  /**
+   * Shorter label used when this entry is rendered as a TAB on its section's
+   * host page (see SectionHost.tsx) instead of as a menu row. Defaults to
+   * `label`. It exists because the two contexts have different budgets: a
+   * dropdown row can afford "Memetics Curve — Ethereum · Base · Robinhood
+   * Chain", a tab in a seven-wide strip cannot. `label` stays the canonical
+   * name — e2e specs and lib/yield/surface.test.ts pin it — so a tab rename can
+   * never quietly rename the destination.
+   */
+  tabLabel?: string;
   /**
    * Renders a small amber "Soon" pill beside the label. For destinations that
    * are routable and worth discovering but are still flag-gated shut — the
@@ -156,19 +169,71 @@ export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Marketplace' };
 export interface NavSection {
   heading: string;
   items: NavItem[];
+  /**
+   * COLLAPSED SECTION (2026-09-04). When set, the "More" menu renders ONE row
+   * for this whole section — the heading, linking here — and the section's
+   * items become the tab strip on the page at that route (SectionHost.tsx).
+   *
+   * `hub` must be the FIRST item's `to`. That is not decoration: the host's
+   * landing tab is `items[0]`, so a hub pointing anywhere else would open the
+   * menu entry on a page whose tab bar highlights something the visitor did not
+   * click. hubIntegrity in navConfig.test.ts pins the two together.
+   *
+   * NOTHING IS DROPPED BY COLLAPSING. Every item keeps its `to`, its `label`
+   * and its SOON/LIVE pill, keeps its own route in App.tsx, and keeps rendering
+   * standalone from a deep link — the tab strip is added above it, not swapped
+   * in for it. MORE_NAV and ALL_NAV still flatten every item, so the
+   * completeness and no-duplicate assertions below still see the full set.
+   *
+   * A section with no `hub` renders the old way: heading, then one row per item.
+   */
+  hub?: string;
+
+  /**
+   * THIS SECTION IS ALREADY IN THE TOP BAR (2026-09-04). When set, the "More"
+   * menu renders NOTHING for this section — no heading, no rows — because its
+   * destination is one click away in PRIMARY_NAV and repeating it in the
+   * dropdown is pure noise. The items are not dropped: they become the tab
+   * strip on that primary page, exactly as a `hub` section's items do.
+   *
+   * WHY THIS IS NOT JUST `hub`. A `hub` section still costs one dropdown row.
+   * Trade does not deserve even that: "Trade" sits in the top bar at every
+   * width, so a "Trade" row in the menu underneath it is the same link twice.
+   *
+   * NOTE THE ITEMS STAY SECONDARY. The primary page's own entry is NOT added
+   * here — PRIMARY_NAV already owns that path, and ALL_NAV asserts no path
+   * appears twice. The host composes [primary entry, ...items] for its strip.
+   */
+  inPrimaryNav?: boolean;
 }
 
 /**
- * "More" dropdown / drawer — curated secondary destinations. A short set of
- * grouped sections (Engage / Stats) keeps the menu scannable on both desktop
- * and mobile from a single source of truth. Some entries are gated
- * (Community appears only when a governance contract is live), so the rendered
- * counts vary. Pages merged into tabbed hosts (LearnPage covers
- * Tokenomics/Lore/Security/FAQ; ActivityPage covers Leaderboard/Gold Card/
- * History/Changelog; InfoPage covers Treasury/Contracts/Risks/Terms/Privacy)
- * have one representative entry each so the menu stays flat instead of
- * listing every tab. Lore/FAQ/Security/Gold Card/History/Changelog remain
- * reachable via the Footer and direct URLs.
+ * "More" dropdown / drawer — curated secondary destinations, grouped into
+ * sections so the menu is scannable on desktop and mobile from a single source
+ * of truth. Some entries are gated (Community appears only when a governance
+ * contract is live), so the rendered counts vary.
+ *
+ * 🔻 CONDENSED 2026-09-04, on the operator's report that the dropdown "has too
+ * much going on". It listed twenty-one rows under six headings; Trust & Safety
+ * alone was seven of them, which is more links than the entire primary nav.
+ *
+ * FOUR SECTIONS NOW CARRY `hub` and render as ONE row each — Launch, Earn,
+ * Stats, Trust & Safety — and their items become the tab strip on the page that
+ * row opens (SectionHost.tsx). Nine rows instead of twenty-one. Discover and
+ * Trade are short enough already and stay expanded.
+ *
+ * THE ITEMS DID NOT MOVE AND NOTHING WAS DELETED. Every `to`, every `label`,
+ * every gating expression and every comment below is exactly where it was: the
+ * change is four `hub:` lines, some `tabLabel:` shorthands, and a different
+ * renderer in TopNav.tsx. That matters here — this repo's e2e specs pin nav
+ * LABELS and have gone red twice on rename waves — and it is why MORE_NAV /
+ * ALL_NAV are unchanged in shape and navConfig.test.ts needed no rewrite.
+ *
+ * Pages that were ALREADY merged into tabbed hosts keep one representative
+ * entry each (ActivityPage covers Leaderboard/Gold Card/History/Changelog;
+ * LearnPage covers Lore/Security/FAQ; InfoPage covers
+ * Contracts/Risks/Terms/Privacy) so the menu never lists a tab twice. Those
+ * tabs stay reachable via the Footer and direct URLs.
  */
 export const MORE_NAV_SECTIONS: NavSection[] = [
   {
@@ -201,6 +266,13 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Trade',
+    // HIDDEN FROM THE MENU 2026-09-04, not deleted. "Trade" is in PRIMARY_NAV at
+    // every width, so a Trade heading with two rows under it in the dropdown was
+    // the top bar repeated. These two become tabs on the trade page instead —
+    // TradeHostPage composes them with the primary entry. Solana was already
+    // reachable there via ChainSwitch; /pools was the one that would have been
+    // orphaned, which is why it is in the strip and not merely delisted.
+    inPrimaryNav: true,
     items: [
       ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
       // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
@@ -216,8 +288,11 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Launch',
+    // COLLAPSED: one "Launch" row in the menu; these four are the tab strip on
+    // the page it opens. See the `hub` doc on NavSection.
+    hub: '/launch',
     items: [
-      { to: '/launch',      label: 'Launch', soon: !isLauncherEnabled() },
+      { to: '/launch',      label: 'Launch', tabLabel: 'Launchpad', soon: !isLauncherEnabled() },
       // ── /solana-launch REMOVED 2026-08-23 ────────────────────────────────
       // The Meteora DBC leg lived here. It was retired because it graduated into
       // Meteora DAMM v2 — a pool this protocol does not own and could not own
@@ -243,14 +318,37 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // DISPLAY NAME ONLY — the route and the TegridyCurveLauncher contract are
       // unchanged. The two lines above are HISTORY and keep the old name on
       // purpose: they record what the label was renamed FROM in August.
-      { to: '/curve-launch', label: 'Memetics Curve (Solana)', soon: true },
+      { to: '/curve-launch', label: 'Memetics Curve (Solana)', tabLabel: 'Solana Curve', soon: true },
       // Our OWN EVM curve (TegridyCurveLauncher) — zero-toll, graduate-to-us, no
-      // Airlock/petition. `soon` clears itself the moment CURVE_LAUNCHER_ADDRESS
-      // is filled from the deploy (M.16); no flag, same live-read discipline as
-      // the entries above.
-      { to: '/eth-curve', label: 'Memetics Curve (EVM)', soon: !isDeployed(CURVE_LAUNCHER_ADDRESS), live: isDeployed(CURVE_LAUNCHER_ADDRESS) },
+      // Airlock/petition.
+      //
+      // 🔧 2026-09-04 — THIS ENTRY NAMED ONE CHAIN AND GATED ON ONE CHAIN, AND
+      // THE RAIL IS ON THREE. It read `label: 'Memetics Curve (EVM)'` with
+      // `soon`/`live` both keyed to `isDeployed(CURVE_LAUNCHER_ADDRESS)` — the
+      // MAINNET constant. But the curve has been live on Base (8453) and
+      // Robinhood Chain (4663) since 2026-08-25 (both addresses are in
+      // chains/registry.ts, read-back verified), and "(EVM)" is not a string
+      // anybody searching for the Robinhood launcher would ever type. The
+      // operator's report was exactly that: the Base and Robinhood launchers
+      // are not named anywhere, and the Robinhood one cannot be found at all.
+      //
+      // Both halves now come from `deployedCurveChains()` over the same registry
+      // the page reads, so the label ENUMERATES the live chains and the pill
+      // answers the question it claims to ("can I launch?") across all of them
+      // rather than for mainnet only. A fourth deployment names itself here; the
+      // last one being removed puts SOON back. `tabLabel` keeps the tab strip
+      // short — the chains are named again, at full width, by the chain picker
+      // at the top of /eth-curve, which is the control that actually switches
+      // them.
+      {
+        to: '/eth-curve',
+        label: isCurveLive() ? `Memetics Curve (${curveChainNames()})` : 'Memetics Curve (EVM)',
+        tabLabel: 'Memetics Curve',
+        soon: !isCurveLive(),
+        live: isCurveLive(),
+      },
       // Pure client-side — always usable, deliberately live before the launch rail opens.
-      { to: '/launch-simulator', label: 'Launch Simulator' },
+      { to: '/launch-simulator', label: 'Launch Simulator', tabLabel: 'Simulator' },
       // Referrals sits in Engage because it is a recruiting tool, not a stat and not a
       // detection surface: the thing a user does here is mint a link and carry it away.
       //
@@ -276,6 +374,8 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Earn',
+    // COLLAPSED: one "Earn" row; these five are the tab strip on /referrals.
+    hub: '/referrals',
     items: [
       { to: '/referrals', label: 'Referrals' },
       // Yield Routing compares THIRD-PARTY liquid staking and stablecoin lending
@@ -302,7 +402,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // which is exactly the /solana-launch bug — a pill that clears on a flag while
       // the advertised action stays impossible. Rates are now read on chain anyway;
       // an unread rate degrades one cell, and never this entry.
-      { to: '/yield', label: 'Yield Routing', soon: !hasRoutableYieldVenue() },
+      { to: '/yield', label: 'Yield Routing', tabLabel: 'Yield', soon: !hasRoutableYieldVenue() },
       // Copy Trading and Competitions. Both were keyed to VITE_INDEXER_URL when the
       // venue's own Ponder indexer was the only thing either could read. Neither is
       // any more: both now read the ISLAND TAPE — GeckoTerminal's pool-trade feed for
@@ -369,6 +469,17 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'Stats',
+    // COLLAPSED: one "Stats" row; these three are the tab strip on /tokenomics.
+    //
+    // ⚠️ THIS SECTION TOOK TWO ROUTES OFF OTHER HOSTS, 2026-09-04, and that is
+    // the part to re-read before moving anything back. /tokenomics was a tab on
+    // LearnPage and /treasury a tab on InfoPage — a route renders exactly one
+    // tab bar, so "Stats is one page with tabs" is only true if Stats OWNS
+    // them. LearnPage is now Lore/Security/FAQ and InfoPage is
+    // Contracts/Risks/Terms/Privacy, which is a cleaner split anyway: Learn is
+    // the narrative, Info is the legal + reference shelf, Stats is the numbers.
+    // Every URL, footer link and e2e route is unchanged.
+    hub: '/tokenomics',
     items: [
       { to: '/tokenomics', label: 'Tokenomics' },
       { to: '/treasury',   label: 'Treasury' },
@@ -395,7 +506,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // that stubbing isIndexerConfigured() either way leaves it unchanged, and
       // TaxPage.test.tsx renders the keyless copy. The indexer is now optional
       // enrichment and does not decide this pill.
-      { to: '/tax', label: 'Tax Reports', soon: false },
+      { to: '/tax', label: 'Tax Reports', tabLabel: 'Tax', soon: false },
     ],
   },
   // The three detection surfaces are the protocol's one genuine differentiator and
@@ -404,11 +515,17 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
   // read as protocol vanity metrics. /trust is the hub that frames them as one suite.
   {
     heading: 'Trust & Safety',
+    // COLLAPSED: one "Trust & Safety" row; these seven are the tab strip on
+    // /trust, whose page was already written as the hub that frames them as one
+    // suite — it just had no way to keep the visitor inside it. Seven was by far
+    // the worst offender in the old menu: a third of every link in the dropdown
+    // was this section.
+    hub: '/trust',
     items: [
-      { to: '/trust',    label: 'Trust Tools' },
-      { to: '/scan',     label: 'Token Scanner' },
-      { to: '/deployer', label: 'Deployer Graph' },
-      { to: '/exposure', label: 'Wallet Exposure' },
+      { to: '/trust',    label: 'Trust Tools',     tabLabel: 'Overview' },
+      { to: '/scan',     label: 'Token Scanner',   tabLabel: 'Scanner' },
+      { to: '/deployer', label: 'Deployer Graph',  tabLabel: 'Deployer' },
+      { to: '/exposure', label: 'Wallet Exposure', tabLabel: 'Exposure' },
       // The same three reads, applied to a discovery feed instead of to one
       // pasted address. It sits here rather than beside Trade because the feed is
       // the delivery mechanism and the safety read is the product.
@@ -433,7 +550,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       //
       // The indexer half is STILL a live read, and it gates only the extra
       // "Venue pairs" TAB, which appears when VITE_INDEXER_URL is set.
-      { to: '/terminal', label: 'Pro Terminal' },
+      { to: '/terminal', label: 'Pro Terminal', tabLabel: 'Terminal' },
       // Pro Charting no longer reads the indexer for its primary source. Its data
       // path is api.geckoterminal.com (CSP: vercel.json connect-src) over the
       // registry's `market` fields (lib/bungalows.ts) plus TOWELI's own pool, so the
@@ -444,7 +561,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // honest, not more. In practice the expression is a compile-time constant today,
       // which is said here rather than dressed up as a live probe. The indexed-swap
       // panel on that page still self-enables on VITE_INDEXER_URL.
-      { to: '/chart', label: 'Pro Charting', soon: !hasChartableMarket() },
+      { to: '/chart', label: 'Pro Charting', tabLabel: 'Charting', soon: !hasChartableMarket() },
       // Alerts belongs to this section rather than to Engage or Stats: its rule kinds
       // watch exactly what the tools above read on demand (a deployer's reputation
       // band, a launch going live, a wallet's Heat tier, a pool's quoted price), on
@@ -475,6 +592,44 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+/**
+ * The section a host page renders as its tab strip.
+ *
+ * THROWS RATHER THAN RETURNING UNDEFINED, and that is the point. The alternative
+ * — a host that quietly falls back to an empty `items` array — renders a page
+ * with a blank tab bar and no way to reach six of its seven surfaces, which is
+ * this repo's most-repeated bug class: an unreadable state that reads as fine.
+ * The headings are string literals a few lines above, so the only way to trip
+ * this is to rename one without updating its host, and then the whole app fails
+ * at import with the heading named in the message.
+ */
+function requireSection(heading: string): NavSection {
+  const found = MORE_NAV_SECTIONS.find((s) => s.heading === heading);
+  if (!found) {
+    throw new Error(
+      `navConfig: no "${heading}" section — a host page renders its items as tabs (see SectionHost.tsx)`,
+    );
+  }
+  return found;
+}
+
+/** The four collapsed sections, each rendered as one menu row + one tabbed page. */
+export const LAUNCH_SECTION = requireSection('Launch');
+export const EARN_SECTION = requireSection('Earn');
+export const STATS_SECTION = requireSection('Stats');
+export const TRUST_SECTION = requireSection('Trust & Safety');
+
+/** Trade's two secondary destinations. Its own page is in PRIMARY_NAV, so this
+ *  section renders no menu row at all — see `inPrimaryNav` on NavSection. */
+export const TRADE_SECTION = requireSection('Trade');
+
+/**
+ * What the "More" menu actually renders. MORE_NAV_SECTIONS stays the complete
+ * set — every completeness assertion, MORE_NAV and ALL_NAV all still see Trade's
+ * items — while the menu itself drops the sections the top bar already covers.
+ */
+export const MENU_NAV_SECTIONS: NavSection[] = MORE_NAV_SECTIONS.filter((s) => !s.inPrimaryNav);
 
 /** Flat list of every "More" item — used by the mobile drawer. */
 export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);

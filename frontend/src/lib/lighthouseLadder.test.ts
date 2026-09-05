@@ -12,6 +12,7 @@ import {
   lockRemaining,
   MAX_LOCK_SECS,
   MIN_LOCK_SECS,
+  MIN_STAKE_RAW,
   type LadderReads,
 } from './lighthouseLadder';
 
@@ -127,6 +128,32 @@ describe('what a staker would actually earn', () => {
     // The honest consequence for today: every island pool is empty, so the
     // FIRST staker gains nothing from locking. The card must not imply
     // otherwise while it is the only position in the pool.
+  });
+});
+
+describe('the dust floor', () => {
+  // A DRIFT GUARD, not arithmetic. This constant is a copy of the contract's
+  // `MIN_STAKE` (LighthouseLadder.sol), and a copy that silently disagrees with
+  // its original is worse than no copy at all: the panel would enable the stake
+  // button for an amount the chain then refuses, charging the user gas to learn
+  // it. If MIN_STAKE ever moves in Solidity, this is what should red.
+  it('mirrors the contract constant exactly', () => {
+    expect(MIN_STAKE_RAW).toBe(100n * 10n ** 18n);
+  });
+
+  // RAW units, deliberately not scaled by the pool's own decimals — the
+  // contract's floor is a plain constant, which is why the deploy script
+  // refuses any staking token that is not 18-decimal.
+  it('is a raw-unit quantity, so it reads as 100 whole tokens at 18 decimals', () => {
+    expect(MIN_STAKE_RAW / E18).toBe(100n);
+  });
+
+  // Three wei is the amount that took every empty interval on the pre-fix
+  // contract: `3 * 4_000 / 10_000` rounds to a boost weight of exactly 1, and
+  // 1 as the accumulator's divisor pays the whole emission. Pinned here so the
+  // panel can never again present it as a stakeable amount.
+  it('refuses the three wei that used to capture the whole emission', () => {
+    expect(3n < MIN_STAKE_RAW).toBe(true);
   });
 });
 

@@ -12,8 +12,33 @@ permissions:
   contents: read
 
 concurrency:
+  # PRs CANCEL THEIR SUPERSEDED RUNS; TRUNK RUNS MUST FINISH.
+  #
+  # The group is per-ref, so every push to main/mvp-launch lands in the SAME
+  # group. With cancel-in-progress:true that meant each merge killed the run
+  # started by the merge before it -- on the one branch that deploys to
+  # production.
+  #
+  # Measured on trunk 2026-09-04, immediately after a burst of dependabot
+  # merges:
+  #     9b128dc2 (#389)  9 checks, 9 cancelled, 0 success
+  #     83b69ad6 (#388)  5 checks, 5 cancelled, 0 success
+  #     3 dependabot bumps   9 checks, 5 cancelled each
+  # Six consecutive commits reached production without a completed trunk run.
+  # Each had been green as a PR, so what went unverified was the COMBINATION,
+  # which is precisely what a trunk run is for.
+  #
+  # Cancelled is not red. The branch protection UI shows no failures and the
+  # commit list looks clean, which is why this survived several rounds of
+  # "trunk is green".
+  #
+  # The saving that cancel-in-progress exists for is real but belongs to PRs,
+  # where pushing a fixup should abandon the previous run. `github.event_name`
+  # is 'pull_request' there and 'push' on trunk, and the expression yields a
+  # literal true/false -- never the empty string that silently invalidates a
+  # workflow file.
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-typecheck-test:
@@ -53,9 +78,11 @@ jobs:
       # makes the cheap early gate real again. Same bug in package.json's
       # `precommit`, fixed alongside.
       - name: Type Check
+        if: ${{ !cancelled() }}
         run: npx tsc -b --noEmit
 
       - name: Unit Tests
+        if: ${{ !cancelled() }}
         # `continue-on-error: true` REMOVED 2026-07-28 — its premise expired.
         #
         # It was added 2026-05-18 for 79 vitest failures that pre-existed ON
@@ -82,6 +109,7 @@ jobs:
       # the service itself has one runtime dependency and no dev tree, and a
       # test runner it does not ship is a runner that never drifts from this one.
       - name: Solana indexer unit tests
+        if: ${{ !cancelled() }}
         run: npx vitest run --root ../indexer-solana --environment node
 
       # bot/ is the same shape as indexer-solana above — a long-running service
@@ -95,6 +123,7 @@ jobs:
       # step: api/__tests__/bot-noncustodial.test.js runs in the frontend suite so
       # that an edit to the API or the migration cannot skip it.
       - name: Telegram bot unit tests
+        if: ${{ !cancelled() }}
         run: npx vitest run --root ../bot --environment node
 
       # Every protocol address, decoded rather than eyeballed.
@@ -111,6 +140,7 @@ jobs:
       # contract lands in constants.ts without being registered, so an address can
       # never enter the codebase unexplained.
       - name: Address registry
+        if: ${{ !cancelled() }}
         run: node scripts/verify-addresses.mjs
 
       # The registry's drift guard used to be ONE-DIRECTIONAL: it walked
@@ -128,6 +158,7 @@ jobs:
       # evidence a gate works — it is equally consistent with a gate that cannot
       # see anything.
       - name: Address-registry drift guard self-test
+        if: ${{ !cancelled() }}
         run: node scripts/verify-addresses.mjs --self-test
 
       # Which pubkeys are baked into the deployed Solana programs.
@@ -149,6 +180,7 @@ jobs:
       # low-entropy keys (the System sentinel is 32 zero bytes, which "match"
       # anything). It also cross-checks every roster key against addresses.json.
       - name: Solana program-constant verifier self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/verify-program-constants.mjs --self-test
 
@@ -158,18 +190,21 @@ jobs:
       # discovering it is broken during an incident. `working-directory` is
       # overridden because the script lives at the repo root, not in frontend/.
       - name: Pre-deploy guard self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/predeploy-check.mjs --self-test
 
       # Same reasoning: the ownership verifier runs on an operator's laptop
       # during the custody sprint, so its decision table is proven here.
       - name: Ownership verifier self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/verify-ownership.mjs --self-test
 
       # Guards an IRREVERSIBLE broadcast. Its decision table has to be right the
       # first time — there is no second call to fix a wrong one.
       - name: One-shot guard self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
@@ -205,6 +240,7 @@ jobs:
       #
       # `working-directory: .` — these live at the repo root, not in frontend/.
       - name: Monitoring rule unit tests
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 

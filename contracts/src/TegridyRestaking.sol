@@ -303,11 +303,24 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @dev EIP-170 split (2026-06-04): the R014 step-1 "settle pending bonus on the
     ///      OLD boost at the PRE-accrue accBonusPerShare, anchor bonusDebt BEFORE the
     ///      external transfer (CEI)" block, duplicated verbatim in the refreshPosition
-    ///      / claimAll / unrestake stale paths. Uses a DIRECT safeTransfer (the
-    ///      pre-accrue settle has always paid directly here, distinct from the
-    ///      post-accrue F-04-5 deferred path) to `recipient`, with the BonusClaimed
-    ///      emit. Extracted byte-for-byte; `oldBoosted` is the caller's pre-refresh
-    ///      cached boost.
+    ///      / claimAll / unrestake stale paths. Pays `recipient` through the
+    ///      `_safeBonusTransferExt` self-call, the same F-04-5 deferred path every
+    ///      other bonus payout on this contract uses; `oldBoosted` is the caller's
+    ///      pre-refresh cached boost.
+    ///
+    ///      AUDIT FIX 2026-09-04 [F-04-5 PARITY]: this settle used to pay with a
+    ///      BARE `SafeTransferLib.safeTransfer`. The original extraction preserved
+    ///      that byte-for-byte and its comment recorded the divergence as history
+    ///      ("has always paid directly here") rather than as a reason. It is not a
+    ///      reason: a bonus token that blacklists `recipient` made the transfer
+    ///      revert, and with it the whole call — bricking refreshPosition /
+    ///      claimAll / unrestake on their stale paths for that user. All three
+    ///      pass `msg.sender`, so the DoS is self-inflicted rather than a griefing
+    ///      vector, and `emergencyWithdrawNFT` (which deliberately carries no
+    ///      `updateBonus` modifier and never calls this helper) always returns the
+    ///      NFT — but the user forfeited accrued bonus for no reason the file
+    ///      itself endorses. Now the credit defers to `unforwardedBonusRewards`
+    ///      and stays self-claimable via `claimPendingBonusPayout()`.
     function _settlePreAccrueBonus(RestakeInfo storage info, address recipient, uint256 oldBoosted) internal {
         uint256 preBonus = 0;
         if (oldBoosted > 0) {
@@ -317,9 +330,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
         }
         if (preBonus > 0) {
-            SafeTransferLib.safeTransfer(address(bonusRewardToken), recipient, preBonus);
-            totalBonusDistributed += preBonus;
-            emit BonusClaimed(recipient, preBonus);
+            // CEI unchanged: `info.bonusDebt` is anchored above, BEFORE this call.
+            // SLITHER: nonReentrant on every entrypoint; the self-call cannot re-enter.
+            // slither-disable-next-line reentrancy-no-eth,reentrancy-events
+            try this._safeBonusTransferExt(recipient, preBonus) {
+                totalBonusDistributed += preBonus;
+                emit BonusClaimed(recipient, preBonus);
+            } catch {
+                unforwardedBonusRewards[recipient] += preBonus;
+                totalUnforwardedBonus += preBonus;
+                emit BonusTransferDeferred(recipient, preBonus);
+            }
         }
     }
 
@@ -965,15 +986,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // current `accBonusPerShare`. Behavior matches pre-R014 semantics.
             _accrueBonusChecked();
 
-            int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-            int256 diff = accumulated - info.bonusDebt;
-            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-            info.bonusDebt = accumulated; // CEI: anchor BEFORE external call
-            if (bonusPending > 0) {
-                SafeTransferLib.safeTransfer(address(bonusRewardToken), msg.sender, bonusPending);
-                totalBonusDistributed += bonusPending;
-                emit BonusClaimed(msg.sender, bonusPending);
-            }
+            // AUDIT FIX 2026-09-04 [F-04-5 PARITY]: this block was a verbatim copy of
+            // `_claimBonusWithDefer` EXCEPT that it paid with a bare safeTransfer, so
+            // a blacklisted `msg.sender` reverted refreshPosition on its NON-stale
+            // path — the common one. Fixing only the stale path would have left the
+            // entrypoint bricked for exactly the case it is called in most often.
+            // Delegating to the shared helper closes it and drops the duplicate from
+            // the runtime bytecode (this contract sits under EIP-170 pressure).
+            _claimBonusWithDefer(info, msg.sender);
         }
 
         emit PositionRefreshed(msg.sender, info.tokenId, oldAmount, newAmount);
@@ -2248,8 +2268,37 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             info.bonusDebt = preAccum;
         }
         if (preBonus > 0) {
-            SafeTransferLib.safeTransfer(address(bonusRewardToken), restaker, preBonus);
-            totalBonusDistributed += preBonus;
+            // AUDIT FIX 2026-09-04 [F-04-5 PARITY]: the third bare-safeTransfer bonus
+            // payout, and the only one that is NOT self-inflicted. Both entrypoints
+            // accept `msg.sender == owner()` as well as the restaker, so a blacklisted
+            // restaker made the OWNER's call revert — a stranger bricking an operator
+            // function rather than only their own flow.
+            //
+            // SCOPE, stated honestly: the DoS is real but its blast radius today is
+            // small. On a fresh deployment `staking.revalidateBoost` cannot actually
+            // downgrade anything — deposit-based positions revert `JbacDeposited()`
+            // before this settle is reached, and the legacy `hasJbacBoost=true` +
+            // `jbacDeposited=false` shape that CAN be downgraded is unconstructible
+            // (TegridyStaking.sol:1425-1428). So this entrypoint is an expensive
+            // no-op poke, and the "inflated totalRestaked dilutes honest restakers"
+            // story does NOT hold here — that consequence belongs to
+            // `decayExpiredRestaker`, which is permissionless and already wrapped.
+            // What survives is narrower and still worth fixing: the bonus settle
+            // below DOES run and DOES pay on the poke, so a blacklisted restaker
+            // reverted a call they were not the caller of.
+            //
+            // The missing `BonusClaimed` emit is restored here too: pre-fix this site
+            // moved `totalBonusDistributed` with no event, so indexers reconstructing
+            // payouts from logs silently under-counted.
+            // slither-disable-next-line reentrancy-no-eth,reentrancy-events
+            try this._safeBonusTransferExt(restaker, preBonus) {
+                totalBonusDistributed += preBonus;
+                emit BonusClaimed(restaker, preBonus);
+            } catch {
+                unforwardedBonusRewards[restaker] += preBonus;
+                totalUnforwardedBonus += preBonus;
+                emit BonusTransferDeferred(restaker, preBonus);
+            }
         }
 
         // Step 2 — shrink totalRestaked using the new post-decay boost from staking.

@@ -48,6 +48,16 @@ export const MAX_LOCK_SECS = 4n * 365n * 24n * 60n * 60n;
 export const MIN_BOOST_BPS = 4_000n;
 export const MAX_BOOST_BPS = 40_000n;
 export const PENALTY_BPS = 2_500n;
+/**
+ * The contract's `MIN_STAKE` — the 2026-09-04 dust-divisor floor.
+ *
+ * RAW UNITS, and deliberately NOT scaled by the pool's own `decimals`: it is a
+ * plain constant in the contract (`100e18`), so the deploy script refuses any
+ * staking token that is not 18-decimal precisely so the two agree. Mirrored
+ * here so the panel can say "below the minimum" in words rather than letting
+ * the user pay gas to discover it as a bare revert string.
+ */
+export const MIN_STAKE_RAW = 100n * 10n ** 18n;
 
 export function deriveLadder(r: LadderReads, nowSecs: bigint): LadderView {
   const coreKnown =

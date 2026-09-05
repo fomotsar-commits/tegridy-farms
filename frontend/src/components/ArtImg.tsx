@@ -1,6 +1,7 @@
 import { useState, type ImgHTMLAttributes, type CSSProperties, type SyntheticEvent } from 'react';
 import { pageArt } from '../lib/artConfig';
 import { PLACEHOLDER_NFT } from '../lib/imageSafety';
+import { artSrcSet, artSizes } from '../lib/artSrcSet';
 
 type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   pageId: string;
@@ -30,13 +31,23 @@ type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
  * once now — a new surface cannot forget it, and defaulting it can never
  * de-prioritise the hero, because the default reads `fetchPriority` first.
  *
- * WHAT THIS DOES NOT DO: emit `srcset`. 135 of the 423 files under public/art
- * exceed 300 KB (largest 1.29 MB) and a 390px phone still downloads what a
- * 1280px desktop does. Fixing that needs 480/960/1600-wide derivatives generated
- * at build time, and there is no image encoder in this project's dependency tree
- * — adding one is a separate change with its own review. A `sizes` attribute
- * without a `srcset` is inert, so none is emitted: a hint the browser cannot act
- * on would only look like the problem had been addressed.
+ * SRCSET, ADDED 2026-09-04 — this block used to say it was deliberately absent,
+ * for a reason that has now been paid off rather than argued away. The reason was
+ * real: a `sizes` without a `srcset` is inert, real `srcset` needs build-time
+ * derivatives, and there was no image encoder in the dependency tree.
+ *
+ * There is one now (`sharp`, devDependency only, never shipped).
+ * scripts/generate-image-derivatives.mjs runs on `prebuild` and emits 480/960-wide
+ * webp for every source over 150 KB, plus a manifest of what exists;
+ * lib/artSrcSet.ts turns that manifest into a `srcset`. Measured before: one
+ * homepage view fetched 5,117,404 B of images, with 24 rendered <img> served at
+ * more than 2x their display width.
+ *
+ * The manifest is what makes it safe. A source with no derivative gets no
+ * `srcset` and renders exactly as before, so the AVIF trap recorded above cannot
+ * repeat: nothing is ever pointed at a URL that might 404. On a checkout that has
+ * not run the build the manifest is empty and this component behaves identically
+ * to its pre-2026-09-04 self.
  *
  * R041 + R072 hardening:
  * - `width` / `height` defaults reserve layout to prevent CLS when an
@@ -73,8 +84,44 @@ export function ArtImg({
     // intuitively map to "show this part of the image".
     merged.transformOrigin = objectPosition ?? 'center center';
   }
+  // undefined whenever the manifest has no entry — which is every source on a
+  // checkout that has not run `prebuild`, and every source under the generator's
+  // 150 KB floor.
+  // Resolved once: `sizes="auto"` is only valid on a lazy image, so the two must
+  // be decided from the same value rather than computed twice.
+  const resolvedLoading = loading ?? (fetchPriority === 'high' ? 'eager' : 'lazy');
+  const [srcSetFailed, setSrcSetFailed] = useState(false);
+  const candidateSet = artSrcSet(art.src);
+  // Dropped for the retry: re-rendering without it makes the browser load `src`.
+  const srcSet = srcSetFailed ? undefined : candidateSet;
+  /**
+   * A MISSING DERIVATIVE MUST NOT DESTROY THE IMAGE.
+   *
+   * This is a two-step fallback, and the first step is the one that matters. If
+   * the browser picked a `srcset` candidate that 404s, the <img> errors and the
+   * old single-step handler swapped straight to PLACEHOLDER_NFT — so one absent
+   * derivative replaced real art with a placeholder. That is exactly what
+   * happened in CI: a /bayla surface rendered `/placeholder-nft.svg` and the
+   * bungalow-doors spec caught it.
+   *
+   * The manifest is supposed to prevent that by only ever naming files the
+   * generator actually wrote, and `artSrcSet` is gated to PROD on top. Both are
+   * still worth having, but they are promises about the BUILD, and this is the
+   * runtime consequence if either is ever wrong — a stale committed manifest, a
+   * build that skipped `prebuild`, a partial artifact upload, a CDN miss. So:
+   * drop the srcset, retry the ORIGINAL, and only fall back to the placeholder
+   * if the original fails too.
+   */
   const handleError = (e: SyntheticEvent<HTMLImageElement>) => {
-    if (!errored) setErrored(true);
+    if (srcSetFailed || !srcSet) {
+      // No srcset in play, or we already retried without it — this is a genuinely
+      // missing original.
+      if (!errored) setErrored(true);
+    } else {
+      // First failure while a srcset was active: assume a candidate is missing
+      // and fall back to the plain original rather than to the placeholder.
+      setSrcSetFailed(true);
+    }
     onError?.(e);
   };
   return (
@@ -83,10 +130,16 @@ export function ArtImg({
       // surface being edited instead of just loading the route's top.
       data-art-surface={`${pageId}:${idx}`}
       src={errored ? PLACEHOLDER_NFT : art.src}
+      // No srcset once we have fallen back to the placeholder: the candidates
+      // describe the ART, and pointing them at a different image would serve a
+      // resized version of something the browser is no longer displaying.
+      {...(!errored && srcSet
+        ? { srcSet, sizes: (rest.sizes as string) ?? artSizes(resolvedLoading) }
+        : {})}
       width={width ?? 1200}
       height={height ?? 800}
       decoding={decoding ?? 'async'}
-      loading={loading ?? (fetchPriority === 'high' ? 'eager' : 'lazy')}
+      loading={resolvedLoading}
       {...(fetchPriority ? { fetchPriority } : {})}
       onError={handleError}
       style={merged}

@@ -111,7 +111,14 @@ export function GraduationVenuePanel() {
             : 'border-amber-500/40 bg-amber-500/10'
         }`}
       >
-        <p className={`text-sm ${venueOwned ? 'text-emerald-200' : 'text-amber-200'}`}>{plan.disclosure}</p>
+        {/* break-words is load-bearing, not cosmetic. This sentence embeds a full
+            42-character migrator address, which is one unbreakable token: at
+            iPhone/Pixel width (393px) it pushed the whole document to 412px, so
+            /launch scrolled sideways and the fixed header, tab strip and bottom
+            nav all stretched with it. Measured with Playwright, not inferred. */}
+        <p className={`text-sm break-words ${venueOwned ? 'text-emerald-200' : 'text-amber-200'}`}>
+          {plan.disclosure}
+        </p>
       </div>
 
       <h3 className="text-[13px] uppercase tracking-wide text-white/50 mb-2">Ethereum rail</h3>

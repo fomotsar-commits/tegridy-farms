@@ -58,7 +58,11 @@ import { test, expect } from './fixtures/wallet';
  * band (640-790), the new boundary (799/800), the iPad-gen-7 project width that
  * constrains how high the breakpoint may go (810), and true desktop.
  */
-const WIDTHS = [375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
+// 360 leads the list deliberately: it is a very common Android width, it was
+// NOT in the original sweep, and the row was silently 7px over there the whole
+// time - found only when a font change forced a re-measure. A sweep is only as
+// honest as its narrowest entry.
+const WIDTHS = [360, 375, 414, 639, 640, 694, 767, 768, 799, 800, 810, 1024, 1440];
 
 test.describe('header stays reachable at every width', () => {
   // Own-viewport sweep: the device projects pin their own viewport and DPR, so
@@ -88,11 +92,12 @@ test.describe('header stays reachable at every width', () => {
       // wait for it rather than sampling a pre-mount frame — reading too early
       // is precisely how the original review mis-diagnosed this as the button
       // being absent from the accessibility tree.
-      const connect = page.locator('header').getByRole('button', { name: /connect/i }).first();
+      const connect = page.getByRole('banner').getByRole('button', { name: /connect/i }).first();
       await expect(connect).toBeVisible();
 
       // WAIT FOR THE WEBFONTS BEFORE MEASURING. The wordmark is the widest item
-      // in this row, and its width depends on Playfair being loaded. Every face
+      // in this row, and its width depends on the display face (Archivo) being
+      // loaded. Every face
       // here is `font-display: swap` (public/fonts/fonts.css), so the row renders
       // once in a fallback metric and again in the real one. Measuring between
       // those two is how this test failed intermittently in a full parallel run
@@ -113,7 +118,15 @@ test.describe('header stays reachable at every width', () => {
         );
       }
 
-      const row = await page.locator('header').evaluate((el) => {
+      /* getByRole('banner'), NOT locator('header'). YieldCalculator renders a
+         nested <header> on the home route, gated on there being no connected
+         address, so between first paint and the wallet mock connecting, the
+         page holds TWO <header> elements and a bare tag selector is a
+         strict-mode violation.
+         It passed in isolation and failed in a full parallel run — the race is
+         the connect, not the markup. Only the fixed app header is a banner: a
+         <header> inside sectioning content carries no role. */
+      const row = await page.getByRole('banner').evaluate((el) => {
         const r = el.querySelector('div.flex.items-center.justify-between') ?? el.firstElementChild;
         return r ? { scroll: r.scrollWidth, client: r.clientWidth } : null;
       });
@@ -136,7 +149,7 @@ test.describe('header stays reachable at every width', () => {
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
-      await expect(page.locator('header').getByRole('button', { name: /connect/i }).first()).toBeVisible();
+      await expect(page.getByRole('banner').getByRole('button', { name: /connect/i }).first()).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
 
       const visible = await page.locator('nav[aria-label="Main navigation"]').evaluateAll((els) =>

@@ -308,3 +308,171 @@ describe("alchemy — R050 CORS fallback (non-allowlisted origin)", () => {
     expect(headers["Access-Control-Allow-Credentials"]).toBeUndefined();
   });
 });
+
+// ── INCIDENT 2026-09-04 (#385) ────────────────────────────────────────────────
+// Production returned `502 {"error":"Upstream returned invalid response"}` on
+// every NFT endpoint for hours. The cause was a rejected ALCHEMY_API_KEY, and
+// the proxy could not say so: Alchemy answers a bad key with HTTP 401,
+// `content-type: application/json`, and a body of `Must be authenticated!`
+// — which is NOT JSON. The handler parsed before it checked the status, so a
+// clean 401 was indistinguishable from a corrupt payload.
+//
+// Both tests below FAIL on the pre-fix handler:
+//   REST → returned 502 "Upstream returned invalid response" (parse ran first)
+//   RPC  → returned **200**, because that branch never checked the status at all
+describe("alchemy — #385: a rejected key must be reported as a rejected key", () => {
+  let handler;
+
+  // The real upstream shape, verbatim from probing Alchemy on 2026-09-04:
+  // a 401 whose content-type claims JSON and whose body is a bare sentence.
+  const authRejected = () => ({
+    ok: false,
+    status: 401,
+    headers: { get: () => "application/json" },
+    body: null,
+    text: async () => "Must be authenticated!",
+  });
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.ALCHEMY_API_KEY = "revoked-key-cccccccccccccccccccc";
+    delete process.env.ALCHEMY_API_KEY_FALLBACK; // single key: the 401 is final
+    process.env.NODE_ENV = "test";
+    handler = (await import("../alchemy.js")).default;
+  });
+
+  afterEach(() => {
+    delete process.env.ALCHEMY_API_KEY;
+  });
+
+  it("REST: a final 401 with a non-JSON body is 503, not a mystery 502", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(authRejected());
+    const req = makeReq({ query: { endpoint: "getFloorPrice", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(503);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream credentials rejected" });
+    // The pre-fix failure mode, pinned so it cannot come back:
+    expect(statusSpy).not.toHaveBeenCalledWith(502);
+    expect(jsonSpy).not.toHaveBeenCalledWith({ error: "Upstream returned invalid response" });
+  });
+
+  it("RPC: an upstream 401 must NOT be handed to the caller as HTTP 200", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: { get: () => "application/json" },
+      body: null,
+      // Alchemy's RPC edge answers with a well-formed JSON-RPC error, which is
+      // exactly why parsing first looked like success.
+      text: async () => JSON.stringify({
+        jsonrpc: "2.0", id: 1,
+        error: { code: -32600, message: "Must be authenticated!" },
+      }),
+    });
+    const req = makeReq({
+      method: "POST",
+      query: { endpoint: "rpc" },
+      body: { method: "eth_blockNumber", params: [] },
+    });
+    const { res, statusSpy, jsonSpy, headerSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(503);
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream credentials rejected" });
+    // And it must not be cached at the shared edge: eth_blockNumber carries
+    // `s-maxage=12`, so caching a failure would serve the auth error to every
+    // visitor for 12s.
+    expect(collectHeaders(headerSpy)["Cache-Control"]).toBeUndefined();
+  });
+
+  it("still maps a non-credential upstream failure to the opaque 502", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false, status: 500, headers: { get: () => null }, body: null,
+      text: async () => JSON.stringify({ error: "boom" }),
+    });
+    const req = makeReq({ query: { endpoint: "getFloorPrice", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(502);
+  });
+});
+
+describe("alchemy — API-M5 RPC upstream status is not flattened to 200", () => {
+  let handler;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    process.env.ALCHEMY_API_KEY = "demo";
+    process.env.NODE_ENV = "test";
+  });
+
+  async function runWithStatus(status) {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status,
+      headers: { get: () => null },
+      body: null,
+      text: async () =>
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32600, message: "Must be authenticated!" },
+        }),
+    }));
+    handler = (await import("../alchemy.js")).default;
+    const req = makeReq({
+      method: "POST",
+      query: { endpoint: "rpc" },
+      body: { method: "eth_blockNumber", params: [] },
+    });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    return { statusSpy, jsonSpy };
+  }
+
+  it("401 from a revoked key surfaces as 503, never 200", async () => {
+    // MERGE NOTE (#386 + #387, both 2026-09-04): #386 asserted 502 here.
+    // #387 landed the credential-aware guard the same day, so a 401/403 is
+    // now the more specific 503 "Upstream credentials rejected". #386's
+    // real invariant — never 200, never an echo of the upstream — is
+    // unchanged and still pinned here and below.
+    const { statusSpy, jsonSpy } = await runWithStatus(401);
+    expect(statusSpy).toHaveBeenCalledWith(503);
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream credentials rejected" });
+  });
+
+  it("429 from a throttled key surfaces as 502, never 200", async () => {
+    const { statusSpy } = await runWithStatus(429);
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+  });
+
+  it("does not echo the upstream status or message to the client", async () => {
+    const { jsonSpy } = await runWithStatus(401);
+    const payload = JSON.stringify(jsonSpy.mock.calls[0][0]);
+    expect(payload).not.toContain("Must be authenticated");
+    expect(payload).not.toContain("401");
+  });
+
+  it("a healthy upstream still returns the RPC result unchanged", async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: null,
+      text: async () => JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x18b4c2f" }),
+    }));
+    handler = (await import("../alchemy.js")).default;
+    const req = makeReq({
+      method: "POST",
+      query: { endpoint: "rpc" },
+      body: { method: "eth_blockNumber", params: [] },
+    });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(jsonSpy.mock.calls[0][0].result).toBe("0x18b4c2f");
+  });
+});
