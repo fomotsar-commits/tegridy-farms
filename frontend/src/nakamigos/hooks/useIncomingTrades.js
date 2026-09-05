@@ -30,9 +30,10 @@ export function countPendingIncoming(rows, nowMs = Date.now()) {
  * connected wallet. Polls once a minute while the tab is visible (T8 gate) and
  * reuses the existing public `fetchTrades` read — no new always-on loop, no
  * auth required (the orderbook scopes the read by the `wallet` query param, so
- * a signed-out user simply sees their own incoming offers or, if the read
- * fails, no badge). Silently stays at 0 with no wallet — the badge should
- * never nag about a feature the user can't reach yet (mirrors useDmUnread).
+ * a signed-out user simply sees their own incoming offers). A read that FAILS
+ * leaves the badge exactly as it is rather than clearing it - see refresh().
+ * Silently stays at 0 with no wallet - the badge should never nag about a
+ * feature the user can't reach yet (mirrors useDmUnread).
  *
  * @param {string|undefined} wallet
  * @returns {{ count: number, refresh: () => Promise<void> }}
@@ -46,9 +47,15 @@ export default function useIncomingTrades(wallet, { onNew } = {}) {
 
   const refresh = useCallback(async () => {
     if (!wallet) { setCount(0); prevRef.current = 0; firstLoadRef.current = true; return; }
-    // fetchTrades never throws — it returns { trades: [], error } on failure,
-    // so a dropped /api/orderbook poll degrades to no badge rather than erroring.
-    const { trades } = await fetchTrades({ wallet, role: "incoming", status: "active" });
+    // OUTAGE-AS-ZERO. fetchTrades never throws - it returns { trades: [], error }
+    // on failure - so an unreadable poll counted an empty list and cleared the
+    // badge, telling a wallet its pending offers are gone when all that happened
+    // is that /api/orderbook could not be read. Hold the badge at its last known
+    // value instead; the next poll settles it a minute later. Leaving prevRef and
+    // firstLoadRef untouched also stops the recovery from toasting: clearing to 0
+    // and then re-reading the same three offers looked like three NEW offers.
+    const { trades, error } = await fetchTrades({ wallet, role: "incoming", status: "active" });
+    if (error) return;
     const n = countPendingIncoming(trades);
     setCount(n);
     // #9: a swap proposal is the highest-intent, time-sensitive event (offers

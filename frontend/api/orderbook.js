@@ -460,9 +460,29 @@ export default async function handler(req, res) {
         res.setHeader("Cache-Control", "no-store");
         return res.json({ trades, count: trades.length });
       } catch (err) {
+        // OUTAGE-AS-ZERO. `{ trades: [], count: 0 }` on a 200 asserted that this
+        // wallet has no incoming offers. What actually happened is that the trade
+        // table could not be read at all - a paused project, a rate limit, an SDK
+        // rejection - and on the wire the two were the same answer. Both readers
+        // key on `res.ok` (fetchTrades / fetchTradeFeed), so the failure rode out
+        // as a SUCCESSFUL empty result: TradesPanel set loadError null and painted
+        // the "No trades" empty state its own comment forbids, over live offers
+        // the wallet can still accept.
+        //
+        // Same move as api/etherscan.js and api/alchemy.js: a failure answers with
+        // its own status. 503 rather than 502 matches this handler's existing
+        // "Orderbook database not configured" refusal - the fault is ours and it is
+        // temporary. `degraded: true` STAYS: it is the flag this file already uses
+        // and MyListings.jsx already consumes on the listings path. `trades` and
+        // `count` become null, because an empty list and a 0 ARE the false zero.
         console.error("Trade query degraded:", err?.message ?? err);
         res.setHeader("Cache-Control", "no-store");
-        return res.json({ trades: [], count: 0, degraded: true });
+        return res.status(503).json({
+          error: "Trade query unavailable",
+          degraded: true,
+          trades: null,
+          count: null,
+        });
       }
     }
 
