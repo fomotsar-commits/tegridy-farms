@@ -132,6 +132,14 @@ function isAllowedPath(path) {
   try { decoded = decodeURIComponent(path); } catch { return false; }
   if (decoded !== path) return false;
   if (decoded.includes("..") || decoded.includes("//")) return false;
+  // A `?` or `#` would let a caller graft a query string or fragment onto the
+  // upstream URL built at :284. The api key is an x-api-key HEADER so it cannot
+  // be overridden that way, and the same reach already existed through the
+  // `offers/collection/{slug}/` prefix rule — but this file is now handing out a
+  // SECOND prefix rule, and a prefix rule should not also be a query-injection
+  // primitive. No caller passes either character: every call site builds the
+  // path and its params separately (openseaGet(path, params)).
+  if (decoded.includes("?") || decoded.includes("#")) return false;
   // (removed superseded %2e/%2E guard — the decoded-equality check above
   //  catches every encoding of every character)
   // Exact-match paths that don't follow the prefix pattern
@@ -147,6 +155,23 @@ function isAllowedPath(path) {
   // Check collection-specific paths
   for (const slug of ALLOWED_SLUGS) {
     if (path === `listings/collection/${slug}/best`) return true;
+    // LISTINGS GAINS THE SAME SUB-PATH RULE `offers` HAS HAD ALL ALONG.
+    //
+    // Below, `offers/collection/${slug}/` admits any sub-path; `listings` only
+    // ever admitted the exact `/best`. That asymmetry is why
+    // `listings/collection/{slug}/all` returns 400 "Invalid or missing path"
+    // from US while OpenSea serves it happily — verified 2026-09-05:
+    //   OPTIONS https://api.opensea.io/api/v2/listings/collection/nakamigos/all
+    //     -> 200, "allow: GET,HEAD,OPTIONS"
+    //
+    // It matters now because OpenSea made `orders/{chain}/seaport/listings`
+    // POST-only, so the collection-scoped listings routes are the only read
+    // path left for My Listings.
+    //
+    // Still slug-scoped and still additive: this loop only ever runs over
+    // ALLOWED_SLUGS, so no path outside the three known collections becomes
+    // reachable, and nothing previously allowed becomes disallowed.
+    if (path.startsWith(`listings/collection/${slug}/`)) return true;
     if (path === `collection/${slug}/stats`) return true;
     // F514: OpenSea v2's stats endpoint is collections/{slug}/stats (plural).
     // The client calls this form; the singular above stays for back-compat.
