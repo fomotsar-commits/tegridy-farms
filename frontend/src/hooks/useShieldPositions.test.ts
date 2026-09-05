@@ -21,6 +21,9 @@ const loanState = vi.hoisted(() => ({
   loans: [] as unknown[],
   isLoading: false,
   isError: false,
+  // Weaker than isError: the list came back, but discovery lost records, so it
+  // is real and SHORT. That is the fourth state in the header above.
+  loansUnread: false,
   deployed: true,
 }));
 const rpc = vi.hoisted(() => {
@@ -84,6 +87,7 @@ beforeEach(() => {
   loanState.loans = [];
   loanState.isLoading = false;
   loanState.isError = false;
+  loanState.loansUnread = false;
   rpc.present = true;
   rpc.readContract.mockReset();
   respond(HEALTHY_READS);
@@ -113,6 +117,18 @@ describe('a failed read is reported as a failed read', () => {
     await waitFor(() => expect(result.current.status).toBe('unreadable'));
     expect(result.current.detail).toMatch(/failed read, not an absence of debt/i);
     expect(result.current.positions).toEqual([]);
+  });
+
+  it('refuses a PARTIAL discovery rather than watching a book with holes in it', async () => {
+    // Every per-loan read below is healthy; the failure happened one layer up,
+    // while enumerating which loans exist. A shorter list on this surface reads
+    // as LESS risk, so the shield declines it instead of showing part as whole.
+    loanState.loans = [loan()];
+    loanState.loansUnread = true;
+    const { result } = renderHook(() => useShieldPositions());
+    await waitFor(() => expect(result.current.status).toBe('unreadable'));
+    expect(result.current.positions).toEqual([]);
+    expect(result.current.detail).toMatch(/could not be read|missing positions/i);
   });
 
   it('reports an RPC outage as unreadable, not as a list of healthy loans', async () => {

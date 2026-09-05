@@ -38,7 +38,7 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
   const { address } = useAccount();
   const chainId = useChainId();
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const { loans, isLoading: loansLoading, isError: loansError } = useMyLoans();
+  const { loans, isLoading: loansLoading, isError: loansError, loansUnread } = useMyLoans();
 
   const onExpectedChain = chainId === CHAIN_ID;
   const lendingDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
@@ -175,6 +175,17 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
       );
     }
     if (loansError) return unreadableSnapshot();
+    // A PARTIAL SWEEP IS STILL UNREAD. `loans` is real but shorter than the
+    // wallet's actual book when discovery loses records, and a short list on
+    // this surface reads as LESS risk - the same refusal alertReader already
+    // makes for one unreadable deadline ("unknown, not smaller"). Watching two
+    // of three loans and calling it a shield is the failure this panel exists
+    // to prevent, so it declines the list rather than showing part as the whole.
+    if (loansUnread) {
+      return unreadableSnapshot(
+        'Some of this wallet’s loan records could not be read while discovering them, so this list would be missing positions. It is withheld rather than shown short: a partial read here is an unknown risk, not a smaller one.',
+      );
+    }
     if (readFailed) return unreadableSnapshot();
     if (loansLoading || reading || reads === null) return loadingSnapshot();
     return buildSnapshot(reads, Math.floor(Date.now() / 1000));
