@@ -2013,28 +2013,34 @@ a new router is live the old balance is reachable only through the owner-gated
 
 ### ❓ Decisions only you can make
 
-- **D1 - TF-015 is OPEN, but it is now UNBLOCKED and PINNED (2026-09-05).**
-  It was designed, implemented and withdrawn because its tests could not distinguish the fixed
-  contract from the broken one - the headline test passed under the mutation that restores the
-  pre-fix source. **The cause is found and fixed.** `UniswapV2OracleLibrary.currentCumulativePrices`
-  EXTRAPOLATES `spot * (now - blockTimestampLast)` on top of the stored cumulative, and
-  `_bootstrapPriced` poked the pair BEFORE the clock advanced - so the snapshot read twice the
-  accumulation it should and the enforced floor came out at **exactly half spot**. A floor at half
-  spot never binds, so nothing was observable.
-  With the poke order corrected, the floor now matches spot to 1 wei, and the strand is REAL and
-  VISIBLE: `test_TF015_KNOWNBUG_grossSizedFloorStrandsAnFoTToken` shows a 5% fee-on-transfer token
-  cannot convert at all, with 100 ether of fees left stranded and no other exit that accepts the
-  token.
-  **To close it:** re-apply the design (recorded in full on PR #412), then INVERT that test - its
-  failure is the signal the fix works. `test_RIG_enforcedFloorMatchesSpot` guards the rig itself, so
-  the vacuity cannot silently return.
+- **D1 - TF-015 is FIXED (2026-09-05), and it is OPT-IN PER TOKEN.**
+  `convertTokenFeesToETHFoT` now sizes its TWAP floor on what the PAIR RECEIVES rather than on the
+  gross balance, via a governance-set `fotFloorHaircutBps[token]` applied to the swap INPUT. Because
+  `twapMin` is exactly linear in `amountIn`, that scales the floor identically and composes with
+  TWAP_SAFETY_BPS for free - and `_enforceTWAPMinETHOut` is untouched, so the non-FoT path and both
+  owner-only early returns are byte-identical.
+  **Default is 0 for every token, and 0 is an exact identity** - so nothing changes until you opt a
+  specific token in. An FoT token with no haircut configured is still stranded, deliberately: a
+  global default would loosen the floor for every token routed through this PERMISSIONLESS entry
+  point, including plain ERC20s.
+  It took three attempts. The first two were withdrawn - one measured a pair `balanceOf` delta
+  (SFR-H-01 reopened, on a permissionless function, and the delta does not exist yet at floor-sizing
+  time), and one passed its own tests only because the rig's floor came out at half spot. Both
+  failure modes are now pinned by tests: `test_RIG_enforcedFloorMatchesSpot` and mutation M9
+  (`floorAmountIn` -> `swapAmount`, the pre-fix source) which reds the fix test.
 
-- **D2 - if TF-015 is revived, it adds a lever that does not exist today.** The withdrawn design put
-  a per-token `fotFloorHaircutBps` behind a 7-day timelock, capped at 1000 bps. That still lets a
-  patient compromised owner loosen the sandwich floor on any token routed through
-  `convertTokenFeesToETHFoT`, including a plain ERC20 - bounded, delayed, and strictly weaker than
-  the existing reset-then-bootstrap route which removes the floor entirely on the same delay. The
-  cap is a constant: trivial to change before a deploy, impossible after.
+- **D2 - ⏳ TIME-SENSITIVE: `MAX_FOT_FLOOR_HAIRCUT_BPS = 1000` (10%).**
+  This is a `constant`. **Trivial to change before the router deploy, impossible after** - raising it
+  is another redeploy of both the library and the router. It covers the real fee-on-transfer
+  population (2-10%) with no headroom for the ~15% tail. **If you intend to support a token with a
+  transfer fee above 10%, say so before the ceremony.**
+  The lever itself: `fotFloorHaircutBps` lets a patient compromised owner loosen the sandwich floor
+  on any token routed through the FoT entry point, including a plain ERC20. Bounded at 10%, behind
+  the same 7-day timelock as `proposeResetTWAPSnapshot` (the only other floor-relaxing lever here),
+  and strictly weaker than that route, which removes the floor entirely on the same delay. There is
+  no `cancel` by design: re-proposing overwrites and always restarts the full delay, and an
+  un-executed proposal is inert because `execute` is `onlyOwner`.
+
 - **D3 - the owner's bootstrap conversion still has no ETH floor but the one they type.** The owner
   conjunct in `_enforceMinETHValue` preserves today's behaviour exactly; it does not worsen it.
   Flooring the bootstrap too would red six audit-pinned tests and could permanently strand a token
@@ -2067,10 +2073,11 @@ a new router is live the old balance is reachable only through the owner-gated
   value (~$0.30)". More conversions will happen, so more sandwich *opportunities* exist — each still
   TWAP-floored and rate-limited by the 1h cooldown. This is the point of the finding, but it is a
   real change to keeper economics; watch the first weeks after P1.
-- **W3 — `convertTokenFeesToETHFoT` has coverage now, and so does the RIG.** Fourteen tests:
+- **W3 — `convertTokenFeesToETHFoT` has coverage now, and so does the RIG.** Seventeen tests:
   the guards a permissionless caller meets (WETH/zero-token, both deadline bounds, empty pile,
-  per-token cooldown, owner-only multi-hop), the FoT shrink property, the TF-010 gate, a
-  characterisation of the TF-015 strand, and `test_RIG_enforcedFloorMatchesSpot`.
+  per-token cooldown, owner-only multi-hop), the FoT shrink property, the TF-010 gate, the TF-015
+  default-off strand, the TF-015 fix itself, its non-leakage into the non-FoT path, its timelocked
+  setter, and `test_RIG_enforcedFloorMatchesSpot`.
   **That last one guards every other floor assertion in the file** — reverse the two lines in
   `_bootstrapPriced` and it fails with `floor is half spot`. Do not delete it; the whole TF-015
   test set was vacuous for exactly that reason.

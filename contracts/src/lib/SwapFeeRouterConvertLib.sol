@@ -122,6 +122,10 @@ library SwapFeeRouterConvertLib {
     uint256 internal constant SEQUENCER_GRACE_PERIOD = 1 hours;
     uint256 internal constant MAX_CONVERSION_PATH_LENGTH = 4;
     uint256 internal constant TWAP_SAFETY_BPS = 150;
+    /// @dev AUDIT TF-015: mirror of SwapFeeRouter.MAX_FOT_FLOOR_HAIRCUT_BPS. Enforced here
+    ///      too so `BPS - fotFloorHaircutBps` is a typed revert rather than a Panic(0x11)
+    ///      if this library is ever linked against a host that forgets the cap.
+    uint256 internal constant MAX_FOT_FLOOR_HAIRCUT_BPS = 1000;
     uint256 internal constant MIN_MULTIHOP_ETH_OUT_WEI = 1e14;
     uint256 internal constant Q112_SFR = 2 ** 112;
 
@@ -136,6 +140,7 @@ library SwapFeeRouterConvertLib {
     error MultiHopOwnerOnly();
     error TokenFeesBelowMinimum();
     error ZeroMinOut();
+    error HaircutTooHigh();
 
     // ─── Events (topics identical to SwapFeeRouter's) ───────────────────
     event TokenFeesConverted(address indexed token, uint256 tokenAmount, uint256 ethReceived);
@@ -325,7 +330,10 @@ library SwapFeeRouterConvertLib {
         address token,
         address[] calldata path,
         uint256 minETHOut,
-        uint256 deadline
+        uint256 deadline,
+        /// @dev AUDIT TF-015: SwapFeeRouter.fotFloorHaircutBps[token]. Host-set, host-capped,
+        ///      timelocked, 0 by default.
+        uint256 fotFloorHaircutBps
     ) public returns (uint256 newAccumulatedETHFees) {
         newAccumulatedETHFees = accumulatedETHFeesIn;
         if (token == address(0) || token == cfg.weth) revert ZeroAddress();
@@ -354,6 +362,21 @@ library SwapFeeRouterConvertLib {
         // slither-disable-next-line incorrect-equality
         if (swapAmount == 0) revert ZeroAmount();
 
+        // AUDIT TF-015: an FoT token delivers `swapAmount * (BPS - haircut) / BPS` to the
+        // first hop, so THAT - not the gross balance - is what the TWAP floor must be sized
+        // on. Sizing on gross made the floor unreachable for any FoT fee above
+        // TWAP_SAFETY_BPS (1.5%), and real FoT tokens are 2-10%.
+        //   * applied to the INPUT, not to the returned floor: `twapMin` is exactly linear
+        //     in `amountIn`, so this scales the floor by the same factor and composes
+        //     MULTIPLICATIVELY with TWAP_SAFETY_BPS for free - while leaving
+        //     `callerMinETHOut` un-haircut, so "the caller can only TIGHTEN" still holds;
+        //   * `_enforceTWAPMinETHOut` is NOT modified, so the non-FoT path and both
+        //     owner-only early returns (which never read `amountIn`) are byte-identical;
+        //   * haircut 0 is an EXACT identity: Math.mulDiv(x, BPS, BPS) == x.
+        // `swapAmount` - NOT this value - is still what gets approved and swapped below.
+        if (fotFloorHaircutBps > MAX_FOT_FLOOR_HAIRCUT_BPS) revert HaircutTooHigh();
+        uint256 floorAmountIn = Math.mulDiv(swapAmount, BPS - fotFloorHaircutBps, BPS);
+
         // AUDIT FIX: DEEP-R-H01 — same multi-hop bypass as the non-FoT variant above.
         uint256 effectiveMin;
         // SLITHER 2026-05-18: Solidity default-init to 0 is the intended value here
@@ -371,7 +394,7 @@ library SwapFeeRouterConvertLib {
             bool directPairExists = cfg.uniFactory.getPair(token, cfg.weth) != address(0);
             if (directPairExists) {
                 (uint256 twapMin, uint256 hopCurCum, uint32 hopCurTs) =
-                    _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, swapAmount, minETHOut);
+                    _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, floorAmountIn, minETHOut);
                 if (twapMin > effectiveFloor) effectiveFloor = twapMin;
                 currentCum = hopCurCum;
                 currentTs = hopCurTs;
@@ -386,7 +409,7 @@ library SwapFeeRouterConvertLib {
             // AUDIT SFR-H-01: TWAP-floor minETHOut sized against the actual swap input. Caller
             // can only TIGHTEN the floor; bootstrap is owner-only (see helper).
             (effectiveMin, currentCum, currentTs) =
-                _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, swapAmount, minETHOut);
+                _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, floorAmountIn, minETHOut);
             // AUDIT TF-010: same value floor as the non-FoT twin.
             _enforceMinETHValue(cfg, effectiveMin);
         }
