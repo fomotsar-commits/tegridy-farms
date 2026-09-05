@@ -314,6 +314,8 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
   const [loadingBids, setLoadingBids] = useState(false);
   const [loadingReceived, setLoadingReceived] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // True when bid history could not be ASKED FOR, as distinct from being empty.
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [cancelling, setCancelling] = useState(null);
   const [accepting, setAccepting] = useState(null);
   const [bidSort, setBidSort] = useState("recent"); // "recent" | "expiring"
@@ -339,13 +341,13 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     if (!wallet) return;
     setLoadingBids(true);
     try {
-      const data = await openseaGet("orders/ethereum/seaport/offers", {
+      // `orders/ethereum/seaport/offers` is POST-only upstream since 2026-09-05.
+      // The collection route replaces it and honours `maker` as a real filter.
+      const data = await openseaGet(`offers/collection/${collection.slug}/all`, {
         maker: wallet,
-        asset_contract_address: collection.contract,
-        order_by: "created_date",
-        order_direction: "desc",
+        limit: 50,
       });
-      const orders = (data.orders || []).map(normalizeOrder);
+      const orders = (data.offers || []).map(normalizeOrder);
       // Only active (not cancelled, not finalized, not expired)
       const now = Date.now();
       setMyBids(orders.filter(o => !o.cancelled && !o.finalized && (!o.expiry || o.expiry.getTime() > now)));
@@ -355,7 +357,7 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     } finally {
       setLoadingBids(false);
     }
-  }, [wallet, collection.contract]);
+  }, [wallet, collection.slug]);
 
   // ═══ FETCH RECEIVED OFFERS ═══
   const fetchReceivedOffers = useCallback(async () => {
@@ -407,23 +409,28 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
     if (!wallet) return;
     setLoadingHistory(true);
     try {
-      const data = await openseaGet("orders/ethereum/seaport/offers", {
-        maker: wallet,
-        asset_contract_address: collection.contract,
-        order_by: "created_date",
-        order_direction: "desc",
-      });
-      const orders = (data.orders || []).map(normalizeOrder);
-      // History = cancelled, expired, or fulfilled
-      const now = Date.now();
-      setBidHistory(orders.filter(o => o.cancelled || o.finalized || (o.expiry && o.expiry.getTime() <= now)));
+      // BID HISTORY HAS NO SOURCE ANY MORE, AND SAYING SO BEATS SHOWING NOTHING.
+      //
+      // History is by definition the DEAD orders — cancelled, expired, filled.
+      // The route that served them (`orders/ethereum/seaport/offers`) is POST-only
+      // upstream since 2026-09-05, and its replacement only ever returns live ones:
+      // measured 2026-09-05, `offers/collection/{slug}/all` returned 100 of 100 with
+      // status ACTIVE, and `status=CANCELLED|EXPIRED|FULFILLED` is IGNORED — each
+      // still came back ACTIVE. So there is nothing to filter for.
+      //
+      // Rendering an empty list here would tell a user "you have never had a bid
+      // expire", which is a claim we cannot make. `historyUnavailable` lets the tab
+      // say we cannot ask — the same distinction fetchMyListings draws with
+      // `fallback`, and the reason it draws it.
+      setBidHistory([]);
+      setHistoryUnavailable(true);
     } catch (err) {
       console.warn("Fetch bid history failed:", err.message);
       setFetchError("Failed to load bid history. Check your connection.");
     } finally {
       setLoadingHistory(false);
     }
-  }, [wallet, collection.contract]);
+  }, [wallet]);
 
   // Clear data when collection changes to avoid stale cross-collection display
   useEffect(() => {
@@ -727,6 +734,15 @@ export default function BidManager({ wallet, onConnect, addToast, onPick, tokens
         <div>
           {loadingHistory ? (
             <SkeletonRows count={4} />
+          ) : historyUnavailable ? (
+            <div className="text-center py-8 px-4">
+              <p className="text-sm text-gray-300">Bid history isn&rsquo;t available right now.</p>
+              <p className="text-xs text-gray-500 mt-1">
+                OpenSea stopped serving past orders through the API we read. This is us being
+                unable to ask &mdash; not a record that you have never had a bid expire. Your
+                live bids in the other tab are unaffected.
+              </p>
+            </div>
           ) : bidHistory.length === 0 ? (
             <EmptyState type="history" />
           ) : (
