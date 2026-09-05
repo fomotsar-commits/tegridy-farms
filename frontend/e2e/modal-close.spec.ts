@@ -21,6 +21,21 @@ test.describe('dialog close button', () => {
     walletMock: _w,
   }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
+    // PIN THE VENUE'S SETTLED STATE BEFORE ARRIVING. `/` is wrapped in
+    // <BungalowDoor id={VENUE_ID}>, which clears a stored skin by reloading the
+    // document; the shared wallet fixture pins `tegridy-bungalow` to `toweli`,
+    // so this spec would arrive with a skin to clear and race that reload —
+    // `page.evaluate` then dies with "Execution context was destroyed". It
+    // passed locally and failed in CI, which is the tell for a race rather than
+    // a broken assertion. Seeding the `venue` sentinel means there is nothing
+    // to clear and no reload happens.
+    //
+    // Registered HERE, in the test body, on purpose: init scripts run in
+    // REGISTRATION order and the wallet fixture registers its own during setup,
+    // so a pin added before the fixture resolves is overwritten by its `toweli`.
+    await page.addInitScript(() => {
+      try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
+    });
     await page.goto('/');
     await page.evaluate(() => document.fonts.ready);
 
