@@ -89,14 +89,18 @@ export default function HistoryPage() {
         // that body surfaces a cryptic "Unexpected token '/'" to the user — catch
         // it here and fall back to a readable message.
         const text = await r.text();
+        // API-M5: the proxy now answers a refused upstream with its own 502 and
+        // a JSON body. That parses cleanly, so without this check it fell through
+        // to the envelope branch below and surfaced as a vague "Failed to load
+        // history" rather than naming the outage. Any non-2xx is unavailable,
+        // whatever the body says.
+        if (!r.ok) {
+          throw new Error(`History service unavailable (HTTP ${r.status}). Try again shortly.`);
+        }
         try {
           return JSON.parse(text);
         } catch {
-          throw new Error(
-            r.ok
-              ? 'History service returned an unexpected response. Try again shortly.'
-              : `History service unavailable (HTTP ${r.status}). Try again shortly.`
-          );
+          throw new Error('History service returned an unexpected response. Try again shortly.');
         }
       })
       .then(data => {

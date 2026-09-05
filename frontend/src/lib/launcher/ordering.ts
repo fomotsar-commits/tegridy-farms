@@ -24,7 +24,8 @@ export interface LaunchSummary {
   uniqueBuyers24h: number;
   liquidityEth: number;
   feeRevenueEth24h: number;
-  holderCount: number;
+  /** Distinct holder count, or null when the Etherscan read did not land (never 0-for-unknown). */
+  holderCount: number | null;
 }
 
 export interface OrderingConfig {
@@ -67,7 +68,19 @@ export function scoreLaunch(s: LaunchSummary, cfg: OrderingConfig): RankedLaunch
 
   // Log-scaled so a whale/wash-trade can't buy rank; capped so activity never
   // dominates the structural tier ordering.
-  const rawActivity = log10p(s.uniqueBuyers24h) * 3 + log10p(s.liquidityEth) * 2 + log10p(s.feeRevenueEth24h) * 2 + log10p(s.holderCount);
+  // OUTAGE-AS-ZERO. `log10p(s.holderCount)` was handed a 0 the adapter minted for a
+  // holder count it could not read (Etherscan Pro-gates the stat, so on a free-tier key
+  // that is every token), which scored a launch with 40,000 holders exactly like a launch
+  // with none — inside a number this surface publishes as deterministic. An unread count
+  // contributes nothing rather than a fabricated zero. Numerically that is the same term
+  // (log10p(0) is 0); what changes is that it is the null branch saying "not counted"
+  // instead of an assertion that there are no holders, the type stops the next caller
+  // coercing it back, and the row prints "holders unavailable" beside this figure so the
+  // omission is visible. A batch where some holder reads landed and some did not is still
+  // a mixed ranking — imputing a number to even it out would be fabricating the very
+  // thing we could not read.
+  const holders = s.holderCount == null ? 0 : log10p(s.holderCount);
+  const rawActivity = log10p(s.uniqueBuyers24h) * 3 + log10p(s.liquidityEth) * 2 + log10p(s.feeRevenueEth24h) * 2 + holders;
   const activity = Math.min(cfg.activityCap, rawActivity);
 
   return { summary: s, score: tier + recency + activity, breakdown: { tier, recency, activity } };

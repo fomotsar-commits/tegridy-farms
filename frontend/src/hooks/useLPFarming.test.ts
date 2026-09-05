@@ -218,3 +218,67 @@ describe('useLPFarming', () => {
     expect(result.current.isDeployed).toBe(true);
   });
 });
+
+// OUTAGE-AS-ZERO (audit 2026-09-04). rawBalanceOf/earned/balanceOf all collapse
+// to 0n on a failed read, and 0n is also the honest "never staked here". The
+// section gated its whole position card — including Claim and Exit — on
+// `stakedBalance > 0n` and printed the first-time-staker panel on 0n, so one
+// unanswered multicall told an LP staker their position did not exist.
+describe('useLPFarming — a failed position read is not a zero position', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  function stubPositionReads(value: bigint) {
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rawBalanceOf', result: value });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'earned', result: value });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: value });
+  }
+
+  it('an unanswered position read is unread, and the balance still collapses to 0n', () => {
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.positionUnread).toBe(true);
+    // The collapse is deliberately kept for display — which is exactly why the
+    // failure needs its own channel beside it.
+    expect(result.current.stakedBalance).toBe(0n);
+  });
+
+  it('a SUCCESSFUL on-chain zero is not an outage', () => {
+    stubPositionReads(0n);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.positionUnread).toBe(false);
+    expect(result.current.stakedBalance).toBe(0n);
+  });
+
+  it('a real staked position reads clean', () => {
+    stubPositionReads(parseEther('12'));
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.positionUnread).toBe(false);
+    expect(result.current.stakedBalance).toBe(parseEther('12'));
+  });
+
+  it('one failed leg of the three is enough to be unread', () => {
+    // `earned` deliberately left unstubbed: a partial answer is not an answer.
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rawBalanceOf', result: parseEther('5') });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: parseEther('1') });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.positionUnread).toBe(true);
+  });
+
+  it('a disconnected visitor is not an outage', () => {
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    // Nothing was asked, so nothing failed — the page must not turn amber.
+    expect(result.current.positionUnread).toBe(false);
+  });
+
+  it('the wrong chain is not an outage', () => {
+    wagmiMock.setChainId(11155111);
+    const { result } = renderHook(() => useLPFarming());
+    // The batch is disabled off mainnet and FarmPage already shows its own
+    // wrong-chain banner; a not-attempted read must not be reported as failed.
+    expect(result.current.positionUnread).toBe(false);
+  });
+});

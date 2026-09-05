@@ -105,7 +105,9 @@ describe('buildOutcomeRecord', () => {
     // unobserved => mirror the baseline so no false -100%/drain signal is derived
     expect(rec.priceEth).toBe(0.001);
     expect(rec.liquidityEth).toBe(10);
-    expect(rec.holderCount).toBe(0); // unknown holder count collapses to 0 for the required field
+    expect(rec.holderCount).toBeNull(); // an unread holder count is null — 0 asserts "no holders"
+    expect(rec.holderCountObserved).toBe(false);
+    expect(rec.holderCountReadFailed).toBe(true);
     expect(rec.lastTeamActivityAt).toBeNull(); // unknown activity stays null (not fabricated)
     expect(rec.launchPriceEth).toBe(0.001);
     expect(rec.launchLiquidityEth).toBe(10);
@@ -120,7 +122,8 @@ describe('buildOutcomeRecord', () => {
     expect(rec.marketObserved).toBe(false);
     expect(rec.priceEth).toBe(0.001);
     expect(rec.liquidityEth).toBe(10);
-    expect(rec.holderCount).toBe(0);
+    expect(rec.holderCount).toBeNull(); // the chain fetcher THREW — still not "0 holders"
+    expect(rec.holderCountReadFailed).toBe(true);
     expect(rec.lastTeamActivityAt).toBeNull();
   });
 
@@ -133,7 +136,10 @@ describe('buildOutcomeRecord', () => {
     expect(rec.marketObserved).toBe(true); // price + liquidity are finite (if hostile) -> observed
     expect(rec.priceEth).toBe(0);
     expect(rec.liquidityEth).toBe(0);
+    // The OTHER half: -1 is a hostile value on a chain read that DID land, so it clamps to
+    // a genuine, published 0. The fix must not turn a real answer into "unavailable".
     expect(rec.holderCount).toBe(0);
+    expect(rec.holderCountObserved).toBe(true);
     expect(rec.lastTeamActivityAt).toBe(0);
   });
 
@@ -148,13 +154,14 @@ describe('buildOutcomeRecord', () => {
     expect(deriveOutcomeFlags(rec).liquidityDrained).toBe(false);
   });
 
-  it('preserves null holder count vs zero distinction at the chain layer but fills 0 in record', async () => {
+  it('keeps an unread holder count null all the way into the record', async () => {
     const f = mockFetcher({
       market: { priceEth: 0.001, liquidityEth: 10, uniqueBuyers24h: 5, feeRevenueEth24h: 0.1 },
       chain: { holderCount: null, lastTeamActivityAt: NOW - 40 * DAY },
     });
     const rec = await buildOutcomeRecord(baseline(), f, NOW);
-    expect(rec.holderCount).toBe(0);
+    expect(rec.holderCount).toBeNull();
+    expect(rec.holderCountObserved).toBe(false);
     expect(rec.lastTeamActivityAt).toBe(NOW - 40 * DAY);
   });
 });

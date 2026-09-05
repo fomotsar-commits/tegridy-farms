@@ -40,6 +40,14 @@ export interface RadarResponse {
   entries: RadarEntry[];
   /** Unix seconds the server read the upstream, so the UI can state freshness. */
   observedAt: number;
+  /**
+   * A page of the server's window was refused, throttled or unparseable, so these rows
+   * are a SHORT window, not the whole one. A TOTAL unread never reaches here — the
+   * adapter answers that with a non-2xx and `fetchLaunchRadar` throws — so this bit
+   * only ever qualifies rows that do exist. False for a body cached before the server
+   * started sending it, which keeps that body's old meaning.
+   */
+  poolsReadFailed: boolean;
 }
 
 export interface FetchLaunchRadarOptions {
@@ -112,7 +120,7 @@ function entryPriceUsd(raw: GeckoPoolEntry): number | null {
  * name can never disagree with the row it labels.
  */
 export function coerceRadar(raw: unknown, limit: number): RadarResponse {
-  const obj = (raw ?? {}) as { data?: unknown; observedAt?: unknown };
+  const obj = (raw ?? {}) as { data?: unknown; observedAt?: unknown; poolsReadFailed?: unknown };
   const { baselines, poolByToken } = mapNewPoolsToBaselines(
     Array.isArray(obj.data) ? (obj.data as unknown[]) : [],
   );
@@ -148,7 +156,11 @@ export function coerceRadar(raw: unknown, limit: number): RadarResponse {
   });
 
   const observedAt = typeof obj.observedAt === 'number' && Number.isFinite(obj.observedAt) ? obj.observedAt : 0;
-  return { entries, observedAt };
+  // `=== true` exactly as useDeployerReputation reads `marketReadFailed`: anything else
+  // — absent, null, a string from a hostile body — is not a claim that the read failed,
+  // and must not be promoted into one.
+  const poolsReadFailed = obj.poolsReadFailed === true;
+  return { entries, observedAt, poolsReadFailed };
 }
 
 /**

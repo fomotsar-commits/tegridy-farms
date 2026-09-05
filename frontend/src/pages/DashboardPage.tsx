@@ -696,7 +696,7 @@ function ToweliDashboard() {
                 </div>
               </m.div>
             ) : myLoans.loans.length > 0 ? (
-              <OutstandingLoans loans={myLoans.loans} />
+              <OutstandingLoans loans={myLoans.loans} unreadCount={myLoans.unreadCount} />
             ) : myLoans.isError ? (
               // Don't render "no loans" when the reads actually FAILED — that
               // showed the borrow CTAs as if the user had none. Say so honestly.
@@ -706,6 +706,23 @@ function ToweliDashboard() {
                   <p className="text-white text-[15px] mb-2">Couldn’t load your loans</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
                     A network read failed, so we can’t confirm your positions right now. This refreshes automatically — check back in a moment.
+                  </p>
+                </div>
+              </m.div>
+            ) : myLoans.loansUnread ? (
+              // A PARTIAL SWEEP IS NOT AN EMPTY BOOK. Some loan records did not
+              // answer, so "No outstanding loans" - under two borrow CTAs - would
+              // be a claim about a set we already know has holes in it.
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="relative z-10 p-8 py-12 text-center">
+                  <p className="text-amber-300 text-[15px] mb-2">Some loan records couldn't be read</p>
+                  <p className="text-white/70 text-[12px] max-w-sm mx-auto">
+                    {myLoans.unreadCount === null
+                      ? 'Part of the loan sweep did not answer, so we cannot say how many records are missing.'
+                      : `${myLoans.unreadCount} loan ${myLoans.unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
+                    None of the records that did come back are yours - but this is not a
+                    statement that you have no loans. Reload before concluding anything here.
                   </p>
                 </div>
               </m.div>
@@ -1059,7 +1076,13 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   return null;
 }
 
-function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLoan[] }) {
+function OutstandingLoans({ loans, unreadCount }: {
+  loans: import('../hooks/useMyLoans').MyLoan[];
+  /** Loan records that did not answer, from useMyLoans. Null when a loanCount
+   *  read failed and the size of the gap is itself unknown. A non-null zero is
+   *  the only value that licenses reading the figures below as totals. */
+  unreadCount: number | null;
+}) {
   const borrower = loans.filter(l => l.role === 'borrower');
   const lender = loans.filter(l => l.role === 'lender');
   const overdue = loans.filter(l => l.status === 'overdue').length;
@@ -1085,6 +1108,19 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
           <ArtImg pageId="dashboard" idx={11} fallbackPosition="center 45%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-5">
+          {unreadCount !== 0 && (
+            // OUTAGE-AS-COMPLETE. Every figure below is a sum over the records that
+            // came back. Some did not, so this panel is a floor, not a total - and a
+            // missing record is exactly as likely to be the overdue one as any other.
+            <div className="mb-4 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
+              {unreadCount === null
+                ? 'Part of the loan sweep did not answer, so an unknown number of loan records are missing from this panel.'
+                : `${unreadCount} loan ${unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
+              The counts and totals below cover only the records that came back - this is
+              an incomplete view, not a full account of your positions. Reload before
+              acting on these figures.
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Open</p>

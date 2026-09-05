@@ -158,7 +158,7 @@ describe("alchemy — R049 body cap (gzip-bomb / OOM defense)", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    process.env.ALCHEMY_API_KEY = "demo"; // path-segment auth, irrelevant here
+    process.env.ALCHEMY_API_KEY = "body-cap-key-aaaaaaaaaaaaaaaa"; // any real key; auth is irrelevant here
     process.env.NODE_ENV = "test";
     handler = (await import("../alchemy.js")).default;
   });
@@ -240,7 +240,7 @@ describe("alchemy — R050 cache contract per RPC method", () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    process.env.ALCHEMY_API_KEY = "demo";
+    process.env.ALCHEMY_API_KEY = "cache-contract-key-aaaaaaaaaaaa";
     process.env.NODE_ENV = "test";
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
@@ -403,7 +403,7 @@ describe("alchemy — API-M5 RPC upstream status is not flattened to 200", () =>
 
   beforeEach(async () => {
     vi.resetModules();
-    process.env.ALCHEMY_API_KEY = "demo";
+    process.env.ALCHEMY_API_KEY = "upstream-status-key-aaaaaaaaa";
     process.env.NODE_ENV = "test";
   });
 
@@ -474,5 +474,126 @@ describe("alchemy — API-M5 RPC upstream status is not flattened to 200", () =>
     await handler(req, res);
     expect(statusSpy).toHaveBeenCalledWith(200);
     expect(jsonSpy.mock.calls[0][0].result).toBe("0x18b4c2f");
+  });
+});
+
+// ── FAIL-OPEN, CLOSED (2026-09-04) ───────────────────────────────────────────
+// With ALCHEMY_API_KEY unset, the handler used to MANUFACTURE the string "demo"
+// and embed it in the upstream URL — proxying the whole marketplace onto
+// Alchemy's PUBLIC demo key. Measured that day: the NFT path answered HTTP 200
+// WITH REAL DATA, the RPC path HTTP 429. Nothing in the response or the logs
+// said the credential was gone, so a keyless deploy read as a healthy one.
+//
+// Six modules already treat "demo" as absence and fail closed — eth-code.js:37,
+// ethcall.js:27/:61, seaport-verify.js:144/:178, alchemy-failover.js:39,
+// orderbook.js:1543/:2128. This file was the outlier. The invariant pinned
+// below is that one, not a message literal: WITHOUT A KEY WE DO NOT CALL
+// UPSTREAM, and we say why.
+//
+// Every assertion in the first three tests FAILS on the pre-fix handler.
+describe("alchemy — a missing credential fails closed, it does not ride the demo key", () => {
+  let handler;
+  let fetchMock;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    delete process.env.ALCHEMY_API_KEY;
+    delete process.env.ALCHEMY_API_KEY_FALLBACK;
+    process.env.NODE_ENV = "test";
+    // A HEALTHY upstream. That is the point: pre-fix this returned 200 with
+    // real data off the public demo key, so the mock must not be the thing
+    // that makes the test pass.
+    fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: null,
+      text: async () => JSON.stringify({ ownersForCollection: ["0xdeadbeef"] }),
+    }));
+    globalThis.fetch = fetchMock;
+    handler = (await import("../alchemy.js")).default;
+  });
+
+  afterEach(() => {
+    delete process.env.ALCHEMY_API_KEY;
+    delete process.env.ALCHEMY_API_KEY_FALLBACK;
+  });
+
+  it("NFT: makes no upstream call at all and answers 503 — never 200 with borrowed data", async () => {
+    const req = makeReq({ query: { endpoint: "getOwnersForContract", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    // The invariant: no credential, no upstream request.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(503);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream credential not configured" });
+    // The pre-fix behaviour, pinned so it cannot come back quietly:
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+  });
+
+  it("RPC: also refuses, and puts no shared-edge cache header on the refusal", async () => {
+    const req = makeReq({
+      method: "POST",
+      query: { endpoint: "rpc" },
+      body: { method: "eth_blockNumber", params: [] },
+    });
+    const { res, statusSpy, jsonSpy, headerSpy } = makeRes();
+    await handler(req, res);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(statusSpy).toHaveBeenCalledWith(503);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream credential not configured" });
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+    // eth_blockNumber carries s-maxage=12 (R050): a cached refusal would be
+    // served to every visitor for 12 seconds at a time.
+    expect(collectHeaders(headerSpy)["Cache-Control"]).toBeUndefined();
+  });
+
+  it("the literal \"demo\" never reaches an upstream URL or an Authorization header", async () => {
+    const req = makeReq({ query: { endpoint: "getFloorPrice", contractAddress: NAKAMIGOS } });
+    const { res } = makeRes();
+    await handler(req, res);
+    for (const [url, opts] of fetchMock.mock.calls) {
+      expect(String(url)).not.toContain("demo");
+      expect(String(opts?.headers?.Authorization ?? "")).not.toContain("demo");
+    }
+  });
+
+  it("does not tell the client which credential is missing (AUDIT API-M4)", async () => {
+    const req = makeReq({ query: { endpoint: "getFloorPrice", contractAddress: NAKAMIGOS } });
+    const { res, jsonSpy } = makeRes();
+    await handler(req, res);
+    const payload = JSON.stringify(jsonSpy.mock.calls[0][0]);
+    expect(payload).not.toContain("ALCHEMY_API_KEY");
+    expect(payload).not.toContain("demo");
+  });
+
+  it("a fallback-only deploy still serves — and the FALLBACK key is what serves it", async () => {
+    process.env.ALCHEMY_API_KEY_FALLBACK = "fallback-key-bbbbbbbbbbbbbbbb";
+    vi.resetModules();
+    // REALISTIC upstream: reject anything unauthenticated. With only the
+    // fallback configured the chain is ["", "fallback-key…"], so attempt #1
+    // still goes out with NO Authorization header and 401s; only the retry
+    // carries the key. An all-200 mock would let this test pass while the
+    // fallback key was never used at all.
+    fetchMock = vi.fn(async (_url, opts) => (
+      opts?.headers?.Authorization
+        ? { ok: true, status: 200, headers: { get: () => null }, body: null,
+            text: async () => JSON.stringify({ ownersForCollection: [] }) }
+        : { ok: false, status: 401, headers: { get: () => null }, body: null,
+            text: async () => "Must be authenticated!" }
+    ));
+    globalThis.fetch = fetchMock;
+    handler = (await import("../alchemy.js")).default;
+    const req = makeReq({ query: { endpoint: "getOwnersForContract", contractAddress: NAKAMIGOS } });
+    const { res, statusSpy } = makeRes();
+    await handler(req, res);
+    // Guard must NOT fire: refusing here would be the fix overreaching.
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    // ...and the FALLBACK key is what actually carried the request.
+    const authed = fetchMock.mock.calls.filter(([, o]) => o?.headers?.Authorization);
+    expect(authed.length).toBeGreaterThan(0);
+    expect(authed.at(-1)[1].headers.Authorization).toBe("Bearer fallback-key-bbbbbbbbbbbbbbbb");
+    // And no attempt may carry the demo path segment.
+    for (const [url] of fetchMock.mock.calls) expect(String(url)).not.toContain("demo");
   });
 });

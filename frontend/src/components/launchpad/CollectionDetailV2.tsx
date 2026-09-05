@@ -46,6 +46,10 @@ export function CollectionDetailV2({
   const mintLabel = useMemo(() => {
     if (!deployed) return 'Contract Not Deployed';
     if (!isConnected) return 'Connect Wallet';
+    // Every read is pinned to CHAIN_ID, so off mainnet there is no price to
+    // quote and mint() refuses anyway. Say which, rather than offering a mint
+    // at a figure nobody read.
+    if (!drop.onMainnet) return 'Switch to Ethereum Mainnet';
     if (drop.isCancelled) return 'Sale Cancelled';
     if (drop.paused) return 'Minting Paused';
     if (drop.isPending) return 'Confirm in Wallet...';
@@ -54,8 +58,14 @@ export function CollectionDetailV2({
     // F261: phase 0 is CLOSED (creator hasn't opened the sale), distinct from a
     // genuinely paused contract (drop.paused above). Don't call both "Paused".
     if (drop.currentPhase === 0) return 'Minting Closed';
+    // OUTAGE-AS-FREE. totalCost is 0 whenever the price read did not land, so
+    // this label used to offer "Mint 1 for 0.0000 ETH" on a paid drop. Three
+    // branches, not two: the read failed, the read has not landed yet, and the
+    // price. A successful 0n is a real free mint and reaches the last one.
+    if (drop.priceUnread) return 'Price unknown — reload';
+    if (!drop.priceReadOk) return 'Reading price…';
     return `Mint ${mintQty} for ${totalCost.toFixed(4)} ETH`;
-  }, [deployed, isConnected, drop.isCancelled, drop.paused, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.currentPhase, mintQty, totalCost]);
+  }, [deployed, isConnected, drop.onMainnet, drop.isCancelled, drop.paused, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.currentPhase, drop.priceUnread, drop.priceReadOk, mintQty, totalCost]);
 
   const mintDisabled =
     !deployed ||
@@ -66,6 +76,10 @@ export function CollectionDetailV2({
     drop.isConfirming ||
     drop.isSoldOut ||
     drop.currentPhase === 0 ||
+    // OUTAGE-AS-FREE. A price the app never read cannot arm a signature. This
+    // requires a POSITIVE read rather than the absence of a failure, so a
+    // still-pending batch and a disabled (wrong-network) query also disarm.
+    !drop.priceReadOk ||
     (drop.currentPhase === 1 && (!proofInput.trim() || !allowedAmountInput.trim()));
 
   const progressPct = drop.maxSupply > 0 ? Math.min(100, (drop.totalSupply / drop.maxSupply) * 100) : 0;
@@ -321,7 +335,12 @@ export function CollectionDetailV2({
             </div>
             <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Price</p>
-              <p className="text-white font-mono text-lg tabular-nums">{drop.currentPriceFormatted} ETH</p>
+              {/* An unreadable price renders a dash, never a confident 0. A
+                  successful on-chain 0 is a real free mint and still prints
+                  "0 ETH". */}
+              <p className="text-white font-mono text-lg tabular-nums">
+                {drop.priceReadOk ? `${drop.currentPriceFormatted} ETH` : '–'}
+              </p>
             </div>
             <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Phase</p>
@@ -412,6 +431,33 @@ export function CollectionDetailV2({
                 )}
               </AnimatePresence>
 
+              {/* OUTAGE-AS-FREE. Name the failed read, deny the free-mint
+                  claim the 0 would have made, and say what to do. */}
+              {drop.priceUnread && (
+                <div
+                  data-testid="collection-detail-v2-unread"
+                  className="rounded-xl px-3 py-2 text-[11px] text-amber-300"
+                  style={{
+                    background: 'rgba(255,178,55,0.10)',
+                    border: '1px solid rgba(255,178,55,0.35)',
+                  }}
+                  role="status"
+                >
+                  <p>
+                    The mint price could not be read — the network did not answer. This is
+                    not a statement that this mint is free. Reload before minting; the
+                    button stays disabled until the price is known.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-secondary mt-2 px-4 py-1.5 text-[11px]"
+                    onClick={() => { void drop.refetch(); }}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
               {/* Quantity + Mint */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <div className="flex items-center gap-2">
@@ -446,13 +492,16 @@ export function CollectionDetailV2({
                   }`}
                   disabled={mintDisabled}
                   onClick={handleMint}
+                  title={drop.priceUnread
+                    ? 'The mint price could not be read from the contract. Reload before minting — do not sign a price you cannot see.'
+                    : undefined}
                 >
                   {mintLabel}
                 </button>
               </div>
 
               {/* Total cost */}
-              {drop.currentPhase > 0 && !drop.isSoldOut && deployed && (
+              {drop.currentPhase > 0 && !drop.isSoldOut && deployed && drop.priceReadOk && (
                 <p className="text-center text-xs text-white font-mono tabular-nums">
                   Total: {totalCost.toFixed(4)} ETH
                 </p>
