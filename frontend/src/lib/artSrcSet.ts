@@ -141,6 +141,7 @@ export function artSizes(loading: string | undefined): string {
 export function artImgProps(
   src: string | undefined,
   loading: 'lazy' | 'eager' = 'lazy',
+  explicitSizes?: string,
 ): { srcSet: string; sizes: string } | Record<string, never> {
   // `string | undefined` rather than `string` on purpose. Several call sites read
   // their art out of a Record with noUncheckedIndexedAccess on, so the value is
@@ -150,5 +151,12 @@ export function artImgProps(
   if (!src) return {};
   const srcSet = artSrcSet(src);
   if (!srcSet) return {};
-  return { srcSet, sizes: artSizes(loading) };
+  // `explicitSizes` is for surfaces whose box is FIXED and known at author time --
+  // the nav logo is 28px on desktop and 44px on mobile, full stop. `auto` cannot
+  // help there because it is only valid on a lazy image, and the nav logo is the
+  // one image on the page that must not be lazy; without an explicit value it
+  // would fall back to the 100vw default and pull the largest candidate, which is
+  // the whole optimisation thrown away. Everything with a fluid box should keep
+  // passing nothing and let `auto` measure it.
+  return { srcSet, sizes: explicitSizes ?? artSizes(loading) };
 }
