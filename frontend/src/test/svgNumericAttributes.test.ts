@@ -15,9 +15,11 @@
 // so these numbers are copied by hand and a copy can land mid-token. This is the
 // cheap check for that whole class, and it is a lint the type system cannot do.
 //
-// SCOPE: attributes whose grammar is unambiguous. `path` d= is deliberately NOT
-// checked — it is a real mini-language, and a wrong-but-well-formed path is a
-// visual bug no parser here could catch anyway.
+// SCOPE: only what is unambiguous. `points` and `viewBox` are fully checked.
+// `path` d= is checked for the two things its grammar settles — no illegal
+// characters, and a leading moveto — and is deliberately NOT parsed: it is a real
+// mini-language, and a wrong-but-well-formed path draws the wrong picture, which
+// is a visual bug no linter here could ever catch.
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +55,7 @@ function scan() {
   const findings: Finding[] = [];
   let points = 0;
   let viewBoxes = 0;
+  let paths = 0;
   const files = walk(SRC);
 
   for (const file of files) {
@@ -92,9 +95,42 @@ function scan() {
         findings.push({ file: rel, line: lineOf(m.index!), what: 'viewBox must be exactly 4 numbers', value });
       }
     }
+
+    // `path` d= is a mini-language, so this checks only the two things about it
+    // that are unambiguous, and deliberately does NOT try to parse it.
+    for (const m of source.matchAll(/<path\b[^>]*?\sd="([^"]*)"/gs)) {
+      const value = m[1];
+      if (value.includes('{') || value.trim() === '') continue;
+      paths++;
+      // 1. Only characters the grammar allows: the 20 command letters, digits,
+      //    sign, decimal point, separators, and `e`/`E` for exponent notation.
+      //    This catches the SecurityPage class in the other direction — a stray
+      //    letter, an HTML entity, a half-pasted token.
+      const illegal = [...new Set(value.match(/[^\sMmLlHhVvCcSsQqTtAaZz0-9.,+\-eE]/g) ?? [])];
+      if (illegal.length) {
+        findings.push({
+          file: rel,
+          line: lineOf(m.index!),
+          what: `<path d> contains ${JSON.stringify(illegal.join(''))}, which no SVG path grammar accepts`,
+          value,
+        });
+        continue;
+      }
+      // 2. SVG requires the FIRST command to be a moveto. A `d` opening with a
+      //    number is exactly a `points` value pasted into the wrong attribute —
+      //    the mirror of the bug this file was written for.
+      if (!/^\s*[Mm]/.test(value)) {
+        findings.push({
+          file: rel,
+          line: lineOf(m.index!),
+          what: '<path d> must start with a moveto (M/m) — a leading number is usually a `points` value in the wrong attribute',
+          value,
+        });
+      }
+    }
   }
 
-  return { findings, files: files.length, points, viewBoxes };
+  return { findings, files: files.length, points, viewBoxes, paths };
 }
 
 const result = scan();
@@ -106,6 +142,7 @@ describe('inlined SVG numeric attributes', () => {
     expect(result.files, 'the walker found almost no source files').toBeGreaterThan(300);
     expect(result.points, 'no <polyline>/<polygon> points= found at all — the pattern drifted').toBeGreaterThan(10);
     expect(result.viewBoxes, 'no viewBox= found at all — the pattern drifted').toBeGreaterThan(50);
+    expect(result.paths, 'no <path d=> found at all — the pattern drifted').toBeGreaterThan(50);
   });
 
   it('accepts only numbers where SVG accepts only numbers', () => {
