@@ -250,3 +250,75 @@ describe("opensea — query param validation", () => {
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Invalid token_ids — must be numeric (max 10 digits)" });
   });
 });
+
+// ─── A PERMANENT UPSTREAM REJECTION MUST NOT ARRIVE AS A 5xx ────────────────
+//
+// The proxy used to collapse EVERY non-2xx upstream status into 502. The client
+// treats 5xx as retryable (nakamigos/lib/proxy.js ApiError.isRetryable) while
+// explicitly NOT retrying 4xx (nakamigos/api.js:20), so our own 502 was the only
+// reason a permanently-dead route was retried at all — 4 requests and ~10.5s
+// each, every 30s, against a 30/min per-IP budget.
+//
+// Live cause, measured 2026-09-05: OpenSea made the seaport order routes
+// POST-only, so five GET call sites now receive 405 forever.
+describe("upstream status forwarding", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    checkGlobalLimitMock.mockResolvedValue(true);
+    process.env.OPENSEA_API_KEY = "test-key";
+  });
+
+  const upstream = (status, body = { error: { message: "Method Not Allowed" } }, headers = {}) =>
+    vi.fn(async () => ({
+      ok: false,
+      status,
+      headers: { get: (k) => headers[String(k).toLowerCase()] ?? null },
+      text: async () => JSON.stringify(body),
+    }));
+
+  // 405 is the one that is actually happening in production today.
+  for (const status of [400, 404, 405, 410, 422]) {
+    it(`forwards a permanent ${status} instead of dressing it as 502`, async () => {
+      vi.stubGlobal("fetch", upstream(status));
+      const { res, statusSpy, jsonSpy } = makeRes();
+      const mod = await import("../opensea.js");
+      await mod.default(makeReq({ method: "GET", query: { path: "orders/ethereum/seaport/listings" } }), res);
+
+      expect(statusSpy).toHaveBeenCalledWith(status);
+      expect(statusSpy).not.toHaveBeenCalledWith(502);
+      // API-M4 still holds: the caller learns the status and nothing else.
+      const payload = jsonSpy.mock.calls.at(-1)?.[0];
+      expect(payload).toEqual({ error: "upstream-rejected", status });
+      expect(JSON.stringify(payload)).not.toContain("Method Not Allowed");
+    });
+  }
+
+  it("still collapses a genuine server fault to 502, and 401/403 with it", async () => {
+    // The point of the change is to separate PERMANENT from TRANSIENT — not to
+    // stop shielding the caller. 500 is retryable and stays 5xx; 401/403 are
+    // about OUR api key and must not become the caller's business.
+    for (const status of [500, 503, 401, 403]) {
+      vi.stubGlobal("fetch", upstream(status));
+      const { res, statusSpy } = makeRes();
+      const mod = await import("../opensea.js");
+      await mod.default(makeReq({ method: "GET", query: { path: "collections/nakamigos/stats" } }), res);
+      expect(statusSpy, `upstream ${status} should stay opaque`).toHaveBeenCalledWith(502);
+    }
+  });
+
+  it("forwards 429 and passes the upstream Retry-After through, but only if it is a plain number", async () => {
+    vi.stubGlobal("fetch", upstream(429, { error: "slow down" }, { "retry-after": "17" }));
+    const { res, statusSpy, headerSpy } = makeRes();
+    const mod = await import("../opensea.js");
+    await mod.default(makeReq({ method: "GET", query: { path: "collections/nakamigos/stats" } }), res);
+    expect(statusSpy).toHaveBeenCalledWith(429);
+    expect(headerSpy).toHaveBeenCalledWith("Retry-After", "17");
+
+    // A header we did not author is attacker-influenced; only digits go through.
+    vi.stubGlobal("fetch", upstream(429, { error: "slow down" }, { "retry-after": "9999999999, injected" }));
+    const second = makeRes();
+    await mod.default(makeReq({ method: "GET", query: { path: "collections/nakamigos/stats" } }), second.res);
+    expect(second.statusSpy).toHaveBeenCalledWith(429);
+    expect(second.headerSpy).not.toHaveBeenCalledWith("Retry-After", expect.stringContaining("injected"));
+  });
+});
