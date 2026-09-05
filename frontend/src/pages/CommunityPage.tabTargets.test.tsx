@@ -10,10 +10,11 @@
  * in e2e/tab-target-size.spec.ts instead of here. Rendering LendingPage in a
  * vitest file pulls its four `lazy(() => import(...))` NFT-Finance sections into
  * the TEST TypeScript program, where `strictFunctionTypes: false`
- * (tsconfig.test.json) makes `useTabListKeys(TABS, activeTab, setActiveTab)` in
- * NFTLendingSection.tsx:113 fail to infer — a latent error in a file this lane
- * does not own. The e2e pin measures the rendered box, which is the better
- * assertion anyway, and leaves that file's fix to its owner.
+ * (tsconfig.test.json) made `useTabListKeys(TABS, activeTab, setActiveTab)` in
+ * NFTLendingSection.tsx fail to infer. That call passes its type argument
+ * explicitly now — the protocol-fee spec had to render the component — so the
+ * error is gone. The e2e pin stays because measuring the rendered box is the
+ * better assertion anyway.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';

@@ -605,6 +605,9 @@ export function useSwap() {
     outputFormatted: quote.outputFormatted,
     outputAmount: quote.outputAmount,
     priceImpact: quote.priceImpact,
+    // Travels WITH the number it qualifies: a consumer branching on a null impact
+    // still needs to know whether it is unpriceable or simply unread.
+    priceImpactUnread: quote.priceImpactUnread,
     minimumReceived: quote.minimumReceivedFormatted,
     needsApproval: allowance.needsApproval,
     insufficientBalance,

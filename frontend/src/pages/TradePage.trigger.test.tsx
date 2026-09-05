@@ -81,7 +81,10 @@ vi.mock('../hooks/useSwap', () => ({
     inputAmount: '',
     outputFormatted: '',
     slippage: 0.5,
+    // A MEASURED zero, not an unread one: the pair reads landed and the impact
+    // really is 0. Unread is the other fact, and it is false here.
     priceImpact: 0,
+    priceImpactUnread: false,
     hasTegridyPair: false,
     tegridyOutputFormatted: '',
     uniOutputFormatted: '',

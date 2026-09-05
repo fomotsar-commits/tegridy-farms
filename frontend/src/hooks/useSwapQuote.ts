@@ -41,7 +41,19 @@ export function buildPath(fromToken: TokenInfo, toToken: TokenInfo): `0x${string
 export interface SwapQuoteResult {
   outputAmount: bigint;
   outputFormatted: string;
-  priceImpact: number;
+  /**
+   * Adverse price movement in percent, or `null` when it could not be computed.
+   * Never 0 for a pair nobody read - a 0 here is a MEASURED zero (the fill is at
+   * or better than the pool mid-price, or the impact is too small to round up).
+   */
+  priceImpact: number | null;
+  /**
+   * The impact was priced against a pair we actually asked about, on the right
+   * chain, with a signable quote already in hand - and it did not come back.
+   * Narrower than `priceImpact === null`, which is also "nothing typed yet" and
+   * "no pair to measure against". Only this one means the network went quiet.
+   */
+  priceImpactUnread: boolean;
   minimumReceived: bigint;
   minimumReceivedFormatted: string;
   isQuoteLoading: boolean;
@@ -374,13 +386,21 @@ export function useSwapQuote(
 
   const isQuoteLoading = isUniQuoteLoading || (hasTegridyPair && isTegridyQuoteLoading);
 
-  // Price impact calculation
-  const priceImpact = useMemo(() => {
-    if (parsedAmount === 0n || outputAmount === 0n || !fromToken || !toToken) return 0;
+  // Price impact calculation.
+  //
+  // OUTAGE-AS-ZERO. Each of these `return 0`s asserted "this swap moves the price
+  // by 0%" - the single number a trader reads to decide a swap is safe to sign -
+  // about reserves nobody had read. The whole warning ladder keys off this one
+  // figure (the >3% red, the >5% "High price impact!" banner, the urgent Towelie
+  // nudge), so one failed getReserves disarmed all three at once while the quote
+  // beside them looked complete. `null` is "we could not price it"; a computed 0
+  // is still a real 0 and still renders as 0.00%.
+  const priceImpact = useMemo<number | null>(() => {
+    if (parsedAmount === 0n || outputAmount === 0n || !fromToken || !toToken) return null;
 
     if (path.length > 2) {
-      if (!activeAmountsOut || activeAmountsOut.length < 3) return 0;
-      if (!leg1Reserves || !leg1Token0 || !leg2Reserves || !leg2Token0) return 0;
+      if (!activeAmountsOut || activeAmountsOut.length < 3) return null;
+      if (!leg1Reserves || !leg1Token0 || !leg2Reserves || !leg2Token0) return null;
 
       try {
         const fromAddr = (fromToken.isNative ? WETH_ADDRESS : fromToken.address).toLowerCase();
@@ -412,7 +432,9 @@ export function useSwapQuote(
       }
     }
 
-    if (!reserves || !token0) return 0;
+    // The direct-pair leg, and the line this audit was opened on: no reserves and
+    // no token0 means no mid-price to measure the fill against. That is not 0%.
+    if (!reserves || !token0) return null;
 
     try {
       const fromAddr = fromToken.isNative ? WETH_ADDRESS : fromToken.address;
@@ -420,7 +442,9 @@ export function useSwapQuote(
       const reserveIn = isToken0From ? reserves[0] : reserves[1];
       const reserveOut = isToken0From ? reserves[1] : reserves[0];
 
-      if (reserveIn <= 0n || reserveOut <= 0n) return 0;
+      // A side reading 0 leaves no mid-price to divide by, so there is no impact
+      // figure here either - and least of all a reassuring one.
+      if (reserveIn <= 0n || reserveOut <= 0n) return null;
 
       const midPriceScaled = (reserveOut * 10n ** 18n) / reserveIn;
       // F197: derive the exec price from the EXECUTING on-chain route's own
@@ -432,18 +456,36 @@ export function useSwapQuote(
       const execOut = activeAmountsOut && activeAmountsOut.length >= 2
         ? (activeAmountsOut[activeAmountsOut.length - 1] ?? outputAmount)
         : outputAmount;
-      if (execOut === 0n) return 0;
+      if (execOut === 0n) return null;
       const execPriceScaled = (execOut * 10n ** 18n) / parsedAmount;
       // Clamp favorable diffs (exec better than mid) to 0 — only adverse
       // movement is "price impact".
+      // The GENUINE zero, deliberately preserved: the fill is at or better than
+      // the mid-price, so the adverse movement really is nil. Same for a tiny
+      // trade whose impactBps rounds to 0 on the line below - both keep printing
+      // 0.00%, and neither is ever confused with an unread pair again.
       if (execPriceScaled >= midPriceScaled) return 0;
       const diff = midPriceScaled - execPriceScaled;
       const impactBps = (diff * 10000n) / midPriceScaled;
       return Number(impactBps) / 100;
     } catch {
-      return 0;
+      // A throw in the bigint math is a figure we do not have, not a 0% one.
+      return null;
     }
   }, [reserves, token0, parsedAmount, outputAmount, fromToken, toToken, path, activeAmountsOut, leg1Reserves, leg1Token0, leg2Reserves, leg2Token0]);
+
+  // Keep the null for the compiler; carry the REASON for it next to the number.
+  // Scoped to the state where the missing figure is dangerous: right chain, a
+  // quote already in hand that the user could sign, and the pair we price the
+  // impact against actually identified. A wrong-network visitor, an empty input,
+  // a mid-flight quote, and a token whose only pool is the native one (the
+  // `reserves` read is disabled there - we never asked) are each a different
+  // fact, and none of them is an outage. Mirrors the enable-gates on the reads
+  // themselves so the flag can never claim a read we did not issue.
+  const impactPairFound = path.length > 2 ? (!!validLeg1 && !!validLeg2) : hasDirectPair;
+  const priceImpactUnread = onRightChain && !!fromToken && !!toToken
+    && parsedAmount > 0n && outputAmount > 0n && !isQuoteLoading
+    && impactPairFound && priceImpact === null;
 
   // Slippage-protected minimum.
   // R033 H-01 (amended 2026-06-09): the floor derives from the venue that
@@ -532,6 +574,7 @@ export function useSwapQuote(
     outputAmount,
     outputFormatted,
     priceImpact,
+    priceImpactUnread,
     minimumReceived,
     minimumReceivedFormatted,
     isQuoteLoading,
@@ -554,7 +597,7 @@ export function useSwapQuote(
     isQuoteStale,
     refreshQuote,
   }), [
-    outputAmount, outputFormatted, priceImpact, minimumReceived, minimumReceivedFormatted,
+    outputAmount, outputFormatted, priceImpact, priceImpactUnread, minimumReceived, minimumReceivedFormatted,
     isQuoteLoading, selectedRoute, selectedOnChainRoute, hasTegridyPair,
     tegridyOutputFormatted, uniOutputFormatted, aggBetter, aggOutputFormatted, bestAggregatorName,
     allAggQuotes, routeDescription, routeLabel, hasDirectPair, intermediateAmount,

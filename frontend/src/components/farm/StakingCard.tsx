@@ -79,24 +79,46 @@ export function StakingCard({
   // user build a reverting stake (the "Likely to Fail" footgun). The cap is read on-chain
   // so it auto-updates when governance raises it (testing-phase 50,000 → later) — no
   // frontend redeploy needed. MIN_STAKE mirrors TegridyStaking.MIN_STAKE (100e18).
-  const { data: maxStakeRaw } = useReadContract({
+  const { data: maxStakeRaw, isLoading: maxStakeLoading } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS,
     abi: TEGRIDY_STAKING_ABI,
     functionName: 'maxStakePerUser',
     chainId: CHAIN_ID,
   });
   const MIN_STAKE_TOWELI = 100;
-  const maxStakeWei = (maxStakeRaw as bigint | undefined) ?? 0n;
-  const maxStakeDisplay = maxStakeWei > 0n ? formatTokenAmount(formatEther(maxStakeWei), 0) : '—';
+  // OUTAGE-AS-ZERO. `?? 0n` asserted "this wallet's cap is zero" on every read
+  // that failed or had not landed — and both readers below are written
+  // `maxStakeWei > 0n && …`, so they took that zero to mean "no cap at all".
+  // An RPC hiccup therefore DISARMED the one guard between the user and a stake
+  // TegridyStaking rejects with PerUserStakeCapExceeded (TegridyStaking.sol:1018)
+  // — gas spent, nothing staked — while the Balance shortcut helpfully filled
+  // the whole wallet on the way in. Unknown stays unknown: `null` is "we did not
+  // read it", and the CTA refuses to arm rather than spend the user's gas on a
+  // number nobody read. A successful 0n is a REAL cap of zero, not "uncapped":
+  // setMaxStakePerUser reverts CapCannotBeZero (TegridyStaking.sol:608) so it
+  // should never appear on-chain, and if it ever does, overCap blocks the stake
+  // exactly as the contract would. wagmi leaves `data` undefined for a pending,
+  // failed or disabled read and a bigint for a landed one — that is the whole
+  // distinction.
+  const maxStakeWei: bigint | null = typeof maxStakeRaw === 'bigint' ? maxStakeRaw : null;
+  const capChecking = maxStakeWei === null && maxStakeLoading;
+  // Gated on `isConnected` so a visitor who never had a wallet attached is not
+  // shown an outage line for a read that was never meaningful for them.
+  const capUnread = isConnected && maxStakeWei === null && !maxStakeLoading;
+  const maxStakeDisplay = maxStakeWei !== null ? formatTokenAmount(formatEther(maxStakeWei), 0) : '—';
   let stakeWei = 0n;
   try {
     stakeWei = amtNum > 0 ? parseEther(stakeAmount) : 0n;
   } catch {
     stakeWei = 0n;
   }
-  const overCap = maxStakeWei > 0n && stakeWei > maxStakeWei;
+  const overCap = maxStakeWei !== null && stakeWei > maxStakeWei;
   const belowMin = amtNum > 0 && amtNum < MIN_STAKE_TOWELI;
-  const stakeBlocked = overCap || belowMin;
+  // Fails CLOSED on an unread cap, and does so BEFORE the amount branches: the
+  // cap is what makes an amount safe, so there is no amount we can call safe
+  // while nobody has read it. Blocking costs the user a reload; the direction
+  // that must not move is the other one.
+  const stakeBlocked = maxStakeWei === null || overCap || belowMin;
 
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
@@ -106,7 +128,7 @@ export function StakingCard({
         </div>
         <div className="relative z-10 p-6">
         <h3 className="heading-luxury text-white text-[20px] mb-5">
-          {pos.hasPosition ? 'Your Position' : 'Stake TOWELI'}
+          {pos.hasPosition || pos.positionUnread ? 'Your Position' : 'Stake TOWELI'}
         </h3>
 
         {pos.hasPosition ? (
@@ -443,6 +465,29 @@ export function StakingCard({
               )}
             </ConnectButton.Custom>
           </div>
+        ) : pos.positionUnread ? (
+          /* Three branches, never two. The unread notice sits BEFORE the stake
+             form, so a failed read can no longer fall through to the silent
+             "you have no position" state - which offered a fresh stake, and no
+             way out, to someone who already had one. */
+          <div
+            className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-[13px] text-amber-100"
+            data-testid="staking-position-unread"
+          >
+            <p>
+              Your staking position could not be read just now - the network did not
+              answer. This is not a statement that you have nothing staked: anything
+              you staked is still staked, and the contract is the record. Retry before
+              acting on this card.
+            </p>
+            <button
+              type="button"
+              className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
+              onClick={() => { void pos.refetchAll(); }}
+            >
+              Retry
+            </button>
+          </div>
         ) : (
           /* New stake form */
           <div>
@@ -452,7 +497,12 @@ export function StakingCard({
                 <label htmlFor="stake-amount-input" className="text-white text-[11px] uppercase tracking-wider label-pill">Amount</label>
                 <button onClick={() => {
                     const bal = parseFloat(pos.walletBalanceFormatted) || 0;
-                    const cap = maxStakeWei > 0n ? parseFloat(formatEther(maxStakeWei)) : bal;
+                    // Only a cap we actually read may bound this — with `> 0n` an
+                    // unread cap fell through to the wallet balance, i.e. the
+                    // shortcut proposed the largest amount at the exact moment
+                    // nothing could check it. The CTA is blocked on the same null,
+                    // so a fill can no longer walk anyone into a reverting stake.
+                    const cap = maxStakeWei !== null ? parseFloat(formatEther(maxStakeWei)) : bal;
                     setStakeAmount(String(Math.min(bal, cap)));
                   }}
                   className="text-white/60 text-[11px] hover:text-white transition-colors cursor-pointer">
@@ -468,6 +518,19 @@ export function StakingCard({
                 Max <span className="font-mono text-white/70">{maxStakeDisplay}</span> TOWELI per wallet &middot; min {MIN_STAKE_TOWELI}
                 <span className="text-white/35"> (testing phase)</span>
               </p>
+              {/* The unread branch of the three the cap now has: still-checking
+                  (dash, no notice), unread (this), read (the figure above). */}
+              {capUnread && (
+                <p
+                  className="text-[11px] mt-1"
+                  data-testid="stake-cap-unread"
+                  style={{ color: '#e3b341', opacity: 0.85 }}>
+                  We could not read the per-wallet cap just now &mdash; the network did not
+                  answer. That is not a statement that there is no cap: staking against a
+                  number nobody read can revert on-chain and spend your gas for nothing.
+                  Reload and try again.
+                </p>
+              )}
             </div>
 
             <div className="mb-4">
@@ -574,6 +637,8 @@ export function StakingCard({
               {actions.isPending || actions.isConfirming
                 ? 'Processing...'
                 : amtNum <= 0 ? 'Enter Amount'
+                : capChecking ? 'Checking stake cap…'
+                : maxStakeWei === null ? 'Stake cap unknown — reload'
                 : belowMin ? `Minimum ${MIN_STAKE_TOWELI} TOWELI`
                 : overCap ? `Max ${maxStakeDisplay} per wallet`
                 : stakeNeedsApproval ? 'Approve TOWELI'

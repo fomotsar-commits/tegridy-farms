@@ -56,7 +56,7 @@ export function useUserPosition() {
   // Get position details + earned if user has a staking NFT
   const hasTokenId = tokenId > 0n;
   // EIP-170 split: getPosition + earned live on StakingMonitorView, not the host staking contract.
-  const { data: posData, refetch: refetchPos } = useReadContracts({
+  const { data: posData, refetch: refetchPos, isLoading: isPosLoading } = useReadContracts({
     contracts: [
       { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'getPosition', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
       { address: STAKING_MONITOR_VIEW_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'earned', args: [hasTokenId ? tokenId : 1n], chainId: CHAIN_ID },
@@ -69,6 +69,36 @@ export function useUserPosition() {
     : undefined);
 
   const pendingReward = (posData?.[1]?.status === 'success' ? posData[1].result as bigint : 0n);
+
+  // OUTAGE-AS-ZERO. userTokenId/balanceOf/allowance/unsettledRewards - and
+  // getPosition/earned in the second batch - all collapse to a definite 0n on a
+  // failed entry, and 0n is also the honest "this wallet has never staked here".
+  // Every control on the staking card hangs off `hasPosition`, so one unanswered
+  // multicall swapped a real staker's position - staked TOWELI, boost, lock,
+  // Claim, Withdraw, the paused-only emergency exit - for the empty "Stake
+  // TOWELI" form, and told them their wallet balance was 0. Keep the collapse for
+  // display; carry the failure next to it. `enabled` is the batch's own gate
+  // (deployed && connected && on mainnet), so an undeployed contract, a
+  // disconnected visitor or a wrong-network wallet never asked - a not-attempted
+  // read must not render as a failed one. The second batch counts only when it
+  // was actually issued (`hasTokenId`); with tokenId 0 it is disabled, and leg 0
+  // already carries that failure.
+  const positionUnread = enabled && !isLoading
+    && (data?.[0]?.status !== 'success'
+      || data?.[1]?.status !== 'success'
+      || data?.[2]?.status !== 'success'
+      || data?.[4]?.status !== 'success'
+      || (hasTokenId && !isPosLoading
+        && (posData?.[0]?.status !== 'success' || posData?.[1]?.status !== 'success')));
+
+  // Separate flag, deliberately. `rewardRate` and `totalBoostedStake` are
+  // PROTOCOL-WIDE, not this wallet's. They only feed the interpolated
+  // `pendingLive` ticker, which parks on the exact on-chain `pendingReward` when
+  // they are 0n - so an unread rate mis-labels a panel, it does not misstate the
+  // position. Sharing one flag would fire the position banner for a global rate
+  // hiccup, and let a consumer conclude "no position" from "no rate".
+  const accrualInputsUnread = enabled && !isLoading
+    && (data?.[5]?.status !== 'success' || data?.[6]?.status !== 'success');
 
   const stakedAmount = position ? position[0] : 0n;
   const boostBps = position ? Number(position[1]) : 0;
@@ -123,6 +153,15 @@ export function useUserPosition() {
     hasPosition,
     stakedAmount,
     stakedFormatted: formatEther(stakedAmount),
+    /**
+     * The user-scoped reads (token id, staked position, claimable, wallet
+     * balance, allowance, unsettled) did not land. `hasPosition` is false and
+     * every amount is 0n either way, so this flag is the only thing separating
+     * "you have nothing staked here" from "we could not ask" - never render a
+     * claim about the user's position, or arm a control on it, without
+     * checking this first.
+     */
+    positionUnread,
     pendingReward,
     pendingFormatted: pendingReward ? formatEther(pendingReward) : '0',
     /** Interpolated claimable, reconciled to `pendingReward` on every refetch.
@@ -132,6 +171,11 @@ export function useUserPosition() {
     /** TOWELI/sec this position accrues. 0 when not derivable (paused, unread,
      *  or no position) — callers should fall back to the static value then. */
     accrualPerSec,
+    /** The PROTOCOL-WIDE accrual inputs (`rewardRate`, `totalBoostedStake`) did
+     *  not land, so `accrualPerSec` is 0 for want of a rate rather than because
+     *  nothing is accruing. Display-only: `pendingReward` stays exact. Says
+     *  nothing about this wallet's position - that is `positionUnread`. */
+    accrualInputsUnread,
     walletBalance,
     walletBalanceFormatted: formatEther(walletBalance),
     allowance,
