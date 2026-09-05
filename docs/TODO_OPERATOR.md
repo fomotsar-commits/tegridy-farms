@@ -1921,10 +1921,12 @@ a new router is live the old balance is reachable only through the owner-gated
   (`floorAmountIn` -> `swapAmount` at the FoT 2-hop call site) is *literally the pre-fix state*, and
   the headline test `test_TF015_haircutMakesFoTConversionReachable` **passed under it**. So the test
   suite could not tell the fixed contract from the broken one.
-  The root cause is the rig, not the fix: `_bootstrapPriced` performs an owner bootstrap conversion
-  with `minETHOut = 0`, which moves the pool, so the TWAP-derived floor the second conversion faces
-  sits well below spot and never binds. With a non-binding floor, neither the gross-sizing bug nor
-  its correction is observable.
+  **The root cause is now MEASURED, not guessed (2026-09-05).** With reserves 100 WETH : 100_000 TOK
+  (spot 1e-3 ETH/TOK) and a 100 TOK pile, the enforced floor came back **4.925e16 - exactly HALF**
+  the correct 9.85e16. The snapshot captures 7200s of accumulation while the delta over the
+  consulted window is only 3600s worth, because `_bootstrapPriced` pokes the pair's cumulative once
+  BEFORE the clock advances and once after. A floor at half spot never binds, so neither the
+  gross-sizing bug nor its correction is observable - and every test still passes.
   **To reopen it:** build a rig where the TWAP floor demonstrably binds (assert the floor value
   itself, not just that the call reverted), then re-apply the design - it is recorded in full in the
   PR that ships TF-010. Until then, fee-on-transfer token fees remain stranded, which is the status
@@ -1967,8 +1969,17 @@ a new router is live the old balance is reachable only through the owner-gated
   value (~$0.30)". More conversions will happen, so more sandwich *opportunities* exist — each still
   TWAP-floored and rate-limited by the 1h cooldown. This is the point of the finding, but it is a
   real change to keeper economics; watch the first weeks after P1.
-- **W3 — `convertTokenFeesToETHFoT` had ZERO tests before this change.** Eleven now exist. If you
-  extend that function, extend them: the FoT mock must genuinely shrink what reaches the pair, or
-  the gross-floor bug is untested and the suite will still be green.
+- **W3 — `convertTokenFeesToETHFoT` now has its first coverage (2026-09-05) — but NOT on the
+  floor.** An earlier revision of this bullet claimed eleven tests existed; that was wrong. Those
+  eleven were withdrawn with TF-015, because seven of them could not distinguish the fixed
+  contract from the broken one. EIGHT tests exist now, covering the guards a permissionless
+  caller actually meets: WETH/zero-token rejection, both deadline bounds, the empty-pile reject,
+  the per-token cooldown, owner-only multi-hop, and the property that makes the function exist —
+  an FoT token delivers strictly less to the pair than the router sent (mutation-checked: set the
+  mock's fee to 0 and that assertion fails).
+  **Still missing, deliberately: any assertion on the TWAP floor value.** The rig cannot produce
+  a trustworthy one (D1), and a floor test written against it would be decoration. Fixing the
+  poke sequence so the enforced floor matches spot is the precondition for BOTH a real floor
+  test and for reviving TF-015 — the highest-value test infrastructure left here.
 - **W4 — the 640-790px viewport dead band** still has no reachable Connect control and no nav
   fallback. Unrelated to this sweep; still open.
