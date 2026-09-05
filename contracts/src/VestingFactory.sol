@@ -186,6 +186,8 @@ contract VestingFactory is OwnableNoRenounce, Pausable, PauseGuardian, TimelockA
         uint256 balanceBefore = IERC20(token).balanceOf(wallet);
         IERC20(token).safeTransferFrom(msg.sender, wallet, amount);
         uint256 funded = IERC20(token).balanceOf(wallet) - balanceBefore;
+        // SLITHER 2026-08-30: measured-funding sentinel (FoT-honest delta), fail-closed
+        // slither-disable-next-line incorrect-equality
         if (funded == 0) revert NoFundsReceived();
         totalVestedInflow[token] += funded;
 

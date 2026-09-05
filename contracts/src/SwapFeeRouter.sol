@@ -172,7 +172,15 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///
     ///         Storage layout: this is a `constant` (no slot consumed). If we need a
     ///         per-token override later, that lands as a new mapping APPENDED to state.
-    uint256 public constant MIN_TOKEN_FEE_FOR_CONVERSION = 1e18;
+    /// @notice AUDIT TF-010 (2026-09-04): `MIN_TOKEN_FEE_FOR_CONVERSION = 1e18` lived here.
+    ///         It expressed a VALUE property ("the pile must be worth enough that stamping
+    ///         the 1h cooldown is not free grief") in the WRONG DIMENSION - RAW TOKEN UNITS.
+    ///         1e18 raw is ~1e12 USDC, ~1e10 WBTC and 1 whole WETH, and both owner exits
+    ///         (`withdrawTokenFees`, `sweepTokens`) reject any token with a WETH pair, so
+    ///         USDC/USDT/WBTC fees had no exit at all. The property now lives in WEI OF ETH
+    ///         at `MIN_MULTIHOP_ETH_OUT_WEI` below, enforced in SwapFeeRouterConvertLib at
+    ///         the WETH-unwrap branch and at both 2-hop call sites. No getter replaces it -
+    ///         nothing on- or off-chain read `MIN_TOKEN_FEE_FOR_CONVERSION()`.
 
     /// @notice AUDIT SFR-M-01 (MEDIUM, 2026-04-28): hard cap on caller-supplied
     ///         conversion paths. 4 hops covers the realistic universe (token → MID0 →
@@ -195,8 +203,8 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         is true for almost every non-degenerate swap). Anchoring to a meaningful
     ///         absolute floor (1e14 wei = 0.0001 ETH ≈ ~$0.30) turns the trivial bypass
     ///         into a noisy revert without rejecting legitimate small-balance conversions
-    ///         (real conversions accumulate `MIN_TOKEN_FEE_FOR_CONVERSION = 1e18` of token
-    ///         and produce orders of magnitude more ETH on any liquid path).
+    ///         (AUDIT TF-010: this floor is now the ONLY conversion entry gate - the raw
+    ///         1e18-token-unit gate it used to sit beside was deleted as mis-dimensioned).
     /// @dev    Multi-hop is `_validateConversionPath`-gated to `msg.sender == owner()`,
     ///         so this floor is defence-in-depth against owner-key compromise / honest
     ///         operator-script error pasting `1` as a bypass value.
@@ -393,10 +401,13 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
     ///         while not the contract owner. Multi-hop paths are owner-restricted because
     ///         the TWAP floor anchors against the direct token/WETH pair only.
     error MultiHopOwnerOnly();
-    /// @notice AUDIT SFR-M-02 (MEDIUM, 2026-04-28): accumulated token fees for `token` are
-    ///         below `MIN_TOKEN_FEE_FOR_CONVERSION`. Conversion is refused so a 1-wei
-    ///         dust trigger cannot brick legitimate keeper-sized conversions for the
-    ///         duration of the per-token cooldown.
+    /// @notice AUDIT SFR-M-02 (MEDIUM, 2026-04-28), re-dimensioned by TF-010 (2026-09-04):
+    ///         the conversion would be worth less than `MIN_MULTIHOP_ETH_OUT_WEI` in ETH.
+    ///         Refused so a stranger cannot stamp the per-token cooldown on a worthless
+    ///         pile and brick legitimate keeper-sized conversions. The gate used to read
+    ///         RAW TOKEN UNITS (1e18), which was ~1e12 USDC and unreachable; it now reads
+    ///         the priced floor. The owner is exempt, because the bootstrap path has no
+    ///         price yet - see `_enforceMinETHValue` in SwapFeeRouterConvertLib.
     error TokenFeesBelowMinimum();
     /// @notice AUDIT SFR-M-03 (MEDIUM, 2026-04-28): legacy mutative aliases that previously
     ///         routed through to `applyInputTokenFee` are now ABI-bait reverters. Callers

@@ -49,10 +49,36 @@
 --
 -- ⛔ PREFLIGHT — DO NOT APPLY BLIND.
 --
---      # 1. Is the anon read open today? (200 = open, this file matters)
---      curl -s -o /dev/null -w '%{http_code}\n' \
+--      # 1. Is the anon read open today?
+--      #
+--      #    A STATUS CODE CANNOT ANSWER THIS. PostgREST serves an RLS-DENIED
+--      #    select as `200` with a body of `[]`, not 403 -- so the obvious
+--      #    `curl -o /dev/null -w '%{http_code}'` prints 200 whether the table is
+--      #    wide open or already fully locked. That check can never fail, which
+--      #    makes it worse than no check: it reads as reassurance.
+--      #    (This file shipped with exactly that check until 2026-09-04.)
+--      #
+--      #    Ask for the COUNT instead, and compare the two roles.
+--      #
+--      #    anon -- what a stranger holding the published key can see:
+--      curl -s -D- -o /dev/null \
 --        -H "apikey: $SUPABASE_ANON_KEY" \
---        "$SUPABASE_URL/rest/v1/user_watchlist?select=wallet&limit=1"
+--        -H "Prefer: count=exact" -H "Range: 0-0" \
+--        "$SUPABASE_URL/rest/v1/user_watchlist?select=wallet" | grep -i '^content-range'
+--
+--      #    service role -- ground truth, what is actually in the table:
+--      curl -s -D- -o /dev/null \
+--        -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+--        -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+--        -H "Prefer: count=exact" -H "Range: 0-0" \
+--        "$SUPABASE_URL/rest/v1/user_watchlist?select=wallet" | grep -i '^content-range'
+--
+--      #    Content-Range is `0-0/<total>`; read the total after the slash.
+--      #      service > 0 and anon == service -> OPEN. This file matters. Apply it.
+--      #      service > 0 and anon == 0       -> already locked. This file is a no-op.
+--      #      service == 0                    -> INCONCLUSIVE, the table is empty.
+--      #                                         Decide on step 2 (pg_policies), which
+--      #                                         does not depend on there being rows.
 --
 --      # 2. Is the owner-scoped twin actually present? It is what survives.
 --      #    Expect one row per table; if it is missing, STOP — dropping the
@@ -63,9 +89,25 @@
 --         and tablename in ('user_watchlist','user_favorites');
 --
 --      # 3. Does the DEPLOYED bundle still read these tables from PostgREST?
---      #    Grep the LIVE bundle (not the source) for 'rest/v1/user_watchlist'
---      #    and 'rest/v1/user_favorites'. Zero hits = the proxy is the only
---      #    reader and this DROP breaks nothing.
+--      #
+--      #    DO NOT grep the built bundle for 'rest/v1/user_watchlist'. supabase-js
+--      #    builds that path by concatenation -- ${url}/rest/v1/${table} -- so the
+--      #    literal never appears in a bundle and "zero hits" is guaranteed whether
+--      #    or not the code reads the table. That check cannot fail, which makes it
+--      #    worse than no check: it reads as clearance. (025 shipped the same
+--      #    mistake in its own preflight; both corrected 2026-09-04.)
+--      #
+--      #    Grep the SOURCE for the client call, which is what actually exists:
+--      grep -rnE 'from[(]("|'"'"')(user_watchlist|user_favorites)("|'"'"')[)]' \
+--        frontend/src --include=*.js --include=*.ts --include=*.tsx
+--
+--      #    Every hit must be inside a proxyRead(...) call, not a supabase.from(...)
+--      #    chain. VERIFIED 2026-09-04 on trunk: both tables read through
+--      #    proxyRead() (frontend/src/nakamigos/lib/supabaseProxy.js:59), and the
+--      #    proxy's own SELECT allowlist admits exactly
+--      #    ["dm_messages","user_watchlist","user_favorites"]
+--      #    (frontend/api/supabase-proxy.js). The ordering precondition above is
+--      #    therefore already satisfied -- the code shipped first.
 --
 -- IDEMPOTENCY
 --   Statements here are applied by hand and get re-run. Both DROPs are

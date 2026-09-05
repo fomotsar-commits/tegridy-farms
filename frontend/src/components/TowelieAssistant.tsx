@@ -20,6 +20,7 @@ import {
   GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from '../lib/constants';
+import { artImgProps } from '../lib/artSrcSet';
 
 // ─────────────────────────────────────────────────────────────────
 // Event copy banks. Pick a random line per event so repeat triggers
@@ -381,7 +382,7 @@ export function TowelieAssistant() {
 
   return (
     <div
-      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 md:bottom-4"
+      className="fixed right-4 z-[60] flex items-end gap-2 pointer-events-none select-none bottom-20 min-[800px]:bottom-4"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
     >
       <AnimatePresence>
@@ -392,7 +393,7 @@ export function TowelieAssistant() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.9 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-auto max-w-[260px] mb-1 relative"
+            className="pointer-events-none max-w-[260px] mb-1 relative"
             role="status"
             aria-live="polite"
           >
@@ -414,7 +415,7 @@ export function TowelieAssistant() {
                    tall — and a transparent ::before carries the TAP target to
                    44x44. The bubble body has no click handler of its own, so the
                    overlay steals nothing. */
-                className="absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none before:absolute before:content-[''] before:-inset-[12px]"
+                className="pointer-events-auto absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors text-[14px] leading-none before:absolute before:content-[''] before:-inset-[12px]"
               >
                 ×
               </button>
@@ -426,7 +427,7 @@ export function TowelieAssistant() {
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
                     placeholder="Ask me anything…"
-                    className="flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
+                    className="pointer-events-auto flex-1 min-w-0 bg-black/40 border border-white/15 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/60 focus:outline-none focus:border-purple-400/60"
                     aria-label="Ask Towelie a question"
                     maxLength={140}
                   />
@@ -434,7 +435,7 @@ export function TowelieAssistant() {
                     type="submit"
                     disabled={!chatInput.trim()}
                     aria-label="Send question"
-                    className="text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
+                    className="pointer-events-auto text-[11px] px-2 py-1 rounded-md bg-purple-500/30 hover:bg-purple-500/50 text-white border border-purple-400/30 disabled:opacity-40 transition-colors"
                   >
                     ↩
                   </button>
@@ -443,13 +444,13 @@ export function TowelieAssistant() {
               <div className="mt-1.5 flex items-center gap-3">
                 <button
                   onClick={toggleChat}
-                  className="text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
+                  className="pointer-events-auto text-[10px] text-purple-300/80 hover:text-purple-200 transition-colors"
                 >
                   {chatOpen ? 'Close chat' : '💬 Ask me'}
                 </button>
                 <button
                   onClick={disablePermanently}
-                  className="text-[10px] text-white/40 hover:text-white/70 transition-colors"
+                  className="pointer-events-auto text-[10px] text-white/40 hover:text-white/70 transition-colors"
                 >
                   Don't show again
                 </button>
@@ -482,7 +483,17 @@ export function TowelieAssistant() {
         whileHover={{ scale: 1.06, rotate: [0, -10, 10, -6, 6, 0], transition: { duration: 0.7 } }}
         whileTap={{ scale: 0.94 }}
       >
-        <img src={ART.bobowelie.src} alt="Towelie" className="w-full h-full object-cover" />
+        {/* Same case as the nav logo: a fixed box (56px, 64px at sm) fed from a
+            1470px source, on every route, and EAGER — it is the floating
+            assistant button, always on screen. `sizes` is spelled out because
+            `auto` is only valid on a lazy image; here it would be ignored in
+            favour of the 100vw default, which selects the original. */}
+        <img
+          src={ART.bobowelie.src}
+          {...artImgProps(ART.bobowelie.src, 'eager', '(min-width: 640px) 64px, 56px')}
+          alt="Towelie"
+          className="w-full h-full object-cover"
+        />
       </m.button>
     </div>
   );

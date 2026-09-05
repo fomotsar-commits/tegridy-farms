@@ -100,6 +100,31 @@ indistinguishable live pools and no rescue function on either contract.
 explicit override; add `require(pool.code.length > 0)` and a chain gate to the
 EVM funding script.
 
+**STATUS 2026-09-05 — the funding half is CLOSED, the shipping half is now GUARDED.**
+
+- Funding: `FundLighthouseStaking.s.sol` gained `assertFundableBuild()` (PR #393),
+  called from `run()` before anything else, and it refuses a pre-fix ladder outright
+  (`"POOL: PRE-FIX ladder build (no MIN_STAKE) - refusing to fund, redeploy first"`).
+  It discriminates on `totalBoosted()`, not `MIN_STAKE()`, because a PRE-FIX ladder and
+  a legitimately floorless PLAIN pool both revert `MIN_STAKE()`.
+- Shipping: funding was blocked, but nothing stopped us SHIPPING A UI pointing users at
+  the six pre-fix pools — a forgotten registry repoint after a redeploy fails silently.
+  `npm run verify-ladders` (`scripts/verify-ladder-builds.mjs`) now reads the shipped
+  registry (`frontend/src/lib/bungalows.ts`) and asks the chain about every
+  `poolKind: 'ladder'` entry. Exit 1 unless all of them run the audited fixed build.
+  An unreadable pool FAILS — an RPC outage must never certify a vulnerable registry.
+
+**Measured 2026-09-05:** all six still `6098` bytes, `MIN_STAKE()` reverting, and all six
+still `totalSupply/rewardRate/periodFinish == 0`. The redeploy is therefore still a
+REPLACEMENT, not a migration — that window closes the moment anyone stakes.
+
+Order of operations for the redeploy:
+1. `DeployLighthouseLadder` (L-INV-11/12 stop a pre-fix build going out)
+2. repoint `frontend/src/lib/bungalows.ts` + `addresses.json` to the new addresses
+3. `npm run verify-ladders` — must exit 0 before the frontend ships
+4. stake an honest position, THEN `FundLighthouseStaking` (an empty pool hands its
+   first period to whoever watches the mempool; `MIN_STAKE` cannot fix that)
+
 ## C5 — CRITICAL: every Streamflow program shares one non-multisig upgrade key
 
 All five programs the BAYLA rail depends on are BPF-upgradeable under a single

@@ -407,6 +407,9 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
         // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: record the open loan (bounded) so
         // the deposit/withdraw freeze can scan for seizable defaults in O(active).
         if (_activeLoans.length() >= MAX_ACTIVE_LOANS) revert TooManyActiveLoans();
+        // SLITHER 2026-08-30: loanId = loans.length is monotonically fresh, so add() cannot
+        // return false; the bool is deliberately ignored
+        // slither-disable-next-line unused-return
         _activeLoans.add(loanId);
         principalOutstanding += requestedWei;
 
@@ -600,6 +603,9 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
     function _pendingInterest(Loan storage loan) private view returns (uint256) {
         if (loan.principal == 0) return 0;
         uint256 elapsed = block.timestamp - uint256(loan.lastAccrualAt);
+        // SLITHER 2026-08-30: same-block short-circuit; the interest term is exactly zero at
+        // elapsed == 0 either way, this only skips the math
+        // slither-disable-next-line incorrect-equality
         if (elapsed == 0) return 0;
         return (loan.principal * loan.aprBps * elapsed) / (365 days * BPS);
     }
@@ -615,6 +621,9 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
         // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: the loss is now recognized in
         // totalAssets (principalOutstanding fell); drop it from the active set so
         // it no longer freezes deposit/withdraw.
+        // SLITHER 2026-08-30: one-shot transition — the seized flag + _liveLoan gate make a
+        // second seize unreachable, so membership is guaranteed and the bool carries no signal
+        // slither-disable-next-line unused-return
         _activeLoans.remove(loanId);
 
         bool moved = SafeERC721Call.safeTransferFromBounded(collection, address(this), liquidationSink, loan.tokenId);
@@ -634,6 +643,9 @@ contract NftfiPooledLendingVault is ERC4626, OwnableNoRenounce, ReentrancyGuard,
         escrowedLoanIdPlus1[loan.tokenId] = 0;
         // AUDIT FIX 2026-08-27 [SEIZURE-RACE]: fully repaid — drop from the active
         // set so a late-but-cured loan stops freezing deposit/withdraw.
+        // SLITHER 2026-08-30: one-shot transition — the closed flag + _liveLoan gate make a
+        // second close unreachable, so membership is guaranteed and the bool carries no signal
+        // slither-disable-next-line unused-return
         _activeLoans.remove(loanId);
         bool moved = SafeERC721Call.safeTransferFromBounded(collection, address(this), to, loan.tokenId);
         if (!moved) revert CollateralTransferFailed();

@@ -18,8 +18,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PRs share a group and cancel; TRUNK COMMITS EACH GET THEIR OWN GROUP (keyed
+  # on github.sha). Sharing one group on trunk meant each merge killed the run
+  # before it -- on the branch that deploys. Making cancel-in-progress
+  # conditional was NOT enough: it only governs a run already in progress, and a
+  # run still queued in an occupied group is pending, which GitHub evicts
+  # unconditionally. A pending kill creates zero jobs and so zero check-runs,
+  # which made the starvation invisible as well as unfixed. See ci.yml for the
+  # full write-up.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ── which jobs are in scope for this diff ──────────────────────────────────
@@ -158,7 +166,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security tab
         if: always() && steps.slither.outputs.sarif != ''
-        uses: github/codeql-action/upload-sarif@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: ${{ steps.slither.outputs.sarif }}
 

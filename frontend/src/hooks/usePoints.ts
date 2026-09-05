@@ -27,6 +27,7 @@ export function usePoints() {
   const onMainnet = chainId === CHAIN_ID;
   const [data, setData] = useState<PointsData | null>(null);
   const [swapCount, setSwapCount] = useState(0);
+  const [swapCountUnread, setSwapCountUnread] = useState(false);
   const [onChainMetrics, setOnChainMetrics] = useState<OnChainMetrics | null>(null);
 
   const userAddr = address ?? ZERO_ADDR;
@@ -68,12 +69,24 @@ export function usePoints() {
   const stakedAmount = position ? position[0] : 0n;
   const lockDuration = position ? Number(position[3]) : 0;
 
+  // OUTAGE-AS-ZERO. A refused getLogs scan set swapCount to 0, which is also the
+  // honest "this wallet has never swapped here", so an RPC that would not answer
+  // asserted that the user had made no swaps: 10 points per unseen swap gone, the
+  // tier and its progress bar dropping with them, and the First Swap / Degen
+  // badges quietly un-earning themselves. Keep the collapse so the panel still
+  // paints; carry the failure next to it. Scoped to a scan we actually issued -
+  // no wallet, no client, or an undeployed router never asked, and a
+  // not-attempted read must not render as a failed one.
   useEffect(() => {
     if (!address || !publicClient || !checkDeployed(SWAP_FEE_ROUTER_ADDRESS)) {
       setSwapCount(0);
+      setSwapCountUnread(false);
       return;
     }
     let cancelled = false;
+    // In flight is not unread: clear the previous wallet's failure so the new
+    // scan is judged on its own answer.
+    setSwapCountUnread(false);
     publicClient.getLogs({
       address: SWAP_FEE_ROUTER_ADDRESS,
       event: SWAP_EXECUTED_EVENT,
@@ -83,9 +96,13 @@ export function usePoints() {
       fromBlock: RELAUNCH_DEPLOY_BLOCK,
       toBlock: 'latest',
     }).then(logs => {
-      if (!cancelled) setSwapCount(logs.length);
+      if (cancelled) return;
+      setSwapCount(logs.length);
+      setSwapCountUnread(false);
     }).catch(() => {
-      if (!cancelled) setSwapCount(0);
+      if (cancelled) return;
+      setSwapCount(0);
+      setSwapCountUnread(true);
     });
     return () => { cancelled = true; };
   }, [address, publicClient]);
@@ -147,6 +164,9 @@ export function usePoints() {
     refresh,
     referralLink,
     onChainMetrics,
+    // OUTAGE-AS-ZERO. True only when a scan we issued came back refused: points,
+    // tier and the swap badges are understated, not earned-and-zero.
+    swapCountUnread,
     // R037: precise about which values are on-chain verified vs client estimates.
     disclaimer: 'On-chain: points + badges (derived from swap count, staking, LP balance, referral count). Client-side: streak counter (computed locally from your visit cadence).',
   };

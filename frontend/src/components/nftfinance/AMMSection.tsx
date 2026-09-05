@@ -29,6 +29,7 @@ import { pageArt } from '../../lib/artConfig';
 import { InfoTooltip, HowItWorks, RiskBanner } from '../ui/InfoTooltip';
 import { isValidAddress as _isValidAddress } from '../../lib/tokenList';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
+import { artImgProps } from '../../lib/artSrcSet';
 
 // ─── Constants ────────────────────────────────────────────────────
 
@@ -158,7 +159,7 @@ function ArtCard({
       style={{ border: `1px solid ${border}` }}
     >
       <div className="absolute inset-0">
-        <img src={art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />
+        <img src={art.src} {...artImgProps(art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={{ opacity }} />
         <div className="absolute inset-0" style={{ background: overlay }} />
       </div>
       <div className="relative z-10">

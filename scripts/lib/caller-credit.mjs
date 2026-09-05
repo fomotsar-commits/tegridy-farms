@@ -112,10 +112,36 @@ function sameAddress(a, b) {
 }
 
 /**
+ * One set of chain readings. Every field is nullable, and null means specifically
+ * "we tried and could not read it" -- never "it was zero". `errors` carries why.
+ *
+ * Declared as a typedef rather than left to inference because this is an
+ * un-annotated .mjs: without it every destructured local below is implicitly `any`,
+ * `creditWei / gasEstimate` infers as `number`, and `breakEvenGasPriceWei` is
+ * PUBLISHED to TypeScript consumers as a number while being a bigint at run time.
+ * A float there would silently truncate a wei figure. frontend's
+ * callerCreditWatch.test.ts had to assert the run-time type and re-wrap in BigInt()
+ * to work around exactly that.
+ *
+ * @typedef {Object} CallerCreditReading
+ * @property {bigint|null}  creditWei
+ * @property {boolean|null} routerPaused
+ * @property {boolean|null} splitterSetupComplete
+ * @property {bigint|null}  splitterBalanceWei
+ * @property {bigint|null}  lastCallerCreditAt
+ * @property {bigint|null}  cooldownSeconds
+ * @property {bigint|null}  nowSeconds
+ * @property {string|null}  wiredSplitter
+ * @property {bigint|null}  accumulatedETHFeesWei
+ * @property {bigint|null}  gasEstimate
+ * @property {bigint|null}  gasPriceWei
+ * @property {string[]}     [errors]
+ */
+
+/**
  * Turn a set of chain readings into a verdict.
  *
- * Every field of `reading` is `bigint | boolean | string | null`, where null means
- * "we tried and could not read it". `errors` carries why.
+ * @param {Partial<CallerCreditReading>|null|undefined} reading
  */
 export function classifyCallerCredit(reading) {
   const {
@@ -202,7 +228,13 @@ export function classifyCallerCredit(reading) {
   // pull can easily cost more than it recovers, which is the whole argument against
   // automating it. Reported, never hidden.
   let economics = null;
-  if (state === 'stranded' && gasEstimate !== null && gasPriceWei !== null && gasEstimate > 0n) {
+  // `creditWei !== null` is redundant at RUN time -- RULE 1 above makes
+  // `state === 'stranded'` imply it. It is here so the TYPE narrows: without it
+  // `creditWei` stays `bigint|null` and the division below infers as `number`.
+  if (
+    state === 'stranded' && creditWei !== null &&
+    gasEstimate !== null && gasPriceWei !== null && gasEstimate > 0n
+  ) {
     const gasCostWei = gasEstimate * gasPriceWei;
     economics = {
       gasEstimate,
@@ -215,6 +247,35 @@ export function classifyCallerCredit(reading) {
       costMultiple: creditWei > 0n ? Number(gasCostWei) / Number(creditWei) : null,
     };
   }
+
+  // THE ONE FACT AN OPERATOR ACTS ON.
+  //
+  // `state === 'stranded'` has been permanently true since the rail was wired, so as a
+  // trigger it is worth nothing - it produces an hourly alert that means "still Tuesday".
+  // And `pullable` only says the transaction would not revert, which is NOT the same as
+  // it being worth sending: at present the pull burns ~47x what it recovers.
+  //
+  // This is the conjunction that actually warrants waking someone: the pull would
+  // succeed AND it recovers more than it costs.
+  //
+  // NULL, NOT FALSE, on EITHER kind of ignorance. Rule 1 applies here as much as
+  // anywhere - "we could not tell" must never render as "not worth it", because those
+  // two produce opposite operator behaviour and only one of them is a fact.
+  //
+  // Two distinct ways of not knowing, and BOTH have to produce null:
+  //   - `economics === null`        we could not price the pull
+  //   - `unreadableGuards.length`   we could not tell whether the pull would even work
+  //
+  // The second is the subtle one, and getting it wrong inverts the sign on exactly the
+  // trap the Rule 1 note above describes. `pullable` is
+  // `... && unreadableGuards.length === 0`, so an unreadable `paused()` makes `pullable`
+  // FALSE - correctly, because we cannot claim it is available. But feeding that
+  // straight into a conjunction would publish a confident `worthPulling: false`,
+  // i.e. "do not bother", built out of "we do not know". An outage would read as a
+  // reason to stand down.
+  const worthPulling = (economics === null || unreadableGuards.length > 0)
+    ? null
+    : (pullable && economics.worthIt);
 
   // RULE 3. The epoch claim is arithmetic, not a slogan.
   let opensEpoch = null;
@@ -233,6 +294,7 @@ export function classifyCallerCredit(reading) {
     unreadableGuards,
     simulationReverted,
     pullable,
+    worthPulling,
     economics,
     distribution: {
       landsIn: 'SwapFeeRouter.accumulatedETHFees',
@@ -349,6 +411,10 @@ export function renderGithubOutput(classification, { delimiter } = {}) {
     classification.state,
     String(classification.creditWei ?? 'null'),
     String(classification.pullable),
+    // The flip this whole file exists to catch. Without it in the fingerprint, the run
+    // where pulling FIRST becomes worth it dedupes against the thousands of runs where
+    // it was not, and the issue is never updated at the only moment it matters.
+    String(classification.worthPulling),
     // Sorted so two runs that discover the same blockers in a different order agree.
     [...classification.blockers].sort().join('|'),
     [...classification.unreadableGuards].sort().join('|'),
@@ -358,6 +424,9 @@ export function renderGithubOutput(classification, { delimiter } = {}) {
   return [
     `stranded_state=${classification.state}`,
     `stranded_pullable=${classification.pullable}`,
+    // `unknown`, never `false`, when the economics could not be computed - a consumer
+    // branching on this must be able to tell "not worth it" from "we could not tell".
+    `stranded_worth_pulling=${classification.worthPulling === null ? 'unknown' : String(classification.worthPulling)}`,
     `stranded_summary=${summary.replace(/[\r\n]+/g, ' ')}`,
     `stranded_fingerprint=${createHash('sha256').update(fingerprintFacts).digest('hex').slice(0, 16)}`,
     `stranded<<${delim}`,

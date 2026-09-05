@@ -256,6 +256,8 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
     error NothingToClaim();
     error FeeTooHigh();
     error CovenantIndexOutOfRange();
+    /// @notice The creator named itself as the refund oracle. See the note at `open`.
+    error OracleIsCreator();
     error DirectPaymentRejected();
 
     // ─── Events ───────────────────────────────────────────────────────
@@ -282,6 +284,11 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
     event BreachFlagged(uint256 indexed escrowId, uint256 indexed covenantIndex, address flagger, uint256 observedBps);
     event BreachCured(uint256 indexed escrowId, uint256 indexed covenantIndex, uint256 observedBps);
     event BreachConfirmed(uint256 indexed escrowId, uint256 indexed covenantIndex, uint256 observedBps);
+    /// @notice A flagged covenant was STILL unreadable when the confirm deadline passed,
+    ///         so the breach settled on the withheld read. Deliberately distinct from
+    ///         `BreachConfirmed`, which carries a bps this path never measured.
+    event BreachConfirmedOnWithheldRead(uint256 indexed escrowId, uint256 indexed covenantIndex);
+
     event StaleFlagCleared(uint256 indexed escrowId, uint256 indexed covenantIndex);
     event ReleasedToCreator(uint256 indexed escrowId, address indexed creator, uint256 toCreator, uint256 venueFee);
     event RefundRootPosted(uint256 indexed escrowId, bytes32 root, uint256 totalWeight, uint64 claimDeadline);
@@ -332,6 +339,22 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
         // A zero oracle would make refunds structurally unpayable while still letting the
         // launch advertise insurance. That is the one shape of this product that is a lie.
         if (refundOracle == address(0)) revert ZeroAddress();
+        if (refundOracle == msg.sender) revert OracleIsCreator();
+        // AUDIT FIX TF-012(b): and it must not be the creator.
+        //
+        // `reclaimOnOracleSilence` pays the FULL principal back to the creator when the
+        // oracle stays silent past `REFUND_ROOT_WINDOW`. Against a CAPTURED third-party
+        // oracle that is right, and the dev-note there says so: silence pays the oracle
+        // nothing, so withholding a root buys it no leverage. When the oracle IS the
+        // creator, that same rule inverts into a total defeat of the product - rug, get
+        // the breach confirmed, say nothing for fourteen days, take the money back, and
+        // no buyer is ever paid. Silence must not be a strategy available to the party
+        // it pays.
+        //
+        // This closes only the address-equality case. A creator who routes through an
+        // address they also control is not detectable on-chain, which is why the oracle
+        // is published in the terms at `open` and is a disclosure question, not just a
+        // guard. That limit is stated rather than papered over.
         if (windowSeconds < MIN_WINDOW || windowSeconds > MAX_WINDOW) revert WindowOutOfRange();
         uint256 n = covenantInputs.length;
         if (n == 0 || n > MAX_COVENANTS) revert CovenantCountOutOfRange();
@@ -465,6 +488,37 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
         uint64 flaggedAt = covenantFlaggedAt[escrowId][covenantIndex];
         if (flaggedAt == 0) revert NotFlagged();
         if (block.timestamp <= flaggedAt + CONFIRM_DEADLINE_AFTER_FLAG) revert FlagNotStale();
+
+        // AUDIT FIX TF-012(a): a WITHHELD read is not a cleared flag.
+        //
+        // A flag is only ever raised on a READABLE, in-breach observation
+        // (`flagCovenantBreach` reverts `CovenantUnreadable` otherwise). So arriving here
+        // with the covenant still unreadable means the asset stopped answering AFTER a
+        // proven breach was recorded, and stayed that way through the cure window and the
+        // whole confirm window - on an asset the creator chose at `open`.
+        //
+        // Clearing the flag there is the exploit: brick `balanceOf`, let every
+        // `confirmCovenantBreach` revert `CovenantUnreadable` for ten days, clear the
+        // flag, collect the principal. The trigger would be defeated by refusing to be
+        // measured. So unreadability at the deadline resolves AGAINST the party that
+        // chose the asset.
+        //
+        // An honest creator never reaches this branch. While the asset is readable and
+        // the covenant satisfied, `confirmCovenantBreach` CURES the flag and returns -
+        // and it is permissionless, so the creator may clear their own flag at any point
+        // in the window rather than waiting for someone else to.
+        //
+        // The event is separate on purpose. We did not read a bps here, so we must not
+        // emit one: `BreachConfirmed` carries a measurement and this is the absence of
+        // one. A zero is only publishable when a read returned it.
+        Covenant storage c = _covenants[escrowId][covenantIndex];
+        (bool readable, ) = _readCovenantBps(c);
+        if (!readable) {
+            e.status = Status.Breached;
+            e.deadline = uint64(block.timestamp) + REFUND_ROOT_WINDOW;
+            emit BreachConfirmedOnWithheldRead(escrowId, covenantIndex);
+            return;
+        }
 
         covenantFlaggedAt[escrowId][covenantIndex] = 0;
         unchecked {
@@ -669,7 +723,7 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
         // that follows reverts in a way `try` cannot catch, so it must be checked first.
         if (asset.code.length == 0) return (false, 0);
 
-        uint256 live;
+        uint256 live = 0;
         try IERC20(asset).totalSupply() returns (uint256 supply) {
             live = supply;
         } catch {
@@ -682,7 +736,7 @@ contract LaunchRugEscrow is OwnableNoRenounce, ReentrancyGuard {
         uint256 denom = live < snapshot ? live : snapshot;
         if (denom == 0) return (false, 0);
 
-        uint256 held;
+        uint256 held = 0;
         uint256 n = c.holders.length;
         for (uint256 i; i < n; ++i) {
             try IERC20(asset).balanceOf(c.holders[i]) returns (uint256 bal) {

@@ -603,7 +603,7 @@ contract R028_SFR_M04_REVISED is Test {
     ///         instead of staying in accumulatedTokenFees[WETH] (where the only
     ///         exit was 100%-to-treasury via withdrawTokenFees).
     function test_M4_revised_WETHFeesUnwrapToETHFees() public {
-        uint256 seed = 5 ether; // above MIN_TOKEN_FEE_FOR_CONVERSION (1e18)
+        uint256 seed = 5 ether; // AUDIT TF-010: above MIN_MULTIHOP_ETH_OUT_WEI (1e14)
         _seedWETHFees(seed);
 
         uint256 ethFeesBefore = sfr.accumulatedETHFees();
@@ -636,11 +636,24 @@ contract R028_SFR_M04_REVISED is Test {
         sfr.withdrawTokenFees(address(weth));
     }
 
-    /// @notice Dust-grief floor still enforced on the WETH branch: balance below
-    ///         MIN_TOKEN_FEE_FOR_CONVERSION (1e18) reverts so an attacker can't
-    ///         spam unwrap calls on wei-scale dust.
+    /// @notice Dust-grief floor still enforced on the WETH branch, now in WEI OF ETH.
+    ///         AUDIT TF-010: was MIN_TOKEN_FEE_FOR_CONVERSION (1e18 = 1 WHOLE ETH), which
+    ///         stranded every WETH fee balance below 1 ETH - withdrawTokenFees and
+    ///         sweepTokens both reject WETH by name, so this branch is the only exit.
+    ///         Pinned to the CONSTANT, not a literal, so a future move of the constant
+    ///         cannot silently un-pin the boundary.
+    function test_M4_revised_WETHUnwrap_atFloorSucceeds() public {
+        uint256 floorWei = sfr.MIN_MULTIHOP_ETH_OUT_WEI();
+        _seedWETHFees(floorWei);
+        uint256 beforeEth = sfr.accumulatedETHFees();
+        vm.prank(keeper);
+        sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);
+        assertEq(sfr.accumulatedTokenFees(address(weth)), 0, "WETH accumulator must zero");
+        assertEq(sfr.accumulatedETHFees(), beforeEth + floorWei, "ETH fees must grow by the unwrap");
+    }
+
     function test_M4_revised_WETHUnwrap_belowFloorReverts() public {
-        _seedWETHFees(0.5 ether); // below MIN_TOKEN_FEE_FOR_CONVERSION
+        _seedWETHFees(sfr.MIN_MULTIHOP_ETH_OUT_WEI() - 1);
         vm.expectRevert(SwapFeeRouter.TokenFeesBelowMinimum.selector);
         vm.prank(keeper);
         sfr.convertTokenFeesToETH(address(weth), _emptyPath(), 0, block.timestamp + 30 minutes);

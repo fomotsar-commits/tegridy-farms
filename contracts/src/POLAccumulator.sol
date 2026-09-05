@@ -425,7 +425,22 @@ contract POLAccumulator is OwnableNoRenounce, ReentrancyGuard, Pausable, Timeloc
         // single source of truth for swap-leg slippage protection — caller-supplied
         // `_minTokens` can only TIGHTEN this floor, never relax it. Staleness is asserted
         // via `getLatestObservation` first so a frozen oracle cannot grant a 0-min swap.
-        uint256 internalSwapMinOut = _twapMinOut(weth, halfETH);
+        // AUDIT FIX TF-011: net the AMM's own swap fee out of the floor.
+        // `_twapMinOut` is derived from `TegridyTWAP.consult`, which returns
+        // `mulDiv(amountIn, priceDiff, elapsed * Q112)` — a LINEAR time-weighted
+        // price carrying no swap fee and no price-impact term. The pool it is
+        // compared against charges 0.3% on every swap (TegridyPair.sol:298), so
+        // the raw quote is an output no constant-product swap can produce: the
+        // 50 bps TWAP_SAFETY_BPS budget had to cover the 30 bps fee before it
+        // could absorb any price impact at all, leaving ~20 bps of real headroom
+        // and reverting `accumulate` on ordinary-sized deployments.
+        //
+        // Netting the fee here — rather than widening TWAP_SAFETY_BPS — keeps the
+        // 50 bps budget meaning exactly what its name says: tolerance for the
+        // pool's price DIVERGING from the oracle. Manipulation protection is
+        // unchanged in kind and barely changed in degree; what moves is that the
+        // fee is no longer charged twice.
+        uint256 internalSwapMinOut = (_twapMinOut(weth, halfETH) * 997) / 1000;
         uint256 swapMinOut = _minTokens > internalSwapMinOut ? _minTokens : internalSwapMinOut;
 
         // Step 1: Buy TOWELI with half the ETH (with the TWAP-enforced floor).

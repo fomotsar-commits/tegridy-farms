@@ -3,13 +3,15 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV, MORE_NAV_SECTIONS } from '../../lib/navConfig';
+import { PRIMARY_NAV, MORE_NAV, MENU_NAV_SECTIONS } from '../../lib/navConfig';
 import type { NavItem, NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
+import { setActiveBungalow } from '../../lib/bungalows';
+import { artImgProps } from '../../lib/artSrcSet';
 
 /**
  * Is any of this section's destinations the page we are on?
@@ -63,7 +65,7 @@ function SectionChevron() {
  * last expanded group and read as more of its links. -1 when nothing is
  * collapsed, which draws no rule at all.
  */
-const FIRST_HUB_INDEX = MORE_NAV_SECTIONS.findIndex((s) => !!s.hub);
+const FIRST_HUB_INDEX = MENU_NAV_SECTIONS.findIndex((s) => !!s.hub);
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -213,23 +215,46 @@ export const TopNav = React.memo(function TopNav() {
         <div className="absolute top-0 left-0 right-0 h-[1px]" style={{
           background: 'linear-gradient(90deg, transparent 0%, var(--color-purple-75) 30%, var(--color-purple-50) 50%, var(--color-purple-75) 70%, transparent 100%)',
         }} />
-        {/* px-3 below 480px: the last 3px the narrowest phones needed to stop the
-            row overflowing. Restored to px-4 the moment there is room. */}
-        <div className="max-w-[1200px] mx-auto h-14 px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
-          {/* gap-1 BELOW 480px. 🔴 Found 2026-09-04 by e2e/header-reachability.spec.ts,
-              which was already red on this branch before the nav condensation: at
-              375px this row measured scrollWidth 378 against clientWidth 375, so
-              the header overflowed its own viewport on the narrowest phones.
+        {/* px-2 below 400px, px-3 to 480, then px-4. The narrowest phones need
+            every pixel of this back; each step is restored the moment there is
+            room for it. See the gap comment below for what this is paying for. */}
+        <div className="max-w-[1200px] mx-auto h-14 px-2 min-[400px]:px-3 min-[480px]:px-4 md:px-6 flex items-center justify-between">
+          {/* 🔴 THE 360px ROW. e2e/header-reachability.spec.ts measured
+              scrollWidth 362 against clientWidth 360 in CI — the header
+              overflowing its own viewport on the narrowest supported phone.
               CAUSE: the display face moved from Playfair Display to Archivo
-              (03552f3c) and the wordmark got ~3px wider — the identity comment
-              below sized the TYPE down for exactly this reason in August and the
-              new face ate the margin it bought.
-              FIXED IN THE GAPS, NOT THE TYPE, on purpose: the 2026-08-31 owner
-              rule is that the mark stays whole and un-abbreviated at every width,
-              so shrinking it again is the one lever that is not available. Two
-              8px gaps become 4px, which buys 8px against a 3px overrun — margin
-              for the next face, rather than a fix that is exactly big enough. */}
-          <div className="flex items-center gap-1 min-[480px]:gap-2">
+              (03552f3c) and the wordmark got wider; the identity comment below
+              had already sized the TYPE down for exactly this reason in August,
+              and the new face ate the margin that bought. CI rasterises Archivo
+              a shade wider than a local run, so 360px passes here and fails
+              there — do not trust a local green on this one.
+
+              WHY IT WAS INVISIBLE UNTIL NOW: the spec measured `locator('header')`,
+              which matched a second <header> inside YieldCalculator, so it threw
+              a strict-mode violation BEFORE it ever reached this measurement.
+              The overflow is older than the fix that revealed it.
+
+              FIXED IN THE GAPS AND THE PADDING, NOT THE TYPE, on purpose: the
+              2026-08-31 owner rule is that the mark stays whole and
+              un-abbreviated at every width, so shrinking it again is the one
+              lever that is not available. Three levers, all below 400px, all
+              measured at 360: row padding px-3→px-2 buys 8px of content box
+              (336→344), these two gaps 4px→2px take the left group 222→218, and
+              the right group's gap-1.5→gap-1 takes it 121.3→119.3 — note that
+              group is `flex-shrink-0`, so its width is a hard floor and the
+              wordmark is what silently absorbs any shortfall. 14px bought
+              against a 2px overrun: margin for the next face, not a fix that is
+              exactly big enough.
+
+              VERIFIED BY SWEEP, not by the arithmetic above: with these three
+              levers the row's intrinsic width is 350px, so it still fits at a
+              352px viewport and only overflows at 348. That is 10px of headroom
+              at 360 against CI's 2px overrun. Before them the row measured
+              exactly 360 at 360 — zero slack, which is why a rasteriser a shade
+              wider than local was enough to tip it. If you change anything in
+              this row, re-run the sweep rather than a local 360px check: 360
+              passed locally on the broken version too. */}
+          <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
             {/* F314: the replay easter egg is a distinct 28px button sitting to
                 the LEFT of the home logo link (separate targets, gap-2 apart, so
                 an off-logo click can't trigger a ~15s replay). A hover play-icon
@@ -245,7 +270,23 @@ export const TopNav = React.memo(function TopNav() {
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
-              <img src={pageArt('nav-logo', 0).src} alt="" className="w-full h-full object-cover" />
+              {/* The nav logo is a 512x512 PNG rendered at 28px (desktop) / 44px
+                  (mobile), so it is the single clearest case for a small
+                  candidate. `sizes` is spelled out because this image is EAGER
+                  by design -- it is above the fold on every route -- and
+                  `sizes="auto"` is only valid on a lazy image. Omit it and the
+                  browser falls back to the 100vw default, picks the full-size
+                  original, and the srcset saves nothing at all.
+
+                  This was lost once already: a nav refactor replaced this
+                  element with a bare <img> and nothing failed, because a missing
+                  optimisation is invisible. TopNav.navLogo.test.tsx now pins it. */}
+              <img
+                src={pageArt('nav-logo', 0).src}
+                {...artImgProps(pageArt('nav-logo', 0).src, 'eager', '(min-width: 768px) 28px, 44px')}
+                alt=""
+                className="w-full h-full object-cover"
+              />
               <span
                 aria-hidden="true"
                 className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
@@ -254,25 +295,24 @@ export const TopNav = React.memo(function TopNav() {
                 <span className="text-white text-[11px] leading-none">&#9658;</span>
               </span>
             </button>
-            {/* THE WAY BACK (owner, 2026-08-31), now handled at the destination
-                (2026-09-04). This used to carry a hand-rolled onClick that
-                persisted the 'venue' sentinel and hard-assigned '/', because a
-                plain <Link to="/"> landed back inside the stored bungalow.
-
-                That was true, and it was true of EVERY link to "/" — the 404
-                page's "Back to Home" and the footer among them — so the
-                wordmark being the only one that worked was the actual bug. The
-                index route is now the venue's own <BungalowDoor id="venue">
-                (App.tsx), which clears the skin on arrival with the same
-                verified-persist and one-shot-reload guards every other door
-                uses.
-
-                So this is a plain Link again, deliberately: one mechanism for
-                the rule instead of two that can drift apart. */}
+            {/* THE WAY BACK (owner, 2026-08-31): the wordmark is the ONLY way
+                to the venue besides the arrival itself — the picker no longer
+                lists it. A plain <Link to="/"> could not do this: with a
+                bungalow stored, "/" renders THAT bungalow's home, so the
+                island's own front page was unreachable without clearing
+                storage. Persisting the 'venue' sentinel first makes the mark
+                mean what it looks like it means. Full assign, not client
+                routing: the voice resolves at module scope, so the document
+                must be new for the venue skin to take. */}
             <Link
               to="/"
               className="flex items-center gap-1"
               title="Back to memetics.finance"
+              onClick={(e) => {
+                e.preventDefault();
+                setActiveBungalow('venue');
+                window.location.assign('/');
+              }}
             >
               {/* ARRIVAL IDENTITY 2026-08-27: the wordmark follows the arrival
                   voice. The venue speaks as itself by default; the classic
@@ -409,7 +449,7 @@ export const TopNav = React.memo(function TopNav() {
                         reason this is a rendering change — a destination cannot be
                         lost from the menu without also vanishing from its host's tab
                         bar, because there is one list, not two. */}
-                    {MORE_NAV_SECTIONS.map((section, si) => (
+                    {MENU_NAV_SECTIONS.map((section, si) => (
                       <div
                         key={section.heading}
                         className={`px-2 ${si === FIRST_HUB_INDEX ? 'mt-1 pt-1.5 border-t border-white/10' : ''}`}
@@ -455,7 +495,7 @@ export const TopNav = React.memo(function TopNav() {
               budget by the chip-label rule above; the nav itself is deliberately
               NOT given min-w-0/overflow-hidden, because that would clip the
               "More" dropdown, which is absolutely positioned inside it.) */}
-          <div className="flex items-center gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
+          <div className="flex items-center gap-1 min-[400px]:gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
             {/* AUDIT 2026-05-30 (mobile+iPad re-pass): was `hidden md:block` which (a) failed
                 to actually hide at 390 in the wild and (b) collided with the Connect button
                 at the 768 iPad-portrait breakpoint (50px allocated slot vs 85px text width).
@@ -610,7 +650,7 @@ export const TopNav = React.memo(function TopNav() {
                     BottomNav, so the drawer is just the secondary overflow. */}
 {/* Mirrors the desktop dropdown exactly, collapsed sections and
                     all — same array, same `hub` test. See the comment there. */}
-                {MORE_NAV_SECTIONS.map((section, si) => (
+                {MENU_NAV_SECTIONS.map((section, si) => (
                   <div
                     key={section.heading}
                     className={`mb-3 ${si === FIRST_HUB_INDEX ? 'pt-2 border-t border-white/10' : ''}`}

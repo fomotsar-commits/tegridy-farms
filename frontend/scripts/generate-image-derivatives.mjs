@@ -35,69 +35,41 @@
  * recorded here instead: a derivative's URL encodes its source path and width, so
  * it changes only when the source does.
  *
- * OUTPUT IS GENERATED, NEVER COMMITTED. public/ is tracked, and 347 sources x 2
- * widths would add hundreds of megabytes to the repo. Both the derivative tree and
- * the manifest are gitignored and rebuilt by `npm run build` (npm runs `prebuild`
- * automatically). Incremental: a derivative newer than its source is skipped, so
- * repeat builds cost almost nothing.
+ * THE DERIVATIVES ARE GENERATED AND NEVER COMMITTED; THE MANIFEST IS COMMITTED.
+ * public/ is tracked, and hundreds of derivative files would add hundreds of
+ * megabytes to the repo, so public/_derived is gitignored. The manifest is NOT --
+ * tsc and vitest need it in a fresh clone, and it ships in the JS bundle.
+ *
+ * This script is called EXPLICITLY, first in the `build` script. It must never be
+ * wired as an npm `pre*` hook: frontend/.npmrc sets ignore-scripts=true, which
+ * silently skips lifecycle hooks. It was a `prebuild` hook once; it therefore
+ * never ran on Vercel, the derivatives were never built, and the committed
+ * manifest advertised srcset candidates for files that were not deployed --
+ * 72 of 124 images broken across 8 routes, with nothing failing anywhere.
+ *
+ * Incremental: a derivative newer than its source is skipped, so repeat builds
+ * cost almost nothing.
  */
 import sharp from 'sharp';
-import { readdirSync, statSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 
-/** Source roots to scan. Everything under them is fair game. */
-const SOURCE_DIRS = ['art', 'splash'];
+/**
+ * Source roots to scan. Everything under them is fair game.
+ *
+ * `nakamigos` and `collections` were added 2026-09-04 after measuring what the
+ * app actually fetches: 2.5 MB of sources in those two directories had no
+ * derivatives at all, purely because nothing had ever listed them here. They are
+ * rendered by the same surfaces as everything else. `tokens` is deliberately
+ * absent -- all 15 files there are under MIN_SOURCE_BYTES, so it would add a
+ * directory walk and produce nothing.
+ */
+const SOURCE_DIRS = ['art', 'splash', 'nakamigos', 'collections'];
 const PUBLIC_ROOT = 'public';
 /** Derivatives live here, mirroring the source tree. Gitignored. */
 const DERIVED_DIR = join(PUBLIC_ROOT, '_derived');
 /** Where ArtImg reads what exists. Gitignored; a committed empty default ships beside it. */
 const MANIFEST = join('src', 'lib', 'artDerivatives.generated.json');
-
-/** The registry the door thumbnails are declared in. Read as TEXT, not imported:
- *  this script runs under plain Node with no TS loader (same constraint as
- *  scripts/render-bungalow-doors.mjs). */
-const BUNGALOWS_TS = join('src', 'lib', 'bungalows.ts');
-/** Per-thumbnail brightness multipliers for the settled-door grid. Committed. */
-const LUMA_MANIFEST = join('src', 'lib', 'doorThumbLuma.generated.json');
-
-/**
- * SETTLED-DOOR LUMINANCE NORMALISATION (2026-09-04 field review).
- *
- * A settled door is rendered `grayscale` at full brightness. Desaturation alone
- * says nothing about lightness, so where each tile LANDS is whatever exposure
- * its painting happened to have. Measured across the twelve door thumbnails, the
- * mean grey ran from 0.270 (wrestler.jpg, BNKR) to 0.841 (mumu-bull.jpg, PEPE) --
- * a 3.1x spread, which is why the darkest few read as switched off while the
- * brightest read as barely dimmed at all. The set had no rhythm because nothing
- * was giving it one.
- *
- * The review diagnosed this as a flat `brightness(0.45)` multiplier. There is no
- * such multiplier anywhere in the tree and never was -- but the SYMPTOM it
- * described was real and measurable, which is why this exists.
- *
- * Each thumbnail therefore gets its own multiplier, computed from its actual
- * measured mean so they all arrive at the same place. That is the reviewer's
- * second suggestion ("drive the filter from each image's measured average
- * brightness") rather than the first ("normalise the sources"), because the
- * sources are shared: ART_POOL_ALL rotates these same files through full-bleed
- * surfaces where they must stay exactly as painted. The originals are untouched.
- *
- * TARGET is the measured MEDIAN of the current set, not a taste value: aiming at
- * the middle of where the art already sits moves the outliers and leaves the
- * majority almost where they were, so the grid gains evenness without the whole
- * hall being silently re-graded.
- */
-const LUMA_TARGET = 0.46;
-/**
- * Multipliers are clamped. An unclamped correction for the darkest tile is 1.70x,
- * which lifts compression noise and film grain out of the shadows along with the
- * subject -- the tile stops being too dark and starts being ugly. Clamping leaves
- * the two extremes slightly off-target (0.41 and 0.51 rather than 0.46), which is
- * a 1.25x residual spread against the 3.1x we started with, and no visible
- * artefacts. Evenness is the goal, not uniformity for its own sake.
- */
-const LUMA_MIN = 0.6;
-const LUMA_MAX = 1.5;
 
 /**
  * Only files big enough to be worth a second copy. Below this the derivative can
@@ -147,7 +119,7 @@ function walk(dir, out = []) {
     if (entry.isDirectory()) {
       // Never recurse into our own output.
       if (p !== DERIVED_DIR) walk(p, out);
-    } else if (/\.(jpe?g|png)$/i.test(entry.name) && statSync(p).size >= MIN_SOURCE_BYTES) {
+    } else if (/\.(jpe?g|png|avif|webp)$/i.test(entry.name) && statSync(p).size >= MIN_SOURCE_BYTES) {
       out.push(p);
     }
   }
@@ -170,7 +142,7 @@ function walk(dir, out = []) {
  * on the write side; the map is. That is also two fewer syscalls per candidate --
  * this replaces 2 stats x 1230 candidates with one walk.
  */
-function readDerivedMtimes(dir, map = new Map()) {
+function readDerivedStats(dir, map = new Map()) {
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -180,10 +152,11 @@ function readDerivedMtimes(dir, map = new Map()) {
   for (const entry of entries) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
-      readDerivedMtimes(p, map);
+      readDerivedStats(p, map);
     } else {
       try {
-        map.set(p, statSync(p).mtimeMs);
+        const st = statSync(p);
+        map.set(p, { mtimeMs: st.mtimeMs, size: st.size });
       } catch {
         // Vanished mid-walk. Leaving it out of the map marks it stale, which
         // regenerates it -- the safe direction to be wrong in.
@@ -201,60 +174,30 @@ function publicUrl(file) {
 /** `public/art/x.jpg` @480 -> `/_derived/art/x-480.webp` */
 function derivedUrl(file, width) {
   const rel = relative(PUBLIC_ROOT, file).split(/[\\/]/u).join('/');
-  return '/_derived/' + rel.slice(0, rel.length - extname(rel).length) + `-${width}.webp`;
-}
-
-/**
- * Measure each door thumbnail and write its brightness multiplier.
- *
- * Keyed by the thumbnail's public URL, which is exactly what `bungalow.thumb`
- * holds, so VenueDoors looks its own value up with no mapping step. Only the
- * door thumbnails are measured -- roughly a dozen entries -- because this file
- * ships in the homepage's JS and the whole art library would be 347 of them for
- * a treatment only the settled-door grid applies.
- *
- * NO EXISTENCE CHECKS HERE EITHER, for the reason `walk` records above: asking
- * whether a path is there and then acting on it is the check-then-use shape
- * CodeQL flags as js/file-system-race at HIGH. Both reads are simply attempted
- * and their failure handled. That is also the honest failure mode -- an
- * unreadable thumbnail gets no entry, and VenueDoors falls back to plain
- * `grayscale`, exactly as it behaved before this existed. "No normalisation",
- * never a broken tile.
- */
-async function writeDoorThumbLuma() {
-  const out = {};
-  let registry = '';
-  try {
-    registry = readFileSync(BUNGALOWS_TS, 'utf8');
-  } catch {
-    // No registry to read: no entries, and every tile keeps plain grayscale.
-  }
-  // Only the path is needed -- the map is keyed by URL, so there is no id to
-  // pair up and no fragile proximity matching to get wrong.
-  const thumbs = [...new Set([...registry.matchAll(/thumb:\s*'([^']+)'/gu)].map((m) => m[1]))];
-  for (const url of thumbs) {
-    const file = join(PUBLIC_ROOT, url.replace(/^\//u, ''));
-    try {
-      const stats = await sharp(file).greyscale().stats();
-      const mean = (stats.channels[0]?.mean ?? 0) / 255;
-      if (!(mean > 0)) continue;
-      const k = Math.min(LUMA_MAX, Math.max(LUMA_MIN, LUMA_TARGET / mean));
-      out[url] = Number(k.toFixed(3));
-    } catch {
-      // Absent or unreadable by sharp -- no entry, plain grayscale, as before.
-    }
-  }
-  mkdirSync(dirname(LUMA_MANIFEST), { recursive: true });
-  writeFileSync(LUMA_MANIFEST, JSON.stringify(out, null, 0) + '\n');
-  return Object.keys(out).length;
+  const ext = extname(rel);
+  // THE EXTENSION IS PART OF THE NAME, not something to throw away.
+  //
+  // Stripping it made /splash/new/1.avif and /splash/new/1.jpg -- two separate
+  // manifest entries with different natural widths -- resolve to the SAME
+  // derived file, so whichever the walk reached last silently overwrote the
+  // other, and both entries then advertised it. Today those pairs happen to be
+  // the same picture in two formats, so nothing looked wrong; the next pair
+  // that is not would serve the wrong image with nothing reporting it.
+  //
+  // It also quietly broke the size guard, which weighs a candidate against the
+  // source it was made from and then writes it to a path another source claims.
+  const stem = rel.slice(0, rel.length - ext.length);
+  const tag = ext ? `-${ext.slice(1).toLowerCase()}` : '';
+  return `/_derived/${stem}${tag}-${width}.webp`;
 }
 
 async function main() {
   const sources = SOURCE_DIRS.flatMap((d) => walk(join(PUBLIC_ROOT, d)));
-  const derivedMtimes = readDerivedMtimes(DERIVED_DIR);
+  const derivedStats = readDerivedStats(DERIVED_DIR);
   const manifest = {};
   let written = 0;
   let skipped = 0;
+  let oversized = 0;
   let sourceBytes = 0;
   let derivedBytes = 0;
   const startedAt = Date.now();
@@ -271,14 +214,22 @@ async function main() {
     }
     const naturalWidth = meta.width ?? 0;
     const entries = [];
-    // Stat the SOURCE once per file rather than once per width. A source that
-    // vanished between the walk and here gets -Infinity, which makes every
-    // candidate stale -- sharp then fails on it and the catch above skips it.
+    // Stat the SOURCE once per file rather than once per width.
+    //
+    // The initialisers ARE the failure behaviour, so the catch body is empty on
+    // purpose. If the stat throws, mtime stays Infinity — no derivative can ever
+    // be newer, so nothing is claimed current — and size stays 0, so nothing can
+    // ever measure smaller and no candidate is advertised. Both defaults fall the
+    // same way: serve the original. (In practice sharp has already read this file
+    // one line up, so a throw here is close to unreachable.)
     let sourceMtime = Infinity;
+    let sourceSize = 0;
     try {
-      sourceMtime = statSync(file).mtimeMs;
+      const st = statSync(file);
+      sourceMtime = st.mtimeMs;
+      sourceSize = st.size;
     } catch {
-      sourceMtime = Infinity; // unknowable: never claim a derivative is current
+      // deliberately empty — see above
     }
 
     for (const width of WIDTHS) {
@@ -289,15 +240,59 @@ async function main() {
       // Answered from the pre-read map, so nothing asks the filesystem about
       // outPath before writing to it. A path the walk never saw is absent, and
       // absent is stale.
-      const fresh = (derivedMtimes.get(outPath) ?? -Infinity) >= sourceMtime;
+      const existing = derivedStats.get(outPath);
+      const fresh = (existing?.mtimeMs ?? -Infinity) >= sourceMtime;
 
       if (fresh) {
+        // THE SIZE RULE HAS TO BE CHECKED HERE TOO, and originally was not.
+        //
+        // The guard below only ran when a derivative was WRITTEN. A file that
+        // was already on disk from a run predating the guard read as fresh, so
+        // it was never weighed and its width was advertised anyway. Found in
+        // trunk: splash/new/28-960.webp, 170,824 B standing in for a 101,791 B
+        // source, recorded in the manifest as if it were a saving.
+        //
+        // That made the generator non-idempotent in the worst way -- correct on
+        // a clean checkout, quietly wrong on every incremental run, and the
+        // committed manifest came from an incremental run.
+        if (existing !== undefined && existing.size >= sourceSize) {
+          oversized++;
+          continue;
+        }
         skipped++;
       } else {
+        // toBuffer BEFORE the write, because the buffer has to be weighed first.
+        const buf = await sharp(file).resize({ width }).webp({ quality: WEBP_QUALITY }).toBuffer();
+
+        // A DERIVATIVE THAT IS NOT SMALLER IS NOT A DERIVATIVE.
+        //
+        // Found by measurement when avif sources were added to the filter above.
+        // webp is not uniformly better than what it replaces: against
+        // splash/new/58.avif (2000px, 253,623 B) the 480w webp is 76,810 B, but
+        // the 960w webp is 284,776 B -- larger than the full-size original it
+        // would be served instead of. Four of the five avif sources do this.
+        //
+        // srcset makes that a real regression rather than a curiosity: a
+        // full-bleed surface picks the smallest candidate at least as wide as it
+        // needs, so it would take the 960 and download MORE than before the
+        // optimisation existed. Skipping the candidate leaves the original as
+        // the next one up, which is exactly the pre-change behaviour.
+        //
+        // The rule was written for avif and then caught five JPEGs on its first
+        // run -- splash/new/8, 14, 17, 18, 20 and 39, all 1000-1700px, all of
+        // whose 960w webp came out larger than the jpeg it stands in for. Those
+        // were already shipping before avif was ever added to the filter, which
+        // means this pipeline has been serving small regressions on them since
+        // it was written, and nothing would have reported it. The guard is not
+        // an avif special case; avif is just what made it visible.
+        if (buf.length >= sourceSize) {
+          oversized++;
+          continue;
+        }
+
         mkdirSync(dirname(outPath), { recursive: true });
         // toBuffer + write rather than toFile: toFile has been seen to fail on
         // this OneDrive-backed tree while a plain write to the same path succeeds.
-        const buf = await sharp(file).resize({ width }).webp({ quality: WEBP_QUALITY }).toBuffer();
         writeFileSync(outPath, buf);
         written++;
         derivedBytes += buf.length;
@@ -307,29 +302,100 @@ async function main() {
 
     if (entries.length > 0) {
       sourceBytes += statSync(file).size;
-      // THE MANIFEST STORES ONLY THE NATURAL WIDTH, nothing else.
+      // THE MANIFEST STORES THE NATURAL WIDTH, AND THE WIDTH LIST ONLY WHEN IT
+      // CANNOT BE DERIVED.
       //
-      // The derivative URLs are fully derivable from the source path, and the
-      // rule for WHICH widths exist is exactly `natural > width` — the same test
-      // used above. Storing the URLs too made the manifest 77,633 B, and it ships
-      // in the JS bundle, so a feature meant to save bytes was quietly spending
-      // them. Keep the two derivations in lock-step: `derivedUrl` here and
-      // `derivedUrl` in lib/artSrcSet.ts are the same convention, and
-      // artSrcSet.test.ts pins them against each other.
-      manifest[publicUrl(file)] = naturalWidth;
+      // The derivative URLs are fully derivable from the source path, and for
+      // almost every source the rule for WHICH widths exist is exactly
+      // `natural > width`. Storing the URLs too made the manifest 77,633 B, and
+      // it ships in the JS bundle, so a feature meant to save bytes was quietly
+      // spending them.
+      //
+      // The size guard above broke that derivation for a handful of sources: a
+      // width can now be missing even though the source is wider than it. The
+      // runtime cannot infer which, and guessing wrong is not a soft failure —
+      // an advertised candidate that 404s is a BROKEN IMAGE, not a fallback.
+      //
+      // So those sources, and only those, carry an explicit list. Number means
+      // "derive it"; array means [natural, ...the widths that really exist].
+      // Five entries pay the extra bytes; the other 417 do not. Keep the two
+      // derivations in lock-step: `derivedUrl` here and `derivedUrl` in
+      // lib/artSrcSet.ts are the same convention, and artSrcSet.test.ts pins
+      // them against each other.
+      const derivable = WIDTHS.filter((w) => naturalWidth > w);
+      const actual = entries.map((e) => e.width);
+      manifest[publicUrl(file)] =
+        actual.length === derivable.length && actual.every((w, i) => w === derivable[i])
+          ? naturalWidth
+          : [naturalWidth, ...actual];
     }
+  }
+
+  // -- SELF-CHECK, and it has to live HERE rather than in vitest ---------------
+  //
+  // artSrcSet.test.ts asserts both of these properties, but only where
+  // public/_derived exists -- and in CI it does not. The "Lint, Type Check &
+  // Test" job runs `npm ci --ignore-scripts` then `vitest run`, which never
+  // builds, so both checks take their skip branch. A guard that skips silently
+  // on every CI run is not a guard, it is a green tick.
+  //
+  // This script is where the files DO exist, because it is the thing that makes
+  // them, and it runs first in `build`. So a violation fails the build, on
+  // Vercel and in the Build job alike. scripts/verify-dist-derivatives.mjs then
+  // asks the same question of dist/ at the END of the build -- that one is what
+  // would have caught the outage, since this check cannot run if this script
+  // never does.
+  //
+  // Both properties are the same lie -- the manifest claiming something about a
+  // file that is not true of it:
+  //   MISSING  an advertised candidate with no file is a BROKEN IMAGE, because
+  //            a 404 in a srcset does not fall back to src.
+  //   LARGER   an advertised candidate bigger than its source is a REGRESSION;
+  //            a full-bleed surface picks it and downloads more than it would
+  //            have with no optimisation at all.
+  const violations = [];
+  for (const [url, entry] of Object.entries(manifest)) {
+    const natural = Array.isArray(entry) ? entry[0] : entry;
+    const widths = Array.isArray(entry) ? entry.slice(1) : WIDTHS.filter((w) => natural > w);
+    const sourcePath = join(PUBLIC_ROOT, url.slice(1));
+    let srcBytes;
+    try {
+      srcBytes = statSync(sourcePath).size;
+    } catch {
+      violations.push(`${url}: in the manifest but its source cannot be read`);
+      continue;
+    }
+    for (const w of widths) {
+      const p = join(PUBLIC_ROOT, derivedUrl(sourcePath, w).slice(1));
+      let bytes;
+      try {
+        bytes = statSync(p).size;
+      } catch {
+        violations.push(`${url}: advertises ${w}w but ${p} is missing`);
+        continue;
+      }
+      if (bytes >= srcBytes) {
+        violations.push(
+          `${url}: ${w}w is ${bytes.toLocaleString()} B for a ${srcBytes.toLocaleString()} B source`,
+        );
+      }
+    }
+  }
+  if (violations.length > 0) {
+    console.error('✖ derivative manifest does not match what is on disk:');
+    for (const v of violations.slice(0, 20)) console.error(`    ${v}`);
+    if (violations.length > 20) console.error(`    ... and ${violations.length - 20} more`);
+    throw new Error(`${violations.length} derivative manifest violation(s)`);
   }
 
   mkdirSync(dirname(MANIFEST), { recursive: true });
   writeFileSync(MANIFEST, JSON.stringify(manifest, null, 0) + '\n');
 
-  const luma = await writeDoorThumbLuma();
-
   const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
-  console.log(`✔ door thumbnail luminance: ${luma} normalised`);
   console.log(
     `✔ image derivatives: ${Object.keys(manifest).length} sources with variants ` +
-      `(${written} written, ${skipped} already fresh) in ${secs}s`,
+      `(${written} written, ${skipped} already fresh` +
+      `${oversized > 0 ? `, ${oversized} skipped as not smaller` : ''}) in ${secs}s`,
   );
   if (written > 0) {
     console.log(

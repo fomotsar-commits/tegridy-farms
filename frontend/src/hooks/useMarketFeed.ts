@@ -12,12 +12,17 @@ import type { MarketFeedState } from '../lib/terminal/feedBanner';
 //
 // WHY NOT THE SAME-ORIGIN PROXY. This app already has a GeckoTerminal proxy at
 // /api/aggregator?resource=launch-radar, and using it here would be the obvious
-// move. It is the wrong one: that proxy collapses a 429, a 5xx and an unparseable
-// body into HTTP 200 with an empty list (api/_lib/launch-radar.js), and then the
-// CDN caches that empty list for a minute. On a discovery feed the result is the
-// single worst output this page can produce — a confident, cached, empty table
-// asserting that nothing is launching, produced by a rate limit. Reading direct
-// means a refusal arrives AS a refusal and gets its own banner.
+// move. It USED to be the wrong one outright: that proxy collapsed a 429, a 5xx and
+// an unparseable body into HTTP 200 with an empty list and let the CDN cache that
+// empty list for a minute — on a discovery feed, the single worst output this page
+// can produce: a confident, cached, empty table asserting that nothing is launching,
+// produced by a rate limit. api/_lib/launch-radar.js now answers an unread window
+// with a 502 and no Cache-Control, so that hazard is gone.
+//
+// This still reads direct, for the remaining reason: the proxy serves a FIXED
+// two-page `new_pools` window on one network, and this page needs new/trending and
+// specific-pool views per network — with a refusal that arrives AS a refusal and
+// gets its own banner.
 //
 // NOTHING POLLS. One read per (network, view), plus a caller-driven re-read.
 // Same rule as usePoolMarket and usePoolTrades. An auto-refreshing table would

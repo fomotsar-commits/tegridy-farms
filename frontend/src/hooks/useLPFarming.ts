@@ -87,6 +87,21 @@ export function useLPFarming() {
   const lpTotalSupply = data?.[9]?.status === 'success' ? data[9].result as bigint : 0n;
   const minStake = data?.[10]?.status === 'success' ? data[10].result as bigint : 0n;
 
+  // OUTAGE-AS-ZERO. rawBalanceOf/earned/balanceOf all collapse to 0n on a failed
+  // read, and 0n is also the honest "this wallet has never staked here". The
+  // section gates its whole position card - staked LP, pending rewards, Claim and
+  // Exit - on `stakedBalance > 0n`, and prints the first-time-staker impermanent-
+  // loss panel when it is 0n, so a single unanswered RPC call told an LP staker
+  // that their position does not exist and left them no control to reach it.
+  // Keep the collapse for display; carry the failure next to it. Scoped to a
+  // connected wallet with the batch actually enabled: an undeployed farm or a
+  // wrong network never asked, which is a different fact with its own banner -
+  // a not-attempted read must not render as a failed one.
+  const positionUnread = isDeployed && onMainnet && !!address && !isReadLoading
+    && (data?.[5]?.status !== 'success'
+      || data?.[6]?.status !== 'success'
+      || data?.[7]?.status !== 'success');
+
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
   // F100: the raw Synthetix-style `rewardRate` storage value stays non-zero
@@ -302,6 +317,14 @@ export function useLPFarming() {
     minStakeFormatted: formatEther(minStake),
     stakedBalance,
     stakedBalanceFormatted: formatEther(stakedBalance),
+    /**
+     * The user-position reads (staked LP, pending rewards, wallet LP) did not
+     * land. `stakedBalance` is 0n either way, so this flag is the only thing
+     * separating "you have nothing staked" from "we could not ask" - never
+     * render a claim about the user's position, or arm a control on it,
+     * without checking this first.
+     */
+    positionUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,

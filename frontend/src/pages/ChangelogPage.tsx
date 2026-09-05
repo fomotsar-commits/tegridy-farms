@@ -2,6 +2,7 @@ import { m } from 'framer-motion';
 import { pageArt } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ArtImg } from '../components/ArtImg';
+import { artImgProps } from '../lib/artSrcSet';
 
 interface ChangelogEntry {
   date: string;
@@ -451,7 +452,7 @@ export default function ChangelogPage() {
                   style={{ border: '1px solid var(--color-purple-12)' }}
                 >
                   <div className="absolute inset-0">
-                    <img src={CARD_ART[idx % CARD_ART.length]!.src} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    <img src={CARD_ART[idx % CARD_ART.length]!.src} {...artImgProps(CARD_ART[idx % CARD_ART.length]!.src)} alt="" loading="lazy" className="w-full h-full object-cover" />
                   </div>
                   {/* Translucent black content panel — art still bleeds through the border,
                       text stays readable against the dimmed backdrop.

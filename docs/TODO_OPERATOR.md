@@ -771,6 +771,21 @@ purpose because they spend).
 - ⛔ **The decaying-fee hook's owner is set in the constructor**, because the deploy script mines a
   CREATE2 address over the constructor args. Decide the owner *before* deploying — rotating
   afterwards changes the address and invalidates the mine.
+- ⛔ **The decaying-fee hook's pool must be opened by the owner Safe ITSELF**, and steps 1-3 must
+  go as ONE MultiSend batch: `configurePool` → `poolManager.initialize` → mint the launch
+  position. `DecayingFeeHook._afterInitialize` (`contracts/src/v4/DecayingFeeHook.sol`) compares
+  v4's `sender` against `owner()`, and v4 sets `sender` to whoever **called** `initialize`
+  (`Hooks.sol:190` encodes `msg.sender`). So `PositionManager.multicall([initializePool, mint])`
+  arrives as the *router* and is rejected — and v4-periphery's `PoolInitializer_v4` wraps that
+  call in `try/catch`, returning `type(int24).max` on any revert, so **the failure is silent**:
+  nothing surfaces, the pool simply is not open, and the `mint` leg then fails against a pool that
+  does not exist. Batching also closes a real front-run: `configurePool` publishes the exact
+  `PoolKey` in its calldata, so a separate later `initialize` lets whoever gets there first choose
+  the opening price and start the decay clock. There is no operator lever to relax the check and
+  there is not meant to be — that check is what stops the front-run entirely. It fails CLOSED (no
+  pool, no clock, no funds moved), which is the opposite of the pre-fix behaviour. *(Graduation is
+  unaffected: `TegridyLiquidityMigrator` carries `TegridyV4Hook`, whose `allowedInitializers`
+  grant already covers the migrator.)*
 - ⛔ **`TegridyLending` must not deploy before the TWAP is warm.** Origination calls
   `_assertSpotWithinTWAP` against an oracle with zero observations; it would revert on every
   valuation. That needs the pool deepen first.
@@ -1812,3 +1827,148 @@ this alone):**
    project_2026_08_20_multichain memory / docs).
 4. Only then may docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md row 8 drop its "live bytecode
    unchanged" caveat.
+
+
+---
+
+## Two things waiting on a human, 2026-09-04
+
+Both are blocked on credentials or a signature, not on code. Everything else from the audit
+remediation is merged.
+
+### 1. Apply migrations 024 and 025
+
+Both are on trunk and neither has been applied. `025` is the one that matters: it takes the anon
+role's INSERT/UPDATE/DELETE away from `user_profiles`, `user_favorites`, `user_watchlist` and
+`votes`. Until it lands, RLS is the *only* thing between the published anon key and every user's
+rows — and `008`'s `ALTER DEFAULT PRIVILEGES` silently re-grants those verbs every time someone
+re-runs it to clear a 42501 (audit TF-056).
+
+⛔ **Do not use `supabase db push`.** It applies files in filename order, and filename order here
+runs `014` before `015`, which by 015's own analysis publishes every user's favourites, watchlist,
+profile and votes to anyone holding the anon key. `supabase/MIGRATIONS.md` says this outright.
+These go into the Supabase SQL editor by hand, in this order.
+
+**The ordering precondition for 024 is already satisfied.** 024 requires the frontend read to move
+off the anon key first, or every user silently gets zero rows. That shipped — both tables now read
+through `proxyRead()` and the proxy allowlist admits them. Verified on trunk 2026-09-04.
+
+1. Run each file's ⛔ PREFLIGHT block. They were rewritten on 2026-09-04 because the originals
+   could not fail: 024 read an HTTP status code (PostgREST answers an RLS-**denied** select with
+   `200` and `[]`, not 403) and both 024 and 025 grepped a built bundle for a URL supabase-js
+   assembles by concatenation. The replacements distinguish the cases and say which outcomes are
+   inconclusive.
+   - The 025 write-side check is already answered: **zero anon writers**, verified 2026-09-04. The
+     only textual match is a comment at `userdata.js:466` describing an `.upsert()` already removed.
+2. Paste `024_personal_tables_read_lockdown.sql`, then `025_user_tables_anon_write_lockdown.sql`.
+   Both are idempotent — `DROP ... IF EXISTS`, ledger insert `ON CONFLICT DO NOTHING`.
+3. Confirm both rows landed:
+   ```sql
+   select filename, applied_at, note from public.schema_migrations
+    where filename in ('024_personal_tables_read_lockdown.sql',
+                       '025_user_tables_anon_write_lockdown.sql')
+    order by filename;
+   ```
+4. ⛔ **Never re-run `008` after this.** It re-grants what 025 revokes.
+
+### 2. `recoverCallerCredit()` — and WHEN, which is the whole point
+
+`ReferralSplitter.callerCredit[SwapFeeRouter]` holds the non-referral 80% of every ETH swap fee.
+It is not locked: anyone may pull it with the permissionless `SwapFeeRouter.recoverCallerCredit()`,
+which folds it into `accumulatedETHFees`.
+
+```
+node scripts/pull-caller-credit.mjs          # reads the chain, prices the pull, prints the command
+```
+
+That prints the exact `cast send ... "recoverCallerCredit()" --rpc-url <rpc> --ledger`, plus an
+Etherscan write-tab URL for a wallet without Foundry. **Sign it from hardware.** No signing key
+belongs in CI, which is the repo's most consistently held ops rule and why nothing automates this.
+
+⛔ **Do not pull yet.** It is still negative EV — the gas costs more than the credit recovers. As of
+2026-09-04 the alert distinguishes those two states properly: `stranded_worth_pulling` is now a
+first-class output key and a fingerprint fact, and the workflow raises a distinct `::error::PULL NOW`
+only when the pull actually pays for itself. Wait for that. Nothing pays a staker until cumulative
+front-door fees reach ~1.25 ETH anyway, roughly 417 ETH of routed volume at 0.3%.
+
+⛔ **But do pull it BEFORE any SwapFeeRouter redeploy, not after.** `callerCredit` is keyed to the
+router address. Once a new router is live, the old balance is reachable only through the
+owner-gated `recoverCallerCreditFrom(oldSplitter)`. The standing note "wire it before deepening" is
+really *before redeploying*. This matters because TF-010 and TF-015 both land on a router redeploy.
+
+## What is left after the 2026-09-04 audit sweep
+
+The sweep closed TF-011, TF-012, TF-016, TF-043 and (in this change) TF-010 + TF-015. Nothing below
+is a known-exploitable hole in a live contract. It is the honest remainder: decisions, deploy-gated
+work, and things worth watching.
+
+### ⛔ Blocked on you — nobody else can do these
+
+| | What | Why it cannot be automated |
+| - | - | - |
+| **O1** | **Apply migrations 024 then 025** by hand in the Supabase SQL editor. Runbook above. | Needs the service-role credential. Never `supabase db push` — filename order runs 014 before 015 and publishes every user's rows. |
+| **O2** | **Call `recoverCallerCredit()`** — but only when the alert flips, and **before any router redeploy**. | It moves protocol funds and must be signed from hardware. No signing key belongs in CI. |
+
+**O2 has become time-ordered, which it was not before.** TF-010 and TF-015 land on a
+`SwapFeeRouter` redeploy. `ReferralSplitter.callerCredit` is keyed to the **router address**, so once
+a new router is live the old balance is reachable only through the owner-gated
+`recoverCallerCreditFrom`. Pull first, redeploy second.
+
+### ❓ Decisions only you can make
+
+- **D1 - TF-015 is OPEN, and the reason is worth reading.** The fix was designed, implemented and
+  then WITHDRAWN before commit, because its tests did not actually test it. Mutation **M9**
+  (`floorAmountIn` -> `swapAmount` at the FoT 2-hop call site) is *literally the pre-fix state*, and
+  the headline test `test_TF015_haircutMakesFoTConversionReachable` **passed under it**. So the test
+  suite could not tell the fixed contract from the broken one.
+  The root cause is the rig, not the fix: `_bootstrapPriced` performs an owner bootstrap conversion
+  with `minETHOut = 0`, which moves the pool, so the TWAP-derived floor the second conversion faces
+  sits well below spot and never binds. With a non-binding floor, neither the gross-sizing bug nor
+  its correction is observable.
+  **To reopen it:** build a rig where the TWAP floor demonstrably binds (assert the floor value
+  itself, not just that the call reverted), then re-apply the design - it is recorded in full in the
+  PR that ships TF-010. Until then, fee-on-transfer token fees remain stranded, which is the status
+  quo rather than a regression, and no new governance lever exists.
+- **D2 - if TF-015 is revived, it adds a lever that does not exist today.** The withdrawn design put
+  a per-token `fotFloorHaircutBps` behind a 7-day timelock, capped at 1000 bps. That still lets a
+  patient compromised owner loosen the sandwich floor on any token routed through
+  `convertTokenFeesToETHFoT`, including a plain ERC20 - bounded, delayed, and strictly weaker than
+  the existing reset-then-bootstrap route which removes the floor entirely on the same delay. The
+  cap is a constant: trivial to change before a deploy, impossible after.
+- **D3 - the owner's bootstrap conversion still has no ETH floor but the one they type.** The owner
+  conjunct in `_enforceMinETHValue` preserves today's behaviour exactly; it does not worsen it.
+  Flooring the bootstrap too would red six audit-pinned tests and could permanently strand a token
+  whose first pile is genuinely small. Separate change-set if you want it.
+
+### 🚀 Deploy-gated — correct in source, not yet on chain
+
+- **P1 — `SwapFeeRouter` + `SwapFeeRouterConvertLib` redeploy** carries TF-010 and TF-015. The
+  library is **link-time delegatecall**, its address baked into the router bytecode at two offsets,
+  so both must be redeployed together. `SwapFeeRouterAdmin` is forced too (its constructor takes the
+  router address). Before the ceremony:
+  - `forge inspect src/SwapFeeRouter.sol:SwapFeeRouter storage-layout` and confirm
+    `accumulatedTokenFees` has not moved — **seven** existing tests hardcode its slot for `vm.store`.
+  - `forge build --sizes` against EIP-170. Baseline was 21,531 B (3,045 B headroom).
+  - `MIN_TOKEN_FEE_FOR_CONVERSION()` **disappears from the ABI.** Nothing on- or off-chain was found
+    to read it — re-check any dashboard before you deploy.
+  - Do O2 first (see above).
+- **P2 — `POLAccumulator` redeploy** carries TF-011's fee-netting. Live and not upgradeable.
+- **P3 — first deploy of `LaunchRugEscrow`** carries TF-012's two fixes.
+- **P4 — first deploy of `DecayingFeeHook`** is constrained by TF-016: the owner Safe must open the
+  pool itself, and steps 1-3 must go as ONE MultiSend batch. See the TF-016 bullet above.
+
+### 👀 Worth watching, not blocking
+
+- **W1 — Slither now analyses `contracts/src/lib/`** for the first time. `filter_paths` was
+  unanchored and silently excluded all nine files there; anchoring it took findings 323 → 345 and
+  Medium 3 → 4. The gate is `fail-on: medium`. When a red appears on a branch touching that
+  directory, **diff the findings against a trunk run before believing it is yours.**
+- **W2 — TF-010 lowers the permissionless conversion bar** from "1 whole token" to ">= 1e14 wei of
+  value (~$0.30)". More conversions will happen, so more sandwich *opportunities* exist — each still
+  TWAP-floored and rate-limited by the 1h cooldown. This is the point of the finding, but it is a
+  real change to keeper economics; watch the first weeks after P1.
+- **W3 — `convertTokenFeesToETHFoT` had ZERO tests before this change.** Eleven now exist. If you
+  extend that function, extend them: the FoT mock must genuinely shrink what reaches the pair, or
+  the gross-floor bug is untested and the suite will still be green.
+- **W4 — the 640-790px viewport dead band** still has no reachable Connect control and no nav
+  fallback. Unrelated to this sweep; still open.

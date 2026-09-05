@@ -59,7 +59,11 @@ function makeChain(table) {
     _isUpdate: false,
     insert: vi.fn((row) => { inserted.push({ table, row }); return chain; }),
     update: vi.fn((patch) => { chain._isUpdate = true; chain._patch = patch; return chain; }),
-    select: vi.fn(() => chain),
+    // A head:true COUNT read and a row SELECT resolve differently, and the guards that
+    // consume them fail closed independently — so the mock has to be able to break one
+    // without breaking the other. `selectError` breaks the row read (the overlap scan);
+    // count reads are answered separately in `then`.
+    select: vi.fn((_cols, opts) => { chain._isCount = opts?.head === true; return chain; }),
     eq: vi.fn((col, val) => {
       if (chain._isUpdate && col === "order_hash") updates.push({ hash: val, patch: chain._patch });
       return chain;
@@ -71,6 +75,11 @@ function makeChain(table) {
     maybeSingle: vi.fn(async () => ({ data: selectRows[0] || null, error: null })),
     then: (resolve) => {
       if (chain._isUpdate && updateError) return resolve({ data: null, error: updateError });
+      // The 20/hr throttle is a COUNT read and it now fails closed too. Keep it healthy
+      // here, or `selectError` would be answered by the throttle's 503 and the
+      // "FAILS CLOSED when the overlap query errors" test below would pass without ever
+      // reaching the overlap guard it names.
+      if (chain._isCount) return resolve({ data: null, error: null, count: selectRows.length });
       return resolve(
         selectError
           ? { data: null, error: selectError, count: null }

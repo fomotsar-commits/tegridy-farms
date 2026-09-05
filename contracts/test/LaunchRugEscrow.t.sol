@@ -884,4 +884,106 @@ contract LaunchRugEscrowTest is Test {
         assertLe(paid, PRINCIPAL);
         assertEq(paid + address(escrow).balance, PRINCIPAL);
     }
+
+    // ─── TF-012: refusing to be measured is not a defence ──────────────
+
+    /// The exploit this closes, end to end. A flag is only ever raised on a READABLE,
+    /// in-breach observation — so arriving at the confirm deadline still unreadable means
+    /// the asset stopped answering AFTER a proven breach, and stayed silent through the
+    /// cure window and the whole confirm window, on an asset the creator chose.
+    ///
+    /// Pre-fix, `clearStaleFlag` zeroed the flag on that state and `releaseToCreator`
+    /// paid the rugger. The trigger was defeated by declining to be measured.
+    ///
+    /// MUTATION: delete the `if (!readable)` branch from `clearStaleFlag` and this fails —
+    /// the status stays Active and the final assertion (that the creator cannot be paid)
+    /// reverts nothing.
+    function test_TF012_aWithheldReadAtTheDeadlineConfirmsTheBreachInstead() public {
+        uint256 id = _openTokenOnly();
+        _dump();                                  // a real rug, readable at the time
+        escrow.flagCovenantBreach(id, 0);
+
+        // The creator makes the covenant unmeasurable.
+        token.setBalanceOfReverts(true);
+
+        // Every confirmation in the window now reverts: seizing on an unreadable asset
+        // would turn a token outage into a confiscation, so that guard is correct and stays.
+        vm.warp(block.timestamp + escrow.BREACH_CURE_WINDOW());
+        vm.expectRevert(
+            abi.encodeWithSelector(LaunchRugEscrow.CovenantUnreadable.selector, id, 0)
+        );
+        escrow.confirmCovenantBreach(id, 0);
+
+        // Past the deadline the flag would previously have been cleared for free.
+        vm.warp(block.timestamp + escrow.CONFIRM_DEADLINE_AFTER_FLAG());
+        escrow.clearStaleFlag(id, 0);
+
+        assertEq(
+            uint256(escrow.escrowTerms(id).status),
+            uint256(LaunchRugEscrow.Status.Breached),
+            "a withheld read at the deadline must resolve against the creator"
+        );
+
+        // And the money does not go home.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                LaunchRugEscrow.WrongStatus.selector,
+                LaunchRugEscrow.Status.Active,
+                LaunchRugEscrow.Status.Breached
+            )
+        );
+        escrow.releaseToCreator(id);
+    }
+
+    /// The honest creator is NOT caught by the rule above: while the asset is readable and
+    /// the covenant satisfied, confirmCovenantBreach cures the flag, and it is
+    /// permissionless so they can call it themselves. This is the anti-vacuity half —
+    /// without it, "always seize" would pass the test above just as well.
+    function test_TF012_aReadableCuredCovenantStillClearsNormally() public {
+        uint256 id = _openTokenOnly();
+        _dump();
+        escrow.flagCovenantBreach(id, 0);
+
+        // A brief outage inside the window is survivable, because the read is retried.
+        token.setBalanceOfReverts(true);
+        token.setBalanceOfReverts(false);
+
+        // Restore the covenanted holding, then let the flag go stale unconfirmed.
+        vm.prank(stranger);
+        token.transfer(deployerWallet, 150_000e18);
+
+        vm.warp(block.timestamp + escrow.CONFIRM_DEADLINE_AFTER_FLAG() + 1);
+        escrow.clearStaleFlag(id, 0);
+
+        assertEq(
+            uint256(escrow.escrowTerms(id).status),
+            uint256(LaunchRugEscrow.Status.Active),
+            "a readable covenant at the deadline still clears the flag"
+        );
+    }
+
+    /// A creator naming ITSELF as the refund oracle defeats the whole product without
+    /// touching a covenant: rug, get the breach confirmed, then simply never publish a
+    /// root. `reclaimOnOracleSilence` pays `principal - claimed` — the FULL principal,
+    /// with no venue fee — back to the creator after REFUND_ROOT_WINDOW, and no buyer is
+    /// ever paid. The silence rule is right against a CAPTURED third-party oracle and
+    /// inverts completely when the oracle and the payee are the same address.
+    ///
+    /// MUTATION: delete the `refundOracle == msg.sender` guard from `open` and this fails.
+    function test_TF012_creatorCannotNameItselfAsTheRefundOracle() public {
+        LaunchRugEscrow.CovenantInput[] memory inputs = new LaunchRugEscrow.CovenantInput[](1);
+        inputs[0] = _tokenCovenant();
+        vm.prank(creator);
+        vm.expectRevert(LaunchRugEscrow.OracleIsCreator.selector);
+        escrow.open{value: PRINCIPAL}(address(token), WINDOW, creator, inputs);
+    }
+
+    /// ...and a third party still may be, so the guard is not simply "no oracle".
+    function test_TF012_aThirdPartyOracleIsStillAccepted() public {
+        LaunchRugEscrow.CovenantInput[] memory inputs = new LaunchRugEscrow.CovenantInput[](1);
+        inputs[0] = _tokenCovenant();
+        vm.prank(creator);
+        uint256 id = escrow.open{value: PRINCIPAL}(address(token), WINDOW, oracle, inputs);
+        assertEq(escrow.escrowTerms(id).refundOracle, oracle, "a third-party oracle still opens");
+    }
 }

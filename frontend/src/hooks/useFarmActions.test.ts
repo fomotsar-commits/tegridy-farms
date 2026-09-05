@@ -32,9 +32,11 @@ describe('useFarmActions', () => {
 
   // ───── pendingEth read surface (Spartan TF-03) ──────────────────────
 
-  it('exposes pendingEth = 0n when no read stub is registered', () => {
+  // OUTAGE-AS-ZERO. An unstubbed read is a read that did not land, and 0n was
+  // precisely the value telling pendingEthGuard there was nothing to forfeit.
+  it('exposes pendingEth = null when no read stub is registered', () => {
     const { result } = renderHook(() => useFarmActions());
-    expect(result.current.pendingEth).toBe(0n);
+    expect(result.current.pendingEth).toBeNull();
   });
 
   it('propagates pendingEth from the on-chain read', () => {
@@ -129,10 +131,43 @@ describe('useFarmActions', () => {
     expect(call.args).toEqual([42n]);
   });
 
-  it('withdraw() proceeds normally when pendingEth=0', () => {
+  it('withdraw() proceeds normally on a successful on-chain pendingEth of 0', () => {
+    // Re-pointed at an explicit 0n. This previously used an UNSTUBBED read as its
+    // stand-in for a zero balance - the exact conflation the guard now refuses.
+    // A genuine zero must still withdraw with no extra click and no toast.
+    wagmiMock.setReadResult({ functionName: 'pendingETH', result: 0n });
     const { result } = renderHook(() => useFarmActions());
     act(() => result.current.withdraw(1n));
     expect(wagmiMock.writeContract()).toHaveBeenCalledTimes(1);
+  });
+
+  // ───── unread pendingEth fails CLOSED (incident 2026-09-04) ─────────
+
+  it('withdraw() is blocked when pendingEth could not be read', () => {
+    // No stub === the read never landed. This collapsed to 0n, and the guard
+    // waved the withdraw through, forfeiting the user's unclaimed ETH revenue.
+    const { result } = renderHook(() => useFarmActions());
+    act(() => result.current.withdraw(42n));
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+  });
+
+  it('force=true does NOT bypass an unread pendingEth', () => {
+    // force is the user overriding a figure they have been shown. On an unread
+    // balance there is no figure, so there is nothing to consent to.
+    const { result } = renderHook(() => useFarmActions());
+    act(() => result.current.withdraw(42n, true));
+    act(() => result.current.earlyWithdraw(7n, true));
+    act(() => result.current.emergencyExit(9n, true));
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+  });
+
+  it('the unread refusal does not present itself as a zero balance', () => {
+    vi.mocked(toast.error).mockClear();
+    const { result } = renderHook(() => useFarmActions());
+    act(() => result.current.withdraw(42n));
+    const msg = String(vi.mocked(toast.error).mock.calls[0][0]);
+    expect(msg).toMatch(/could not be read/i);
+    expect(msg).toMatch(/not a statement that you have none/i);
   });
 
   it('earlyWithdraw() shares the pendingEth guard with withdraw()', () => {

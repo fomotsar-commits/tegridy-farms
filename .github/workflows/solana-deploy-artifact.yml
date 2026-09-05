@@ -157,7 +157,7 @@ jobs:
           print(f"  patched deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
           PY
           # Anchor.toml must agree or `anchor build` rewrites the id back.
-          # AUDIT FIX TF-038: "$PROGRAM_ID" from env, never a spliced `${{ }}`.
+          # AUDIT FIX TF-038: "$PROGRAM_ID" from env, never a spliced expression.
           # It has already passed the base58 gate above, so it carries no `/`
           # that could close sed's s/// or start a second command.
           sed -i "s/^tegridy_launch = \".*\"/tegridy_launch = \"$PROGRAM_ID\"/" ../../Anchor.toml || true
@@ -216,7 +216,7 @@ jobs:
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| cluster | \`${{ inputs.cluster }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| program | \`${{ inputs.program }}\` |" >> $GITHUB_STEP_SUMMARY
-          # AUDIT FIX TF-038: env, not splicing — a `${{ }}` here lands in the
+          # AUDIT FIX TF-038: env, not splicing — an inline expression here lands in the
           # script text just the same, and this step runs whatever it becomes.
           echo "| program id | \`${PROGRAM_ID:-committed in source}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| deployer | \`${DEPLOYER:-}\` |" >> $GITHUB_STEP_SUMMARY

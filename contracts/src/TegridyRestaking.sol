@@ -179,12 +179,18 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///         Records the entitled recipient when an NFT-out transfer (`unrestake` /
     ///         `emergencyWithdrawNFT`) reverts because the recipient is a hostile
     ///         contract OR an EIP-7702-delegated EOA without `onERC721Received`.
-    ///         Permissionless retry via `claimStrandedRestakeNFT(tokenId)` mirrors
-    ///         the `TegridyStakingJbacVault.claimStrandedJbac` battle-tested pattern
-    ///         already live in this codebase. Pre-fix, a 7702-EOA restaker who
+    ///         Permissionless retry via `claimStrandedRestakeNFT(tokenId, recipient)`
+    ///         mirrors the `TegridyStakingJbacVault.claimStrandedJbac` battle-tested
+    ///         pattern already live in this codebase. Pre-fix, a 7702-EOA restaker who
     ///         ran `unrestake` would self-DoS — the only recovery path was admin
     ///         pause + 24h cooldown + emergencyForceReturn. Now they self-recover
     ///         after removing their delegation.
+    ///         The record is written on ANY delivery failure, so it never says WHICH
+    ///         cause fired — and some causes are properties of the address itself (a
+    ///         reverting `onERC721Received`, or a holder already at
+    ///         `MAX_POSITIONS_PER_HOLDER`), which no retry to that same address can
+    ///         clear. That is why the claim takes an explicit `recipient` — see the
+    ///         function's docstring.
     mapping(uint256 => address) public strandedRestakeRecipient;
     event RestakeNFTStranded(uint256 indexed tokenId, address indexed to);
     event RestakeNFTReclaimed(uint256 indexed tokenId, address indexed to);
@@ -299,13 +305,26 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     /// @dev EIP-170 split (2026-06-04): the R014 step-1 "settle pending bonus on the
     ///      OLD boost at the PRE-accrue accBonusPerShare, anchor bonusDebt BEFORE the
     ///      external transfer (CEI)" block, duplicated verbatim in the refreshPosition
-    ///      / claimAll / unrestake stale paths. Uses a DIRECT safeTransfer (the
-    ///      pre-accrue settle has always paid directly here, distinct from the
-    ///      post-accrue F-04-5 deferred path) to `recipient`, with the BonusClaimed
-    ///      emit. Extracted byte-for-byte; `oldBoosted` is the caller's pre-refresh
-    ///      cached boost.
+    ///      / claimAll / unrestake stale paths. Pays `recipient` through the
+    ///      `_safeBonusTransferExt` self-call, the same F-04-5 deferred path every
+    ///      other bonus payout on this contract uses; `oldBoosted` is the caller's
+    ///      pre-refresh cached boost.
+    ///
+    ///      AUDIT FIX 2026-09-04 [F-04-5 PARITY]: this settle used to pay with a
+    ///      BARE `SafeTransferLib.safeTransfer`. The original extraction preserved
+    ///      that byte-for-byte and its comment recorded the divergence as history
+    ///      ("has always paid directly here") rather than as a reason. It is not a
+    ///      reason: a bonus token that blacklists `recipient` made the transfer
+    ///      revert, and with it the whole call — bricking refreshPosition /
+    ///      claimAll / unrestake on their stale paths for that user. All three
+    ///      pass `msg.sender`, so the DoS is self-inflicted rather than a griefing
+    ///      vector, and `emergencyWithdrawNFT` (which deliberately carries no
+    ///      `updateBonus` modifier and never calls this helper) always returns the
+    ///      NFT — but the user forfeited accrued bonus for no reason the file
+    ///      itself endorses. Now the credit defers to `unforwardedBonusRewards`
+    ///      and stays self-claimable via `claimPendingBonusPayout()`.
     function _settlePreAccrueBonus(RestakeInfo storage info, address recipient, uint256 oldBoosted) internal {
-        uint256 preBonus;
+        uint256 preBonus = 0;
         if (oldBoosted > 0) {
             int256 preAccum = _safeInt256((oldBoosted * accBonusPerShare) / ACC_PRECISION);
             int256 preDiff = preAccum - info.bonusDebt;
@@ -313,9 +332,17 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             info.bonusDebt = preAccum; // CEI: anchor BEFORE external call
         }
         if (preBonus > 0) {
-            SafeTransferLib.safeTransfer(address(bonusRewardToken), recipient, preBonus);
-            totalBonusDistributed += preBonus;
-            emit BonusClaimed(recipient, preBonus);
+            // CEI unchanged: `info.bonusDebt` is anchored above, BEFORE this call.
+            // SLITHER: nonReentrant on every entrypoint; the self-call cannot re-enter.
+            // slither-disable-next-line reentrancy-no-eth,reentrancy-events
+            try this._safeBonusTransferExt(recipient, preBonus) {
+                totalBonusDistributed += preBonus;
+                emit BonusClaimed(recipient, preBonus);
+            } catch {
+                unforwardedBonusRewards[recipient] += preBonus;
+                totalUnforwardedBonus += preBonus;
+                emit BonusTransferDeferred(recipient, preBonus);
+            }
         }
     }
 
@@ -330,20 +357,20 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
     ///      calling this (both sites do) so the safeTransferFrom callback cannot
     ///      re-enter to double-vote.
     function _returnNftSettleResidual(uint256 tokenId, address recipient) internal returns (uint256 totalUnsettled) {
-        uint256 prePaid;
+        uint256 prePaid = 0;
         try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p) {
             prePaid = _p;
         } catch {
             prePaid = 0;
         }
-        bool delivered;
+        bool delivered = false;
         try stakingNFT.safeTransferFrom(address(this), recipient, tokenId) {
             delivered = true;
         } catch {
             strandedRestakeRecipient[tokenId] = recipient;
             emit RestakeNFTStranded(tokenId, recipient);
         }
-        uint256 postPaid;
+        uint256 postPaid = 0;
         if (delivered) {
             try staking.claimUnsettledForTokenId(tokenId, recipient) returns (uint256 _p2) {
                 postPaid = _p2;
@@ -961,15 +988,14 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             // current `accBonusPerShare`. Behavior matches pre-R014 semantics.
             _accrueBonusChecked();
 
-            int256 accumulated = _safeInt256((info.boostedAmount * accBonusPerShare) / ACC_PRECISION);
-            int256 diff = accumulated - info.bonusDebt;
-            uint256 bonusPending = diff > 0 ? uint256(diff) : 0;
-            info.bonusDebt = accumulated; // CEI: anchor BEFORE external call
-            if (bonusPending > 0) {
-                SafeTransferLib.safeTransfer(address(bonusRewardToken), msg.sender, bonusPending);
-                totalBonusDistributed += bonusPending;
-                emit BonusClaimed(msg.sender, bonusPending);
-            }
+            // AUDIT FIX 2026-09-04 [F-04-5 PARITY]: this block was a verbatim copy of
+            // `_claimBonusWithDefer` EXCEPT that it paid with a bare safeTransfer, so
+            // a blacklisted `msg.sender` reverted refreshPosition on its NON-stale
+            // path — the common one. Fixing only the stale path would have left the
+            // entrypoint bricked for exactly the case it is called in most often.
+            // Delegating to the shared helper closes it and drops the duplicate from
+            // the runtime bytecode (this contract sits under EIP-170 pressure).
+            _claimBonusWithDefer(info, msg.sender);
         }
 
         emit PositionRefreshed(msg.sender, info.tokenId, oldAmount, newAmount);
@@ -1783,21 +1809,64 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
 
     /// @notice AUDIT FIX (BATCH-C H5, mirrors TegridyStakingJbacVault.claimStrandedJbac):
     ///         Permissionless retry path for an NFT that failed delivery during
-    ///         `unrestake` / `emergencyWithdrawNFT` (recipient was a hostile contract
-    ///         or 7702-delegated EOA without `onERC721Received`). Caller must be the
-    ///         recorded entitled recipient — they typically retry after removing
-    ///         their EIP-7702 delegation or upgrading their wallet.
+    ///         `unrestake` / `emergencyWithdrawNFT`. Caller must be the recorded
+    ///         entitled recipient; `recipient` is where the NFT actually lands.
+    ///
+    /// @dev    WHY `recipient` IS A PARAMETER AND NOT HARDCODED TO `msg.sender`.
+    ///         `_returnNftSettleResidual` books `strandedRestakeRecipient` on ANY
+    ///         `safeTransferFrom` failure, so the record preserves only THAT delivery
+    ///         to THAT address failed — never why. When the cause is a property of the
+    ///         address itself, a retry to the same address re-runs the identical
+    ///         failing transfer, forever. Choosing the destination is the whole exit.
+    ///
+    ///         Causes that are address-shaped, and so terminal without this parameter:
+    ///
+    ///           1. RECEIVER-SIDE (the original BATCH-C H5 case): the recipient's
+    ///              `onERC721Received` reverts, or it has none — a contract wallet, a
+    ///              paused Safe module, an EIP-7702-delegated EOA. Only sometimes
+    ///              self-curable (remove the delegation, upgrade the wallet); if the
+    ///              hook cannot be fixed, the destination must change. This is the
+    ///              path `test/RestakingStrandedReturnGuard.t.sol` drives.
+    ///
+    ///           2. POSITION CAP: the recipient already holds
+    ///              `MAX_POSITIONS_PER_HOLDER` positions. `StakingRewardLib` carves
+    ///              the cap out only on the TO side (`isEscrowTo`, :862-863), and an
+    ///              escrow RETURN has `to` = the holder, so it still reverts
+    ///              `TooManyPositions`. That is deliberate — the cap is what BOUNDS
+    ///              the escrow relaxation below it — which is exactly why the exit
+    ///              has to be a different address rather than a wider carve-out.
+    ///
+    ///         HISTORICAL, NOW CLOSED — do not re-derive it from this file's history
+    ///         and think it is live: a third cause was the EOA single-position guard,
+    ///         which relaxed for `isLendingContract[from]` but not for
+    ///         `from == restakingContract`, stranding the ordinary
+    ///         `stake -> restake -> stake` round-trip that
+    ///         `StreamingRevenueDistributor` (:553) documents as permitted. PR #397
+    ///         gave the guard that carve-out (`StakingRewardLib` :915), so the escrow
+    ///         return now delivers and strands nothing on that path.
+    ///
+    ///         Shape mirrors `TegridyPositionMarket.cancel(orderId, recipient)`, which
+    ///         carries a recipient parameter for the same reason
+    ///         (markets/TegridyPositionMarket.sol:316-322).
+    ///
+    /// @dev    Entitlement is unchanged — only the recorded recipient may claim. The
+    ///         parameter widens WHERE the NFT may land, never WHO may move it.
     /// @dev    CEI: clear stranded record BEFORE outbound transfer so a re-entrant
     ///         claim cannot double-collect. nonReentrant adds defense-in-depth.
-    /// @dev    No try/catch on the retry — if it still fails, the user can call
-    ///         again until they fix their wallet (state was rolled back by the
-    ///         outer `tx.revert`, so the stranded mapping persists).
-    function claimStrandedRestakeNFT(uint256 tokenId) external nonReentrant {
+    /// @dev    No try/catch on the retry — if it still fails, the whole call reverts,
+    ///         the `delete` above is rolled back with it, and the stranded record
+    ///         survives for another attempt.
+    /// @param  tokenId   The stranded staking-position NFT.
+    /// @param  recipient Destination. Must be able to receive an ERC-721 and sit under
+    ///                   `MAX_POSITIONS_PER_HOLDER`; otherwise the call reverts and the
+    ///                   stranded record is preserved for a further attempt.
+    function claimStrandedRestakeNFT(uint256 tokenId, address recipient) external nonReentrant {
         address to = strandedRestakeRecipient[tokenId];
         if (to == address(0) || to != msg.sender) revert NotRestakedToken();
+        if (recipient == address(0)) revert ZeroAddress();
         delete strandedRestakeRecipient[tokenId];
-        stakingNFT.safeTransferFrom(address(this), to, tokenId);
-        emit RestakeNFTReclaimed(tokenId, to);
+        stakingNFT.safeTransferFrom(address(this), recipient, tokenId);
+        emit RestakeNFTReclaimed(tokenId, recipient);
     }
 
     // ─── Pause ────────────────────────────────────────────────────────
@@ -2086,9 +2155,11 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             nftReturned = true;
         } catch {
             // AUDIT FIX FRESH-2026: M-2 [F-03-K2] — record stranded recipient so
-            // the user can self-recover via `claimStrandedRestakeNFT(tokenId)`
-            // after fixing their wallet (e.g. removing EIP-7702 delegation,
-            // or deploying an `IERC721Receiver`-compliant wrapper). Pre-fix,
+            // the user can self-recover via `claimStrandedRestakeNFT(tokenId,
+            // recipient)` after fixing their wallet (e.g. removing EIP-7702
+            // delegation, or deploying an `IERC721Receiver`-compliant wrapper),
+            // or — when the address itself is the problem — by naming a
+            // different recipient that can receive. Pre-fix,
             // this catch arm only flipped `nftReturned = false` — the NFT
             // became permanently stuck because:
             //   * `restakers[restaker]` was already cleared (line ~1771),
@@ -2194,8 +2265,37 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
             info.bonusDebt = preAccum;
         }
         if (preBonus > 0) {
-            SafeTransferLib.safeTransfer(address(bonusRewardToken), restaker, preBonus);
-            totalBonusDistributed += preBonus;
+            // AUDIT FIX 2026-09-04 [F-04-5 PARITY]: the third bare-safeTransfer bonus
+            // payout, and the only one that is NOT self-inflicted. Both entrypoints
+            // accept `msg.sender == owner()` as well as the restaker, so a blacklisted
+            // restaker made the OWNER's call revert — a stranger bricking an operator
+            // function rather than only their own flow.
+            //
+            // SCOPE, stated honestly: the DoS is real but its blast radius today is
+            // small. On a fresh deployment `staking.revalidateBoost` cannot actually
+            // downgrade anything — deposit-based positions revert `JbacDeposited()`
+            // before this settle is reached, and the legacy `hasJbacBoost=true` +
+            // `jbacDeposited=false` shape that CAN be downgraded is unconstructible
+            // (TegridyStaking.sol:1425-1428). So this entrypoint is an expensive
+            // no-op poke, and the "inflated totalRestaked dilutes honest restakers"
+            // story does NOT hold here — that consequence belongs to
+            // `decayExpiredRestaker`, which is permissionless and already wrapped.
+            // What survives is narrower and still worth fixing: the bonus settle
+            // below DOES run and DOES pay on the poke, so a blacklisted restaker
+            // reverted a call they were not the caller of.
+            //
+            // The missing `BonusClaimed` emit is restored here too: pre-fix this site
+            // moved `totalBonusDistributed` with no event, so indexers reconstructing
+            // payouts from logs silently under-counted.
+            // slither-disable-next-line reentrancy-no-eth,reentrancy-events
+            try this._safeBonusTransferExt(restaker, preBonus) {
+                totalBonusDistributed += preBonus;
+                emit BonusClaimed(restaker, preBonus);
+            } catch {
+                unforwardedBonusRewards[restaker] += preBonus;
+                totalUnforwardedBonus += preBonus;
+                emit BonusTransferDeferred(restaker, preBonus);
+            }
         }
 
         // Step 2 — shrink totalRestaked using the new post-decay boost from staking.
@@ -2446,6 +2546,9 @@ contract TegridyRestaking is OwnableNoRenounce, ReentrancyGuard, Pausable, IERC7
                     // minted (net of per-share flooring) so `outstanding` never drifts
                     // above what positions can claim, keeping the cap tight but never
                     // starving genuinely-funded accrual.
+                    // SLITHER 2026-08-30: the div→mul round-trip IS the fix above — it books the
+                    // liability actually minted NET of per-share flooring, never the pre-floor reward
+                    // slither-disable-next-line divide-before-multiply
                     totalBonusEmitted += (accDelta * totalRestaked) / ACC_PRECISION;
                 }
             }

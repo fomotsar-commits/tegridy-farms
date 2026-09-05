@@ -48,6 +48,65 @@ export const MAX_LOCK_SECS = 4n * 365n * 24n * 60n * 60n;
 export const MIN_BOOST_BPS = 4_000n;
 export const MAX_BOOST_BPS = 40_000n;
 export const PENALTY_BPS = 2_500n;
+/**
+ * The contract's `MIN_STAKE` — the 2026-09-04 dust-divisor floor.
+ *
+ * RAW UNITS, and deliberately NOT scaled by the pool's own `decimals`: it is a
+ * plain constant in the contract (`100e18`), so the deploy script refuses any
+ * staking token that is not 18-decimal precisely so the two agree. Mirrored
+ * here so the panel can say "below the minimum" in words rather than letting
+ * the user pay gas to discover it as a bare revert string.
+ */
+export const MIN_STAKE_RAW = 100n * 10n ** 18n;
+
+/**
+ * THE SIX LADDER POOLS THAT MUST NOT TAKE A DEPOSIT.
+ *
+ * `docs/LIGHTHOUSE_AUDIT_2026_09_01.md` opens with one instruction - "Do not let
+ * anyone stake on the EVM ladders until C1 is fixed and redeployed" - where C1 is
+ * CRITICAL and PROVEN (LadderOrderingPoC.t.sol): `_close` debits `_totalSupply`
+ * while the principal is still in the pool, so `rewardSurplus()` over-reports and
+ * a claim pays out of OTHER stakers' principal.
+ *
+ * THE SOURCE WAS FIXED; THE POOLS WERE NOT REDEPLOYED. The audit asks for "a
+ * redeploy and a repin of the six registry addresses", and only the first half of
+ * that has happened - in the Solidity, not on chain. Every address below is still
+ * `"status": "live"` in addresses.json, still `live: true` in bungalows.ts, and
+ * still shipped by the production bundle with an enabled Stake button.
+ *
+ * Measured 2026-09-05 before adding this gate: `totalSupply()` is 0 on all six and
+ * `rewardRate()`/`periodFinish()` are 0, so nobody has been robbed yet. That is
+ * the whole point - the audit's "fix before the first deposit" window is still
+ * open, and this closes it in the UI while the redeploy is arranged.
+ *
+ * WHY THE ADDRESS AND NOT A FLAG. Keying on the pool address means the gate lifts
+ * BY ITSELF the moment an operator repins the registry to redeployed pools - there
+ * is no second switch to remember and no way to leave a stale gate denying a fixed
+ * pool. Delete an entry here only when that address is genuinely no longer served.
+ *
+ * SCOPE: this blocks DEPOSITS ONLY. Claiming and withdrawing stay open, because a
+ * gate that traps funds is a worse bug than the one it is guarding against.
+ */
+export const C1_UNSAFE_LADDER_POOLS: readonly string[] = [
+  '0xdc0b34ce782029f30382f42097f6b33f0544329c', // PEPE  - ethereum
+  '0xdcc3a95a0921b83326157132b17770f02094c8e3', // QR    - base
+  '0x7288dbf43d3bdbfc439b6e8a47aef225d4816273', // MFER  - base
+  '0xe0a152ebc21891fd47a7dcd6018cfe3a64363178', // BNKR  - base
+  '0xb62bad165997e95c503044787b2dcc85dc6d83f1', // DRB   - base
+  '0xa0d43ef39c4940e68b2f81d51e6316a45c136d93', // JBM   - base
+];
+
+/**
+ * True when this pool is one of the six pre-fix ladders above.
+ *
+ * Case-insensitive on purpose: the registry stores checksummed addresses and
+ * wagmi hands back checksummed addresses, but the list above is lowercased so a
+ * checksum difference can never silently open the gate.
+ */
+export function isC1UnsafeLadder(pool: string | null | undefined): boolean {
+  if (!pool) return false;
+  return C1_UNSAFE_LADDER_POOLS.includes(pool.toLowerCase());
+}
 
 export function deriveLadder(r: LadderReads, nowSecs: bigint): LadderView {
   const coreKnown =

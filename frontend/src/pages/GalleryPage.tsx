@@ -14,6 +14,7 @@ import { usePageTitle } from '../hooks/usePageTitle';
 // is for untrusted URIs from on-chain calls and would reject same-origin
 // root-relative paths like "/art/sword-of-love.jpg".
 import { PLACEHOLDER_NFT } from '../lib/imageSafety';
+import { artImgProps } from '../lib/artSrcSet';
 
 function loadUserVotes(address: string | undefined): Record<string, boolean> {
   if (!address) return {};
@@ -139,6 +140,7 @@ export default function GalleryPage() {
                   a column of large images. */}
               <img
                 src={piece.src}
+                {...artImgProps(piece.src)}
                 alt={piece.title}
                 width={800}
                 height={800}

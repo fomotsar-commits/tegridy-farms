@@ -26,7 +26,7 @@ All supply has been minted and is in circulation somewhere — in treasury, LP, 
 
 | Bucket | % of supply | Tokens | Status | Verify on-chain |
 |---|---|---|---|---|
-| **LP seed** | **30%** | 300,000,000 | Seeded the TOWELI/WETH pool at launch. The native pool was re-created by the 2026-06-06 relaunch and is **effectively empty**: `getReserves()` on 2026-08-06 returned ~146,258 TOWELI against ~0.0038 WETH. Treat this row as the launch intent, not as current liquidity. | [TegridyLP](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) + [Uniswap V2 pair](https://etherscan.io/address/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) |
+| **LP seed** | **30%** | 300,000,000 | Seeded the TOWELI/WETH pool at launch. The native pool was re-created by the 2026-06-06 relaunch and remains **very thin**: `getReserves()` on **2026-09-05** returned ~2,792,972 TOWELI against ~0.0797 WETH (up ~20× from the ~146,258 / ~0.0038 low read on 2026-08-02, but still ~96× shallower in WETH than the Uniswap V2 pair). Treat this row as the launch intent, not as current liquidity. | [TegridyLP](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) + [Uniswap V2 pair](https://etherscan.io/address/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) |
 | **Treasury** | **10%** | 100,000,000 | Held by the protocol treasury Safe; funds ongoing ops, audits, grants, and timelocked emission seeding. | [Treasury](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) |
 | **Community / future emissions** | **10%** | 100,000,000 | Reserved for continued LP farming rewards, retroactive airdrops, and governance-voted incentives. Intended to be dispensed per-season by the GaugeController — which currently has `gaugeCount() == 0`, so no gauge is registered and nothing is being dispensed through it yet. | [GaugeController](https://etherscan.io/address/0x6c79522D47Cf6d1051Cb474E81d9b6f3996c1054) |
 | **Team** | **5%** | 50,000,000 | Allocated to the team with a 3-year linear vest + 6-month cliff. Subject to on-chain lockup contract where applicable. | Private vesting contract — contact the team for schedule |
@@ -131,6 +131,25 @@ before quoting an APR anywhere.
 Season 1 + Season 2 drew from the 10% Community bucket. The bucket can fund multiple further seasons — pace governed by whatever the community votes the emission budget should be.
 
 ---
+
+## The other three chains do not feed this
+
+Added 2026-09-04, because the venue went multichain on 2026-08-25 and every number above is
+still an **Ethereum-only** number.
+
+- **TOWELI exists on Ethereum and nowhere else.** No bridge, no wrapped version on Base,
+  Robinhood or Solana, and none is planned. The supply table above is the whole supply.
+- **The L2 legs do not pay stakers.** Base 8453 and Robinhood 4663 run the same
+  factory/router/TWAP/fee stack, but their fee sink is a **remittance Safe**, not a
+  distributor — a fee captured there is *queued for the bridge*, and calling it staker yield
+  would be false. Nothing in the yield flow above changes because an L2 earned a fee.
+- **The Solana surface is fee-capture and staking only.** The Jupiter-routed swap takes a
+  platform fee into a Solana fee account; it does not touch TOWELI.
+- **The bungalow lighthouses pay their own token, not TOWELI.** Thirteen resident tokens each
+  stake into their own pool. The six EVM pools (`LighthouseLadder`) use **exactly the ladder
+  in the next section** — 7d…4y, 0.4×…4.0×, the same linear interpolation — but a staker
+  there earns that bungalow's token, and the pool's runway is whatever its own vault was
+  funded with. The five Solana pools run on Streamflow and have **no early exit at all**.
 
 ## Staking boost
 

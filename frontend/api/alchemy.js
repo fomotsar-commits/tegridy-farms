@@ -2,29 +2,35 @@
 import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
-import { fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
+import { alchemyKeyChain, fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
 
-// AUDIT R048: prefer Authorization: Bearer header over URL path embedding so
-// the key never appears in Vercel access logs, observability tracers, or
-// upstream HTML error pages that echo the request URL. Falls back to URL
-// path embedding only when no real key is configured (legacy/demo dev).
+// AUDIT R048: the key travels in an Authorization: Bearer header and never in
+// the URL path, so it cannot appear in Vercel access logs, observability
+// tracers, or upstream HTML error pages that echo the request URL. There is no
+// longer a path-embedding fallback — see FAIL-CLOSED below.
 // RESIL-1: every upstream fetch goes through fetchAlchemyWithFailover, which
 // retries ONCE with the optional ALCHEMY_API_KEY_FALLBACK on 401/403/429/5xx
-// — a lapsed primary key no longer blacks out the marketplace. The builders
-// below are keyed per attempt so URL shape + Authorization track the key.
-const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
-if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
-  console.warn("WARNING: ALCHEMY_API_KEY is not set — using demo key in production");
-}
+// — a lapsed primary key no longer blacks out the marketplace. authHeadersFor()
+// is called per attempt, so Authorization tracks the key that attempt uses.
+//
+// FAIL-CLOSED 2026-09-04 — the manufactured "demo" key is DELETED.
+// "demo" is this codebase's sentinel for "no Alchemy key": _lib/eth-code.js:37,
+// _lib/ethcall.js:27 and _lib/seaport-verify.js:144/:178 all refuse on it,
+// _lib/alchemy-failover.js:39 keeps it out of the key chain, and
+// api/orderbook.js:1543/:2128 gate on
+// `alchemyKeyChain().some((k) => k && k !== "demo")`. This file was the
+// outlier: with ALCHEMY_API_KEY unset it MANUFACTURED the string and embedded
+// it in the upstream URL, so a keyless deploy proxied the entire marketplace
+// onto Alchemy's PUBLIC demo key. Measured 2026-09-04: the NFT path answered
+// HTTP 200 WITH REAL DATA and the RPC path answered HTTP 429 — a gallery that
+// renders off a borrowed public credential reads as "configured and working"
+// when nothing is configured, and neither the response nor the logs said
+// otherwise. Both roots are header-auth only now; the handler refuses before
+// any fetch when the chain holds no usable key, so the falsy-key URL branch
+// has no reachable caller and is deleted with it.
 const NFT_V3_ROOT = "https://eth-mainnet.g.alchemy.com/nft/v3";
 const RPC_ROOT = "https://eth-mainnet.g.alchemy.com/v2";
 
-function nftBaseFor(key) {
-  return key ? NFT_V3_ROOT : `${NFT_V3_ROOT}/${ALCHEMY_KEY}`;
-}
-function rpcBaseFor(key) {
-  return key ? RPC_ROOT : `${RPC_ROOT}/${ALCHEMY_KEY}`;
-}
 function authHeadersFor(key, extra = {}) {
   const headers = { Accept: "application/json", ...extra };
   if (key) headers["Authorization"] = `Bearer ${key}`;
@@ -88,7 +94,7 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 // "latest". Bounded by readBoundedText so it can't reintroduce H-3.
 async function resolveChainTip() {
   const res = await fetchAlchemyWithFailover((key) => ({
-    url: rpcBaseFor(key),
+    url: RPC_ROOT,
     opts: {
       method: "POST",
       headers: authHeadersFor(key, { "Content-Type": "application/json" }),
@@ -126,6 +132,29 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Vary", "Origin");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // INCIDENT #385 follow-up / AUDIT API-L4 — refuse BEFORE any upstream fetch
+  // when no Alchemy credential is configured. The predicate is copied from
+  // api/orderbook.js:1543, so it gates the whole failover chain rather than the
+  // primary slot: a deploy carrying only ALCHEMY_API_KEY_FALLBACK still serves.
+  //
+  // 503, not 502: the fault is OUR configuration. #387 gave a REJECTED key the
+  // same code, and the two messages are deliberately distinct so a single probe
+  // separates the three causes that cost hours in #385:
+  //   503 "Upstream credential not configured" → the env var is missing
+  //   503 "Upstream credentials rejected"      → the key is set and refused
+  //   502 "Upstream service error"             → Alchemy itself is broken
+  // AUDIT API-M4 still holds: no upstream status, no upstream body and no key
+  // material reaches the CLIENT. The SERVER LOG names the env var to set.
+  if (!alchemyKeyChain().some((k) => k && k !== "demo")) {
+    console.error(
+      "Alchemy: NO USABLE CREDENTIAL — ALCHEMY_API_KEY is unset (or is the " +
+      "literal \"demo\" sentinel). Set ALCHEMY_API_KEY, or " +
+      "ALCHEMY_API_KEY_FALLBACK, on the Vercel project. Refusing to proxy: the " +
+      "demo-key fallback was removed 2026-09-04.",
+    );
+    return res.status(503).json({ error: "Upstream credential not configured" });
+  }
 
   // AUDIT API-M1: 60 requests / minute per IP. Alchemy's own plan limit is
   // much higher but we clamp here to bound cost-per-IP and block obvious
@@ -221,7 +250,7 @@ export default async function handler(req, res) {
 
     try {
       const rpcRes = await fetchAlchemyWithFailover((key) => ({
-        url: rpcBaseFor(key),
+        url: RPC_ROOT,
         opts: {
           method: "POST",
           headers: authHeadersFor(key, { "Content-Type": "application/json" }),
@@ -232,6 +261,32 @@ export default async function handler(req, res) {
       const { text, truncated } = await readBoundedText(rpcRes, MAX_RESPONSE_BYTES);
       if (truncated) {
         return res.status(502).json({ error: "Upstream response too large" });
+      }
+      // INCIDENT 2026-09-04 (#385) / AUDIT API-M5: this path had NO status
+      // check, so an upstream 401 came back to the caller as **HTTP 200**
+      // carrying a JSON-RPC error member. A client checking the status code
+      // read a rejected key as a successful call — the repo's most-repeated
+      // defect class, on a live path. The REST branch below has always checked
+      // `response.ok`; this one never did.
+      //
+      // MERGE NOTE (#386 + #387, both landed 2026-09-04): #386 added an opaque
+      // 502 guard here and #387 added this credential-aware one. Git stacked
+      // BOTH — two sequential `if (!rpcRes.ok)` blocks, the second unreachable.
+      // The dead one was removed; this guard is its superset (it still never
+      // answers 200, and additionally separates a rejected credential from a
+      // generic upstream failure). Status is logged for ops, never echoed.
+      if (!rpcRes.ok) {
+        const rejected = rpcRes.status === 401 || rpcRes.status === 403;
+        console.error(
+          rejected
+            ? `Alchemy RPC REJECTED OUR CREDENTIALS: HTTP ${rpcRes.status} — rotate ALCHEMY_API_KEY.`
+            : "Alchemy RPC upstream error:",
+          rpcRes.status,
+          logSafe(text.slice(0, 500)),
+        );
+        return rejected
+          ? res.status(503).json({ error: "Upstream credentials rejected" })
+          : res.status(502).json({ error: "Upstream service error" });
       }
       let data;
       try { data = JSON.parse(text); } catch {
@@ -341,7 +396,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetchAlchemyWithFailover((key) => {
-      const url = new URL(`${nftBaseFor(key)}/${endpoint}`);
+      const url = new URL(`${NFT_V3_ROOT}/${endpoint}`);
       Object.entries(params).forEach(([k, v]) => {
         if (v != null && v !== "") url.searchParams.set(k, String(v));
       });
@@ -362,21 +417,44 @@ export default async function handler(req, res) {
       console.error("Alchemy upstream over-cap");
       return res.status(502).json({ error: "Upstream response too large" });
     }
+    // INCIDENT 2026-09-04 (#385): the status check MUST come before the parse.
+    // Alchemy answers a rejected key with HTTP 401, `content-type:
+    // application/json`, and a body of `Must be authenticated!` — which is not
+    // JSON. Parsing first meant a clean, unambiguous 401 was reported as
+    // "Upstream returned invalid response", so a revoked key and a corrupt
+    // payload were the same opaque 502. Diagnosing the live incident took a
+    // source read and six probes; the status was there the whole time and was
+    // simply never consulted.
+    if (!response.ok) {
+      // AUDIT API-M4 still holds: never leak upstream status or body to the
+      // CLIENT. What changes is that the server log now always carries the
+      // status, and that a credential rejection gets its own client-visible
+      // code so ops can tell "our key is bad" from "upstream is broken"
+      // without reading source. 503 says the fault is our configuration; it
+      // discloses nothing about the key itself.
+      const rejected = response.status === 401 || response.status === 403;
+      console.error(
+        rejected
+          ? `Alchemy REJECTED OUR CREDENTIALS: HTTP ${response.status} — ALCHEMY_API_KEY is set but not accepted. Rotate it.`
+          : "Alchemy upstream error:",
+        response.status,
+        logSafe(text.slice(0, 500)),
+      );
+      return rejected
+        ? res.status(503).json({ error: "Upstream credentials rejected" })
+        : res.status(502).json({ error: "Upstream service error" });
+    }
+
     let data;
     try {
       data = JSON.parse(text);
     } catch {
       // AUDIT R048: don't log full URL — sanitizer scrubs key-shaped path
-      // segments but logSafe is the canonical path.
+      // segments but logSafe is the canonical path. Reaching here now means a
+      // 2xx that is genuinely malformed, which is the only thing this message
+      // ever claimed to mean.
       console.error("Alchemy non-JSON response:", logSafe(text.slice(0, 200)));
       return res.status(502).json({ error: "Upstream returned invalid response" });
-    }
-
-    if (!response.ok) {
-      // AUDIT API-M4: don't leak upstream HTTP status or body to clients; map
-      // everything to a single opaque 502. Real status logged server-side for ops.
-      console.error("Alchemy upstream error:", response.status, logSafe(text.slice(0, 500)));
-      return res.status(502).json({ error: "Upstream service error" });
     }
 
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");

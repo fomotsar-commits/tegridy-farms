@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
+import { artImgProps } from '../../lib/artSrcSet';
 
 interface ModalProps {
   open: boolean;
@@ -175,6 +176,7 @@ export function Modal({
                 <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
                   <img
                     src={art}
+                    {...artImgProps(art)}
                     alt=""
                     loading="lazy"
                     className="w-full h-full object-cover"
@@ -191,10 +193,19 @@ export function Modal({
                 </div>
               )}
 
-              {/* Close button */}
+              {/* Close button.
+                  🔴 z-20, NOT z-10. The content wrapper below is also z-10 and
+                  comes LATER in DOM order, so at equal z-index it painted on top
+                  and its <h2> — a block element spanning the full width — covered
+                  this button completely. Every titled dialog in the app had an
+                  unclickable X: the click landed on the heading.
+                  `pr-8` on that heading was the original attempt at clearance and
+                  cannot work, because padding is still part of an element's hit
+                  area. Reserving space visually is not the same as getting out of
+                  the way, so the fix has to be the stacking order. */}
               <button
                 onClick={onClose}
-                className={`absolute top-3 right-3 z-10 transition-colors text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                className={`absolute top-3 right-3 z-20 transition-colors text-xl leading-none min-w-[44px] min-h-[44px] flex items-center justify-center ${
                   isDark
                     ? 'text-gray-400 hover:text-white'
                     : 'text-black/55 hover:text-black'

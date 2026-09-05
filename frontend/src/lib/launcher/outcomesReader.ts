@@ -203,8 +203,8 @@ function normalizeChain(c: TokenChainStats | null | undefined): TokenChainStats 
 /**
  * Assemble a point-in-time {@link OutcomeRecord} for one launch by pairing its
  * known baseline with a live market + chain read. Never throws on upstream
- * failure — a null/partial fetch degrades to a conservative snapshot (price 0,
- * liquidity 0, holderCount 0, unknown team activity) so the derived flags stay
+ * failure — a null/partial fetch degrades to a conservative snapshot (price and liquidity
+ * mirror the baseline, holderCount null, unknown team activity) so the derived flags stay
  * factual rather than fabricated.
  *
  * @param observedAt unix seconds of this observation (injected — deterministic tests).
@@ -245,8 +245,14 @@ export async function buildOutcomeRecord(
     launchPriceEth,
     liquidityEth: marketObserved ? market.liquidityEth : launchLiquidityEth,
     launchLiquidityEth,
-    // holderCount is a required number on OutcomeRecord; unknown degrades to 0.
-    holderCount: chain.holderCount ?? 0,
+    // OUTAGE-AS-ZERO. `?? 0` asserted "this token has 0 holders" whenever the chain read
+    // did not land — the ROUTINE state, not an exotic one: Etherscan Pro-gates
+    // `tokenholdercount` and refuses a free-tier key for it on every token. Null when
+    // unread, and the pair says which a 0 on the wire is. Kept identical to
+    // api/_lib/launcher-outcomes.js, the port that actually runs.
+    holderCount: chain.holderCount,
+    holderCountObserved: chain.holderCount != null,
+    holderCountReadFailed: chain.holderCount == null,
     unlocks: baseline.unlocks ?? [],
     lastTeamActivityAt: chain.lastTeamActivityAt,
     marketObserved,
@@ -290,7 +296,10 @@ export async function buildLaunchSummary(
     uniqueBuyers24h: market.uniqueBuyers24h,
     liquidityEth: market.liquidityEth,
     feeRevenueEth24h: market.feeRevenueEth24h,
-    holderCount: chain.holderCount ?? 0,
+    // OUTAGE-AS-ZERO. Null, not 0, for an unread count: this one is spent by ordering.ts's
+    // log10p, where a fabricated 0 deranks a launch for OUR failed read. No pair on a
+    // summary — it is rebuilt per request and never cached.
+    holderCount: chain.holderCount,
   };
 }
 

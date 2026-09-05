@@ -57,7 +57,22 @@ export async function readErc20Distribution(contract, opts = {}) {
   // "freekey" may 403); set ETHPLORER_API_KEY, or swap the upstream for
   // Moralis/Covalent/Etherscan-Pro/the Ponder index. Callers self-gate until this
   // returns data — nothing downstream fabricates a distribution.
-  const EP_KEY = process.env.ETHPLORER_API_KEY || 'freekey';
+  //
+  // "freekey" is Ethplorer's SHARED ANONYMOUS TIER and it STAYS: it is this
+  // upstream's equivalent of the keyless public-RPC roster _lib/eth-code.js falls
+  // through to once alchemyUrl() has dropped a non-credential from the chain, and
+  // it is what keeps local dev and Vercel preview usable with nothing provisioned.
+  // Nothing downstream can launder it into a finding — every unreadable outcome
+  // below takes the uncached refusal path.
+  //
+  // What it must NOT do is COUNT AS A CREDENTIAL. Same shape the Alchemy call
+  // sites use for "demo" (_lib/eth-code.js:37, _lib/ethcall.js:27,
+  // _lib/seaport-verify.js:144, _lib/alchemy-failover.js:39): the upstream's own
+  // placeholder is absence, never a key — including when an operator has pasted it
+  // into the env var by hand, which is the one way "is it set?" silently lies.
+  const RAW_EP_KEY = process.env.ETHPLORER_API_KEY;
+  const CONFIGURED_KEY = !RAW_EP_KEY || RAW_EP_KEY === 'freekey' ? null : RAW_EP_KEY;
+  const EP_KEY = CONFIGURED_KEY || 'freekey';
   const holderLimit = Math.min(Math.max(1, parseInt(opts.limit, 10) || 100), 100);
 
   const [infoRes, topRes] = await Promise.all([
@@ -172,6 +187,57 @@ export async function readErc20Distribution(contract, opts = {}) {
       infoRes.status === 403 ||
       Number(epError?.code) === 1 ||
       Number(infoError?.code) === 1;
+    // INCIDENT #385, SAME CLASS, DIFFERENT UPSTREAM: a credential the code cannot
+    // NAME costs hours. Every refusal here used to be silent — an absent key, a
+    // rejected key and a real Ethplorer outage produced the same 403/502 with
+    // nothing in the function log, and on the shared anonymous key this surface IS
+    // intermittently flaky, which is the coincidence that buries the cause.
+    //
+    // EACH LINE CLAIMS ONLY WHAT THE EVIDENCE SUPPORTS — a log that names the
+    // wrong credential is the defect, not the fix:
+    //   * `notAToken` is an ANSWER about the address, not an incident, and stays
+    //     silent: it fires on every wallet or NFT a visitor pastes, and a log that
+    //     cries wolf is the one nobody reads.
+    //   * Ethplorer SPOKE badly (a non-2xx, an {error:{code}} envelope, or a body
+    //     we could not read at all — a CDN interstitial under HTTP 200 is how the
+    //     anonymous tier's throttle usually arrives) — then the key state IS the
+    //     question, so name it. Both legs race ONE key, so both statuses and both
+    //     codes go in the line: exactly one leg throttled while the other answers
+    //     is the routine live shape here, and a single number cannot express it.
+    //   * Both legs answered readably — then Ethplorer is not the problem and
+    //     neither is the key. This is our own downstream gate (an unreadable
+    //     totalSupply, an unreadable row, or the eth_getCode chain, which logs its
+    //     own cause at the catch above). Naming ETHPLORER_API_KEY here would send
+    //     an operator to provision a credential that changes NOTHING — the exact
+    //     wrong-trail cost this line exists to remove — and on this file's
+    //     dominant refusal branches that is the COMMON case, not an edge. Say so
+    //     positively: silence cannot be told apart from a line that never shipped.
+    //
+    // AUDIT API-M4 HOLDS: this is the SERVER LOG. Every client body below is
+    // unchanged and still learns nothing about our credentials — the same split
+    // #387 made on the Alchemy proxy.
+    if (!notAToken) {
+      const epSpoke = !infoRes.ok || !topRes.ok || !!infoError || !!epError || !infoOk || rows === null;
+      if (epSpoke) {
+        const keyState = CONFIGURED_KEY
+          ? 'ETHPLORER_API_KEY is SET'
+          : 'ETHPLORER_API_KEY is UNSET — on the shared anonymous "freekey"';
+        console.error(
+          isAuth
+            ? `erc20scan: Ethplorer REJECTED OUR CREDENTIALS — ${keyState}; set or rotate it.`
+            : `erc20scan: Ethplorer refused the read — ${keyState}.`,
+          `getTokenInfo HTTP ${infoRes.status} code ${logSafe(infoError?.code ?? 'none')};`,
+          `getTopTokenHolders HTTP ${topRes.status} code ${logSafe(epError?.code ?? 'none')}`,
+        );
+      } else {
+        console.error(
+          'erc20scan: Ethplorer answered BOTH legs readably — the refusal is our own',
+          'downstream gate, NOT a credential problem: ETHPLORER_API_KEY will not fix it.',
+          `totalSupplyReadable=${rawTotal == null || totalSupply !== null};`,
+          `holdersReadable=${holders !== null}; codeReadFailed=${codeReadFailed}`,
+        );
+      }
+    }
     if (isAuth) return { ok: false, kind: 'auth' };
     if (notAToken) return { ok: false, kind: 'not-a-token' };
     return { ok: false, kind: 'upstream' };

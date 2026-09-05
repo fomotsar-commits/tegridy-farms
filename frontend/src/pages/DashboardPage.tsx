@@ -52,6 +52,7 @@ const BungalowDashboardPanel = lazy(() =>
 const EvmBungalowDashboardPanel = lazy(() =>
   import('../components/bungalow/EvmBungalowDashboardPanel').then((m) => ({ default: m.EvmBungalowDashboardPanel })),
 );
+import { artImgProps } from '../lib/artSrcSet';
 
 // AUDIT DASH-UX: tabbed view promised by commit b21fed0 but never shipped.
 // Header + summary stats stay above the tabs so at-a-glance portfolio value
@@ -366,7 +367,7 @@ function ToweliDashboard() {
           ].map((s) => (
             <div key={s.l} className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0">
-                <img src={s.art.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art)} />
+                <img src={s.art.src} {...artImgProps(s.art.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(s.art)} />
               </div>
               {/* Semi-transparent content panel — art bleeds through while kyle-green stat
                   text stays readable against the dimmed backdrop. */}
@@ -583,6 +584,28 @@ function ToweliDashboard() {
                   </div>
                 </div>
               </m.div>
+            ) : pos.positionUnread ? (
+              /* Three branches, never two: "No staking position yet" is a claim
+                 about the chain, so it is gated on having actually read the
+                 chain. An unanswered multicall is not an empty position. */
+              <div
+                className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-10 text-[13px] text-amber-100"
+                data-testid="dashboard-position-unread"
+              >
+                <p>
+                  Your staking position could not be read just now - the network did not
+                  answer. This is not a statement that you have nothing staked: anything
+                  you staked is still staked, and the contract is the record. Retry before
+                  acting on this panel.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary mt-3 px-4 py-1.5 text-[12px]"
+                  onClick={() => { void pos.refetchAll(); }}
+                >
+                  Retry
+                </button>
+              </div>
             ) : (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -604,8 +627,30 @@ function ToweliDashboard() {
               </m.div>
             )}
 
-            {/* Liquidity position (LP) — surfaces TGLP that wallets otherwise hide */}
-            {lpPos.hasPosition && (
+            {/* Liquidity position (LP) — surfaces TGLP that wallets otherwise hide.
+                THREE branches, never two. The silent branch here is "render nothing",
+                and rendering nothing is exactly how a failed read deleted an LP
+                provider's position from this page — no figure to look wrong, no error,
+                just an absence. So the unread notice comes FIRST and the card is gated
+                on NOT-unread; the honest no-position silence keeps the last slot. */}
+            {lpPos.lpUnread && (
+              <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+                <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
+                <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(255,178,55,0.35)' }}>
+                  <div className="relative z-10 p-8 py-12 text-center" data-testid="dash-lp-unread">
+                    <p className="text-amber-300 text-[15px] mb-2">Couldn't read your liquidity position</p>
+                    <p className="text-white/70 text-[12px] max-w-sm mx-auto">
+                      A network read failed, so we can't show your TGLP, your pool share or what
+                      it redeems for. This is not a statement that you have none — anything you
+                      provided is still yours and the pair contract is the record. This refreshes
+                      automatically; reload before concluding anything here.
+                    </p>
+                  </div>
+                </div>
+              </m.div>
+            )}
+
+            {!lpPos.lpUnread && lpPos.hasPosition && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
                 <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -623,16 +668,19 @@ function ToweliDashboard() {
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Pool Share</p>
-                        <p className="stat-value text-[16px] text-white">{lpPos.sharePct < 0.01 ? '<0.01' : lpPos.sharePct.toFixed(2)}%</p>
+                        {/* An unreadable number is an en-dash, never 0. A 0.00% share and a
+                            $0.00 valuation are measurements; these three are the absence of
+                            one, and printing them as figures marked a live position to zero. */}
+                        <p className="stat-value text-[16px] text-white">{lpPos.reservesUnread ? '–' : lpPos.sharePct < 0.01 ? '<0.01%' : `${lpPos.sharePct.toFixed(2)}%`}</p>
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Redeemable</p>
-                        <p className="text-white text-[12px]">{formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH</p>
-                        <p className="text-white text-[12px]">{formatWholeNumber(lpPos.toweliAmount)} TOWELI</p>
+                        <p className="text-white text-[12px]">{lpPos.reservesUnread ? '–' : `${formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH`}</p>
+                        <p className="text-white text-[12px]">{lpPos.reservesUnread ? '–' : `${formatWholeNumber(lpPos.toweliAmount)} TOWELI`}</p>
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Value</p>
-                        <p className="stat-value text-[16px] text-white">{formatCurrency(lpUsd)}</p>
+                        <p className="stat-value text-[16px] text-white">{lpPos.reservesUnread ? '–' : formatCurrency(lpUsd)}</p>
                       </div>
                     </div>
                     {lpBoost.needsRefresh && (
@@ -695,7 +743,7 @@ function ToweliDashboard() {
                 </div>
               </m.div>
             ) : myLoans.loans.length > 0 ? (
-              <OutstandingLoans loans={myLoans.loans} />
+              <OutstandingLoans loans={myLoans.loans} unreadCount={myLoans.unreadCount} />
             ) : myLoans.isError ? (
               // Don't render "no loans" when the reads actually FAILED — that
               // showed the borrow CTAs as if the user had none. Say so honestly.
@@ -705,6 +753,23 @@ function ToweliDashboard() {
                   <p className="text-white text-[15px] mb-2">Couldn’t load your loans</p>
                   <p className="text-white/70 text-[12px] max-w-sm mx-auto">
                     A network read failed, so we can’t confirm your positions right now. This refreshes automatically — check back in a moment.
+                  </p>
+                </div>
+              </m.div>
+            ) : myLoans.loansUnread ? (
+              // A PARTIAL SWEEP IS NOT AN EMPTY BOOK. Some loan records did not
+              // answer, so "No outstanding loans" - under two borrow CTAs - would
+              // be a claim about a set we already know has holes in it.
+              <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="relative z-10 p-8 py-12 text-center">
+                  <p className="text-amber-300 text-[15px] mb-2">Some loan records couldn't be read</p>
+                  <p className="text-white/70 text-[12px] max-w-sm mx-auto">
+                    {myLoans.unreadCount === null
+                      ? 'Part of the loan sweep did not answer, so we cannot say how many records are missing.'
+                      : `${myLoans.unreadCount} loan ${myLoans.unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
+                    None of the records that did come back are yours - but this is not a
+                    statement that you have no loans. Reload before concluding anything here.
                   </p>
                 </div>
               </m.div>
@@ -1058,7 +1123,13 @@ function ETHRevenueClaim({ address, isWrongNetwork }: { address: string; isWrong
   return null;
 }
 
-function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLoan[] }) {
+function OutstandingLoans({ loans, unreadCount }: {
+  loans: import('../hooks/useMyLoans').MyLoan[];
+  /** Loan records that did not answer, from useMyLoans. Null when a loanCount
+   *  read failed and the size of the gap is itself unknown. A non-null zero is
+   *  the only value that licenses reading the figures below as totals. */
+  unreadCount: number | null;
+}) {
   const borrower = loans.filter(l => l.role === 'borrower');
   const lender = loans.filter(l => l.role === 'lender');
   const overdue = loans.filter(l => l.status === 'overdue').length;
@@ -1084,6 +1155,19 @@ function OutstandingLoans({ loans }: { loans: import('../hooks/useMyLoans').MyLo
           <ArtImg pageId="dashboard" idx={11} fallbackPosition="center 45%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-5">
+          {unreadCount !== 0 && (
+            // OUTAGE-AS-COMPLETE. Every figure below is a sum over the records that
+            // came back. Some did not, so this panel is a floor, not a total - and a
+            // missing record is exactly as likely to be the overdue one as any other.
+            <div className="mb-4 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
+              {unreadCount === null
+                ? 'Part of the loan sweep did not answer, so an unknown number of loan records are missing from this panel.'
+                : `${unreadCount} loan ${unreadCount === 1 ? 'record' : 'records'} could not be read.`}{' '}
+              The counts and totals below cover only the records that came back - this is
+              an incomplete view, not a full account of your positions. Reload before
+              acting on these figures.
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4" style={{ borderBottom: '1px solid var(--color-purple-20)' }}>
             <div>
               <p className="text-white/60 text-[10px] uppercase tracking-wider mb-1">Open</p>

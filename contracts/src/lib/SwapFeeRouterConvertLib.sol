@@ -120,7 +120,6 @@ library SwapFeeRouterConvertLib {
     uint256 internal constant CONVERSION_COOLDOWN = 1 hours;
     uint256 internal constant MIN_TWAP_PERIOD = 30 minutes;
     uint256 internal constant SEQUENCER_GRACE_PERIOD = 1 hours;
-    uint256 internal constant MIN_TOKEN_FEE_FOR_CONVERSION = 1e18;
     uint256 internal constant MAX_CONVERSION_PATH_LENGTH = 4;
     uint256 internal constant TWAP_SAFETY_BPS = 150;
     uint256 internal constant MIN_MULTIHOP_ETH_OUT_WEI = 1e14;
@@ -182,7 +181,15 @@ library SwapFeeRouterConvertLib {
         // discovery needed), no cooldown (no MEV/sandwich vector on a fixed 1:1).
         if (token == cfg.weth) {
             uint256 wethAmount = accumulatedTokenFees[cfg.weth];
-            if (wethAmount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
+            // AUDIT TF-010: floor re-denominated from RAW TOKEN UNITS into WEI OF ETH.
+            // WETH is 1:1 with ETH wei, so the comparison keeps its shape and only the
+            // number changes: 1e18 raw was 1 WHOLE ETH, stranding every WETH-input swap
+            // fee below that (withdrawTokenFees and sweepTokens both reject WETH by name,
+            // so this branch is the ONLY exit). This branch RETURNS below without calling
+            // _enforceConversionCooldown, so it stamps no cooldown and the SFR-M-02
+            // anti-grief rationale never applied here - the floor is gas-dust hygiene and
+            // 1e14 wei is its right size.
+            if (wethAmount < MIN_MULTIHOP_ETH_OUT_WEI) revert TokenFeesBelowMinimum();
             // CEI: zero accounting BEFORE the external withdraw call (which triggers
             // our `receive()` via the WETH contract's `address(this).call`). The
             // outer `nonReentrant` blocks re-entry, but CEI is belt-and-suspenders.
@@ -200,10 +207,23 @@ library SwapFeeRouterConvertLib {
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
         _validateConversionPath(cfg, token, path);
-        // AUDIT SFR-M-02: refuse conversions on dust accumulation BEFORE the cooldown
-        // stamp is updated, so a 1-wei trigger cannot brick the keeper's conversion.
         uint256 amount = accumulatedTokenFees[token];
-        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
+        // AUDIT TF-010 (was SFR-M-02): the dust gate moved DOWN to the 2-hop call site,
+        // where the pile can finally be PRICED - see `_enforceMinETHValue`. The anti-grief
+        // property is unchanged in strength, only in shape: it was ORDERED before the
+        // cooldown stamp, it is now ATOMIC with it, because a revert anywhere in this call
+        // unwinds the `lastConvertedAt[token] = block.timestamp` write. The repo already
+        // proves that empirically - R028_SwapFeeRouter_M_Findings.t.sol reverts on dust and
+        // then converts legitimately IN THE SAME BLOCK. This holds only while no caller
+        // wraps the delegatecall in try/catch; SwapFeeRouter.convertTokenFeesToETH does not,
+        // and must not.
+        //
+        // Parity with the FoT twin's `swapAmount == 0` reject: without this, a zero pile
+        // would reach the swap and, for the owner (exempt from the value gate), would stamp
+        // the cooldown and rewrite the snapshot for nothing.
+        // SLITHER 2026-05-18: sentinel comparison (zero/uninitialized check, exact-match gate)
+        // slither-disable-next-line incorrect-equality
+        if (amount == 0) revert ZeroAmount();
         // AUDIT NEW-A5 (HIGH): rate-limit per-token conversions so a sandwich attacker
         // cannot repeatedly manipulate the pool and unwind for free.
         _enforceConversionCooldown(lastConvertedAt, token);
@@ -254,6 +274,9 @@ library SwapFeeRouterConvertLib {
             // (callerMinETHOut, twapMinETHOut). Bootstrap path is owner-only (see helper).
             (effectiveMin, currentCum, currentTs) =
                 _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, amount, minETHOut);
+            // AUDIT TF-010: the value floor, in WEI OF ETH. AT THE CALL SITE, NEVER INSIDE
+            // THE HELPER - see `_enforceMinETHValue`.
+            _enforceMinETHValue(cfg, effectiveMin);
         }
 
         IERC20(token).forceApprove(address(cfg.router), amount);
@@ -311,10 +334,12 @@ library SwapFeeRouterConvertLib {
         if (deadline > block.timestamp + MAX_DEADLINE) revert DeadlineTooFar();
         // AUDIT SFR-M-01: validate caller-supplied path and gate multi-hop on owner.
         _validateConversionPath(cfg, token, path);
-        // AUDIT SFR-M-02: gate against accumulated bookkeeping rather than balanceOf so a
-        // dust-laden balance from a malicious direct transfer cannot enter the cooldown.
+        // AUDIT TF-010 (was SFR-M-02): raw-unit gate deleted; the ETH-value gate lives at
+        // the 2-hop call site below. `amount == 0` needs no explicit reject here - it
+        // collapses into `swapAmount == 0` two statements down, because swapAmount is
+        // min(amount, on-hand). The bookkeeping-vs-balanceOf property SFR-M-02 named is
+        // unchanged: `amount` is still the booked figure, not `balanceOf`.
         uint256 amount = accumulatedTokenFees[token];
-        if (amount < MIN_TOKEN_FEE_FOR_CONVERSION) revert TokenFeesBelowMinimum();
         // AUDIT NEW-A5 (HIGH): shared cooldown across both variants so switching
         // between them doesn't bypass the rate limit.
         _enforceConversionCooldown(lastConvertedAt, token);
@@ -362,6 +387,8 @@ library SwapFeeRouterConvertLib {
             // can only TIGHTEN the floor; bootstrap is owner-only (see helper).
             (effectiveMin, currentCum, currentTs) =
                 _enforceTWAPMinETHOut(lastConversionSnapshot, cfg, token, swapAmount, minETHOut);
+            // AUDIT TF-010: same value floor as the non-FoT twin.
+            _enforceMinETHValue(cfg, effectiveMin);
         }
 
         IERC20(token).forceApprove(address(cfg.router), swapAmount);
@@ -420,6 +447,39 @@ library SwapFeeRouterConvertLib {
             revert("CONVERSION_COOLDOWN_ACTIVE");
         }
         lastConvertedAt[token] = block.timestamp;
+    }
+
+    /// @dev AUDIT TF-010: the conversion entry gate, expressed in WEI OF ETH - the
+    ///      dimension this contract already owns (MIN_MULTIHOP_ETH_OUT_WEI, and the
+    ///      TWAP-derived floor). It replaces a RAW-TOKEN-UNIT gate of 1e18, which was
+    ///      ~1e12 USDC and ~1e10 WBTC: unreachable, while `withdrawTokenFees` and
+    ///      `sweepTokens` reject every token with a WETH pair, so those fees had no exit.
+    ///
+    ///      WHY THE GATE READS `effectiveMin` AND NOT A SEPARATE FIGURE: `effectiveMin` is
+    ///      max(callerMinETHOut, twapMin) and the swap must actually DELIVER it - it is
+    ///      forwarded to the inner router AND re-checked as `ethReceived < effectiveMin`.
+    ///      So a caller cannot buy past this gate on a dust pile by inflating `minETHOut`:
+    ///      the gate passes, the swap reverts, the whole call unwinds and `lastConvertedAt`
+    ///      is never stamped.
+    ///
+    ///      WHY THE OWNER CONJUNCT IS LOAD-BEARING - this is the whole fix, do not remove
+    ///      it: `_enforceTWAPMinETHOut` has TWO owner-only early returns (`prev.timestamp
+    ///      == 0`, and `elapsed < MIN_TWAP_PERIOD`) that hand back `callerMinETHOut`
+    ///      UNTOUCHED, before any price exists. An unconditional floor here reverts the
+    ///      owner's first-ever conversion of a token - you could never establish the
+    ///      snapshot for a token whose fees you cannot yet price. Both early returns are
+    ///      gated `msg.sender != cfg.owner`, so this single conjunct exempts exactly them
+    ///      and nothing else. It is also the honest statement of the property: the gate
+    ///      exists so a STRANGER cannot stamp the 1h cooldown on a worthless pile, and a
+    ///      stranger can never reach either early return.
+    ///
+    ///      NOT placed inside the helper for the same reason, and NOT at the multi-hop call
+    ///      sites where the helper's return is only a CANDIDATE floor and a low value is
+    ///      deliberately tolerated.
+    function _enforceMinETHValue(Cfg memory cfg, uint256 effectiveMin) internal view {
+        if (msg.sender != cfg.owner && effectiveMin < MIN_MULTIHOP_ETH_OUT_WEI) {
+            revert TokenFeesBelowMinimum();
+        }
     }
 
     /// @dev AUDIT SFR-H-01: read the Uniswap V2 pair's cumulative price (token → WETH

@@ -1,6 +1,29 @@
-# Vercel Serverless Function Budget — Hobby plan 12-function cap
+# Vercel Serverless Function Budget — the 12-function cap NO LONGER APPLIES
 
-**Constraint:** the Vercel project (`tegridy-farms`, fomotsar-3237's projects) is on the
+> **LIFTED 2026-09-04.** The project moved to **Vercel Pro** (verified on the team billing
+> page for `fomotsar-3237's projects`: "Pro Plan · Active", card on file). The 12-function
+> Hobby cap this document was written around **is gone**. The paragraph below is kept as
+> history because the consolidation it forced is still in the tree and still load-bearing —
+> read it as "why the catchall exists", NOT as "why you cannot add a function".
+>
+> **What changes:** you are no longer one function from a failed deploy. A genuinely
+> separate concern may now be its own `api/*.js` route.
+>
+> **What does NOT change, and why:** do not go back and split `api/aggregator.js` into
+> eight per-provider functions. That consolidation is now a *design* choice rather than a
+> forced one, and it is a good one — one gate, one origin allowlist, one rate limiter, one
+> place where a provider's fee parameter is validated. Splitting it would multiply the
+> surface where `partnerFeeBps` semantics can drift apart, which is a correctness problem
+> the cap was never the real reason to avoid. Cheap to undo, expensive to get wrong.
+>
+> **The trap this document was becoming:** a constraint doc that outlives its constraint
+> does not go quiet — it keeps being obeyed. This file had already talked one change into
+> a catchall branch instead of a route, and would have kept doing so indefinitely. If you
+> find a rule here that no longer binds, strike it in place like this rather than deleting
+> it, so the next reader learns the shape of the decision and not just its conclusion.
+
+**HISTORICAL — the constraint as it stood until 2026-09-04.** The Vercel project
+(`tegridy-farms`, fomotsar-3237's projects) was on the
 **Hobby plan**, which allows **at most 12 Serverless Functions per deployment**. Exceeding it
 fails the deploy with:
 

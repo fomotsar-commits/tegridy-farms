@@ -1,6 +1,7 @@
 import { useCallback, useId, useRef, useState } from 'react';
 import { pageArt, artStyle } from '../../lib/artConfig';
 import { useTheme } from '../../contexts/ThemeContext';
+import { artImgProps } from '../../lib/artSrcSet';
 
 /**
  * Lightweight hover tooltip with a "?" icon for explaining DeFi terms.
@@ -196,7 +197,7 @@ export function HowItWorks({
       }}
     >
       <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-        <img src={headerArt.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(headerArt)} />
+        <img src={headerArt.src} {...artImgProps(headerArt.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(headerArt)} />
       </div>
       <button
         onClick={toggle}
@@ -245,7 +246,7 @@ export function HowItWorks({
                   style={{ border: '1px solid rgba(255,255,255,0.10)' }}
                 >
                   <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-                    <img src={stepArt.src} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(stepArt)} />
+                    <img src={stepArt.src} {...artImgProps(stepArt.src)} alt="" loading="lazy" className="w-full h-full object-cover" style={artStyle(stepArt)} />
                   </div>
                   <span className="relative z-10 flex-shrink-0 w-6 h-6 rounded-full bg-purple-500/40 border border-purple-500/60 flex items-center justify-center text-[11px] font-bold text-white" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.95)' }}>
                     {i + 1}

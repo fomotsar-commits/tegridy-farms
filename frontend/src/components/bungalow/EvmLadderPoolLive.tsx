@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
-  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining,
+  deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining, MIN_STAKE_RAW,
+  isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
 import { surfaceTxError } from '../../lib/txErrors';
@@ -46,6 +47,10 @@ type Pos = { id: bigint; lockEnd: bigint; amount: bigint; boosted: bigint };
 
 export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const pool = bungalow.stakePool as `0x${string}`;
+  // C1: this pool is one of the six pre-fix ladders the audit forbids depositing
+  // into. Deposits only — claim and withdraw stay live below. Lifts by itself on
+  // a registry repin. See lighthouseLadder.ts:C1_UNSAFE_LADDER_POOLS.
+  const depositsFrozen = isC1UnsafeLadder(pool);
   const token = (bungalow.address ?? '') as `0x${string}`;
   const poolChainId = CHAIN_IDS[bungalow.chain] ?? 1;
   const accent = bungalow.accent ?? 'var(--color-kyle)';
@@ -146,6 +151,11 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   const chosen = RUNGS[rung]!;
   const needsApproval = amountRaw !== null && amountRaw > 0n && allowanceRaw !== null && allowanceRaw < amountRaw;
   const myBoostIfStaked = amountRaw === null ? 0n : (amountRaw * boostBpsFor(chosen.secs)) / 10_000n;
+  // The contract's dust floor. Checked here so a below-minimum amount reads as
+  // a sentence instead of costing gas to learn as "Lighthouse: stake below
+  // minimum". `belowMin` is only true once an amount has actually been typed —
+  // an empty field is not an error, it is an empty field.
+  const belowMin = amountRaw !== null && amountRaw > 0n && amountRaw < MIN_STAKE_RAW;
   const projected = projectedRawPerSec(view, big(1), myBoostIfStaked);
   const soloPool = big(1) === 0n;
 
@@ -269,6 +279,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                 </div>
                 <p className="text-[11px] text-white/50 mb-3">
                   Wallet: {fmtRaw(walletRaw, decimals)} {bungalow.symbol}
+                  {belowMin && (
+                    <span className="text-amber-300/90">
+                      {' · '}minimum {fmtRaw(MIN_STAKE_RAW, decimals)} {bungalow.symbol} — smaller positions are
+                      refused because their lock weight would be small enough to distort every staker's share
+                    </span>
+                  )}
                   {amountRaw !== null && amountRaw > 0n && (
                     <>
                       {' · '}at {boostLabel(chosen.secs)}
@@ -281,17 +297,31 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   )}
                 </p>
 
+                {depositsFrozen && (
+                  <div className="rounded-xl p-3 mb-3 text-[12px]" style={{ background: 'rgba(120,20,20,0.30)', border: '1px solid rgba(255,120,120,0.40)' }}>
+                    <p className="text-red-200/95">
+                      <strong>Deposits are closed on this pool.</strong> An internal audit found that this
+                      deployment can pay rewards out of other stakers&rsquo; principal, so we are not taking
+                      new stake into it. The fix is written and this pool is waiting to be redeployed;
+                      the page will re-open by itself once it points at the new contract.
+                    </p>
+                    <p className="text-red-200/70 mt-1.5">
+                      Nothing is stuck: claiming and withdrawing below are unaffected.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {needsApproval ? (
+                  {depositsFrozen ? null : needsApproval ? (
                     <button type="button" disabled={busy !== null || !amountRaw} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('approve', () => writeContractAsync({ ...tokenC, functionName: 'approve', args: [pool, amountRaw ?? 0n] }))}>
                       {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}
                     </button>
                   ) : (
-                    <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || (walletRaw !== null && amountRaw > walletRaw)}
+                    <button type="button" disabled={busy !== null || !amountRaw || amountRaw === 0n || belowMin || (walletRaw !== null && amountRaw > walletRaw)}
                       className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('stake', () => writeContractAsync({ ...poolC, functionName: 'stake', args: [amountRaw ?? 0n, chosen.secs] }))}>
-                      {busy === 'stake' ? 'Staking…' : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.label}`}
+                      {busy === 'stake' ? 'Staking…' : belowMin ? `Minimum ${fmtRaw(MIN_STAKE_RAW, decimals, 0)} ${bungalow.symbol}` : walletRaw !== null && amountRaw !== null && amountRaw > walletRaw ? 'More than your balance' : `Stake for ${chosen.label}`}
                     </button>
                   )}
                   <button type="button" disabled={busy !== null || earnedRaw === null || earnedRaw === 0n} className="btn-secondary px-5 py-2 text-[13px] disabled:opacity-50"

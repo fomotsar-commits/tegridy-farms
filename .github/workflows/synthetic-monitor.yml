@@ -101,3 +101,46 @@ jobs:
                   --label prod-incident \
                   --body-file -
           fi
+
+      # RECOVERY — the half this workflow never had.
+      #
+      # Until 2026-09-04 it only ran its issue step on failure, so an incident it
+      # opened stayed open forever. #385 sat OPEN after prod had already
+      # recovered, which means an open `prod-incident` issue could not tell
+      # "still broken" from "fixed, nobody closed it" — the same
+      # two-states-rendering-as-one defect this repo keeps closing everywhere
+      # else. The issue body even instructed a human to "close this issue once
+      # probes pass again", which is a process asking a person to be the
+      # feedback loop.
+      #
+      # Deliberately BEST-EFFORT. Recovery bookkeeping must never turn a healthy
+      # production into a red monitor: if an API call fails we log it and leave
+      # the run green, because the probes already proved prod is up. Every
+      # command is guarded — GitHub runs `run:` under `bash -e`, and an
+      # unguarded non-zero here would fail the step for a reason that has
+      # nothing to do with production health.
+      - name: Close the incident once probes pass again
+        if: steps.probe.outputs.failed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -u
+          OPEN="$(gh issue list --repo "$GITHUB_REPOSITORY" --label prod-incident --state open --json number --jq '.[].number' 2>/dev/null || true)"
+          if [ -z "$OPEN" ]; then
+            echo "Probes green; no open prod-incident issue. Nothing to close."
+            exit 0
+          fi
+          for N in $OPEN; do
+            echo "Probes green — closing prod-incident #$N"
+            gh issue comment "$N" --repo "$GITHUB_REPOSITORY" \
+              --body "Probes passed again — closing automatically.
+
+          Verified by synthetic monitor run: $RUN_URL
+
+          Every probe in this workflow succeeded: the app shell on the Vercel alias and on both production domains, the Alchemy proxy, the native orderbook, and the trades endpoint." 2>/dev/null \
+              || echo "WARNING: could not comment on #$N — prod is healthy; this is bookkeeping only"
+            gh issue close "$N" --repo "$GITHUB_REPOSITORY" 2>/dev/null \
+              || echo "WARNING: could not close #$N — prod is healthy; this is bookkeeping only"
+          done

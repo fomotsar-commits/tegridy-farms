@@ -1,5 +1,6 @@
 import { useTabListKeys } from '../../hooks/useTabListKeys';
 import type { NavItem } from '../../lib/navConfig';
+import { tabDomId } from './routeTabId';
 
 /**
  * The sticky pill tab strip shared by every route-navigating tabbed host.
@@ -11,15 +12,21 @@ import type { NavItem } from '../../lib/navConfig';
  * and writing the strip a fourth, fifth, sixth and seventh time was not an
  * option, so it lives here once.
  *
- * ⚠️ THE THREE ORIGINALS HAVE NOT BEEN MIGRATED ONTO IT. They still render their
- * own copies, so there are four versions of this strip in the app, not one, and
- * the touch-target fix below is on this one only. That is a deliberate stopping
- * point rather than an oversight: those three are shipped surfaces with their own
- * tests and their own per-tab quirks (ActivityPage self-heals /premium to Points
- * while PREMIUM_ACCESS is dark, and filters that tab out of the strip entirely),
- * and rewriting them was not what this change-set was for. They key their strips
- * by tab id against a hand-written TAB_PATHS map, where this one keys by route,
- * so the migration is mechanical but not free. Worth doing next.
+ * ✅ THE THREE ORIGINALS NOW RENDER THIS. They were left on their own copies for
+ * one change-set — which meant the app shipped the 44px touch floor below on the
+ * four new strips and a flat 40px on the three it was extracted from — and were
+ * migrated immediately after. There is one strip in the app now, and
+ * e2e/tab-target-size.spec.ts measures all of /community, /nft-finance, /trust,
+ * /launch, /lore, /contracts and /leaderboard against the floor, so a future
+ * regression fails on every host at once instead of on whichever one a reader
+ * happened to check.
+ *
+ * The per-host quirks all survived the move, because none of them live in the
+ * strip: a host still owns its own path→tab derivation and its own panel. The
+ * sharp one is ActivityPage, which filters the Gold Card tab out of `items`
+ * entirely while PREMIUM_ACCESS is dark and passes `active="/leaderboard"` when
+ * the URL says `/premium` — this component simply renders the list and the
+ * active route it is handed, and has no opinion about either.
  *
  * IT KEEPS THE PILLS. A section that collapses into tabs must not lose the
  * amber SOON / green LIVE signal its dropdown entries carried — that pill is the
@@ -28,8 +35,12 @@ import type { NavItem } from '../../lib/navConfig';
  * renders exactly the same two pills the "More" menu renders, from the same
  * `NavItem`. Losing them here would silently un-disclose four gated surfaces.
  *
- * The strip is keyed by ROUTE (`item.to`), not by an invented tab id, so the
- * host has one source of truth: the nav section.
+ * The strip is keyed by ROUTE (`item.to`), not by an invented tab id. That is
+ * what let the three originals move onto it at all: they had each grown a tab-id
+ * union plus a hand-written TAB_LABELS and TAB_PATHS pair to map it back to a
+ * URL, three maps to keep in step, and keying by the route deletes all three. A
+ * SectionHost-driven host goes further and hands over its nav section directly,
+ * so its tabs and its menu rows cannot disagree.
  */
 export interface RouteTabsProps {
   /** Prefix for the tab element ids. The host's panel must be `${idPrefix}-panel`. */
@@ -75,7 +86,7 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
             <button
               key={item.to}
               role="tab"
-              id={`${idPrefix}-tab-${item.to.replace(/\W+/g, '-')}`}
+              id={tabDomId(idPrefix, item.to)}
               aria-selected={active === item.to}
               aria-controls={`${idPrefix}-panel`}
               tabIndex={tabKeys.tabIndex(item.to)}

@@ -97,6 +97,20 @@ export function useNFTDropV2(dropAddress: string) {
   const creator = data?.[10]?.status === 'success' ? (data[10].result as string) : '';
   const contractURI = data?.[11]?.status === 'success' ? (data[11].result as string) : '';
 
+  // OUTAGE-AS-FREE. A failed currentPrice read collapses to 0n above, which is
+  // also the honest price of a genuinely free mint - so an RPC hiccup quoted
+  // "0 ETH", armed the Mint button, and sent `value: 0` on a drop that costs
+  // real money. Two separately-named facts, because they gate different things:
+  // only a SUCCESSFUL read may arm a signature (so pending and disabled queries
+  // disarm too), while the "network did not answer" copy is scoped to a read we
+  // actually issued - off mainnet, or with a placeholder address, the batch is
+  // disabled and that is not an outage.
+  /** The `currentPrice()` call came back `status: 'success'`. A pending, disabled or failed read is `false`. */
+  const priceReadOk = data?.[1]?.status === 'success';
+  /** The price read was attempted and did not land. `currentPrice` is 0n here, and that 0 is not a price. */
+  const priceUnread = enabled && onMainnet && !!data && data[1]?.status !== 'success';
+
+  /** Only meaningful when `priceReadOk`. */
   const currentPriceFormatted = Number(formatWei(currentPrice, 18, 8));
   const mintPriceFormatted = Number(formatWei(mintPrice, 18, 8));
   const isSoldOut = maxSupply > 0 && totalSupply >= maxSupply;
@@ -202,6 +216,16 @@ export function useNFTDropV2(dropAddress: string) {
       toast.error('A mint is already pending');
       return;
     }
+    // OUTAGE-AS-FREE. Never spend a price we did not read. `currentPrice`
+    // collapses to 0n on a failed or still-pending read, and `value: 0` on a
+    // paid drop is a signature on a number the app invented. Only a successful
+    // read licenses the write - a genuine on-chain 0n passes straight through.
+    if (!priceReadOk) {
+      toast.error('Mint price could not be read', {
+        description: 'Reload before minting - do not sign a price the app could not read.',
+      });
+      return;
+    }
     lastActionRef.current = 'mint';
     const totalCost = currentPrice * BigInt(quantity);
     writeContract({
@@ -272,6 +296,10 @@ export function useNFTDropV2(dropAddress: string) {
     mintPriceFormatted,
     currentPrice,
     currentPriceFormatted,
+    priceReadOk,
+    priceUnread,
+    /** The wallet is on CHAIN_ID, i.e. the reads above were actually issued. */
+    onMainnet,
     // NB: total/supply alias kept so shared launchpad components that accept
     // { mintPrice, totalMinted } (see CreatorRevenueDashboard) Just Work.
     totalSupply,

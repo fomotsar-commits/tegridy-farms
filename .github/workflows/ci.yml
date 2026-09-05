@@ -12,8 +12,43 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PRs SHARE A GROUP AND CANCEL; TRUNK COMMITS EACH GET THEIR OWN GROUP.
+  #
+  # Two attempts were needed here, and the first one's reasoning was wrong in a
+  # way worth writing down.
+  #
+  # ORIGINAL BUG. The group was per-ref, so every push to main/mvp-launch landed
+  # in the SAME group. With cancel-in-progress:true each merge killed the run
+  # started by the merge before it -- on the one branch that deploys to
+  # production. Measured 2026-09-04: six consecutive commits reached production
+  # without a completed trunk run.
+  #
+  # THE FIRST FIX DID NOT WORK. Setting cancel-in-progress conditional on
+  # pull_request looked right and changed nothing, because cancel-in-progress
+  # only governs a run that is already IN PROGRESS. A run still queued in an
+  # occupied group is PENDING, and GitHub evicts the pending run unconditionally
+  # when a newer run joins that group. So trunk runs stopped being cancelled
+  # mid-flight and started being cancelled before they ever began.
+  #
+  # AND IT MADE DETECTION WORSE. A run killed while pending creates ZERO jobs,
+  # so it contributes zero check-runs. Before, the commit at least showed
+  # `cancelled` checks; after, /commits/<sha>/check-runs returned nothing but
+  # `success` and a starved commit was indistinguishable from a verified one.
+  # Measured after that fix shipped: 7 of the last 12 trunk CI runs cancelled,
+  # each with 0 jobs -- including 64da51de, the merge of the hotfix for a
+  # production outage.
+  #
+  # THE ACTUAL FIX is to stop trunk pushes sharing a group at all. Keyed on
+  # github.sha, every trunk commit has a group to itself, so nothing queues
+  # behind anything and there is no pending run to evict. PRs keep per-ref
+  # grouping and keep cancelling their own superseded runs, which is where that
+  # saving belongs.
+  #
+  # Both expressions always yield a non-empty string (github.ref and github.sha
+  # are never blank), so neither can produce the empty `${{ }}` that silently
+  # invalidates a workflow file.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-typecheck-test:
@@ -53,9 +88,11 @@ jobs:
       # makes the cheap early gate real again. Same bug in package.json's
       # `precommit`, fixed alongside.
       - name: Type Check
+        if: ${{ !cancelled() }}
         run: npx tsc -b --noEmit
 
       - name: Unit Tests
+        if: ${{ !cancelled() }}
         # `continue-on-error: true` REMOVED 2026-07-28 — its premise expired.
         #
         # It was added 2026-05-18 for 79 vitest failures that pre-existed ON
@@ -82,6 +119,7 @@ jobs:
       # the service itself has one runtime dependency and no dev tree, and a
       # test runner it does not ship is a runner that never drifts from this one.
       - name: Solana indexer unit tests
+        if: ${{ !cancelled() }}
         run: npx vitest run --root ../indexer-solana --environment node
 
       # bot/ is the same shape as indexer-solana above — a long-running service
@@ -95,6 +133,7 @@ jobs:
       # step: api/__tests__/bot-noncustodial.test.js runs in the frontend suite so
       # that an edit to the API or the migration cannot skip it.
       - name: Telegram bot unit tests
+        if: ${{ !cancelled() }}
         run: npx vitest run --root ../bot --environment node
 
       # Every protocol address, decoded rather than eyeballed.
@@ -111,6 +150,7 @@ jobs:
       # contract lands in constants.ts without being registered, so an address can
       # never enter the codebase unexplained.
       - name: Address registry
+        if: ${{ !cancelled() }}
         run: node scripts/verify-addresses.mjs
 
       # The registry's drift guard used to be ONE-DIRECTIONAL: it walked
@@ -128,6 +168,7 @@ jobs:
       # evidence a gate works — it is equally consistent with a gate that cannot
       # see anything.
       - name: Address-registry drift guard self-test
+        if: ${{ !cancelled() }}
         run: node scripts/verify-addresses.mjs --self-test
 
       # Which pubkeys are baked into the deployed Solana programs.
@@ -149,6 +190,7 @@ jobs:
       # low-entropy keys (the System sentinel is 32 zero bytes, which "match"
       # anything). It also cross-checks every roster key against addresses.json.
       - name: Solana program-constant verifier self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/verify-program-constants.mjs --self-test
 
@@ -158,18 +200,21 @@ jobs:
       # discovering it is broken during an incident. `working-directory` is
       # overridden because the script lives at the repo root, not in frontend/.
       - name: Pre-deploy guard self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/predeploy-check.mjs --self-test
 
       # Same reasoning: the ownership verifier runs on an operator's laptop
       # during the custody sprint, so its decision table is proven here.
       - name: Ownership verifier self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/verify-ownership.mjs --self-test
 
       # Guards an IRREVERSIBLE broadcast. Its decision table has to be right the
       # first time — there is no second call to fix a wrong one.
       - name: One-shot guard self-test
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node scripts/oneshot-guard.mjs --self-test
 
@@ -205,6 +250,7 @@ jobs:
       #
       # `working-directory: .` — these live at the repo root, not in frontend/.
       - name: Monitoring rule unit tests
+        if: ${{ !cancelled() }}
         working-directory: .
         run: node --test contracts/monitoring/lib/arbLinkage.test.mjs scripts/monitoring/lib/pausePlan.test.mjs
 

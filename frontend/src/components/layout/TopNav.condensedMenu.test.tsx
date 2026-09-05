@@ -57,7 +57,11 @@ function openMenu(path = '/') {
 }
 
 const COLLAPSED = MORE_NAV_SECTIONS.filter((s) => s.hub);
-const EXPANDED = MORE_NAV_SECTIONS.filter((s) => !s.hub);
+// Sections the top bar already covers render NOTHING here — see `inPrimaryNav`
+// on NavSection. They are neither collapsed (one row) nor expanded (many rows),
+// so they belong in neither list below and get their own assertion instead.
+const HIDDEN = MORE_NAV_SECTIONS.filter((s) => s.inPrimaryNav);
+const EXPANDED = MORE_NAV_SECTIONS.filter((s) => !s.hub && !s.inPrimaryNav);
 
 describe('the condensed "More" dropdown', () => {
   it('gives each collapsed section exactly one row, pointing at its hub', () => {
@@ -98,6 +102,42 @@ describe('the condensed "More" dropdown', () => {
           within(menu).getByRole('link', { name: new RegExp(`^${item.label}`) }),
           `${item.to} disappeared from an uncollapsed section`,
         ).toHaveAttribute('href', item.to);
+      }
+    }
+  });
+
+  it('renders nothing at all for a section the top bar already carries', () => {
+    expect(HIDDEN.length, 'no hidden section - there is nothing to assert').toBeGreaterThan(0);
+    const menu = openMenu();
+    const hrefs = within(menu)
+      .getAllByRole('link')
+      .map((a) => a.getAttribute('href'));
+    for (const section of HIDDEN) {
+      // The heading must be gone. Queried within the menu only: "Trade" is also
+      // the top bar's own label, and that one must survive.
+      expect(
+        within(menu).queryByText(section.heading),
+        `the ${section.heading} heading is still a menu row`,
+      ).toBeNull();
+      // ...and so must every row under it. Presence in the DOM, not visibility.
+      for (const item of section.items) {
+        expect(
+          hrefs,
+          `${item.to} is still in the menu - the section did not actually hide`,
+        ).not.toContain(item.to);
+      }
+    }
+  });
+
+  it('still reaches every hidden destination as a tab on the primary page', () => {
+    // The point of hiding is that nothing is LOST. Each hidden item must still
+    // be a real destination in the flat list the app routes from.
+    for (const section of HIDDEN) {
+      for (const item of section.items) {
+        expect(
+          MORE_NAV.map((i) => i.to),
+          `${item.to} was hidden from the menu AND dropped from MORE_NAV`,
+        ).toContain(item.to);
       }
     }
   });
