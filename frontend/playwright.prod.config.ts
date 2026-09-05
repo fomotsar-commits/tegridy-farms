@@ -9,14 +9,21 @@
 //   PROD_URL=https://memetics.finance npx playwright test --config=playwright.prod.config.ts
 //
 // `retries: 0` on purpose — a retry would mask exactly the intermittent console
-// error this is looking for. Workers are low because it hits a real origin with a
-// real rate limit, not a local preview.
+// error this is looking for.
+//
+// ⚠️ `workers: 1`, and it MUST stay there. At 3 workers this sweep generated its
+// OWN failure: 64 routes each firing ~5 keyless GeckoTerminal reads tripped the
+// upstream rate limit, api/_lib/pool-market.js maps any non-404 upstream status
+// to 502 (:153), and /soy and /brainlet then failed on a 502 that no user would
+// ever see — 12/12 hand probes of those same URLs returned 200. A post-deploy
+// check that manufactures the fault it reports is worse than no check, because
+// the noise teaches you to ignore it. Slower and honest beats fast and lying.
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e-prod',
   timeout: 120_000,
-  workers: 3,
+  workers: 1,
   retries: 0,
   reporter: 'list',
   use: {
