@@ -247,7 +247,14 @@ const BOTH_BRANCHES_MEASURED =
  * guard parses App.tsx and fails on any path in one and not the other.
  */
 export const ROUTES: readonly RouteSpec[] = [
-  { path: '/', owner: 'pages/HomePage.tsx', gate: null, knownViolations: ['heading-order'] },
+  // `heading-order` DROPPED 2026-09-05, because the page changed rather than the
+  // rule. `/` is now wrapped in <BungalowDoor id={VENUE_ID}>, so it renders the
+  // VENUE's identity instead of whatever skin happened to be stored — that is
+  // the whole point of that change, and the venue hero's heading order is
+  // correct where the skinned one's was not. Measured both ways: with the venue
+  // pinned (no reload) and without it (letting the door's one reload settle),
+  // the audit returns no violations at all.
+  { path: '/', owner: 'pages/HomePage.tsx', gate: null, knownViolations: [] },
   // ── Bungalow doors (2026-08-28 audit) ────────────────────────────────────
   // App.tsx builds these routes by MAPPING over lib/bungalows.ts (`path={path}`
   // JSX expressions), which the sync-guard's `path="…"` regex cannot see — so

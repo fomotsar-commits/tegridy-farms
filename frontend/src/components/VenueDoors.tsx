@@ -3,6 +3,29 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
+import DOOR_THUMB_LUMA from '../lib/doorThumbLuma.generated.json';
+
+const LUMA = DOOR_THUMB_LUMA as Record<string, number>;
+
+/**
+ * The filter a dimmed door wears.
+ *
+ * `grayscale(1)` alone was the whole treatment, and desaturation says nothing
+ * about LIGHTNESS — so each tile landed wherever its painting's own exposure put
+ * it. Measured across the door thumbnails that was a 3.1x spread (0.270 for
+ * wrestler.jpg up to 0.841 for mumu-bull.jpg), which is why a few doors read as
+ * switched off while others read as barely dimmed. The per-image multiplier is
+ * measured at build time by scripts/generate-image-derivatives.mjs; see its
+ * LUMA_TARGET comment for why the target is the set's own median.
+ *
+ * A thumbnail with no measurement keeps plain `grayscale(1)` — exactly the
+ * previous behaviour — so a missing manifest degrades to "not normalised"
+ * rather than to an unstyled or invisible tile.
+ */
+function dimmedFilter(thumb: string): string {
+  const k = LUMA[thumb];
+  return k ? `grayscale(1) brightness(${k})` : 'grayscale(1)';
+}
 
 /**
  * THE HALL OF DOORS — the venue arrival's island map.
@@ -99,24 +122,43 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
           width={300}
           height={128}
           className={`w-full h-full object-cover transition-transform duration-500 ${
-            state === 'open' ? 'group-hover:scale-[1.06]' : 'grayscale'
+            state === 'open' ? 'group-hover:scale-[1.06]' : ''
           }`}
-          style={bungalow.thumbPosition ? { objectPosition: bungalow.thumbPosition } : undefined}
+          style={{
+            ...(bungalow.thumbPosition ? { objectPosition: bungalow.thumbPosition } : {}),
+            // The `grayscale` utility class moved in here so the desaturation and
+            // the per-image brightness are ONE declaration. Tailwind's filter
+            // utilities and an inline `filter` overwrite each other rather than
+            // composing, so keeping the class as well would have silently dropped
+            // whichever lost.
+            ...(state === 'open' ? {} : { filter: dimmedFilter(bungalow.thumb) }),
+          }}
         />
       </div>
-      {/* Scrim so the nameplate reads over bright door art. */}
-      <div
-        className="absolute inset-x-0 bottom-0 h-16 pointer-events-none"
-        aria-hidden="true"
-        style={{ background: 'linear-gradient(to top, rgba(3,7,14,0.92), rgba(3,7,14,0))' }}
-      />
       <span
         className="absolute top-2 right-2 text-[9px] font-bold tracking-[0.14em] rounded-full px-2 py-0.5"
         style={chip.style}
       >
         {chip.label}
       </span>
-      <div className="absolute inset-x-0 bottom-0 p-2.5">
+      {/* LABEL PLATE, not a gradient (2026-09-04 field review). This used to be
+          a separate 64px gradient scrim fading up from the bottom edge, which
+          made the label's contrast a property of whichever painting happened to
+          be behind it: mid-grey type over mid-grey art disappeared on the dark
+          tiles and washed out on the light ones, and it failed in BOTH
+          directions because the label colour is fixed and the backdrop is not.
+
+          A solid band makes that contrast a constant we control. It is painted
+          on the label's own container rather than as a fixed-height sibling so
+          it always covers exactly the text that exists — the quiet tile's
+          plaque line wraps to a different height than a symbol-plus-chain, and
+          a fixed 52px band would have clipped one or floated above the other. */}
+      <div
+        className="absolute inset-x-0 bottom-0 p-2.5"
+        style={{ background: 'rgba(3,7,14,0.92)' }}
+      >
+        {/* Kept as insurance: if the plate is ever made more translucent for
+            art reasons, the type must not silently become unreadable again. */}
         <p className="text-white text-[13px] font-semibold leading-tight" style={{ textShadow: '0 1px 5px rgba(0,0,0,0.95)' }}>
           {bungalow.symbol}
         </p>
@@ -180,18 +222,46 @@ export function VenueDoors() {
       viewport={{ once: true }}
       aria-label="The bungalows of Jungle Bay Island"
     >
-      <div className="mb-6">
-        <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Jungle Bay Island
-        </p>
-        <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          The bungalows
-        </h2>
-        <p className="text-white text-[13px] max-w-2xl leading-relaxed" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-          Every island community keeps a door at the venue. {openCount} {openCount === 1 ? 'door is' : 'doors are'} open
-          in full color. Settled doors are greyed while their people move in; each one still opens to its plaque,
-          contract and trade route. Walk in where you hold.
-        </p>
+      {/* DIRECTIONAL SCRIM (2026-09-04 field review). This copy sits directly on
+          the page backdrop, and on the bungalows art that backdrop's brightest
+          pixel — the lantern — falls right through the sentence, taking the
+          worst-case contrast close to 1:1. A text-shadow alone was carrying it
+          and a shadow cannot save white type on a lit lamp.
+
+          It fades to fully transparent by 62% width, so it grounds the column
+          the words actually occupy and leaves the right third of the painting
+          untouched. The art is not dimmed, cropped or replaced — the reviewer
+          also asked for the lantern to be re-cropped into that empty right
+          third, which is a curator's call in the bungalow studio, not a code
+          change, and is deliberately NOT made here. */}
+      <div className="relative mb-6">
+        <div
+          className="absolute -inset-x-4 -inset-y-3 pointer-events-none rounded-xl"
+          aria-hidden="true"
+          style={{
+            background:
+              'linear-gradient(to right, rgba(3,7,14,0.88) 0%, rgba(3,7,14,0.66) 38%, rgba(3,7,14,0) 62%)',
+          }}
+        />
+        <div className="relative">
+          <p className="text-[11px] uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            Jungle Bay Island
+          </p>
+          <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            The bungalows
+          </h2>
+          {/* 16px, and measured in ch rather than a container width. This is the
+              only place the LIVE / SETTLED / QUIET system is explained and it was
+              set at 13px — smaller than the card labels underneath it — running
+              the full width of the hero. `max-w-2xl` was ~85 characters a line;
+              60ch is the readable measure for a paragraph someone is expected to
+              actually read rather than scan. */}
+          <p className="text-white text-[16px] max-w-[60ch] leading-relaxed" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
+            Every island community keeps a door at the venue. {openCount} {openCount === 1 ? 'door is' : 'doors are'} open
+            in full color. Settled doors are greyed while their people move in; each one still opens to its plaque,
+            contract and trade route. Walk in where you hold.
+          </p>
+        </div>
       </div>
       {/* The hall is a ROOM: the grid sits on its own dark panel (same glass
           as the picker) so thirteen doors read as one place, not thirteen

@@ -14,7 +14,7 @@ import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { usePageTitle } from './hooks/usePageTitle';
 import { PwaRuntime } from './components/pwa/PwaRuntime';
 import { BUNGALOWS } from './lib/bungalows';
-import { BungalowDoor } from './components/bungalow/BungalowDoor';
+import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const FarmPage = lazy(() => import('./pages/FarmPage'));
@@ -279,7 +279,30 @@ function AnimatedRoutes() {
         element={<BungalowStudioDoor />}
       />
       <Route element={<AppLayout />}>
-        <Route index element={<Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>} />
+        {/* THE VENUE'S OWN DOOR (2026-09-04). `/` is wrapped in the same
+            component as every bungalow door, with id="venue", so arriving at
+            the index clears a stored skin exactly the way walking into /bayla
+            sets one.
+
+            Before this, HomePage read its identity from ambient storage rather
+            than from the route, so `/` rendered whatever bungalow was stored:
+            same hero, same lore, same title, and NO door grid (it is gated on
+            `!bungalowIdentity`). Two URLs, one page. The nav wordmark had a
+            hand-rolled version of this fix in its onClick and was the only way
+            back — the 404 page's "Back to Home" and every other plain
+            <Link to="/"> walked straight into the bungalow.
+
+            Putting it at the destination fixes every link at once, and is why
+            no other route needed to change: the stored skin still dresses
+            /farm, /swap and the rest. */}
+        <Route
+          index
+          element={
+            <BungalowDoor id={VENUE_ID}>
+              <Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>
+            </BungalowDoor>
+          }
+        />
         {/* Jungle Bay bungalow doors — the memetics.finance/<bungalow> URL
             format. One route per island slug (all 13, so every door exists
             from day one) plus the 'towelie' spelling as an alias for the

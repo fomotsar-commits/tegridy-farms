@@ -17,6 +17,22 @@
 import { test, expect } from './fixtures/wallet';
 
 test.describe('a11y landmarks — core pages', () => {
+  // PIN THE VENUE'S SETTLED STATE. `/` is wrapped in <BungalowDoor id={VENUE_ID}>,
+  // which clears a stored skin by reloading the document, and the shared wallet
+  // fixture pins `tegridy-bungalow` to `toweli` — so any spec that lands on `/`
+  // and asserts on the first document races that reload and dies with
+  // "Execution context was destroyed". Seeding the `venue` sentinel means there
+  // is nothing to clear and no reload happens.
+  //
+  // REQUEST walletMock even though it is unused: init scripts run in
+  // REGISTRATION order and fixture setup is what registers the fixture's own,
+  // so a pin added before it resolves is overwritten by that `toweli`.
+  test.beforeEach(async ({ page, walletMock: _w }) => {
+    await page.addInitScript(() => {
+      try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
+    });
+  });
+
   test('AppLayout exposes <main> and a skip-link anchored at it', async ({ page, walletMock: _w }) => {
     await page.goto('/');
     const main = page.locator('main#main-content');

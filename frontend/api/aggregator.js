@@ -279,6 +279,18 @@ export default async function handler(req, res) {
     return handleLaunchRadar(req, res);
   }
 
+  // `?resource=pool-market` forwards ONE pool's market facts from the same keyless
+  // GeckoTerminal host as launch-radar. It exists for its `s-maxage`, not for the
+  // proxying: the browser used to read that host directly, twice per bungalow page
+  // view, uncached, and a reload minutes later showed dashes across the whole strip.
+  // The edge now answers, so upstream sees ~1 request per pool per 45s no matter how
+  // many people are reading. See _lib/pool-market.js header for why a proxy WITHOUT
+  // the cache header would have been worse than the direct fetch it replaces.
+  if (req.query.resource === "pool-market") {
+    const { handlePoolMarket } = await import("./_lib/pool-market.js");
+    return handlePoolMarket(req, res);
+  }
+
   // `?resource=launch-cohort` enumerates the Airlock `Create` history so the cohort
   // surfaces can exist at all. Phase two — deciding which of those assets are OURS — stays
   // client-side in ourLaunches.ts, so provenance has exactly one implementation. Lazy

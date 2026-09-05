@@ -18,9 +18,25 @@ import { geckoTerminalPoolSchema, parseOrNull } from '../lib/schemas/geckoTermin
  *  - a failed fetch sets `error` and leaves the previous values alone rather
  *    than blanking the strip to zeros.
  *
- * Direct cross-origin fetch, matching the existing GeckoTerminal call sites
- * (usePriceHistory, PriceChart): there is no same-origin proxy for it in
- * production, so adding one here would need an operator step to work at all.
+ * READ THROUGH THE EDGE, not direct (changed 2026-09-04). This used to fetch
+ * api.geckoterminal.com straight from the browser, and the paragraph here said
+ * "there is no same-origin proxy for it in production, so adding one here would
+ * need an operator step". That was true when it was written and stopped being
+ * true when `?resource=launch-radar` shipped: the same keyless host is already
+ * proxied through the aggregator catchall with no operator step and no new
+ * function slot, so the plumbing this needed already existed and the comment was
+ * the only thing still saying otherwise.
+ *
+ * The field review of 2026-09-04 found the consequence — a first load showed the
+ * whole strip, a reload minutes later showed dashes across all of it, because
+ * every visitor spent their own keyless budget two calls per page view.
+ *
+ * What fixes it is the `s-maxage` on the proxy, not the proxy: the edge answers,
+ * so upstream sees roughly one request per pool per 45s however many people are
+ * reading. See api/_lib/pool-market.js for why the header is load-bearing.
+ *
+ * The response is forwarded verbatim, so the R080 schema validation below is
+ * unchanged and still the only place this JSON is parsed.
  */
 
 export interface PoolMarket {
@@ -98,7 +114,7 @@ export function usePoolMarket(
       setIsLoading(true);
       setError(null);
       try {
-        const url = `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${pool}`;
+        const url = `/api/aggregator?resource=pool-market&network=${encodeURIComponent(network)}&pool=${encodeURIComponent(pool)}`;
         const res = await fetch(url, {
           headers: { Accept: 'application/json' },
           signal: controller.signal,

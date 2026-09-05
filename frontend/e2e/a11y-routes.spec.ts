@@ -57,6 +57,21 @@ test.describe('a11y — every routed page', () => {
       // The splash intro alone can outlast the default per-test budget on a
       // loaded WebKit worker; see SPLASH_MOUNT_TIMEOUT.
       if (isNakamigos) test.setTimeout(120_000);
+      // THE VENUE DOOR RELOADS, so pin its settled state before arriving.
+      // `/` is wrapped in <BungalowDoor id={VENUE_ID}>, which clears a stored
+      // skin by reloading the document (BungalowDoor.tsx) — the skin is
+      // resolved at module scope, so only a fresh document re-resolves it. The
+      // shared wallet fixture pins `tegridy-bungalow` to `toweli`, so every
+      // spec using it arrives at `/` with a skin to clear and gets that reload,
+      // and anything asserted on the first document is sampling a page that is
+      // being replaced. Seeding the `venue` sentinel — "seen, chose nothing",
+      // the same value arrival-voice.spec.ts seeds — means there is nothing to
+      // clear and no reload happens. Deterministic, unlike waiting it out.
+      if (route.path === '/') {
+        await page.addInitScript(() => {
+          try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
+        });
+      }
       if (isNakamigos) await gotoNakamigos(page);
       else await gotoRoute(page, navigablePath(route));
       await waitForQuiescence(page);
