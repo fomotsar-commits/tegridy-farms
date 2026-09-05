@@ -72,14 +72,40 @@ const GAS_BUFFER_WEI = parseEther("0.005");
 
 // ═══ FETCH OFFERS (all via proxy — no API keys in browser) ═══
 
-async function fetchTokenOffersOrThrow(tokenId, contract = CONTRACT) {
-  const data = await openseaGet("orders/ethereum/seaport/offers", {
-    asset_contract_address: contract,
-    token_ids: tokenId,
-    order_by: "eth_price",
-    order_direction: "desc",
-  });
-  return (data.orders || []).map(normalizeOffer);
+// THE PER-TOKEN OFFER LADDER HAS NO REPLACEMENT, AND PRETENDING OTHERWISE COSTS MORE.
+//
+// This asked `orders/ethereum/seaport/offers` for every bid on ONE token. That
+// route is POST-only upstream since 2026-09-05. Everything I could find as a
+// substitute was measured and rejected:
+//   offers/collection/{slug}/nfts/{id}/all  -> 404 upstream (route absent)
+//   offers/collection/{slug}/nfts/{id}/best -> 200, but ONE offer, not a ladder
+//   offers/collection/{slug}/all + a token filter -> the filter is IGNORED:
+//       token_ids=, token_id= and asset_contract_address=&token_ids= each
+//       returned the identical 20 rows across 10 distinct token ids
+//
+// The only way to rebuild a real ladder is to page the WHOLE collection and filter
+// client-side — and BidManager calls this once per owned NFT on a 30/min budget,
+// so that trades a broken panel for a rate-limit outage across every OpenSea read
+// that still works. That is a worse product, not a better one.
+//
+// SO IT RETURNS THE TOP OF THE LADDER, NOT AN EMPTY ONE AND NOT A THROW.
+// `offers/collection/{slug}/nfts/{id}/best` still works, and it answers the two
+// questions the panel actually asks: is there ANY offer on this token, and what is
+// the best one. An empty result from it is a real "nobody has bid", which is why
+// this must not throw — `offerBookOutageHonesty.test.jsx` pins that a genuinely
+// empty book still renders "No Offers Yet" and NOT the outage copy, and throwing
+// here would have collapsed those two states back together in the other direction.
+//
+// WHAT IS LOST: the second-best bid and below. The panel shows one row where it
+// used to show a ladder. That is a real reduction and it is not disguised.
+//
+// TO RESTORE THE LADDER: it needs an order source we control (the indexer), or an
+// OpenSea route that filters by token. Do not restore it by paging the collection.
+async function fetchTokenOffersOrThrow(tokenId, _contract = CONTRACT, { slug = COLLECTION_SLUG, openseaSlug } = {}) {
+  // The one token-scoped read OpenSea still serves. It answers BOTH questions the
+  // panel needs: whether any offer exists at all, and what the top one is.
+  const best = await fetchBestOfferOrThrow(tokenId, slug, { openseaSlug });
+  return best ? [best] : [];
 }
 
 export async function fetchTokenOffers(tokenId, contract = CONTRACT) {
@@ -245,7 +271,26 @@ function safePriceFromWei(wei) {
 function normalizeOffer(order) {
   const params = order.protocol_data?.parameters;
   const offer = params?.offer?.[0];
-  const priceWei = offer?.startAmount || "0";
+  // PRICE PER ITEM, not per order. An N-item bid holds N x the unit price in its
+  // offer item, so reading startAmount raw reports a bid N times higher than any
+  // single token could be sold into — the bug normalizeCollectionOffer's docblock
+  // already describes ("a 50-item bid ended up rendering above the floor and
+  // inverting the spread"). That fix landed in ONE normalizer and not this one.
+  //
+  // HONESTY NOTE ON SEVERITY: I could not reproduce a quantity > 1 on the route
+  // this now reads. Measured 2026-09-05 on `offers/collection/nakamigos/all`:
+  // 50 of 50 rows were itemType 2 (exact token) with quantity 1, and price.value
+  // equalled offer[0].startAmount on every one. So this is DEFENSIVE, not a live
+  // mispricing being corrected — dividing by 1 is the identity, and it costs
+  // nothing to be right if a multi-item bid ever arrives.
+  //
+  // Reuses the exported collectionOfferQuantity rather than a second copy.
+  const quantity = collectionOfferQuantity(params);
+  const rawOfferWei = offer?.startAmount || "0";
+  let priceWei = rawOfferWei;
+  try {
+    if (quantity > 1) priceWei = (BigInt(rawOfferWei) / BigInt(quantity)).toString();
+  } catch { /* malformed amount — fall back to the raw value */ }
   // In a Seaport offer (bid), the NFT is in consideration[0] (what the offerer wants to receive)
   const nftItem = params?.consideration?.find(c => c.itemType >= 2); // ERC721 or ERC1155
   // F666: surface the ERC20 (itemType 1) consideration total — OpenSea fee +
@@ -261,7 +306,11 @@ function normalizeOffer(order) {
     if (Number(c?.itemType) !== 1) continue;
     try { feeSumWei += BigInt(c.startAmount || "0"); sawFeeItem = true; } catch { /* skip malformed amount */ }
   }
-  const feeWei = sawFeeItem ? feeSumWei.toString() : null;
+  // The fee is per ORDER for the same reason the price is; leaving it undivided
+  // would subtract an N-item fee from a 1-item price in NetProceeds.
+  const feeWei = sawFeeItem
+    ? (quantity > 1 ? (feeSumWei / BigInt(quantity)).toString() : feeSumWei.toString())
+    : null;
   return {
     price: safePriceFromWei(priceWei),
     priceWei,
@@ -698,40 +747,74 @@ export async function createTraitOffer({ traitType, traitValue, priceEth, expira
   }
 }
 
+// ═══ THE COLLECTION-SCOPED v2 READS THAT REPLACED THE SEAPORT ORDER ROUTES ═══
+//
+// OpenSea made `orders/{chain}/seaport/{listings,offers}` POST-only (verified
+// 2026-09-05: OPTIONS -> 200 "allow: POST,OPTIONS", GET -> 405). The five GET
+// call sites that used them returned 502 forever. The replacements are the
+// collection-scoped routes, and `maker` IS a real server-side filter on them —
+// three-leg proof, run against prod:
+//   listings/collection/nakamigos/all?maker=<a lister>  -> 1 row,  1 offerer
+//   listings/collection/nakamigos/all?maker=0x…0001     -> 0 rows
+//   listings/collection/nakamigos/all (control)         -> 20 rows, 11 offerers
+// (the same shape holds for offers/collection/{slug}/all).
+//
+// TWO TRAPS THAT A NAIVE REPOINT WALKS STRAIGHT INTO, both measured:
+//
+//  1. THE CURSOR PARAM IS `next`, NOT `cursor`. Passing `cursor` is silently
+//     IGNORED — page 2 comes back with page 1's first order_hash, so the old
+//     loop would re-read page one until MAX_MY_PAGES and call it pagination.
+//
+//  2. THESE ROWS HAVE NO `cancelled` / `finalized`. They carry `status`
+//     ("ACTIVE"). The old filter is `!o.cancelled && !o.finalized`, and on a row
+//     where both are `undefined` that is `true && true` — EVERY order passes,
+//     dead ones included, on the screen where an owner clicks Accept.
+//     `isLiveOrder` below reads whichever shape it is handed.
+
+/** Cursor-paginate a collection-scoped v2 route filtered to one maker. */
+async function fetchPagesByMaker(path, wallet, { limit = 50, maxPages = MAX_MY_PAGES } = {}) {
+  const rows = [];
+  let next = null;
+  for (let page = 0; page < maxPages; page++) {
+    const params = { maker: wallet, limit };
+    if (next) params.next = next;                   // NOT `cursor` — see trap 1
+    const data = await openseaGet(path, params);
+    const batch = data.offers || data.listings || data.orders || [];
+    rows.push(...batch);
+    if (!data.next || batch.length === 0) break;
+    next = data.next;
+  }
+  return rows;
+}
+
+/**
+ * Is this order still fillable? Understands BOTH row shapes deliberately:
+ * the legacy `cancelled`/`finalized` booleans and the v2 `status` string.
+ *
+ * Fails CLOSED on an unrecognised status — a dead order rendered as live is a
+ * seller paying gas to accept something that no longer exists, which is exactly
+ * the failure `acceptOffer`'s ordering fix was written to stop paying for.
+ */
+function isLiveOrder(order, nowSecs) {
+  if (typeof order?.status === "string") {
+    if (order.status.toUpperCase() !== "ACTIVE") return false;
+  } else if (order?.cancelled || order?.finalized) {
+    return false;
+  }
+  const endSec = parseInt(order?.protocol_data?.parameters?.endTime);
+  return !Number.isFinite(endSec) || endSec > nowSecs;
+}
+
 // ═══ FETCH MY OFFERS (outgoing bids) ═══
 // Paginates through all pages using cursor to avoid truncation at 20 results.
 const MAX_MY_PAGES = 10; // Safety cap: 10 pages * 50 = up to 500 orders
 
-export async function fetchMyOffers(wallet, contract = CONTRACT) {
+export async function fetchMyOffers(wallet, _contract = CONTRACT, { slug = COLLECTION_SLUG } = {}) {
   try {
-    const allOrders = [];
-    let cursor = null;
-
-    for (let page = 0; page < MAX_MY_PAGES; page++) {
-      const params = {
-        maker: wallet,
-        asset_contract_address: contract,
-        order_by: "created_date",
-        order_direction: "desc",
-        limit: 50,
-      };
-      if (cursor) params.cursor = cursor;
-
-      const data = await openseaGet("orders/ethereum/seaport/offers", params);
-      const orders = data.orders || [];
-      allOrders.push(...orders);
-
-      if (!data.next || orders.length === 0) break;
-      cursor = data.next;
-    }
-
+    const allOrders = await fetchPagesByMaker(`offers/collection/${slug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
     return allOrders
-      .filter(o => !o.cancelled && !o.finalized)
-      .filter(o => {
-        const endSec = parseInt(o.protocol_data?.parameters?.endTime);
-        return !Number.isFinite(endSec) || endSec > now;
-      })
+      .filter(o => isLiveOrder(o, now))
       .map(normalizeOffer);
   } catch (err) {
     console.warn("Fetch my offers failed:", err.message);
@@ -752,36 +835,12 @@ export async function fetchMyOffers(wallet, contract = CONTRACT) {
 //
 // `fallback: true` means WE COULD NOT ASK. `listings: []` with `fallback: false`
 // means genuinely nothing listed. Callers must branch on the two separately.
-export async function fetchMyListings(wallet, contract = CONTRACT) {
+export async function fetchMyListings(wallet, _contract = CONTRACT, { slug = COLLECTION_SLUG } = {}) {
   try {
-    const allOrders = [];
-    let cursor = null;
-
-    for (let page = 0; page < MAX_MY_PAGES; page++) {
-      const params = {
-        maker: wallet,
-        asset_contract_address: contract,
-        order_by: "created_date",
-        order_direction: "desc",
-        limit: 50,
-      };
-      if (cursor) params.cursor = cursor;
-
-      const data = await openseaGet("orders/ethereum/seaport/listings", params);
-      const orders = data.orders || [];
-      allOrders.push(...orders);
-
-      if (!data.next || orders.length === 0) break;
-      cursor = data.next;
-    }
-
+    const allOrders = await fetchPagesByMaker(`listings/collection/${slug}/all`, wallet);
     const now = Math.floor(Date.now() / 1000);
     const listings = allOrders
-      .filter(o => !o.cancelled && !o.finalized)
-      .filter(o => {
-        const endSec = parseInt(o.protocol_data?.parameters?.endTime);
-        return !Number.isFinite(endSec) || endSec > now;
-      })
+      .filter(o => isLiveOrder(o, now))
       .map(o => {
         const params = o.protocol_data?.parameters;
         const offerItem = params?.offer?.[0];
