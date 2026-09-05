@@ -111,6 +111,14 @@ const ALLOWED_CONTRACTS = new Set([
 // F514: "collections/" (plural) is the canonical OpenSea v2 stats prefix — the
 // client calls collections/{slug}/stats, so the plural prefix must be admitted
 // or the proxy 400s before ever reaching OpenSea (stats stuck as skeletons).
+/**
+ * Upstream statuses that mean "this request will never succeed as written".
+ * Forwarded verbatim (status only, never the body) so the client's own
+ * no-retry policy applies instead of our 502 making them look transient.
+ * 401/403 are deliberately absent — see the note at the forwarding site.
+ */
+const PERMANENT_UPSTREAM_STATUSES = new Set([400, 404, 405, 410, 422]);
+
 const ALLOWED_PATH_PREFIXES = ["orders/", "listings/", "offers/", "collection/", "collections/", "events/"];
 
 // Build allowed paths dynamically from allowed slugs
@@ -300,8 +308,42 @@ export default async function handler(req, res) {
     }
 
     if (!response.ok) {
-      // AUDIT API-M4: collapse upstream errors to opaque 502, log real status.
+      // AUDIT API-M4: never leak the upstream BODY. Still true below — the body
+      // goes to the server log and nowhere else.
       console.error("OpenSea upstream error:", response.status, logSafe(text.slice(0, 500)));
+
+      // ── BUT A PERMANENT REJECTION MUST NOT ARRIVE AS A 5xx ──────────────
+      //
+      // Collapsing EVERY upstream status into 502 turned "this route is gone
+      // forever" into "the server is having a moment", and the client is built
+      // to believe us: api.js:20 states the policy — "Does NOT retry: 400, 401,
+      // 403, 404 — these are permanent client errors" — while ApiError.isRetryable
+      // (nakamigos/lib/proxy.js) returns true for any 5xx. So our own 502 was the
+      // ONLY reason a dead route got retried at all.
+      //
+      // MEASURED 2026-09-05: OpenSea made the seaport order routes POST-only
+      // (`OPTIONS orders/ethereum/seaport/listings` -> 200, "allow: POST,OPTIONS";
+      // GET -> 405). Five live call sites GET them. Each dead read therefore cost
+      // 4 upstream requests and ~10.5s of backoff, on a 30/min per-IP budget
+      // (X-Ratelimit-Limit: 30) — every 30s, once per owned NFT on the Bids tab.
+      // The dead features stayed dead either way; the retries were starving the
+      // OpenSea reads that still work.
+      //
+      // Forwarding a bare STATUS NUMBER with a fixed body honours API-M4's intent
+      // (nothing upstream reaches the caller) while letting the client's own
+      // correct no-retry policy finally apply.
+      //
+      // 401/403 stay 502 ON PURPOSE: those are about OUR api key, not the
+      // caller's request, and a client that retried them would be equally wrong.
+      if (PERMANENT_UPSTREAM_STATUSES.has(response.status)) {
+        return res.status(response.status).json({ error: "upstream-rejected", status: response.status });
+      }
+      if (response.status === 429) {
+        // Pass the upstream's own pacing through instead of inventing backoff.
+        const retryAfter = response.headers.get("retry-after");
+        if (retryAfter && /^\d{1,5}$/.test(retryAfter)) res.setHeader("Retry-After", retryAfter);
+        return res.status(429).json({ error: "upstream-rate-limited" });
+      }
       return res.status(502).json({ error: "Upstream service error" });
     }
 

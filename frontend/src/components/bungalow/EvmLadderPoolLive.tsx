@@ -6,6 +6,7 @@ import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_LADDER_ABI, ERC20_ABI } from '../../lib/contracts';
 import {
   deriveLadder, boostLabel, boostBpsFor, projectedRawPerSec, penaltyOn, lockRemaining, MIN_STAKE_RAW,
+  isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
 import { surfaceTxError } from '../../lib/txErrors';
@@ -46,6 +47,10 @@ type Pos = { id: bigint; lockEnd: bigint; amount: bigint; boosted: bigint };
 
 export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const pool = bungalow.stakePool as `0x${string}`;
+  // C1: this pool is one of the six pre-fix ladders the audit forbids depositing
+  // into. Deposits only — claim and withdraw stay live below. Lifts by itself on
+  // a registry repin. See lighthouseLadder.ts:C1_UNSAFE_LADDER_POOLS.
+  const depositsFrozen = isC1UnsafeLadder(pool);
   const token = (bungalow.address ?? '') as `0x${string}`;
   const poolChainId = CHAIN_IDS[bungalow.chain] ?? 1;
   const accent = bungalow.accent ?? 'var(--color-kyle)';
@@ -292,8 +297,22 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                   )}
                 </p>
 
+                {depositsFrozen && (
+                  <div className="rounded-xl p-3 mb-3 text-[12px]" style={{ background: 'rgba(120,20,20,0.30)', border: '1px solid rgba(255,120,120,0.40)' }}>
+                    <p className="text-red-200/95">
+                      <strong>Deposits are closed on this pool.</strong> An internal audit found that this
+                      deployment can pay rewards out of other stakers&rsquo; principal, so we are not taking
+                      new stake into it. The fix is written and this pool is waiting to be redeployed;
+                      the page will re-open by itself once it points at the new contract.
+                    </p>
+                    <p className="text-red-200/70 mt-1.5">
+                      Nothing is stuck: claiming and withdrawing below are unaffected.
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {needsApproval ? (
+                  {depositsFrozen ? null : needsApproval ? (
                     <button type="button" disabled={busy !== null || !amountRaw} className="btn-primary px-5 py-2 text-[13px] disabled:opacity-50"
                       onClick={() => send('approve', () => writeContractAsync({ ...tokenC, functionName: 'approve', args: [pool, amountRaw ?? 0n] }))}>
                       {busy === 'approve' ? 'Approving…' : `Approve ${bungalow.symbol}`}

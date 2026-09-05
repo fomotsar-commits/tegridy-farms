@@ -888,8 +888,11 @@ library StakingRewardLib {
         // reports success with the restaking-side record already deleted, which closes both
         // admin escapes (`applyRescueNFT` refuses while a stranded record exists;
         // `emergencyForceReturn` requires the now-deleted `tokenIdToRestaker`). The user's
-        // only retry, `claimStrandedRestakeNFT`, is a BARE safeTransferFrom that reverts for
-        // as long as #2 is held.
+        // only retry, `claimStrandedRestakeNFT`, WAS a bare safeTransferFrom back to the same
+        // address, so it reverted for as long as #2 was held. It now takes an explicit
+        // `recipient` (see TegridyRestaking) — which is the exit for the strand causes this
+        // relaxation does NOT cover: a recipient whose `onERC721Received` reverts, and the
+        // MAX_POSITIONS cap noted below.
         //
         // The `restakingContract != address(0)` conjunct is deliberate. `restakingContract`
         // is an uninitialised `address public` (TegridyStaking:362, never set in the
