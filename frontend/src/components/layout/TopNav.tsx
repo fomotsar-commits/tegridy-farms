@@ -11,6 +11,7 @@ import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { setActiveBungalow } from '../../lib/bungalows';
+import { artImgProps } from '../../lib/artSrcSet';
 
 /**
  * Is any of this section's destinations the page we are on?
@@ -269,7 +270,23 @@ export const TopNav = React.memo(function TopNav() {
               title="Replay splash screen (full reload)"
               aria-label="Replay splash screen (full reload)"
             >
-              <img src={pageArt('nav-logo', 0).src} alt="" className="w-full h-full object-cover" />
+              {/* The nav logo is a 512x512 PNG rendered at 28px (desktop) / 44px
+                  (mobile), so it is the single clearest case for a small
+                  candidate. `sizes` is spelled out because this image is EAGER
+                  by design -- it is above the fold on every route -- and
+                  `sizes="auto"` is only valid on a lazy image. Omit it and the
+                  browser falls back to the 100vw default, picks the full-size
+                  original, and the srcset saves nothing at all.
+
+                  This was lost once already: a nav refactor replaced this
+                  element with a bare <img> and nothing failed, because a missing
+                  optimisation is invisible. TopNav.navLogo.test.tsx now pins it. */}
+              <img
+                src={pageArt('nav-logo', 0).src}
+                {...artImgProps(pageArt('nav-logo', 0).src, 'eager', '(min-width: 768px) 28px, 44px')}
+                alt=""
+                className="w-full h-full object-cover"
+              />
               <span
                 aria-hidden="true"
                 className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
