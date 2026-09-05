@@ -171,6 +171,33 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/verify-addresses.mjs --self-test
 
+      # Outage-as-zero ratchet. Two audit rounds found NINETEEN places where a
+      # failed contract read reached a caller, a guard or a user as a definite
+      # value, so an outage was indistinguishable from a real zero: a mint button
+      # armed on a price never fetched, a withdraw that forfeited unclaimed ETH, a
+      # stake cap that silently stopped capping, a 40% price impact that signed
+      # clean. Every one of them shipped through a green suite and a green lint.
+      #
+      # The guard does not ban the collapse -- collapsing to 0n for display is the
+      # house pattern and every fix kept it. It requires that a file which
+      # collapses a read also DECLARES an unread signal, so claims and controls
+      # have something honest to gate on. The 13 files already in that shape are
+      # baselined and do not fail the build; a new one does, and so does a
+      # baselined file that gets fixed without being removed from the list --
+      # otherwise the baseline quietly becomes permission.
+      - name: Outage-as-zero ratchet
+        if: ${{ !cancelled() }}
+        run: node scripts/check-unread-signal.mjs
+
+      # Same reasoning as the address-registry self-test above: a green gate is
+      # not evidence a gate works. This forces both failure directions (a new
+      # unsignalled collapse, and a stale baseline entry) against synthetic input
+      # and asserts a failure comes back, with controls that the honest shapes
+      # still pass.
+      - name: Outage-as-zero ratchet self-test
+        if: ${{ !cancelled() }}
+        run: node scripts/check-unread-signal.mjs --self-test
+
       # Which pubkeys are baked into the deployed Solana programs.
       #
       # A `pubkey!()` constant cannot be read from an account or an explorer, and

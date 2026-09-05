@@ -1,0 +1,18 @@
+{
+  "note": "Files that collapse a contract read with no unread signal, as of the guard landing. This list may SHRINK, never grow. See check-unread-signal.mjs.",
+  "files": [
+    "src/components/bungalow/EvmLighthousePoolLive.tsx",
+    "src/hooks/useAirdropFactory.ts",
+    "src/hooks/useAutoRefreshBoost.ts",
+    "src/hooks/useBribes.ts",
+    "src/hooks/useGaugeList.ts",
+    "src/hooks/usePoolData.ts",
+    "src/hooks/usePremiumAccess.ts",
+    "src/hooks/useProtocolStats.ts",
+    "src/hooks/useRestaking.ts",
+    "src/hooks/useRevenueStats.ts",
+    "src/hooks/useSwapAllowance.ts",
+    "src/hooks/useTegridyScore.ts",
+    "src/hooks/useVestingFactory.ts"
+  ]
+}
