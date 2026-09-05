@@ -181,7 +181,12 @@ export const API_ERROR_SEMANTICS = [
   {
     status: 503,
     code: 'source_not_configured',
-    meaning: 'The holder-data source has no key on this deployment. Retrying will not help; the operator must configure it.',
+    // Two sources emit this, and the row has to be true for both: the Ethplorer
+    // holder source behind route=scan/erc20scan (_lib/scannerApi.js:352-357), and
+    // the Alchemy NFT source behind floor/collections/holders/activity/token
+    // (v1/index.js). Naming only the first made the published contract wrong for
+    // four of the five NFT routes the moment they started refusing.
+    meaning: 'The data source behind this route — the holder source, or the NFT source — has no key on this deployment. Retrying will not help; the operator must configure it.',
   },
   { status: 503, code: 'api_keys_not_configured', meaning: 'This deployment has no key store, so no key can be checked. Not a statement about your key.' },
   { status: 503, code: 'api_key_store_unavailable', meaning: 'The key store could not be reached. Transient on our side.' },
