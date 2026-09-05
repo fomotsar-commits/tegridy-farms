@@ -39,24 +39,57 @@ import { AUDITABLE_ROUTES, gotoNakamigos, gotoRoute, navigablePath } from '../e2
  * without the reason and the owner, or this becomes the thing it was written to
  * prevent: noise that reads as fine.
  */
+/**
+ * Hosts whose failures are explained, matched on the PARSED hostname.
+ *
+ * Deliberately NOT regexes. `/drpc\.org/.test(url)` also matches
+ * `https://evil.example/?x=drpc.org` — an unanchored host pattern tested against
+ * a URL, which is `js/regex/missing-regexp-anchor` and is how a substring check
+ * quietly becomes wrong. CodeQL failed this PR on exactly that, correctly.
+ */
+const NOISE_HOSTS: readonly { host: string; why: string }[] = [
+  // 46 of 64 routes. `connect-src` DOES allow api.geckoterminal.com, so this is
+  // not the CSP — it is the upstream refusing the browser origin, which is what a
+  // rate-limited response looks like from a host that omits CORS headers on
+  // errors. `?resource=pool-market` is the intended fix and today covers only
+  // usePoolMarket; /trades, /ohlcv and /simple/token_price still go direct.
+  { host: 'geckoterminal.com', why: 'GeckoTerminal browser-direct reads refused in prod — proxy migration incomplete' },
+  // The RPC ranker pings every endpoint in the roster on boot; the losers answer
+  // 4xx and that is the ranker working, not a page failing.
+  { host: 'drpc.org', why: 'RPC roster ranking pings — reference_viem_rank_ping_storm' },
+  { host: 'publicnode.com', why: 'RPC roster ranking pings' },
+  { host: 'cloudflare-eth.com', why: 'RPC roster ranking pings' },
+  { host: 'mainnet.base.org', why: 'RPC roster ranking pings' },
+  { host: 'chain.robinhood.com', why: 'RPC roster ranking pings' },
+  { host: 'alchemy.com', why: 'RPC roster ranking pings' },
+  { host: 'infura.io', why: 'RPC roster ranking pings' },
+];
+
+/** Exact host, or a true subdomain of it — never a substring. */
+function isNoiseHost(hostname: string): { known: true; why: string } | { known: false } {
+  for (const entry of NOISE_HOSTS) {
+    if (hostname === entry.host || hostname.endsWith(`.${entry.host}`)) return { known: true, why: entry.why };
+  }
+  return { known: false };
+}
+
+function hostnameOf(url: string): string | null {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Console text that is not attributable to a host, because it names none.
+ * These stay message patterns — none of them is host-shaped.
+ */
 const KNOWN_NOISE: readonly { pattern: RegExp; why: string }[] = [
   {
-    // 46 of 64 routes. `connect-src` DOES allow api.geckoterminal.com, so this is
-    // not the CSP — it is the upstream refusing the browser origin, which is what
-    // a rate-limited (429) response looks like from a host that omits CORS
-    // headers on errors. `?resource=pool-market` is the intended fix and today
-    // covers only usePoolMarket; /trades, /ohlcv and /simple/token_price still go
-    // browser-direct.
-    pattern: /geckoterminal\.com|net::ERR_FAILED/i,
-    why: 'GeckoTerminal browser-direct reads are refused in prod — proxy migration incomplete',
-  },
-  {
-    // The RPC ranker pings every endpoint in the roster on boot; the losers answer
-    // 4xx and that is the ranker working, not a page failing. Matched by HOST
-    // where the host is visible — the status-only case is handled below, by
-    // attribution rather than by allowlisting status codes.
-    pattern: /drpc\.org|publicnode\.com/i,
-    why: 'RPC roster ranking pings — see reference_viem_rank_ping_storm',
+    // The tail of a blocked cross-origin fetch, logged separately from the URL.
+    pattern: /net::ERR_FAILED/i,
+    why: 'trailing log line of a refused cross-origin read (see NOISE_HOSTS)',
   },
   {
     // /chart, /competitions, /copy-trading. The indexer host is genuinely ABSENT
@@ -67,20 +100,12 @@ const KNOWN_NOISE: readonly { pattern: RegExp; why: string }[] = [
 ];
 
 /**
- * Hosts whose 4xx/5xx are the RPC ranker doing its job, not a page failing.
- * Kept separate from KNOWN_NOISE because these are matched against a RESPONSE
- * URL, not against console text.
- */
-const RPC_HOSTS =
-  /drpc\.org|publicnode\.com|cloudflare-eth\.com|mainnet\.base\.org|chain\.robinhood\.com|alchemy\.com|infura\.io|llamarpc|ankr\.com/i;
-
-/**
  * Chrome logs `Failed to load resource: the server responded with a status of N`
  * with NO URL, so the message alone cannot say who failed. Allowlisting the
  * status code would be allowlisting a number nobody attributed — exactly the
  * "unreadable must not read as fine" move this whole file exists to prevent.
  * Instead: attribute it. The line is explained only when every failing response
- * actually observed on the page came from a known RPC host.
+ * actually observed on the page came from a known host.
  */
 function statusOnlyIsAttributable(message: string, failed: readonly { status: number; url: string }[]): boolean {
   const m = /Failed to load resource: the server responded with a status of (\d+)/i.exec(message);
@@ -89,16 +114,31 @@ function statusOnlyIsAttributable(message: string, failed: readonly { status: nu
   const sameStatus = failed.filter((f) => f.status === status);
   // Nothing observed with that status → cannot attribute it, so do NOT excuse it.
   if (sameStatus.length === 0) return false;
-  return sameStatus.every((f) => RPC_HOSTS.test(f.url));
+  return sameStatus.every((f) => {
+    const h = hostnameOf(f.url);
+    return h !== null && isNoiseHost(h).known;
+  });
+}
+
+/** Any absolute URL quoted inside a console message, e.g. "Access to fetch at '…'". */
+function urlsIn(message: string): string[] {
+  return message.match(/https?:\/\/[^\s'"()]+/g) ?? [];
 }
 
 function classify(
   message: string,
   failed: readonly { status: number; url: string }[],
 ): { known: true; why: string } | { known: false } {
+  // Prefer attribution by the host the message itself names.
+  for (const url of urlsIn(message)) {
+    const h = hostnameOf(url);
+    if (h === null) continue;
+    const verdict = isNoiseHost(h);
+    if (verdict.known) return verdict;
+  }
   for (const n of KNOWN_NOISE) if (n.pattern.test(message)) return { known: true, why: n.why };
   if (statusOnlyIsAttributable(message, failed)) {
-    return { known: true, why: 'status-only console line attributed to an RPC-roster host by response URL' };
+    return { known: true, why: 'status-only console line attributed to a known host by response URL' };
   }
   return { known: false };
 }
