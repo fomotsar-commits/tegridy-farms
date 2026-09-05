@@ -59,12 +59,18 @@ const MAX_STALENESS_SECONDS = 300;
  * this pair today. The displayed price should not be more credulous than the oracle
  * that refuses to quote it.
  *
- * Why this matters right now: the native pair holds **0.00383 WETH** (read on-chain
- * 2026-08-01, ~2,600x below the floor) against a Uniswap pair ~1,950x deeper. The
- * spot price it produces happens to sit near the real one, so this is not a
- * currently-wrong number — it is a number ANYONE CAN MOVE for about ten dollars,
- * feeding `priceInUsd` site-wide with its only manipulation guard (the TWAP leg
- * below) already failing closed. Reserves this thin are not evidence of a price.
+ * Why this matters right now: the native pair holds **0.0797 WETH** (read on-chain
+ * 2026-09-05, ~125x below the floor) against a Uniswap pair ~96x deeper (7.6651
+ * WETH). The spot price it produces happens to sit near the real one, so this is
+ * not a currently-wrong number — it is a number ANYONE CAN MOVE cheaply, feeding
+ * `priceInUsd` site-wide with its only manipulation guard (the TWAP leg below)
+ * already failing closed. Reserves this thin are not evidence of a price.
+ *
+ * The pool is refilling, not dead: it was 0.00383 WETH on 2026-08-02 and the farm
+ * held 0 LP; it now holds 0.0797 WETH with 384.20 of 469.56 LP staked. That is a
+ * ~20x recovery and still ~125x short of the floor, so the gate below stays shut.
+ * Note the floor also exceeds the Uniswap pair, so pointing `pairAddr` there would
+ * NOT restore spot pricing — the API leg is what answers today, by design.
  *
  * Self-healing: deepening the pool past the floor is the same action that restores
  * `consult()`, so spot pricing resumes on its own with no code change.
