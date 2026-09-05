@@ -129,3 +129,106 @@ describe("etherscan — R049 block-range cap", () => {
     expect(jsonSpy).toHaveBeenCalledWith({ error: "Block range too large (max 10000)" });
   });
 });
+
+// API-M5 (incident 2026-09-04): this proxy returned res.status(200).json(data)
+// with no reference to response.ok, so a refused upstream reached the caller as
+// a success. Same defect, same week, as the alchemy.js RPC path. The last two
+// cases pin the DELIBERATE opposite: a NOTOK envelope is Etherscan's own unread
+// channel, arrives as a 200, and must keep arriving as one.
+describe("etherscan — API-M5 upstream status is not flattened to 200", () => {
+  let handler;
+
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.ETHERSCAN_API_KEY = "real-etherscan-key-1234567890";
+    process.env.NODE_ENV = "test";
+  });
+
+  afterEach(() => { delete process.env.ETHERSCAN_API_KEY; });
+
+  async function run(upstream) {
+    globalThis.fetch = vi.fn(async () => ({
+      headers: { get: () => null },
+      body: null,
+      ...upstream,
+    }));
+    handler = (await import("../etherscan.js")).default;
+    const req = makeReq({
+      query: { module: "account", action: "txlist", address: "0x" + "c".repeat(40) },
+    });
+    const { res, headerSpy, statusSpy, jsonSpy } = makeRes();
+    await handler(req, res);
+    return { headerSpy, statusSpy, jsonSpy };
+  }
+
+  it("a 500 upstream surfaces as 502, never 200", async () => {
+    const { statusSpy, jsonSpy } = await run({
+      ok: false,
+      status: 500,
+      text: async () => JSON.stringify({ status: "0", message: "NOTOK", result: "rate limit" }),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    expect(statusSpy).not.toHaveBeenCalledWith(200);
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream service error" });
+  });
+
+  it("a 403 bot challenge is caught before the parse, not misreported as bad JSON", async () => {
+    const { statusSpy, jsonSpy } = await run({
+      ok: false,
+      status: 403,
+      text: async () => "<html>Attention Required! | Cloudflare</html>",
+    });
+    expect(statusSpy).toHaveBeenCalledWith(502);
+    // "Upstream returned invalid response" would mean the parse ran first and
+    // threw away a perfectly clear upstream status.
+    expect(jsonSpy).toHaveBeenCalledWith({ error: "Upstream service error" });
+  });
+
+  it("does not echo the upstream status or body to the client", async () => {
+    const { jsonSpy } = await run({
+      ok: false,
+      status: 403,
+      text: async () => "<html>Attention Required! | Cloudflare</html>",
+    });
+    const payload = JSON.stringify(jsonSpy.mock.calls[0][0]);
+    expect(payload).not.toContain("Cloudflare");
+    expect(payload).not.toContain("403");
+  });
+
+  it("does not pin an outage at the shared edge", async () => {
+    const { headerSpy } = await run({ ok: false, status: 500, text: async () => "boom" });
+    const headers = {};
+    for (const [k, v] of headerSpy.mock.calls) headers[k] = v;
+    expect(headers["Cache-Control"]).toBeUndefined();
+  });
+
+  it("logs the real upstream status server-side for ops", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await run({ ok: false, status: 503, text: async () => "unavailable" });
+    expect(errSpy).toHaveBeenCalled();
+    expect(errSpy.mock.calls.flat().join(" ")).toContain("503");
+    errSpy.mockRestore();
+  });
+
+  it("passes a 200 NOTOK envelope through untouched (Etherscan's own unread channel)", async () => {
+    const envelope = { status: "0", message: "NOTOK", result: "Missing/Invalid API Key" };
+    const { statusSpy, jsonSpy } = await run({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(envelope),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(jsonSpy).toHaveBeenCalledWith(envelope);
+  });
+
+  it("still passes a genuine empty result through as 200", async () => {
+    const envelope = { status: "0", message: "No transactions found", result: [] };
+    const { statusSpy, jsonSpy } = await run({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(envelope),
+    });
+    expect(statusSpy).toHaveBeenCalledWith(200);
+    expect(jsonSpy).toHaveBeenCalledWith(envelope);
+  });
+});

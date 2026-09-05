@@ -214,11 +214,29 @@ export default async function handler(req, res) {
     if (truncated) {
       return res.status(502).json({ error: "Upstream response too large" });
     }
+    // AUDIT API-M5, ported from api/alchemy.js: this path had no status check,
+    // so an upstream non-2xx reached the caller as HTTP 200 carrying the
+    // explorer's error body - a refused call read as a successful one. Checked
+    // BEFORE the parse: a 5xx HTML page or bot challenge is not JSON, and
+    // parsing first misreported a clear upstream status as bad JSON. Status is
+    // logged for ops, never echoed to the client, and no Cache-Control is set
+    // - a 30s shared-edge cache must not pin an outage in front of everyone.
+    if (!response.ok) {
+      console.error("Etherscan upstream error:", response.status, logSafe(text.slice(0, 500)));
+      return res.status(502).json({ error: "Upstream service error" });
+    }
     let data;
     try { data = JSON.parse(text); } catch {
       console.error("Etherscan non-JSON:", logSafe(text.slice(0, 200)));
       return res.status(502).json({ error: "Upstream returned invalid response" });
     }
+    // Deliberate pass-through, and the opposite of the guard above:
+    // {"status":"0","message":"NOTOK"} arrives as HTTP 200 and stays one. That
+    // envelope is Etherscan's own unread channel, and callers already read it
+    // by shape - readExplorerPage (lib/txHistory.ts), explorerEnvelopeFailure
+    // (hooks/useDeployerReputation.ts) and classifySourceCodeResponse each turn
+    // it into a specific reason. Folding it into the 502 would delete the only
+    // message that tells an operator to set ETHERSCAN_API_KEY.
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
     return res.status(200).json(data);
   } catch (err) {
