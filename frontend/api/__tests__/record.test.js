@@ -216,7 +216,7 @@ describe("decoders — unknown is null, never a zero value", () => {
   });
 
   it("refuses control characters and invalid UTF-8", () => {
-    const withNul = "0x" + uintWord(32) + uintWord(4) + Buffer.from("AB C", "utf8").toString("hex").padEnd(64, "0");
+    const withNul = "0x" + uintWord(32) + uintWord(4) + Buffer.from("AB\0C", "utf8").toString("hex").padEnd(64, "0");
     expect(decodeAbiString(withNul).ok).toBe(false);
     const badUtf8 = "0x" + uintWord(32) + uintWord(2) + "fffe".padEnd(64, "0");
     expect(decodeAbiString(badUtf8).ok).toBe(false);

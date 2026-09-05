@@ -20,6 +20,13 @@ vi.mock("../_lib/ratelimit.js", () => ({
 const fetchMock = vi.fn();
 globalThis.fetch = fetchMock;
 
+// api/alchemy.js refuses BEFORE any upstream fetch when no Alchemy credential
+// is configured (fail-closed, 2026-09-04 — it used to fall back to the public
+// "demo" key). The cases below exercise the body cap and the block-range cap,
+// not credentials, so give the handler a configured key or every one of them
+// short-circuits to 503 and proves nothing.
+process.env.ALCHEMY_API_KEY = "r049-hardening-key-aaaaaaaaaaaa";
+
 // Helper: build a Response-shape object backed by a streaming body of a
 // given byte size. We construct a real ReadableStream so the bodycap helper
 // hits the streaming path that production uses.

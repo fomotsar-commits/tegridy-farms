@@ -35,11 +35,20 @@
  * recorded here instead: a derivative's URL encodes its source path and width, so
  * it changes only when the source does.
  *
- * OUTPUT IS GENERATED, NEVER COMMITTED. public/ is tracked, and 347 sources x 2
- * widths would add hundreds of megabytes to the repo. Both the derivative tree and
- * the manifest are gitignored and rebuilt by `npm run build` (npm runs `prebuild`
- * automatically). Incremental: a derivative newer than its source is skipped, so
- * repeat builds cost almost nothing.
+ * THE DERIVATIVES ARE GENERATED AND NEVER COMMITTED; THE MANIFEST IS COMMITTED.
+ * public/ is tracked, and hundreds of derivative files would add hundreds of
+ * megabytes to the repo, so public/_derived is gitignored. The manifest is NOT --
+ * tsc and vitest need it in a fresh clone, and it ships in the JS bundle.
+ *
+ * This script is called EXPLICITLY, first in the `build` script. It must never be
+ * wired as an npm `pre*` hook: frontend/.npmrc sets ignore-scripts=true, which
+ * silently skips lifecycle hooks. It was a `prebuild` hook once; it therefore
+ * never ran on Vercel, the derivatives were never built, and the committed
+ * manifest advertised srcset candidates for files that were not deployed --
+ * 72 of 124 images broken across 8 routes, with nothing failing anywhere.
+ *
+ * Incremental: a derivative newer than its source is skipped, so repeat builds
+ * cost almost nothing.
  */
 import sharp from 'sharp';
 import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -165,7 +174,21 @@ function publicUrl(file) {
 /** `public/art/x.jpg` @480 -> `/_derived/art/x-480.webp` */
 function derivedUrl(file, width) {
   const rel = relative(PUBLIC_ROOT, file).split(/[\\/]/u).join('/');
-  return '/_derived/' + rel.slice(0, rel.length - extname(rel).length) + `-${width}.webp`;
+  const ext = extname(rel);
+  // THE EXTENSION IS PART OF THE NAME, not something to throw away.
+  //
+  // Stripping it made /splash/new/1.avif and /splash/new/1.jpg -- two separate
+  // manifest entries with different natural widths -- resolve to the SAME
+  // derived file, so whichever the walk reached last silently overwrote the
+  // other, and both entries then advertised it. Today those pairs happen to be
+  // the same picture in two formats, so nothing looked wrong; the next pair
+  // that is not would serve the wrong image with nothing reporting it.
+  //
+  // It also quietly broke the size guard, which weighs a candidate against the
+  // source it was made from and then writes it to a path another source claims.
+  const stem = rel.slice(0, rel.length - ext.length);
+  const tag = ext ? `-${ext.slice(1).toLowerCase()}` : '';
+  return `/_derived/${stem}${tag}-${width}.webp`;
 }
 
 async function main() {
@@ -312,13 +335,16 @@ async function main() {
   //
   // artSrcSet.test.ts asserts both of these properties, but only where
   // public/_derived exists -- and in CI it does not. The "Lint, Type Check &
-  // Test" job runs `npm ci --ignore-scripts` then `vitest run`, so `prebuild`
-  // never fires and both checks take their skip branch. A guard that skips
-  // silently on every CI run is not a guard, it is a green tick.
+  // Test" job runs `npm ci --ignore-scripts` then `vitest run`, which never
+  // builds, so both checks take their skip branch. A guard that skips silently
+  // on every CI run is not a guard, it is a green tick.
   //
-  // prebuild is exactly where the files DO exist: npm runs it before `build`,
-  // and `build` is the only way dist/ is produced. So a violation fails the
-  // build, on Vercel and in the Build job alike.
+  // This script is where the files DO exist, because it is the thing that makes
+  // them, and it runs first in `build`. So a violation fails the build, on
+  // Vercel and in the Build job alike. scripts/verify-dist-derivatives.mjs then
+  // asks the same question of dist/ at the END of the build -- that one is what
+  // would have caught the outage, since this check cannot run if this script
+  // never does.
   //
   // Both properties are the same lie -- the manifest claiming something about a
   // file that is not true of it:

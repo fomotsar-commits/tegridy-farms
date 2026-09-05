@@ -2,29 +2,35 @@
 import { checkRateLimit, checkGlobalLimit } from "./_lib/ratelimit.js";
 import { readBoundedText, MAX_RESPONSE_BYTES } from "./_lib/bodycap.js";
 import { logSafe } from "./_lib/logSafe.js";
-import { fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
+import { alchemyKeyChain, fetchAlchemyWithFailover } from "./_lib/alchemy-failover.js";
 
-// AUDIT R048: prefer Authorization: Bearer header over URL path embedding so
-// the key never appears in Vercel access logs, observability tracers, or
-// upstream HTML error pages that echo the request URL. Falls back to URL
-// path embedding only when no real key is configured (legacy/demo dev).
+// AUDIT R048: the key travels in an Authorization: Bearer header and never in
+// the URL path, so it cannot appear in Vercel access logs, observability
+// tracers, or upstream HTML error pages that echo the request URL. There is no
+// longer a path-embedding fallback — see FAIL-CLOSED below.
 // RESIL-1: every upstream fetch goes through fetchAlchemyWithFailover, which
 // retries ONCE with the optional ALCHEMY_API_KEY_FALLBACK on 401/403/429/5xx
-// — a lapsed primary key no longer blacks out the marketplace. The builders
-// below are keyed per attempt so URL shape + Authorization track the key.
-const ALCHEMY_KEY = process.env.ALCHEMY_API_KEY || "demo";
-if (!process.env.ALCHEMY_API_KEY && process.env.NODE_ENV === "production") {
-  console.warn("WARNING: ALCHEMY_API_KEY is not set — using demo key in production");
-}
+// — a lapsed primary key no longer blacks out the marketplace. authHeadersFor()
+// is called per attempt, so Authorization tracks the key that attempt uses.
+//
+// FAIL-CLOSED 2026-09-04 — the manufactured "demo" key is DELETED.
+// "demo" is this codebase's sentinel for "no Alchemy key": _lib/eth-code.js:37,
+// _lib/ethcall.js:27 and _lib/seaport-verify.js:144/:178 all refuse on it,
+// _lib/alchemy-failover.js:39 keeps it out of the key chain, and
+// api/orderbook.js:1543/:2128 gate on
+// `alchemyKeyChain().some((k) => k && k !== "demo")`. This file was the
+// outlier: with ALCHEMY_API_KEY unset it MANUFACTURED the string and embedded
+// it in the upstream URL, so a keyless deploy proxied the entire marketplace
+// onto Alchemy's PUBLIC demo key. Measured 2026-09-04: the NFT path answered
+// HTTP 200 WITH REAL DATA and the RPC path answered HTTP 429 — a gallery that
+// renders off a borrowed public credential reads as "configured and working"
+// when nothing is configured, and neither the response nor the logs said
+// otherwise. Both roots are header-auth only now; the handler refuses before
+// any fetch when the chain holds no usable key, so the falsy-key URL branch
+// has no reachable caller and is deleted with it.
 const NFT_V3_ROOT = "https://eth-mainnet.g.alchemy.com/nft/v3";
 const RPC_ROOT = "https://eth-mainnet.g.alchemy.com/v2";
 
-function nftBaseFor(key) {
-  return key ? NFT_V3_ROOT : `${NFT_V3_ROOT}/${ALCHEMY_KEY}`;
-}
-function rpcBaseFor(key) {
-  return key ? RPC_ROOT : `${RPC_ROOT}/${ALCHEMY_KEY}`;
-}
 function authHeadersFor(key, extra = {}) {
   const headers = { Accept: "application/json", ...extra };
   if (key) headers["Authorization"] = `Bearer ${key}`;
@@ -88,7 +94,7 @@ const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://memetic.fun";
 // "latest". Bounded by readBoundedText so it can't reintroduce H-3.
 async function resolveChainTip() {
   const res = await fetchAlchemyWithFailover((key) => ({
-    url: rpcBaseFor(key),
+    url: RPC_ROOT,
     opts: {
       method: "POST",
       headers: authHeadersFor(key, { "Content-Type": "application/json" }),
@@ -126,6 +132,29 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Vary", "Origin");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // INCIDENT #385 follow-up / AUDIT API-L4 — refuse BEFORE any upstream fetch
+  // when no Alchemy credential is configured. The predicate is copied from
+  // api/orderbook.js:1543, so it gates the whole failover chain rather than the
+  // primary slot: a deploy carrying only ALCHEMY_API_KEY_FALLBACK still serves.
+  //
+  // 503, not 502: the fault is OUR configuration. #387 gave a REJECTED key the
+  // same code, and the two messages are deliberately distinct so a single probe
+  // separates the three causes that cost hours in #385:
+  //   503 "Upstream credential not configured" → the env var is missing
+  //   503 "Upstream credentials rejected"      → the key is set and refused
+  //   502 "Upstream service error"             → Alchemy itself is broken
+  // AUDIT API-M4 still holds: no upstream status, no upstream body and no key
+  // material reaches the CLIENT. The SERVER LOG names the env var to set.
+  if (!alchemyKeyChain().some((k) => k && k !== "demo")) {
+    console.error(
+      "Alchemy: NO USABLE CREDENTIAL — ALCHEMY_API_KEY is unset (or is the " +
+      "literal \"demo\" sentinel). Set ALCHEMY_API_KEY, or " +
+      "ALCHEMY_API_KEY_FALLBACK, on the Vercel project. Refusing to proxy: the " +
+      "demo-key fallback was removed 2026-09-04.",
+    );
+    return res.status(503).json({ error: "Upstream credential not configured" });
+  }
 
   // AUDIT API-M1: 60 requests / minute per IP. Alchemy's own plan limit is
   // much higher but we clamp here to bound cost-per-IP and block obvious
@@ -221,7 +250,7 @@ export default async function handler(req, res) {
 
     try {
       const rpcRes = await fetchAlchemyWithFailover((key) => ({
-        url: rpcBaseFor(key),
+        url: RPC_ROOT,
         opts: {
           method: "POST",
           headers: authHeadersFor(key, { "Content-Type": "application/json" }),
@@ -367,7 +396,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetchAlchemyWithFailover((key) => {
-      const url = new URL(`${nftBaseFor(key)}/${endpoint}`);
+      const url = new URL(`${NFT_V3_ROOT}/${endpoint}`);
       Object.entries(params).forEach(([k, v]) => {
         if (v != null && v !== "") url.searchParams.set(k, String(v));
       });

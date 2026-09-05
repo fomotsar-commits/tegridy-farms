@@ -20,6 +20,7 @@ import {
   GAUGE_CONTROLLER_ADDRESS,
   PREMIUM_ACCESS_ADDRESS,
 } from '../lib/constants';
+import { artImgProps } from '../lib/artSrcSet';
 
 // ─────────────────────────────────────────────────────────────────
 // Event copy banks. Pick a random line per event so repeat triggers
@@ -482,7 +483,17 @@ export function TowelieAssistant() {
         whileHover={{ scale: 1.06, rotate: [0, -10, 10, -6, 6, 0], transition: { duration: 0.7 } }}
         whileTap={{ scale: 0.94 }}
       >
-        <img src={ART.bobowelie.src} alt="Towelie" className="w-full h-full object-cover" />
+        {/* Same case as the nav logo: a fixed box (56px, 64px at sm) fed from a
+            1470px source, on every route, and EAGER — it is the floating
+            assistant button, always on screen. `sizes` is spelled out because
+            `auto` is only valid on a lazy image; here it would be ignored in
+            favour of the 100vw default, which selects the original. */}
+        <img
+          src={ART.bobowelie.src}
+          {...artImgProps(ART.bobowelie.src, 'eager', '(min-width: 640px) 64px, 56px')}
+          alt="Towelie"
+          className="w-full h-full object-cover"
+        />
       </m.button>
     </div>
   );
