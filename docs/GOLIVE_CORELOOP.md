@@ -1,4 +1,26 @@
-# Core-Loop Go-Live — ⚠️ SUPERSEDED, re-read on-chain 2026-08-02
+# Core-Loop Go-Live — ⚠️ SUPERSEDED, re-read on-chain 2026-09-05
+
+> **🟠 UPDATE 2026-09-05 — the pool was refilled and farming restarted.** The
+> 2026-08-02 "drained / farm LP 0" row below is itself now out of date. Re-read
+> from mainnet (`ethereum-rpc.publicnode.com`) on **2026-09-05**:
+>
+> | Read | 2026-08-02 | **2026-09-05 (actual)** |
+> |---|---|---|
+> | Native pair reserves | 146,258.41 TOWELI + 0.003830891 WETH | **2,792,972.02 TOWELI + 0.079675963 WETH** |
+> | Native pair LP `totalSupply()` | 23.67 | **469.56** |
+> | LP Farming `0x1171268A…e149` LP balance | **0** | **384.20 (81.8% staked)** |
+> | Uniswap pair `0x6682Ac59…F81104D` | 278,952,490 TOWELI + 7.3786 WETH | 268,852,561 TOWELI + **7.6651 WETH** |
+> | Uniswap depth advantage | 1,926× | **~96× in WETH** |
+> | `SwapFeeRouter.totalETHFees()` | 0 | **3,000,000,000,000 wei (0.000003 ETH)** |
+>
+> So **"farming is not live" is no longer true** — the farm holds 384.20 LP
+> again. What has NOT changed: the TWAP floor is 10 WETH per side and **neither**
+> pool clears it, so the oracle stays unbootstrapped and TegridyLending stays
+> gated. Fee capture is non-zero but is ~0.0003% of the 1 ETH distribute
+> minimum, so **no yield epoch has still ever opened**. The deepen sizing below
+> is still undersized.
+>
+> The 2026-08-02 reading is retained verbatim underneath for the record.
 
 > **🔴 THE 2026-07-11 STATE BELOW IS NO LONGER TRUE. The native pool was drained.**
 >

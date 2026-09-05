@@ -122,7 +122,8 @@ describe('useToweliPrice', () => {
 
   // 2b. The drained pool must not price the site ────────────────────────
   it('does not price from a pool too thin to price against, and says so', () => {
-    // The LIVE reserves, read on-chain 2026-08-01: 146,258 TOWELI + 0.00383 WETH.
+    // The 2026-08-02 reserves: 146,258 TOWELI + 0.00383 WETH. Kept as a sub-floor
+    // fixture; the pool read 0.0797 WETH on 2026-09-05, still far below the floor.
     // Before the floor, this fed `priceInUsd` site-wide with its only manipulation
     // guard (TWAP `consult()`) already reverting `ReservesBelowFloor`.
     stubGeckoTerminalFetch(0);
@@ -627,9 +628,16 @@ describe('evaluateEthUsdFeed — swap vs launch freshness windows', () => {
 // ───────────────────────────────────────────────────────────────────────────────
 // Reserves this thin are not evidence of a price.
 //
-// Read on-chain 2026-08-01: the native pair 0x5587…a481 holds 146,258 TOWELI +
+// Read on-chain 2026-08-02: the native pair 0x5587…a481 held 146,258 TOWELI +
 // **0.00383 WETH** (~$14), its LP totalSupply fell 138.03 → 23.67, and LP Farming's
-// balance went 125.0 → 0. The Uniswap pair is ~1,950x deeper in WETH.
+// balance went 125.0 → 0. The Uniswap pair was ~1,950x deeper in WETH.
+//
+// UPDATED 2026-09-05: the pool has since been refilled to 2,792,972 TOWELI +
+// **0.0797 WETH**, LP totalSupply 469.56, and LP Farming holds 384.20 (81.8%) —
+// farming is running again. Uniswap is now ~96x deeper (7.6651 WETH). The
+// fixtures below deliberately keep the 2026-08-02 numbers: they are a
+// SUB-FLOOR pool, which is the case under test, and 0.0797 WETH is still ~125x
+// below the 10-WETH floor, so the behaviour they pin is unchanged.
 //
 // `useToweliPrice` fed that pool's spot straight into the site-wide `priceInUsd`.
 // The only manipulation guard is the TWAP leg, and `consult()` reverts
