@@ -2013,21 +2013,22 @@ a new router is live the old balance is reachable only through the owner-gated
 
 ### ❓ Decisions only you can make
 
-- **D1 - TF-015 is OPEN, and the reason is worth reading.** The fix was designed, implemented and
-  then WITHDRAWN before commit, because its tests did not actually test it. Mutation **M9**
-  (`floorAmountIn` -> `swapAmount` at the FoT 2-hop call site) is *literally the pre-fix state*, and
-  the headline test `test_TF015_haircutMakesFoTConversionReachable` **passed under it**. So the test
-  suite could not tell the fixed contract from the broken one.
-  **The root cause is now MEASURED, not guessed (2026-09-05).** With reserves 100 WETH : 100_000 TOK
-  (spot 1e-3 ETH/TOK) and a 100 TOK pile, the enforced floor came back **4.925e16 - exactly HALF**
-  the correct 9.85e16. The snapshot captures 7200s of accumulation while the delta over the
-  consulted window is only 3600s worth, because `_bootstrapPriced` pokes the pair's cumulative once
-  BEFORE the clock advances and once after. A floor at half spot never binds, so neither the
-  gross-sizing bug nor its correction is observable - and every test still passes.
-  **To reopen it:** build a rig where the TWAP floor demonstrably binds (assert the floor value
-  itself, not just that the call reverted), then re-apply the design - it is recorded in full in the
-  PR that ships TF-010. Until then, fee-on-transfer token fees remain stranded, which is the status
-  quo rather than a regression, and no new governance lever exists.
+- **D1 - TF-015 is OPEN, but it is now UNBLOCKED and PINNED (2026-09-05).**
+  It was designed, implemented and withdrawn because its tests could not distinguish the fixed
+  contract from the broken one - the headline test passed under the mutation that restores the
+  pre-fix source. **The cause is found and fixed.** `UniswapV2OracleLibrary.currentCumulativePrices`
+  EXTRAPOLATES `spot * (now - blockTimestampLast)` on top of the stored cumulative, and
+  `_bootstrapPriced` poked the pair BEFORE the clock advanced - so the snapshot read twice the
+  accumulation it should and the enforced floor came out at **exactly half spot**. A floor at half
+  spot never binds, so nothing was observable.
+  With the poke order corrected, the floor now matches spot to 1 wei, and the strand is REAL and
+  VISIBLE: `test_TF015_KNOWNBUG_grossSizedFloorStrandsAnFoTToken` shows a 5% fee-on-transfer token
+  cannot convert at all, with 100 ether of fees left stranded and no other exit that accepts the
+  token.
+  **To close it:** re-apply the design (recorded in full on PR #412), then INVERT that test - its
+  failure is the signal the fix works. `test_RIG_enforcedFloorMatchesSpot` guards the rig itself, so
+  the vacuity cannot silently return.
+
 - **D2 - if TF-015 is revived, it adds a lever that does not exist today.** The withdrawn design put
   a per-token `fotFloorHaircutBps` behind a 7-day timelock, capped at 1000 bps. That still lets a
   patient compromised owner loosen the sandwich floor on any token routed through
@@ -2066,17 +2067,12 @@ a new router is live the old balance is reachable only through the owner-gated
   value (~$0.30)". More conversions will happen, so more sandwich *opportunities* exist — each still
   TWAP-floored and rate-limited by the 1h cooldown. This is the point of the finding, but it is a
   real change to keeper economics; watch the first weeks after P1.
-- **W3 — `convertTokenFeesToETHFoT` now has its first coverage (2026-09-05) — but NOT on the
-  floor.** An earlier revision of this bullet claimed eleven tests existed; that was wrong. Those
-  eleven were withdrawn with TF-015, because seven of them could not distinguish the fixed
-  contract from the broken one. EIGHT tests exist now, covering the guards a permissionless
-  caller actually meets: WETH/zero-token rejection, both deadline bounds, the empty-pile reject,
-  the per-token cooldown, owner-only multi-hop, and the property that makes the function exist —
-  an FoT token delivers strictly less to the pair than the router sent (mutation-checked: set the
-  mock's fee to 0 and that assertion fails).
-  **Still missing, deliberately: any assertion on the TWAP floor value.** The rig cannot produce
-  a trustworthy one (D1), and a floor test written against it would be decoration. Fixing the
-  poke sequence so the enforced floor matches spot is the precondition for BOTH a real floor
-  test and for reviving TF-015 — the highest-value test infrastructure left here.
+- **W3 — `convertTokenFeesToETHFoT` has coverage now, and so does the RIG.** Fourteen tests:
+  the guards a permissionless caller meets (WETH/zero-token, both deadline bounds, empty pile,
+  per-token cooldown, owner-only multi-hop), the FoT shrink property, the TF-010 gate, a
+  characterisation of the TF-015 strand, and `test_RIG_enforcedFloorMatchesSpot`.
+  **That last one guards every other floor assertion in the file** — reverse the two lines in
+  `_bootstrapPriced` and it fails with `floor is half spot`. Do not delete it; the whole TF-015
+  test set was vacuous for exactly that reason.
 - **W4 — the 640-790px viewport dead band** still has no reachable Connect control and no nav
   fallback. Unrelated to this sweep; still open.
