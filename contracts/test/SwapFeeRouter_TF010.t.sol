@@ -225,8 +225,16 @@ contract SwapFeeRouter_TF010 is Test {
     function _bootstrapPriced(Rig memory g, uint256 seedAmt, uint112 resTok, uint112 resWeth, bool fot)
         internal
     {
-        g.pair.pokeCumulative(uint32(60 minutes));
+        // ORDER IS LOAD-BEARING: poke AFTER the skip, never before.
+        // UniswapV2OracleLibrary.currentCumulativePrices EXTRAPOLATES - it adds
+        // `spot * (block.timestamp - blockTimestampLast)` on top of the stored cumulative.
+        // `pokeCumulative` stamps blockTimestampLast = now, so poking BEFORE the skip stores
+        // an hour that has not elapsed yet and the library then extrapolates a SECOND hour
+        // on top. The snapshot reads 2x, the delta reads 1x, and the TWAP comes out at
+        // EXACTLY HALF SPOT - which is why every floor assertion written against this rig
+        // before 2026-09-05 was vacuous, TF-015's included.
         skip(60 minutes);
+        g.pair.pokeCumulative(uint32(60 minutes));
         _seed(g, seedAmt);
         if (fot) g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
         else     g.sfr.convertTokenFeesToETH(address(g.tok), _path(g), 0, _dl());
@@ -399,7 +407,10 @@ contract SwapFeeRouter_TF010 is Test {
     /// The per-token cooldown is the anti-grief property TF-010 re-dimensioned rather than
     /// removed: a second conversion inside the window is refused.
     function test_FoT_perTokenCooldownIsEnforced() public {
-        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        // 50 bps, under TWAP_SAFETY_BPS (150). Above it the floor - which now BINDS
+        // since the rig was corrected - is unreachable on gross sizing; that strand is
+        // TF-015 and it has its own test below.
+        Rig memory g = _rig(18, 50, R18_TOKEN, R18_WETH);
         _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, true);
         _seed(g, 50 ether);
         vm.prank(keeper);
@@ -432,13 +443,18 @@ contract SwapFeeRouter_TF010 is Test {
     /// inequality below fails — which is what proves the FoT shrink is real and not an
     /// artefact of the mock.
     function test_FoT_settlesAgainstWhatThePairActuallyReceived() public {
-        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH);
+        // 50 bps, under TWAP_SAFETY_BPS (150). Above it the floor - which now BINDS
+        // since the rig was corrected - is unreachable on gross sizing; that strand is
+        // TF-015 and it has its own test below.
+        Rig memory g = _rig(18, 50, R18_TOKEN, R18_WETH);
         _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, true);
         _seed(g, 100 ether);
 
         uint256 ethBefore = g.sfr.accumulatedETHFees();
-        uint256 pairBefore = g.tok.balanceOf(address(g.pair));
-        uint256 routerHeld = g.tok.balanceOf(address(g.sfr));
+        // Measure the SAME address before and after. The mock router is what receives the
+        // transfer, so its delta is what actually arrived downstream.
+        uint256 downstreamBefore = g.tok.balanceOf(address(g.uniRouter));
+        uint256 sentByFeeRouter = g.tok.balanceOf(address(g.sfr));
 
         vm.prank(keeper);
         g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
@@ -446,8 +462,74 @@ contract SwapFeeRouter_TF010 is Test {
         assertEq(g.sfr.accumulatedTokenFees(address(g.tok)), 0, "the pile must be retired");
         assertGt(g.sfr.accumulatedETHFees(), ethBefore, "ETH fees must grow");
 
-        // The FoT burn is real: strictly less arrived downstream than the router sent.
-        uint256 delivered = g.tok.balanceOf(address(g.uniRouter)) - pairBefore;
-        assertLt(delivered, routerHeld, "an FoT token must deliver less than was sent");
+        // The FoT burn is real: strictly less arrived downstream than the fee router sent.
+        uint256 delivered = g.tok.balanceOf(address(g.uniRouter)) - downstreamBefore;
+        assertLt(delivered, sentByFeeRouter, "an FoT token must deliver less than was sent");
+    }
+
+
+    /// ⚠️ CHARACTERISATION OF A KNOWN, UNFIXED DEFECT — TF-015.
+    ///
+    /// This test asserts the CURRENT behaviour, which is WRONG. It exists because the
+    /// behaviour was previously invisible: the rig's TWAP floor came out at half spot, so
+    /// nothing bound and the strand could not be observed. With the poke order corrected
+    /// (see `_bootstrapPriced`), it is observable, and pinning it is how the fix becomes
+    /// verifiable instead of merely plausible.
+    ///
+    /// THE DEFECT: `convertTokenFeesToETHFoT` sizes its TWAP floor on the GROSS balance,
+    /// but a fee-on-transfer token delivers less than gross to the pair. Any FoT fee above
+    /// TWAP_SAFETY_BPS (150 bps = 1.5%) therefore makes the floor unreachable forever —
+    /// and `withdrawTokenFees` / `sweepTokens` both reject any token WITH a WETH pair, so
+    /// those fees have no exit at all. Real FoT tokens are 2-10%.
+    ///
+    /// ⛔ WHEN TF-015 LANDS, THIS TEST MUST BE INVERTED, not deleted. Its failure is the
+    ///    signal that the fix works. See docs/TODO_OPERATOR.md D1.
+    function test_TF015_KNOWNBUG_grossSizedFloorStrandsAnFoTToken() public {
+        Rig memory g = _rig(18, 500, R18_TOKEN, R18_WETH); // 5%, a realistic FoT fee
+        _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, false);
+        _seed(g, 100 ether);
+
+        vm.prank(keeper);
+        vm.expectRevert(bytes("INSUFFICIENT_OUTPUT"));
+        g.sfr.convertTokenFeesToETHFoT(address(g.tok), _path(g), 0, _dl());
+
+        assertEq(
+            g.sfr.accumulatedTokenFees(address(g.tok)),
+            100 ether,
+            "the pile is stranded: nothing moved, and no other exit accepts this token"
+        );
+    }
+
+    /// ⚠️ THIS TEST GUARDS EVERY OTHER TEST IN THIS FILE. Do not delete it.
+    ///
+    /// Every floor assertion here is worthless unless the rig produces a TWAP that matches
+    /// reality. It did not, until 2026-09-05: `_bootstrapPriced` poked the pair's cumulative
+    /// BEFORE the clock advanced, and `UniswapV2OracleLibrary.currentCumulativePrices`
+    /// EXTRAPOLATES `spot * (block.timestamp - blockTimestampLast)` on top of the stored
+    /// value — so the snapshot read twice the accumulation it should and the enforced floor
+    /// came out at EXACTLY HALF SPOT. A floor at half spot never binds, so the whole TF-015
+    /// test set passed against a fix that did nothing, including under the mutation that
+    /// restores the pre-fix source.
+    ///
+    /// So: pin the rig, not just the contract. Reverse the two lines in `_bootstrapPriced`
+    /// and this test fails immediately with `floor is half spot` — which is the only reason
+    /// anyone would notice.
+    function test_RIG_enforcedFloorMatchesSpot() public {
+        Rig memory g = _rig(18, 0, R18_TOKEN, R18_WETH);
+        _bootstrapPriced(g, 1 ether, R18_TOKEN, R18_WETH, false);
+        _seed(g, 100 ether);
+
+        vm.recordLogs();
+        vm.prank(keeper);
+        g.sfr.convertTokenFeesToETH(address(g.tok), _path(g), 0, _dl());
+
+        // reserves 100 WETH : 100_000 TOK  ->  spot 1e-3 ETH/TOK
+        // 100 TOK -> 1e17 wei, less TWAP_SAFETY_BPS (150) -> 9.85e16
+        uint256 expected = (100 ether * 1e20 / 1e23) * (10_000 - 150) / 10_000;
+        uint256 seen = _lastFloor();
+
+        // 1 wei of integer rounding is fine; a factor of two is the bug this guards.
+        assertApproxEqAbs(seen, expected, 2, "enforced floor must equal the spot-derived floor");
+        assertGt(seen * 2, expected * 3 / 2, "floor is half spot - the poke order regressed");
     }
 }
