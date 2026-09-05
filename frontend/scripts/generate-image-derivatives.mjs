@@ -51,7 +51,7 @@
  * cost almost nothing.
  */
 import sharp from 'sharp';
-import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, statSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 
 /**
@@ -70,6 +70,52 @@ const PUBLIC_ROOT = 'public';
 const DERIVED_DIR = join(PUBLIC_ROOT, '_derived');
 /** Where ArtImg reads what exists. Gitignored; a committed empty default ships beside it. */
 const MANIFEST = join('src', 'lib', 'artDerivatives.generated.json');
+
+/** The registry the door thumbnails are declared in. Read as TEXT, not imported:
+ *  this script runs under plain Node with no TS loader (same constraint as
+ *  scripts/render-bungalow-doors.mjs). */
+const BUNGALOWS_TS = join('src', 'lib', 'bungalows.ts');
+/** Per-thumbnail brightness multipliers for the settled-door grid. Committed. */
+const LUMA_MANIFEST = join('src', 'lib', 'doorThumbLuma.generated.json');
+
+/**
+ * SETTLED-DOOR LUMINANCE NORMALISATION (2026-09-04 field review).
+ *
+ * A settled door is rendered `grayscale` at full brightness. Desaturation alone
+ * says nothing about lightness, so where each tile LANDS is whatever exposure
+ * its painting happened to have. Measured across the twelve door thumbnails, the
+ * mean grey ran from 0.270 (wrestler.jpg, BNKR) to 0.841 (mumu-bull.jpg, PEPE) --
+ * a 3.1x spread, which is why the darkest few read as switched off while the
+ * brightest read as barely dimmed at all. The set had no rhythm because nothing
+ * was giving it one.
+ *
+ * The review diagnosed this as a flat `brightness(0.45)` multiplier. There is no
+ * such multiplier anywhere in the tree and never was -- but the SYMPTOM it
+ * described was real and measurable, which is why this exists.
+ *
+ * Each thumbnail therefore gets its own multiplier, computed from its actual
+ * measured mean so they all arrive at the same place. That is the reviewer's
+ * second suggestion ("drive the filter from each image's measured average
+ * brightness") rather than the first ("normalise the sources"), because the
+ * sources are shared: ART_POOL_ALL rotates these same files through full-bleed
+ * surfaces where they must stay exactly as painted. The originals are untouched.
+ *
+ * TARGET is the measured MEDIAN of the current set, not a taste value: aiming at
+ * the middle of where the art already sits moves the outliers and leaves the
+ * majority almost where they were, so the grid gains evenness without the whole
+ * hall being silently re-graded.
+ */
+const LUMA_TARGET = 0.46;
+/**
+ * Multipliers are clamped. An unclamped correction for the darkest tile is 1.70x,
+ * which lifts compression noise and film grain out of the shadows along with the
+ * subject -- the tile stops being too dark and starts being ugly. Clamping leaves
+ * the two extremes slightly off-target (0.41 and 0.51 rather than 0.46), which is
+ * a 1.25x residual spread against the 3.1x we started with, and no visible
+ * artefacts. Evenness is the goal, not uniformity for its own sake.
+ */
+const LUMA_MIN = 0.6;
+const LUMA_MAX = 1.5;
 
 /**
  * Only files big enough to be worth a second copy. Below this the derivative can
@@ -189,6 +235,51 @@ function derivedUrl(file, width) {
   const stem = rel.slice(0, rel.length - ext.length);
   const tag = ext ? `-${ext.slice(1).toLowerCase()}` : '';
   return `/_derived/${stem}${tag}-${width}.webp`;
+}
+
+/**
+ * Measure each door thumbnail and write its brightness multiplier.
+ *
+ * Keyed by the thumbnail's public URL, which is exactly what `bungalow.thumb`
+ * holds, so VenueDoors looks its own value up with no mapping step. Only the
+ * door thumbnails are measured -- roughly a dozen entries -- because this file
+ * ships in the homepage's JS and the whole art library would be 347 of them for
+ * a treatment only the settled-door grid applies.
+ *
+ * NO EXISTENCE CHECKS HERE EITHER, for the reason `walk` records above: asking
+ * whether a path is there and then acting on it is the check-then-use shape
+ * CodeQL flags as js/file-system-race at HIGH. Both reads are simply attempted
+ * and their failure handled. That is also the honest failure mode -- an
+ * unreadable thumbnail gets no entry, and VenueDoors falls back to plain
+ * `grayscale`, exactly as it behaved before this existed. "No normalisation",
+ * never a broken tile.
+ */
+async function writeDoorThumbLuma() {
+  const out = {};
+  let registry = '';
+  try {
+    registry = readFileSync(BUNGALOWS_TS, 'utf8');
+  } catch {
+    // No registry to read: no entries, and every tile keeps plain grayscale.
+  }
+  // Only the path is needed -- the map is keyed by URL, so there is no id to
+  // pair up and no fragile proximity matching to get wrong.
+  const thumbs = [...new Set([...registry.matchAll(/thumb:\s*'([^']+)'/gu)].map((m) => m[1]))];
+  for (const url of thumbs) {
+    const file = join(PUBLIC_ROOT, url.replace(/^\//u, ''));
+    try {
+      const stats = await sharp(file).greyscale().stats();
+      const mean = (stats.channels[0]?.mean ?? 0) / 255;
+      if (!(mean > 0)) continue;
+      const k = Math.min(LUMA_MAX, Math.max(LUMA_MIN, LUMA_TARGET / mean));
+      out[url] = Number(k.toFixed(3));
+    } catch {
+      // Absent or unreadable by sharp -- no entry, plain grayscale, as before.
+    }
+  }
+  mkdirSync(dirname(LUMA_MANIFEST), { recursive: true });
+  writeFileSync(LUMA_MANIFEST, JSON.stringify(out, null, 0) + '\n');
+  return Object.keys(out).length;
 }
 
 async function main() {
@@ -391,7 +482,10 @@ async function main() {
   mkdirSync(dirname(MANIFEST), { recursive: true });
   writeFileSync(MANIFEST, JSON.stringify(manifest, null, 0) + '\n');
 
+  const luma = await writeDoorThumbLuma();
+
   const secs = ((Date.now() - startedAt) / 1000).toFixed(1);
+  console.log(`✔ door thumbnail luminance: ${luma} normalised`);
   console.log(
     `✔ image derivatives: ${Object.keys(manifest).length} sources with variants ` +
       `(${written} written, ${skipped} already fresh` +

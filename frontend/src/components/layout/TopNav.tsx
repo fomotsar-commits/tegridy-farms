@@ -10,7 +10,6 @@ import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
-import { setActiveBungalow } from '../../lib/bungalows';
 import { artImgProps } from '../../lib/artSrcSet';
 
 /**
@@ -295,24 +294,25 @@ export const TopNav = React.memo(function TopNav() {
                 <span className="text-white text-[11px] leading-none">&#9658;</span>
               </span>
             </button>
-            {/* THE WAY BACK (owner, 2026-08-31): the wordmark is the ONLY way
-                to the venue besides the arrival itself — the picker no longer
-                lists it. A plain <Link to="/"> could not do this: with a
-                bungalow stored, "/" renders THAT bungalow's home, so the
-                island's own front page was unreachable without clearing
-                storage. Persisting the 'venue' sentinel first makes the mark
-                mean what it looks like it means. Full assign, not client
-                routing: the voice resolves at module scope, so the document
-                must be new for the venue skin to take. */}
+            {/* THE WAY BACK (owner, 2026-08-31), now handled at the destination
+                (2026-09-04). This used to carry a hand-rolled onClick that
+                persisted the 'venue' sentinel and hard-assigned '/', because a
+                plain <Link to="/"> landed back inside the stored bungalow.
+
+                That was true, and it was true of EVERY link to "/" — the 404
+                page's "Back to Home" and the footer among them — so the
+                wordmark being the only one that worked was the actual bug. The
+                index route is now the venue's own <BungalowDoor id="venue">
+                (App.tsx), which clears the skin on arrival with the same
+                verified-persist and one-shot-reload guards every other door
+                uses.
+
+                So this is a plain Link again, deliberately: one mechanism for
+                the rule instead of two that can drift apart. */}
             <Link
               to="/"
               className="flex items-center gap-1"
               title="Back to memetics.finance"
-              onClick={(e) => {
-                e.preventDefault();
-                setActiveBungalow('venue');
-                window.location.assign('/');
-              }}
             >
               {/* ARRIVAL IDENTITY 2026-08-27: the wordmark follows the arrival
                   voice. The venue speaks as itself by default; the classic
