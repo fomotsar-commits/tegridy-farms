@@ -57,8 +57,9 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-// Returns null on ANY failure or 429 (never throws) so the client degrades to its
-// honest empty state instead of erroring. Mirrors launcher-outcomes.js geckoFetchJson.
+// Returns null on ANY failure or 429 (never throws). Null means UNREAD, not "no pools":
+// the caller must turn a page it could not read into a status or a flagged body, never
+// into an empty `data[]` on a 200. Mirrors launcher-outcomes.js geckoFetchJson.
 async function geckoFetchJson(url) {
   const resp = await fetch(url, { headers: { Accept: "application/json" } });
   if (resp.status === 429 || !resp.ok) return null;
@@ -107,21 +108,59 @@ export async function handleLaunchRadar(req, res) {
     // Sequential (not parallel) so a keyless upstream sees one request at a time.
     // A null page (429/failure/oversize) ends the walk — partial data is still a
     // truthful radar; it just shows fewer rows.
+    //
+    // OUTAGE-AS-ZERO. The walk ended the same way whether the upstream said "no new
+    // pools" or refused to answer, and both left `data` exactly as they found it. So
+    // remember WHICH happened: a refusal on the FIRST page means nothing was observed
+    // at all, and the empty `data[]` that went out asserted that the whole market
+    // launched nothing in the window. An empty-but-present `data` array below is a
+    // real answer and is NOT a failure.
     const data = [];
+    let readFailed = false;
     for (let page = 1; page <= MAX_PAGES; page++) {
       const json = await geckoFetchJson(
         `${GECKO_BASE}/networks/${GECKO_NETWORK}/new_pools?page=${page}`,
       );
-      if (!json || !Array.isArray(json.data)) break;
+      if (!json || !Array.isArray(json.data)) {
+        readFailed = true;
+        break;
+      }
       data.push(...json.data);
       if (json.data.length === 0) break;
+    }
+
+    // Nothing was read at all — the first page was refused, throttled or unparseable.
+    // There is no honest 200 to send here: an empty `data[]` with a fresh `observedAt`
+    // says we looked at that second and the market launched nothing, which is a claim
+    // about the market made out of our own throttling. Answer with a status, the way
+    // _lib/heat.js and api/etherscan.js answer an unreadable upstream, and set NO
+    // Cache-Control — a 60s shared-edge cache (plus 300s SWR) would pin one keyless
+    // hiccup in front of every visitor for the whole TTL. Same body as the catch below,
+    // so both unread paths look identical on the wire. Both browser callers already
+    // degrade correctly on a non-2xx — LaunchRadar.tsx to "Radar unavailable right now…
+    // a data outage on our side, not a signal about any token", alerts/readers.ts to
+    // "an outage, not an absence of launches" — so this makes those reachable at last.
+    if (readFailed && data.length === 0) {
+      console.error("launch-radar upstream unread: new_pools page 1 refused, throttled or unparseable");
+      return res.status(502).json({ error: "Failed to read new pools" });
     }
 
     // Forward the raw JSON:API `data[]` for the pure client mapper. `observedAt`
     // is the fetch time so the UI can state how fresh the read is rather than
     // implying live data.
+    //
+    // `poolsReadFailed` is launcher-outcomes.js's `marketReadFailed` bit on this wire: a
+    // LATER page was refused, so these rows are real but the window is SHORT and the UI
+    // must not present it as the whole picture. A plain boolean, so a body cached before
+    // this shipped reads false and keeps its old meaning. The `Observed` half of that
+    // pair is the status code here — a 200 IS the statement that we read the feed at
+    // `observedAt`, and the unread case above never gets one.
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
-    return res.status(200).json({ data, observedAt: Math.floor(Date.now() / 1000) });
+    return res.status(200).json({
+      data,
+      observedAt: Math.floor(Date.now() / 1000),
+      poolsReadFailed: readFailed,
+    });
   } catch (err) {
     console.error("launch-radar error:", logSafe(err));
     return res.status(502).json({ error: "Failed to read new pools" });

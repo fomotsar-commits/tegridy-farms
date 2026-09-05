@@ -20,7 +20,7 @@ import { formatTimeAgo } from '../../lib/formatting';
 
 type State =
   | { phase: 'loading' }
-  | { phase: 'ready'; entries: RadarEntry[]; observedAt: number }
+  | { phase: 'ready'; entries: RadarEntry[]; observedAt: number; poolsReadFailed: boolean }
   | { phase: 'unavailable' };
 
 function shortAddr(a: string): string {
@@ -44,7 +44,16 @@ export function LaunchRadar() {
     void (async () => {
       try {
         const r = await fetchLaunchRadar({ signal: ac.signal });
-        if (!ac.signal.aborted) setState({ phase: 'ready', entries: r.entries, observedAt: r.observedAt });
+        // OUTAGE-AS-ZERO. A short window with rows is still a truthful radar and says so
+        // in the footer. A short window with NOTHING to show is not the "no new pools in
+        // the current window" answer below, and must never render as one.
+        if (!ac.signal.aborted) {
+          setState(
+            r.entries.length === 0 && r.poolsReadFailed
+              ? { phase: 'unavailable' }
+              : { phase: 'ready', entries: r.entries, observedAt: r.observedAt, poolsReadFailed: r.poolsReadFailed },
+          );
+        }
       } catch {
         // Network/HTTP failure (or abort) — degrade to an honest "unavailable",
         // never a fabricated or stale-but-unlabelled list.
@@ -137,6 +146,9 @@ export function LaunchRadar() {
           <p className="text-white/30 text-[11px]">
             Liquidity is the pool reserve as reported upstream. &ldquo;—&rdquo; means we have no figure we trust — either
             none was reported, or what was reported isn&apos;t a believable market price — never that it is zero.
+            {state.poolsReadFailed && (
+              <> Part of the window could not be read, so this list is short — it is not everything that launched.</>
+            )}
             {state.observedAt > 0 && <> Read {formatTimeAgo(state.observedAt)}.</>}
           </p>
         </>
