@@ -3,7 +3,12 @@
 // already on the plain-pool card shipped hours earlier.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
+  isC1UnsafeLadder,
+  C1_UNSAFE_LADDER_POOLS,
   deriveLadder,
   boostBpsFor,
   boostLabel,
@@ -165,5 +170,69 @@ describe('the exit costs', () => {
   it('counts down a lock and stops at zero rather than going negative', () => {
     expect(lockRemaining(NOW + 100n, NOW)).toBe(100n);
     expect(lockRemaining(NOW - 100n, NOW)).toBe(0n);
+  });
+});
+
+// ─── C1: THE SIX LADDERS THAT MUST NOT TAKE A DEPOSIT ───────────────────────
+//
+// docs/LIGHTHOUSE_AUDIT_2026_09_01.md: "Do not let anyone stake on the EVM
+// ladders until C1 is fixed and redeployed." The source was fixed; the pools
+// were not redeployed, and the registry still serves the pre-fix six as live.
+// The UI gate is the only thing standing in front of a first deposit, so these
+// pin the two ways it could silently stop working.
+describe('the C1 deposit freeze', () => {
+  it('matches regardless of address checksum casing', () => {
+    // The registry stores checksummed addresses and wagmi hands back
+    // checksummed addresses; the list is lowercased. A case-sensitive compare
+    // would leave the gate open on every real call site while still passing a
+    // naive lowercase-only test.
+    const checksummed = '0xdC0B34cE782029f30382F42097f6b33F0544329c'; // PEPE, as addresses.json spells it
+    expect(isC1UnsafeLadder(checksummed)).toBe(true);
+    expect(isC1UnsafeLadder(checksummed.toLowerCase())).toBe(true);
+    expect(isC1UnsafeLadder(checksummed.toUpperCase().replace('0X', '0x'))).toBe(true);
+  });
+
+  it('does not freeze an address that is not on the list, and tolerates absent input', () => {
+    expect(isC1UnsafeLadder('0x000000000000000000000000000000000000dEaD')).toBe(false);
+    expect(isC1UnsafeLadder(null)).toBe(false);
+    expect(isC1UnsafeLadder(undefined)).toBe(false);
+    expect(isC1UnsafeLadder('')).toBe(false);
+  });
+
+  // THE ONE THAT ACTUALLY GUARDS THE USERS' MONEY.
+  //
+  // The gate is keyed on the pool address so a repin lifts it automatically.
+  // The failure mode that buys is: someone edits addresses.json to a redeployed
+  // pool and the gate correctly opens. The failure mode it COSTS is the mirror
+  // image — a ladder that is still the pre-fix deployment but whose address
+  // never made it into the list, which fails open and silently. So derive the
+  // expectation from the registry itself rather than restating the constant.
+  it('covers every ladder the registry still serves as live', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const registry = JSON.parse(
+      readFileSync(join(here, '..', '..', 'scripts', 'addresses.json'), 'utf8'),
+    );
+
+    const liveLadders: string[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      if (node && typeof node === 'object') {
+        const o = node as Record<string, unknown>;
+        if (typeof o.id === 'string' && o.id.startsWith('ladder-')
+            && o.status === 'live' && typeof o.address === 'string') {
+          liveLadders.push(o.address.toLowerCase());
+        }
+        Object.values(o).forEach(walk);
+      }
+    };
+    walk(registry);
+
+    expect(liveLadders.length, 'the registry should still list ladder pools').toBeGreaterThan(0);
+    const unguarded = liveLadders.filter((a) => !C1_UNSAFE_LADDER_POOLS.includes(a));
+    expect(
+      unguarded,
+      'every live ladder in addresses.json must be frozen until it is REDEPLOYED and repinned — '
+      + 'if you repinned to a fixed deployment, drop that address from C1_UNSAFE_LADDER_POOLS in the same change',
+    ).toEqual([]);
   });
 });
