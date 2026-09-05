@@ -89,9 +89,25 @@
 --         and tablename in ('user_watchlist','user_favorites');
 --
 --      # 3. Does the DEPLOYED bundle still read these tables from PostgREST?
---      #    Grep the LIVE bundle (not the source) for 'rest/v1/user_watchlist'
---      #    and 'rest/v1/user_favorites'. Zero hits = the proxy is the only
---      #    reader and this DROP breaks nothing.
+--      #
+--      #    DO NOT grep the built bundle for 'rest/v1/user_watchlist'. supabase-js
+--      #    builds that path by concatenation -- ${url}/rest/v1/${table} -- so the
+--      #    literal never appears in a bundle and "zero hits" is guaranteed whether
+--      #    or not the code reads the table. That check cannot fail, which makes it
+--      #    worse than no check: it reads as clearance. (025 shipped the same
+--      #    mistake in its own preflight; both corrected 2026-09-04.)
+--      #
+--      #    Grep the SOURCE for the client call, which is what actually exists:
+--      grep -rnE 'from[(]("|'"'"')(user_watchlist|user_favorites)("|'"'"')[)]' \
+--        frontend/src --include=*.js --include=*.ts --include=*.tsx
+--
+--      #    Every hit must be inside a proxyRead(...) call, not a supabase.from(...)
+--      #    chain. VERIFIED 2026-09-04 on trunk: both tables read through
+--      #    proxyRead() (frontend/src/nakamigos/lib/supabaseProxy.js:59), and the
+--      #    proxy's own SELECT allowlist admits exactly
+--      #    ["dm_messages","user_watchlist","user_favorites"]
+--      #    (frontend/api/supabase-proxy.js). The ordering precondition above is
+--      #    therefore already satisfied -- the code shipped first.
 --
 -- IDEMPOTENCY
 --   Statements here are applied by hand and get re-run. Both DROPs are

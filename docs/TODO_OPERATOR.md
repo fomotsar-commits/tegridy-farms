@@ -1827,3 +1827,71 @@ this alone):**
    project_2026_08_20_multichain memory / docs).
 4. Only then may docs/CONTRACT_PROVENANCE_AUDIT_2026_08_26.md row 8 drop its "live bytecode
    unchanged" caveat.
+
+
+---
+
+## Two things waiting on a human, 2026-09-04
+
+Both are blocked on credentials or a signature, not on code. Everything else from the audit
+remediation is merged.
+
+### 1. Apply migrations 024 and 025
+
+Both are on trunk and neither has been applied. `025` is the one that matters: it takes the anon
+role's INSERT/UPDATE/DELETE away from `user_profiles`, `user_favorites`, `user_watchlist` and
+`votes`. Until it lands, RLS is the *only* thing between the published anon key and every user's
+rows — and `008`'s `ALTER DEFAULT PRIVILEGES` silently re-grants those verbs every time someone
+re-runs it to clear a 42501 (audit TF-056).
+
+⛔ **Do not use `supabase db push`.** It applies files in filename order, and filename order here
+runs `014` before `015`, which by 015's own analysis publishes every user's favourites, watchlist,
+profile and votes to anyone holding the anon key. `supabase/MIGRATIONS.md` says this outright.
+These go into the Supabase SQL editor by hand, in this order.
+
+**The ordering precondition for 024 is already satisfied.** 024 requires the frontend read to move
+off the anon key first, or every user silently gets zero rows. That shipped — both tables now read
+through `proxyRead()` and the proxy allowlist admits them. Verified on trunk 2026-09-04.
+
+1. Run each file's ⛔ PREFLIGHT block. They were rewritten on 2026-09-04 because the originals
+   could not fail: 024 read an HTTP status code (PostgREST answers an RLS-**denied** select with
+   `200` and `[]`, not 403) and both 024 and 025 grepped a built bundle for a URL supabase-js
+   assembles by concatenation. The replacements distinguish the cases and say which outcomes are
+   inconclusive.
+   - The 025 write-side check is already answered: **zero anon writers**, verified 2026-09-04. The
+     only textual match is a comment at `userdata.js:466` describing an `.upsert()` already removed.
+2. Paste `024_personal_tables_read_lockdown.sql`, then `025_user_tables_anon_write_lockdown.sql`.
+   Both are idempotent — `DROP ... IF EXISTS`, ledger insert `ON CONFLICT DO NOTHING`.
+3. Confirm both rows landed:
+   ```sql
+   select filename, applied_at, note from public.schema_migrations
+    where filename in ('024_personal_tables_read_lockdown.sql',
+                       '025_user_tables_anon_write_lockdown.sql')
+    order by filename;
+   ```
+4. ⛔ **Never re-run `008` after this.** It re-grants what 025 revokes.
+
+### 2. `recoverCallerCredit()` — and WHEN, which is the whole point
+
+`ReferralSplitter.callerCredit[SwapFeeRouter]` holds the non-referral 80% of every ETH swap fee.
+It is not locked: anyone may pull it with the permissionless `SwapFeeRouter.recoverCallerCredit()`,
+which folds it into `accumulatedETHFees`.
+
+```
+node scripts/pull-caller-credit.mjs          # reads the chain, prices the pull, prints the command
+```
+
+That prints the exact `cast send ... "recoverCallerCredit()" --rpc-url <rpc> --ledger`, plus an
+Etherscan write-tab URL for a wallet without Foundry. **Sign it from hardware.** No signing key
+belongs in CI, which is the repo's most consistently held ops rule and why nothing automates this.
+
+⛔ **Do not pull yet.** It is still negative EV — the gas costs more than the credit recovers. As of
+2026-09-04 the alert distinguishes those two states properly: `stranded_worth_pulling` is now a
+first-class output key and a fingerprint fact, and the workflow raises a distinct `::error::PULL NOW`
+only when the pull actually pays for itself. Wait for that. Nothing pays a staker until cumulative
+front-door fees reach ~1.25 ETH anyway, roughly 417 ETH of routed volume at 0.3%.
+
+⛔ **But do pull it BEFORE any SwapFeeRouter redeploy, not after.** `callerCredit` is keyed to the
+router address. Once a new router is live, the old balance is reachable only through the
+owner-gated `recoverCallerCreditFrom(oldSplitter)`. The standing note "wire it before deepening" is
+really *before redeploying*. This matters because TF-010 and TF-015 both land on a router redeploy.
