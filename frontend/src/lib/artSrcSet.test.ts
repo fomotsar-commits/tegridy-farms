@@ -42,11 +42,40 @@ describe('the runtime agrees with the generator', () => {
   });
 
   it('uses the same URL convention', () => {
-    // Generator: '/_derived/' + stem + `-${width}.webp`
-    expect(GENERATOR).toContain("'/_derived/'");
-    expect(GENERATOR).toContain('-${width}.webp');
-    expect(derivedUrl('/art/rose-ape.jpg', 480)).toBe('/_derived/art/rose-ape-480.webp');
-    expect(derivedUrl('/art/bayla/x.png', 960)).toBe('/_derived/art/bayla/x-960.webp');
+    // Generator: `/_derived/${stem}${tag}-${width}.webp`, tag = '-' + extension
+    expect(GENERATOR).toContain('/_derived/${stem}${tag}-${width}.webp');
+    expect(derivedUrl('/art/rose-ape.jpg', 480)).toBe('/_derived/art/rose-ape-jpg-480.webp');
+    expect(derivedUrl('/art/bayla/x.png', 960)).toBe('/_derived/art/bayla/x-png-960.webp');
+  });
+
+  it('keeps the extension, so two sources cannot claim one derived file', () => {
+    // THE BUG THIS REPLACED. derivedUrl used to drop the extension, so
+    // /splash/new/1.avif and /splash/new/1.jpg -- both in the manifest, with
+    // DIFFERENT natural widths (1280 and 940) -- mapped to the same file.
+    // Whichever the walk reached last overwrote the other and both entries then
+    // advertised it. It happened to be harmless only because those pairs are the
+    // same picture in two formats; nothing enforced that.
+    expect(derivedUrl('/splash/new/1.avif', 480)).not.toBe(derivedUrl('/splash/new/1.jpg', 480));
+    expect(derivedUrl('/splash/new/1.avif', 480)).toBe('/_derived/splash/new/1-avif-480.webp');
+    expect(derivedUrl('/splash/new/1.jpg', 480)).toBe('/_derived/splash/new/1-jpg-480.webp');
+  });
+
+  it('NO two manifest sources map to the same derived URL', () => {
+    // The general form of the above, checked against the real manifest rather
+    // than two hand-picked paths, so a NEW colliding pair fails here too.
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), 'src', 'lib', 'artDerivatives.generated.json'), 'utf8'),
+    ) as Record<string, number | number[]>;
+    const seen = new Map<string, string>();
+    for (const src of Object.keys(manifest)) {
+      for (const w of DERIVATIVE_WIDTHS) {
+        const url = derivedUrl(src, w);
+        const prior = seen.get(url);
+        expect(prior, `${src} and ${prior} both resolve to ${url}`).toBeUndefined();
+        seen.set(url, src);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(0);
   });
 
   it('uses the same never-upscale rule', () => {
@@ -65,6 +94,7 @@ describe('the runtime agrees with the generator', () => {
   });
 
   it('handles a path with no extension without mangling it', () => {
+    // No extension means no tag to add — not an empty '-' segment.
     expect(derivedUrl('/art/noext', 480)).toBe('/_derived/art/noext-480.webp');
   });
 });
@@ -124,7 +154,7 @@ describe('the two manifest forms', () => {
     // have caught the bug the array form prevents. A srcset candidate whose file
     // is absent renders as a broken image; it does not fall back to `src`.
     //
-    // Derivatives are gitignored, so this can only run where `prebuild` has run.
+    // Derivatives are gitignored, so this can only run where a build has run.
     // Skipping quietly where they are absent is deliberate — but the skip is
     // reported, because a guard that silently passes on a fresh clone and in CI
     // is not a guard.
