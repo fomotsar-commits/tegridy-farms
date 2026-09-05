@@ -280,6 +280,10 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/farm',
     owner: 'pages/FarmPage.tsx',
+    // 2026-09-05: /farm is the Earn section's landing tab now, so it renders
+    // through EarnPage with a strip above it. FarmPage is still the page in the
+    // panel, which is why `owner` does not move.
+    tabOf: 'EarnPage · farm',
     gate: null,
     knownViolations: ['page-has-heading-one'],
     // Connecting REMOVES the missing-h1 finding: the disconnected surface is a
@@ -297,11 +301,32 @@ export const ROUTES: readonly RouteSpec[] = [
     connectedViolations: ['aria-valid-attr-value'],
   },
   {
+    // 🔻 2026-09-05: this was `owner: pages/TradePage.tsx, tabOf: TradePage ·
+    // liquidity` — because /liquidity was a PATH ALIAS that rendered the swap
+    // host, which then opened TradePage's own inner `?tab=liquidity`. It is a
+    // real page now (the Pools section's landing tab), so the owner is the page
+    // rather than a tab of another one.
     path: '/liquidity',
-    owner: 'pages/TradePage.tsx',
-    tabOf: 'TradePage · liquidity',
+    owner: 'pages/LiquidityPage.tsx',
+    tabOf: 'PoolsHostPage · liquidity',
     gate: null,
-    knownViolations: ['aria-valid-attr-value'],
+    // ⚠️ EMPTIED, NOT CARRIED OVER — and the first draft of this entry got it
+    // wrong by assuming the pin travelled with the form. `aria-valid-attr-value`
+    // was never LiquidityTab's: LiquidityTab has no aria-controls /
+    // aria-labelledby / aria-describedby at all. It was TRADEPAGE's inner strip,
+    // which puts `aria-controls={`trade-panel-${t}`}` on all six tab buttons
+    // (TradePage.tsx:259) while mounting only the active panel, leaving five
+    // idrefs dangling. /liquidity inherited it by rendering that page.
+    //
+    // /liquidity renders LiquidityPage now, whose only idrefs resolve
+    // (VenuePoolTable's aria-labelledby points at its own h2; RouteTabs points
+    // every tab at the one mounted `pools-panel`). /swap keeps the pin because
+    // /swap still renders TradePage — which is the cross-check that this is an
+    // attribution fix and not a suppression.
+    //
+    // This file's own header warns about exactly this direction: a route that
+    // STOPS violating a rule fails until the id is deleted from its list.
+    knownViolations: [],
   },
   {
     path: '/solana',
@@ -319,6 +344,9 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/pools',
     owner: 'pages/PoolsPage.tsx',
+    // Moved host 2026-09-05: it was a tab of the Trade strip (where a liquidity
+    // surface had no business being) and is now a tab of Pools.
+    tabOf: 'PoolsHostPage · pools',
     gate: null,
     why:
       'The venue AMM is not deployed (its program id was closed 2026-08-13), so this audits the ' +
@@ -379,6 +407,9 @@ export const ROUTES: readonly RouteSpec[] = [
   {
     path: '/zap',
     owner: 'components/zap/ZapPage.tsx',
+    // 2026-09-05: promoted out of orphanhood. It was routed and linked from
+    // NOWHERE — no nav entry, no footer row, no page — and is a Pools tab now.
+    tabOf: 'PoolsHostPage · zap',
     gate: null,
     why:
       'Audited with no wallet, which is the composer with its connect prompt: the venue menu renders from ' +
@@ -474,6 +505,19 @@ export const ROUTES: readonly RouteSpec[] = [
     // the entry was simply stale, which is the failure mode this table exists
     // to prevent in the other direction.
     connectedViolations: [],
+  },
+  {
+    path: '/island',
+    owner: 'pages/IslandPage.tsx',
+    gate: null,
+    why:
+      'The Island lobby (2026-09-05). Five links and a heading, no wallet, no chain read and no ' +
+      'form — the section behind the top bar\'s "Island" word. It is cards rather than a tab ' +
+      'strip because three of its destinations already own one; see IslandPage.tsx.',
+    // Nothing here can violate: static links, one h1, one h2-less grid. Left as
+    // [] rather than guessed — a11y-routes.spec.ts asserts this by EQUALITY, so
+    // a real violation fails loudly instead of hiding behind a pre-declared pin.
+    knownViolations: [],
   },
   { path: '/gallery', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },
   {

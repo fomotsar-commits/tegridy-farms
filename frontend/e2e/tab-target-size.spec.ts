@@ -33,7 +33,16 @@ const FLOOR = 44;
 // these three cases are what stops that from silently regressing. They fail on
 // the pre-migration files — each host's own `min-h-[40px]` button class is about
 // 4px under the floor at this viewport.
-for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/leaderboard']) {
+// 2026-09-05 — TWO ADDED, AND ONE DELIBERATELY NOT.
+// /liquidity and /farm became RouteTabs hosts in the nav rewrite (the Pools
+// section and the Earn section), so by this file's own rule — enumerate the
+// tabbed hosts — they belong in the list.
+//
+// /island is NOT here and must not be added: it is a card lobby with no tablist
+// at all (navConfig.ts explains why that section alone is not a SectionHost), so
+// the `toBeGreaterThan(1)` guard below would fail on a count of 0 — reporting a
+// page that is correct by design as a page that changed shape.
+for (const path of ['/community', '/nft-finance', '/trust', '/launch', '/lore', '/contracts', '/leaderboard', '/liquidity', '/farm']) {
   test(`${path} section tabs clear the 44px touch floor at 390px`, async ({
     page,
     walletMock: _w,

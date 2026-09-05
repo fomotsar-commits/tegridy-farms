@@ -33,7 +33,9 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 
 import { getActiveBungalow, DEFAULT_BUNGALOW_ID } from '../lib/bungalows';
+import { isToweliVoice } from '../lib/arrival';
 import { BungalowFarmPanel } from '../components/bungalow/BungalowFarmPanel';
+import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
 import { FarmStatsRow } from '../components/farm/FarmStatsRow';
 import { IncentivesStrip } from '../components/farm/IncentivesStrip';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -55,11 +57,50 @@ import { ArtImg } from '../components/ArtImg';
  * component — so the classic component's hook order is untouched. The active
  * bungalow can only change via persist+reload, so the branch is stable for
  * the lifetime of the document.
+ *
+ * ⚠️ THE THIRD STATE, ADDED 2026-09-05, AND THE BUG IT CLOSES.
+ * This wrapper had TWO branches, and `getActiveBungalow()` returns null when
+ * nothing is chosen — so "the venue, speaking as itself" fell into the same
+ * branch as "the TOWELI bungalow". A stranger's first visit to /farm was
+ * therefore the classic TOWELI stack in full dress: "Stake TOWELI and earn
+ * rewards · FAFO", TOWELI price, TOWELI balance, about thirty occurrences of one
+ * resident's ticker on a page the VENUE was supposed to be speaking on.
+ *
+ * `arrival.ts` has had the right three-state gate the whole time —
+ * arrivalVoice() is 'venue' | 'toweli' | 'bungalow', and HomePage already uses
+ * it correctly. This page (and DashboardPage) branched on the coarser
+ * getActiveBungalow(), which collapses the first two. That is the whole defect;
+ * `isToweliVoice()` is the fix.
+ *
+ * NOTHING ABOUT THE CLASSIC FARM CHANGED. ToweliFarm is byte-identical and still
+ * mounts StakingCard, LPFarmingSection, IncentivesStrip, BoostScheduleTable,
+ * FarmStatsRow, LivePoolCard, LegacyStakingExit and RealYieldProof — it is
+ * simply reached by its own voice now instead of by everyone's. Real staking is
+ * one door away, and VenuePoolIndex links to it by name.
  */
 export default function FarmPage() {
   const bungalow = getActiveBungalow();
   if (bungalow && bungalow.id !== DEFAULT_BUNGALOW_ID) {
     return <BungalowFarmPanel bungalow={bungalow} />;
+  }
+  // The venue speaks for the whole island, not for one resident.
+  if (!isToweliVoice()) {
+    return (
+      <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+        <header className="mb-6">
+          <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
+            Jungle Bay Island
+          </p>
+          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">Earn</h1>
+          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+            Stake a token to earn a share of its pool, or provide liquidity and take a cut of every
+            swap that routes through it. Held time counts here: the longer you lock, the larger your
+            share of the same rewards.
+          </p>
+        </header>
+        <VenuePoolIndex />
+      </div>
+    );
   }
   return <ToweliFarm />;
 }

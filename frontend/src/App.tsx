@@ -17,7 +17,9 @@ import { BUNGALOWS } from './lib/bungalows';
 import { BungalowDoor, VENUE_ID } from './components/bungalow/BungalowDoor';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
-const FarmPage = lazy(() => import('./pages/FarmPage'));
+// ⌫ FarmPage's lazy import lived here. /farm renders EarnPage now (that section's
+//   landing tab), and EarnPage lazy-loads FarmPage itself, so a second handle here
+//   would be a duplicate chunk boundary for a page this file no longer mounts.
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const GalleryPage = lazy(() => import('./pages/GalleryPage'));
 // HistoryPage, LeaderboardPage, PremiumPage, ChangelogPage merged into ActivityPage (tabs)
@@ -47,7 +49,8 @@ const ArtStudioPage = import.meta.env.DEV
 // module the middleware would have written. Its own lazy chunk, so a
 // visitor who never opens the studio pays nothing for it.
 const BungalowArtStudioPage = lazy(() => import('./pages/BungalowArtStudioPage'));
-const LendingPage = lazy(() => import('./pages/LendingPage'));
+// ⌫ LendingPage's lazy import lived here. /nft-finance renders EarnPage now
+//   (it is a tab of that section), and EarnPage lazy-loads LendingPage itself.
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
 const InfoPage = lazy(() => import('./pages/InfoPage'));
 // ── FOUR TABBED SECTION HOSTS (2026-09-04) ───────────────────────────────────
@@ -65,6 +68,10 @@ const EarnPage = lazy(() => import('./pages/EarnPage'));
 const StatsPage = lazy(() => import('./pages/StatsPage'));
 const LaunchHubPage = lazy(() => import('./pages/LaunchHubPage'));
 const TradeHostPage = lazy(() => import('./pages/TradeHostPage'));
+// Liquidity, the venue's Solana AMM, and Zap — the Pools section (2026-09-05).
+const PoolsHostPage = lazy(() => import('./pages/PoolsHostPage'));
+// The Island lobby: cards, not tabs. See IslandPage.tsx for why.
+const IslandPage = lazy(() => import('./pages/IslandPage'));
 // Docs for the keyed /api/v1 layer. Renders its tiers, routes and refusal codes
 // from api/_lib/apiTiers.js and its deployment state from /api/v1?route=status,
 // so neither the price list nor the signup can claim what is not configured.
@@ -97,7 +104,8 @@ const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow
 // docs/USER_VALUE_ROADMAP.md line 101. Never gated: with no wallet it renders the composer
 // and its refusal states, and each venue reports its own availability from constants.ts.
 // Lives under components/zap/ with the panel it mounts, as OnboardingFlow does.
-const ZapPage = lazy(() => import('./components/zap/ZapPage'));
+// ⌫ ZapPage's lazy import likewise: /zap is a tab on PoolsHostPage now, which
+//   loads it. It was previously routed here and linked from NOWHERE in the app.
 // LaunchpadPage lazy import removed — loaded inside LendingPage
 // NFTAMMPage merged into LendingPage (NFT Finance)
 
@@ -321,20 +329,25 @@ function AnimatedRoutes() {
             }
           />
         ))}
-        <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><FarmPage /></Suspense>} />
-        {/* TRADE IS A TABBED HOST 2026-09-04. These four routes all render
-            TradeHostPage, which puts one strip above them — Ethereum / Solana /
-            Pools. "Trade" is in the top bar at every width, so the "More" menu
-            no longer carries a Trade heading with these underneath it; the menu
-            was repeating the bar it sits below. Every path still renders its own
-            page standalone from a deep link, exactly as before.
-            /liquidity is not in the strip on purpose: it is TradePage's own
-            `?tab=liquidity` under an older URL, so it lands on Ethereum and
-            TradePage opens the right inner tab. */}
+        {/* EARN IS A TABBED HOST 2026-09-05. /farm was a top-bar destination
+            called "Farm"; it is the landing tab of the Earn section now, beside
+            /nft-finance which came off the bar for the same reason. Both still
+            render standalone from a deep link, with the strip above them. */}
+        <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
+        {/* SWAP IS A TABBED HOST. Two routes, one strip: Ethereum / Solana.
+            Every path still renders its own page standalone from a deep link. */}
         <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
-        <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
-        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        {/* POOLS IS ITS OWN SECTION 2026-09-05, and /liquidity is a real page
+            rather than a path alias.
+            Before this, /liquidity rendered TradeHostPage — which had no
+            /liquidity tab — so SectionHost fell through to items[0] and landed
+            the visitor on the Ethereum SWAP surface, where TradePage then opened
+            its own inner `?tab=liquidity`. Providing liquidity was the second of
+            six tabs on the trading page. It is a destination now, and /pools
+            (the venue's Solana AMM) and /zap are its siblings. */}
+        <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
+        <Route path="pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         {/* /solana-launch (Meteora DBC) was REMOVED 2026-08-23 — it graduated into a
             pool this protocol does not own. /curve-launch below is the surviving Solana
             launch rail. No redirect is added on purpose: the route is gone, so the SPA
@@ -349,13 +362,17 @@ function AnimatedRoutes() {
         <Route path="airdrop" element={<Suspense fallback={<PageSkeleton />}><AirdropPage /></Suspense>} />
         <Route path="vesting" element={<Suspense fallback={<PageSkeleton />}><VestingPage /></Suspense>} />
         <Route path="start" element={<Suspense fallback={<PageSkeleton />}><OnboardingFlow /></Suspense>} />
-        <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><ZapPage /></Suspense>} />
+        <Route path="zap" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="yield" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         {/* The nav labels this "Trade" — make the natural /trade URL resolve instead of 404. */}
         <Route path="copy-trading" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="competitions" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="trade" element={<Navigate to="/swap" replace />} />
         <Route path="dashboard" element={<Suspense fallback={<DashboardSkeleton />}><DashboardPage /></Suspense>} />
+        {/* The Island lobby — the one section that is cards rather than a tab
+            strip, because three of its doors already own a strip of their own.
+            See IslandPage.tsx. */}
+        <Route path="island" element={<Suspense fallback={<PageSkeleton />}><IslandPage /></Suspense>} />
         <Route path="gallery" element={<Suspense fallback={<PageSkeleton />}><GalleryPage /></Suspense>} />
         <Route path="tokenomics" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="history" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
@@ -372,7 +389,11 @@ function AnimatedRoutes() {
         <Route path="premium" element={<Suspense fallback={<PageSkeleton />}><ActivityPage /></Suspense>} />
         <Route path="bribes" element={<Navigate to="/community?section=bribes" replace />} />
         <Route path="admin" element={<Suspense fallback={<PageSkeleton />}><AdminPage /></Suspense>} />
-        <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><LendingPage /></Suspense>} />
+        {/* An Earn tab like the rest of that section. It was left rendering
+            LendingPage directly in the first cut of the 2026-09-05 rewrite,
+            which made it the ONE Earn destination where the strip vanished —
+            and made `panels['/nft-finance']` in EarnPage.tsx unreachable. */}
+        <Route path="nft-finance" element={<Suspense fallback={<PageSkeleton />}><EarnPage /></Suspense>} />
         <Route path="lending" element={<Navigate to="/nft-finance" replace />} />
         <Route path="launchpad" element={<Navigate to="/nft-finance" replace />} />
         <Route path="nft-amm" element={<Navigate to="/nft-finance" replace />} />

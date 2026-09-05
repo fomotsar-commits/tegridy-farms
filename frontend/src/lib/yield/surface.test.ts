@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ALL_NAV, MORE_NAV_SECTIONS } from '../navConfig';
+import { ALL_NAV, NAV_SECTIONS } from '../navConfig';
 import { ROUTES } from '../../../e2e/fixtures/routes';
 import { depositPlan } from './deposit';
 import { YIELD_ADDRESSES } from './protocols';
@@ -36,11 +36,14 @@ const code = (...parts: string[]) =>
     .join('\n');
 
 describe('the nav entry says what a visitor can actually do', () => {
-  it('promotes /yield in the More menu', () => {
+  it('promotes /yield in the nav', () => {
     const entry = ALL_NAV.find((n) => n.to === '/yield');
     expect(entry, '/yield is missing from the nav').toBeTruthy();
     expect(entry!.label).toBe('Yield Routing');
-    expect(MORE_NAV_SECTIONS.flatMap((s) => s.items).map((i) => i.to)).toContain('/yield');
+    // 2026-09-05: MORE_NAV_SECTIONS became NAV_SECTIONS when the "More"
+    // dropdown was deleted and its sections became the six top-bar words.
+    // /yield is a tab on the Earn host either way.
+    expect(NAV_SECTIONS.flatMap((s) => s.items).map((i) => i.to)).toContain('/yield');
   });
 
   it('clears the pill, because the routing the label names now happens', () => {

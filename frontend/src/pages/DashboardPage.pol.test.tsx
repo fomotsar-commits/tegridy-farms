@@ -26,7 +26,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { POL_ACCUMULATOR_ADDRESS } from '../lib/constants';
 
@@ -55,6 +55,7 @@ vi.mock('framer-motion', () => {
 vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 
 import { POLAccumulatorCard } from './DashboardPage';
+import { BUNGALOW_STORAGE_KEY } from '../lib/bungalows';
 
 /** The wiring state actually on mainnet today: deployed, unfunded, unwired. */
 function unwired(overrides: Record<string, unknown> = {}) {
@@ -70,6 +71,34 @@ function unwired(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   unwired();
+});
+
+
+/**
+ * ⚠️ THIS FILE STANDS INSIDE THE TOWELI BUNGALOW, EXPLICITLY, AS OF 2026-09-05.
+ *
+ * It renders the CLASSIC TOWELI surface, and until now it got there by
+ * accident: the page's wrapper branched on `getActiveBungalow()` /
+ * `getBungalowIdentity()`, both of which are null when NOTHING is chosen, so
+ * "no bungalow" and "the TOWELI bungalow" fell into the same branch. A test that
+ * set nothing therefore rendered the TOWELI page — and so did a stranger
+ * arriving at the venue, which was the bug (one resident's ticker, ~30 times,
+ * on a page the venue was supposed to be speaking on).
+ *
+ * The wrapper now uses `isToweliVoice()` (arrival.ts), which separates the two.
+ * So this file says where it is standing instead of relying on a collapsed
+ * state. Real storage, not a mocked gate — that keeps the assertions pointed at
+ * the SAME predicate the app runs, so if the gate changes shape again these
+ * fail rather than quietly testing a stub.
+ */
+
+// The venue speaks for the whole island; the classic TOWELI stack lives in its
+// own room. Stand in that room before rendering.
+beforeEach(() => {
+  window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+});
+afterEach(() => {
+  window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
 });
 
 describe('POL Accumulator card', () => {
