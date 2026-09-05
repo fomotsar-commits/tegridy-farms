@@ -76,6 +76,8 @@ vi.mock('../hooks/useLpPosition', () => ({
     pendingRewards: 5,
     farmingDeployed: true,
     isLoading: false,
+    lpUnread: false,
+    reservesUnread: false,
   }),
 }));
 

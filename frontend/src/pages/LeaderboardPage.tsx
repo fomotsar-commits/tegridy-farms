@@ -112,19 +112,39 @@ export default function LeaderboardPage() {
                 zeros that could never move, which reads as broken. Points and
                 Tier are real (derived from on-chain activity). Re-add a streak
                 only if something actually records visits. */}
+            {/* OUTAGE-AS-ZERO. Three branches, never two: the swap scan is still
+                running (no notice - nothing has been refused yet), it was refused
+                (this notice, and every number it feeds renders the en-dash), or it
+                answered. A refused scan used to render as a wallet that had never
+                swapped: fewer points, a lower tier, missing badges, no word said. */}
+            {points.swapCountUnread && (
+              <div
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 mb-4 text-[12px] text-amber-100"
+                data-testid="points-swaps-unread"
+              >
+                Your swap history could not be read just now - the network did not answer.
+                Points and tier are withheld rather than shown short, and any badge earned by
+                swapping is missing from the list below. This is not a statement that you have
+                never swapped, and nothing on-chain has changed - reload to try again.
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Points</p>
-                <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />
+                {points.swapCountUnread
+                  ? <p className="stat-value text-xl text-white">–</p>
+                  : <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />}
               </div>
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Tier</p>
-                <p className="stat-value text-lg" style={{ color: points.tier?.color }}>{points.tier?.name}</p>
+                <p className="stat-value text-lg" style={{ color: points.tier?.color }}>{points.swapCountUnread ? '–' : points.tier?.name}</p>
               </div>
             </div>
 
-            {/* Progress to next tier */}
-            {points.nextTier && (
+            {/* Progress to next tier. Gated on the same flag as the Points tile:
+                a bar filled from an understated total is that understatement
+                drawn rather than written, aria-valuenow included. */}
+            {points.nextTier && !points.swapCountUnread && (
               <div className="mb-4">
                 <div className="flex items-center justify-between text-[11px] mb-1.5">
                   <span className="text-white">Progress to {points.nextTier.name}</span>
