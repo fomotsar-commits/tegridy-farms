@@ -584,6 +584,28 @@ function ToweliDashboard() {
                   </div>
                 </div>
               </m.div>
+            ) : pos.positionUnread ? (
+              /* Three branches, never two: "No staking position yet" is a claim
+                 about the chain, so it is gated on having actually read the
+                 chain. An unanswered multicall is not an empty position. */
+              <div
+                className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 mb-10 text-[13px] text-amber-100"
+                data-testid="dashboard-position-unread"
+              >
+                <p>
+                  Your staking position could not be read just now - the network did not
+                  answer. This is not a statement that you have nothing staked: anything
+                  you staked is still staked, and the contract is the record. Retry before
+                  acting on this panel.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary mt-3 px-4 py-1.5 text-[12px]"
+                  onClick={() => { void pos.refetchAll(); }}
+                >
+                  Retry
+                </button>
+              </div>
             ) : (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-10" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -605,8 +627,30 @@ function ToweliDashboard() {
               </m.div>
             )}
 
-            {/* Liquidity position (LP) — surfaces TGLP that wallets otherwise hide */}
-            {lpPos.hasPosition && (
+            {/* Liquidity position (LP) — surfaces TGLP that wallets otherwise hide.
+                THREE branches, never two. The silent branch here is "render nothing",
+                and rendering nothing is exactly how a failed read deleted an LP
+                provider's position from this page — no figure to look wrong, no error,
+                just an absence. So the unread notice comes FIRST and the card is gated
+                on NOT-unread; the honest no-position silence keeps the last slot. */}
+            {lpPos.lpUnread && (
+              <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
+                <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
+                <div className="relative overflow-hidden rounded-xl glass-card-animated" style={{ border: '1px solid rgba(255,178,55,0.35)' }}>
+                  <div className="relative z-10 p-8 py-12 text-center" data-testid="dash-lp-unread">
+                    <p className="text-amber-300 text-[15px] mb-2">Couldn't read your liquidity position</p>
+                    <p className="text-white/70 text-[12px] max-w-sm mx-auto">
+                      A network read failed, so we can't show your TGLP, your pool share or what
+                      it redeems for. This is not a statement that you have none — anything you
+                      provided is still yours and the pair contract is the record. This refreshes
+                      automatically; reload before concluding anything here.
+                    </p>
+                  </div>
+                </div>
+              </m.div>
+            )}
+
+            {!lpPos.lpUnread && lpPos.hasPosition && (
               <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
                 <h3 className="heading-luxury text-[16px] text-white mb-4">Your Liquidity</h3>
                 <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -624,16 +668,19 @@ function ToweliDashboard() {
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Pool Share</p>
-                        <p className="stat-value text-[16px] text-white">{lpPos.sharePct < 0.01 ? '<0.01' : lpPos.sharePct.toFixed(2)}%</p>
+                        {/* An unreadable number is an en-dash, never 0. A 0.00% share and a
+                            $0.00 valuation are measurements; these three are the absence of
+                            one, and printing them as figures marked a live position to zero. */}
+                        <p className="stat-value text-[16px] text-white">{lpPos.reservesUnread ? '–' : lpPos.sharePct < 0.01 ? '<0.01%' : `${lpPos.sharePct.toFixed(2)}%`}</p>
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Redeemable</p>
-                        <p className="text-white text-[12px]">{formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH</p>
-                        <p className="text-white text-[12px]">{formatWholeNumber(lpPos.toweliAmount)} TOWELI</p>
+                        <p className="text-white text-[12px]">{lpPos.reservesUnread ? '–' : `${formatTokenAmount(lpPos.wethAmount.toString(), 4)} ETH`}</p>
+                        <p className="text-white text-[12px]">{lpPos.reservesUnread ? '–' : `${formatWholeNumber(lpPos.toweliAmount)} TOWELI`}</p>
                       </div>
                       <div>
                         <p className="text-white text-[10px] mb-0.5">Value</p>
-                        <p className="stat-value text-[16px] text-white">{formatCurrency(lpUsd)}</p>
+                        <p className="stat-value text-[16px] text-white">{lpPos.reservesUnread ? '–' : formatCurrency(lpUsd)}</p>
                       </div>
                     </div>
                     {lpBoost.needsRefresh && (

@@ -56,11 +56,11 @@ export function BountiesSection() {
   const { data: bountyCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'bountyCount' });
   const { data: totalPosted, refetch: refetchPosted } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'totalBountiesPosted' });
   const { data: totalPaidOut, refetch: refetchPaidOut } = useReadContract({ address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'totalPaidOut' });
-  const { data: pendingPayout, refetch: refetchPayout } = useReadContract({
+  const { data: pendingPayout, isError: payoutReadFailed, refetch: refetchPayout } = useReadContract({
     address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'pendingPayouts', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
-  const { data: pendingRefund, refetch: refetchRefund } = useReadContract({
+  const { data: pendingRefund, isError: refundReadFailed, refetch: refetchRefund } = useReadContract({
     address: bbAddr, abi: MEME_BOUNTY_BOARD_ABI, chainId: CHAIN_ID, functionName: 'pendingRefund', args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
@@ -194,8 +194,36 @@ export function BountiesSection() {
   const canCreate =
     !!newDescription && !!newReward && !rewardInvalid && !deadlineInvalid;
 
+  // OUTAGE-AS-ZERO. `(pendingPayout as bigint) ?? 0n` printed "0.0000 ETH" under
+  // "Your Pending Payout" as settled fact, and took the Claim button away with it,
+  // every time the pendingPayouts / pendingRefund read failed or had not landed —
+  // 0n is also the honest "the board owes you nothing", so one unanswered RPC call
+  // told a user who IS owed ETH that they are owed none, and left them no control
+  // to reach it. Money rides on this number and it arms a signature, so unknown
+  // stays unknown: `null` is "we did not read it", and a successful 0n is still a
+  // real zero. wagmi leaves `data` undefined for a pending, disabled or failed read
+  // and a bigint for a landed one — that is the whole distinction.
+  const payoutBig: bigint | null = typeof pendingPayout === 'bigint' ? pendingPayout : null;
+  const refundBig: bigint | null = typeof pendingRefund === 'bigint' ? pendingRefund : null;
+  // Scoped to a connected wallet — the reads are `enabled: !!address`, so a visitor
+  // with no wallet never asked. A not-attempted read must not render as a failed one.
+  const payoutUnread = !!address && payoutReadFailed;
+  const refundUnread = !!address && refundReadFailed;
+  // Three branches, never two: could-not-read, then still in flight, then the value.
+  // '–' is this app's glyph for a figure nobody read — never a 0.
+  const payoutLabel = !address || payoutUnread ? '–' : payoutBig === null ? '…' : `${formatWei(payoutBig, 18, 4)} ETH`;
+  const refundLabel = !address || refundUnread ? '–' : refundBig === null ? '…' : `${formatWei(refundBig, 18, 4)} ETH`;
+
   const handleClaim = (type: 'payout' | 'refund') => {
     if (!address) { toast.error('Connect your wallet first'); return; }
+    // OUTAGE-AS-ZERO: fail CLOSED. The button below is already gated on a landed
+    // read; this is the second gate, so no click path can ever sign a withdrawal
+    // against an amount nobody read.
+    const owed = type === 'payout' ? payoutBig : refundBig;
+    if (owed === null) {
+      toast.error('Could not read what the bounty board owes you — the network did not answer. Reload before claiming.');
+      return;
+    }
     if (!_ensureChain()) return;
     writeContract({
       chainId: CHAIN_ID,
@@ -204,9 +232,6 @@ export function BountiesSection() {
     });
   };
 
-  const payoutBig = (pendingPayout as bigint) ?? 0n;
-  const refundBig = (pendingRefund as bigint) ?? 0n;
-
   return (
     <div className="space-y-4">
       {/* Stats Row */}
@@ -214,8 +239,8 @@ export function BountiesSection() {
         {[
           { label: 'Bounties Posted', value: totalPosted !== undefined ? Number(totalPosted).toString() : '--' },
           { label: 'Total Paid Out', value: totalPaidOut !== undefined ? `${formatWei(totalPaidOut as bigint, 18, 4)} ETH` : '--' },
-          { label: 'Your Pending Payout', value: `${formatWei(payoutBig, 18, 4)} ETH`, highlight: payoutBig > 0n },
-          { label: 'Your Pending Refund', value: `${formatWei(refundBig, 18, 4)} ETH`, highlight: refundBig > 0n },
+          { label: 'Your Pending Payout', value: payoutLabel, highlight: payoutBig !== null && payoutBig > 0n },
+          { label: 'Your Pending Refund', value: refundLabel, highlight: refundBig !== null && refundBig > 0n },
         ].map(({ label, value, highlight }, i) => (
           <div key={label} className="rounded-xl relative overflow-hidden" style={{ border: `1px solid ${CARD_BORDER}` }}>
             <div className="absolute inset-0">
@@ -230,15 +255,27 @@ export function BountiesSection() {
       </div>
 
       {/* Claim Buttons */}
-      {(payoutBig > 0n || refundBig > 0n) && (
+      {/* OUTAGE-AS-ZERO. Gated on `> 0n` alone, a failed read collapsed to 0n and
+          removed this entire block — the silent half of the false zero: a user who
+          is owed ETH sees no Claim control and no reason why. Say the read failed
+          rather than implying there is nothing to claim. */}
+      {(payoutUnread || refundUnread) && (
+        <p data-testid="bounties-claims-unread"
+          className="rounded-xl px-4 py-3 text-[12px] text-amber-100 border border-amber-500/40 bg-amber-500/10">
+          We could not read what the bounty board owes you just now — the network did not
+          answer. Anything owed is still yours and still claimable; reload before concluding
+          you have nothing to claim.
+        </p>
+      )}
+      {((payoutBig !== null && payoutBig > 0n) || (refundBig !== null && refundBig > 0n)) && (
         <div className="flex gap-2">
-          {payoutBig > 0n && (
+          {payoutBig !== null && payoutBig > 0n && (
             <button onClick={() => handleClaim('payout')} disabled={!address || isSigning || isConfirming}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors disabled:opacity-40">
               Claim {formatWei(payoutBig, 18, 4)} ETH Payout
             </button>
           )}
-          {refundBig > 0n && (
+          {refundBig !== null && refundBig > 0n && (
             <button onClick={() => handleClaim('refund')} disabled={!address || isSigning || isConfirming}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-yellow-500/15 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/25 transition-colors disabled:opacity-40">
               Claim {formatWei(refundBig, 18, 4)} ETH Refund

@@ -111,7 +111,11 @@ export function NFTLendingSection() {
   void useAccount(); // keep wagmi context alive
   const [activeTab, setActiveTab] = useState<Tab>('Lend');
   // T10 (F275): tablist semantics + roving-focus arrow-key navigation.
-  const tabKeys = useTabListKeys(TABS, activeTab, setActiveTab);
+  // Explicit <Tab>: inference widens T to `string | number` under the test
+  // project's `strictFunctionTypes: false`, so this call stops typechecking the
+  // moment a spec imports this file (CommunityPage.tabTargets.test.tsx names the
+  // error and routes around it). Pinning the argument costs nothing at runtime.
+  const tabKeys = useTabListKeys<Tab>(TABS, activeTab, setActiveTab);
 
   /* ── Protocol Stats ──────────────────────────────────────────── */
   const { data: offerCountData } = useReadContract({
@@ -128,7 +132,7 @@ export function NFTLendingSection() {
     chainId: CHAIN_ID,
     query: { enabled: isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) },
   });
-  const { data: protocolFeeBpsData } = useReadContract({
+  const { data: protocolFeeBpsData, isLoading: protocolFeeLoading } = useReadContract({
     address: TEGRIDY_NFT_LENDING_ADDRESS,
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'protocolFeeBps',
@@ -138,7 +142,13 @@ export function NFTLendingSection() {
 
   const offerCount = offerCountData ? Number(offerCountData) : 0;
   const loanCount = loanCountData ? Number(loanCountData) : 0;
-  const protocolFeeBps = protocolFeeBpsData ? Number(protocolFeeBpsData) : 0;
+  // OUTAGE-AS-ZERO. `protocolFeeBpsData ? Number(...) : 0` handed a failed read
+  // to the Protocol Fee tile as 0, and the tile then stated "0.00%" — that the
+  // protocol takes no cut of a lender's interest. It takes 5% by default and the
+  // owner can move it, so that zero is the number a lender prices an offer
+  // against. No read, no number: null, and the tile says so.
+  const protocolFeeBps = typeof protocolFeeBpsData === 'bigint' ? Number(protocolFeeBpsData) : null;
+  const protocolFeeUnread = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS) && !protocolFeeLoading && protocolFeeBps === null;
 
   return (
     <div className="space-y-6">
@@ -172,7 +182,16 @@ export function NFTLendingSection() {
         {[
           { label: 'Total Offers', value: offerCount.toString(), tooltip: 'Number of active loan offers available for borrowers', art: pageArt('nft-lending', 0) },
           { label: 'Total Loans', value: loanCount.toString(), tooltip: 'All loans ever created in this market, including repaid and defaulted', art: pageArt('nft-lending', 1) },
-          { label: 'Protocol Fee', value: `${bpsToPercent(protocolFeeBps)}%`, tooltip: 'Fee taken from interest earned by lenders, paid to the protocol treasury', art: pageArt('nft-lending', 2) },
+          {
+            label: 'Protocol Fee',
+            // Three branches, not two: still reading, could not read, or a
+            // figure. Only the third one is allowed to name a percentage.
+            value: protocolFeeBps !== null ? `${bpsToPercent(protocolFeeBps)}%` : protocolFeeUnread ? 'Unavailable' : '–',
+            tooltip: protocolFeeBps !== null
+              ? 'Fee taken from interest earned by lenders, paid to the protocol treasury'
+              : 'The protocol fee could not be read from the lending contract, so none is shown. It is unknown right now, not zero — reload before pricing an offer against it.',
+            art: pageArt('nft-lending', 2),
+          },
           { label: 'Collections', value: COLLECTIONS.length.toString(), tooltip: `Supported collections: ${COLLECTIONS.map(c => c.symbol).join(', ')}`, art: pageArt('nft-lending', 3) },
         ].map((s) => (
           <div

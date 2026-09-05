@@ -99,6 +99,7 @@ vi.mock('./useSwapQuote', () => ({
     outputAmount: 1000n * 10n ** 18n,
     outputFormatted: '1000',
     priceImpact: 0.5,
+    priceImpactUnread: false,
     minimumReceived: 990n * 10n ** 18n,
     minimumReceivedFormatted: '990',
     isQuoteLoading: false,

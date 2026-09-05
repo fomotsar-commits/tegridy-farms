@@ -13,8 +13,17 @@ describe('useUserPosition', () => {
 
   // ───── Disconnected / zero state ────────────────────────────────────
 
-  it('returns zero state when no reads are stubbed', () => {
+  it('a genuinely zero position reads as zero, and is NOT an outage', () => {
+    // Every leg stubbed with a REAL on-chain zero. An unstubbed leg is a FAILED
+    // read (see wagmi-mocks), not a zero - that case is covered by the
+    // outage-as-zero block below, and `positionUnread` is what separates them.
+    wagmiMock.setReadResult({ functionName: 'userTokenId', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'paused', result: false });
+    wagmiMock.setReadResult({ functionName: 'unsettledRewards', result: 0n });
     const { result } = renderHook(() => useUserPosition());
+    expect(result.current.positionUnread).toBe(false);
     expect(result.current.tokenId).toBe(0n);
     expect(result.current.hasPosition).toBe(false);
     expect(result.current.stakedAmount).toBe(0n);
@@ -30,8 +39,15 @@ describe('useUserPosition', () => {
     expect(result.current.isDeployed).toBe(true);
   });
 
-  it('formats zero bigints as "0" strings (safe for display)', () => {
+  it('formats REAL zero bigints as "0" strings (safe for display)', () => {
+    // Stubbed as real zeros on purpose: the collapse to '0' is only "safe for
+    // display" when a failed read is reported separately (`positionUnread`).
+    wagmiMock.setReadResult({ functionName: 'userTokenId', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'unsettledRewards', result: 0n });
     const { result } = renderHook(() => useUserPosition());
+    expect(result.current.positionUnread).toBe(false);
     expect(result.current.stakedFormatted).toBe('0');
     expect(result.current.pendingFormatted).toBe('0');
     expect(result.current.walletBalanceFormatted).toBe('0');
@@ -180,8 +196,15 @@ describe('useUserPosition', () => {
     expect(result.current.boostMultiplier).toBe(4.5);
   });
 
-  it('boostMultiplier stays 0 when boostBps is 0 (no position)', () => {
+  it('boostMultiplier stays 0 when boostBps is 0 (genuinely no position)', () => {
+    // A REAL tokenId of 0 is the no-position state; leaving it unstubbed would
+    // be a failed read, which is an outage rather than an absent position.
+    wagmiMock.setReadResult({ functionName: 'userTokenId', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'unsettledRewards', result: 0n });
     const { result } = renderHook(() => useUserPosition());
     expect(result.current.boostMultiplier).toBe(0);
+    expect(result.current.positionUnread).toBe(false);
   });
 });

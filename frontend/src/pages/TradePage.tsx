@@ -196,10 +196,17 @@ export default function TradePage() {
   const { say } = useTowelie();
   useEffect(() => {
     if (tab !== 'swap') return;
-    if (swap.priceImpact > 5) {
+    // OUTAGE-AS-ZERO. `> 5` was armed by a figure that collapsed to 0 whenever the
+    // pair reserves did not land, so the loudest warning on the page fell silent on
+    // precisely the quotes nobody could vet. Unread is its own nudge, not silence.
+    if (swap.priceImpactUnread) {
+      say(`Price impact couldn't be read. Refresh the quote before you sign.`, { priority: 'urgent', key: 'price-impact-unread' });
+      return;
+    }
+    if (swap.priceImpact !== null && swap.priceImpact > 5) {
       say(`Price impact is ${swap.priceImpact.toFixed(1)}%. You sure?`, { priority: 'urgent', key: 'high-price-impact' });
     }
-  }, [tab, swap.priceImpact, say]);
+  }, [tab, swap.priceImpact, swap.priceImpactUnread, say]);
 
   const handleTokenSelect = (token: typeof swap.fromToken) => {
     if (!token) return;
@@ -550,11 +557,22 @@ export default function TradePage() {
                         <span className="font-mono text-emerald-300">+{routeSavingsPct >= 999 ? '>999' : routeSavingsPct.toFixed(2)}% vs worst venue</span>
                       </div>
                     )}
-                    {swap.priceImpact > 0 && (
-                      <div className="flex justify-between mt-1">
-                        <span className="text-white">Price Impact</span>
-                        <span className={`font-mono ${swap.priceImpact > 3 ? 'text-red-300 font-semibold' : 'text-white'}`}>{swap.priceImpact.toFixed(2)}%</span>
-                      </div>
+                    {/* OUTAGE-AS-ZERO. Three branches, never two: still quoting, then
+                        unpriceable, then the figure. An impact we could not compute
+                        renders the en-dash; a MEASURED 0 (favorable fill, or too small
+                        to round up) keeps its old behaviour and stays hidden. */}
+                    {!swap.isQuoteLoading && (
+                      swap.priceImpact === null ? (
+                        <div className="flex justify-between mt-1">
+                          <span className="text-white">Price Impact</span>
+                          <span className="font-mono text-amber-300" title="Not read — this is not a claim that impact is low.">–</span>
+                        </div>
+                      ) : swap.priceImpact > 0 ? (
+                        <div className="flex justify-between mt-1">
+                          <span className="text-white">Price Impact</span>
+                          <span className={`font-mono ${swap.priceImpact > 3 ? 'text-red-300 font-semibold' : 'text-white'}`}>{swap.priceImpact.toFixed(2)}%</span>
+                        </div>
+                      ) : null
                     )}
                     {swap.minimumReceived && (
                       <div className="flex justify-between mt-1">
@@ -562,11 +580,20 @@ export default function TradePage() {
                         <span className="text-white font-mono">{formatTokenAmountGrouped(swap.minimumReceived)} {swap.toToken?.symbol}</span>
                       </div>
                     )}
-                    {swap.priceImpact > 5 && (
+                    {swap.priceImpactUnread ? (
+                      <div
+                        className="mt-2 px-2 py-1.5 rounded text-[10px] text-amber-200 font-semibold"
+                        style={{ background: 'rgba(255,178,55,0.15)', border: '1px solid rgba(255,178,55,0.40)' }}
+                        data-testid="swap-price-impact-unread"
+                      >
+                        Price impact could not be read — the network did not answer. This is
+                        not a statement that impact is low. Refresh the quote before you sign.
+                      </div>
+                    ) : swap.priceImpact !== null && swap.priceImpact > 5 ? (
                       <div className="mt-2 px-2 py-1.5 rounded text-[10px] text-red-200 font-semibold" style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.45)' }}>
                         High price impact! Consider reducing your trade size.
                       </div>
-                    )}
+                    ) : null}
                     {swap.allAggQuotes && swap.allAggQuotes.length > 0 && (
                       <div className="mt-2">
                         <button onClick={() => setShowRouteDetails(!showRouteDetails)}

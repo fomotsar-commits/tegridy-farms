@@ -380,9 +380,25 @@ export default function LaunchPage() {
       }
       try {
         const r = await fetchLauncherOutcomes({ baselines, poolByToken, signal: ac.signal });
+        if (ac.signal.aborted) return;
         setExplorer({ launches: r.launches, outcomes: r.outcomes });
       } catch {
-        setExplorer({ launches: [], outcomes: {} }); // client throws on net/HTTP — degrade to empty
+        // OUTAGE-AS-ZERO. `{ launches: [], outcomes: {} }` on its own asserted "nothing has
+        // launched through this rail": the Afterlife's "No launches have graduated through
+        // this rail yet" and the explorer's "No launches yet" are the SAME pixels a 429,
+        // 502 or 403 produced, because outcomesClient throws on ANY non-2xx and the banner
+        // below was driven only by the OTHER read's `complete`. We are past the
+        // `baselines.length === 0` return, so the cohort is KNOWN to be non-empty and this
+        // path printed the opposite of what it had just read. Keep the empty collapse for
+        // display; raise the same "couldn't read the launch history" flag an incomplete
+        // cohort scan raises - a failed enrichment is unavailable, never zero (the rule
+        // lib/alerts/readers.ts already applies to this client).
+        //
+        // An abort is an unmount or an effect re-run, not an outage: it must not blank the
+        // surface and must not arm the banner. Same guard as <LaunchRadar /> below.
+        if (ac.signal.aborted) return;
+        setCohortUnavailable(true);
+        setExplorer({ launches: [], outcomes: {} });
       }
     })();
     return () => ac.abort();
@@ -654,9 +670,11 @@ export default function LaunchPage() {
           (GeckoTerminal + Etherscan) once a discovery feed populates baselines;
           degrades to honest empty states until then. */}
       <div className="mt-12 space-y-8">
-        {/* Launch Afterlife — honest cohort ledger over the SAME outcomes the
-            explorer lists below. Self-gates to an honest empty statement. */}
-        <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
+        {/* The unread banner sits ABOVE both cohort surfaces, not between them. It says
+            "the cohort below may be incomplete", and the Afterlife ledger is one of the two
+            surfaces it is correcting: on an unread outcomes fetch that ledger renders "No
+            launches have graduated through this rail yet", which is the claim this banner
+            exists to contradict. A correction printed underneath the claim is read second. */}
         {cohortUnavailable && (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             We couldn&rsquo;t read the launch history just now, so the cohort below may be incomplete.
@@ -664,6 +682,9 @@ export default function LaunchPage() {
             tokens have launched.
           </div>
         )}
+        {/* Launch Afterlife — honest cohort ledger over the SAME outcomes the
+            explorer lists below. Self-gates to an honest empty statement. */}
+        <LaunchAfterlife outcomes={Object.values(explorer.outcomes)} />
         <LaunchExplorer launches={explorer.launches} outcomes={explorer.outcomes} />
         {/* MARKET-WIDE radar — deliberately BELOW and visually distinct from the two
             cohort surfaces above. Those promise tokens that graduated through THIS

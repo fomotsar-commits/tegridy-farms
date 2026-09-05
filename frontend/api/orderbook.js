@@ -921,12 +921,21 @@ export default async function handler(req, res) {
 
       // Rate limit: max 20 orders per maker per hour (persists across cold starts)
       const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
-      const { count: makerOrderCount } = await supabase
+      const { count: makerOrderCount, error: makerCountError } = await supabase
         .from("native_orders")
         .select("*", { count: "exact", head: true })
         .eq("maker", recoveredCreator)
         .gte("created_at", oneHourAgo);
-      if (makerOrderCount != null && makerOrderCount >= 20) {
+      // OUTAGE-AS-ZERO. The error was dropped and `makerOrderCount != null` sent an UNREAD
+      // count down the PERMISSIVE branch, so a null count from a paused or rate-limited
+      // Supabase asserted "this maker is under the cap" and the throttle disarmed itself
+      // on data nobody read. Same refusal the overlap check above already makes on this
+      // table; a real count of 0 still lists normally.
+      if (makerCountError || makerOrderCount == null) {
+        console.error("[orderbook] maker throttle count failed:", makerCountError?.message ?? "count unavailable");
+        return res.status(503).json({ error: "Listing checks temporarily unavailable — please retry" });
+      }
+      if (makerOrderCount >= 20) {
         return res.status(429).json({ error: "Rate limit exceeded — max 20 orders per hour" });
       }
 
@@ -1271,12 +1280,19 @@ export default async function handler(req, res) {
 
       // Rate limit: same 20/maker/hour as `create`.
       const oneHourAgo = new Date(Date.now() - 3600000).toISOString();
-      const { count: makerOrderCount } = await supabase
+      const { count: makerOrderCount, error: makerCountError } = await supabase
         .from("native_orders")
         .select("*", { count: "exact", head: true })
         .eq("maker", recoveredCreator)
         .gte("created_at", oneHourAgo);
-      if (makerOrderCount != null && makerOrderCount >= 20) {
+      // OUTAGE-AS-ZERO. Same unread count as `create`: null asserted "under the cap" and
+      // opened the throttle on a read that never landed. Refuse instead — the overlap
+      // check further down already refuses on exactly this failure.
+      if (makerCountError || makerOrderCount == null) {
+        console.error("[orderbook] bundle maker throttle count failed:", makerCountError?.message ?? "count unavailable");
+        return res.status(503).json({ error: "Listing checks temporarily unavailable — please retry" });
+      }
+      if (makerOrderCount >= 20) {
         return res.status(429).json({ error: "Rate limit exceeded — max 20 orders per hour" });
       }
 
@@ -1714,12 +1730,22 @@ export default async function handler(req, res) {
       }
 
       // Prevent duplicate txHash usage — one on-chain tx should only fill one order
-      const { count: txUsageCount } = await supabase
+      const { count: txUsageCount, error: txUsageError } = await supabase
         .from("native_orders")
         .select("*", { count: "exact", head: true })
         .eq("tx_hash", txHash)
         .eq("status", "filled");
-      if (txUsageCount != null && txUsageCount > 0) {
+      // OUTAGE-AS-ZERO. The Supabase `error` was discarded and `txUsageCount != null`
+      // deliberately routed an UNREAD count into the PERMISSIVE branch: on a paused or
+      // rate-limited project `count` comes back null, and the guard read that as "this tx
+      // has never filled an order" — the one answer that lets the write through. Same
+      // shape findOverlappingListings refuses at the top of this file ("must not fail
+      // silently in the permissive direction"). A real 0 still fills normally.
+      if (txUsageError || txUsageCount == null) {
+        console.error("[orderbook] duplicate-txHash check failed:", txUsageError?.message ?? "count unavailable");
+        return res.status(503).json({ error: "Listing checks temporarily unavailable — please retry" });
+      }
+      if (txUsageCount > 0) {
         return res.status(409).json({ error: "This transaction hash has already been used to fill an order" });
       }
 
@@ -1967,12 +1993,18 @@ export default async function handler(req, res) {
 
         // Per-maker creation throttle (parity with listings: 20/hr)
         const oneHourAgoT = new Date(Date.now() - 3600000).toISOString();
-        const { count: makerTradeCount } = await supabase
+        const { count: makerTradeCount, error: makerTradeCountError } = await supabase
           .from("trade_offers")
           .select("*", { count: "exact", head: true })
           .eq("offerer", offerer)
           .gte("created_at", oneHourAgoT);
-        if (makerTradeCount != null && makerTradeCount >= 20) {
+        // OUTAGE-AS-ZERO. Parity with listings here too: a null count asserted "under the
+        // cap" and disarmed the throttle whenever trade_offers could not be counted.
+        if (makerTradeCountError || makerTradeCount == null) {
+          console.error("[orderbook] trade throttle count failed:", makerTradeCountError?.message ?? "count unavailable");
+          return res.status(503).json({ error: "Trade checks temporarily unavailable — please retry" });
+        }
+        if (makerTradeCount >= 20) {
           return res.status(429).json({ error: "Rate limit exceeded — max 20 trades per hour" });
         }
 
@@ -2071,11 +2103,26 @@ export default async function handler(req, res) {
       } catch {
         return res.status(400).json({ error: "Invalid signature" });
       }
-      const { data: row } = await supabase
+      // OUTAGE-AS-ZERO. This read destructured `data` only. supabase-js resolves
+      // {data: null, error} when it could not read at all — a paused project, a
+      // rate limit, an SDK rejection — so an UNREADABLE row and a NONEXISTENT one
+      // were byte-identical here, and both asserted "this trade does not exist" to
+      // the wallet that owns it. A maker cancelling during an outage was told their
+      // offer is gone while the row stayed `active` and their signed Seaport order
+      // stayed fillable to expiry — and that is the one message that removes any
+      // reason to spend gas on the hard on-chain revoke (cancelTradeOnChain), since
+      // updateTradeStatus only flips the DB row. Same shape as the listing-cancel
+      // lookup above, at the newer 503 this file uses when the fault is ours and
+      // temporary; 404 is a 4xx, which reads as settled rather than retryable.
+      const { data: row, error: lookupError } = await supabase
         .from("trade_offers")
         .select("id, offerer, target_owner, status")
         .eq("id", tradeId)
         .maybeSingle();
+      if (lookupError) {
+        console.error("trade status lookup error:", lookupError.message);
+        return res.status(503).json({ error: "Trade lookup temporarily unavailable — please retry" });
+      }
       if (!row) return res.status(404).json({ error: "Trade not found" });
       if (row.status !== "active") return res.status(409).json({ error: `Trade is already ${row.status}` });
       if (action === "trade-decline" && !row.target_owner) {
@@ -2123,11 +2170,22 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: "Invalid signature" });
       }
 
-      const { data: row } = await supabase
+      // OUTAGE-AS-ZERO. Same false 404 as the decline/cancel lookup above: `data`
+      // alone cannot separate a row that could not be READ from one that is not
+      // THERE, so a Supabase outage asserted "Trade not found" about a trade the
+      // filler had already settled on-chain. The client's fill notify is
+      // best-effort — acceptTrade swallows the failure because the trade is already
+      // confirmed — so the row never flips to `accepted` and the offer keeps
+      // rendering live to both sides. 503 says the answer is unknown and retryable.
+      const { data: row, error: lookupError } = await supabase
         .from("trade_offers")
         .select("id, offerer, target_owner, status, seaport_order_hash")
         .eq("id", tradeId)
         .maybeSingle();
+      if (lookupError) {
+        console.error("trade-fill lookup error:", lookupError.message);
+        return res.status(503).json({ error: "Trade lookup temporarily unavailable — please retry" });
+      }
       if (!row) return res.status(404).json({ error: "Trade not found" });
       // Directed trades pin the filler to the named taker. Open (board)
       // trades have no taker — anyone may report the fill, and the
@@ -2203,12 +2261,19 @@ export default async function handler(req, res) {
       }
 
       // One tx fills one trade
-      const { count: txUsed } = await supabase
+      const { count: txUsed, error: txUsedError } = await supabase
         .from("trade_offers")
         .select("*", { count: "exact", head: true })
         .eq("accepted_tx", txHash)
         .eq("status", "accepted");
-      if (txUsed != null && txUsed > 0) {
+      // OUTAGE-AS-ZERO. Same discarded error and same permissive `!= null` as the listing
+      // fill above: an uncounted trade_offers table asserted "this tx has filled nothing"
+      // and the one-tx-one-trade guard passed on a read that never happened.
+      if (txUsedError || txUsed == null) {
+        console.error("[orderbook] trade duplicate-tx check failed:", txUsedError?.message ?? "count unavailable");
+        return res.status(503).json({ error: "Trade checks temporarily unavailable — please retry" });
+      }
+      if (txUsed > 0) {
         return res.status(409).json({ error: "This transaction hash has already been used" });
       }
 

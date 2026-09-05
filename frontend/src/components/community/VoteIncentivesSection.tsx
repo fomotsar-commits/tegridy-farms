@@ -311,11 +311,19 @@ function OverviewStrip({ epoch, epochCount, feeBps }: { epoch: number; epochCoun
 }
 
 // ─── Voting power banner (with /farm CTA) ──────────────────────────
-function VotingPowerBanner({ userPower, userUsed, deadline, now, voteEpoch, isConnected }: {
-  userPower: bigint; userUsed: bigint; deadline: number; now: number; voteEpoch: number; isConnected: boolean;
+// Exported for VoteIncentivesSection.power.test.tsx on the same grounds as
+// LeaderboardControls below: this banner only mounts once VoteIncentives is
+// wired into the frontend, so it is unreachable from a render of the section
+// itself and its defects went unreported for exactly that reason.
+export function VotingPowerBanner({ userPower, userUsed, powerUnread, deadline, now, voteEpoch, isConnected }: {
+  // OUTAGE-AS-ZERO. `bigint | null`, not `bigint`: this panel states a verdict
+  // about the user's governance rights, so an unread snapshot must not arrive
+  // here wearing the same 0n a never-staked wallet wears.
+  userPower: bigint | null; userUsed: bigint | null; powerUnread: boolean;
+  deadline: number; now: number; voteEpoch: number; isConnected: boolean;
 }) {
-  const remaining = userPower > userUsed ? userPower - userUsed : 0n;
-  const usedPct = userPower > 0n ? Number((userUsed * 10000n) / userPower) / 100 : 0;
+  const remaining = userPower !== null && userUsed !== null && userPower > userUsed ? userPower - userUsed : 0n;
+  const usedPct = userPower !== null && userUsed !== null && userPower > 0n ? Number((userUsed * 10000n) / userPower) / 100 : 0;
   const secondsLeft = Math.max(0, deadline - now);
   const deadlineOpen = deadline > 0 && secondsLeft > 0;
 
@@ -333,6 +341,19 @@ function VotingPowerBanner({ userPower, userUsed, deadline, now, voteEpoch, isCo
           </div>
           {!isConnected ? (
             <p className="text-white/75 text-[13px]">Connect a wallet to see your voting power.</p>
+          ) : powerUnread ? (
+            /* OUTAGE-AS-ZERO. This is the branch the "No voting power" verdict used
+               to swallow. A snapshot we could not read is not a snapshot of zero:
+               whatever power the staking contract checkpointed for this wallet is
+               still there and still votable, so name the failed read instead of
+               reporting a shortfall and sending the user off to stake. */
+            <p className="text-amber-300 text-[13px]" data-testid="vi-voting-power-unread" role="status">
+              Your snapshot voting power could not be read — the network did not answer.
+              That is a display failure, not a verdict: if you had power at this epoch&apos;s
+              snapshot it is still yours. Reload before concluding you cannot vote.
+            </p>
+          ) : userPower === null || userUsed === null ? (
+            <p className="text-white/75 text-[13px]">Checking your snapshot voting power…</p>
           ) : userPower === 0n ? (
             <div className="flex items-center gap-3 flex-wrap">
               <p className="text-yellow-300 text-[13px]">No voting power at this epoch's snapshot.</p>
@@ -893,13 +914,20 @@ function DepositCard({
 }
 
 // ─── Commit-reveal panel (wraps vote when epoch uses two-phase) ────
-function CommitRevealPanel({
+// Exported for VoteIncentivesSection.power.test.tsx: like the leaderboard row,
+// this panel only mounts on a wired VoteIncentives inside a commit-reveal epoch,
+// so nothing in a render of the section itself reaches it.
+export function CommitRevealPanel({
   gauges, voteEpoch, epochTimestamp, voteDeadlineSec, now,
   userPower, userUsed, commitBond, toweliAllowance, isBusy,
   isPending, isConfirming, onApproveBond, onCommit, onReveal,
 }: {
   gauges: GaugeInfo[]; voteEpoch: number; epochTimestamp: number; voteDeadlineSec: number; now: number;
-  userPower: bigint; userUsed: bigint; commitBond: bigint; toweliAllowance: bigint;
+  // OUTAGE-AS-ZERO. Nullable for the same reason as the banner, and it costs more
+  // here: an unread `userUsed` collapsing to 0n overstates remaining power, arms a
+  // commit for more than the wallet holds, and the reveal that would refund the
+  // 10 TOWELI bond then reverts — the bond is swept to treasury at the deadline.
+  userPower: bigint | null; userUsed: bigint | null; commitBond: bigint; toweliAllowance: bigint;
   isBusy: boolean; isPending: boolean; isConfirming: boolean;
   onApproveBond: (amount: bigint) => void;
   onCommit: (pair: Address, power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'commitIndex' | 'committedAt'>) => void;
@@ -928,9 +956,13 @@ function CommitRevealPanel({
     if (!pair && gauges.length > 0) setPair(gauges[0]!.pair);
   }, [pair, gauges]);
 
-  const remaining = userPower > userUsed ? userPower - userUsed : 0n;
+  const powerKnown = userPower !== null && userUsed !== null;
+  const remaining = userPower !== null && userUsed !== null && userPower > userUsed ? userPower - userUsed : 0n;
   const powerWei = (() => { try { return parseEther(power || '0'); } catch { return 0n; } })();
-  const tooMuch = powerWei > remaining;
+  // `tooMuch` stays a claim about a number we actually have — folding the unknown
+  // into it would paint the input red before the user has typed anything. The
+  // unknown is carried by `powerKnown` and disarms Commit on its own line below.
+  const tooMuch = powerKnown && powerWei > remaining;
 
   const commitDeadlineSec = epochTimestamp + Math.floor((voteDeadlineSec * COMMIT_RATIO_BPS) / 10000);
   const revealDeadlineSec = epochTimestamp + voteDeadlineSec;
@@ -997,15 +1029,19 @@ function CommitRevealPanel({
                   Approve {formatTokenAmount(formatEther(commitBond), 0)} TOWELI bond
                 </button>
               ) : (
-                <button onClick={handleCommit} disabled={isBusy || !pair || powerWei === 0n || tooMuch}
+                <button onClick={handleCommit} disabled={isBusy || !pair || powerWei === 0n || tooMuch || !powerKnown}
                   className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-blue-500/20 text-blue-200 border border-blue-500/40 hover:bg-blue-500/30 transition-colors disabled:opacity-40">
                   {isPending ? 'Confirm in Wallet…' : isConfirming ? 'Committing…' : `Commit (${formatTokenAmount(formatEther(commitBond), 0)} TOWELI)`}
                 </button>
               )}
             </div>
             <p className="text-[10.5px] text-white/55">
-              Remaining power: <span className="font-mono">{formatTokenAmount(formatEther(remaining), 4)}</span>
-              {tooMuch && <span className="text-red-300 ml-2">· exceeds remaining</span>}
+              {/* 'unavailable' for an unread figure, matching GaugeRow's Total Votes
+                  above — in this file an em dash already means a real zero. */}
+              Remaining power: <span className="font-mono">{powerKnown ? formatTokenAmount(formatEther(remaining), 4) : 'unavailable'}</span>
+              {!powerKnown
+                ? <span className="text-amber-300 ml-2">· could not be read — reload before committing your bond</span>
+                : tooMuch ? <span className="text-red-300 ml-2">· exceeds remaining</span> : null}
             </p>
           </div>
         )}
@@ -1084,23 +1120,48 @@ export function VoteIncentivesSection() {
   const votingOpen = hasEpochs && deadlineUnix > 0 && nowSec < deadlineUnix;
 
   // ── User snapshot power + used votes ────────────────────────
-  const { data: userPowerData } = useReadContract({
+  const { data: userPowerData, isLoading: userPowerLoading } = useReadContract({
     address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI,
     functionName: 'votingPowerAtTimestamp',
     args: address && bribes.latestEpoch ? [address, BigInt(bribes.latestEpoch.timestamp)] : undefined,
     chainId: CHAIN_ID,
     query: { enabled: !!address && !!bribes.latestEpoch, refetchInterval: 60_000 },
   });
-  const userPower = (userPowerData as bigint | undefined) ?? 0n;
+  // OUTAGE-AS-ZERO. `?? 0n` turned every failed votingPowerAtTimestamp read into
+  // the sentence "No voting power at this epoch's snapshot" — a verdict about the
+  // user's governance rights, printed beside a Stake-TOWELI call to action, minted
+  // out of an RPC that did not answer. 0n is also the honest reading for a wallet
+  // that never staked, so the outage and the real zero rendered identically, and
+  // every vote control disarmed on a number nobody read. wagmi leaves `data`
+  // undefined for a pending, failed or disabled read and a bigint for a landed
+  // one — that is the whole distinction.
+  const userPower: bigint | null = typeof userPowerData === 'bigint' ? userPowerData : null;
 
-  const { data: userUsedData } = useReadContract({
+  const { data: userUsedData, isLoading: userUsedLoading } = useReadContract({
     address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'userTotalVotes',
     args: address ? [address, BigInt(prevEpoch)] : undefined,
     chainId: CHAIN_ID,
     query: { enabled: !!address && hasEpochs, refetchInterval: 30_000 },
   });
-  const userUsed = (userUsedData as bigint | undefined) ?? 0n;
-  const remainingPower = userPower > userUsed ? userPower - userUsed : 0n;
+  // The other half of the same subtraction, and this one fails OPEN: an unread
+  // `userTotalVotes` collapsing to 0n asserted "you have allocated none of it",
+  // which OVERSTATES what is left — it arms Cast Vote for more power than the
+  // wallet holds, and arms a commit whose reveal then reverts and lets the
+  // 10 TOWELI bond be swept to treasury.
+  const userUsed: bigint | null = typeof userUsedData === 'bigint' ? userUsedData : null;
+  // Both halves must have landed before "remaining" is a number. The unknown case
+  // still collapses to 0n here, on purpose: nothing renders it as a balance (every
+  // panel showing it is gated on both reads landing) and it makes the
+  // `handleLegacyVote` guard below fail CLOSED.
+  const remainingPower = userPower !== null && userUsed !== null && userPower > userUsed
+    ? userPower - userUsed
+    : 0n;
+  // Gate the outage copy on the precondition that makes the read meaningful: a
+  // disconnected visitor, or one whose epoch has never been snapshotted, never
+  // asked, and must not be shown an outage banner.
+  const powerUnread = isConnected && !!address && !!bribes.latestEpoch
+    && !userPowerLoading && !userUsedLoading
+    && (userPower === null || userUsed === null);
 
   // ── Per-pair votes (total + user's) ─────────────────────────
   const voteReads = useMemo(
@@ -1436,7 +1497,12 @@ export function VoteIncentivesSection() {
     );
   }
 
-  const canLegacyVote = votingOpen && isConnected && userPower > 0n && !epochUsesCR;
+  // Fails closed on an unread snapshot, and the banner above now says why rather
+  // than letting a disarmed Cast Vote read as "you have no power". Both halves are
+  // required: an unread `userUsed` would OVERSTATE remainingPower and arm a vote
+  // the contract reverts.
+  const canLegacyVote = votingOpen && isConnected && !epochUsesCR
+    && userPower !== null && userUsed !== null && userPower > 0n;
 
   return (
     <div className="space-y-4">
@@ -1455,6 +1521,7 @@ export function VoteIncentivesSection() {
       <VotingPowerBanner
         userPower={userPower}
         userUsed={userUsed}
+        powerUnread={powerUnread}
         deadline={deadlineUnix}
         now={nowSec}
         voteEpoch={prevEpoch}

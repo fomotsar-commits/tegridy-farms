@@ -26,6 +26,17 @@ export interface LpPosition {
   pendingRewards: number;
   farmingDeployed: boolean;
   isLoading: boolean;
+  // OUTAGE-AS-ZERO. Every field above collapses on a failed read — the balances to
+  // 0n, the pool legs to undefined — and 0n is also the honest "this wallet provides
+  // no liquidity". `isLoading` cannot separate them: it is false in both cases. These
+  // two carry the failure beside the collapse. Split the way useAddLiquidity splits
+  // it, because the halves assert different things about the user.
+  /** The wallet's own LP legs (held, staked, earned) did not answer, so `hasPosition`,
+   *  `lpBalance` and `stakedLp` are fallbacks rather than measurements. */
+  lpUnread: boolean;
+  /** The pool legs (totalSupply, reserves, token0) did not answer, so `sharePct`,
+   *  `toweliAmount` and `wethAmount` are 0 by fallback, not by measurement. */
+  reservesUnread: boolean;
 }
 
 /**
@@ -55,6 +66,27 @@ export function useLpPosition(address?: `0x${string}`): LpPosition {
     query: { enabled: !!address && onRightChain && lp !== ZERO, refetchInterval: 30_000 },
   });
 
+  // OUTAGE-AS-ZERO. balanceOf/rawBalanceOf/earned all collapse to 0n on a failed
+  // read, and getReserves/token0 collapse to undefined — the same values a wallet
+  // that has never provided liquidity produces honestly. The dashboard gates its
+  // ENTIRE liquidity card on `hasPosition`, with no else-branch, so one unanswered
+  // multicall deleted an LP provider's position from the page: no TGLP, no pool
+  // share, no redeemable, no route to manage it, and nothing said. The pool legs
+  // told a second lie of their own — a 0.00% share and a $0.00 valuation on a
+  // position that is still there. Keep the collapse for display; carry the failure
+  // next to it, one flag per claim. Scoped to a read that was actually ATTEMPTED:
+  // a disconnected or wrong-network visitor asked nothing, and the farm legs fail
+  // legitimately until the farm is deployed — a not-attempted read must never
+  // render as a failed one.
+  const readsEnabled = !!address && onRightChain && lp !== ZERO && !isLoading;
+  const lpUnread = readsEnabled && !!data
+    && (data[0]?.status !== 'success'
+      || (farmingDeployed && (data[4]?.status !== 'success' || data[5]?.status !== 'success')));
+  const reservesUnread = readsEnabled && !!data
+    && (data[1]?.status !== 'success'
+      || data[2]?.status !== 'success'
+      || data[3]?.status !== 'success');
+
   return useMemo<LpPosition>(() => {
     const walletLp = data?.[0]?.status === 'success' ? (data[0].result as bigint) : 0n;
     const totalSupply = data?.[1]?.status === 'success' ? (data[1].result as bigint) : 0n;
@@ -76,10 +108,18 @@ export function useLpPosition(address?: `0x${string}`): LpPosition {
       pendingRewards,
       farmingDeployed,
       isLoading,
+      lpUnread,
+      reservesUnread,
     };
 
     if (totalLp === 0n || totalSupply === 0n || !reserves || !token0) {
-      return { ...base, hasPosition: pendingRewards > 0, sharePct: 0, toweliAmount: 0, wethAmount: 0 };
+      // OUTAGE-AS-ZERO. A KNOWN non-zero LP balance is a position even when the pool
+      // math is unreadable. This branch used to fall back to `pendingRewards > 0`,
+      // throwing away a balance that HAD been read successfully — so a holder whose
+      // getReserves call failed was told they had no liquidity, on evidence that said
+      // the opposite. sharePct/toweliAmount/wethAmount stay 0 for display; the caller
+      // reads `reservesUnread` to know they are fallbacks and renders an en-dash.
+      return { ...base, hasPosition: totalLp > 0n || pendingRewards > 0, sharePct: 0, toweliAmount: 0, wethAmount: 0 };
     }
 
     const isToken0Toweli = token0 === TOWELI_ADDRESS.toLowerCase();
@@ -96,5 +136,5 @@ export function useLpPosition(address?: `0x${string}`): LpPosition {
       toweliAmount: Number(formatUnits(myToweliWei, 18)),
       wethAmount: Number(formatUnits(myWethWei, 18)),
     };
-  }, [data, isLoading, farmingDeployed]);
+  }, [data, isLoading, farmingDeployed, lpUnread, reservesUnread]);
 }
