@@ -16,6 +16,27 @@
 import { test, expect } from './fixtures/wallet';
 
 test.describe('Wallet connect flow', () => {
+  // THE VENUE DOOR RELOADS, so pin its settled state before arriving.
+  // `/` is wrapped in <BungalowDoor id={VENUE_ID}>, which clears a stored
+  // skin by reloading the document (BungalowDoor.tsx) — the skin is
+  // resolved at module scope, so only a fresh document re-resolves it. The
+  // shared wallet fixture pins `tegridy-bungalow` to `toweli`, so every
+  // spec using it arrives at `/` with a skin to clear and gets that reload,
+  // and anything asserted on the first document is sampling a page that is
+  // being replaced. Seeding the `venue` sentinel — "seen, chose nothing",
+  // the same value arrival-voice.spec.ts seeds — means there is nothing to
+  // clear and no reload happens. Deterministic, unlike waiting it out.
+  // REQUEST walletMock HERE even though it is unused: fixture setup is what
+  // registers the fixture's own addInitScript, and init scripts run in
+  // REGISTRATION order. Take only `page` and this pin registers first, the
+  // fixture's `toweli` lands second and overwrites it — measured: the document
+  // still read `toweli` and still reloaded.
+  test.beforeEach(async ({ page, walletMock: _w }) => {
+    await page.addInitScript(() => {
+      try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
+    });
+  });
+
   test('mock provider is injected and detected by the app', async ({ page, walletMock }) => {
     await page.goto('/');
     // The provider should be present on window before any React code runs.
