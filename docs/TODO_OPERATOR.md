@@ -2054,7 +2054,12 @@ a new router is live the old balance is reachable only through the owner-gated
   router address). Before the ceremony:
   - `forge inspect src/SwapFeeRouter.sol:SwapFeeRouter storage-layout` and confirm
     `accumulatedTokenFees` has not moved — **seven** existing tests hardcode its slot for `vm.store`.
-  - `forge build --sizes` against EIP-170. Baseline was 21,531 B (3,045 B headroom).
+  - `forge build --sizes` against EIP-170. **Measured 2026-09-05, WITH TF-010 and TF-015 both
+    applied:** SwapFeeRouter **22,180 B** (2,396 B under the 24,576 ceiling),
+    SwapFeeRouterConvertLib 6,965 B, SwapFeeRouterAdmin 15,552 B. The two fixes together cost
+    649 B, against the 800-900 B the design estimated. The 21,531 B figure this line used to
+    quote was the PRE-change baseline and would have understated the router by 649 B at the
+    ceremony.
   - `MIN_TOKEN_FEE_FOR_CONVERSION()` **disappears from the ABI.** Nothing on- or off-chain was found
     to read it — re-check any dashboard before you deploy.
   - Do O2 first (see above).
