@@ -887,19 +887,6 @@ export async function acceptOffer(offer) {
     const _walletErr = assertSameWallet(sellerAddress, connectedAddress);
     if (_walletErr) return _walletErr;
 
-    // Check NFT approval for conduit (required to transfer the NFT to the buyer)
-    const nftContract = offer.tokenContract || CONTRACT;
-    const erc721ABI = [
-      "function isApprovedForAll(address,address) view returns (bool)",
-      "function setApprovalForAll(address,bool)",
-    ];
-    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
-    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
-    if (!isApproved) {
-      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
-      await approveTx.wait();
-    }
-
     // Get fulfillment data from OpenSea — via proxy
     let data;
     try {
@@ -934,6 +921,41 @@ export async function acceptOffer(offer) {
     const fnName = String(txData.function || "").split("(")[0].trim();
     if (!SEAPORT_FULFILLMENT_FUNCTIONS.has(fnName)) {
       return { error: "failed", message: "Unexpected fulfillment function — aborting for safety" };
+    }
+
+    // ── APPROVAL GOES LAST, AFTER EVERYTHING FREE HAS PASSED ────────────────
+    //
+    // This block used to sit ABOVE the fulfillment_data POST, so a seller paid
+    // for a real setApprovalForAll and only then discovered the fill could not
+    // be built — "Could not get fulfillment data", gas already spent, nothing
+    // received. It is the same defect D-FE-M1 fixed for the wrong-chain case
+    // (see the chain-guard comment above, which fixed it by moving the CHECK
+    // before the tx); this moves the TX after the checks, for the same reason.
+    //
+    // It is not hypothetical and it is not rare. Measured 2026-09-05 against
+    // the live collection: `offers/collection/nakamigos/nfts/{id}/best` returns
+    // an ERC721_WITH_CRITERIA order (itemType 4) for 10 of 12 sampled tokens,
+    // and this POST omits the `consideration` field that tells OpenSea WHICH
+    // token fills a criteria offer — so the failure lands on the majority of
+    // tokens, on the one screen where an owner is accepting money.
+    //
+    // Reordering does not by itself make criteria fills succeed. It makes them
+    // fail for FREE, which is the part that was costing users. Supplying
+    // `consideration` is the follow-up, and it needs a real fill to verify —
+    // it cannot be confirmed read-only, so it is deliberately NOT guessed here.
+    //
+    // Everything above this line is a read or a validation. Nothing above it
+    // can cost the seller gas.
+    const nftContract = offer.tokenContract || CONTRACT;
+    const erc721ABI = [
+      "function isApprovedForAll(address,address) view returns (bool)",
+      "function setApprovalForAll(address,bool)",
+    ];
+    const nft = new ethers.Contract(nftContract, erc721ABI, signer);
+    const isApproved = await nft.isApprovedForAll(sellerAddress, CONDUIT_ADDRESS);
+    if (!isApproved) {
+      const approveTx = await nft.setApprovalForAll(CONDUIT_ADDRESS, true);
+      await approveTx.wait();
     }
 
     // Encode calldata using ABI parameter names to avoid
