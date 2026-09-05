@@ -37,7 +37,7 @@ type ArtImgProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
  * derivatives, and there was no image encoder in the dependency tree.
  *
  * There is one now (`sharp`, devDependency only, never shipped).
- * scripts/generate-image-derivatives.mjs runs on `prebuild` and emits 480/960-wide
+ * scripts/generate-image-derivatives.mjs runs first in `build` and emits 128/480/960-wide
  * webp for every source over 150 KB, plus a manifest of what exists;
  * lib/artSrcSet.ts turns that manifest into a `srcset`. Measured before: one
  * homepage view fetched 5,117,404 B of images, with 24 rendered <img> served at
@@ -85,8 +85,8 @@ export function ArtImg({
     merged.transformOrigin = objectPosition ?? 'center center';
   }
   // undefined whenever the manifest has no entry — which is every source on a
-  // checkout that has not run `prebuild`, and every source under the generator's
-  // 150 KB floor.
+  // checkout that has not built, and every source under the generator's
+  // 80 KB floor.
   // Resolved once: `sizes="auto"` is only valid on a lazy image, so the two must
   // be decided from the same value rather than computed twice.
   const resolvedLoading = loading ?? (fetchPriority === 'high' ? 'eager' : 'lazy');
@@ -108,7 +108,7 @@ export function ArtImg({
    * generator actually wrote, and `artSrcSet` is gated to PROD on top. Both are
    * still worth having, but they are promises about the BUILD, and this is the
    * runtime consequence if either is ever wrong — a stale committed manifest, a
-   * build that skipped `prebuild`, a partial artifact upload, a CDN miss. So:
+   * build whose generator step never ran, a partial artifact upload, a CDN miss. So:
    * drop the srcset, retry the ORIGINAL, and only fall back to the placeholder
    * if the original fails too.
    */

@@ -33,9 +33,12 @@ const MANIFEST = join('src', 'lib', 'artDerivatives.generated.json');
 const WIDTHS = [128, 480, 960];
 
 function derivedUrl(url, width) {
+  // Mirrors derivedUrl in the generator and in lib/artSrcSet.ts -- the extension
+  // stays in the name so two sources differing only by extension cannot collide.
   const dot = url.lastIndexOf('.');
   const stem = dot === -1 ? url : url.slice(0, dot);
-  return `/_derived${stem}-${width}.webp`;
+  const tag = dot === -1 ? '' : `-${url.slice(dot + 1).toLowerCase()}`;
+  return `/_derived${stem}${tag}-${width}.webp`;
 }
 
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));

@@ -112,10 +112,36 @@ function sameAddress(a, b) {
 }
 
 /**
+ * One set of chain readings. Every field is nullable, and null means specifically
+ * "we tried and could not read it" -- never "it was zero". `errors` carries why.
+ *
+ * Declared as a typedef rather than left to inference because this is an
+ * un-annotated .mjs: without it every destructured local below is implicitly `any`,
+ * `creditWei / gasEstimate` infers as `number`, and `breakEvenGasPriceWei` is
+ * PUBLISHED to TypeScript consumers as a number while being a bigint at run time.
+ * A float there would silently truncate a wei figure. frontend's
+ * callerCreditWatch.test.ts had to assert the run-time type and re-wrap in BigInt()
+ * to work around exactly that.
+ *
+ * @typedef {Object} CallerCreditReading
+ * @property {bigint|null}  creditWei
+ * @property {boolean|null} routerPaused
+ * @property {boolean|null} splitterSetupComplete
+ * @property {bigint|null}  splitterBalanceWei
+ * @property {bigint|null}  lastCallerCreditAt
+ * @property {bigint|null}  cooldownSeconds
+ * @property {bigint|null}  nowSeconds
+ * @property {string|null}  wiredSplitter
+ * @property {bigint|null}  accumulatedETHFeesWei
+ * @property {bigint|null}  gasEstimate
+ * @property {bigint|null}  gasPriceWei
+ * @property {string[]}     [errors]
+ */
+
+/**
  * Turn a set of chain readings into a verdict.
  *
- * Every field of `reading` is `bigint | boolean | string | null`, where null means
- * "we tried and could not read it". `errors` carries why.
+ * @param {Partial<CallerCreditReading>|null|undefined} reading
  */
 export function classifyCallerCredit(reading) {
   const {
@@ -202,7 +228,13 @@ export function classifyCallerCredit(reading) {
   // pull can easily cost more than it recovers, which is the whole argument against
   // automating it. Reported, never hidden.
   let economics = null;
-  if (state === 'stranded' && gasEstimate !== null && gasPriceWei !== null && gasEstimate > 0n) {
+  // `creditWei !== null` is redundant at RUN time -- RULE 1 above makes
+  // `state === 'stranded'` imply it. It is here so the TYPE narrows: without it
+  // `creditWei` stays `bigint|null` and the division below infers as `number`.
+  if (
+    state === 'stranded' && creditWei !== null &&
+    gasEstimate !== null && gasPriceWei !== null && gasEstimate > 0n
+  ) {
     const gasCostWei = gasEstimate * gasPriceWei;
     economics = {
       gasEstimate,
