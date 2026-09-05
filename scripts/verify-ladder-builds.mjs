@@ -161,9 +161,60 @@ export function isReplaceable({ totalSupply, rewardRate, periodFinish }) {
  *   transport:true, value:null   the call REVERTED (selector absent) -> a real answer
  * Collapsing those two is how an outage would certify a vulnerable pool as fine.
  */
+const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Minimum gap between OUTBOUND calls, not just between retries.
+ *
+ * Backoff alone was not enough: a public node serves roughly five rapid calls
+ * then 429s for a while, and this script makes seven per pool (eth_getCode plus
+ * six selectors). Retrying a request that was rejected for arriving too fast,
+ * without slowing the ones that follow, just walks the whole run into the limiter.
+ * Pacing the stream is what fixes it. MEASURED on the six shipped ladders:
+ * unpaced 5 of 6 UNREADABLE, backoff-only 3 of 6, paced + 429-aware 0 of 6.
+ *
+ * A guard that reads the chain is allowed to be slow. It is not allowed to be wrong.
+ */
+const MIN_CALL_GAP_MS = 450;
+let lastCallAt = 0;
+async function pace() {
+  const wait = lastCallAt + MIN_CALL_GAP_MS - Date.now();
+  if (wait > 0) await nap(wait);
+  lastCallAt = Date.now();
+}
+
+/**
+ * Is this JSON-RPC error the CONTRACT answering, or the INFRASTRUCTURE refusing?
+ *
+ * Only an execution revert is an answer about the contract. Everything else --
+ * rate limits, auth, method-not-found, an overloaded node -- is an endpoint
+ * problem wearing an error's clothes.
+ *
+ * MEASURED 2026-09-05: mainnet.base.org returns `-32016 over rate limit` with
+ * HTTP **429**, so `!res.ok` already caught it and this path was never the live
+ * bug. But `if (j.error)` accepted ANY error as a revert, and an endpoint that
+ * returns a rate limit with HTTP 200 is entirely ordinary. That path is the
+ * dangerous direction and it is one line to close: `classify()` reads a null
+ * `totalBoosted` as `build: 'plain', ok: TRUE`, so a throttled read there would
+ * certify a vulnerable ladder as a fine plain pool -- the exact collapse the
+ * header of this file says must never happen. Allowlist reverts; refuse the rest.
+ */
+function isExecutionRevert(err) {
+  if (!err || typeof err !== 'object') return false;
+  // eth_call revert: geth/reth use code 3; some nodes use -32000 with the text.
+  if (err.code === 3) return true;
+  return err.code === -32000 && /execution reverted|revert/i.test(String(err.message ?? ''));
+}
+
 async function rpcCall(urls, method, params) {
   for (const url of urls) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    // Backoff, not just repetition. Two back-to-back attempts against a throttled
+    // endpoint both fail for the same reason, exhaust every URL, and report
+    // `transport:false`. That is why 5 of 6 Base ladders read UNREADABLE on the
+    // 2026-09-05 trunk run while answering a paced client perfectly: a public node
+    // serves ~5 rapid calls then 429s, and this script makes 6 per pool.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await pace();
       let res;
       try {
         res = await fetch(url, {
@@ -172,12 +223,26 @@ async function rpcCall(urls, method, params) {
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
         });
       } catch {
+        await nap(600 * 2 ** attempt);
         continue; // network-level: try the next attempt / endpoint
       }
-      if (!res.ok) continue; // 403/429/5xx: an endpoint problem, not an answer
+      // 429 is not a generic failure -- it is the node saying the window is full,
+      // and it clears on its own. Treating it like a 5xx (retry at once, then move
+      // to the next endpoint) walks straight into the next limiter. Wait it out.
+      if (res.status === 429) {
+        await nap(1500 * (attempt + 1)); // 1.5s / 3s / 4.5s / 6s
+        continue;
+      }
+      if (!res.ok) {
+        await nap(600 * 2 ** attempt);
+        continue; // 403/5xx: an endpoint problem, not an answer
+      }
       const j = await res.json().catch(() => null);
       if (!j) continue;
-      if (j.error) return { transport: true, value: null }; // a revert IS an answer
+      if (j.error) {
+        if (isExecutionRevert(j.error)) return { transport: true, value: null }; // a revert IS an answer
+        continue; // infrastructure error: NOT an answer about the contract
+      }
       return { transport: true, raw: j.result, value: null };
     }
   }
@@ -249,6 +314,17 @@ function selfTest() {
   eq('parse: ladder count', parsed.length, 2);
   eq('parse: skips non-ladder', parsed.some((p) => p.id === 'bobo'), false);
   eq('parse: chain', parsed[0].chain, 'ethereum');
+
+  // An infrastructure error is NOT the contract answering. This is the guard on the
+  // one path where a wrong call is SILENT: classify() reads a null totalBoosted as
+  // `plain, ok: true`, so a throttled read misfiled as a revert certifies a
+  // vulnerable ladder as fine. Reverts in, everything else out.
+  eq('revert: geth code 3', isExecutionRevert({ code: 3, message: 'execution reverted' }), true);
+  eq('revert: -32000 text', isExecutionRevert({ code: -32000, message: 'execution reverted' }), true);
+  eq('revert: rate limit is NOT', isExecutionRevert({ code: -32016, message: 'over rate limit' }), false);
+  eq('revert: -32005 limit is NOT', isExecutionRevert({ code: -32005, message: 'limit exceeded' }), false);
+  eq('revert: method missing is NOT', isExecutionRevert({ code: -32601, message: 'method not found' }), false);
+  eq('revert: null is NOT', isExecutionRevert(null), false);
 
   // The classification that matters most: pre-fix must NEVER read as ok.
   eq('classify prefix', classify({ codeBytes: 6098, totalBoosted: 0n, minStake: null, minBoost: null }).build, 'prefix');
