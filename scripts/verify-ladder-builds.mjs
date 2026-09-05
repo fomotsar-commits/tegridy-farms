@@ -44,6 +44,7 @@
  *   node scripts/verify-ladder-builds.mjs --json
  *   node scripts/verify-ladder-builds.mjs --self-test
  *   node scripts/verify-ladder-builds.mjs --rpc-eth https://… --rpc-base https://…
+ *   ETH_RPC=… BASE_RPC=… node scripts/verify-ladder-builds.mjs
  *
  * Exit 0 = every shipped ladder runs the fixed build. Exit 1 = at least one does not,
  * or could not be read. Read-only: it never sends a transaction.
@@ -296,9 +297,23 @@ const arg = (flag) => {
 
 if (argv.includes('--self-test')) selfTest();
 
+/**
+ * A preferred endpoint goes to the FRONT of the list; it does not replace it.
+ *
+ * `ETH_RPC`/`BASE_RPC` mirror the names registry-onchain.yml already binds, so
+ * pointing that workflow at a paid endpoint moves this check with it. But
+ * REPLACING the list would strand the guard on one host: this check's failure mode
+ * is "could not read, therefore FAIL", so a single throttled endpoint turns a
+ * correct registry red — and a guard that cries wolf is one people stop reading.
+ * Falling back to a public node leaks nothing: these are read-only eth_calls on
+ * public addresses.
+ */
+const prefer = (chosen, defaults) =>
+  chosen ? [chosen, ...defaults.filter((u) => u !== chosen)] : defaults;
+
 const rpc = {
-  ethereum: arg('--rpc-eth') ? [arg('--rpc-eth')] : DEFAULT_RPC.ethereum,
-  base: arg('--rpc-base') ? [arg('--rpc-base')] : DEFAULT_RPC.base,
+  ethereum: prefer(arg('--rpc-eth') ?? process.env.ETH_RPC, DEFAULT_RPC.ethereum),
+  base: prefer(arg('--rpc-base') ?? process.env.BASE_RPC, DEFAULT_RPC.base),
 };
 
 const ladders = parseLadders(readFileSync(REGISTRY, 'utf8'));

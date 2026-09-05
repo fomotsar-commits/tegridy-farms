@@ -33,6 +33,8 @@ on:
       - "frontend/scripts/addresses.json"
       - "frontend/scripts/verify-addresses.mjs"
       - "frontend/src/lib/constants.ts"
+      - "frontend/src/lib/bungalows.ts"
+      - "scripts/verify-ladder-builds.mjs"
       - ".github/workflows/registry-onchain.yml"
   # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
   # path filter on a pull_request is what forced the `-not-applicable.yml`
@@ -116,6 +118,8 @@ jobs:
             'frontend/scripts/addresses.json' \
             'frontend/scripts/verify-addresses.mjs' \
             'frontend/src/lib/constants.ts' \
+            'frontend/src/lib/bungalows.ts' \
+            'scripts/verify-ladder-builds.mjs' \
             '.github/workflows/registry-onchain.yml')
           case "$verdict" in
             true|false) say "$verdict" ;;
@@ -166,6 +170,36 @@ jobs:
       # pipefail. This is the belt: the report has to actually contain the
       # chain section, so a script that silently stops reading — an early
       # return, a renamed flag — cannot pass as "no disagreements found".
+      # The registry says WHICH pools exist. This asks whether the ladder pools it
+      # ships run the FIXED bytecode. Different question, same failure mode: a
+      # forgotten repoint after a redeploy leaves the app pointing at the six
+      # pre-fix pools, and nothing else in CI would notice.
+      #
+      # Runs from the repo root (this job defaults to `frontend/`) and needs no
+      # install - the script's only dependencies are node and fetch.
+      - name: Ladder pools run the audited fixed build
+        if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          ETH_RPC: ${{ vars.ETH_RPC || '' }}
+          BASE_RPC: ${{ vars.BASE_RPC || '' }}
+        run: |
+          set -euo pipefail
+          node scripts/verify-ladder-builds.mjs | tee /tmp/ladders.txt
+
+      # Same belt as the chain read below, one level down: an unreadable pool already
+      # FAILS, but a future edit that stopped emitting rows would still exit 0.
+      # Require the table header, so "green" can never mean "nothing was checked".
+      - name: Assert the ladder table was actually produced
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          set -euo pipefail
+          grep -q 'LADDER BUILDS SHIPPED BY THE REGISTRY' /tmp/ladders.txt || {
+            echo "::error title=No ladder read happened::verify-ladder-builds.mjs produced no table. Green here would mean 'nothing was checked'."
+            exit 1
+          }
+
       - name: Assert the chain was actually read
         if: ${{ !cancelled() }}
         run: |
