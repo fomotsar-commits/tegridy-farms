@@ -29,6 +29,82 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-05 (LATE) — SESSION CARRY-OVER: what is left after the PR sweep
+
+Nineteen PRs merged and the queue emptied. Every status line below was **read from the live
+system today**, not carried forward. Where a number is quoted it is a measurement, and the
+command that reproduces it is given so it does not have to be trusted.
+
+### ✅ CLOSED today — do not re-open these
+
+- **The six lighthouse ladder pools are FIXED.** Redeployed and repinned (#433). Verified by
+  running the guard against trunk, not inferred: **6 of 6 at `6747 bytes / fixed / audited
+  constants`, exit 0**, up from `6098 / prefix`. All six still read `replaceable`, so nothing
+  had staked into a vulnerable pool before the swap. Deposit freeze lifted. Reproduce:
+  ```bash
+  node scripts/verify-ladder-builds.mjs     # expect: OK: all 6 ... exit 0
+  ```
+- **`MAX_FOT_FLOOR_HAIRCUT_BPS = 1000` — DECIDED: KEEP.** This was the one genuinely
+  expiring decision (a `constant`, fixed at deploy). Four analysis angles + two adversarial
+  reviewers; 5 of 6 said keep, both reviewers returned `mustChangeBeforeDeploy = false`.
+  Lowering strands a token permanently — both non-swap exits reject any token that has a WETH
+  pair (`withdrawTokenFees` :1683, `sweepTokens` :1838), so its fees have **no exit at all**.
+  Raising only widens a corridor that needs owner misconfiguration to open. Opt-in per token,
+  default 0, so nothing is worse off at any cap. **This no longer needs your attention.**
+- **Migrations 024/025 are cleared to apply** (see the runbook section for the proof). Still
+  needs your service-role credential — but the go/no-go is decided, including the silent
+  failure mode.
+
+### 🔴 O-NEW-1 — do NOT size key custody against the 10% FoT cap
+
+The cap's NatSpec used to claim it *"bounds what a captured owner can extract."* **It does
+not**, and that sentence was corrected in #431 — but if you formed a mental model from it,
+correct that too:
+
+`executeResetTWAPSnapshot` (`SwapFeeRouter.sol:1198-1211`) deletes `lastConversionSnapshot[token]`.
+`_enforceTWAPMinETHOut` then takes its bootstrap branch (`SwapFeeRouterConvertLib.sol:586-592`) —
+owner-only, `effectiveMin = callerMinETHOut`, i.e. **no TWAP floor at all**. A hostile owner
+passes `minETHOut = 0` and takes up to **100%**, on the **same** `TWAP_SNAPSHOT_RESET_TIMELOCK`
+the haircut uses.
+
+What actually bounds a captured owner is **key custody plus the untimelocked `pause()` /
+`guardianPause()`** — not any constant in that contract. Size custody accordingly.
+
+### ⬜ O-NEW-2 — set `vars.BASE_RPC` (5 minutes, makes an alarm trustworthy)
+
+`Address Registry — chain read` reads Base through **public** endpoints: `vars.BASE_RPC`
+defaults to empty, falling back to `mainnet.base.org` / `base.drpc.org`. Those serve roughly
+**five rapid calls then 429**, and the guard makes seven per pool.
+
+#424 fixed the guard side (outbound pacing + 429-aware backoff, measured 5-of-6 unreadable →
+0-of-6). But the daily run is still one throttle away from red-for-the-wrong-reason, and a
+guard that cries wolf is one nobody reads by the second week.
+
+```
+Repo → Settings → Secrets and variables → Actions → Variables
+  BASE_RPC = <keyed Base endpoint>      # ETH_RPC accepts the same treatment
+```
+Bound through `env:` in the workflow, never spliced into the script. Once set, a red genuinely
+means pre-fix bytecode.
+
+### ⬜ O-NEW-3 — the ladder guard's own failure mode, for whoever sees it next
+
+If `verify-ladder-builds.mjs` ever reports `UNREADABLE — transport` again: **suspect pacing
+before believing the chain is down.** That is exactly how it failed on 2026-09-05 — five of six
+pools "unreadable" while answering a paced client perfectly. The lesson generalises: a
+verification tool that is merely noisy is not an annoyance, it is *unavailable at the moment
+you depend on it*.
+
+### 📌 Not urgent, and deliberately recorded as such
+
+- **`recoverCallerCredit()` is NOT a blocker.** Read live 2026-09-05: `callerCredit` = 2.4e12
+  wei (**~$0.007**), and at 0.048 gwei the pull costs **~1.2x what it recovers**. "80% of fees
+  stranded" is true and it is 80% of a cent. The existing section's "do not pull yet" verdict
+  stands; `scripts/pull-caller-credit.mjs` reprices it on demand, which is why no figure is
+  hard-coded here. Even the before-a-redeploy caveat is bounded: after one, the balance is
+  still reachable via the owner-gated `recoverCallerCreditFrom(oldSplitter)`.
+
+
 ## 🟢 2026-09-05 — PRIVILEGED-REGISTRY TYPE FILTERS — newest layer; supersedes everything below
 
 Commit `539ba990` on `claude/sad-hamilton-69698f`, tag `lend-eoa-whitelist-2026-09-05`.
