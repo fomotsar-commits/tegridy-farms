@@ -148,14 +148,19 @@ export interface StakeEntryView {
   pendingRaw: Record<number, bigint | null>;
   /**
    * The reward entry's LIFETIME `accountedAmount`, keyed by reward-pool nonce.
-   * `null` = no reward entry exists yet, or it could not be read.
+   * `null` = no reward entry exists yet, or it could not be read. OPTIONAL at the
+   * type level for the same reason: a view built from a partial read has no
+   * counter to report, and every consumer treats "absent" exactly as it treats
+   * `null` — not a verdict, never a gate. (CI's type check covers the test
+   * fixtures, which the root tsconfig does not; a required field here failed
+   * the #444 gate on every fixture that predates it.)
    *
    * This is the field the u64 ceiling below is measured against — see
    * `claimCeilingReached`. It is deliberately separate from `pendingRaw`:
    * pending is what you are owed, `accountedRaw` is the cumulative counter that
    * decides whether the program can still do the arithmetic to pay it.
    */
-  accountedRaw: Record<number, bigint | null>;
+  accountedRaw?: Record<number, bigint | null>;
 }
 
 /**
