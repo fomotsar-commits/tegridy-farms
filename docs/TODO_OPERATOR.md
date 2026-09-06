@@ -29,6 +29,140 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-05 — PRIVILEGED-REGISTRY TYPE FILTERS — newest layer; supersedes everything below
+
+Commit `539ba990` on `claude/sad-hamilton-69698f`, tag `lend-eoa-whitelist-2026-09-05`.
+**Committed, NOT pushed, no PR opened.** 13 files, 3038 tests green, 30 new.
+
+A 204-agent adversarial sweep of the staking lending-whitelist fix found the same defect class
+repo-wide: **a slot that grants a security relaxation but never checks its entry is actually a
+contract** (`code.length == 0` = EOA; `== 23` = the `0xef0100‖addr` EIP-7702 delegation pointer,
+which HAS code and is still one private key). Four instances fixed, two left.
+
+### ⬜ REMAINING — an agent can do these alone
+
+- [ ] **`RevenueDistributor` restaking rotation has no type filter on either half.**
+      `proposeRestakingChange` (~`:717`) validates only `_restaking != address(0)`;
+      `executeRestakingChange` (~`:725`) validates nothing. Every sibling consumer of the same
+      interface filters. **LOW** — owner-gated, and the reads are gas-capped `try` calls, so a
+      bad entry degrades rather than bricks.
+      Fix: copy `MemeBountyBoard.setRestakingContract`'s three lines verbatim
+      (`uint256 codeLen = _restaking.code.length; if (codeLen == 0 || codeLen == 23) revert ...`)
+      into BOTH halves. Needs a `NotAContract` error added — the contract has none.
+- [ ] **`TegridyLending` accepted-collateral wire has no type filter on either half.**
+      `TegridyLendingAdmin.proposeAcceptedCollateral` (~`:405`) and
+      `TegridyLending.applyAcceptedCollateralChange` (~`:2612`) both zero-check only, while the
+      sibling `TegridyNFTLendingAdmin` (~`:149`) carries the full `codeLen > 0 && codeLen != 23`
+      gate PLUS an ERC165 preflight. **MEDIUM** but **not deployed** — `TEGRIDY_LENDING_ADDRESS`
+      is zeroed in `frontend/src/lib/constants.ts`, so this is pre-deploy hardening with no live
+      exposure. Do it before that contract ever ships.
+
+- [ ] **`contracts/foundry.toml:60` records SwapFeeRouter at 21,531 B / 3,045 B headroom — stale.**
+      Measured **22,279 B / 2,297 B** on 2026-09-05 with this branch rebased on trunk. Most of the
+      drift is TF-015's FoT-haircut state + timelocked setter (already on trunk); ~99 B is the
+      admin-rotation type filter in this PR. Not urgent — 2,297 B is comfortable, and TegridyStaking
+      is the contract that actually runs tight. Fold the correction into whatever next edits
+      `foundry.toml`, because **editing that file busts forge's cache and forces a ~45-minute
+      full rebuild**, so it is not worth a commit of its own. Consider giving SwapFeeRouter the
+      same ratchet treatment as
+      [`Audit_StakingEIP170Size.t.sol`](../contracts/test/Audit_StakingEIP170Size.t.sol) —
+      it is the second-tightest contract and, like staking was, is currently guarded only by a
+      comment and a CI step that merely warns.
+
+- [ ] **`ReferralSplitter` — the `[L-28]` EOA filter guards the DEAD path; the live one has none.**
+      Same shape as the SwapFeeRouter instance fixed in this PR. `setApprovedCaller` (~`:589`)
+      carries the filter but reverts `SetupAlreadyComplete` on its first line once
+      `completeSetup()` has run — and `recordFee` refuses to do anything until `setupComplete`
+      is true. So the filter exists exactly for the window in which the guarded function is
+      inert, and is absent for the contract's entire operational life: `proposeApprovedCaller`
+      (~`:607`) zero-checks only and `executeApprovedCaller` (~`:619`) checks nothing before
+      `approvedCallers[_caller] = true`. The contract's own `[L-28]` comment even notes the
+      timelocked path is "ALWAYS available even after `completeSetup` flips". **Verified at
+      source 2026-09-05.** **LOW** — `approvedCallers` is the `onlyApproved` credential for
+      `recordFee`, which conserves `msg.value`, so this is credential containment, not a theft
+      path. Reachable today with no EVM state transition, unlike the propose/execute drift cases.
+      Fix: add the filter to `proposeApprovedCaller` AND re-check in `executeApprovedCaller`
+      (the two-sided shape this PR adopted). `revokeApprovedCaller` must stay unconditional.
+- [ ] **DRY the rule across the admin sister, and cross-link all four sites.** After this PR the
+      single rule "reject `code.length` 0 or 23" lives at four sites in three shapes:
+      `TegridyStaking._requireContract` (the helper), two inline copies on
+      `TegridyStakingAdmin` (`proposeRestakingContract` + the new `proposeLendingContract`), and
+      a fourth inline copy in `TegridyStaking.applyRestakingContract` that deliberately reverts
+      `ZeroAddress()` instead of `NotAContract()`. No site cross-references the others, so the
+      next change to the rule (a second delegation designator, a different heuristic) has four
+      places to miss. The admin has **15,669 B** of headroom — no budget excuse, unlike the host.
+      Fix: same `_requireContract` helper on the admin, route both propose paths through it, and
+      add a one-line cross-reference at each site flagging that `applyRestakingContract` is the
+      intentional odd one out (its revert selector must not be unified — changing it is
+      caller-visible drift).
+- [ ] **Add the reward-attribution regression test for a LEGITIMATE escrow.**
+      `isLendingContract` confers six distinct powers; the new suite pins the transfer-guard
+      relaxation and leaves the money-bearing one untested: `_isTrackedHolder` gates the
+      per-tokenId reward ledger at seven credit sites and is the sole authority for
+      `claimUnsettledForTokenId`. The EOA direction is now closed by the type filter, but a
+      future edit to `_requireContract` or the `_approved` gate that broke a legitimate escrow's
+      attribution path would be caught by nothing — and that path is where escrowed borrowers'
+      rewards live. Fix: whitelist `LendEscrow`, drive a shortfall so it is credited **while
+      tracked**, then assert `unsettledByTokenIdHolder(tokenId, escrow) > 0` and that
+      `claimUnsettledForTokenId` pays that slice. The shortfall plumbing already exists in
+      [`StakingLendingWhitelistEOA_2026_09_05.t.sol`](../contracts/test/StakingLendingWhitelistEOA_2026_09_05.t.sol)
+      (`_seedUntrackedResidue` and its helpers) — this is the tracked-at-credit-time mirror.
+- [ ] **Decide `contracts/certora/`'s status — it is ungated and reads as coverage.**
+      `grep -rl certora .github/` returns nothing: no workflow builds or runs the harness, the
+      6-rule spec, or the `.conf`. Nobody has checked whether the harness still compiles against
+      the edited contract, and the spec contains no lending references at all. Either add a rule
+      asserting the invariant this PR creates (any state where `isLendingContract[x]` is true was
+      reached through a transition that saw `x.code.length != 0 && != 23`) — exactly what a
+      prover is good at and a unit test is not — or put a header in `contracts/certora/README.md`
+      recording that it is unmaintained and ungated, so no future reviewer mistakes it for
+      verification.
+
+### 🟡 One DECISION, not a task
+
+- [ ] **Whitelisting is also a power exercised *over* an address, and this PR narrows the target
+      set to contract holders. Record the call either way.** Every lens framed
+      `isLendingContract` as a privilege GRANTED. It is equally a privilege exercised AGAINST:
+      `applyLendingContract(victim, true)` immediately zeroes `votingPowerOf(victim)` and
+      `aggregateActiveBoostBps(victim)`, bars the victim from `claimUnsettled()`, and bars anyone
+      from `claimUnsettledFor(victim)` — with no requirement that the target consent, hold no
+      positions, or have any relationship to lending. The timelock and `onlyOwner` bound *who can
+      do it*, not *who it can be done to*. Post-fix the reachable targets are exactly the
+      addresses WITH code — i.e. multisig, vault and DAO-treasury stakers, the largest governance
+      weights. This may be entirely acceptable in a trust model where the same key already holds
+      pause and admin replacement, but it was never decided out loud. Pick one:
+      **(a)** add a sentence to `applyLendingContract`'s natspec stating the power plainly and
+      that it is accepted, or
+      **(b)** add `if (_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();`
+      so an address already holding positions cannot be conscripted — which also reinforces the
+      `[LEND-RESIDUE-DEADLOCK]` fix from the other side.
+      (b) is a behaviour change and needs its own mutation-checked test; (a) is a comment. Do not
+      leave it implicit a second time.
+
+All of the above were verified at `file:line` by three independent refuters. None is a live exploit —
+both are owner-gated. They were kept OUT of `539ba990` deliberately: that diff already spans 6
+contracts, and widening a security change further costs more review quality than it buys.
+Each is a ~10-line change plus a mutation-checked test; model the test on
+[`contracts/test/Audit_AdminRotationEOA_2026_09_05.t.sol`](../contracts/test/Audit_AdminRotationEOA_2026_09_05.t.sol),
+which already covers the three fixed instances.
+
+### 🔴 REMAINING — only you can do these
+
+- [x] ~~**Push and open the PR**~~ — **DONE**: [#437](https://github.com/fomotsar-commits/tegridy-farms/pull/437),
+      base `mvp-launch`, MERGEABLE. Rebased onto trunk `77b2dec7` first, because trunk had moved
+      10+ commits (incl. TF-015 landing in `SwapFeeRouter.sol`, a file this PR also edits) and a
+      **conflicting PR runs no CI in this repo while still reading clean**. 38 checks registered,
+      0 failures — above the ~27 floor that distinguishes a real run from a starved one.
+      **Still needs review + merge.**
+- [ ] **Redeploy `TegridyStaking`** — the live contract at `0xcaDc93E9…046D` still runs pre-fix
+      bytecode. Tracked in [`WAVE_0_TODO.md`](WAVE_0_TODO.md) §2 with the full rationale.
+- [ ] **Before the queued staking↔NFT-lending whitelist**, read `unsettledRewards(addr)` and
+      `balanceOf(addr)` on the live staking contract — **both must be 0** or the whitelist
+      permanently deadlocks that residue against the DEPLOYED bytecode. Both read 0 on
+      2026-09-05, but `kick()` is permissionless and the 48h window is public, so re-read
+      immediately before proposing. Full runbook in [`WAVE_0_TODO.md`](WAVE_0_TODO.md) §4.
+
+---
+
 ## 🟢 2026-08-30 — ISLAND BUILDOUT (WO-3 dry-runs done) — newest layer; supersedes everything below
 
 Branch `claude/bungalow-buildout` (PR #341). Full plan: [`ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md).

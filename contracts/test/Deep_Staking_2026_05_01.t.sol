@@ -239,24 +239,40 @@ contract Deep_Staking_2026_05_01_Test is Test {
 
     // ─── DS-10 (Low) — applyLendingContract revoke blocked while NFT escrowed ──
 
+    /// @dev AUDIT FIX 2026-09-05 [LEND-EOA-WHITELIST]: this test used to whitelist `bob` —
+    ///      a plain EOA from `makeAddr` — as the lending contract, and its own comment said
+    ///      `the lending "contract" address Bob` in scare quotes. Both the propose and the
+    ///      execute side now type-filter that entry (EOAs and 23-byte EIP-7702 delegated
+    ///      EOAs), mirroring the restaking sibling, so DS-10's subject is a genuine contract
+    ///      holder. The guard under test is unchanged: revoking while the lending contract
+    ///      still escrows a position must revert `PendingLendingPositions`. See
+    ///      test/StakingLendingWhitelistEOA_2026_09_05.t.sol for the type-filter itself.
     function test_applyLendingContract_revokeRevertsWhenNFTHeld() public {
         // Use absolute timestamps to avoid expression-ordering ambiguity.
         uint256 t0 = 1_000_000;
         vm.warp(t0);
 
-        // Approve Bob as a lending contract first.
-        admin.proposeLendingContract(bob, true);
+        // Approve a genuine contract holder as the lending contract first.
+        MultiHolder lending = new MultiHolder(staking, token);
+        admin.proposeLendingContract(address(lending), true);
         vm.warp(t0 + 48 hours + 1);
         admin.executeLendingContract();
 
-        // Bob stakes (so the lending "contract" address Bob holds an NFT).
+        // Bob stakes, then parks the position at the lending contract so it holds an NFT.
         vm.prank(bob);
         staking.stake(500_000 ether, 30 days);
+        uint256 tid = staking.userTokenId(bob);
 
-        // Now try to revoke via admin — must revert because Bob (lending) holds an NFT.
-        uint256 t1 = t0 + 48 hours + 2;
+        uint256 tXfer = t0 + 48 hours + 1 + 24 hours + 1; // clear TRANSFER_COOLDOWN
+        vm.warp(tXfer);
+        vm.prank(bob);
+        staking.safeTransferFrom(bob, address(lending), tid);
+        assertEq(staking.balanceOf(address(lending)), 1, "lending contract escrows the position");
+
+        // Now try to revoke via admin — must revert because the lending contract holds an NFT.
+        uint256 t1 = tXfer + 1;
         vm.warp(t1);
-        admin.proposeLendingContract(bob, false);
+        admin.proposeLendingContract(address(lending), false);
         vm.warp(t1 + 48 hours + 1);
         vm.expectRevert(TegridyStaking.PendingLendingPositions.selector);
         admin.executeLendingContract();

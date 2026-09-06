@@ -16,13 +16,32 @@ optimizer = true
 # only (1) DRY refactors that DELETE duplicated patterns, (2) verbatim Solady
 # primitive swaps from billion-dollar protocols, (3) read-only sister contracts.
 #
-# TegridyStaking: 24,554 B (~22 B headroom — FROZEN for launch; re-measured
-#   2026-08-19, was recorded here as 24,337 B / ~239 B). 2026-06-04: the
+# TegridyStaking: 24,521 B (~55 B headroom — re-measured 2026-09-05, was 24,554 B /
+#   ~22 B; before that 24,337 B / ~239 B at the 2026-08-19 measurement). The 46 B came
+#   BACK from applying the rule below rather than spending it. TWO security fixes landed
+#   on 2026-09-05 and the contract still SHRANK by 33 B. [LEND-EOA-WHITELIST]
+#   needed a contract-check in `applyLendingContract`, which 22 B could not fund, so the
+#   three verbatim `code.length == 0 || == 23` copies in `setJbacVault` /
+#   `setStakingAdmin` / `proposeAdminReplacement` were folded into one private
+#   `_requireContract` helper. Three inline copies became one body plus four calls — the
+#   new check shipped AND the buffer grew. (Only the -46 B net was measured; there is no
+#   independently measured per-copy figure. An earlier draft cited "~39 B per copy" from
+#   setJbacVault's natspec — that number is a HEADROOM figure in a different argument, not
+#   a per-copy cost. Do not propagate it.) Note the optimizer does NOT inline a private
+#   function with four call sites; an edit that drops it back to one call site would
+#   re-inline it and give the 46 B straight back. [LEND-RESIDUE-DEADLOCK] then spent 13 B
+#   of that (24,508 -> 24,521): it makes the lending residue guard UNCONDITIONAL, which is
+#   cheaper because it deletes a condition, and adds the mirror guard on
+#   applyRestakingContract's incoming address.
+#   2026-06-04: the
 #   M-1/M-2/H-E security-fix batches had eroded the prior +39 B down to +7 B; moving
 #   the two off-chain stakeCap monitoring views to the sister (below) reclaimed ~232 B.
 #   ANY further growth must extract more to a lib or sister; do NOT consume buffer.
-#   That buffer has since been consumed anyway: 22 B is less than one line of code,
-#   and this contract is live + on the redeploy list. Extract BEFORE the next edit.
+#   The margin is now 55 B — still under one line of code for most edits, and this
+#   contract is live + on the redeploy list. Extract BEFORE the next edit.
+#   ENFORCED, not just documented: contracts/test/Audit_StakingEIP170Size.t.sol ratchets
+#   the measured 24,521 B, so growth fails a test rather than silently eating the margin
+#   (CI's FLOOR_EXCEPTIONS only WARNS below the hard 24,576 limit).
 #   - src/lib/StakingViewLib.sol: read-only views (votingPowerOf / aggregateActive
 #     BoostBps / earned / earnedFromMem) + resolveJbac JBAC-revalidation helper
 #     (2026-05-30 DRY split: was inline in 3 callsites). All `internal` so they

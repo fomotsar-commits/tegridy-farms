@@ -875,7 +875,8 @@ library StakingRewardLib {
         // below both also carve out `restakingContract` — this was the only one of the three
         // that did not. `restakingContract` and `isLendingContract` are DISJOINT registries
         // (applyRestakingContract vs applyLendingContract) and every other site tests them
-        // together (TegridyStaking:800, :863), so the restaking escrow never relaxed it.
+        // together (both `user == restakingContract || isLendingContract[user]` escrow
+        // short-circuits in TegridyStaking), so the restaking escrow never relaxed it.
         //
         // Four ordinary calls then dead-ended a user's NFT: `restake(#1)` zeroes
         // `userTokenId` at the bottom of this function, which is exactly what frees
@@ -895,17 +896,24 @@ library StakingRewardLib {
         // MAX_POSITIONS cap noted below.
         //
         // The `restakingContract != address(0)` conjunct is deliberate. `restakingContract`
-        // is an uninitialised `address public` (TegridyStaking:362, never set in the
+        // is an uninitialised `address public` in TegridyStaking (never set in the
         // constructor), so it reads as address(0) until `applyRestakingContract` runs. A bare
         // `from == restakingContract` would therefore be TRUE for every MINT
         // (`from == address(0)`) on a deployment that has not yet registered — or never
         // registers — a restaking contract, quietly disabling this guard on that path.
         //
-        // Not exploitable today: `stake` and `stakeWithBoost` each reject a second position at
-        // TegridyStaking:1016 / :1086 (`userTokenId[msg.sender] != 0 -> AlreadyStaked`) BEFORE
-        // reaching `_mint`, so the mint path is already bounded upstream. This keeps the guard
-        // from depending on that upstream check for its correctness. Same pairing as
-        // TegridyStaking:1725.
+        // Not exploitable today: TegridyStaking's `stake` and `stakeWithBoost` each reject a
+        // second position (`userTokenId[msg.sender] != 0 -> AlreadyStaked`) BEFORE reaching
+        // `_mint`, so the mint path is already bounded upstream. This keeps the guard from
+        // depending on that upstream check for its correctness. The same
+        // `&& restakingContract != address(0)` pairing recurs in TegridyStaking's
+        // `_isTrackedHolder` and in its restaking-owner branch.
+        //
+        // NOTE ON CITATIONS (2026-09-05): the file:line references in this block were rewritten
+        // to name SYMBOLS instead. They had silently gone stale — an unrelated insertion higher
+        // up in TegridyStaking.sol shifted every one of them by 26 lines. A same-repo line
+        // citation self-invalidates on any edit above it, which is the very cross-reference
+        // drift that let the asymmetry this comment documents sit unnoticed.
         //
         // NOTE the MAX_POSITIONS cap above is deliberately NOT given this relaxation — it is
         // what BOUNDS this one.
