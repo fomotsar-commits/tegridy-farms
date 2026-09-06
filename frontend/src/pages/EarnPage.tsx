@@ -37,9 +37,16 @@ const CompetitionsPage = lazy(() => import('./CompetitionsPage'));
 // still gates only the optional short `?invoice=` form, and that lookup answers 503
 // `schema-missing` rather than "no such invoice" until an operator applies it.
 const CheckoutPage = lazy(() => import('./CheckoutPage'));
+// The pools themselves — staking, locks, LP farming. Came in from the top bar
+// on 2026-09-05, where it was called "Farm": DeFi jargon, and the same idea this
+// section was already named after, so one thing wore two names at two levels.
+const FarmPage = lazy(() => import('./FarmPage'));
+// Borrowing against an NFT, and the NFT AMM. Also came in from the top bar,
+// where it was "NFT Finance" — a category, not something anyone wants to do.
+const LendingPage = lazy(() => import('./LendingPage'));
 
 /**
- * EarnPage — the Earn section as ONE page with five tabs.
+ * EarnPage — the Earn section as ONE page with tabs.
  *
  * What these five share is the visitor's job: turn attention, capital or a
  * customer into income. What they do NOT share is a contract, a feed or a
@@ -57,6 +64,8 @@ export default function EarnPage() {
       idPrefix="earn"
       ariaLabel="Earn sections"
       panels={{
+        '/farm': FarmPage,
+        '/nft-finance': LendingPage,
         '/referrals': ReferralsPage,
         '/yield': YieldPage,
         '/copy-trading': CopyTradingPage,

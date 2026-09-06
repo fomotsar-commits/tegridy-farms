@@ -1,9 +1,10 @@
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount } from 'wagmi';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
-import { PRIMARY_NAV, MORE_NAV, MENU_NAV_SECTIONS } from '../../lib/navConfig';
+import { NAV_SECTIONS, DASHBOARD_NAV } from '../../lib/navConfig';
 import type { NavItem, NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
@@ -15,11 +16,10 @@ import { artImgProps } from '../../lib/artSrcSet';
 /**
  * Is any of this section's destinations the page we are on?
  *
- * A COLLAPSED section links to its hub only, so a plain `<NavLink to={hub}>`
- * would go dim the moment the visitor moved to a sibling tab — standing on
- * /scan, the "Trust & Safety" row it was reached through would read as
- * inactive. The row represents the whole section, so it is lit by the whole
- * section.
+ * A section's word links to its hub only, so a plain `<NavLink to={hub}>` would
+ * go dim the moment the visitor moved to a sibling tab — standing on /scan, the
+ * "Check" word they got there through would read as inactive. The word
+ * represents the whole section, so it is lit by the whole section.
  *
  * Segment-boundary matching, not `startsWith`: `/launch-simulator` starts with
  * `/launch` and is a different destination.
@@ -47,36 +47,18 @@ function NavPills({ item }: { item: NavItem }) {
   );
 }
 
-/** The "opens a page of tabs" affordance on a collapsed section row. */
-function SectionChevron() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="opacity-45 flex-shrink-0">
-      <polyline points="9 18 15 12 9 6" />
-    </svg>
-  );
-}
-
-/**
- * Index of the first COLLAPSED section, so the menu can rule a line above it.
- *
- * Without the divider the four section rows sit heading-less directly under the
- * last expanded group and read as more of its links. -1 when nothing is
- * collapsed, which draws no rule at all.
- */
-const FIRST_HUB_INDEX = MENU_NAV_SECTIONS.findIndex((s) => !!s.hub);
-
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
   const [kebabOpen, setKebabOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
   const kebabRef = useRef<HTMLDivElement>(null);
-  const moreRef = useRef<HTMLDivElement>(null);
-  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const { isDark } = useTheme();
+  // Dashboard joins the bar only once there is an account for it to describe.
+  // `useAccount` is already provided app-wide by WagmiProvider (App.tsx), and
+  // this component is inside it — the same hook StakingCard and the rest use.
+  const { isConnected } = useAccount();
 
   // Admin link visibility — only show if flag set in localStorage. Keeps the
   // kebab menu empty (and hidden) for ordinary users.
@@ -95,33 +77,11 @@ export const TopNav = React.memo(function TopNav() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [kebabOpen]);
 
-  // Close "More" dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
-    }
-    if (moreOpen) document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [moreOpen]);
+  // ⌫ The "More" dropdown's outside-click and Escape handlers lived here. Both
+  // went with the dropdown on 2026-09-05: there is no popup in the desktop bar
+  // any more, only six links and a conditional seventh.
 
-  // A11Y-R09: Escape closes "More" and puts focus back on the trigger.
-  // Before this the dropdown closed on an outside MOUSEDOWN or a route change
-  // and nothing else, so a keyboard user who opened it could not dismiss it
-  // without navigating away.
-  useEffect(() => {
-    if (!moreOpen) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      setMoreOpen(false);
-      moreTriggerRef.current?.focus();
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [moreOpen]);
-
-  // Close both menus on route change.
+  // Close the kebab on route change.
   // R007 Pattern A — store the previous pathname and compare during render
   // (React docs "store info from previous renders"). No effect runs, no
   // cascading render trigger.
@@ -129,7 +89,6 @@ export const TopNav = React.memo(function TopNav() {
   if (lastPathname !== location.pathname) {
     setLastPathname(location.pathname);
     if (kebabOpen) setKebabOpen(false);
-    if (moreOpen) setMoreOpen(false);
   }
 
   // Audit H-F10: close on Escape + trap focus inside the drawer while open.
@@ -382,129 +341,67 @@ export const TopNav = React.memo(function TopNav() {
                 this nav, the hamburger, the drawer overlay, the drawer itself,
                 BottomNav.tsx, AppLayout.tsx's content pb, and the two
                 max-width:799px blocks in index.css.
-              headerFitsAtEveryWidth in TopNav.responsive.test.ts pins the
-              invariant (no overflow, Connect on-canvas) rather than the literal. */}
+              e2e/header-reachability.spec.ts pins the invariant (no overflow,
+              Connect on-canvas) rather than the literal. NOTE: there is no
+              TopNav.responsive.test.ts, despite what this comment said until
+              2026-09-05 — the guard is the e2e spec, and it sweeps real widths. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
-            {PRIMARY_NAV.map((n) => (
-              <NavLink key={n.to} to={n.to}
-                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
-                {n.label}
+            {/* THE SIX WORDS + DASHBOARD, 2026-09-05.
+                PRIMARY_NAV is derived from NAV_SECTIONS (navConfig.ts), so this
+                row cannot disagree with the tab strips underneath it. Each word
+                is lit by its WHOLE section, not just by its own href: standing
+                on /scan, "Check" must not go dim because the visitor moved off
+                /trust — the word represents the section it opens. That is the
+                same sectionIsActive() the collapsed dropdown rows used to use,
+                which is why it survived the dropdown's deletion. */}
+            {NAV_SECTIONS.map((section) => (
+              <NavLink
+                key={section.heading}
+                to={section.primaryTo ?? section.hub}
+                className={`nav-link ${sectionIsActive(section, location.pathname) ? 'active' : ''}`}
+              >
+                {section.heading}
               </NavLink>
             ))}
 
-            {/* "More" dropdown — secondary destinations (Marketplace, Gallery, etc.)
-                that don't fit in the primary nav but still deserve a top-bar slot. */}
-            <div className="relative" ref={moreRef}>
-              {/* A11Y-R09: this used to declare aria-haspopup="true" over a
-                  role="menu" of role="menuitem"s, which promises assistive
-                  technology the whole menu keyboard contract — arrow-key roving
-                  focus, Home/End, Escape, focus moved into the popup — and none
-                  of it existed. The honest shape is what this actually is: a
-                  disclosure button revealing a small nav of links. aria-expanded
-                  stays (it is true), the menu roles are gone, and Escape is now
-                  implemented rather than implied. */}
-              <button
-                ref={moreTriggerRef}
-                onClick={() => setMoreOpen(!moreOpen)}
-                aria-expanded={moreOpen}
-                /* Only while it exists: the audit (and axe's
-                   aria-valid-attr-value) require every idref to RESOLVE, and the
-                   popup is unmounted when closed. */
-                aria-controls={moreOpen ? 'top-nav-more' : undefined}
-                aria-label="More navigation"
-                className={`nav-link flex items-center gap-1 ${MORE_NAV.some(n => location.pathname.startsWith(n.to)) ? 'active' : ''}`}
+            {/* Dashboard, LAST and only once connected — see DASHBOARD_NAV.
+                It is the one destination that is empty for a stranger, and it
+                used to be the first word in this bar. */}
+            {isConnected && (
+              <NavLink
+                to={DASHBOARD_NAV.to}
+                className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
               >
-                More
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                  style={{ transform: moreOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
-              <AnimatePresence>
-                {moreOpen && (
-                  <m.div
-                    className="absolute top-full left-0 mt-1 py-2 rounded-lg w-[240px] flex flex-col gap-y-1 z-50"
-                    style={{
-                      background: isDark ? 'rgba(10,10,20,0.96)' : 'rgba(255,255,255,0.97)',
-                      border: '1px solid var(--color-purple-20)',
-                      backdropFilter: 'blur(20px)',
-                      WebkitBackdropFilter: 'blur(20px)',
-                      boxShadow: isDark ? '0 8px 30px rgba(0,0,0,0.5)' : '0 8px 30px rgba(0,0,0,0.12)',
-                    }}
-                    initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }}
-                    transition={{ duration: 0.15 }}
-                    id="top-nav-more"
-                    role="navigation"
-                    aria-label="More destinations"
-                  >
-{/* 🔻 CONDENSED 2026-09-04. Four of these six sections carry a `hub`
-                        and render as ONE row apiece — Launch, Earn, Stats, Trust &
-                        Safety — with their former entries becoming the tab strip on
-                        the page that row opens (SectionHost.tsx). Nine rows here
-                        instead of twenty-one.
-
-                        NOTHING WAS DROPPED FROM navConfig TO DO IT: MORE_NAV_SECTIONS
-                        still holds every entry with its label and its pill, and the
-                        host reads the SAME array to build its tabs. That is the whole
-                        reason this is a rendering change — a destination cannot be
-                        lost from the menu without also vanishing from its host's tab
-                        bar, because there is one list, not two. */}
-                    {MENU_NAV_SECTIONS.map((section, si) => (
-                      <div
-                        key={section.heading}
-                        className={`px-2 ${si === FIRST_HUB_INDEX ? 'mt-1 pt-1.5 border-t border-white/10' : ''}`}
-                      >
-                        {section.hub ? (
-                          <NavLink
-                            to={section.hub}
-                            className={`nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${sectionIsActive(section, location.pathname) ? 'active' : ''}`}
-                          >
-                            <span>{section.heading}</span>
-                            <SectionChevron />
-                          </NavLink>
-                        ) : (
-                          <>
-                            <p
-                              className="px-2 pt-1.5 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60"
-                              style={{ color: isDark ? '#fff' : '#1a1a1a' }}
-                            >
-                              {section.heading}
-                            </p>
-                            {section.items.map((n) => (
-                              <NavLink
-                                key={n.to}
-                                to={n.to}
-                                className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-1.5 text-[12.5px] rounded-md transition-colors ${isActive ? 'active' : ''}`}
-                              >
-                                <span>{n.label}</span>
-                                <NavPills item={n} />
-                              </NavLink>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </div>
+                {DASHBOARD_NAV.label}
+              </NavLink>
+            )}
           </nav>
+
+          {/* ── the deleted "More" dropdown ──────────────────────────────────
+              Removed 2026-09-05. It held five sections behind one word that,
+              in the operator's reading, "means we couldn't decide" — and it made
+              the site three levels deep (More → section → page) for a nav that
+              now fits in six words. Every destination it listed is either a
+              top-bar word or a tab on the page one of those words opens; nothing
+              became unreachable, which navConfig.test.ts asserts against the
+              route table rather than trusting this comment.
+
+              The state it needed (moreOpen, moreRef, moreTriggerRef, the
+              outside-click and Escape handlers, FIRST_HUB_INDEX) went with it.
+              The mobile drawer keeps its own list — BottomNav shows five tabs,
+              so the drawer is still the only way to the rest below 800px. */}
 
           {/* flex-shrink-0: the wallet cluster is this row's critical action, so
               it must never be the part that gets compressed. (Width is kept in
-              budget by the chip-label rule above; the nav itself is deliberately
-              NOT given min-w-0/overflow-hidden, because that would clip the
-              "More" dropdown, which is absolutely positioned inside it.) */}
+              budget by the chip-label rule above.) */}
           <div className="flex items-center gap-1 min-[400px]:gap-1.5 md:gap-2 min-w-0 flex-shrink-0">
-            {/* AUDIT 2026-05-30 (mobile+iPad re-pass): was `hidden md:block` which (a) failed
-                to actually hide at 390 in the wild and (b) collided with the Connect button
-                at the 768 iPad-portrait breakpoint (50px allocated slot vs 85px text width).
-                Bumped to `lg:` (≥1024) so this top-nav link only appears at true desktop —
-                mobile + iPad users still reach Tradermigos via the BottomNav tab. `!` prefix
-                forces the rules through any selector-specificity override. */}
-            <NavLink to="/nakamigos" className={({ isActive }) => `nav-link text-[13px] !hidden lg:!flex ${isActive ? 'active' : ''}`}>
-              Marketplace
-            </NavLink>
+            {/* ⌫ The right-aligned "Marketplace" link stood here until
+                2026-09-05. It is a destination inside the Island section now, so
+                keeping it in this cluster would be the same link twice — and it
+                was the extra word that pushed this row toward the Connect button
+                at iPad-portrait widths in the first place (the AUDIT 2026-05-30
+                note it carried was about exactly that collision). Deleting it
+                buys back the width the sixth nav word costs. */}
 
             {/* Wallet — placed before the theme toggle so the hamburger has a
                 clear slot at the far right on narrow viewports. Padding, font
@@ -530,12 +427,21 @@ export const TopNav = React.memo(function TopNav() {
                          meeting the review's ask. The classes were dead, not small.
                          They are gone rather than "fixed", and the sizing is explicit
                          here instead of arriving from a class this element no longer
-                         wants. min-h keeps the 44px tap target index.css was giving it. */
+                         wants. min-h keeps the 44px tap target index.css was giving it.
+                         (e) OFF GREEN, 2026-09-05. (c) stopped this competing on WEIGHT
+                         but left it competing on HUE: outlined kyle-green here, and a
+                         filled kyle-green "Stake X" in the hero directly below it, so
+                         one colour carried two unrelated jobs in a single viewport. It
+                         now wears the brand purple — the hue this bar is already built
+                         from (--color-purple-75 borders here, text-purple-400 for the
+                         active tab in BottomNav), so the wallet control reads as part
+                         of the chrome it lives in rather than as a page action. Green
+                         goes back to meaning exactly one thing: stake. */
                       <button
                         onClick={openConnectModal}
                         aria-label="Connect wallet"
-                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4CAF50]"
-                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)' }}
+                        className="text-[13px] md:text-[14px] font-semibold rounded-lg px-2.5 md:px-4 py-1.5 min-h-[44px] md:min-h-[36px] transition-all hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]"
+                        style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(139,92,246,0.60)', color: 'var(--color-primary)' }}
                       >
                         Connect
                       </button>
@@ -645,43 +551,49 @@ export const TopNav = React.memo(function TopNav() {
                 </button>
               </div>
               <nav className="relative z-10 flex-1 px-3 overflow-y-auto pb-6">
-                {/* Mirror the desktop "More" dropdown — single source of
-                    truth in navConfig. Primary tabs already live in the
-                    BottomNav, so the drawer is just the secondary overflow. */}
-{/* Mirrors the desktop dropdown exactly, collapsed sections and
-                    all — same array, same `hub` test. See the comment there. */}
-                {MENU_NAV_SECTIONS.map((section, si) => (
-                  <div
-                    key={section.heading}
-                    className={`mb-3 ${si === FIRST_HUB_INDEX ? 'pt-2 border-t border-white/10' : ''}`}
-                  >
-                    {section.hub ? (
-                      <NavLink
-                        to={section.hub}
-                        onClick={() => setOpen(false)}
-                        className={`nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${sectionIsActive(section, location.pathname) ? 'active' : ''}`}
-                      >
-                        <span>{section.heading}</span>
-                        <SectionChevron />
-                      </NavLink>
-                    ) : (
-                      <>
-                        <p className="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold opacity-60 text-text-muted">
-                          {section.heading}
-                        </p>
-                        <div className="space-y-0.5">
-                          {section.items.map((n) => (
-                            <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
-                              className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
-                              <span>{n.label}</span>
-                              <NavPills item={n} />
-                            </NavLink>
-                          ))}
-                        </div>
-                      </>
-                    )}
+                {/* THE DRAWER IS THE WHOLE NAV BELOW 800px, and after
+                    2026-09-05 it shows every destination EXPANDED rather than
+                    one row per section.
+
+                    On desktop a section is one word because its page carries a
+                    tab strip that reveals the rest. The drawer has no such
+                    strip — it is a list — so a collapsed row here meant "tap,
+                    wait for a page to load, then read the tabs". There is
+                    vertical room in an off-canvas panel and no hover to lean
+                    on, so the items are simply shown, with the section heading
+                    above them and their SOON/LIVE pills intact.
+
+                    Still one source of truth: NAV_SECTIONS, the same array the
+                    desktop row and every SectionHost read. A destination cannot
+                    be lost from here without vanishing from its host's tabs. */}
+                {NAV_SECTIONS.map((section) => (
+                  <div key={section.heading} className="mb-3">
+                    <NavLink
+                      to={section.primaryTo ?? section.hub}
+                      onClick={() => setOpen(false)}
+                      className={`nav-link block px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider font-semibold rounded-md ${sectionIsActive(section, location.pathname) ? 'active' : 'opacity-60'}`}
+                    >
+                      {section.heading}
+                    </NavLink>
+                    <div className="space-y-0.5">
+                      {section.items.map((n) => (
+                        <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
+                          className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
+                          <span>{n.label}</span>
+                          <NavPills item={n} />
+                        </NavLink>
+                      ))}
+                    </div>
                   </div>
                 ))}
+                {/* Dashboard, last and only once connected — the same rule the
+                    desktop bar follows, from the same export. */}
+                {isConnected && (
+                  <NavLink to={DASHBOARD_NAV.to} onClick={() => setOpen(false)}
+                    className={({ isActive }) => `nav-link block px-2 py-2 rounded-md mb-3 ${isActive ? 'active' : ''}`}>
+                    {DASHBOARD_NAV.label}
+                  </NavLink>
+                )}
                 {showAdmin && (
                   <NavLink to="/admin" onClick={() => setOpen(false)}
                     className={({ isActive }) => `nav-link block px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>

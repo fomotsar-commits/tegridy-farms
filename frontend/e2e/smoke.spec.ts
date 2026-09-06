@@ -33,12 +33,19 @@ test.describe('Smoke Tests', () => {
     await expect(visibleNav).toBeVisible();
   });
 
-  test('farm page loads', async ({ page }) => {
+  test('earn page loads', async ({ page }) => {
     await gotoRoute(page, '/farm');
-    // FarmPage doesn't use an h1 — the heading is rendered via heading-luxury
-    // styling on an h2 inside ConnectPrompt / StakePanel. Title (set via
-    // usePageTitle) is the authoritative source for "did this route mount".
-    await expect(page).toHaveTitle(/Farm/i);
+    // Title (set via usePageTitle) is the authoritative source for "did this
+    // route mount": the classic FarmPage renders its heading as a heading-luxury
+    // h2 inside ConnectPrompt / StakePanel rather than an h1.
+    //
+    // 2026-09-05 — WAS /Farm/i. This suite runs with NO bungalow chosen, which
+    // is the venue's own voice, and /farm no longer answers that with one
+    // resident's staking page: it is the island-wide pool index, titled "Earn"
+    // like the nav word that opens it. The classic TOWELI farm still titles
+    // itself "Farm" inside its own room, which src/pages/venueVoice.test.tsx and
+    // FarmPage.boostAndBatch.test.tsx cover.
+    await expect(page).toHaveTitle(/Earn/i);
   });
 
   test('swap page loads', async ({ page }) => {

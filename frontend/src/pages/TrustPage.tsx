@@ -1,6 +1,6 @@
 import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
-import { TRUST_SECTION } from '../lib/navConfig';
+import { CHECK_SECTION } from '../lib/navConfig';
 
 // Thin hub that frames the three detection surfaces below as one anti-rug suite.
 const TrustHubPage = lazy(() => import('./TrustHubPage'));
@@ -49,9 +49,9 @@ const AlertsPage = lazy(() => import('./AlertsPage'));
 export default function TrustPage() {
   return (
     <SectionHost
-      section={TRUST_SECTION}
+      section={CHECK_SECTION}
       idPrefix="trust"
-      ariaLabel="Trust and safety sections"
+      ariaLabel="Token-checking tools"
       panels={{
         '/trust': TrustHubPage,
         '/scan': ScannerPage,

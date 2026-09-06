@@ -1,10 +1,11 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   PRIMARY_NAV,
-  POINTS_NAV,
+  DASHBOARD_NAV,
+  NUMBERS_TABS,
   ALL_NAV,
   MORE_NAV,
-  MORE_NAV_SECTIONS,
+  NAV_SECTIONS,
   // NOTE: `NFT_FINANCE_LIVE` is deliberately NOT imported. Referencing the combined
   // gate is what made the old assertions tautological — they compared the nav array
   // against the constant that built it. The tests below pin the address-derived signal
@@ -26,10 +27,18 @@ import { deployedCurveChains } from './launcher/curveChains';
 // so the assertions below can tell "routed but not promoted" apart from "not routed".
 import { ROUTES } from '../../e2e/fixtures/routes';
 
-// Session 1 consolidated the navigation from 21 routes to a tight primary set.
-// MORE_PATHS was removed; MORE_NAV is the flattened "More" destinations and
-// ALL_NAV is PRIMARY_NAV + the right-aligned Tradermigos action + MORE_NAV.
-// This test asserts the post-consolidation shape.
+// -- THE 2026-09-05 REWRITE ---------------------------------------------------
+// The bar was Dashboard / Farm / Trade / NFT Finance, a right-aligned
+// Marketplace, and a "More" dropdown holding five sections. It is six words
+// DERIVED from NAV_SECTIONS -- Swap / Pools / Earn / Launch / Check / Island --
+// plus Dashboard appended last and only when connected. There is no dropdown.
+//
+// Because PRIMARY_NAV is derived, the assertions below can no longer be the
+// tautology this file has already been burned by twice (see the warning on the
+// NFT-finance test): comparing a hand-written bar against the constant that
+// built it. What is pinned instead is the RELATIONSHIP between the bar and the
+// sections, plus the properties a rewrite breaks silently -- a destination with
+// no path to it, or a word that opens a page highlighting nothing.
 
 describe('navConfig', () => {
   it('PRIMARY_NAV has items with `to` and `label`', () => {
@@ -41,16 +50,54 @@ describe('navConfig', () => {
     }
   });
 
-  it('PRIMARY_NAV is the agreed tight consolidation', () => {
-    // Keep the top-nav tight. If this ever exceeds 5, revisit the IA
-    // consolidation rationale in the session-1 battle plan before
-    // relaxing the assertion.
-    expect(PRIMARY_NAV.length).toBeLessThanOrEqual(5);
-    const paths = PRIMARY_NAV.map((n) => n.to);
-    // Spot-check the core surfaces actually exist in the primary set.
-    expect(paths).toContain('/dashboard');
-    expect(paths).toContain('/farm');
-    expect(paths).toContain('/swap');
+  it('is one word per section, in section order, and no more', () => {
+    // SIX IS THE CEILING and it is a measured one, not a preference: the bar
+    // shares an 800px row with the wordmark, the bungalow chip, Connect and the
+    // theme toggle, and this repo has a documented 640-790px dead-band history
+    // from letting that row overflow. e2e/header-reachability.spec.ts pins the
+    // geometry — it MEASURES (no overflow, Connect on-canvas) rather than
+    // enumerating labels, which is why the rename wave did not touch it. There
+    // is no `headerFitsAtEveryWidth` and no TopNav.responsive.test.ts, despite
+    // what this comment and TopNav.tsx both claimed until 2026-09-05;
+    // this pins the count that geometry was measured against.
+    expect(PRIMARY_NAV).toHaveLength(NAV_SECTIONS.length);
+    expect(PRIMARY_NAV.length).toBeLessThanOrEqual(6);
+    expect(PRIMARY_NAV.map((n) => n.label)).toEqual(NAV_SECTIONS.map((s) => s.heading));
+  });
+
+  it('names the job, never the container -- the six words the operator asked for', () => {
+    // The rename wave IS the change, so pinning the literal set is the only way
+    // to stop it drifting back one word at a time: "Farm" was jargon and a
+    // duplicate of the Earn group, "Trust & Safety" read as a policy page over
+    // the venue's best differentiator, and "More" meant "we couldn't decide".
+    expect(PRIMARY_NAV.map((n) => n.label)).toEqual([
+      'Swap', 'Pools', 'Island', 'Launch', 'Earn', 'Check',
+    ]);
+    for (const dead of ['Farm', 'Trade', 'NFT Finance', 'More', 'Trust & Safety', 'Stats']) {
+      expect(
+        PRIMARY_NAV.map((n) => n.label),
+        dead + ' came back to the top bar',
+      ).not.toContain(dead);
+    }
+  });
+
+  it('points every word at one of its own section destinations', () => {
+    // `primaryTo` is an override for exactly one section (Swap, whose landing
+    // follows the active bungalow's chain). An override pointing OUTSIDE its
+    // section would open a page whose tab strip highlights nothing.
+    for (const sec of NAV_SECTIONS) {
+      const to = sec.primaryTo ?? sec.hub;
+      expect(sec.items.map((i) => i.to), sec.heading + ' points outside itself').toContain(to);
+    }
+  });
+
+  it('keeps Dashboard OUT of the bar -- it is empty until a wallet connects', () => {
+    // It used to be the FIRST word. The operator's rule: the execution words
+    // first, then "what is happening with your assets". TopNav appends it from
+    // the connection state, so it must not also be a section.
+    expect(PRIMARY_NAV.map((n) => n.to)).not.toContain('/dashboard');
+    expect(DASHBOARD_NAV.to).toBe('/dashboard');
+    expect(ALL_NAV.map((n) => n.to), 'still reachable, just not in the bar').toContain('/dashboard');
   });
 
   // ⚠️ 2026-08-12 — BOTH of these were TAUTOLOGIES. They read
@@ -78,7 +125,12 @@ describe('navConfig', () => {
       NFT_FINANCE_ADDRESSES_LIVE,
       'an nft-finance address must be deployed in constants.ts for this entry to be honest',
     ).toBe(true);
-    expect(PRIMARY_NAV.map((n) => n.to)).toContain('/nft-finance');
+    // 2026-09-05: it left the TOP BAR (where it was labelled "NFT Finance", a
+    // category rather than a job) for the Earn section, where borrowing against
+    // an asset you hold belongs. "Promoted" is what this test was ever about;
+    // which row carries it is presentation.
+    expect(MORE_NAV.map((n) => n.to)).toContain('/nft-finance');
+    expect(ALL_NAV.find((n) => n.to === '/nft-finance')?.label).toBe('Borrow on NFTs');
   });
 
   it('Community is in the More menu ONLY because PROMOTE_PENDING forces it', () => {
@@ -100,13 +152,14 @@ describe('navConfig', () => {
     expect(MORE_NAV.map((n) => n.to)).toContain('/community');
   });
 
-  it('POINTS_NAV is the right-aligned promoted action (Marketplace)', () => {
-    // Previously the right-aligned slot was Points; Tradermigos was swapped
-    // in from the "More" dropdown so the art marketplace gets top-bar prominence.
-    expect(POINTS_NAV.to).toBe('/nakamigos');
-    // Owner call 2026-08-31: the slot reads Marketplace now — the route is
-    // unchanged (/nakamigos); only the label the visitor sees moved.
-    expect(POINTS_NAV.label).toBe('Marketplace');
+  it('files the art Marketplace on the Island, not beside the token swap', () => {
+    // It had its own right-aligned header slot until 2026-09-05, next to
+    // "Trade" -- and the operator's reading was that "Trade" and "Marketplace"
+    // gave no clue which one sold tokens and which sold art. It is an island
+    // surface. The route is unchanged.
+    const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
+    expect(island?.items.map((i) => i.to)).toContain('/nakamigos');
+    expect(ALL_NAV.find((n) => n.to === '/nakamigos')?.label).toBe('Marketplace');
   });
 
   it('ALL_NAV is a superset of PRIMARY_NAV', () => {
@@ -120,19 +173,22 @@ describe('navConfig', () => {
   // on ANY token/wallet. Under the old generic "Stats" heading (beside Tokenomics and
   // Treasury) they read as protocol vanity metrics. Pin the named grouping + the hub so
   // a future nav edit can't quietly bury them again.
-  it('the trust tools live under their own "Trust & Safety" heading, with the /trust hub', () => {
-    const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
-    expect(trust).toBeDefined();
-    const paths = trust!.items.map((i) => i.to);
+  it('puts the detection tools in the TOP BAR, under the word "Check"', () => {
+    // 2026-09-05, and this is the single biggest win in the rewrite. They sat
+    // under "Trust & Safety" -- content-moderation language, which reads as a
+    // policy page of terms and reporting -- inside a dropdown called "More".
+    // Two clicks and the most boring label on the site, over the venue's one
+    // genuine differentiator. "Check" is what a visitor is here to do.
+    const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
+    expect(check, 'the Check section is gone').toBeDefined();
+    expect(PRIMARY_NAV.map((n) => n.label)).toContain('Check');
+    const paths = check!.items.map((i) => i.to);
     expect(paths).toContain('/trust');
     expect(paths).toContain('/scan');
     expect(paths).toContain('/deployer');
     expect(paths).toContain('/exposure');
-    // and they are NOT left behind in the generic Stats bucket
-    const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');
-    for (const p of ['/scan', '/deployer', '/exposure']) {
-      expect(stats?.items.map((i) => i.to) ?? []).not.toContain(p);
-    }
+    // The old heading must not come back on any section.
+    expect(NAV_SECTIONS.map((sec) => sec.heading)).not.toContain('Trust & Safety');
   });
 
   it('no duplicate paths in ALL_NAV', () => {
@@ -171,8 +227,8 @@ describe('navConfig', () => {
 
   // Alerts sits with the detection tools because its rule kinds watch exactly what those
   // tools read on demand, on any token, wallet or pool.
-  it('promotes /alerts under Trust & Safety, unpilled because the store is server-free', () => {
-    const trust = MORE_NAV_SECTIONS.find((s) => s.heading === 'Trust & Safety');
+  it('promotes /alerts under Check, unpilled because the store is server-free', () => {
+    const trust = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
     expect(trust?.items.map((i) => i.to)).toContain('/alerts');
 
     const entry = ALL_NAV.find((n) => n.to === '/alerts');
@@ -227,8 +283,8 @@ describe('navConfig', () => {
     // 'Engage' until 2026-09-03, when that 14-item catch-all was split into
     // Discover / Trade / Launch / Earn — a regrouping this test had no business
     // failing on, since nothing about /checkout changed.
-    const sections = MORE_NAV_SECTIONS.filter((s) => s.items.some((i) => i.to === '/checkout'));
-    expect(sections, '/checkout must be promoted in exactly one More section').toHaveLength(1);
+    const sections = NAV_SECTIONS.filter((sec) => sec.items.some((i) => i.to === '/checkout'));
+    expect(sections, '/checkout must be promoted in exactly one section').toHaveLength(1);
 
     const entry = ALL_NAV.find((n) => n.to === '/checkout');
     expect(entry?.label).toBe('Checkout');
@@ -250,17 +306,40 @@ describe('navConfig', () => {
   // value — comparing against `!isIndexerConfigured()` would compare the entry with
   // itself — plus the independence claim, which is the part that would rot silently.
   it('does not pill /tax: its rail ships with the deployment, and the key is disclosed on the page', () => {
-    const entry = ALL_NAV.find((n) => n.to === '/tax');
+    // 2026-09-05: /tax left ALL_NAV for NUMBERS_TABS. It is a TAB of StatsPage,
+    // and the nav lists a tabbed host once at its landing tab -- the convention
+    // ActivityPage and InfoPage already follow. The pill is guarded here rather
+    // than in a page test because it is the only pill on any of the three, and
+    // this file is where the rule about pills is written.
+    const entry = NUMBERS_TABS.find((n) => n.to === '/tax');
     expect(entry?.label).toBe('Tax Reports');
     expect(entry?.soon, 'the explorer rail ships with every deployment').toBe(false);
     // Independence: an indexer appearing or disappearing must not move this pill.
     // (lib/tax/rails.test.ts pins the rail itself; TaxPage.test.tsx pins the
     // ETHERSCAN_API_KEY disclosure that makes an unpilled entry honest.)
     expect(isIndexerConfigured()).toBe(false);
-    // It lives under Stats, not Trust & Safety: it is a personal accounting surface over
-    // the caller's own history, not one of the detection tools that work on any address.
-    const stats = MORE_NAV_SECTIONS.find((s) => s.heading === 'Stats');
-    expect(stats?.items.map((i) => i.to)).toContain('/tax');
+    // It is a personal accounting surface over the caller's own history, not one
+    // of the detection tools that work on any address -- so it must never drift
+    // into Check.
+    const check = NAV_SECTIONS.find((sec) => sec.heading === 'Check');
+    expect(check?.items.map((i) => i.to)).not.toContain('/tax');
+  });
+
+  it('opens the three numbers tabs from ONE Island row, and keeps them in step', () => {
+    // Island carries "Treasury & numbers" -> /tokenomics, and StatsPage hosts
+    // all three. The row and the host must agree about which tab is the landing
+    // one, or the word opens a page highlighting something else.
+    const island = NAV_SECTIONS.find((sec) => sec.heading === 'Island');
+    const row = island?.items.find((i) => i.to === '/tokenomics');
+    expect(row?.label, 'the operator asked "stats about what?" -- name the subject').toBe(
+      'Treasury & numbers',
+    );
+    expect(NUMBERS_TABS[0]?.to, 'StatsPage lands on items[0]').toBe('/tokenomics');
+    expect(NUMBERS_TABS.map((n) => n.to)).toEqual(['/tokenomics', '/treasury', '/tax']);
+    // The siblings are deliberately NOT promoted twice.
+    for (const p of ['/treasury', '/tax']) {
+      expect(MORE_NAV.map((n) => n.to), p + ' is listed as well as being a tab').not.toContain(p);
+    }
   });
 
   // ⚠️ THE DELIBERATE OMISSION. /airdrop and /vesting are routed and fully rendered, and
@@ -275,30 +354,19 @@ describe('navConfig', () => {
   // on the page that row opens. These pin the properties that make that safe;
   // every one of them fails on the pre-change file, where no section had a hub.
 
-  it('condenses the More menu to one row per collapsed section', () => {
-    const rows = MORE_NAV_SECTIONS.reduce((n, s) => n + (s.hub ? 1 : s.items.length), 0);
-    // The whole point: fewer rendered rows than destinations. Un-collapse every
-    // section and the two are equal again, and this fails.
-    expect(rows, 'nothing was condensed - every section still renders one row per item').toBeLessThan(
-      MORE_NAV.length,
-    );
-    // Not a literal count (entries are gated, so the total moves): the claim is
-    // that the menu stays scannable at a glance.
-    expect(rows).toBeLessThanOrEqual(10);
-  });
-
-  it('opens every collapsed section on its own first tab', () => {
-    const collapsed = MORE_NAV_SECTIONS.filter((s) => s.hub);
-    expect(collapsed.map((s) => s.heading)).toEqual(['Launch', 'Earn', 'Stats', 'Trust & Safety']);
-    for (const s of collapsed) {
+  it('opens every section on its own first tab', () => {
+    expect(NAV_SECTIONS.map((sec) => sec.heading)).toEqual([
+      'Swap', 'Pools', 'Island', 'Launch', 'Earn', 'Check',
+    ]);
+    for (const s of NAV_SECTIONS) {
       // SectionHost lands on items[0]. A hub pointing anywhere else opens the
       // page with a tab highlighted that the visitor did not click.
-      expect(s.hub, `${s.heading}'s hub must be its own first item`).toBe(s.items[0]?.to);
+      expect(s.hub, s.heading + ' hub must be its own first item').toBe(s.items[0]?.to);
     }
   });
 
-  it('gives every collapsed section a tab strip that fits and has no two tabs alike', () => {
-    for (const s of MORE_NAV_SECTIONS.filter((x) => x.hub)) {
+  it('gives every section a tab strip that fits and has no two tabs alike', () => {
+    for (const s of NAV_SECTIONS) {
       const shown = s.items.map((i) => i.tabLabel ?? i.label);
       for (const t of shown) {
         expect(t.length, `"${t}" is too long for a tab in the ${s.heading} strip`).toBeLessThanOrEqual(20);
@@ -411,7 +479,7 @@ describe('TRADE_ROUTE', () => {
   it('is the Ethereum swap by default', async () => {
     const nav = await loadWithBungalow(null);
     expect(nav.TRADE_ROUTE).toBe('/swap');
-    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Trade')?.to).toBe('/swap');
+    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Swap')?.to).toBe('/swap');
   });
 
   it('is the Ethereum swap in the classic TOWELI bungalow', async () => {
@@ -422,6 +490,6 @@ describe('TRADE_ROUTE', () => {
   it('is the Solana swap inside a Solana bungalow', async () => {
     const nav = await loadWithBungalow('bayla');
     expect(nav.TRADE_ROUTE).toBe('/solana');
-    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Trade')?.to).toBe('/solana');
+    expect(nav.PRIMARY_NAV.find((n) => n.label === 'Swap')?.to).toBe('/solana');
   });
 });

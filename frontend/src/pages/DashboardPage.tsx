@@ -41,6 +41,8 @@ import { useTabListKeys } from '../hooks/useTabListKeys';
 import { usePortfolio } from '../hooks/usePortfolio';
 import { UnifiedPortfolio } from '../components/portfolio/UnifiedPortfolio';
 import { getBungalowIdentity } from '../lib/bungalows';
+import { isToweliVoice } from '../lib/arrival';
+import { VenuePoolIndex } from '../components/farm/VenuePoolIndex';
 import { PageSkeleton } from '../components/PageSkeleton';
 
 // Jungle Bay bungalows: lazy so the @solana/* wallet stack rides ONLY the
@@ -75,9 +77,22 @@ function dashTabFromQuery(v: string | null): DashTab | null {
  * — a Solana wallet standing panel — because every number below is EVM/TOWELI.
  * Branch lives in this wrapper so the classic component's hook order is
  * untouched; the active bungalow only changes via persist + reload.
+ *
+ * ⚠️ THE THIRD STATE, ADDED 2026-09-05 — the same defect FarmPage carried, in
+ * the same shape. `getBungalowIdentity()` is null for BOTH "the TOWELI
+ * bungalow" AND "no bungalow chosen", so the venue's own arrival fell into the
+ * classic branch and a stranger's dashboard read "TOWELI Price", "TOWELI
+ * Balance" and about fifteen more occurrences of one resident's ticker.
+ *
+ * `isToweliVoice()` (arrival.ts) is the gate that tells those two apart. The
+ * classic dashboard is untouched and still lives behind its own door; what the
+ * venue shows instead is a wallet-agnostic pointer at the island's pools,
+ * because a venue-level portfolio across three chains is a different feature
+ * and inventing an empty one here would be worse than saying where to look.
  */
 export default function DashboardPage() {
   const bungalow = getBungalowIdentity();
+  if (!bungalow && !isToweliVoice()) return <VenueDashboard />;
   if (bungalow) {
     // Chain picks the panel: the Solana one is wallet-adapter-built to the
     // bone; EVM residents get the wagmi sibling (same seam as the farm
@@ -91,6 +106,43 @@ export default function DashboardPage() {
     );
   }
   return <ToweliDashboard />;
+}
+
+/**
+ * The venue's own /dashboard.
+ *
+ * ⚠️ ITS OWN COMPONENT, FOR THE REASON FarmPage's VenueEarn IS. This branch
+ * needs `usePageTitle`, and calling it inside a wrapper that returns three
+ * different trees would make it a conditional hook. It also shipped INLINE for
+ * one commit, which meant the venue dashboard kept whatever title, canonical
+ * URL and og:* tags the previously-visited route had set — usePageTitle's
+ * cleanup resets `document.title` only, so every other tag persists across a
+ * client-side navigation. FarmPage had already been extracted for exactly this;
+ * this one had not, and an adversarial review of the diff caught it.
+ */
+function VenueDashboard() {
+  usePageTitle(
+    'Your positions',
+    'Positions on Jungle Bay Island live in the room they were opened in — each resident pool is its own token, on its own chain.',
+  );
+  return (
+    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+      <header className="mb-6">
+        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
+          Jungle Bay Island
+        </p>
+        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
+          Your positions
+        </h1>
+        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+          Positions live in the room they were opened in &mdash; each resident&apos;s pool is its own
+          token, on its own chain, read by its own panel. Open a room to see what you hold there.
+          The venue itself holds nothing on your behalf.
+        </p>
+      </header>
+      <VenuePoolIndex />
+    </div>
+  );
 }
 
 function ToweliDashboard() {

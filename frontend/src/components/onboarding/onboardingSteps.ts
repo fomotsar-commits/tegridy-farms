@@ -23,7 +23,7 @@ import {
 } from '../../lib/constants';
 import { isLauncherEnabled } from '../../lib/launcher/config';
 import { isSolanaSwapLive } from '../../lib/solana';
-import { VENUE } from '../../lib/arrival';
+import { VENUE, isToweliVoice } from '../../lib/arrival';
 
 export type OnboardingSurfaceId =
   | 'trade'
@@ -143,7 +143,17 @@ export function onboardingSteps(): OnboardingStep[] {
       id: 'what',
       title: 'What this place is',
       body: [
-        `${VENUE.name} is a DeFi venue on Ethereum and Solana. You can swap tokens, stake TOWELI on Ethereum, and read a token’s holder concentration and deployer history before you touch it.`,
+        // ⚠️ THE VENUE'S DEFINITIONAL SENTENCE, and it named one resident's
+        // token unconditionally until 2026-09-05. /start is wallet-free,
+        // ungated and linked straight from the venue hero ("Or walk the four
+        // steps"), so this is the paragraph a stranger with no wallet reads
+        // most literally — and it told them the venue is a place to
+        // "stake TOWELI". This file had no voice branch at all, which is the
+        // UNGATED variant of the /farm defect: not a wrong predicate, an
+        // absent one.
+        `${VENUE.name} is a DeFi venue on Ethereum and Solana. You can swap tokens, ${
+          isToweliVoice() ? 'stake TOWELI on Ethereum' : "stake a resident community’s token"
+        }, and read a token’s holder concentration and deployer history before you touch it.`,
         'It is not a bank, a broker, or a custodian. Nothing here holds your funds: you sign transactions from your own wallet and they settle on-chain, where anyone can check them.',
       ],
       actions: pick('scan'),

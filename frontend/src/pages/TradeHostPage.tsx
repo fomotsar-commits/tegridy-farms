@@ -1,31 +1,28 @@
-import { lazy, useMemo } from 'react';
+import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
-import { TRADE_SECTION, type NavItem } from '../lib/navConfig';
+import { SWAP_SECTION } from '../lib/navConfig';
 
 // The Ethereum swap surface. Also answers /liquidity, which it treats as a
 // synonym for its own `?tab=liquidity` — see resolveInitialTab in TradePage.
 const TradePage = lazy(() => import('./TradePage'));
 // The Jupiter surface. Same venue, second chain.
 const SolanaSwapPage = lazy(() => import('./SolanaSwapPage'));
-// Liquidity provision on our OWN AMM — a different thing from TradePage's
-// "Liquidity" tab, which is Uniswap V2 LP. Deliberately ungated: while the
-// program is undeployed the page reports that fact rather than an empty market.
-const PoolsPage = lazy(() => import('./PoolsPage'));
 
 /**
- * TradeHostPage — Trade's destinations as one strip, and ZERO dropdown rows.
+ * TradeHostPage — the Swap section: two chains, one strip.
  *
- * "Trade" is in PRIMARY_NAV at every width. Underneath it the "More" menu also
- * carried a Trade heading with Solana Swap and Liquidity Pools beneath it, so
- * the top bar was repeated in the menu it sits above. The section is now marked
- * `inPrimaryNav` (navConfig.ts): the menu renders nothing for it, and these
- * become tabs on the page the top bar already opens.
+ * 🔻 IT LOST A TAB ON 2026-09-05, and that is the point of the change. The strip
+ * used to read Ethereum / Solana Swap / Liquidity Pools, because /pools — the
+ * venue's own Solana AMM — had nowhere else to live and would otherwise have
+ * been orphaned. It has somewhere now: Pools is its own top-level section
+ * (PoolsHostPage), so a liquidity surface is no longer filed under trading.
  *
- * THE PRIMARY ENTRY IS COMPOSED HERE, NOT STORED IN THE SECTION. PRIMARY_NAV
- * already owns the swap path and ALL_NAV asserts no path appears twice, so
- * putting it in `TRADE_SECTION.items` would red navConfig.test.ts's
- * no-duplicate-paths check. The strip is therefore [primary, ...items], built
- * at render, and `items` stays exactly the two secondary destinations.
+ * THE SECTION IS THE STRIP, with nothing composed at render. This file used to
+ * build `[{to:'/swap'}, ...TRADE_SECTION.items]` in a useMemo because
+ * PRIMARY_NAV was a hand-written list that owned '/swap' and ALL_NAV asserted no
+ * path appeared twice. PRIMARY_NAV is derived from the sections now, so '/swap'
+ * simply lives in `items` where it belongs and this host renders the section as
+ * it is.
  *
  * ORDER IS FIXED, NOT KEYED TO TRADE_ROUTE. TRADE_ROUTE decides which surface a
  * Solana bungalow LANDS on; it must not reshuffle the strip underneath someone,
@@ -38,26 +35,14 @@ const PoolsPage = lazy(() => import('./PoolsPage'));
  * switch carries what you were doing there.
  */
 export default function TradeHostPage() {
-  const section = useMemo(
-    () => ({
-      ...TRADE_SECTION,
-      items: [
-        { to: '/swap', label: 'Trade', tabLabel: 'Ethereum' } as NavItem,
-        ...TRADE_SECTION.items,
-      ],
-    }),
-    [],
-  );
-
   return (
     <SectionHost
-      section={section}
+      section={SWAP_SECTION}
       idPrefix="trade"
-      ariaLabel="Trade destinations"
+      ariaLabel="Swap destinations"
       panels={{
         '/swap': TradePage,
         '/solana': SolanaSwapPage,
-        '/pools': PoolsPage,
       }}
     />
   );

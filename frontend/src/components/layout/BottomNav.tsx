@@ -1,56 +1,68 @@
 import { NavLink } from 'react-router-dom';
 import React from 'react';
-import { NFT_FINANCE_LIVE } from '../../lib/navConfig';
+import { useAccount } from 'wagmi';
+import { TRADE_ROUTE } from '../../lib/navConfig';
 
 /**
- * Bottom nav tabs — primary destinations mirrored from TopNav's PRIMARY_NAV
- * plus Tradermigos. Secondary routes live in the TopNav hamburger drawer.
- * Theme toggle is desktop-only (TopNav) — mobile has limited bottom real
- * estate and theme is a low-frequency action.
+ * Bottom nav tabs — the venue's execution words, on a phone.
  *
- * CREDIBILITY GATING (2026-06-09): this list hardcodes its tabs for the
- * icon pairing, so it must apply the same isDeployed gating as PRIMARY_NAV —
- * the NFT Finance tab hides while all its contracts are zeroed and returns
- * automatically on redeploy (see navConfig.NFT_FINANCE_LIVE).
+ * ⚠️ FIVE IS THE CEILING, and it is a physical one, not a preference: each tab
+ * gets `flex-1` of a 390px viewport, and five is where a 44px tap target and a
+ * legible 10px label still both fit. The desktop bar carries SIX words plus a
+ * conditional Dashboard; this bar therefore cannot be a straight mirror of it,
+ * and does not try to be.
+ *
+ * WHAT IT DROPS AND WHY THAT IS SAFE. Launch and Island are not here. Both are
+ * one tap away in the hamburger drawer, which after 2026-09-05 lists every
+ * section EXPANDED (TopNav.tsx) rather than one row per section — so the drawer
+ * is a complete nav on a phone, not an overflow bucket. What stays is what a
+ * visitor does repeatedly: swap, provide liquidity, earn, check a token.
+ *
+ * Dashboard is the fifth tab and appears ONLY when connected, matching the
+ * desktop rule (navConfig.DASHBOARD_NAV) — which is also what keeps this bar at
+ * four tabs for a stranger, its most comfortable width.
+ *
+ * The icons are why this list is a literal rather than a map over NAV_SECTIONS:
+ * there is no icon on a NavItem, and inventing a name→icon registry to avoid
+ * five hardcoded routes would be more indirection than it removes. The routes
+ * ARE section hubs, and navConfig.test.ts asserts every one of them is.
  */
-const ALL_TABS = [
-  { to: '/dashboard', label: 'Dashboard', icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  )},
-  { to: '/farm', label: 'Farm', icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M12 22V8M12 8c-2-3-6-4-8-2M12 8c2-3 6-4 8-2M5 18h14" />
-    </svg>
-  )},
-  { to: '/swap', label: 'Trade', icon: (
+const TABS = [
+  { to: TRADE_ROUTE, label: 'Swap', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d="M7 10l5-5 5 5M7 14l5 5 5-5" />
     </svg>
   )},
-  { to: '/nft-finance', label: 'NFT Finance', icon: (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="6" width="18" height="13" rx="2" />
-      <path d="M3 10h18M7 15h3" />
+  { to: '/liquidity', label: 'Pools', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3c3.5 4.2 5.5 7 5.5 9.5a5.5 5.5 0 0 1-11 0C6.5 10 8.5 7.2 12 3z" />
     </svg>
   )},
-  { to: '/nakamigos', label: 'Marketplace', icon: (
+  { to: '/farm', label: 'Earn', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M12 22V8M12 8c-2-3-6-4-8-2M12 8c2-3 6-4 8-2M5 18h14" />
+    </svg>
+  )},
+  { to: '/trust', label: 'Check', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <rect x="7" y="8" width="3" height="3" />
-      <rect x="14" y="8" width="3" height="3" />
-      <path d="M8 15c1.5 1.5 6.5 1.5 8 0" />
+      <path d="M12 3l7 3v5.5c0 4.3-2.9 8.2-7 9.5-4.1-1.3-7-5.2-7-9.5V6l7-3z" />
+      <path d="M9 12l2 2 4-4" />
     </svg>
   )},
 ];
 
-const TABS = ALL_TABS.filter((t) => t.to !== '/nft-finance' || NFT_FINANCE_LIVE);
+const DASHBOARD_TAB = { to: '/dashboard', label: 'Dashboard', icon: (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <rect x="3" y="3" width="7" height="7" rx="1" />
+    <rect x="14" y="3" width="7" height="7" rx="1" />
+    <rect x="3" y="14" width="7" height="7" rx="1" />
+    <rect x="14" y="14" width="7" height="7" rx="1" />
+  </svg>
+)};
 
 export const BottomNav = React.memo(function BottomNav() {
+  const { isConnected } = useAccount();
+  const tabs = isConnected ? [...TABS, DASHBOARD_TAB] : TABS;
   return (
     // R038 / F13, CORRECTED 2026-09-03: this bar hides at >=800px, where the
     // TopNav primary nav switches in (TopNav uses `min-[800px]:flex`). It used to
@@ -71,7 +83,7 @@ export const BottomNav = React.memo(function BottomNav() {
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
       <div className="flex items-center justify-around h-16 safe-area-bottom">
-        {TABS.map(tab => (
+        {tabs.map(tab => (
           <NavLink key={tab.to} to={tab.to} aria-label={tab.label}
             className={({ isActive }) =>
               // F27: `min-w-0` (lets the label truncate) and `min-w-[44px]`

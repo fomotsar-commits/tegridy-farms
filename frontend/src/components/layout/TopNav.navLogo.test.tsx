@@ -26,6 +26,10 @@ import { MemoryRouter } from 'react-router-dom';
 vi.mock('@rainbow-me/rainbowkit', () => ({
   ConnectButton: Object.assign(() => null, { Custom: () => null }),
 }));
+// TopNav reads `useAccount` (2026-09-05) to decide whether Dashboard is in the
+// bar. The real hook throws without a WagmiProvider; this file is about an
+// <img>, so the connection state is stubbed rather than provided.
+vi.mock('wagmi', () => ({ useAccount: () => ({ isConnected: false }) }));
 vi.mock('framer-motion', () => {
   const passthrough = new Proxy(
     {},

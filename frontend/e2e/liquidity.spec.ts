@@ -1,7 +1,15 @@
 /**
  * AUDIT R081 — Liquidity add/remove happy path (zero coverage before).
  *
- * /liquidity is a tab on TradePage. This spec covers:
+ * /liquidity IS A PAGE as of 2026-09-05 — the landing tab of the Pools section
+ * (PoolsHostPage), beside the venue's Solana AMM and Zap. It was a path alias
+ * that rendered the SWAP host, which then opened TradePage's own inner
+ * `?tab=liquidity`; providing liquidity was the second of six tabs on the
+ * trading page. The FORM is unchanged — the same LiquidityTab, the same router,
+ * the same cascade — so every assertion below still holds; only the tab name and
+ * the panel it lives in moved.
+ *
+ * This spec covers:
  *   - Mock-mode: tab activation, deposit/withdraw inputs render, CTAs are
  *     coherent.
  *   - Anvil-mode (ANVIL_RPC_URL set): full add → remove cycle against the fork.
@@ -16,9 +24,12 @@ const onAnvil = !!process.env.ANVIL_RPC_URL;
 test.describe('Liquidity surface', () => {
   test('disconnected /liquidity renders the page with title and gate', async ({ page, walletMock: _w }) => {
     await page.goto('/liquidity');
-    // Title follows the active tab; /liquidity reads "Liquidity".
+    // The page's own <h1>, not a tab-derived title.
     await expect(page.locator('h1')).toContainText(/liquidity/i);
-    await expect(page.getByRole('tab', { name: 'Liquidity', exact: true })).toHaveAttribute('aria-selected', 'true');
+    // The Pools strip's landing tab. Named "Add / Remove" rather than
+    // "Liquidity", because on a page already headed "Liquidity" a tab repeating
+    // the word says nothing about what distinguishes it from its siblings.
+    await expect(page.getByRole('tab', { name: 'Add / Remove', exact: true })).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByRole('button', { name: /connect wallet/i }).first()).toBeVisible();
   });
 
@@ -60,7 +71,7 @@ test.describe('Liquidity surface', () => {
     await walletMock.connect(account);
     await page.goto('/liquidity');
 
-    const panel = page.getByRole('tabpanel', { name: 'Liquidity' });
+    const panel = page.getByRole('tabpanel', { name: 'Add / Remove' });
 
     // ⚠ THE SUBMIT CTA CANNOT BE FOUND BY NAME ON THIS SURFACE, and that is what broke
     // this test — not the fork. LiquidityTab gives the mode toggles the SAME accessible

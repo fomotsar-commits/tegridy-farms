@@ -1,6 +1,6 @@
-import { lazy } from 'react';
+import { lazy, useMemo } from 'react';
 import { SectionHost } from './SectionHost';
-import { STATS_SECTION } from '../lib/navConfig';
+import { NUMBERS_TABS } from '../lib/navConfig';
 
 // Fixed supply, emissions and the distribution table. Was a tab on LearnPage
 // until 2026-09-04; see this file's header for why it moved.
@@ -37,11 +37,21 @@ const TaxPage = lazy(() => import('./TaxPage'));
  * and each still renders its page standalone — with this strip above it.
  */
 export default function StatsPage() {
+  // 🔻 2026-09-05: "Stats" stopped being a nav SECTION and became one row inside
+  // Island ("Treasury & numbers" → /tokenomics), because the six-word top bar
+  // has no room for a seventh container and "Stats about what?" was a fair
+  // question about the old label. The three tabs did not move: they are
+  // NUMBERS_TABS in navConfig.ts, declared there rather than locally so the /tax
+  // pill and the assertions guarding it stay in one file.
+  const section = useMemo(
+    () => ({ heading: 'Treasury & numbers', hub: '/tokenomics', items: NUMBERS_TABS }),
+    [],
+  );
   return (
     <SectionHost
-      section={STATS_SECTION}
+      section={section}
       idPrefix="stats"
-      ariaLabel="Stats sections"
+      ariaLabel="Treasury and numbers sections"
       panels={{
         '/tokenomics': TokenomicsPage,
         '/treasury': TreasuryPage,

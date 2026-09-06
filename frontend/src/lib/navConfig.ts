@@ -133,12 +133,7 @@ export const PREMIUM_LIVE = isDeployed(PREMIUM_ACCESS_ADDRESS);
 export const SOLANA_LIVE = isSolanaSwapLive();
 
 /**
- * Primary navigation — the core items shown in both TopNav (desktop)
- * and BottomNav (mobile). Order is identical across viewports for
- * symmetric IA. Everything else lives in the Footer.
- */
-/**
- * Where "Trade" goes. The venue has two swap surfaces — /swap (Ethereum) and
+ * Where "Swap" goes. The venue has two swap surfaces — /swap (Ethereum) and
  * /solana (Jupiter) — and the nav used to hardcode the Ethereum one, so a
  * visitor inside a Solana bungalow clicked Trade and landed on a swap that
  * could not touch the token whose page they were standing on. The bungalow's
@@ -155,103 +150,178 @@ export const TRADE_ROUTE: string = (() => {
   return active?.chain === 'solana' && isSolanaSwapLive() ? '/solana' : '/swap';
 })();
 
-export const PRIMARY_NAV: NavItem[] = [
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/farm', label: 'Farm' },
-  { to: TRADE_ROUTE, label: 'Trade' },
-  ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'NFT Finance' }] : []),
-];
-
-/** Tradermigos link — right-aligned action, separate from primary nav. Swapped
- *  in from the dropdown so the art gallery is promoted to the top bar. */
-export const POINTS_NAV: NavItem = { to: '/nakamigos', label: 'Marketplace' };
-
 export interface NavSection {
-  heading: string;
-  items: NavItem[];
   /**
-   * COLLAPSED SECTION (2026-09-04). When set, the "More" menu renders ONE row
-   * for this whole section — the heading, linking here — and the section's
-   * items become the tab strip on the page at that route (SectionHost.tsx).
-   *
-   * `hub` must be the FIRST item's `to`. That is not decoration: the host's
-   * landing tab is `items[0]`, so a hub pointing anywhere else would open the
-   * menu entry on a page whose tab bar highlights something the visitor did not
-   * click. hubIntegrity in navConfig.test.ts pins the two together.
-   *
-   * NOTHING IS DROPPED BY COLLAPSING. Every item keeps its `to`, its `label`
-   * and its SOON/LIVE pill, keeps its own route in App.tsx, and keeps rendering
-   * standalone from a deep link — the tab strip is added above it, not swapped
-   * in for it. MORE_NAV and ALL_NAV still flatten every item, so the
-   * completeness and no-duplicate assertions below still see the full set.
-   *
-   * A section with no `hub` renders the old way: heading, then one row per item.
+   * The word in the top bar AND the section's name — they are the same string
+   * on purpose. A section whose menu heading said one thing while the top bar
+   * said another is exactly the drift this file spent two rewrites removing.
    */
-  hub?: string;
+  heading: string;
 
   /**
-   * THIS SECTION IS ALREADY IN THE TOP BAR (2026-09-04). When set, the "More"
-   * menu renders NOTHING for this section — no heading, no rows — because its
-   * destination is one click away in PRIMARY_NAV and repeating it in the
-   * dropdown is pure noise. The items are not dropped: they become the tab
-   * strip on that primary page, exactly as a `hub` section's items do.
+   * Where the top-bar word goes. MUST be `items[0].to` — hubIntegrity in
+   * navConfig.test.ts pins the two together.
    *
-   * WHY THIS IS NOT JUST `hub`. A `hub` section still costs one dropdown row.
-   * Trade does not deserve even that: "Trade" sits in the top bar at every
-   * width, so a "Trade" row in the menu underneath it is the same link twice.
-   *
-   * NOTE THE ITEMS STAY SECONDARY. The primary page's own entry is NOT added
-   * here — PRIMARY_NAV already owns that path, and ALL_NAV asserts no path
-   * appears twice. The host composes [primary entry, ...items] for its strip.
+   * That is not decoration. The host's landing tab is `items[0]`
+   * (SectionHost.tsx derives `active` from the URL and falls back to items[0]),
+   * so a hub pointing anywhere else would open the top-bar word on a page whose
+   * tab bar highlights something the visitor did not click.
    */
-  inPrimaryNav?: boolean;
+  hub: string;
+
+  /**
+   * The section's destinations, in tab order. items[0] is the landing tab.
+   *
+   * NOTHING IS SECONDARY ANY MORE. Before 2026-09-05 a section's own hub page
+   * was deliberately kept OUT of `items` — PRIMARY_NAV was a hand-written
+   * parallel list that owned those paths, and ALL_NAV asserted no path appeared
+   * twice, so listing a hub in both would have failed. PRIMARY_NAV is now
+   * DERIVED from these sections (see below), so the hub belongs in `items`
+   * where it always should have been: one list, no way for the bar and the
+   * strip to disagree about what a section contains.
+   */
+  items: NavItem[];
+
+  /**
+   * Optional override for where the TOP-BAR word points, when that is not the
+   * hub. Exactly one section uses it — Swap, whose landing surface follows the
+   * active bungalow's chain (TRADE_ROUTE above).
+   *
+   * It must still be one of this section's own `items`, which navConfig.test.ts
+   * asserts: an override pointing outside the section would light no tab.
+   */
+  primaryTo?: string;
 }
 
 /**
- * "More" dropdown / drawer — curated secondary destinations, grouped into
- * sections so the menu is scannable on desktop and mobile from a single source
- * of truth. Some entries are gated (Community appears only when a governance
- * contract is live), so the rendered counts vary.
+ * THE VENUE'S SIX WORDS (2026-09-05).
  *
- * 🔻 CONDENSED 2026-09-04, on the operator's report that the dropdown "has too
- * much going on". It listed twenty-one rows under six headings; Trust & Safety
- * alone was seven of them, which is more links than the entire primary nav.
+ * The top bar was Dashboard / Farm / Trade / NFT Finance, a right-aligned
+ * Marketplace, and a "More ▾" dropdown holding five more sections. The
+ * operator's reading of it, which is the brief this rewrite answers:
  *
- * FOUR SECTIONS NOW CARRY `hub` and render as ONE row each — Launch, Earn,
- * Stats, Trust & Safety — and their items become the tab strip on the page that
- * row opens (SectionHost.tsx). Nine rows instead of twenty-one. Discover and
- * Trade are short enough already and stay expanded.
+ *   - "More" means "we couldn't decide", and it was three levels deep —
+ *     More → section → page — on a site this size.
+ *   - "Farm" is DeFi jargon, and there was already an "Earn" group inside More,
+ *     so one idea wore two names at two levels.
+ *   - "Trade" and "Marketplace" gave no clue which one was tokens and which was
+ *     art. "Trust & Safety" reads as a policy page, and behind it sat the
+ *     scanner, the deployer graph and wallet exposure — the venue's single best
+ *     differentiator, under the most boring label on the site, two clicks deep.
+ *   - "Dashboard" led a nav it has no business leading: it is empty until a
+ *     wallet connects, so a stranger's first word was a blank page.
  *
- * THE ITEMS DID NOT MOVE AND NOTHING WAS DELETED. Every `to`, every `label`,
- * every gating expression and every comment below is exactly where it was: the
- * change is four `hub:` lines, some `tabLabel:` shorthands, and a different
- * renderer in TopNav.tsx. That matters here — this repo's e2e specs pin nav
- * LABELS and have gone red twice on rename waves — and it is why MORE_NAV /
- * ALL_NAV are unchanged in shape and navConfig.test.ts needed no rewrite.
+ * So: SIX VERBS, no dropdown, every one naming a job rather than a container —
  *
- * Pages that were ALREADY merged into tabbed hosts keep one representative
- * entry each (ActivityPage covers Leaderboard/Gold Card/History/Changelog;
- * LearnPage covers Lore/Security/FAQ; InfoPage covers
- * Contracts/Risks/Terms/Privacy) so the menu never lists a tab twice. Those
- * tabs stay reachable via the Footer and direct URLs.
+ *     Swap · Pools · Island · Launch · Earn · Check
+ *
+ * and Dashboard appended LAST, only once a wallet is connected, which is the
+ * order the operator asked for: the execution words first, then "what is
+ * happening with my assets".
+ *
+ * PRIMARY_NAV IS DERIVED FROM THIS ARRAY. There is no second list to keep in
+ * step, which is what let the hub pages move INTO `items` (see NavSection.items).
  */
-export const MORE_NAV_SECTIONS: NavSection[] = [
+
+export const NAV_SECTIONS: NavSection[] = [
   {
-    // SPLIT FROM ONE 14-ITEM "Engage" SECTION, 2026-09-03.
+    // ── SWAP ────────────────────────────────────────────────────────────────
+    // Was "Trade", which said nothing about whether it meant tokens or the art
+    // marketplace. "Swap" is what the page actually is.
     //
-    // "Engage" was a catch-all mixing four unrelated jobs — discovering the
-    // venue, trading on it, launching a token, and earning from it — under a
-    // heading that described none of them. A newcomer scanning for "where do I
-    // buy" had to read fourteen labels to find out it was the fourth one.
-    //
-    // NOTHING MOVED. Not one `to`, not one `label`, not one gating expression,
-    // not one comment: the source order was already almost job-grouped, so this
-    // is three inserted section boundaries and nothing else. That matters here
-    // — this repo's e2e specs pin nav LABELS and have gone red twice on rename
-    // waves, so a regrouping that renames nothing carries none of that risk.
-    // (Checked before doing it: no test asserts on these headings.)
-    heading: 'Discover',
+    // ITS OWN PAGE IS NOW IN `items`. Before this rewrite the section carried
+    // `inPrimaryNav: true` and held only the two SECONDARY destinations, and
+    // TradeHostPage composed `[primary, ...items]` at render because
+    // PRIMARY_NAV owned '/swap' and ALL_NAV forbade a repeat. PRIMARY_NAV is
+    // derived now, so the strip is simply `items` and the host composes nothing.
+    heading: 'Swap',
+    hub: '/swap',
+    // The top-bar word follows the active bungalow's chain; both destinations
+    // are in `items`, so whichever one it resolves to lights a real tab.
+    primaryTo: TRADE_ROUTE,
     items: [
+      { to: '/swap', label: 'Swap', tabLabel: 'Ethereum' },
+      ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap', tabLabel: 'Solana' }] : []),
+    ],
+  },
+  {
+    // ── POOLS ───────────────────────────────────────────────────────────────
+    // NEW TOP-LEVEL SECTION, 2026-09-05, on the operator's brief: "the platform
+    // is not friendly for LPing today… this should be a separate page from
+    // SWAP… it deserves its own section, not just a tab."
+    //
+    // It was literally a tab: `LiquidityTab` is the 2nd of six inner tabs on
+    // TradePage, reachable as /swap?tab=liquidity, with /liquidity as a path
+    // alias that fell through to the same host. Someone arriving to provide
+    // liquidity had to know to open the swap page first and then find a tab —
+    // and the venue's own pool card said "View all pools →" and landed them on
+    // that single-pair form rather than on any list of pools.
+    //
+    // /pools joins it here rather than staying under Swap: it is the venue's
+    // own Solana AMM status page, which is a LIQUIDITY surface, not a trading
+    // one. /zap is promoted out of orphanhood — it composes swap → add
+    // liquidity → stake in one run and, until now, was linked from nowhere at
+    // all: no nav entry, no footer row, no page.
+    heading: 'Pools',
+    hub: '/liquidity',
+    items: [
+      { to: '/liquidity', label: 'Liquidity', tabLabel: 'Add / Remove' },
+      // The venue's own constant-product AMM on Solana. Deliberately UNGATED:
+      // the page is a live chain probe of the venue's status, so while the
+      // program is undeployed it renders that fact rather than an empty market.
+      // Hiding it would hide the one surface that explains where the venue is.
+      { to: '/pools', label: 'Venue AMM' },
+      // One-token entry into an LP position. NOT PILLED: the swap and
+      // add-liquidity legs run against the venue's own deployed factory and
+      // router (constants.ts), and the staking leg against the deployed LP
+      // farm. The one leg that is gated — the compounder vault — is the zap
+      // machine's own `unavailable` branch, reported on the page at plan time
+      // where it can name which venue is missing, which a pill cannot.
+      { to: '/zap', label: 'Zap In', tabLabel: 'Zap' },
+    ],
+  },
+  {
+    // ── ISLAND ──────────────────────────────────────────────────────────────
+    // Absorbs the old "Discover" (Community / Gallery / Venue Score) AND the
+    // old "Stats" (Tokenomics / Treasury / Tax). Both were containers rather
+    // than jobs — "Discover" is not what those three have in common, and
+    // "Stats about WHAT?" was the operator's question about the other.
+    //
+    // What they DO have in common is the venue itself: this is the place, its
+    // art, its people, its score and its money. Marketplace comes in from its
+    // old right-aligned slot for the same reason — an art marketplace is an
+    // island surface, and sitting it beside "Trade" only ever raised the
+    // question of which of the two sold tokens.
+    //
+    // ⚠️ THE ONE SECTION THAT IS NOT A SectionHost, AND THE REASON MATTERS.
+    // Every other section's items are pages with no tab bar of their own, so a
+    // strip on top of them is free. Island's are not: /community, /leaderboard
+    // (ActivityPage) and /tokenomics (StatsPage) EACH already own a tab strip,
+    // and a route renders exactly one — the same constraint the old Stats
+    // section's comment was written about. Giving Island a strip would either
+    // nest two bars or force three hosts to give theirs up.
+    //
+    // So Island's hub is a LOBBY (/island): one page of cards, one door each.
+    // A tab strip is for switching between sibling views of one subject; this
+    // group is five different subjects that happen to share a place. The cards
+    // say so, and every destination keeps the strip it already had.
+    //
+    // ONE ENTRY PER HOST, which is the convention this file already follows for
+    // ActivityPage (Leaderboard/Gold Card/History/Changelog) and InfoPage: a
+    // tabbed host appears in the nav once, at its landing tab, and its siblings
+    // are reached from inside it. That is why "Treasury & numbers" is a single
+    // row pointing at /tokenomics rather than three rows — /treasury and /tax
+    // are StatsPage's own tabs and stay reachable there, in the footer, and by
+    // direct URL, exactly as they were.
+    heading: 'Island',
+    hub: '/island',
+    items: [
+      { to: '/island',      label: 'The island',  tabLabel: 'Island' },
+      { to: '/gallery',     label: 'Gallery' },
+      // Tradermigos — a separate route tree (App.tsx mounts `nakamigos/*`
+      // OUTSIDE AppLayout), which is a second reason the lobby is cards and not
+      // tabs: this destination could never have rendered in a host's panel.
+      { to: '/nakamigos',   label: 'Marketplace' },
       // Community is gated on COMMUNITY_LIVE. 🔄 2026-08-12: the old note here
       // said all four governance contracts were "zeroed" and the page was
       // "wall-to-wall isn't live yet" — the first half is true only of
@@ -260,30 +330,18 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       // and /community says exactly that. The entry is carried by
       // PROMOTE_PENDING, not by COMMUNITY_ADDRESSES_LIVE (which is false).
       ...(COMMUNITY_LIVE ? [{ to: '/community', label: 'Community' }] : []),
-      { to: '/gallery',     label: 'Gallery' },
       { to: '/leaderboard', label: 'Venue Score' },
-    ],
-  },
-  {
-    heading: 'Trade',
-    // HIDDEN FROM THE MENU 2026-09-04, not deleted. "Trade" is in PRIMARY_NAV at
-    // every width, so a Trade heading with two rows under it in the dropdown was
-    // the top bar repeated. These two become tabs on the trade page instead —
-    // TradeHostPage composes them with the primary entry. Solana was already
-    // reachable there via ChainSwitch; /pools was the one that would have been
-    // orphaned, which is why it is in the strip and not merely delisted.
-    inPrimaryNav: true,
-    items: [
-      ...(SOLANA_LIVE ? [{ to: '/solana', label: 'Solana Swap' }] : []),
-      // Liquidity provision on our own AMM. Promoted UNGATED on purpose: the page
-      // is a live chain probe of the venue's status, so while the program is
-      // undeployed it renders that fact rather than an empty market. Hiding it
-      // would hide the one surface that explains where the venue actually is.
-      { to: '/pools', label: 'Liquidity Pools' },
-      // The launch rail is LIVE (LAUNCHER_ENABLED=true since 2026-07-22), so the
-      // "Soon" pill self-clears — the flag drives it, so this entry stays honest
-      // either way: while gated, /launch renders the SOON wall + LauncherExplainer
-      // rather than a dead link.
+      // The old "Stats" section, as ONE row. "Stats about what?" was the
+      // operator's question and it was a fair one; this names the subject.
+      // StatsPage still hosts /tokenomics + /treasury + /tax as its own three
+      // tabs — nothing moved, nothing was dropped, and the ⚠️ note that used to
+      // live on that section still applies: /tokenomics came off LearnPage and
+      // /treasury off InfoPage on 2026-09-04 precisely so ONE host could own
+      // all three, which is why they must not be split back out.
+      // NUMBERS_TABS[0] — see that export. Kept as a literal rather than a
+      // reference so this list reads as one list; navConfig.test.ts asserts the
+      // two agree, so they cannot drift.
+      { to: '/tokenomics',  label: 'Treasury & numbers', tabLabel: 'Numbers' },
     ],
   },
   {
@@ -373,10 +431,31 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    // ── EARN ────────────────────────────────────────────────────────────────
+    // "Farm" left the top bar and its page landed here, which fixes the thing
+    // the operator named directly: "Farm" is DeFi jargon, AND there was already
+    // an "Earn" group inside the dropdown, so one idea wore two names at two
+    // levels of the same nav. There is one name now, and it is the job.
+    //
+    // /nft-finance joins from the top bar for the same reason "NFT Finance" was
+    // flagged — a category name, not something anyone wants to do. Its label is
+    // what it does. Borrowing against an NFT is a way to get money out of an
+    // asset you are holding, which is this section's subject.
+    //
+    // THE HUB MOVED /referrals → /farm. Referrals is a recruiting tool; the
+    // pool is what someone means by "earn", and it is the only item here whose
+    // numbers a stranger can read without connecting anything.
     heading: 'Earn',
-    // COLLAPSED: one "Earn" row; these five are the tab strip on /referrals.
-    hub: '/referrals',
+    hub: '/farm',
     items: [
+      // ⚠️ NOT "Pools", WHICH IS WHAT THIS READ FIRST. "Pools" is a TOP-BAR WORD
+      // now and it means providing liquidity; the same word one level down,
+      // meaning "stake a token in its reward pool", is two different jobs
+      // wearing one name — the exact defect that made "Farm" and "Earn" both
+      // exist before this rewrite. Staking is what you do here: lock a token,
+      // or lock the LP receipt you minted under Pools, and take a share.
+      { to: '/farm', label: 'Staking' },
+      ...(NFT_FINANCE_LIVE ? [{ to: '/nft-finance', label: 'Borrow on NFTs', tabLabel: 'NFT Loans' }] : []),
       { to: '/referrals', label: 'Referrals' },
       // Yield Routing compares THIRD-PARTY liquid staking and stablecoin lending
       // venues. It sits in Engage rather than Stats because what a visitor does here
@@ -467,59 +546,23 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
       { to: '/checkout', label: 'Checkout', soon: !hasPaymentLinkChain() },
     ],
   },
-  {
-    heading: 'Stats',
-    // COLLAPSED: one "Stats" row; these three are the tab strip on /tokenomics.
-    //
-    // ⚠️ THIS SECTION TOOK TWO ROUTES OFF OTHER HOSTS, 2026-09-04, and that is
-    // the part to re-read before moving anything back. /tokenomics was a tab on
-    // LearnPage and /treasury a tab on InfoPage — a route renders exactly one
-    // tab bar, so "Stats is one page with tabs" is only true if Stats OWNS
-    // them. LearnPage is now Lore/Security/FAQ and InfoPage is
-    // Contracts/Risks/Terms/Privacy, which is a cleaner split anyway: Learn is
-    // the narrative, Info is the legal + reference shelf, Stats is the numbers.
-    // Every URL, footer link and e2e route is unchanged.
-    hub: '/tokenomics',
-    items: [
-      { to: '/tokenomics', label: 'Tokenomics' },
-      { to: '/treasury',   label: 'Treasury' },
-      // Tax reports no longer read the F1 indexer and nothing else. Ethereum-mainnet
-      // history is read through /api/etherscan — a same-origin serverless function that
-      // ships with every deployment of this repo and allowlists exactly the three account
-      // actions the ledger needs (txlist, txlistinternal, tokentx) — and it returns BOTH
-      // legs of a trade in one transaction, so disposals get real proceeds. That is a REPO
-      // fact, not a deployment flag, so the pill is a concrete `false`.
-      //
-      // The one input that could make it false is the SERVER-SIDE ETHERSCAN_API_KEY, and
-      // it is not client-readable at nav-render time (this array is built at module
-      // scope). So the honest disclosure lives where the state IS readable: the ledger
-      // status card on /tax names ETHERSCAN_API_KEY and prints the operator step the
-      // moment a read comes back keyless, and every export carries the whole period as a
-      // declared `explorer-unavailable` gap. Same treatment lib/alerts/sources.ts already
-      // gives the identical source (explorer readable: true — a same-origin resource
-      // whose failure is an outage, reported at read time).
-      //
-      // Deliberately NOT a function returning a constant, which is the hardcoded value
-      // wearing a check this list warns about. It is guarded three ways instead:
-      // lib/tax/rails.test.ts parses api/etherscan.js for the three actions and asserts
-      // the page-level disclosure exists, navConfig.test.ts pins the concrete false AND
-      // that stubbing isIndexerConfigured() either way leaves it unchanged, and
-      // TaxPage.test.tsx renders the keyless copy. The indexer is now optional
-      // enrichment and does not decide this pill.
-      { to: '/tax', label: 'Tax Reports', tabLabel: 'Tax', soon: false },
-    ],
-  },
   // The three detection surfaces are the protocol's one genuine differentiator and
   // they work on ANY token/wallet, not just TOWELI — so they earn their own named
   // section instead of sitting under "Stats" beside Tokenomics/Treasury, where they
   // read as protocol vanity metrics. /trust is the hub that frames them as one suite.
   {
-    heading: 'Trust & Safety',
-    // COLLAPSED: one "Trust & Safety" row; these seven are the tab strip on
-    // /trust, whose page was already written as the hub that frames them as one
-    // suite — it just had no way to keep the visitor inside it. Seven was by far
-    // the worst offender in the old menu: a third of every link in the dropdown
-    // was this section.
+    // ── CHECK ───────────────────────────────────────────────────────────────
+    // Was "Trust & Safety", and that rename is the single biggest win in this
+    // change-set. "Trust & Safety" is content-moderation language: it reads as a
+    // policy page — terms, reporting, a form. Behind it sit the scanner, the
+    // deployer graph and wallet exposure, which is the venue's best
+    // differentiator, and it was buried under the most boring label on the site,
+    // two clicks deep inside a dropdown called "More".
+    //
+    // "Check" is what a visitor is actually here to do, and it is now one word
+    // in the top bar. The seven items are unchanged — every `to`, every label,
+    // every pill and every comment below is exactly where it was.
+    heading: 'Check',
     hub: '/trust',
     items: [
       { to: '/trust',    label: 'Trust Tools',     tabLabel: 'Overview' },
@@ -605,7 +648,7 @@ export const MORE_NAV_SECTIONS: NavSection[] = [
  * at import with the heading named in the message.
  */
 function requireSection(heading: string): NavSection {
-  const found = MORE_NAV_SECTIONS.find((s) => s.heading === heading);
+  const found = NAV_SECTIONS.find((s) => s.heading === heading);
   if (!found) {
     throw new Error(
       `navConfig: no "${heading}" section — a host page renders its items as tabs (see SectionHost.tsx)`,
@@ -614,35 +657,105 @@ function requireSection(heading: string): NavSection {
   return found;
 }
 
-/** The four collapsed sections, each rendered as one menu row + one tabbed page. */
+/** The six sections, each one word in the top bar and one tabbed page. */
+export const SWAP_SECTION = requireSection('Swap');
+export const POOLS_SECTION = requireSection('Pools');
+export const ISLAND_SECTION = requireSection('Island');
 export const LAUNCH_SECTION = requireSection('Launch');
 export const EARN_SECTION = requireSection('Earn');
-export const STATS_SECTION = requireSection('Stats');
-export const TRUST_SECTION = requireSection('Trust & Safety');
-
-/** Trade's two secondary destinations. Its own page is in PRIMARY_NAV, so this
- *  section renders no menu row at all — see `inPrimaryNav` on NavSection. */
-export const TRADE_SECTION = requireSection('Trade');
+export const CHECK_SECTION = requireSection('Check');
 
 /**
- * What the "More" menu actually renders. MORE_NAV_SECTIONS stays the complete
- * set — every completeness assertion, MORE_NAV and ALL_NAV all still see Trade's
- * items — while the menu itself drops the sections the top bar already covers.
+ * The top bar, DERIVED — never hand-written beside the sections it duplicates.
+ *
+ * This used to be a literal array of four items maintained in parallel with
+ * MORE_NAV_SECTIONS, and the two could disagree: a section could gain a
+ * destination the bar never learned about, or point its word at a page whose tab
+ * strip highlighted something else. Deriving it makes both impossible, and it is
+ * what let each section's hub page move INTO its own `items` (NavSection.items).
+ *
+ * `primaryTo` exists for exactly one section — see Swap.
  */
-export const MENU_NAV_SECTIONS: NavSection[] = MORE_NAV_SECTIONS.filter((s) => !s.inPrimaryNav);
-
-/** Flat list of every "More" item — used by the mobile drawer. */
-export const MORE_NAV: NavItem[] = MORE_NAV_SECTIONS.flatMap((s) => s.items);
+export const PRIMARY_NAV: NavItem[] = NAV_SECTIONS.map((s) => ({
+  to: s.primaryTo ?? s.hub,
+  label: s.heading,
+}));
 
 /**
- * Flat all-nav list (PRIMARY_NAV + the Tradermigos action + the "More"
- * destinations). NOTE: the live TopNav drawer renders MORE_NAV_SECTIONS
- * directly (primary tabs live in the BottomNav), so this export is currently
- * only consumed by navConfig.test.ts as a completeness assertion. Kept as the
- * canonical "every reachable top-level route" list for tooling/tests.
+ * Dashboard — appended to the bar LAST, and only once a wallet is connected.
+ *
+ * It led the nav before this change, and it is the one destination that is
+ * empty for a visitor who has not connected: a stranger's first word in the top
+ * bar opened a page with nothing in it. The operator's own framing is the rule
+ * now — "you go through the main executive tabs and then you could see what is
+ * happening with your assets" — so it comes last, after the six things you can
+ * actually DO, and it appears when there is something for it to show.
+ *
+ * NOT part of PRIMARY_NAV, deliberately: PRIMARY_NAV is derived from the
+ * sections, and Dashboard is not a section — it has no tab strip and no
+ * children. TopNav appends it from wagmi's connection state; BottomNav shows it
+ * on the same condition. ALL_NAV includes it so the route-coverage assertions
+ * still see it.
+ */
+export const DASHBOARD_NAV: NavItem = { to: '/dashboard', label: 'Dashboard' };
+
+/**
+ * StatsPage's three tabs.
+ *
+ * NOT a NavSection, and not in NAV_SECTIONS: these are the sibling views of ONE
+ * host, and the nav lists a tabbed host once, at its landing tab — the same
+ * convention ActivityPage (Leaderboard / Gold Card / History / Changelog) and
+ * InfoPage (Contracts / Risks / Terms / Privacy) already follow. Island carries
+ * the single "Treasury & numbers" row that opens this host; /treasury and /tax
+ * stay reachable as its tabs, from the Footer, and by direct URL.
+ *
+ * DECLARED HERE rather than inside StatsPage.tsx, unlike InfoPage's local
+ * `TABS`, for one reason: the /tax pill. It is the only pill on any of the three
+ * and navConfig.test.ts guards it — that it is a concrete `false`, and that
+ * stubbing isIndexerConfigured() either way does not move it. A pill and the
+ * assertions that keep it honest should not live in different files.
+ */
+export const NUMBERS_TABS: NavItem[] = [
+  { to: '/tokenomics', label: 'Tokenomics' },
+  { to: '/treasury',   label: 'Treasury' },
+  // Tax reports no longer read the F1 indexer and nothing else. Ethereum-mainnet
+  // history is read through /api/etherscan — a same-origin serverless function that
+  // ships with every deployment of this repo and allowlists exactly the three account
+  // actions the ledger needs (txlist, txlistinternal, tokentx) — and it returns BOTH
+  // legs of a trade in one transaction, so disposals get real proceeds. That is a REPO
+  // fact, not a deployment flag, so the pill is a concrete `false`.
+  //
+  // The one input that could make it false is the SERVER-SIDE ETHERSCAN_API_KEY, and
+  // it is not client-readable at nav-render time (this array is built at module
+  // scope). So the honest disclosure lives where the state IS readable: the ledger
+  // status card on /tax names ETHERSCAN_API_KEY and prints the operator step the
+  // moment a read comes back keyless, and every export carries the whole period as a
+  // declared `explorer-unavailable` gap.
+  //
+  // Deliberately NOT a function returning a constant, which is the hardcoded value
+  // wearing a check this file warns about. It is guarded three ways instead:
+  // lib/tax/rails.test.ts parses api/etherscan.js for the three actions and asserts
+  // the page-level disclosure exists, navConfig.test.ts pins the concrete false AND
+  // that stubbing isIndexerConfigured() either way leaves it unchanged, and
+  // TaxPage.test.tsx renders the keyless copy.
+  { to: '/tax', label: 'Tax Reports', tabLabel: 'Tax', soon: false },
+];
+
+/** Flat list of every sectioned destination — used by the mobile drawer. */
+export const MORE_NAV: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
+
+/**
+ * Every reachable top-level destination, exactly once.
+ *
+ * PRIMARY_NAV is deliberately NOT spread in here any more. It is derived from
+ * the very sections MORE_NAV flattens, so including both would make every path
+ * in the bar appear twice and turn the no-duplicates assertion into a test of
+ * this file's own arithmetic rather than of the nav.
+ *
+ * Dashboard IS included, because it is the one destination no section owns —
+ * without it the route-coverage assertions would call /dashboard un-navigable.
  */
 export const ALL_NAV: NavItem[] = [
-  ...PRIMARY_NAV,
-  POINTS_NAV,
   ...MORE_NAV,
+  DASHBOARD_NAV,
 ];

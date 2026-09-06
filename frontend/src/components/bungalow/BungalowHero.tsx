@@ -51,16 +51,35 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
             {trade.kind === 'chart' ? `${bungalow.symbol} chart` : `Trade ${bungalow.symbol}`}
           </a>
         ))}
-        {/* "Stake X" is only promised when a stake pool actually exists —
-            without one the farm route is the honest lighthouse status page. */}
-        <Link to="/farm" className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center">
+        {/* ONE FILLED BUTTON, 2026-09-05 — the same rule VenueHero already
+            follows (see its "Launch on Heat" note).
+
+            This row shipped THREE full-weight calls to action: Trade in filled
+            gold, Stake in filled kyle-green (`.btn-primary`), Scan in outlined
+            kyle-green. Two filled buttons side by side is no hierarchy at all,
+            and the green was doing double duty — the TopNav's Connect wears the
+            same hue in the same viewport, so "green" meant both "stake here"
+            and "connect your wallet".
+
+            Trade is the primary: it is the one action every visitor to a
+            resident's room can complete, whoever they are. Stake drops to an
+            outline in the SAME kyle green — same colour, less shout — and Scan
+            moves onto --color-stan, which index.css:48 already documents as the
+            trust/security/audit hue and is exactly what the scanner is. The two
+            secondary actions are now told apart by meaning rather than by
+            reading their labels. Connect leaves green entirely (TopNav.tsx). */}
+        <Link
+          to="/farm"
+          className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
+          style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+        >
           {bungalow.stakePool ? `Stake ${bungalow.symbol}` : 'The lighthouse'}
         </Link>
         {bungalowScanRoute(bungalow) && (
           <Link
             to={bungalowScanRoute(bungalow)!}
-            className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
-            style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+            className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#1E88E5]"
+            style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(30,136,229,0.55)', color: 'var(--color-stan)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
           >
             Scan {bungalow.symbol}
           </Link>

@@ -14,7 +14,7 @@
 // The child components are stubbed: this file is about the page's decisions, and
 // StakingCard's own rendering is not on trial here.
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -137,6 +137,7 @@ vi.mock('../components/farm/StakingCard', () => ({
 }));
 
 import FarmPage from './FarmPage';
+import { BUNGALOW_STORAGE_KEY } from '../lib/bungalows';
 
 function renderFarm() {
   return render(
@@ -161,6 +162,34 @@ beforeEach(() => {
   hooks.stake.mockReset();
   hooks.lastComputed = null;
   hooks.lastHandleStake = null;
+});
+
+
+/**
+ * ⚠️ THIS FILE STANDS INSIDE THE TOWELI BUNGALOW, EXPLICITLY, AS OF 2026-09-05.
+ *
+ * It renders the CLASSIC TOWELI surface, and until now it got there by
+ * accident: the page's wrapper branched on `getActiveBungalow()` /
+ * `getBungalowIdentity()`, both of which are null when NOTHING is chosen, so
+ * "no bungalow" and "the TOWELI bungalow" fell into the same branch. A test that
+ * set nothing therefore rendered the TOWELI page — and so did a stranger
+ * arriving at the venue, which was the bug (one resident's ticker, ~30 times,
+ * on a page the venue was supposed to be speaking on).
+ *
+ * The wrapper now uses `isToweliVoice()` (arrival.ts), which separates the two.
+ * So this file says where it is standing instead of relying on a collapsed
+ * state. Real storage, not a mocked gate — that keeps the assertions pointed at
+ * the SAME predicate the app runs, so if the gate changes shape again these
+ * fail rather than quietly testing a stub.
+ */
+
+// The venue speaks for the whole island; the classic TOWELI stack lives in its
+// own room. Stand in that room before rendering.
+beforeEach(() => {
+  window.localStorage.setItem(BUNGALOW_STORAGE_KEY, 'toweli');
+});
+afterEach(() => {
+  window.localStorage.removeItem(BUNGALOW_STORAGE_KEY);
 });
 
 describe('stale LP boost (AUDIT F-7)', () => {

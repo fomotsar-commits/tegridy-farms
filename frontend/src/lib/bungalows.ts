@@ -280,7 +280,12 @@ export const BUNGALOWS: Bungalow[] = [
         'Bayla is the muse of Jungle Bay Island — brought to light by the Jungle Bay ' +
         'Artists Collective, living on Solana, seated at the lighthouse. Her pull ' +
         'reaches every kind of maker. Trade her, hold her for heat, and stake at the ' +
-        'lighthouse — the pool is live on-chain. DM+T = Memetic Finance.',
+        // SPELLED OUT, 2026-09-05. This closed on the bare acronym "DM+T", in the
+        // FIRST paragraph a stranger reads on this bungalow's hero — a term the
+        // page never defines above it. The expansion was already canon two keys
+        // below (museLines) and again in `lore`, so this introduces no new
+        // vocabulary; it just stops the hero assuming the reader arrived fluent.
+        'lighthouse — the pool is live on-chain. Dank Memes + Time = Memetic Finance.',
       museLine: 'The work is yours. The light is hers.',
       museBy: 'Jungle Bay Artists Collective',
       museLines: [

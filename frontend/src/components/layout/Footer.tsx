@@ -190,10 +190,18 @@ export function Footer() {
                   {l.label}
                 </Link>
               ))}
-              {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) —
-                  default-only; the bungalow card above carries that token's
-                  own explorer link. */}
-              {!bungalowIdentity && EXTERNAL_RESOURCES.map((l) => (
+              {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) — inside
+                  the TOWELI bungalow only; the bungalow card above carries each
+                  other resident's own explorer link.
+
+                  GATE CORRECTED 2026-09-05: this read `!bungalowIdentity`, which
+                  is null for BOTH "the TOWELI bungalow" AND "no bungalow chosen"
+                  — so the VENUE's own footer, the first one a stranger scrolls
+                  to, linked out to one resident's Uniswap pair and token page as
+                  if they were the island's. `isToweliVoice()` is the gate that
+                  tells those two states apart, and the contract card 50 lines
+                  above already uses it. */}
+              {isToweliVoice() && EXTERNAL_RESOURCES.map((l) => (
                 <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer"
                   aria-label={`${l.label} (opens in new tab)`}
                   className={LINK_CLASS} style={LINK_SHADOW}>
