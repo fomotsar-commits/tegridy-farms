@@ -382,7 +382,15 @@ export function maxSafeStakeRaw(
   durationSecs: number,
 ): bigint | null {
   if (rp.kind !== 'fixed') return null;
-  const rewardAmount = BigInt(rp.rewardAmountRaw || '0');
+  // Everything below has to DEGRADE to null, never throw. This runs on the
+  // render path for the amount field, so a throw here takes the panel down
+  // rather than dropping one number — and the whole point of the null return is
+  // "no cap can be stated". `BigInt('abc')` throws SyntaxError and
+  // `BigInt(Math.trunc(NaN))` throws RangeError, so neither input can go
+  // straight into a BigInt.
+  const rewardAmount = bnToBigint(rp.rewardAmountRaw);
+  if (rewardAmount === null) return null;
+  if (!Number.isFinite(rp.rewardPeriodSecs) || !Number.isFinite(durationSecs)) return null;
   const period = BigInt(Math.trunc(rp.rewardPeriodSecs));
   const secs = BigInt(Math.trunc(durationSecs));
   if (rewardAmount <= 0n || period <= 0n || secs <= 0n) return null;
