@@ -29,6 +29,133 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-06 — SESSION CARRY-OVER: the u64 claim ceiling, and a duplicate built beside it
+
+**The BAYLA claim-ceiling fix is not lost and not missing. It is [PR #444](https://github.com/fomotsar-commits/tegridy-farms/pull/444), open and unmerged** (`fix/bayla-claim-ceiling`, pushed, `959c5c21` at the time of writing — it moved twice while this
+was being written, so re-read the tip before acting). It is
+complete: the library guard, the UI wiring, the ceremony script and the offered-lock ceiling.
+
+This session built a **second, independent implementation of the library half** and committed it to
+`claude/youthful-wescoff-6d9f91` — 17 minutes after #444's first commit, without knowing #444
+existed. That happened because the session memory recorded the work as *uncommitted on a branch
+called `nav-ia-liquidity`*; no such branch exists, the work had been committed to a differently
+named branch, and a search for the recorded name found nothing. **Do not merge both.** #444 is the
+one to land; the duplicate is strictly smaller.
+
+The duplication is not entirely waste, and the useful part is recorded below: two implementations
+derived the cap formula independently, from the same on-chain evidence, and agree exactly — and
+mutation-testing the duplicate found three guards that #444 does not pin either.
+
+Item IDs are date-qualified (`C-0906-n` code, `O-0906-n` operator) so they do not collide with the
+`O-NEW-n` set in the 2026-09-05 section below.
+
+### ✅ Settled today — do not re-litigate these
+
+- **The cap formula is confirmed twice over.** `u64::MAX × reward_period × 1e9 / (weight ×
+  reward_amount × secs)`. Two sessions reached it independently — #444 from the program's own
+  transaction logs, this one from the SDK's `RewardEntryAccumulator.getAccountableAmount` — and the
+  two functions are line-for-line equivalent, including the `stakeWeightScaled` call and every null
+  guard. It also reproduces the recorded `30,501,000 / (weight × days)` rule and the observed 6.1-day
+  break of the 1,000,000 BAYLA position. This number is no longer a single-source claim.
+- **#444's `maxSafeStakeRaw` is correct on all three axes this session probed.** The three pins in
+  C-0906-1 were run against #444's own implementation, in a sandbox copy, and all three pass. They
+  are hardening, not a defect report.
+- **Error 6000 no longer prints simulation JSON at the user — on #444.** `writeFailure` only
+  special-cased 6012, so 6000 fell to the catch-all that renders `msg.slice(0, 140)`: 140 raw
+  characters of JSON, which is what a holder saw on their phone. #444's version matches
+  `/\b6000\b/ || /ArithmeticError/i`, which is **better** than the duplicate's `/\b6000\b/` alone.
+
+### 🔴 O-0906-1 — land PR #444; it is the whole live-incident fix and it is still open
+
+Nothing about the incident is mitigated in the product until this merges. On trunk today the claim
+button still offers a guaranteed-reverting claim, and the principal-rescue hatch
+(`LighthousePoolLive.tsx:811`, `{!locked && exceedsVault && (`) does not render for a ceilinged
+position — `exceedsVault` is false whenever the vault is funded, so the one honest exit is
+unreachable. #444 fixes exactly that at its `:918`, `{!locked && (exceedsVault || ceilingHit) && (`.
+
+Read live 2026-09-06: base `mvp-launch`, `MERGEABLE`, not a draft, and **27 checks — 14 pass, 12
+skipping, 1 pending, zero failures**. That is the real gate set (the ~27 floor), so this is a
+merge decision, not a debugging one.
+
+```bash
+gh pr view 444 --json mergeable,baseRefName,state
+gh pr checks 444        # expect ~27 rows; gate on the COUNT, not on the absence of red
+```
+
+### ✅ C-0906-1 — the three pins and the two throws are now PR #447, into #444
+
+Raised as a PR **into `fix/bayla-claim-ceiling`** rather than pushed onto it — that branch is checked
+out in another session's worktree and moved twice while this was being written, so it gets a
+reviewable diff instead of surprise commits. Merging it into #444 puts it under #444's full
+`mvp-launch` gate; on its own, a PR based on a non-trunk branch runs almost no CI, so **do not read
+its green as coverage.**
+
+Three guards stayed green while the implementation was deliberately broken. Each mutation was run
+against #444's own code and turns exactly one new test red:
+
+| Mutation that survived #444's tests | What it would ship |
+|---|---|
+| refuse dynamic on the **rate** instead of on `kind` | a dynamic program that ever carries a rate gets a cap invented for it |
+| price the cap off `pool.maxWeightScaled` instead of the **lock weight** | quotes **67,779** BAYLA at 90 days instead of **171,330** — 2.5× too tight |
+| take the **loosest** cap across pools instead of the tightest | with two funded reward pools, the venue sells a position the faster one kills |
+
+The middle one is the one worth having: every ordering assertion in *"is more permissive for shorter
+locks"* still holds under it, because the term alone already makes them hold. Its expected value is
+derived independently of the implementation, from `30,500,570 / (weight × days)`.
+
+The same PR makes `maxSafeStakeRaw` **degrade to `null` instead of throwing** — `BigInt('abc')` throws
+`SyntaxError`, `BigInt(Math.trunc(NaN))` throws `RangeError`, and this runs on the render path for the
+amount field, so a throw takes the panel down rather than dropping one number. Neither input is
+reachable from current on-chain data, so that half is hygiene, not a live bug.
+
+### ⬜ C-0906-2 — the ceiling counter is only read for the first 8 OPEN entries
+
+`readEntries` computes `accountedRaw` only for entries passing `accruing`
+(open, `.slice(0, 8)` — `bungalowStaking.ts:779` on #444); everything else gets `{}`, which reads as
+"not blocked". That is the **correct** degraded-read answer and a **pre-existing bound, not a
+regression**: `pendingRaw` has always had the same cap and the existing vault gating already depends
+on it. A wallet with 9+ open entries simply gets no ceiling verdict past the eighth. Present on both
+branches; recorded once, here.
+
+### ⬜ O-0906-2 — delete the orphaned test file in the OneDrive checkout before pulling
+
+`frontend/src/lib/bungalowStakingCeiling.test.ts` is **untracked** in the OneDrive checkout — the
+106-line orphan that survived when its implementation did not, and the thing that made this session
+think the work was missing. #444 commits a 148-line superset at the same path. Git will refuse to
+overwrite an untracked file on pull:
+
+```bash
+rm "frontend/src/lib/bungalowStakingCeiling.test.ts"     # in the OneDrive checkout ONLY
+```
+
+### 📌 The duplicate branch — what to do with it
+
+`claude/youthful-wescoff-6d9f91` (`21c5ba1d`, `68afec04`, `fdf2d929`), **not pushed**, tagged
+`ceiling-guard-21c5ba1d` and `ceiling-wrapup-fdf2d929`, full suite 573 files / 7919 green. It should
+**not** become a PR — it would compete with #444 over the same five exports, and #444's versions are
+better (its 6000 matcher catches `ArithmeticError` by name, not just the code).
+
+**Everything worth keeping has already been lifted off it**: the tests and guards into PR #447, this
+section into its own PR. Nothing else on it needs to survive — delete the branch once both land. Its
+durable contribution is the independent confirmation of the cap formula, recorded above.
+
+**The process lesson, which is the reusable part:** the session searched for the branch name its
+memory recorded, found nothing, and concluded the work was lost. It was one `git branch -a --list
+"*claim-ceiling*"` away from the truth. When a memory says work is uncommitted or missing, search by
+**topic across all branches and `origin`**, not by the remembered branch name — in a repo with 139
+worktrees and parallel sessions, a branch name is the least stable thing about a piece of work.
+
+### 📌 UNVERIFIED — carried forward, not re-measured today
+
+- **The 1,000,000 BAYLA position was recorded as crossing the ceiling on 2026-09-07.** From #444's
+  own commit message and the incident write-up; no chain read was made this session. If it has
+  crossed, it is a third dead entry and #444 already covers it.
+- **When the two dead 3,000 BAYLA entries mature** decides whether the rescue hatch matters now or
+  in 2027 — it is `!locked`-gated (`locked = nowSec < opensAt`), so it only ever renders after
+  maturity. One on-chain read settles it.
+
+---
+
 ## 🟢 2026-09-05 (LATE) — SESSION CARRY-OVER: what is left after the PR sweep
 
 Nineteen PRs merged and the queue emptied. Every status line below was **read from the live
