@@ -1950,6 +1950,33 @@ These go into the Supabase SQL editor by hand, in this order.
 off the anon key first, or every user silently gets zero rows. That shipped — both tables now read
 through `proxyRead()` and the proxy allowlist admits them. Verified on trunk 2026-09-04.
 
+**Why neither migration can break the proxy — the structural reason, not a grep (2026-09-05).**
+The "zero anon writers" check above is a text search, which can only ever say *nothing matched
+today*. The stronger guarantee is that the proxy does not use the `anon` role at all:
+
+- `api/auth/siwe.js:312-316` mints the SIWE JWT with **`role: "authenticated"`** (and
+  `aud: "authenticated"`).
+- `api/supabase-proxy.js:293-294` sends that JWT as `Authorization: Bearer`, with the anon key
+  only as `apikey`. In PostgREST the **JWT's `role` claim** picks the database role — the apikey
+  does not. So every proxied read and write executes as `authenticated`.
+- 025 revokes verbs `FROM anon`. It therefore cannot touch the proxy's write path, whatever a
+  grep does or does not find later.
+
+And the failure mode that would be SILENT — 024 dropping the last SELECT policy, so every user
+sees an empty list rather than an error — does not apply either. 024 drops only the two
+`Anyone can read …` policies; the owner-scoped twins survive and match on the same claim the JWT
+carries:
+
+```sql
+-- 004_security_hardening.sql:156-165, still current
+CREATE POLICY "Owner reads favorites" ON public.user_favorites FOR SELECT USING (
+  lower(wallet) = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+);
+```
+
+The JWT carries `wallet`, so an owner keeps reading their own rows and `anon` reads none. That is
+the whole intent of 024, and it holds by construction rather than by inspection.
+
 1. Run each file's ⛔ PREFLIGHT block. They were rewritten on 2026-09-04 because the originals
    could not fail: 024 read an HTTP status code (PostgREST answers an RLS-**denied** select with
    `200` and `[]`, not 403) and both 024 and 025 grepped a built bundle for a URL supabase-js
