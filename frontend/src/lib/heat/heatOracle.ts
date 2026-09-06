@@ -83,9 +83,13 @@ export const HEAT_K = 60;
  * several measured tokens deeply for five months while passing the wallet that has held
  * dust for six. The instrument IS the time rule.
  *
- * The half-year figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment
- * ("arrivals prove half a year, births don't") and, per spec, never appears in venue
- * code. See docs/HEAT_WAVE_TWO.md for the full record of that reversal (an earlier
+ * The figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment and, per
+ * spec, never appears in venue code. The island re-cut that judgment on 2026-08-24: an
+ * arriving token now anchors at least NINETY DAYS past launch and then stands a
+ * measured ninety days. Its grammar, verbatim: "Arrivals prove ninety days. Births
+ * don't." This comment said "half a year" until wave seven's answer one, which made it
+ * a false attribution to the island for a fortnight.
+ * See docs/HEAT_WAVE_TWO.md for the full record of that reversal (an earlier
  * revision of this comment pointed at docs/HEAT_LAUNCH_GATE.md, which was never
  * written — the wave-two record is where the deviation flag actually lives).
  *

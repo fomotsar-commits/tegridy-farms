@@ -7,8 +7,19 @@ One row per phase. `status` is one of NOT-STARTED · IN-PROGRESS · DONE · BLOC
 BLOCKED rows name exactly what is needed, and from whom.
 Updated in the same commit as every phase close.
 
+> **CLONE THIS TO READ THE WORK:** branch **`feat/island-wave-seven`** on
+> `github.com/fomotsar-commits/tegridy-farms`, based on `8b6144ae`. Pushed 2026-09-06.
+> Session one's tip is tagged `wave7-session1-latest`. Trunk has since moved to
+> `6dddd9dc` (PR #443, multichain liquidity); this branch is not yet rebased onto it.
+
 Opened 2026-09-06 against base `8b6144ae` on `mvp-launch`, from
-`jbi-greencifer-wave7-share-v1.3.pdf` (§0–§9, elements A–P).
+`jbi-greencifer-wave7-share-v1.3.pdf` (§0–§9, elements A–P), and amended from
+`jbi-greencifer-wave7-answer1-share-v1.pdf` (answer one) the same day.
+
+**Answer one resolved all four island asks**, and its rulings are folded in below: the
+proxy's allowlist is adopted as the route contract (row 06); wave six's and wave four's
+phase lists are opened as their own files; the painted card URL is not yet published;
+`/api/flames?token=` does not exist and must not be mocked against a guess.
 
 This file opened the wave at `5f77da9e`, as §7 requires, before any code moved. **One half
 of one element has landed since:** element G's flames proxy, which the corrected order puts
@@ -92,7 +103,7 @@ directive missed, each verified by reading the files:
 | D the room, cut to the token | NOT-STARTED | | **Merge with C.** The scoped-read primitive exists and works (`HeatBreakdownRow.tokenAddress` / `firstSeenAtUnix`, `heatClient.ts:85`). `lpEmissions.ts:81-85` is TOWELI-room copy and must be unreachable from the other twelve doors after this. |
 | E zero unasked overlays | NOT-STARTED | | Anchors confirmed. Deleting the `MuseBubble` mount **reds two currently-green e2e outright**, not by flake: `bungalow-doors.spec.ts:116` expects the `— the island` byline on /pepe (it comes only from MuseBubble), and `ambient-bubble-taps.spec.ts:96` asserts the bubble rendered. Both must land in the same commit as the deletion. |
 | F the launch page folds | NOT-STARTED | | Anchors confirmed with drift. `heat-gate.spec.ts:136` pins the literal gate sentence — if F edits `gateDecision().detail` in `heatOracle.ts` rather than the render layer, F breaks its own phase. |
-| G the board on the venue, and the flames proxy | IN-PROGRESS — **proxy half DONE** | `api/_lib/__tests__/flames.test.js` (36, mutation-verified) | **The proxy landed first, ahead of B**, because B's insertion rank reads it at `limit=500`: it is a prerequisite of the engine, not a peer. `api/_lib/flames.js` + the `?resource=flames` branch at `aggregator.js:326`, verified above `const provider` (:424). Gates copied from `heat.js`, not re-derived. **The strip is an allowlist, not the directive's denylist** — a denylist holds only for the two keys known today, so a third identifying field the island adds later would reach a public board silently; the allowlist drops it instead. `x_pfp` is served upstream and deliberately not forwarded (off-origin avatar = a new CSP img-src entry and a viewer-IP leak; its own decision). Own rate-limit bucket (`identifier: "flames"`), so a board read never starves the tape's heat budget — element N's collision does not spread here. Mutation run: removing the strip reds 4 tests including the headline key assertion; restored, 36/36. Neighbours green (heat + all aggregator suites, 774/774). **The card landed too.** `flamesClient.ts` + `FlamesBoard.tsx`, mounted on the home at `limit=5` and opening the Island lobby at `limit=25`. The client keeps **three outcomes distinct** where a careless one would collapse them: a board, a board that is OFF (204 → `null`), and a read we could not make (throws). A 200 whose shape moved, or rows that arrived but none of which parsed, **throw** rather than answering "nobody is on the island" — the repo's most repeated bug class, and the one this file exists to refuse. Failures are never cached, so an outage cannot outlive itself; an OFF board is cached, so a dark board is not re-asked every render. The card **unmounts rather than apologising**: no error string ever reaches a visitor. Board handles run through the SAME `normalizeXHandle` as the reading rather than §4.2's local `handleOf`, which strips but does not validate — one implementation, so a spoofed handle cannot enter through whichever surface forgot to check. Mutations ×4: an unreadable board reading as empty reds 1, the card apologising reds 4, a tie displacing an existing flame reds 1, caching a failure reds 4. `flamesClient.test.ts` (30) + `FlamesBoard.test.tsx` (11), 41/41. **Still open in G:** A's "Watch the arrival" film mount and the lobby's em-dash rewrite. `id="hall"` shipped with B2. |
+| G the board on the venue, and the flames proxy | IN-PROGRESS — **proxy half DONE** | `api/_lib/__tests__/flames.test.js` (36, mutation-verified) | **The proxy landed first, ahead of B**, because B's insertion rank reads it at `limit=500`: it is a prerequisite of the engine, not a peer. `api/_lib/flames.js` + the `?resource=flames` branch at `aggregator.js:326`, verified above `const provider` (:424). Gates copied from `heat.js`, not re-derived. ✅ **THE ALLOWLIST IS NOW THE ROUTE CONTRACT** — answer one adopted this shape for `/api/flames`: exactly `x_username · degrees · tier · held_since_unix · token_count`, with `x_pfp` dropped. Adding a key is a change to the island's contract, not a local edit. **The strip is an allowlist, not the directive's denylist** — a denylist holds only for the two keys known today, so a third identifying field the island adds later would reach a public board silently; the allowlist drops it instead. `x_pfp` is served upstream and deliberately not forwarded (off-origin avatar = a new CSP img-src entry and a viewer-IP leak; its own decision). Own rate-limit bucket (`identifier: "flames"`), so a board read never starves the tape's heat budget — element N's collision does not spread here. Mutation run: removing the strip reds 4 tests including the headline key assertion; restored, 36/36. Neighbours green (heat + all aggregator suites, 774/774). **The card landed too.** `flamesClient.ts` + `FlamesBoard.tsx`, mounted on the home at `limit=5` and opening the Island lobby at `limit=25`. The client keeps **three outcomes distinct** where a careless one would collapse them: a board, a board that is OFF (204 → `null`), and a read we could not make (throws). A 200 whose shape moved, or rows that arrived but none of which parsed, **throw** rather than answering "nobody is on the island" — the repo's most repeated bug class, and the one this file exists to refuse. Failures are never cached, so an outage cannot outlive itself; an OFF board is cached, so a dark board is not re-asked every render. The card **unmounts rather than apologising**: no error string ever reaches a visitor. Board handles run through the SAME `normalizeXHandle` as the reading rather than §4.2's local `handleOf`, which strips but does not validate — one implementation, so a spoofed handle cannot enter through whichever surface forgot to check. Mutations ×4: an unreadable board reading as empty reds 1, the card apologising reds 4, a tie displacing an existing flame reds 1, caching a failure reds 4. `flamesClient.test.ts` (30) + `FlamesBoard.test.tsx` (11), 41/41. **Still open in G:** A's "Watch the arrival" film mount and the lobby's em-dash rewrite. `id="hall"` shipped with B2. |
 | H the doors in color | NOT-STARTED | | `VenueDoors.tsx:27` / `:134` confirmed exactly. Deleting `dimmedFilter` reds `VenueDoors.test.tsx` (its `isDesaturated` helper asserts settled doors **are** desaturated) and orphans the luma pipeline `doorThumbLuma.test.ts` guards in lock-step with `scripts/generate-image-derivatives.mjs`. |
 | I em-dash zero, the guard | NOT-STARTED | | **All 16 claims CONFIRMED — and the element collides head-on with this repo's degraded-read law.** The em dash is the venue's *unreadable* placeholder: `usePoolMarket.ts:13` states the rule outright, "render it as `—`, never as 0", and `LiquidityTab.tsx:391` emits it when a read fails. A body-wide "zero U+2014" assertion therefore **goes red on an RPC outage** — it converts a degraded read into a copy regression, in direct tension with "unreadable must not read as fine". Also: the directive's eight-file census omits `HomePage.tsx`, which carries 67 occurrences — a ~40% undercount. **RULED 2026-09-06 (owner): option (a)** — the rendered assertion is scoped to venue-voice text nodes and leaves degraded-read placeholders alone. No honesty behaviour changes and no existing test moves. Unblocked; the census must be re-sized to include `HomePage.tsx`. |
 | J the status file | IN-PROGRESS | `5f77da9e` opened it; amended per phase close | Opened at base `8b6144ae`. Two shape divergences from waves three and five, both deliberate and both flagged: `RETIRED` is a **new** fifth status word (both prior files document four), and §7 says "one row per element A to L" while the directive defines **A to P** — rows are written for all sixteen, since M/N/O/P have done-means of their own. |
@@ -102,8 +113,9 @@ directive missed, each verified by reading the files:
 | N the named tape | NOT-STARTED | | Upstream `x_handle` **confirmed served**. Two collisions: the proxy caps at `limit: 20/60s per IP` (`heat.js:106-110`), so twelve rows spend 12 of 20 and a second room 429s inside the minute; and raising the cache header 60/120 → 300/600 **reds `heat.test.js:508-511`** and overturns `heat.js:168-172`'s written rationale for the short window. `poolTrades.ts:29` allows `wallet: null`, so null rows must be skipped before the limiter or they burn calls on an empty string. |
 | O the first-buy post | **BLOCKED** | | **The trigger does not exist.** No swap anywhere raises `TransactionReceipt`; the only production `showReceipt` calls are `FarmPage.tsx:301/338/348`, all `token:'TOWELI'`. Reads as a one-string change; is actually a new swap-receipt callsite on both `TradePage` and `SolanaSwapPage`. `ReceiptData` carries symbol **strings** only — no token address, no chain, no buyer — so the room-match is not expressible today. And the headline fixture is BAYLA, which is Solana, while the overlay is EVM-only (`sanitizeTxHash` rejects base58; no solscan branch). Depends on M for a link that 404s until M ships. |
 | P the planter's flame | **BLOCKED** | | **The creator EOA is `null` in both producers** — `discovery.ts:205` ("not exposed by `new_pools`") and `ourLaunches.ts:127`, which states the Airlock record exposes only `timelock`/`governance`, "neither of which is the creator EOA". With no creator, "a failed read prints nothing" collapses to **prints nothing, always**: the feature would be invisible in production while passing every fixture test. A creator source is a prerequisite, not a detail. Adding it to `LaunchFactSheet` moves the disclosures digest and is a `schemaVersion` call. Both card surfaces are also declared **fetch-free by contract**, so reads must lift to the parent and de-dupe by creator wallet. |
-| W4-02 the ninety-day grammar | NOT-STARTED | | Venue-side half verified by reading: no ninety-day certification text exists, and `GardenLane.tsx:78-79` / `certification.ts:12-13` state no criteria at all. None is required unless a surface states what certification takes. The island-side half is **the island's own probe**, attributed here rather than restated as our finding. |
-| W4-03 the published law | NOT-STARTED | | Element K. Unblocked by the live read above. |
+| W4-02 the ninety-day grammar | **DONE** | this commit · `heatOracle.ts` + `BirthQueuePanel.tsx:67` | Answer one supplied the grammar verbatim ("Arrivals prove ninety days. Births don't.") and named ONE site to fix. **There were two.** The comment at `heatOracle.ts` was there as described. But `BirthQueuePanel.tsx:67` is rendered JSX, not a comment, and told every reader of the birth-queue panel that Heat is measured from birth "rather than after a half-year wait" — so answer one's "no rendered venue surface states the old figure any more" was false, and the site it missed is the one a person actually reads. Both corrected. Full record in `docs/ISLAND_WAVE_FOUR_STATUS.md`. |
+| W4-03 the published law | NOT-STARTED | | Element K. Unblocked by the live read above. Wave four's full phase list now lives in `docs/ISLAND_WAVE_FOUR_STATUS.md`. |
+| 16 the art runbook | NOT-STARTED | | New in answer one, carried from wave six G, and **deliberately last: infra and UI first**. `docs/ISLAND_ART_RUNBOOK.md`, five steps, plain words, zero em dashes: per-bungalow folders at the repo root · `scripts/gen-bungalow-art.mjs` · ids from FILENAMES, never from array index (the repo's own art law — overrides key on artId, and an index-keyed override silently repaints the wrong piece) · placement in the live per-door studios · export DMed back. The QR has no folder. The art itself is the owner's lane and nothing in this wave waits on it. |
 
 ## Decisions
 
@@ -142,12 +154,28 @@ the rest stay open and nothing that depends on them is touched.
 
 ## Needed from the island
 
-1. Wave six's phase list, or confirmation that A–P supersede it wholesale (row 00).
-2. Wave four's full numbering. `ISLAND_WAVE_FIVE_STATUS.md:147-150` already records this ask
-   unanswered; W4-02 and W4-03 adopt two labels without their siblings.
-3. The painted per-wallet card URL shape for element M's `og:image`.
-4. The per-token board route (`/api/flames?token=<address>`) named in §8 as an island rung.
-   Until it exists no room paints a per-token board, and nothing here fabricates one.
+**All four session-one asks were answered on 2026-09-06 (answer one).** Recorded closed:
+
+1. ~~Wave six's phase list~~ → supplied, seven elements, opened as
+   `docs/ISLAND_WAVE_SIX_STATUS.md`. Six RETIRED into wave seven; **row C is not**, because
+   the tab it concerns is not gated off (see that file).
+2. ~~Wave four's numbering~~ → supplied, six phases, opened as
+   `docs/ISLAND_WAVE_FOUR_STATUS.md`. This also closes the ask standing since
+   `ISLAND_WAVE_FIVE_STATUS.md:147-150`.
+3. ~~The painted card URL~~ → answered, and the answer is "not yet". The card is a PAGE at
+   `memetics.wtf/card/<wallet>`, live but **not fired** (the owner's two taps in the island's
+   growth lane, not ours). The IMAGE url behind its `og:image` is unpublished and will be
+   handed over exact in a later status exchange. Element M's `og:image` stays the venue's
+   static card, which is what it already does. **Explicitly forbidden and not done:** do not
+   scrape the card page for its image URL, and do not point `og:image` at a page.
+4. ~~`/api/flames?token=`~~ → answered: **does not exist tonight.** Nothing to read and
+   nothing to mock against a guess. No room paints a per-token board; element D's "Your held
+   time in `<SYMBOL>`" is the per-token read that exists, and it is enough for this wave.
+
+**Still open, and now the only island-side blockers:**
+
+- The card IMAGE url, once the card is fired (element M's headline feature).
+- `/api/flames?token=<address>`, if a per-token board is ever wanted (element N/D).
 
 ## Counts
 
