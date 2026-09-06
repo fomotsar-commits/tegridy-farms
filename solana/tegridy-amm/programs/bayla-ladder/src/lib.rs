@@ -552,11 +552,36 @@ pub mod bayla_ladder {
         Ok(())
     }
 
-    /// Fund a 90-day window. Owner decision 2026-09-06: reload every 90 days, distribute
-    /// per second. The tokens move INSIDE this instruction, so `reward_funded_cumulative`
-    /// is exact rather than inferred from a balance somebody sent.
-    pub fn notify_reward(ctx: Context<NotifyReward>, amount: u64) -> Result<()> {
-        require!(amount > 0, LadderError::ZeroAmount);
+    /// Open a 90-day window. Owner decision 2026-09-06: reload every 90 days, distribute
+    /// per second.
+    ///
+    /// TWO SOURCES, deliberately separated (AUDIT H-1):
+    ///   `amount`      fresh tokens transferred in by the authority in THIS instruction.
+    ///                 Counted into `reward_funded_cumulative`, which is why the transfer
+    ///                 lives here rather than being inferred from a balance.
+    ///   `from_budget` tokens ALREADY in the reward vault and not yet pledged — retained
+    ///                 early-exit penalties, swept emergency-hatch penalties, the
+    ///                 un-emitted tail of a lapsed window, a stranger's donation.
+    ///
+    /// Before the split, the rate was a pure function of `amount`, so every token in the
+    /// second category was permanently unspendable: lifetime emission could not exceed
+    /// the sum of the `amount`s, and there is no `recover_tokens` and no `close_pool`.
+    /// The pool promised leavers' penalties to whoever stayed (`exit_with_penalty`) and
+    /// could not deliver them. `sweep_orphaned_penalty` moved tokens into a vault they
+    /// could never leave.
+    ///
+    /// Solvency is unchanged and is still what bounds this: the resulting rate is checked
+    /// against `fundable()`, the real vault balance minus everything already owed. Naming
+    /// `from_budget` cannot conjure a token — it can only point the schedule at one that
+    /// is physically present and unpledged.
+    pub fn notify_reward(ctx: Context<NotifyReward>, amount: u64, from_budget: u64) -> Result<()> {
+        // Either source alone is a legitimate reload. Scheduling a retained penalty with
+        // no fresh capital is the whole point of the split, so `amount` may be zero —
+        // but a call that schedules nothing at all is still refused.
+        require!(
+            amount > 0 || from_budget > 0,
+            LadderError::ZeroAmount
+        );
         require_keys_eq!(
             ctx.accounts.token_program.key(),
             ctx.accounts.pool.token_program,
@@ -593,12 +618,24 @@ pub mod bayla_ladder {
         // that liability. Upstream Synthetix compares against the whole balance; in a
         // same-token pool that counts staked principal as budget — the hazard named in
         // VENDOR.md — and even the surplus alone double-pledges what is already owed.
-        let rate = new_reward_rate(amount, now, pool.period_finish, pool.reward_rate);
+        let scheduled = scheduled_total(amount, from_budget);
+        let rate = new_reward_rate(scheduled, now, pool.period_finish, pool.reward_rate);
         let budget = fundable(vault, pool.rewards_emitted, pool.rewards_paid);
         require!(
             rate <= budget / (REWARDS_DURATION_SECS as u128),
             LadderError::RewardTooHigh
         );
+        // AUDIT L-1. `rate = scheduled / REWARDS_DURATION_SECS`, integer division, so a
+        // small-but-real reload truncates to a rate of ZERO — the window is extended by
+        // 90 days, `RewardAdded` fires with a healthy-looking payload, and the pool emits
+        // nothing. Worse mid-window: the fold-in at math.rs:203 means a 1-unit top-up
+        // against a live tail can truncate the WHOLE remaining schedule away.
+        //
+        // Cost of this guard, stated rather than discovered later: the minimum reload is
+        // `REWARDS_DURATION_SECS` raw units — 7.776 whole tokens at 6 decimals, but
+        // 7,776,000 WHOLE tokens on a 0-decimal mint, which such a mint may not have.
+        // That is the right refusal: a per-second stream is not expressible there.
+        require!(rate > 0, LadderError::RewardRateTooSmall);
 
         pool.reward_rate = rate;
         pool.last_update_time = now;
@@ -608,6 +645,7 @@ pub mod bayla_ladder {
         emit!(RewardAdded {
             pool: pool.key(),
             amount,
+            from_budget,
             reward_rate: rate,
             period_finish: pool.period_finish,
         });
@@ -1038,6 +1076,7 @@ mod layout_tests {
         assert_eq!(LadderError::UseWithdrawMatured as u32 + 6000, 6008);
         assert_eq!(LadderError::PrincipalInvariant as u32 + 6000, 6021);
         assert_eq!(LadderError::NothingToSweep as u32 + 6000, 6023);
+        assert_eq!(LadderError::RewardRateTooSmall as u32 + 6000, 6024);
     }
 
     /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).

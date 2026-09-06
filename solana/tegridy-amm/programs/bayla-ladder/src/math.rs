@@ -31,8 +31,16 @@
 //!    staking contract failed an audit on exactly this: an accumulator whose
 //!    liability outran its backing (`docs/RESTAKING_BONUS_INSOLVENCY_2026_08_27.md`).
 //!    The Solidity's answer is a surplus cap; with two vaults the same theorem is
-//!    [`fundable`] + [`payable`] + [`emission_within_funding`], and the tests here
+//!    [`fundable`] + [`payable`] plus the caller's solvency check, and the tests here
 //!    assert it as arithmetic rather than as intent.
+//!
+//!    CORRECTED 2026-09-06 (audit L-3). This used to name [`emission_within_funding`]
+//!    as the third leg. It is NOT the enforced bound — it has zero call sites. What
+//!    the program actually enforces is stronger and lives in `notify_reward`:
+//!    `rewards_emitted - rewards_paid <= reward_vault.amount`, i.e. every token of
+//!    outstanding liability must be PHYSICALLY PRESENT, checked at the only
+//!    instruction that can create emission capacity. `emission_within_funding` is
+//!    retained as a monitoring predicate for off-chain use, and is labelled as such.
 //!
 //! # Precision
 //!
@@ -206,6 +214,29 @@ pub fn new_reward_rate(amount: u64, now: i64, period_finish: i64, old_rate: u128
     }
 }
 
+/// What a new window is allowed to SCHEDULE: freshly transferred tokens plus tokens
+/// already sitting in the reward vault and not yet pledged.
+///
+/// AUDIT H-1 (2026-09-06) — this function is the fix, and it exists because the port
+/// silently dropped a capability the reference has. `LighthouseLadder.notifyRewardAmount`
+/// performs NO token transfer: it schedules against the balance already held, bounded by
+/// `fundableBudget()`. The port fused the transfer into the instruction so
+/// `reward_funded_cumulative` would be exact, and in doing so made the rate a pure
+/// function of the freshly-transferred `amount`. Consequence: lifetime emission could
+/// never exceed the sum of `notify_reward` amounts, so the retained 25% penalty, every
+/// swept emergency-hatch penalty, every un-emitted second of a lapsed window and any
+/// stranger's donation were **permanently unspendable by any key in the system** —
+/// there is no `recover_tokens` and no `close_pool`, deliberately. One early exit of
+/// 1,000,000 BAYLA stranded 250,000, and `sweep_orphaned_penalty` was an economic no-op.
+///
+/// The solvency bound does not weaken: the caller still checks the resulting rate
+/// against [`fundable`], which subtracts everything already owed from the real vault
+/// balance. `from_budget` cannot conjure tokens — it can only point the schedule at
+/// tokens that are physically present and unpledged.
+pub fn scheduled_total(fresh: u64, from_budget: u64) -> u64 {
+    fresh.saturating_add(from_budget)
+}
+
 /// Invariant I-3 (AUDIT C2): what a NEW period may actually draw on — the vault after
 /// reserving everything already emitted and not yet paid. Without this, rewards
 /// accrued-but-unclaimed sit physically in the vault and get offered to a second
@@ -214,9 +245,21 @@ pub fn fundable(reward_vault: u64, emitted: u128, paid: u128) -> u128 {
     (reward_vault as u128).saturating_sub(emitted.saturating_sub(paid))
 }
 
-/// Invariant I-4, asserted on EVERY accrual: the pool has never emitted more than it
-/// was funded plus what leavers left behind. This is the bound `TegridyRestaking`
-/// never had — its liability outran its backing 4x in four windows with no attacker.
+/// MONITORING PREDICATE — not an on-chain invariant. **This function has no call
+/// sites in the program**, and its docstring used to claim it was "asserted on EVERY
+/// accrual" (audit L-3). It was not, and it should not be: `checkpoint` runs inside
+/// `emergency_withdraw`, so a `require!` there would put a reward-accounting
+/// condition in front of the unconditional principal hatch — which is Streamflow
+/// 6012, the exact failure this program exists to eliminate.
+///
+/// The enforced bound is in `notify_reward`: outstanding liability must be
+/// physically present in the vault. That is strictly stronger than this comparison,
+/// because it is anchored to a real balance rather than to two counters.
+///
+/// Kept because it is the only way an off-chain monitor can separate authority
+/// funding from penalty inflow — `reward_funded_cumulative` and
+/// `penalty_collected_cumulative` exist for exactly that, and are deliberately
+/// write-only on-chain.
 pub fn emission_within_funding(emitted: u128, funded: u128, penalties: u128) -> bool {
     emitted <= funded.saturating_add(penalties)
 }
@@ -413,6 +456,59 @@ mod tests {
         assert_eq!(fundable(10_000, 3_000, 1_000), 8_000);
         // owed exceeds the vault -> nothing is fundable, and it does not go negative
         assert_eq!(fundable(1_000, 3_000, 0), 0);
+    }
+
+    #[test]
+    fn a_retained_penalty_is_schedulable_with_no_fresh_capital() {
+        // AUDIT H-1, and the test the 19 originals could not see because none of them
+        // modelled the vault across a notify. Reproduces the report's scenario: one
+        // early exit of 1,000,000 BAYLA retains 250,000 in the pool as reward budget.
+        let penalty = penalty_for(1_000_000_000_000);
+        assert_eq!(penalty, 250_000_000_000);
+
+        // Nothing has been emitted or paid; the vault holds exactly the penalty.
+        let vault = penalty;
+        let budget = fundable(vault, 0, 0);
+        assert_eq!(budget, penalty as u128);
+
+        // THE FIX: with ZERO fresh capital the operator can still schedule it.
+        let scheduled = scheduled_total(0, penalty);
+        assert_eq!(scheduled, penalty);
+        let rate = new_reward_rate(scheduled, 0, 0, 0);
+        assert!(rate > 0, "a retained penalty must be schedulable with no fresh tokens");
+
+        // ...and it fits under the solvency ceiling the caller enforces, so the fix
+        // opens a door without widening what the pool may promise.
+        assert!(rate <= budget / (REWARDS_DURATION_SECS as u128));
+
+        // The ceiling still bites — but NOT at one raw unit over, and the difference
+        // matters. `rate = floor(scheduled / DURATION)`, so `rate * DURATION <=
+        // scheduled` always: a single extra unit is absorbed by the truncation and the
+        // pool rounds in its own favour. It takes a materially larger over-schedule to
+        // breach the budget, which is exactly what the caller's require! catches.
+        let one_over = new_reward_rate(scheduled_total(0, penalty + 1), 0, 0, 0);
+        assert!(
+            one_over * (REWARDS_DURATION_SECS as u128) <= budget,
+            "truncation must absorb a one-unit overage rather than over-promise"
+        );
+        let way_over = new_reward_rate(scheduled_total(0, penalty * 2), 0, 0, 0);
+        assert!(
+            way_over * (REWARDS_DURATION_SECS as u128) > budget,
+            "a genuine over-schedule must exceed the fundable budget and be refused"
+        );
+    }
+
+    #[test]
+    fn scheduling_never_conjures_tokens_the_vault_does_not_hold() {
+        // `from_budget` may only point at what is physically present. The caller's
+        // ceiling is what enforces that; this pins the arithmetic it relies on.
+        let vault = 10_000u64;
+        let budget = fundable(vault, 3_000, 1_000); // 2,000 owed -> 8,000 fundable
+        assert_eq!(budget, 8_000);
+        let honest = new_reward_rate(scheduled_total(0, 8_000), 0, 0, 0);
+        assert!(honest * (REWARDS_DURATION_SECS as u128) <= budget);
+        // saturating, so a hostile pair cannot wrap to a small number
+        assert_eq!(scheduled_total(u64::MAX, u64::MAX), u64::MAX);
     }
 
     #[test]

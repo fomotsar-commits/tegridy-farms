@@ -53,4 +53,6 @@ pub enum LadderError {
     WeightInvariant,
     #[msg("Nothing to sweep")]
     NothingToSweep,
+    #[msg("Reward amount is too small to express as a per-second rate over the window — it would emit nothing")]
+    RewardRateTooSmall,
 }

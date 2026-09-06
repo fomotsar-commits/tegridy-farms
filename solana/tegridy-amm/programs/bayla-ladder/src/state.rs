@@ -63,9 +63,18 @@ pub struct Pool {
     pub rewards_emitted: u128,
     pub rewards_paid: u128,
 
-    /// Invariant I-4's right-hand side. `reward_funded_cumulative` counts only tokens
-    /// moved by `notify_reward` — a stranger's direct transfer into the vault is
-    /// usable budget but is NOT counted here, so the bound stays honest.
+    /// TELEMETRY, not an enforced bound (audit L-3 — both are write-only on-chain,
+    /// and the docstrings that claimed otherwise were wrong). The enforced solvency
+    /// check is in `notify_reward`: outstanding liability must be physically present
+    /// in the reward vault.
+    ///
+    /// `reward_funded_cumulative` counts only tokens moved IN by `notify_reward`, so
+    /// a stranger's direct transfer is usable budget but is not counted here.
+    /// `penalty_collected_cumulative` counts retained early-exit penalties and swept
+    /// emergency-hatch penalties. Since H-1, both categories are genuinely
+    /// schedulable via `notify_reward`'s `from_budget`, so the split between them is
+    /// now meaningful rather than decorative: it is how an operator answers "how much
+    /// of what this pool paid came from leavers rather than from me".
     pub reward_funded_cumulative: u128,
     pub penalty_collected_cumulative: u128,
 
@@ -170,7 +179,11 @@ pub struct RewardPaid {
 #[event]
 pub struct RewardAdded {
     pub pool: Pubkey,
+    /// Fresh tokens transferred in by this call.
     pub amount: u64,
+    /// Tokens already in the vault that this call scheduled (AUDIT H-1). An indexer
+    /// must add the two to get what the window will actually pay.
+    pub from_budget: u64,
     pub reward_rate: u128,
     pub period_finish: i64,
 }
