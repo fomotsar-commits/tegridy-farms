@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, m } from 'framer-motion';
 import { useTheme } from '../../contexts/ThemeContext';
 import { NAV_SECTIONS, DASHBOARD_NAV } from '../../lib/navConfig';
-import type { NavItem, NavSection } from '../../lib/navConfig';
+import type { NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
@@ -28,24 +28,11 @@ function sectionIsActive(section: NavSection, pathname: string): boolean {
   return section.items.some((i) => pathname === i.to || pathname.startsWith(`${i.to}/`));
 }
 
-/** The amber SOON / green LIVE pills, identical in the dropdown and the drawer. */
-function NavPills({ item }: { item: NavItem }) {
-  return (
-    <>
-      {item.soon && (
-        <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-          Soon
-        </span>
-      )}
-      {item.live && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] font-semibold leading-none px-1.5 py-0.5 uppercase tracking-wide">
-          <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-          Live
-        </span>
-      )}
-    </>
-  );
-}
+/* NavPills (the amber SOON / green LIVE badges) was deleted 2026-09-05 with the
+   drawer's expanded item list, its only caller. The pills are not lost: they
+   belong to ITEMS, and items are now rendered by each host's RouteTabs, which
+   draws the same two badges from the same NavItem. Both navs show one row per
+   section, so neither has an item to pin a pill to. */
 
 export const TopNav = React.memo(function TopNav() {
   const [open, setOpen] = useState(false);
@@ -551,21 +538,27 @@ export const TopNav = React.memo(function TopNav() {
                 </button>
               </div>
               <nav className="relative z-10 flex-1 px-3 overflow-y-auto pb-6">
-                {/* THE DRAWER IS THE WHOLE NAV BELOW 800px, and after
-                    2026-09-05 it shows every destination EXPANDED rather than
-                    one row per section.
+                {/* THE DRAWER IS THE WHOLE NAV BELOW 800px, and it shows ONE
+                    ROW PER SECTION — the section's own page, not its tabs.
 
-                    On desktop a section is one word because its page carries a
-                    tab strip that reveals the rest. The drawer has no such
-                    strip — it is a list — so a collapsed row here meant "tap,
-                    wait for a page to load, then read the tabs". There is
-                    vertical room in an off-canvas panel and no hover to lean
-                    on, so the items are simply shown, with the section heading
-                    above them and their SOON/LIVE pills intact.
+                    Reverted 2026-09-05 on owner report: expanded, six sections
+                    became roughly thirty rows and the drawer outgrew the screen
+                    on both phone and iPad, which is the complaint that started
+                    the whole condensation. The earlier rationale — that a
+                    collapsed row means "tap, wait for a page to load, then read
+                    the tabs" — is true and is the price; a menu you have to
+                    scroll to the end of to find anything costs more.
+
+                    NOTHING IS UNREACHABLE. Every section has a `hub`, every hub
+                    routes to a tabbed host (TradeHostPage, PoolsHostPage,
+                    IslandPage, LaunchHubPage, EarnPage, TrustPage), and each host
+                    renders that same section's items as its tab strip — so the
+                    row opens the page whose tabs are the rows this no longer
+                    prints. That is checked by TopNav.drawerCollapse.test.tsx,
+                    not assumed.
 
                     Still one source of truth: NAV_SECTIONS, the same array the
-                    desktop row and every SectionHost read. A destination cannot
-                    be lost from here without vanishing from its host's tabs. */}
+                    desktop row and every SectionHost read. */}
                 {NAV_SECTIONS.map((section) => (
                   <div key={section.heading} className="mb-3">
                     <NavLink
@@ -575,15 +568,6 @@ export const TopNav = React.memo(function TopNav() {
                     >
                       {section.heading}
                     </NavLink>
-                    <div className="space-y-0.5">
-                      {section.items.map((n) => (
-                        <NavLink key={n.to} to={n.to} onClick={() => setOpen(false)}
-                          className={({ isActive }) => `nav-link flex items-center justify-between gap-2 px-2 py-2 rounded-md ${isActive ? 'active' : ''}`}>
-                          <span>{n.label}</span>
-                          <NavPills item={n} />
-                        </NavLink>
-                      ))}
-                    </div>
                   </div>
                 ))}
                 {/* Dashboard, last and only once connected — the same rule the
