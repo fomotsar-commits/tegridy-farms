@@ -28,11 +28,22 @@ const PRIOR_AS_OF = AS_OF - 3 * 86_400;
 const DEGREES = 1785.14;
 const PRIOR_DEGREES = 1782.84;
 
-const h = vi.hoisted(() => ({ address: undefined as string | undefined, fetchHeat: vi.fn() }));
+const h = vi.hoisted(() => ({
+  address: undefined as string | undefined,
+  fetchHeat: vi.fn(),
+  fetchFlames: vi.fn(),
+}));
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: h.address }),
 }));
+
+// Only the network call is stubbed; insertionRank is pure and stays real, so the
+// rank the card paints is the one the shipped arithmetic produces.
+vi.mock('../lib/heat/flamesClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/heat/flamesClient')>();
+  return { ...actual, fetchFlames: (...args: unknown[]) => h.fetchFlames(...args) };
+});
 
 vi.mock('framer-motion', () => {
   const passthrough = new Proxy(
@@ -88,7 +99,26 @@ beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(NOW * 1000);
   h.address = undefined;
   h.fetchHeat.mockResolvedValue(wireReading());
+  // Default: the island's board is off, so the rank line is absent unless a test
+  // deliberately turns the board on.
+  h.fetchFlames.mockResolvedValue(null);
 });
+
+/** A board of five flames, four of them ahead of `degrees`. */
+function boardAhead(degrees: number) {
+  return {
+    flames: [4, 3, 2, 1].map((n) => ({
+      xHandle: `holder${n}`,
+      degrees: degrees + n,
+      tier: 'Elder',
+      heldSinceUnix: HELD_SINCE,
+      tokenCount: 3,
+    })).concat([
+      { xHandle: 'behind', degrees: degrees - 1, tier: 'Builder', heldSinceUnix: HELD_SINCE, tokenCount: 1 },
+    ]),
+    asOfUnix: AS_OF,
+  };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -259,5 +289,63 @@ describe('the name, or the door', () => {
     const { container } = mount();
     await screen.findByText(/Cold\. Nothing measured here yet\./);
     expect(container.textContent).not.toContain('No name on this flame yet');
+  });
+});
+
+describe('where this number would sit', () => {
+  it('places an unnamed flame against the whole board', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ x_handle: null }));
+    h.fetchFlames.mockResolvedValue(boardAhead(DEGREES));
+    mount();
+    // Four flames beat it, so it inserts at #5, and the board grows to 6 with it in.
+    expect(
+      await screen.findByText(/would\s+sit at #5 of 6\./),
+    ).toBeTruthy();
+  });
+
+  it('reads the WHOLE board, not just the named part', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ x_handle: null }));
+    h.fetchFlames.mockResolvedValue(boardAhead(DEGREES));
+    mount();
+    await screen.findByText(/would\s+sit at #5 of 6\./);
+    // claimed is NOT set: a rank against named flames only would flatter the number.
+    expect(h.fetchFlames).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 500 }),
+    );
+    expect(h.fetchFlames.mock.calls[0][0]).not.toHaveProperty('claimed', true);
+  });
+
+  it('says nothing for a NAMED flame — the island states their real position', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ x_handle: '@_seacasa' }));
+    h.fetchFlames.mockResolvedValue(boardAhead(DEGREES));
+    const { container } = mount();
+    await screen.findByRole('link', { name: '@_seacasa' });
+    expect(container.textContent).not.toContain('would sit at');
+    expect(h.fetchFlames).not.toHaveBeenCalled();
+  });
+
+  it('is absent when the island’s board is off', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ x_handle: null }));
+    h.fetchFlames.mockResolvedValue(null);
+    const { container } = mount();
+    await screen.findByText(/No name on this flame yet\./);
+    expect(container.textContent).not.toContain('would sit at');
+  });
+
+  it('is absent when the board is unreachable, never a guessed position', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ x_handle: null }));
+    h.fetchFlames.mockRejectedValue(new Error('unreachable'));
+    const { container } = mount();
+    await screen.findByText(/No name on this flame yet\./);
+    expect(container.textContent).not.toContain('would sit at');
+  });
+
+  it('never asks the board about a cold wallet', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ degrees: 0, tier: 'Drifter', is_cold: true, held_since_unix: null, as_of_unix: null, token_count: 0, x_handle: null }),
+    );
+    mount();
+    await screen.findByText(/Cold\. Nothing measured here yet\./);
+    expect(h.fetchFlames).not.toHaveBeenCalled();
   });
 });

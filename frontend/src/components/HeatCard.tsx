@@ -26,6 +26,7 @@ import {
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
+import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
 
@@ -352,6 +353,37 @@ function Reading({
     rememberRead(reading.address, { degrees: reading.degrees, asOf: reading.asOfUnix });
   }, [reading.address, reading.degrees, reading.asOfUnix, reading.isCold]);
 
+  // WHERE THIS NUMBER WOULD SIT. Only for an UNNAMED flame, because a named one is
+  // already on the board and its real position is the island's to state, not ours to
+  // simulate. This is the line that turns a private number into a public place, and
+  // the place is claimed at the island's door.
+  //
+  // The result is tagged with the address it was computed for, so a rank can never be
+  // painted beside a different wallet's reading while the next board read is in
+  // flight, and nothing has to be synchronously cleared on the way through.
+  const [rank, setRank] = useState<{ forAddress: string; rank: number; of: number } | null>(null);
+  useEffect(() => {
+    if (reading.isCold || reading.xHandle) return;
+    const ac = new AbortController();
+    let live = true;
+    // limit=500 and NOT claimed: the rank is against the whole board, named or not.
+    // flamesClient caches for five minutes, so a page carrying both the card and the
+    // board costs one read between them.
+    fetchFlames({ limit: 500, signal: ac.signal })
+      .then((board) => {
+        if (!live || !board) return; // board off: the line is simply absent
+        const r = insertionRank(reading.degrees, board.flames);
+        setRank({ forAddress: reading.address, ...r });
+      })
+      .catch(() => {
+        /* unreachable: absent, never a fabricated position */
+      });
+    return () => {
+      live = false;
+      ac.abort();
+    };
+  }, [reading.address, reading.degrees, reading.isCold, reading.xHandle]);
+
   const rows = useMemo(
     () => [...reading.breakdown].sort((a, b) => b.degrees - a.degrees),
     [reading.breakdown],
@@ -487,18 +519,30 @@ function Reading({
               </span>
             </>
           ) : (
-            <span className="text-white/55">
-              No name on this flame yet.{' '}
-              <a
-                href="https://memetics.wtf/register"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline underline-offset-4"
-                style={{ color: 'var(--color-kyle)' }}
-              >
-                Put yours on it
-              </a>
-            </span>
+            <>
+              <span className="text-white/55">
+                No name on this flame yet.{' '}
+                <a
+                  href="https://memetics.wtf/register"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-4"
+                  style={{ color: 'var(--color-kyle)' }}
+                >
+                  Put yours on it
+                </a>
+              </span>
+
+              {/* Arithmetic on served numbers, and said so. Absent entirely when the
+                  board is off or unreadable: a position we could not compute is never
+                  guessed at. */}
+              {rank && rank.forAddress === reading.address && (
+                <div className="text-white/45 mt-1">
+                  Against the island&apos;s board right now, this wallet&apos;s number would
+                  sit at #{rank.rank} of {rank.of}.
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
