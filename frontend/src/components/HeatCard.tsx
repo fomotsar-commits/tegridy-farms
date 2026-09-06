@@ -12,6 +12,7 @@
 //     with different copy. An outage must never render as a zero score.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/heat/heatClient';
@@ -48,11 +49,81 @@ function agoLabel(unix: number, now: number): string {
   return mo < 24 ? `${mo}mo ago` : `${Math.floor(d / 365)}y ago`;
 }
 
-function heldForLabel(unix: number, now: number): string {
-  const d = Math.max(0, Math.floor((now - unix) / DAY));
-  if (d < 60) return `${d} days`;
-  const mo = Math.floor(d / 30);
-  return mo < 24 ? `${mo} months` : `${(d / 365).toFixed(1)} years`;
+/**
+ * The days the ISLAND has measured: held_since_unix to as_of_unix.
+ *
+ * NOT to our clock. The span between the island's last reckoning and this moment is
+ * time the island has not counted yet, and quietly adding it would make the venue
+ * state a number the oracle never served — the one thing §5 forbids. It also keeps
+ * the figure stable: two people reading the same wallet an hour apart see the same
+ * day count, because both are reading the same reckoning.
+ *
+ * Days are the unit a stranger can compare without being taught anything; degrees are
+ * the island's grammar. Both render, and this is the one that leads.
+ */
+function daysHeld(heldSinceUnix: number | null, asOfUnix: number | null): number | null {
+  if (heldSinceUnix === null || asOfUnix === null) return null;
+  return Math.max(0, Math.floor((asOfUnix - heldSinceUnix) / DAY));
+}
+
+/** "on the island since <month year>". UTC so the month cannot shift by viewer. */
+function sinceLabel(unix: number): string {
+  return new Date(unix * 1000).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** The short date the delta is measured from. UTC, same reason. */
+function deltaDateLabel(unix: number): string {
+  return new Date(unix * 1000).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+// ── The delta ───────────────────────────────────────────────────────────────
+// "+2.3° since Sep 3" is ARITHMETIC ON TWO SERVED NUMBERS, and nothing more. It is
+// not a projection, not a rate, and not a trend: it is this reckoning's degrees minus
+// the last reckoning's degrees, labelled with the date it is measured from. Cleared
+// storage prints nothing, because with no prior read there is nothing true to say.
+const DELTA_STORE_KEY = 'tf_heat_last_read';
+const DELTA_STORE_CAP = 24;
+
+interface LastRead {
+  degrees: number;
+  asOf: number | null;
+}
+
+function readDeltaStore(): Record<string, LastRead> {
+  try {
+    const raw = localStorage.getItem(DELTA_STORE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, LastRead>) : {};
+  } catch {
+    // Private mode, disabled storage, or a corrupt blob. No prior read is a valid
+    // state that renders nothing — never an error the visitor has to read.
+    return {};
+  }
+}
+
+function rememberRead(address: string, entry: LastRead): void {
+  try {
+    const store = readDeltaStore();
+    store[address.toLowerCase()] = entry;
+    // Bounded: an instrument anyone can point at any wallet would otherwise grow this
+    // blob without limit. Oldest keys drop first; losing one only costs a delta line.
+    const keys = Object.keys(store);
+    if (keys.length > DELTA_STORE_CAP) {
+      for (const k of keys.slice(0, keys.length - DELTA_STORE_CAP)) delete store[k];
+    }
+    localStorage.setItem(DELTA_STORE_KEY, JSON.stringify(store));
+  } catch {
+    /* storage unavailable — the delta is a nicety, never a blocker */
+  }
 }
 
 type State =
@@ -256,6 +327,30 @@ function Reading({
   const stale = isStale(reading, now);
   const next = nextTier(reading.degrees);
   const color = TIER_COLOR[reading.tier];
+  const days = daysHeld(reading.heldSinceUnix, reading.asOfUnix);
+
+  // The delta is DERIVED from the reading, not a second fact about it, so it is
+  // computed during render rather than pushed into state by an effect. This also
+  // fixes the ordering for free: the memo reads the PREVIOUS entry while rendering,
+  // and the effect below writes THIS one afterwards — so the first read of an address
+  // prints nothing and the second prints the change. A cold read never compares:
+  // there is no number to have moved.
+  const delta = useMemo(() => {
+    if (reading.isCold) return null;
+    const prior = readDeltaStore()[reading.address.toLowerCase()];
+    if (!prior || typeof prior.degrees !== 'number' || typeof prior.asOf !== 'number') return null;
+    const diff = reading.degrees - prior.degrees;
+    const from = deltaDateLabel(prior.asOf);
+    return Math.abs(diff) < 0.05
+      ? { text: `unchanged since ${from}`, rose: false }
+      : { text: `${diff > 0 ? '+' : '-'}${Math.abs(diff).toFixed(1)}° since ${from}`, rose: diff > 0 };
+  }, [reading.address, reading.degrees, reading.isCold]);
+
+  // Remember this reading, after the delta above has read the previous one.
+  useEffect(() => {
+    if (reading.isCold) return;
+    rememberRead(reading.address, { degrees: reading.degrees, asOf: reading.asOfUnix });
+  }, [reading.address, reading.degrees, reading.asOfUnix, reading.isCold]);
 
   const rows = useMemo(
     () => [...reading.breakdown].sort((a, b) => b.degrees - a.degrees),
@@ -270,28 +365,58 @@ function Reading({
 
   return (
     <div>
-      <div className="flex flex-wrap items-end gap-x-5 gap-y-2 mb-4">
-        <div>
-          <div className="flex items-baseline gap-2">
-            <span className="stat-value text-[40px] leading-none" style={{ color }}>
-              {reading.degrees.toFixed(2)}
-            </span>
-            <span className="text-[20px]" style={{ color }}>°</span>
-          </div>
-          <div className="text-[11px] uppercase tracking-[0.16em] mt-1" style={{ color }}>
-            {reading.tier}
-          </div>
+      {/* THE ISLAND'S ORDER, and it is the design rather than a layout preference:
+          tier, then days, then degrees, then since, then tokens.
+
+          The TIER leads because it is a word a stranger already understands. The DAYS
+          lead the numbers because days are the unit the whole world can compare
+          without being taught anything — degrees are the island's grammar, and they
+          come second so nobody has to learn a new unit to feel the number. Both
+          render; neither is dropped. */}
+      <div className="mb-4">
+        <div
+          className="text-[22px] leading-none tracking-[0.10em] uppercase font-semibold"
+          style={{ color }}
+        >
+          {reading.tier}
         </div>
 
-        <div className="text-[12px] text-white/55 leading-relaxed">
-          <div className="font-mono text-white/70">{shortenAddress(reading.address, 6)}</div>
+        {days !== null && (
+          <div className="flex items-baseline gap-2 mt-2">
+            <span className="stat-value text-[40px] leading-none" style={{ color }}>
+              {days.toLocaleString('en-US')}
+            </span>
+            <span className="text-[15px] text-white/70">days held</span>
+          </div>
+        )}
+
+        <div className="flex items-baseline gap-1 mt-2">
+          <span className="stat-value text-[20px] leading-none" style={{ color }}>
+            {reading.degrees.toFixed(2)}
+          </span>
+          <span className="text-[13px]" style={{ color }}>°</span>
+        </div>
+
+        <div className="text-[12px] text-white/55 leading-relaxed mt-2">
+          {reading.heldSinceUnix !== null && (
+            <div>on the island since {sinceLabel(reading.heldSinceUnix)}</div>
+          )}
           <div>
             {reading.isCold
               ? 'No measured tokens held'
-              : `${reading.tokenCount} measured token${reading.tokenCount === 1 ? '' : 's'}`}
-            {reading.heldSinceUnix !== null && ` · held ${heldForLabel(reading.heldSinceUnix, now)}`}
+              : `${reading.tokenCount} token${reading.tokenCount === 1 ? '' : 's'} counted`}
           </div>
+          <div className="font-mono text-white/40 mt-1">{shortenAddress(reading.address, 6)}</div>
         </div>
+
+        {/* THE DELTA. Two served numbers subtracted, labelled with the date it is
+            measured from. Never a projection, never a rate, and absent entirely when
+            there is no prior read to compare against. */}
+        {delta && (
+          <div className="text-[12.5px] mt-2" style={{ color: delta.rose ? color : 'rgba(255,255,255,0.55)' }}>
+            {delta.text}
+          </div>
+        )}
       </div>
 
       {/* THE FRESHNESS LAW, on screen. Surfacing the reckoning date honestly is part
@@ -331,6 +456,53 @@ function Reading({
         </div>
       )}
 
+      {/* THE NAME, OR THE DOOR. A number nobody can see is a private fact; a number
+          with a name on it is a place in public. `xHandle` arrives already stripped and
+          validated (normalizeXHandle), so painting adds the single @ and the href can
+          never be anything but an x.com profile. An unnamed flame gets the door, not an
+          apology. Cold reads get neither: they have no flame yet. */}
+      {!reading.isCold && (
+        <div className="text-[12.5px] leading-relaxed mb-4">
+          {reading.xHandle ? (
+            <>
+              <a
+                href={`https://x.com/${reading.xHandle}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4 font-medium"
+                style={{ color }}
+              >
+                @{reading.xHandle}
+              </a>
+              <span className="text-white/55">
+                {' · '}
+                <a
+                  href="https://memetics.wtf/flames"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-4"
+                >
+                  On the board.
+                </a>
+              </span>
+            </>
+          ) : (
+            <span className="text-white/55">
+              No name on this flame yet.{' '}
+              <a
+                href="https://memetics.wtf/register"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4"
+                style={{ color: 'var(--color-kyle)' }}
+              >
+                Put yours on it
+              </a>
+            </span>
+          )}
+        </div>
+      )}
+
       {rows.length > 0 && (
         <>
           <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-2">
@@ -367,12 +539,25 @@ function Reading({
         </>
       )}
 
+      {/* THE COLD READ is the most important copy on the site. A stranger who reads 0°
+          must not be shamed and must not be left standing there: the sentence says
+          where their clock STARTS, and the only thing under it is the door that starts
+          it. No ladder (suppressed above), no delta, no share. Nothing to feel behind
+          on, and exactly one thing to do. */}
       {reading.isCold && (
-        <p className="text-white/55 text-[12.5px] leading-relaxed mb-4">
-          This wallet holds none of the tokens the island measures, so it has no warmth yet.
-          That is a cold reading, not an error — and it is not a judgement about the wallet.
-          Heat only starts accruing once a measured token is held, and it accrues with time, not with size.
-        </p>
+        <div className="mb-4">
+          <p className="text-white/70 text-[13px] leading-relaxed">
+            Cold. Nothing measured here yet. Your clock starts at your first buy of an
+            island token and never stops while you hold.
+          </p>
+          <Link
+            to="/#hall"
+            className="inline-block mt-2 text-[13px] underline underline-offset-4"
+            style={{ color: 'var(--color-kyle)' }}
+          >
+            Pick a bungalow
+          </Link>
+        </div>
       )}
 
       <button

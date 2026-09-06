@@ -216,7 +216,12 @@ export function VenueDoors() {
   const openCount = BUNGALOWS.filter((b) => doorState(b) === 'open').length;
   return (
     <m.section
-      className="pb-16"
+      // The hall's anchor. Every "pick a bungalow" door in the wave points at
+      // /#hall — the cold read, the three paths, and the hall's own header link —
+      // so this id is a load-bearing target, not decoration. scroll-mt clears the
+      // sticky top bar so the heading is not hidden under it on arrival.
+      id="hall"
+      className="pb-16 scroll-mt-24"
       initial={{ opacity: 0, y: 15 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true }}
