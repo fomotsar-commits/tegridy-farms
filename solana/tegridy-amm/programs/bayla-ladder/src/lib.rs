@@ -9,9 +9,15 @@
 //!
 //! [`math`] (the ladder, the accumulator, the penalty, the funding bound, and every
 //! rounding and saturation decision) is dependency-free and **proven on the host**:
-//! `rustc --edition 2021 --test src/math.rs`. Everything else in this file is
-//! **CI-compiled only** — SBF builds cannot run on the Windows dev box (Application
-//! Control blocks `anchor` and `cargo build-sbf`; see tegridy-launch's header).
+//! `rustc --edition 2021 --test src/math.rs`.
+//!
+//! CORRECTED 2026-09-06: this header used to say everything else was "CI-compiled
+//! only". That is wrong and it cost real coverage. **`cargo test -p bayla-ladder
+//! --lib` builds and runs on the dev box**, in both feature configs — only
+//! `cargo build-sbf` and the `anchor` CLI are blocked by Application Control. So the
+//! `layout_tests` pins, and any host-testable logic in this file, ARE locally
+//! verifiable and locally mutation-checkable. Use it. What still cannot run locally
+//! is the SBF artifact and anything needing a validator.
 //! Treat the Anchor layer as unreviewed until CI is green AND a human has read it,
 //! AND an external audit has been pointed at the failure mode below and told to
 //! break the four properties that make it unreachable.
@@ -128,10 +134,27 @@ declare_id!("GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4");
 ///
 /// `pubkey!`, NOT `declare_id!` — a second `declare_id!` in the crate makes the
 /// program's own address ambiguous to the IDL generator. See tegridy-launch.
+///
+/// ⚠️ THE DEVNET VALUE MUST NEVER EQUAL `declare_id!`. Audit finding L-5
+/// (2026-09-06): it did. Both constants held
+/// `GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4`, so the gate demanded a
+/// signature from the PROGRAM'S OWN ADDRESS — a loader-owned account that is
+/// demoted to read-only at message level and can never sign. `initialize_pool`
+/// was uncallable in BOTH feature configurations, so no Pool could exist and
+/// no instruction downstream of it was reachable. Not a security hole (mainnet
+/// is correctly fail-closed) — the program was simply dead on arrival, and
+/// nothing could have been tested until it was found.
+///
+/// `the_deployer_gate_is_not_the_program_itself` in `layout_tests` now pins it.
+/// The value below is a PLACEHOLDER for local devnet work; the keypair lives
+/// outside the repo. When this program gains a validator-test job, that job
+/// should patch this constant from a freshly generated CI wallet exactly as
+/// `launch-constraints` does for tegridy-launch (solana-ci.yml, "Pin the
+/// program id and the devnet deployer") rather than trusting the committed one.
 pub mod deployer {
     use super::{pubkey, Pubkey};
     #[cfg(feature = "devnet")]
-    pub const ID: Pubkey = pubkey!("GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4");
+    pub const ID: Pubkey = pubkey!("ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP");
     #[cfg(not(feature = "devnet"))]
     pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
 }
@@ -1015,6 +1038,29 @@ mod layout_tests {
         assert_eq!(LadderError::UseWithdrawMatured as u32 + 6000, 6008);
         assert_eq!(LadderError::PrincipalInvariant as u32 + 6000, 6021);
         assert_eq!(LadderError::NothingToSweep as u32 + 6000, 6023);
+    }
+
+    /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).
+    ///
+    /// A `const _: () = assert!(...)` cannot express this: `PartialEq` for `Pubkey`
+    /// is not a const trait on stable, so the comparison has to happen in a test.
+    /// Both arms are pinned, because each fails a different way — the devnet arm
+    /// makes the program untestable, and a non-sentinel mainnet arm would make an
+    /// unprotected initializer shippable.
+    #[test]
+    fn the_deployer_gate_is_not_the_program_itself() {
+        #[cfg(feature = "devnet")]
+        assert_ne!(
+            deployer::ID,
+            crate::ID,
+            "devnet deployer == the program's own address: initialize_pool would demand a              signature from a loader-owned account and no Pool could ever be created"
+        );
+        #[cfg(not(feature = "devnet"))]
+        assert_eq!(
+            deployer::ID,
+            Pubkey::default(),
+            "a non-devnet build must keep the fail-closed System-program sentinel — a              placeholder that WORKS is how an unprotected initializer ships"
+        );
     }
 
     /// The hatch must never be able to name a reward vault: its Accounts struct has no

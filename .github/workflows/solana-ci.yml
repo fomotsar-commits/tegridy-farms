@@ -540,8 +540,15 @@ jobs:
 
       # The host-side layout and error-code pins need the Anchor dependency graph, so
       # they run here rather than under bare rustc.
-      - name: Layout and error-code pins
+      #
+      # BOTH feature configs, deliberately. `deployer::ID` is cfg-gated, so a single
+      # run only ever exercises one arm — and the arm that shipped broken (audit L-5,
+      # devnet deployer == the program's own address) is precisely the one a default
+      # build never compiles.
+      - name: Layout and error-code pins (default features)
         run: cargo test --lib -- layout_tests
+      - name: Layout and error-code pins (--features devnet)
+        run: cargo test --lib --features devnet -- layout_tests
 
   launch-constraints:
     needs: scope
