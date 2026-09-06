@@ -29,6 +29,197 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-06 (LATE) — POST-SHIP SWEEP: what the ceiling fix did not reach
+
+The ceiling fix is on trunk and the section below this one records it. This is the sweep that came
+after: **four read-only auditors over the shipped diff, the other pools, and the open queue**, with
+every surviving item re-checked at the file and line before it was written here.
+
+Two things it establishes that the fix itself did not:
+
+* **The ceiling is not a BAYLA problem.** Five residents run Solana/Streamflow pools — BAYLA, BOBO,
+  BRAINLET, RIZZ, SOY — and `bungalows.ts:95` states the rule: *"Solana pools are always
+  Streamflow."* PR #445's own `math.rs` reports **5,859 of 13,809 reward entries (42.4%)** past the
+  ceiling program-wide on 2026-09-06. The shipped UI fix reaches all five automatically (one shared
+  component); what has **not** happened for the other four is the incident response.
+* **Three things shipped inert or stale**, below. None is a regression — each is something the fix
+  built and did not connect, or a fact the fix made untrue elsewhere.
+
+IDs continue the `C-0906-n` / `O-0906-n` series (1 and 2 are taken by the section below).
+
+### ✅ Settled by this sweep — recorded so nobody re-audits them
+
+- **The stake amount cap is genuinely ENFORCED, not merely displayed.**
+  `LighthousePoolLive.tsx:260` computes `safeCapRaw = maxSafeStakeAcrossPools(pool, chosenSecs)` —
+  keyed on `chosenSecs`, so it re-derives when the lock picker moves — `:261` sets `overSafeCap`, and
+  **`:740` puts `|| overSafeCap` in the Stake button's `disabled`**. `:762` carries the explanation.
+- **The EVM lighthouses are structurally out of scope.** PEPE/QR/MFER/BNKR/DRB/JBM all carry
+  `poolKind: 'ladder'` (LighthouseLadder / vendored Synthetix). No Streamflow, no u64 reward counter.
+- **The 2026-09-06 section's own claims still hold on trunk** — re-run today, not assumed:
+  ```bash
+  git show origin/mvp-launch:frontend/src/components/bungalow/LighthousePoolLive.tsx \
+    | grep -c 'exceedsVault || ceilingHit'                 # 2, and :918 is the rescue gate
+  git show origin/mvp-launch:frontend/src/lib/bungalowStaking.ts \
+    | grep -c 'ArithmeticError/i.test(msg)'                # 1
+  ```
+
+### 🔴 C-0906-3 — `claimablePoolsBefore` shipped with NO CALLER, and it arms itself later
+
+The most consequential item here, because it is **latent**: it does nothing today and becomes a
+silent, uncompensated loss the day the dynamic reward pool is attached — which is the stated plan.
+
+`unstakeAndCloseForfeitingRewards` **closes every reward entry, not just the broken one**. Its own
+docblock says so (`bungalowStaking.ts:1070-1082`):
+
+> *"the moment a second reward pool is attached this stops being 'forfeit the stranded classic
+> rewards' and becomes 'forfeit the WORKING dynamic rewards too' … `claimablePoolsBefore` below is
+> the fix: it names the pools this rescue can still be paid out of, so the caller claims those FIRST
+> and only then closes."*
+
+**There is no such caller.** The helper is defined at `:217`, described at `:1080`, and referenced
+nowhere else in the app:
+
+```bash
+git grep -n claimablePoolsBefore origin/mvp-launch -- frontend/src
+# bungalowStaking.ts:217 (definition), :1080 (its own docblock),
+# bungalowStakingCeiling.test.ts (tests only) — no component, no call site
+```
+
+Either wire it into the rescue path in `LighthousePoolLive.tsx` (claim the still-live pools, then
+close), or stop calling it "the fix" in that docblock. Do it **before** a second reward pool goes
+live, not after — after is when it costs someone their working rewards.
+
+### 🔴 C-0906-4 — BOTH headline "accrued" totals still count rewards that can never be claimed
+
+The ceiling guard never reached the second live-numbers surface. `BungalowDashboardPanel.tsx` calls
+the same `readEntries`, sums `Object.values(e.pendingRaw)` across open entries (`:162-168`), and
+renders **"Accrued rewards — N SYMBOL"** (`:302-303`). Its only caveat is an empty vault (`:316`).
+
+```bash
+git show origin/mvp-launch:frontend/src/components/bungalow/BungalowDashboardPanel.tsx \
+  | grep -c 'ceiling\|ceilingHit\|accountedRaw'          # 0
+```
+
+**The pool page has the same defect in its header.** `LighthousePoolLive.tsx:325-331` is a
+byte-for-byte twin of that reduce, rendered at `:795` as `{fmt(pendingTotal, decimals)} accrued` —
+`pendingTotal` appears in exactly those two places, so nothing qualifies it. It is merely *less*
+visible there, because the per-entry "Rewards closed on this position" button sits a few hundred
+pixels below it. Fix both, or the dashboard fix leaves a smaller version of the same lie on the page
+it links to.
+
+So a holder whose position is dead is told they have rewards accruing. That is this repo's
+most-repeated bug class — *a dead or unreadable thing must not render as fine*. Both surfaces already
+get the **unreadable** half right (`:165` / `:329` collapse to `null` when any pool is unreadable);
+it is only the **dead** half that is missing. `anyClaimCeilingReached` is exported and `accountedRaw`
+already rides on the entries both read, so no new RPC is needed.
+
+**Do not try to fix it by subtracting ceilinged pending from the total.** `bungalowStaking.ts`
+nulls `pendingRaw` and `accountedRaw` in the SAME catch, so wherever pending is unreadable the
+ceiling verdict is unreadable too — and `claimCeilingReached` deliberately returns `false` there,
+because an unknown must never render as a verdict. Subtract only entries with a POSITIVE ceiling
+verdict, and caveat the rest; treating "unknown" as "fine" is how this bug class starts.
+
+### 🔴 C-0906-5 — the card still advertises 5.00× at 365 days, which the venue no longer sells
+
+`OFFERED_LOCK_CEILING_DAYS = 90` clamps the ladder the UI offers, but the headline numbers beside it
+were not clamped with it:
+
+```
+LighthousePoolLive.tsx:286   rateAtMax = configuredAnnualRate(pool, primaryRp, pool.maxDurationSecs)
+LighthousePoolLive.tsx:287   maxBoost  = stakeWeight(pool, pool.maxDurationSecs)
+```
+
+Both read `pool.maxDurationSecs` (365 days, 5.00×), and they render at `:426`, `:437` and `:454` as
+the advertised range and *"up to 5.00×"*. **No one can select that rung** — `offeredMaxLockDays`
+stops at 90 days, where the weight is 1.978×. The venue is quoting a boost and a rate it will not
+sell, which is the same failure the ceiling work exists to prevent, pointed the other way. Feed both
+through `offeredMaxLockDays(pool) * 86_400` instead.
+
+**Same root cause, one line over:** the vault-dry copy at `:602-603` says *"all six of them pay 0"*.
+With the clamp the ladder renders **four** — `lockPresets` filters its candidates to `days <= maxDays`,
+so 1 / 7 / 30 / 90 survive and 180 / 365 do not. Count the presets rather than hardcoding a number.
+
+### ⬜ C-0906-6 — two ceiling strings hardcode "BAYLA" in code four other residents render
+
+```
+bungalowStaking.ts:902        "Your staked BAYLA is safe and still returns in full when the lock ends…"
+LighthousePoolLive.tsx:853    "…Your staked BAYLA is unaffected and returns in full when the lock ends."
+```
+
+Both sit in the **shared** Solana staking path, which BOBO/BRAINLET/RIZZ/SOY mount through the same
+lazily-loaded `LighthousePoolLive`. A SOY staker who hits the ceiling is told their BAYLA is safe.
+`bungalow.symbol` is already in scope at the component site; `writeFailure` needs the symbol threaded
+in, or the sentence made ticker-neutral ("your staked tokens").
+
+### ⬜ O-0906-3 — read the other four Solana pools for entries already past the ceiling
+
+The fix stops new bad positions and explains dead ones. It cannot tell you **who is already
+affected** — that needs a chain read, and it was never done for anything but BAYLA:
+
+```
+BOBO      PkwDYVNxyesAukE9STqRQL9H1pBpXbt1tVbiYVMX96w    (bungalows.ts:344)
+SOY       5hgUVCWW4fwM7oq3SQyaj5ucVQFa2dQ4YqQc4JqrGXHj    (:346)
+BRAINLET  2qSZBzjpxKzhJWmyaoN5kP3XQxUikH3SQR5suXuQjkZR    (:347)
+RIZZ      BZ1rGCD8G5kXyKkXxmNh2Xf92QLz4PUZitzauMEdxd5c    (:354)
+```
+
+All four are recorded `"status": "live"` in `frontend/scripts/addresses.json` as pools created
+2026-08-30, on the same 1–365d / 1.00×→5.00× ladder BAYLA ran. For each: decode the reward entries,
+compare `accountedAmount` against `CLASSIC_ACCOUNTED_CEILING`, and count how many are past it. At
+42.4% program-wide, expect some. Then decide what the holders are told — that decision is yours, not
+a code change.
+
+### ⬜ O-0906-4 — THIS document still prints a paste-ready command for the withdrawn 365-day rung
+
+`docs/TODO_OPERATOR.md:554` gives a copy-paste ceremony invocation ending `--max-days 365`, and
+`:790` describes the ladder ramping to that maximum. The venue stopped offering that rung when
+`OFFERED_LOCK_CEILING_DAYS = 90` shipped — for the reason in its own docblock: at 365 days and 5.00×
+the ceiling caps a position at ~16,712 BAYLA, so the best-paid rung is the one that breaks soonest.
+
+A paste-ready command is more dangerous than stale prose: it gets run. Anyone creating a new
+lighthouse pool from this file today builds the exact shape the incident was about. Annotate it with
+the 90-day decision, or change the default — and note that `min_duration` / `max_duration` are
+**create-only and immutable** on the stake program, so a pool created at 365 days keeps that maximum
+for its whole life even though the UI will not offer it.
+
+### ⬜ O-0906-5 — PR #445 (`feat/bayla-ladder`) is the replacement rail, open and green, recorded nowhere
+
+An Anchor program at `solana/tegridy-amm/programs/bayla-ladder/`, **39 checks — 32 pass, 7 skipping,
+zero failures**. It matters here because it is the rail that ends this incident class, and **it was
+written knowing about it.** Its `math.rs` module docs make the lesson a stated invariant:
+
+> *"A cumulative per-position counter that narrows to a fixed width WILL brick positions at scale …
+> Here every cumulative quantity is u128, every operation saturates, and narrowing happens exactly
+> ONCE — in `payable`, at the transfer, bounded by what the vault holds."*
+
+It also uses a Synthetix rewards-per-weight accumulator, which is structurally why the DYNAMIC
+program lacks the failure mode. **Its own verification gap is worth knowing before you merge it:**
+the header records that SBF builds cannot run on this box (Application Control blocks `anchor` and
+`cargo build-sbf`), which is why the money math is a dependency-free host-testable module and the
+Anchor layer is a thin caller. CI compiles it; nothing here executes it on-chain.
+
+### 📌 Recorded, deliberately not acted on
+
+- **`maxSafeStakeAcrossPools` returning `null` means two different things** — *"no cap applies"*
+  (an all-dynamic pool) and *"no cap could be computed"* (every rate unreadable) — and
+  `LighthousePoolLive.tsx:261` treats both permissively. For a dynamic pool that is correct; for an
+  unreadable rate it lets an unbounded stake through. Benign today, because BAYLA's classic rate is
+  readable and the cap is non-null. Worth separating the two if the read path ever gets flakier.
+- **The cap has ZERO margin after maturity, by construction.** `maxSafeStakeRaw` answers "the
+  largest stake that can survive its OWN lock" — so a position opened at exactly the cap reaches the
+  ceiling right about when the lock opens, and a holder who does not claim promptly at maturity can
+  still lose the unclaimed remainder while the entry keeps accruing. The cap is a boundary, not a
+  buffer, and the UI presents it as a maximum. If that turns out to bite, the cheap answer is to
+  quote a fraction of it (say 90%) rather than the exact break point. Not changed today because the
+  exact figure is what the arithmetic supports and inventing a margin would make the number a
+  judgement call rather than a derivation — but the property should be known before someone stakes
+  right at the line.
+- **The 2026-09-06 section's `O-0906-2`** (the untracked orphan test file in the OneDrive checkout)
+  is still open on purpose: that checkout belongs to another live session, and deleting untracked
+  files under a running session is the hazard this repo already has a memory about.
+
+---
+
 ## 🟢 2026-09-06 — SESSION CARRY-OVER: the u64 claim ceiling, and a duplicate built beside it
 
 **The BAYLA claim-ceiling fix is ✅ SHIPPED.** [PR #444](https://github.com/fomotsar-commits/tegridy-farms/pull/444)
