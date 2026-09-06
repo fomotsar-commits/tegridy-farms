@@ -31,8 +31,10 @@ stop and say so — a surprise is information.
 
 ## 🟢 2026-09-06 — SESSION CARRY-OVER: the u64 claim ceiling, and a duplicate built beside it
 
-**The BAYLA claim-ceiling fix is not lost and not missing. It is [PR #444](https://github.com/fomotsar-commits/tegridy-farms/pull/444), open and unmerged** (`fix/bayla-claim-ceiling`, pushed, `959c5c21` at the time of writing — it moved twice while this
-was being written, so re-read the tip before acting). It is
+**The BAYLA claim-ceiling fix is ✅ SHIPPED.** [PR #444](https://github.com/fomotsar-commits/tegridy-farms/pull/444)
+merged into `mvp-launch` on 2026-09-06 as `1c46d1b7`, with [#447](https://github.com/fomotsar-commits/tegridy-farms/pull/447)
+(test hardening) folded in first and [#448](https://github.com/fomotsar-commits/tegridy-farms/pull/448)
+(this section) alongside it. It was never lost — only mis-recorded. It is
 complete: the library guard, the UI wiring, the ceremony script and the offered-lock ceiling.
 
 This session built a **second, independent implementation of the library half** and committed it to
@@ -65,24 +67,28 @@ Item IDs are date-qualified (`C-0906-n` code, `O-0906-n` operator) so they do no
   characters of JSON, which is what a holder saw on their phone. #444's version matches
   `/\b6000\b/ || /ArithmeticError/i`, which is **better** than the duplicate's `/\b6000\b/` alone.
 
-### 🔴 O-0906-1 — land PR #444; it is the whole live-incident fix and it is still open
+### ✅ O-0906-1 — PR #444 is MERGED; the incident is mitigated in the product
 
-Nothing about the incident is mitigated in the product until this merges. On trunk today the claim
-button still offers a guaranteed-reverting claim, and the principal-rescue hatch
-(`LighthousePoolLive.tsx:811`, `{!locked && exceedsVault && (`) does not render for a ceilinged
-position — `exceedsVault` is false whenever the vault is funded, so the one honest exit is
-unreachable. #444 fixes exactly that at its `:918`, `{!locked && (exceedsVault || ceilingHit) && (`.
+Merged 2026-09-06 as `1c46d1b7` on **30 checks — 18 pass, 12 skipping, zero failures** (above the ~27
+real-gate floor). The thing that mattered: the principal-rescue hatch used to be gated
+`{!locked && exceedsVault && (`, and `exceedsVault` is false whenever the vault is funded — so for a
+position killed by the ceiling the one honest exit **never rendered**, while `Unstake & claim` stayed
+enabled and reverted 6000 every time. Trunk now gates it `{!locked && (exceedsVault || ceilingHit) && (`.
 
-Read live 2026-09-06: base `mvp-launch`, `MERGEABLE`, not a draft, and **27 checks — 14 pass, 12
-skipping, 1 pending, zero failures**. That is the real gate set (the ~27 floor), so this is a
-merge decision, not a debugging one.
+Verified on trunk after the merge, not inferred:
 
 ```bash
-gh pr view 444 --json mergeable,baseRefName,state
-gh pr checks 444        # expect ~27 rows; gate on the COUNT, not on the absence of red
+git show origin/mvp-launch:frontend/src/components/bungalow/LighthousePoolLive.tsx \
+  | grep -c 'exceedsVault || ceilingHit'      # 2  — rescue gate + exit gate
+git show origin/mvp-launch:frontend/src/lib/bungalowStaking.ts \
+  | grep -c 'ArithmeticError/i.test(msg)'     # 1  — 6000 no longer prints simulation JSON
 ```
 
-### ✅ C-0906-1 — the three pins and the two throws are now PR #447, into #444
+**What this does NOT do:** it cannot revive an entry already past the ceiling. The counter is
+monotonic and `update_pool` is spent until ~2027-09-01. Those positions still exit only through
+"forfeit rewards & take principal", at maturity — the fix is that the button now exists and says so.
+
+### ✅ C-0906-1 — the three pins and the two throws MERGED as PR #447, and rode in with #444
 
 Raised as a PR **into `fix/bayla-claim-ceiling`** rather than pushed onto it — that branch is checked
 out in another session's worktree and moved twice while this was being written, so it gets a
@@ -136,7 +142,8 @@ rm "frontend/src/lib/bungalowStakingCeiling.test.ts"     # in the OneDrive check
 better (its 6000 matcher catches `ArithmeticError` by name, not just the code).
 
 **Everything worth keeping has already been lifted off it**: the tests and guards into PR #447, this
-section into its own PR. Nothing else on it needs to survive — delete the branch once both land. Its
+section into its own PR. Both landed, so nothing else on it needs to survive — the branch is gone and
+the tags `ceiling-guard-21c5ba1d` / `ceiling-wrapup-fdf2d929` keep every commit reachable. Its
 durable contribution is the independent confirmation of the cap formula, recorded above.
 
 **The process lesson, which is the reusable part:** the session searched for the branch name its
