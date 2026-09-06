@@ -157,22 +157,82 @@ pub fn reward_per_weight(
     total_weighted: u128,
     floor: u128,
 ) -> u128 {
+    reward_per_weight_with_residue(stored, 0, last_update, applicable, rate, total_weighted, floor).0
+}
+
+/// The same accumulator step, CARRYING THE TRUNCATION REMAINDER (audit M-2).
+///
+/// `add = dt x rate x PRECISION / total_weighted` floors on every interval, and
+/// `checkpoint` advances `last_update_time` whether or not `add` came out non-zero.
+/// Checkpoint cadence therefore decides the loss, and cadence is not the operator's to
+/// control — `claim` is a cheap poke and organic traffic drives it as readily as an
+/// attacker. Measured pre-fix at one checkpoint per second: **7.43% of a 100k BAYLA
+/// window destroyed** at full participation, with a *total* silent burn below
+/// `rate < total_weighted / PRECISION`, where a successful `RewardAdded` fires and the
+/// pool emits exactly nothing.
+///
+/// Carrying `num % total_weighted` into the next interval bounds the lifetime loss at
+/// one sub-unit rather than one per interval.
+///
+/// THE RESIDUE IS DROPPED, NOT BANKED, when the interval is burned. I-11 burns the
+/// dust-divisor and empty-pool windows deliberately; banking their remainder would leak
+/// it to whoever staked next, which is the attack I-11 exists to prevent. Hence
+/// `(stored, 0)` on both branches rather than `(stored, residue)`.
+///
+/// Rejected alternative, recorded so it is not re-proposed: do NOT instead skip
+/// advancing `last_update_time` when `add == 0`. From `checkpoint`'s vantage a burned
+/// interval and a truncated-to-zero interval are indistinguishable, so that guard would
+/// bank the burned ones too.
+pub fn reward_per_weight_with_residue(
+    stored: u128,
+    residue: u128,
+    last_update: i64,
+    applicable: i64,
+    rate: u128,
+    total_weighted: u128,
+    floor: u128,
+) -> (u128, u128) {
     if total_weighted == 0 || total_weighted < floor {
-        return stored;
+        return (stored, 0);
     }
     let dt = applicable.saturating_sub(last_update).max(0) as u128;
-    let add = dt.saturating_mul(rate).saturating_mul(PRECISION) / total_weighted;
-    stored.saturating_add(add)
+    let num = residue.saturating_add(dt.saturating_mul(rate).saturating_mul(PRECISION));
+    (stored.saturating_add(num / total_weighted), num % total_weighted)
 }
 
 /// What one checkpoint EMITTED to the whole pool: `(rpw_now - rpw_stored) x
 /// total_weighted / PRECISION`. Banked into `rewards_emitted` BEFORE the checkpoint
 /// moves (AUDIT C2), using the weight in force across the window just closed.
 pub fn emitted_delta(rpw_now: u128, rpw_stored: u128, total_weighted: u128) -> u128 {
-    rpw_now
-        .saturating_sub(rpw_stored)
-        .saturating_mul(total_weighted)
-        / PRECISION
+    emitted_delta_with_residue(rpw_now, rpw_stored, total_weighted, 0).0
+}
+
+/// The same pool-side bank, CARRYING ITS OWN TRUNCATION REMAINDER (audit L-4).
+///
+/// A second, independent floor from [`reward_per_weight_with_residue`]'s: this one
+/// divides by `PRECISION`, and it runs once per CHECKPOINT while a position's
+/// [`earned`] floors once over its WHOLE accrual span. Sum-of-floors <= floor-of-sum,
+/// so `rewards_emitted` under-counts the liability it is supposed to reserve — and
+/// once `rewards_paid` crosses it, `outstanding` saturates to zero and the solvency
+/// guard in `notify_reward` passes vacuously. Bounded at one raw unit per second of
+/// pool life (a same-second second checkpoint has `dt = 0`, so it is not
+/// attacker-amplifiable), which is ~7.78 BAYLA per 90-day window.
+///
+/// Do NOT `div_ceil` this instead: that creates a permanent over-reserve which
+/// `rewards_paid` can never retire, ratcheting `outstanding` upward until the guard
+/// bricks `notify_reward` forever.
+pub fn emitted_delta_with_residue(
+    rpw_now: u128,
+    rpw_stored: u128,
+    total_weighted: u128,
+    residue: u128,
+) -> (u128, u128) {
+    let num = residue.saturating_add(
+        rpw_now
+            .saturating_sub(rpw_stored)
+            .saturating_mul(total_weighted),
+    );
+    (num / PRECISION, num % PRECISION)
 }
 
 /// A position's owed rewards: Synthetix `earned` with boosted weight as the
@@ -456,6 +516,77 @@ mod tests {
         assert_eq!(fundable(10_000, 3_000, 1_000), 8_000);
         // owed exceeds the vault -> nothing is fundable, and it does not go negative
         assert_eq!(fundable(1_000, 3_000, 0), 0);
+    }
+
+    #[test]
+    fn per_second_checkpoints_do_not_shred_the_emission() {
+        // AUDIT M-2. `add = dt*rate*PRECISION / total_weighted` floors EVERY interval,
+        // and `checkpoint` advances `last_update_time` whether or not `add` was zero.
+        // `claim` is a cheap poke, so cadence is not the operator's to control. Pre-fix
+        // this destroyed 7.43% of a 100k BAYLA window at full participation; the
+        // residue carry must bring it to ~0.
+        let tw: u128 = 3_970_000_000_000_000; // full BAYLA supply at 4.00x
+        let budget: u128 = 100_000_000_000; // 100k BAYLA at 6dp
+        let rate = budget / (REWARDS_DURATION_SECS as u128);
+
+        let (mut rpw, mut res) = (0u128, 0u128);
+        for t in 0..20_000i64 {
+            let (r2, e2) = reward_per_weight_with_residue(rpw, res, t, t + 1, rate, tw, 4_000);
+            rpw = r2;
+            res = e2;
+        }
+        let emitted = emitted_delta(rpw, 0, tw);
+        let ideal = rate * 20_000;
+        assert!(
+            emitted * 1000 >= ideal * 999,
+            "per-second checkpointing shredded the emission: {emitted} vs ideal {ideal}"
+        );
+    }
+
+    #[test]
+    fn the_pool_side_bank_does_not_under_count_the_liability() {
+        // AUDIT L-4. `rewards_emitted` is the reserve `notify_reward` subtracts before
+        // it will schedule anything. If it under-counts, the solvency guard eventually
+        // passes vacuously. Pool-side banks once per checkpoint; a position's `earned`
+        // floors once over its whole span — so without a residue the pool under-counts
+        // by up to one unit per checkpoint.
+        // PARAMETERS MATTER HERE, and my first attempt got them wrong: with
+        // `tw = 4e12` both divisions come out exact, the truncation never happens, and
+        // the test passed with the fix REMOVED. Picked deliberately so neither
+        // `rate*PRECISION / tw` nor `dRpw*tw / PRECISION` divides evenly — ~250M tokens
+        // staked at 4.00x on a 6-decimal mint, which is a realistic pool, not a corner.
+        let tw: u128 = 999_999_999_999_983;
+        let rate: u128 = 12_860;
+        let (mut rpw, mut rres) = (0u128, 0u128);
+        let (mut emitted, mut eres) = (0u128, 0u128);
+        for t in 0..5_000i64 {
+            let (r2, rr) = reward_per_weight_with_residue(rpw, rres, t, t + 1, rate, tw, 4_000);
+            let (d, er) = emitted_delta_with_residue(r2, rpw, tw, eres);
+            emitted += d;
+            eres = er;
+            rpw = r2;
+            rres = rr;
+        }
+        // one position holding the entire weight: what it can claim must be covered
+        let owed = earned(tw, rpw, 0, 0);
+        assert!(
+            emitted >= owed,
+            "pool banked {emitted} but a position can claim {owed} — the reserve under-counts"
+        );
+    }
+
+    #[test]
+    fn the_residue_is_dropped_across_a_burned_or_empty_interval() {
+        // The carry must NOT leak a burned interval back in later: I-11 burns the
+        // dust-divisor and empty-pool windows on purpose, and banking their remainder
+        // would pay it to whoever arrives next — the attack I-11 exists to prevent.
+        let (rpw, res) =
+            reward_per_weight_with_residue(100, 12_345, 0, 1_000, 1_000_000, 3_999, 4_000);
+        assert_eq!(rpw, 100, "a burned interval must not move the accumulator");
+        assert_eq!(res, 0, "a burned interval must not bank a residue");
+        let (rpw2, res2) =
+            reward_per_weight_with_residue(100, 12_345, 0, 1_000, 1_000_000, 0, 4_000);
+        assert_eq!((rpw2, res2), (100, 0), "an empty pool must not bank a residue");
     }
 
     #[test]

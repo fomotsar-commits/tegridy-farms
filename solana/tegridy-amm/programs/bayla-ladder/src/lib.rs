@@ -166,19 +166,29 @@ pub mod deployer {
 /// — which is what lets the emergency hatch run it safely (AUDIT C3).
 fn checkpoint(pool: &mut Pool, now: i64) {
     let applicable = last_time_applicable(now, pool.period_finish);
-    let rpw = reward_per_weight(
+    // Both divisions carry their remainder (audit M-2 and L-4). Without the first,
+    // per-second checkpoint cadence destroyed 7.4% of a plausible window — and cadence
+    // is not the operator's to control, because `claim` is a cheap poke. Without the
+    // second, `rewards_emitted` under-counted the liability it exists to reserve, until
+    // `outstanding` saturated to zero and the solvency guard passed vacuously.
+    let (rpw, rpw_residue) = reward_per_weight_with_residue(
         pool.reward_per_weight_stored,
+        pool.rpw_residue,
         pool.last_update_time,
         applicable,
         pool.reward_rate,
         pool.total_weighted,
         min_weight_floor(pool.min_stake),
     );
-    pool.rewards_emitted = pool.rewards_emitted.saturating_add(emitted_delta(
+    let (delta, emitted_residue) = emitted_delta_with_residue(
         rpw,
         pool.reward_per_weight_stored,
         pool.total_weighted,
-    ));
+        pool.emitted_residue,
+    );
+    pool.rewards_emitted = pool.rewards_emitted.saturating_add(delta);
+    pool.rpw_residue = rpw_residue;
+    pool.emitted_residue = emitted_residue;
     pool.reward_per_weight_stored = rpw;
     pool.last_update_time = applicable;
 }
@@ -636,6 +646,16 @@ pub mod bayla_ladder {
         // 7,776,000 WHOLE tokens on a 0-decimal mint, which such a mint may not have.
         // That is the right refusal: a per-second stream is not expressible there.
         require!(rate > 0, LadderError::RewardRateTooSmall);
+        // AUDIT M-2, the total-burn half. Even a non-zero rate emits EXACTLY NOTHING
+        // when `rate * PRECISION < total_weighted`, because the accumulator step floors
+        // to zero every interval. At full participation that is any 90-day budget under
+        // ~30,855 BAYLA — and it failed silently, with a healthy-looking `RewardAdded`
+        // and no error. The residue carry softens it but cannot fix it: a permanent
+        // sub-unit rate never accumulates past the divisor. Refuse the window instead.
+        require!(
+            pool.total_weighted == 0 || rate.saturating_mul(PRECISION) >= pool.total_weighted,
+            LadderError::RewardRateTooSmall
+        );
 
         pool.reward_rate = rate;
         pool.last_update_time = now;
@@ -1064,8 +1084,14 @@ mod layout_tests {
             508,
             "Pool size moved — every decoder moves with it"
         );
-        assert_eq!(8 + Position::INIT_SPACE, 141, "Position size moved");
-        assert_eq!(8 + UserStats::INIT_SPACE, 94, "UserStats size moved");
+        // Pool STAYS 508: the two truncation residues were carved OUT of `_reserved`,
+        // not appended, so no decoder and no rent floor moves for it.
+        //
+        // Position and UserStats grew ONCE, deliberately, to gain the upgrade padding
+        // Pool already had (audit L-8): 141 -> 205 and 94 -> 126. Free now, IMPOSSIBLE
+        // after deploy. Cost is +0.000445 and +0.000223 SOL of rent per account.
+        assert_eq!(8 + Position::INIT_SPACE, 205, "Position size moved");
+        assert_eq!(8 + UserStats::INIT_SPACE, 126, "UserStats size moved");
     }
 
     /// ERROR CODES ARE A CLIENT CONTRACT TOO. New variants go LAST.

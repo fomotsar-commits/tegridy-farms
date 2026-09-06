@@ -90,7 +90,16 @@ pub struct Pool {
     /// wants. Its cost is honest — it stops future penalty inflow.
     pub degraded: bool,
 
-    pub _reserved: [u8; 128],
+    /// Truncation remainders (audit M-2 / L-4). Carved OUT of `_reserved` rather than
+    /// appended, so `8 + Pool::INIT_SPACE` stays at its pinned 508 and no already-
+    /// deployed pool would need migrating. `rpw_residue` carries
+    /// `num % total_weighted` from the accumulator step; `emitted_residue` carries
+    /// `num % PRECISION` from the pool-side bank. Both are dropped, never banked,
+    /// across an I-11-burned or empty-pool interval.
+    pub rpw_residue: u128,
+    pub emitted_residue: u128,
+
+    pub _reserved: [u8; 96],
 }
 
 /// One position. PDA at [`POSITION_SEED`, pool, owner, nonce_le]. Every stake is its
@@ -117,6 +126,16 @@ pub struct Position {
     /// Synthetix `rewards[]` — accrued and not yet paid. Deferred, never forfeited,
     /// when the vault is short (I-2).
     pub rewards_owed: u128,
+
+    /// AUDIT L-8, and it is FREE NOW AND IMPOSSIBLE LATER. `Pool` reserved padding and
+    /// these two did not. An upgrade that grows this struct fails Borsh (3003) on every
+    /// pre-existing account across all four exit paths, and `stake` fails one step
+    /// earlier on `ConstraintSpace` (2019). Recoverable by redeploying the prior
+    /// binary — but only because nothing is live yet.
+    ///
+    /// Padding only helps ADDITIVE growth. Reordering or widening an existing field
+    /// still breaks every account, reserve or no reserve.
+    pub _reserved: [u8; 64],
 }
 
 /// Per-(pool, wallet) bookkeeping. PDA at [`USER_SEED`, pool, owner].
@@ -140,6 +159,9 @@ pub struct UserStats {
     /// `claim_carried` under the same I-2 rule: what the vault holds now, the rest
     /// deferred. Deferred, never forfeited.
     pub rewards_carried: u128,
+
+    /// See `Position::_reserved` — same reasoning, smaller struct (audit L-8).
+    pub _reserved: [u8; 32],
 }
 
 #[event]
