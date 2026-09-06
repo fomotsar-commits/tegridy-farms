@@ -1,8 +1,21 @@
+import { lazy, Suspense, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ISLAND_SECTION } from '../lib/navConfig';
 import { VENUE } from '../lib/arrival';
 import { FlamesBoard } from '../components/FlamesBoard';
+
+/**
+ * The four-piece arrival film, on demand.
+ *
+ * Lazy on purpose: AppLoader and its eight phase modules and three fx modules are
+ * ~93 KB, and PERF-16 went to real trouble to keep them out of the entry chunk.
+ * Importing it eagerly here would put the whole intro into the Island lobby's
+ * chunk instead, which is the same mistake wearing a different hat.
+ */
+const ArrivalFilm = lazy(() =>
+  import('../components/loader/AppLoader').then((m) => ({ default: m.AppLoader })),
+);
 
 /**
  * IslandPage — the lobby behind the "Island" word.
@@ -49,6 +62,10 @@ export default function IslandPage() {
   // "not re-typed here" claim above literally true.
   const doors = ISLAND_SECTION.items.filter((i) => i.to !== ISLAND_SECTION.hub);
 
+  // The arrival film, mounted only when somebody asks for it. It clears itself
+  // through onComplete, which the loader fires on its own exit or on Escape.
+  const [watching, setWatching] = useState(false);
+
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
       <header className="mb-7">
@@ -70,6 +87,39 @@ export default function IslandPage() {
           the island's board is off, so the five door cards below are never left
           hanging under an empty heading. */}
       <FlamesBoard limit={25} />
+
+      {/* WAVE SEVEN, elements G and A: THE FILM'S HOME.
+          The arrival's curtain is one art piece and about two and a half seconds
+          now. The full four-piece film — the void, the gallery, the shatter, the
+          vortex, the wordmark forming and the crack on the way out — is not cut;
+          it lives here, for somebody who came to the island to look at it. That
+          is the whole reason element A was allowed to shorten the arrival: the
+          art is re-homed, never removed.
+
+          Lazy, so the ~93 KB of choreography is fetched only by a visitor who
+          actually asks for it. Nothing on this page pays for it otherwise. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-5 text-[13px]">
+        <Link
+          to="/#hall"
+          className="underline underline-offset-4 text-white/70 hover:text-white transition-colors"
+        >
+          The bungalows
+        </Link>
+        <button
+          type="button"
+          onClick={() => setWatching(true)}
+          className="underline underline-offset-4 transition-colors hover:brightness-125"
+          style={{ color: 'var(--color-kyle)' }}
+        >
+          Watch the arrival
+        </button>
+      </div>
+
+      {watching && (
+        <Suspense fallback={null}>
+          <ArrivalFilm full onComplete={() => setWatching(false)} />
+        </Suspense>
+      )}
 
       {/* NO ArtImg ON THESE CARDS, DELIBERATELY. Every art-backed surface in
           this app is a registered (pageId, idx) in the studio inventory with a

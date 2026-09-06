@@ -84,3 +84,48 @@ export const T_TEXT_END = 14500;
 /* Exit timings */
 export const T_CRACK_DURATION = 500;
 export const T_EXIT_FINALIZE = 2000;
+
+/**
+ * THE TWO ARRIVALS (wave seven, element A).
+ *
+ * The timings above are THE FILM: four pieces, the shatter, the vortex, the hold,
+ * ~14.5 s to the wordmark and a crack on the way out. Nothing about it changes —
+ * it is the best art on the site and it keeps every frame. It simply stops being
+ * the thing standing between a stranger and the venue.
+ *
+ * The CURTAIN is what the arrival plays now: one piece, the name forming, gone in
+ * about two and a half seconds, and pass-through the whole time so the hero
+ * underneath is live from the first paint. It is a curtain over an
+ * already-rendered home rather than a wall in front of one.
+ *
+ * The film keeps its home: "Watch the arrival" in the Island lobby mounts
+ * <AppLoader full /> and plays the whole thing, deliberately, for somebody who
+ * came to see it. That mount is why the curtain is allowed to be short — no art
+ * is removed, it is re-homed.
+ */
+export interface ArrivalTiming {
+  voidEnd: number;
+  artCount: number;
+  artDuration: number;
+}
+
+export const FILM_TIMING: ArrivalTiming = {
+  voidEnd: T_VOID_END,
+  artCount: T_ART_COUNT,
+  artDuration: T_ART_DURATION,
+};
+
+export const CURTAIN_TIMING: ArrivalTiming = {
+  voidEnd: 400,
+  artCount: 1,
+  artDuration: 1200,
+};
+
+/**
+ * What the curtain must not exceed, end to end, with no input at all.
+ *
+ * 400 void + 1200 art + the textForm settle + the 400 ms dissolve. Stated as one
+ * number because it is the element's promise ("the curtain is gone by 3000 ms"),
+ * and a test can hold a promise where four separate constants cannot.
+ */
+export const CURTAIN_BUDGET_MS = 3000;

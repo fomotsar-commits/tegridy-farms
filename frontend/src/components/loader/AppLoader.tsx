@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { LoaderState, Particle } from './types';
 import {
-  LOADER_GALLERY, LOADER_WORDS, GOLD, T_VOID_END, T_ART_DURATION, T_ART_COUNT,
+  LOADER_GALLERY, LOADER_WORDS, GOLD,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
+  CURTAIN_TIMING, FILM_TIMING,
 } from './constants';
 import { preloadImages } from './preload';
 import { markArrivalSeen, shouldSkipAtMount } from './skip';
@@ -27,8 +28,26 @@ import { PostFX } from './fx/postfx';
 // module's lazy chunk. The prop is GONE rather than ignored: an optional
 // `children` that silently rendered nothing is the kind of prop someone passes
 // once and then debugs for an hour.
-export function AppLoader({ onComplete }: { onComplete?: () => void }) {
-  const [visible, setVisible] = useState(() => !shouldSkipAtMount());
+export function AppLoader({
+  onComplete,
+  full = false,
+}: {
+  onComplete?: () => void;
+  /**
+   * Play THE FILM: four pieces, shatter, vortex, hold, click-to-crack — the whole
+   * ~14.5 s arrival, unchanged. This is what "Watch the arrival" mounts in the
+   * Island lobby, for somebody who came to see it.
+   *
+   * Default false is THE CURTAIN: one piece, the name forming, gone in about two
+   * and a half seconds, pass-through throughout. A stranger meets the venue, not
+   * a wall in front of it.
+   */
+  full?: boolean;
+}) {
+  // The film is always deliberate: somebody clicked to watch it, so it never
+  // consults the skip decision. Only the arrival asks whether it should play.
+  const [visible, setVisible] = useState(() => (full ? true : !shouldSkipAtMount()));
+  const timing = full ? FILM_TIMING : CURTAIN_TIMING;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<AudioEngine | null>(null);
@@ -149,10 +168,20 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
    */
   useEffect(() => {
     if (!visible) return;
-    const lift = () => skipIntro();
-    const events: (keyof WindowEventMap)[] = [
-      'pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll',
-    ];
+
+    // THE FILM IS DELIBERATE, so it does not flinch. Somebody clicked "Watch the
+    // arrival" to see it; dismissing it because they scrolled or pressed a key
+    // would be the opposite of the courtesy this effect exists for. Escape and
+    // the Skip button still end it, as they always did.
+    const events: (keyof WindowEventMap)[] = full
+      ? ['keydown']
+      : ['pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll'];
+
+    const lift = (e: Event) => {
+      if (full && !(e instanceof KeyboardEvent && e.key === 'Escape')) return;
+      skipIntro();
+    };
+
     for (const type of events) {
       window.addEventListener(type, lift, { passive: true, capture: true });
     }
@@ -161,7 +190,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         window.removeEventListener(type, lift, { capture: true });
       }
     };
-  }, [visible, skipIntro]);
+  }, [visible, full, skipIntro]);
 
   /* F304: reveal the visible Skip button 400ms after the intro starts. */
   useEffect(() => {
@@ -225,7 +254,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     let exitDOMState: ReturnType<typeof buildExitDOM> | null = null;
 
     /* Load images */
-    const chosen = shuffle(LOADER_GALLERY).slice(0, T_ART_COUNT);
+    const chosen = shuffle(LOADER_GALLERY).slice(0, timing.artCount);
     const srcs = chosen.map((a) => a.src);
     const titles = chosen.map((a) => a.title);
 
@@ -362,7 +391,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* VOID */
       if (phase === 'void') {
         drawVoidPhase(ctx!, W, H, elapsed);
-        if (elapsed >= T_VOID_END) {
+        if (elapsed >= timing.voidEnd) {
           if (s.images.length === 0) {
             s.phase = 'textForm';
             s.t0 = now;
@@ -391,17 +420,29 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* ART GALLERY */
       if (phase === 'art') {
         const artElapsed = elapsed;
-        const pieceIdx = Math.floor(artElapsed / T_ART_DURATION);
-        const pieceTime = artElapsed % T_ART_DURATION;
+        const pieceIdx = Math.floor(artElapsed / timing.artDuration);
+        const pieceTime = artElapsed % timing.artDuration;
         bloomIntensity = 0.3;
 
         drawGoldenLine(ctx!, W, H, 1, 0.2);
         drawPurpleMist(ctx!, W, H, 0.5);
 
         if (pieceIdx >= s.images.length) {
-          s.phase = 'shatter';
-          s.t0 = now;
-          createParticles(s.images[s.images.length - 1]!);
+          if (full) {
+            s.phase = 'shatter';
+            s.t0 = now;
+            createParticles(s.images[s.images.length - 1]!);
+          } else {
+            // THE CURTAIN SKIPS THE SPECTACLE. No shatter, no vortex: the single
+            // piece becomes the wordmark directly. createParticles seeds them
+            // FROM the art, so the picture dissolves into the name rather than
+            // being replaced by it — the same effect the film reaches the long
+            // way round, in a fraction of the time.
+            s.phase = 'textForm';
+            s.t0 = now;
+            createParticles(s.images[s.images.length - 1]!);
+            assignTextTargets();
+          }
           rafId = requestAnimationFrame(tick);
           return;
         }
@@ -486,8 +527,19 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         drawPurpleMist(ctx!, W, H, tp * 0.4);
         bloomIntensity = 0.5;
         if (drawTextFormPhase(ctx!, W, H, elapsed, s)) {
-          s.phase = 'hold';
-          s.t0 = now;
+          if (full) {
+            s.phase = 'hold';
+            s.t0 = now;
+          } else {
+            // THE CURTAIN ENDS ON ITS OWN. The film holds on the wordmark and
+            // waits to be clicked; the curtain has said the name and has nothing
+            // left to ask for, so it dissolves. Routed through the existing
+            // 'skip' phase rather than a new one — that phase already scatters
+            // the particles over 400 ms, marks the arrival seen and finalizes,
+            // which is exactly the ending this needs.
+            s.phase = 'skip';
+            s.exitStart = now;
+          }
         }
       }
 
@@ -652,7 +704,11 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       window.removeEventListener('touchmove', onTouchMove);
       exitDOMState?.cleanup();
     };
-  }, [visible, finalize, initAudio]);
+    // `full` and `timing` are stable for the life of a mount: the prop never
+    // changes on a given loader, and `timing` is one of two module constants
+    // rather than a fresh object. Listing them satisfies the exhaustive-deps
+    // rule without ever re-running the choreography mid-flight.
+  }, [visible, finalize, initAudio, full, timing]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -686,11 +742,10 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
             // something drawn in front. The two controls below opt back IN, so
             // Skip and Mute still work.
             //
-            // `handleClick` above is deliberately left bound and is unreachable
-            // while this is 'none'. It is the film's click-to-crack, kept whole
-            // for the "Watch the arrival" mount rather than deleted; that mount
-            // restores pointer events for the deliberate viewing.
-            pointerEvents: 'none',
+            // The FILM opts back in: "Watch the arrival" is a deliberate viewing
+            // and its click-to-crack exit is part of the art. `handleClick` above
+            // serves it, and is simply unreachable on the arrival's curtain.
+            pointerEvents: full ? 'auto' : 'none',
           }}
         >
           <canvas

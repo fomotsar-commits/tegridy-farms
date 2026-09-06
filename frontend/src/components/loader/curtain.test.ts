@@ -17,6 +17,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import {
+  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS,
+  T_VOID_END, T_ART_COUNT, T_ART_DURATION,
+} from './constants';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'AppLoader.tsx'), 'utf8');
@@ -33,10 +37,11 @@ const src = readFileSync(join(here, 'AppLoader.tsx'), 'utf8');
 const overlayStyle = src.slice(src.indexOf('ref={overlayRef}'), src.indexOf('<canvas'));
 
 describe('the curtain does not capture the page', () => {
-  it('renders the overlay pass-through', () => {
+  it('renders the ARRIVAL pass-through and the FILM clickable', () => {
     // The evidence this fixes, from AppLoader's own note: elementFromPoint over
     // the Connect button returned CANVAS at 1s, 3s, 6s and 10s, indefinitely.
-    expect(overlayStyle).toContain("pointerEvents: 'none'");
+    // The film opts back in because its click-to-crack exit is part of the art.
+    expect(overlayStyle).toContain("pointerEvents: full ? 'auto' : 'none'");
   });
 
   it('gives the overlay no pointer cursor, because nothing there is clickable', () => {
@@ -45,10 +50,72 @@ describe('the curtain does not capture the page', () => {
   });
 
   it('opts BOTH controls back in, so Skip and Mute still work', () => {
-    // One 'none' on the overlay and two 'auto's beneath it. If a control loses
-    // its opt-in it becomes unclickable while looking perfectly fine.
-    const optIns = src.match(/pointerEvents: 'auto'/g) ?? [];
+    // Two standalone 'auto's, one per control, beneath the overlay's ternary.
+    // If a control loses its opt-in it becomes unclickable while looking fine.
+    const optIns = src.match(/^\s+pointerEvents: 'auto',$/gm) ?? [];
     expect(optIns).toHaveLength(2);
+  });
+});
+
+describe('two arrivals, one component', () => {
+  it('gives the curtain one art piece and the film all four', () => {
+    expect(CURTAIN_TIMING.artCount).toBe(1);
+    expect(FILM_TIMING.artCount).toBe(T_ART_COUNT);
+    expect(T_ART_COUNT).toBe(4);
+  });
+
+  it('fits the curtain inside its stated budget with no input at all', () => {
+    // The element's promise is that the curtain is gone by 3000 ms. void + art
+    // + the 400 ms dissolve must leave room for the wordmark to form.
+    const floor = CURTAIN_TIMING.voidEnd + CURTAIN_TIMING.artCount * CURTAIN_TIMING.artDuration + 400;
+    expect(floor).toBeLessThan(CURTAIN_BUDGET_MS);
+  });
+
+  it('leaves the film exactly as it was', () => {
+    // No art is removed by this element; it is re-homed. If the film's timings
+    // ever drift from the originals, the four-piece arrival has been edited.
+    expect(FILM_TIMING).toEqual({
+      voidEnd: T_VOID_END,
+      artCount: T_ART_COUNT,
+      artDuration: T_ART_DURATION,
+    });
+  });
+
+  it('routes the curtain past the shatter, and the film through it', () => {
+    // SCOPED TO THE BRANCH, and that is the whole point of this assertion.
+    // The first version checked that 'shatter' and 'textForm' both appeared
+    // SOMEWHERE in the file — which is true however the branch is wired, so
+    // routing the curtain into the shatter reddened nothing. The mutation run
+    // caught it. Same lesson as the pointerEvents guard above: assert the
+    // decision, never the vocabulary.
+    const artEnd = src.slice(
+      src.indexOf('if (pieceIdx >= s.images.length) {'),
+      src.indexOf('const img = s.images[pieceIdx]!'),
+    );
+    const [filmBranch, curtainBranch] = artEnd.split('} else {');
+
+    expect(filmBranch).toContain("s.phase = 'shatter';");
+    expect(curtainBranch).toContain("s.phase = 'textForm';");
+    expect(curtainBranch, 'the curtain must not route through the spectacle')
+      .not.toContain("s.phase = 'shatter';");
+  });
+
+  it('ends the curtain on the dissolve and the film on the hold', () => {
+    const textFormEnd = src.slice(
+      src.indexOf('if (drawTextFormPhase('),
+      src.indexOf("/* HOLD */"),
+    );
+    const [filmBranch, curtainBranch] = textFormEnd.split('} else {');
+
+    expect(filmBranch).toContain("s.phase = 'hold';");
+    expect(curtainBranch).toContain("s.phase = 'skip';");
+    expect(curtainBranch, 'the curtain has nothing to wait for')
+      .not.toContain("s.phase = 'hold';");
+  });
+
+  it('does not let a stray scroll dismiss a deliberate viewing', () => {
+    // "Watch the arrival" is something somebody chose. Only Escape ends it.
+    expect(src).toContain("? ['keydown']");
   });
 });
 
