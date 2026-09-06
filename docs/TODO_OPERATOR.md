@@ -931,6 +931,79 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 
 ---
 
+# Carried over 2026-09-05 — verified against the live systems, not assumed
+
+Four items that belong to nobody's tier yet. Each was checked against the running system today,
+so the status lines below are readings, not recollections.
+
+## ✅ Confirmed CLOSED today (do not re-do these)
+
+- **SIWE login WORKS.** `GET /api/auth/siwe?action=nonce` returns **200** with a real nonce and
+  expiry; `siwe_nonces` answers anon with `42501 permission denied`, i.e. the table exists and is
+  correctly service-role-only. Migration 014 landed. **Authentication is working in production for
+  the first time since launch** — the social tier is no longer dark.
+- **The RLS write-side hole is shut.** A `pg_policies` census returns **4** permissive-`true` rows
+  on the four user tables and **every one is `SELECT`**. All eight write-side `Anyone can …`
+  policies are gone, so ownership is enforced on every write path.
+- **`main` → Vercel Production is closed** (changed 2026-08-22, re-verified today). The settings
+  page reads *"Every commit pushed to the `mvp-launch` branch will create a Production
+  Deployment."* A `git push origin main` can no longer overwrite production.
+
+## 1. The last RLS decision — 4 read-side policies, yours to call
+
+These four survive by design (Section 2 of `015_drop_permissive_policy_overrides.sql`, left
+commented on purpose). Each makes one user's rows readable by anyone:
+
+| policy | verdict |
+|---|---|
+| `Anyone can read watchlist` | **Drop it.** A watchlist leaks trading intent — the most sensitive of the four. |
+| `Anyone can read favorites` | A behavioural profile. Defensible to keep, worth a thought. |
+| `Anyone can read profiles` | Public profiles are a normal product choice. Probably keep. |
+| `Anyone can read votes` | Vote *counts* are surely meant to be public — but this exposes **who voted for what, per wallet**. Dropping it blanks the public tally until an aggregate view exists, so do not drop it casually. |
+
+The owner-scoped SELECT twin already exists for each, so dropping one is sufficient — no other
+change needed:
+```sql
+DROP POLICY IF EXISTS "Anyone can read watchlist" ON public.user_watchlist;
+```
+
+## 2. 🔴 The Squads guard is a snapshot, not an invariant — and is currently unwired
+
+`frontend/src/lib/launcher/solana/squads.ts` verifies a multisig's `threshold >= 2` (offset 72,
+discriminator-guarded — the guard is what makes the hand-rolled offset safe). It **never reads
+`config_authority` at offset 40**, which its own layout comment at `:76` names.
+
+⇒ A multisig with a **non-null `config_authority`** can have its threshold lowered to 1 by that
+single key **after** the check passes. The check is a correct point-in-time read of a **mutable**
+value. The production vault happens to have `config_authority = None`, so the live account is safe
+**because of its own configuration, not because the guard verifies it** — point any Squads-gated
+constant at a *controlled* multisig and the guarantee evaporates silently.
+
+**Fix (one line, same guarded read):** also assert `config_authority == Pubkey::default()` (32 zero
+bytes at offset 40) before returning true.
+
+⚠️ **Second residual:** since the Meteora deletion (`ba871e0e`) this guard has **no caller in
+shipped code** — `squads.ts` survived, its callers (`dbcClient.ts`, `feeCustody.ts`,
+`submitLaunch.ts`) went with the rail. Re-wiring it for the own-venue work is a live task, not
+inherited safety.
+
+## 3. The predeploy gate no longer covers trunk
+
+Now that `mvp-launch` is the Production Branch, **a push to trunk auto-deploys with no local
+step**, so `scripts/predeploy-check.mjs` never runs on that path — it only ever gated CLI deploys,
+and says so in its own output. That is the correct branch to have wired; the point is that the
+guard is no longer in front of the common path. If trunk pushes should be gated, it has to move
+into CI.
+
+## 4. 140 git worktrees
+
+`git worktree list` reports **140** entries and `git worktree prune` finds nothing to remove —
+they are all real directories on disk, accumulated from months of agent runs. This is already slow
+enough to matter: it made a workflow's isolation check refuse outright rather than resolve. Worth a
+sweep of the ones whose branches are merged.
+
+---
+
 # Decisions I need one sentence on
 
 1. ~~⭐ **Does the Solana own venue restart at all?**~~ **ANSWERED — restart. Superseded
