@@ -71,39 +71,79 @@ all (`group: … github.event_name == 'pull_request' && github.ref || github.sha
 ## 4. Remaining tasks
 
 Ordered by consequence. Everything here was verified against the live repo,
-GitHub, or memetics.finance.
+GitHub, or memetics.finance on 2026-09-05 — not inferred.
 
-### Open now
+### Open
 
-- [ ] **Add a monitor asserting trunk CI reached `completed/success` for each new HEAD.**
-      A check-runs listing provably **cannot** detect the starvation in §3 — a
-      pending-killed run leaves no trace there. This is the only durable
-      detection.
-      `gh api .../actions/workflows/ci.yml/runs?branch=mvp-launch&event=push`
-- [ ] **`mvp-launch` has no branch protection and its only ruleset is disabled.**
-      Zero required status checks, so nothing mechanically stops a red or
-      unverified commit reaching production.
-      `gh api repos/<owner>/<repo>/branches/mvp-launch/protection` → 404
-- [ ] **Nothing prevents a `pre*`/`post*` script being re-added to `package.json`.**
-      The prohibition is documented in three places and enforced in none. A tiny
-      CI assertion over `package.json` keys would close it.
-- [ ] **PR #400 is red** — 12 forge test slices plus `all-tests-pass` fail on a
-      Solidity compilation error.
-- [ ] **The two derivative guards in `artSrcSet.test.ts` skip on every CI run**
-      (no build ⇒ no `public/_derived`). They are real locally and inert in CI.
-      Either build before that job, or accept that
-      `verify-dist-derivatives.mjs` is the only enforcement and say so.
+- [ ] **`mvp-launch` has no branch protection, and its only ruleset is disabled.**
+      Zero required status checks, so nothing mechanically stops a red or an
+      unverified commit reaching production. Now that trunk CI genuinely
+      completes (§3), requiring it would actually mean something.
+      ```bash
+      gh api repos/<owner>/<repo>/branches/mvp-launch/protection   # -> 404 Branch not protected
+      gh api repos/<owner>/<repo>/rulesets --jq '.[]|"\(.name): \(.enforcement)"'   # -> 121: disabled
+      ```
+
+- [ ] **Nothing detects a FUTURE trunk-CI starvation.** The fix in §3 stops it;
+      no alarm would fire if it returned. A check-runs listing provably cannot
+      see it — a pending-killed run creates zero jobs and therefore zero
+      check-runs. Only the runs API can:
+      ```bash
+      gh api ".../actions/workflows/ci.yml/runs?branch=mvp-launch&event=push&per_page=12"         --jq '.workflow_runs[]|"\(.head_sha[0:8]) \(.status)/\(.conclusion)"'
+      ```
+      A monitor asserting each new trunk HEAD reached `completed/success` is the
+      only durable detection.
+
+- [ ] **A raw `<img>` using `artImgProps` has no srcset fallback; `ArtImg` does.**
+      Measured during the outage: **every `ArtImg` surface recovered on its own,
+      every raw `<img>` stayed broken.** That asymmetry is what turned a
+      degradation into visible breakage. A DOM-level `onError` that strips
+      `srcset` DOES NOT WORK — built, measured, fired 1 of 19, because React
+      restores the attribute on the next render. A real fix needs a shared
+      component or hook, not a DOM poke.
+
+- [ ] **The two derivative guards in `artSrcSet.test.ts` skip on every CI run.**
+      The unit-test job runs `npm ci --ignore-scripts` then `vitest`, never
+      building, so `public/_derived` is absent and both take their skip branch.
+      They are real locally and inert in CI. `verify-dist-derivatives.mjs` is
+      the actual enforcement; either build before that job or state plainly that
+      it is the only one.
+
+### Closed since this document was written
+
+- [x] **A `pre*`/`post*` script could be re-added with nothing stopping it.**
+      It *was* — `prebuild` came back in #418 within a day of #396 removing it,
+      when a stale branch was rebased over the fix. The outage could not recur
+      (the `build` chain still called the generator explicitly first) but the
+      landmine was re-armed and nobody noticed, because a hook that does nothing
+      looks exactly like a hook that works.
+      Now enforced: `scripts/check-no-lifecycle-hooks.mjs`, run in CI before
+      Lint. It flags `preX`/`postX` where `X` is another script, and npm's
+      built-in lifecycle names — and deliberately does **not** flag `precommit`,
+      which binds to nothing.
+- [x] **PR #400 red** — merged green (24 success).
+- [x] **`/gallery` unwired** (~85 full-resolution pieces) — #410.
+- [x] **Derived paths collided** on sources differing only by extension — #410.
+- [x] **Nav logo served 189,486 B where 1,588 B exists** (119x, every route) — #408,
+      pinned by a test mutation-checked on CI.
+- [x] **Towelie avatar**, same shape, 1470px into a 56px box — #408.
+- [x] **Nine comments still taught the `prebuild` mechanism** — #410.
 
 ### Known and accepted
 
 - **Art-studio and lightbox surfaces intentionally serve originals.** They are
   curation tools; a downscale there would be a defect, not a saving.
-- **Sources under the 80 KB floor get no derivatives.** Deliberate: below that a
-  webp re-encode can be larger than the original.
-- **`public/tokens/` is excluded from `SOURCE_DIRS`.** All 15 files are under the
-  floor, so scanning it would cost a walk and produce nothing.
-
----
+- **Sources under the 80 KB floor get no derivatives.** Below that a webp
+  re-encode can be larger than the original.
+- **`public/tokens/` is excluded from `SOURCE_DIRS`** — all 15 files are under
+  the floor, so scanning it would cost a walk and produce nothing.
+- **A burst of N trunk merges now costs N full CI runs.** That is the deliberate
+  trade in §3: runs no longer cancel each other. If the bill matters more than
+  trunk verification, the alternative is a scheduled full run gating deploys.
+- **The local test toolchain is unreliable on this machine.** `jsdom` repeatedly
+  vanished from `node_modules` mid-session and `npm ci` failed with `ENOTEMPTY`.
+  When that happens, CI is the gate — and a test can still be mutation-checked
+  there by pushing it *without* the fix first and confirming it goes red.
 
 ## 5. Invariants — do not break these
 
@@ -118,4 +158,7 @@ GitHub, or memetics.finance.
 4. **Derived paths keep the source extension.** `/splash/new/1.avif` and
    `/splash/new/1.jpg` are separate manifest entries with different natural
    widths; without the extension they resolved to one file and silently shared it.
-5. **Never a `pre*`/`post*` npm script.** See §2.
+5. **Never a `pre*`/`post*` npm script.** See §2. **Now enforced** by
+   `scripts/check-no-lifecycle-hooks.mjs`, which runs in CI before Lint — added
+   after `prebuild` was re-added in #418, one day after #396 removed it, by a
+   stale branch rebased over the fix.

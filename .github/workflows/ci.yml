@@ -72,6 +72,15 @@ jobs:
       # postinstall hooks on untrusted PRs. No native modules in this project.
       - run: npm ci --ignore-scripts
 
+      # ignore-scripts=true means npm silently skips our own pre*/post* hooks.
+      # A `prebuild` hook wired this way once shipped a manifest advertising
+      # image files nothing had built (72 of 124 images broken in production),
+      # and it was reintroduced by a stale-branch rebase within a day of the
+      # fix. The prohibition was documented in three places and enforced in
+      # none; this is the enforcement.
+      - name: No npm lifecycle hooks
+        run: node scripts/check-no-lifecycle-hooks.mjs
+
       - name: Lint
         run: npm run lint
 
