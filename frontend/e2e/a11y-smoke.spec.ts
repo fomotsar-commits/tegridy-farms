@@ -50,12 +50,20 @@ test.describe('a11y landmarks — core pages', () => {
     const tablist = page.getByRole('tablist', { name: /trade view/i });
     await expect(tablist).toBeVisible();
     const tabs = tablist.getByRole('tab');
-    // Six tabs, per TAB_LABELS in src/pages/TradePage.tsx —
-    // Swap / Liquidity / DCA / Alerts / TWAP / Trigger. Was 4 before TWAP, 5
-    // before Trigger. The count is pinned rather than loose on purpose: a tab
-    // appearing or vanishing without someone editing this line is the thing
-    // worth catching, and both times the number moved it was a real addition.
-    await expect(tabs).toHaveCount(6);
+    // FIVE tabs, per TAB_LABELS in src/pages/TradePage.tsx —
+    // Swap / DCA / Limit / TWAP / Trigger. Was 4 before TWAP, 5 before Trigger,
+    // 6 before Liquidity left on 2026-09-06.
+    //
+    // The count is pinned rather than loose on purpose: a tab appearing or
+    // vanishing without someone editing this line is the thing worth catching.
+    // It worked — this line is what caught the Liquidity removal and forced it
+    // to be a deliberate edit rather than a silent drift. Every previous move
+    // was an addition; this is the first subtraction, and the tab did not
+    // disappear so much as go home: it rendered the SAME <LiquidityTab /> that
+    // /liquidity renders, so the swap page was carrying a duplicate of another
+    // route's form among five ways to place a trade. e2e/liquidity.spec.ts pins
+    // that it is gone from here and that ?tab=liquidity redirects there.
+    await expect(tabs).toHaveCount(5);
 
     // Default tab is Swap → must be aria-selected.
     const swapTab = tablist.getByRole('tab', { name: /^swap$/i });
