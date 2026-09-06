@@ -131,14 +131,37 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     }
   }, [visible, initAudio]);
 
-  /* ESC to skip with style */
+  /* WAVE SEVEN, element A: ANY INPUT LIFTS THE CURTAIN, AT ONCE.
+   *
+   * Escape used to be the only key, and a click had to land on the overlay
+   * during one of three phases. That is a wall with a handle on it: a visitor
+   * who starts typing, scrolls, or reaches for anything has already told us
+   * they are done watching, and the honest response is to get out of the way.
+   *
+   * The curtain is pass-through now (pointerEvents: 'none' below), so these are
+   * bound on the WINDOW rather than the overlay — the events reach the app
+   * underneath, and we listen alongside rather than intercepting. Passive, so
+   * scrolling is never blocked, and capture so a stopPropagation somewhere in
+   * the app cannot strand the curtain up.
+   *
+   * The Skip and Mute controls opt back into pointer events and stopPropagation,
+   * so tapping Mute does not also lift the curtain.
+   */
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') skipIntro();
+    if (!visible) return;
+    const lift = () => skipIntro();
+    const events: (keyof WindowEventMap)[] = [
+      'pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll',
+    ];
+    for (const type of events) {
+      window.addEventListener(type, lift, { passive: true, capture: true });
+    }
+    return () => {
+      for (const type of events) {
+        window.removeEventListener(type, lift, { capture: true });
+      }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [skipIntro]);
+  }, [visible, skipIntro]);
 
   /* F304: reveal the visible Skip button 400ms after the intro starts. */
   useEffect(() => {
@@ -648,8 +671,26 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
             inset: 0,
             zIndex: 9999,
             background: '#000',
-            cursor: 'pointer',
             touchAction: 'none',
+            // WAVE SEVEN, element A: A CURTAIN, NOT A WALL.
+            //
+            // This overlay used to capture every pointer on the page for the
+            // whole film. The evidence is in this file's own note at :211-217 —
+            // elementFromPoint over the Connect button returned CANVAS at 1s,
+            // 3s, 6s and 10s, indefinitely. The home was mounted and complete
+            // underneath the entire time (loader/index.tsx renders children
+            // OUTSIDE the Suspense boundary); it was simply unreachable.
+            //
+            // Pass-through now. The hero, its instrument field and the bar are
+            // all interactive from the first paint, and the curtain is just
+            // something drawn in front. The two controls below opt back IN, so
+            // Skip and Mute still work.
+            //
+            // `handleClick` above is deliberately left bound and is unreachable
+            // while this is 'none'. It is the film's click-to-crack, kept whole
+            // for the "Watch the arrival" mount rather than deleted; that mount
+            // restores pointer events for the deliberate viewing.
+            pointerEvents: 'none',
           }}
         >
           <canvas
@@ -667,6 +708,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
             onClick={(e) => { e.stopPropagation(); toggleMute(); }}
             style={{
               position: 'absolute',
+              pointerEvents: 'auto',
               top: 16,
               right: 16,
               zIndex: 10,
@@ -693,6 +735,8 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
               onClick={(e) => { e.stopPropagation(); skipIntro(); }}
               style={{
                 position: 'absolute',
+                // Opts back in: the curtain itself is pass-through now.
+                pointerEvents: 'auto',
                 bottom: 24,
                 right: 16,
                 zIndex: 10,
