@@ -43,7 +43,12 @@
 //!
 //! - **I-1** `stake_vault.amount >= pool.total_principal` after every principal-moving
 //!   instruction. `total_principal` is a tracked scalar and authoritative — never
-//!   derived from the vault, which any stranger can transfer into.
+//!   derived from the vault, which any stranger can transfer into. Note the check bounds
+//!   only the PRINCIPAL claim: `orphaned_penalty` also sits in that vault and is
+//!   deliberately outside `total_principal`, so the vault runs over-funded relative to
+//!   this assertion. `sweep_orphaned_penalty` is the one site that asserts the strong
+//!   form, because it zeroes the reserve first. Strengthening the others would brick the
+//!   hatch on the first unit of drift, which is the opposite of what I-1 is for.
 //! - **I-2** `payable = min(owed, reward_vault)`; the remainder STAYS OWED. Never zeroed,
 //!   never a revert. A revert here is exactly Streamflow 6012.
 //! - **I-3** A new period may only draw on `reward_vault − (emitted − paid)`: what is
@@ -85,7 +90,8 @@
 //! ## Deliberately absent
 //!
 //! `pause`, `sweep_penalty` (to a treasury), `recover_tokens`, `relock`, permissionless
-//! `decay`/`kick`, `set_penalty_bps`, `set_ladder`, `close_pool`. Retaining the penalty
+//! `decay`/`kick`, `set_penalty_bps`, `set_ladder`, `close_pool`, and — load-bearing,
+//! see below — `close_user_stats`. Retaining the penalty
 //! in-pool removes an instruction, an address, and a whole class of admin discretion.
 //! The penalty and the ladder are compile-time constants: a stolen authority key can
 //! raise the cap (slowly, visibly), rotate itself, and declare the pool degraded —
@@ -98,6 +104,42 @@
 //! the 4.00x rung could be bought with no lock at all. What is true is narrower and
 //! worth saying exactly: the flag can only move in the direction that frees stakers
 //! and closes the pool to new money.
+//!
+//! ## Two couplings a future change could break without noticing
+//!
+//! **POSITION REVIVAL is prevented by exactly one undefended property** (audit L-9).
+//! Anchor 0.32.1's `close` drains lamports, assigns to the System Program and resizes
+//! to zero — it writes NO closed-account discriminator. A closed `Position` is therefore
+//! left in precisely the state `init` creates into. The only thing stopping a
+//! close-and-recreate at the same nonce is that `stake` seeds the Position from
+//! `user_stats.next_nonce`, which only ever increments — and that monotonicity is
+//! protected solely by `UserStats` having NO `close` constraint, because
+//! `init_if_needed` takes the create branch on a System-owned account and would reset
+//! `next_nonce` to 0. Not exploitable today. But a `close_user_stats` rent-reclaim
+//! instruction is the obvious thing a UX pass asks for, and adding one is a one-line
+//! diff away from a double-withdraw. The ~0.00155 SOL of stranded rent per wallet is
+//! the price of that, and it is worth paying. `close =` must appear exactly twice in
+//! this file and only on `position`; CI greps for it.
+//!
+//! **TOKENS SENT DIRECTLY TO THE STAKE VAULT ARE UNRECOVERABLE** (audit L-10).
+//! `sweep_orphaned_penalty` moves only `pool.orphaned_penalty`, and `stake` measures its
+//! own delta, so anything above `total_principal + orphaned_penalty` is invariant across
+//! every stake-vault outflow. Unlike the reference's single balance, where a mis-send
+//! becomes staker surplus. Not reachable through any instruction — `NotifyReward` pins
+//! `address = pool.reward_vault` — so it takes a raw out-of-band transfer. Never surface
+//! the stake vault's address as a transfer destination. Do NOT "fix" this by widening
+//! the sweep to `vault - total_principal`: that reintroduces balance-derived accounting
+//! and lets an outsider choose when arbitrary tokens become reward budget, immediately
+//! before a rate calculation.
+//!
+//! **ACCEPTED RISK — `TokenMetadata` is admitted and is the one post-gate-mutable
+//! extension**, so the mint account stays reallocatable for the pool's life while every
+//! token-touching Accounts struct deserializes it. The obvious break — sizing the mint
+//! to exactly `Multisig::LEN` (355) so `check_min_len_and_not_multisig` fails on every
+//! instruction including the hatch — does not work: spl-token-2022 8.0.1's
+//! `try_get_new_account_len_for_extension_len` ends in `adjust_len_for_multisig`, which
+//! pads 355 to 357. That is a VERSION PIN as much as a finding: a future spl-token-2022
+//! bump must re-verify the padding.
 //!
 //! ## Where the penalty goes
 //!
@@ -678,6 +720,10 @@ pub mod bayla_ladder {
             ctx.accounts.stake_vault.amount >= ctx.accounts.pool.total_principal,
             LadderError::PrincipalInvariant
         );
+        emit!(PenaltySwept {
+            pool: ctx.accounts.pool.key(),
+            amount,
+        });
         Ok(())
     }
 
@@ -790,13 +836,24 @@ pub mod bayla_ladder {
 
     pub fn propose_authority(ctx: Context<AuthorityOnly>, new_authority: Pubkey) -> Result<()> {
         ctx.accounts.pool.pending_authority = new_authority;
+        emit!(AuthorityProposed {
+            pool: ctx.accounts.pool.key(),
+            current: ctx.accounts.pool.authority,
+            proposed: new_authority,
+        });
         Ok(())
     }
 
     pub fn accept_authority(ctx: Context<AcceptAuthority>) -> Result<()> {
+        let previous = ctx.accounts.pool.authority;
         let pool = &mut ctx.accounts.pool;
         pool.authority = ctx.accounts.pending.key();
         pool.pending_authority = Pubkey::default();
+        emit!(AuthorityAccepted {
+            pool: pool.key(),
+            previous,
+            current: pool.authority,
+        });
         Ok(())
     }
 
@@ -806,6 +863,30 @@ pub mod bayla_ladder {
         require!(new_cap > pool.deposit_cap, LadderError::CapCanOnlyRaise);
         pool.pending_cap = new_cap;
         pool.pending_cap_ts = Clock::get()?.unix_timestamp;
+        emit!(CapRaiseProposed {
+            pool: pool.key(),
+            current_cap: pool.deposit_cap,
+            proposed_cap: new_cap,
+            executable_at: pool.pending_cap_ts.saturating_add(CAP_TIMELOCK_SECS),
+        });
+        Ok(())
+    }
+
+    /// AUDIT L-7. `propose_cap_raise` requires `new_cap > deposit_cap`, so a pending
+    /// proposal could be shrunk to +1 but never returned to zero — and
+    /// `execute_cap_raise` is permissionless with no staleness check, so a proposal made
+    /// a year ago stays executable on demand. This is the missing half: the authority
+    /// can abandon its own proposal. Adds no Pool fields, so every pinned size holds.
+    pub fn cancel_cap_raise(ctx: Context<AuthorityOnly>) -> Result<()> {
+        let pool = &mut ctx.accounts.pool;
+        require!(pool.pending_cap > 0, LadderError::NoPendingChange);
+        let abandoned = pool.pending_cap;
+        pool.pending_cap = 0;
+        pool.pending_cap_ts = 0;
+        emit!(CapRaiseCancelled {
+            pool: pool.key(),
+            abandoned_cap: abandoned,
+        });
         Ok(())
     }
 
@@ -823,9 +904,15 @@ pub mod bayla_ladder {
             pool.pending_cap > pool.deposit_cap,
             LadderError::CapCanOnlyRaise
         );
+        let previous = pool.deposit_cap;
         pool.deposit_cap = pool.pending_cap;
         pool.pending_cap = 0;
         pool.pending_cap_ts = 0;
+        emit!(CapRaised {
+            pool: pool.key(),
+            previous_cap: previous,
+            new_cap: pool.deposit_cap,
+        });
         Ok(())
     }
 
@@ -1222,6 +1309,7 @@ mod layout_tests {
         assert_eq!(LadderError::MintHasMintAuthority as u32 + 6000, 6025);
         assert_eq!(LadderError::PoolDegraded as u32 + 6000, 6026);
         assert_eq!(LadderError::WalletCapExceeded as u32 + 6000, 6027);
+        // 14 instructions -> 15 with cancel_cap_raise; no new error variants needed.
     }
 
     /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).
@@ -1317,6 +1405,48 @@ mod layout_tests {
         assert!(
             !body.contains("accrue_position(&"),
             "emergency_withdraw must NOT use the strict accrual"
+        );
+    }
+
+    /// POSITION REVIVAL: the coupling that prevents it is undefended, so pin it.
+    ///
+    /// Audit L-9. Anchor 0.32.1's `close` writes no closed-account discriminator, so a
+    /// closed `Position` sits in exactly the state `init` creates into. The ONLY thing
+    /// stopping a close-and-recreate at the same nonce is that `UserStats.next_nonce`
+    /// monotonically increments — and that holds solely because `UserStats` has no
+    /// `close`, since `init_if_needed` would take the create branch on a System-owned
+    /// account and reset it to zero. A `close_user_stats` rent-reclaim instruction is a
+    /// one-line diff away from a double-withdraw, and is exactly what a UX pass asks
+    /// for. This test is the tripwire.
+    #[test]
+    fn only_positions_are_ever_closed() {
+        let src = include_str!("lib.rs");
+        // Attribute lines only — the doc comment in the header mentions it too.
+        let sites: Vec<&str> = src
+            .lines()
+            .filter(|l| l.trim_start().starts_with("close = "))
+            .collect();
+        assert_eq!(
+            sites.len(),
+            2,
+            "expected exactly two `close =` constraints (Exit and EmergencyWithdraw), found {}: {:?}",
+            sites.len(),
+            sites
+        );
+        for l in &sites {
+            assert!(
+                l.trim() == "close = owner,",
+                "a `close =` must return rent to the position OWNER, found: {l}"
+            );
+        }
+        // The needle is SPLIT deliberately. Written as one literal it appears in this
+        // very file, `include_str!` reads it back, and the assertion fires on clean
+        // source — which it did on the first run. `concat!` resolves at compile time,
+        // so the contiguous string never exists in the file being searched.
+        let needle = concat!("pub fn ", "close_user_stats");
+        assert!(
+            !src.contains(needle),
+            "adding close_user_stats resets next_nonce and makes Position revival              reachable — see the L-9 note in the header before doing this"
         );
     }
 

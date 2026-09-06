@@ -232,6 +232,57 @@ pub struct Degraded {
     pub pool: Pubkey,
 }
 
+/// AUDIT L-11. The admin surface emitted nothing typed. Anchor injects
+/// `msg!("Instruction: <Name>")` into every handler so nothing was silent, but the log
+/// carries the NAME and not the VALUES — an indexer had to make a second
+/// `getTransaction` hop to learn what changed. `sweep_orphaned_penalty` was also the
+/// only token-moving instruction with no `emit!` at all. IDL-additive; no pinned size
+/// moves, because events are not accounts.
+#[event]
+pub struct AuthorityProposed {
+    pub pool: Pubkey,
+    pub current: Pubkey,
+    pub proposed: Pubkey,
+}
+
+#[event]
+pub struct AuthorityAccepted {
+    pub pool: Pubkey,
+    pub previous: Pubkey,
+    pub current: Pubkey,
+}
+
+#[event]
+pub struct CapRaiseProposed {
+    pub pool: Pubkey,
+    pub current_cap: u64,
+    pub proposed_cap: u64,
+    /// When `execute_cap_raise` becomes callable.
+    pub executable_at: i64,
+}
+
+#[event]
+pub struct CapRaised {
+    pub pool: Pubkey,
+    pub previous_cap: u64,
+    pub new_cap: u64,
+}
+
+#[event]
+pub struct CapRaiseCancelled {
+    pub pool: Pubkey,
+    pub abandoned_cap: u64,
+}
+
+#[event]
+pub struct PenaltySwept {
+    pub pool: Pubkey,
+    /// Moved stake vault -> reward vault, and now schedulable via `notify_reward`'s
+    /// `from_budget` (audit H-1). Before that fix this event would have described a
+    /// no-op.
+    pub amount: u64,
+}
+
 // `Default` cannot be derived: std implements it for `[u8; N]` only up to N = 32, and
 // both structs carry larger upgrade padding (audit L-8). Test-only, so the padding
 // never has to shrink to satisfy a convenience trait — the padding is the point.
