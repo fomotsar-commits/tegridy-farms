@@ -143,15 +143,55 @@ describe('TopNav — the mobile drawer is a complete nav', () => {
     return screen;
   }
 
-  it('lists every sectioned destination, expanded', () => {
+  // ⚠️ THIS REPLACED "lists every sectioned destination, expanded".
+  //
+  // That test encoded a design decision the owner reversed on 2026-09-05:
+  // expanded, six sections became ~30 rows and the drawer outgrew the screen on
+  // phone and iPad. So the ASSERTION changed, but the GUARANTEE above it did
+  // not — a destination must not become reachable only by typing its URL. The
+  // drawer now discharges that guarantee by carrying every section's hub, and
+  // each hub's host renders that section's items as its tab strip
+  // (SectionHost.test.tsx owns that half, as it always did).
+  it('carries one row per section — the page, not its tabs', () => {
     openDrawer();
-    // Each item's canonical label appears at least once. Not an equality check:
-    // the drawer also renders the six section words as group headings, and the
-    // desktop bar is in the same tree.
-    for (const item of MORE_NAV) {
+    for (const section of NAV_SECTIONS) {
       expect(
-        screen.getAllByText(item.label).length,
-        `${item.to} ("${item.label}") is not in the drawer`,
+        screen.getAllByText(section.heading).length,
+        `the ${section.heading} section has no row in the drawer`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('does NOT reprint the tabs — that is what made it too long', () => {
+    openDrawer();
+    // An item whose label is its own section's heading would be a false
+    // positive, and an item that IS a section hub is legitimately present as
+    // that section's row, so exclude both and assert on the rest.
+    const headings = new Set(NAV_SECTIONS.map((s) => s.heading));
+    const hubs = new Set(NAV_SECTIONS.map((s) => s.primaryTo ?? s.hub));
+    const reprinted = MORE_NAV.filter(
+      (i) => !headings.has(i.label) && !hubs.has(i.to) && screen.queryAllByText(i.label).length > 0,
+    ).map((i) => `${i.label} (${i.to})`);
+
+    expect(reprinted.length, 'the fixture is vacuous — no item was eligible').toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(
+      reprinted,
+      'the drawer is printing tab rows again, which is the length complaint',
+    ).toEqual([]);
+  });
+
+  it('every section item still has a route in, via its section hub', () => {
+    // The reachability guarantee, restated for a collapsed drawer: no item is
+    // stranded, because each belongs to a section whose hub the drawer carries.
+    openDrawer();
+    for (const section of NAV_SECTIONS) {
+      const target = section.primaryTo ?? section.hub;
+      expect(target, `${section.heading} has no hub to open`).toBeTruthy();
+      expect(
+        section.items.length,
+        `${section.heading} has no items — its row opens an empty host`,
       ).toBeGreaterThan(0);
     }
   });
