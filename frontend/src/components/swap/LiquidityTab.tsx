@@ -8,6 +8,7 @@ import { DEFAULT_TOKENS, type TokenInfo } from '../../lib/tokenList';
 import { TokenSelectModal } from './TokenSelectModal';
 import { getTxUrl } from '../../lib/explorer';
 import { CHAIN_ID } from '../../lib/constants';
+import { liquidityVenueOn } from '../../lib/chains/liquidityVenue';
 import { formatTokenAmount, formatNumber } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
 
@@ -28,7 +29,7 @@ const blockNegativeKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
 // mainnet-pinned today, so scoping by the build-time constant loses nothing and
 // pre-existing entries under the old key are simply ignored (re-import is cheap
 // and re-validates against the chain — see H-33 below).
-const CUSTOM_TOKENS_KEY = `tegridy_liquidity_custom_tokens_${CHAIN_ID}`;
+const customTokensKeyFor = (chainId: number) => `tegridy_liquidity_custom_tokens_${chainId}`;
 
 // AUDIT FIX 2026-05-26 [H-33]: validate rehydrated custom tokens before
 // trusting them. Pre-fix, a malicious browser extension that wrote a
@@ -60,9 +61,9 @@ function isValidCustomToken(t: unknown): t is TokenInfo {
   return true;
 }
 
-function loadCustomTokens(): TokenInfo[] {
+function loadCustomTokens(chainId: number): TokenInfo[] {
   try {
-    const raw = localStorage.getItem(CUSTOM_TOKENS_KEY);
+    const raw = localStorage.getItem(customTokensKeyFor(chainId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -86,6 +87,17 @@ function loadCustomTokens(): TokenInfo[] {
 export function LiquidityTab() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
+  /**
+   * The curated token list is Ethereum's, so it is offered ONLY on Ethereum.
+   * Those are mainnet ERC20 addresses; the same symbol sits at a different
+   * address on Base, and this repo has seven addresses that are a different live
+   * contract on another chain. Offering them off mainnet would let someone add
+   * liquidity against a token that is not the token named. A pasted address
+   * still works on every chain — what is withdrawn is the CURATED list, on the
+   * chains it was not curated for.
+   */
+  const curatedTokens = useMemo(() => (chainId === CHAIN_ID ? DEFAULT_TOKENS : []), [chainId]);
 
   const ethToken = DEFAULT_TOKENS.find(t => t.symbol === 'ETH')!;
   const toweliToken = DEFAULT_TOKENS.find(t => t.symbol === 'TOWELI')!;
@@ -94,7 +106,7 @@ export function LiquidityTab() {
   const [tokenA, setTokenA] = useState<TokenInfo>(ethToken);
   const [tokenB, setTokenB] = useState<TokenInfo>(toweliToken);
   const [showPicker, setShowPicker] = useState<'A' | 'B' | null>(null);
-  const [customTokens, setCustomTokens] = useState<TokenInfo[]>(loadCustomTokens);
+  const [customTokens, setCustomTokens] = useState<TokenInfo[]>(() => loadCustomTokens(chainId));
 
   const [amountA, setAmountA] = useState('');
   const [amountB, setAmountB] = useState('');
@@ -134,10 +146,10 @@ export function LiquidityTab() {
   // Native ETH balance (useAddLiquidity reads the WETH ERC20 balance for native tokens,
   // which is wrong — user might hold ETH but no WETH). Fetch real native balance here.
   const { data: nativeBalanceA } = useBalance({
-    address, chainId: CHAIN_ID, query: { enabled: !!address && tokenA.isNative },
+    address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && tokenA.isNative },
   });
   const { data: nativeBalanceB } = useBalance({
-    address, chainId: CHAIN_ID, query: { enabled: !!address && tokenB.isNative },
+    address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && tokenB.isNative },
   });
 
   const balanceADisplay = tokenA.isNative
@@ -236,7 +248,7 @@ export function LiquidityTab() {
     setCustomTokens(prev => {
       if (prev.some(t => t.address.toLowerCase() === tok.address.toLowerCase())) return prev;
       const next = [...prev, tok];
-      try { localStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      try { localStorage.setItem(customTokensKeyFor(chainId), JSON.stringify(next)); } catch { /* ignore */ }
       return next;
     });
   };
@@ -598,6 +610,7 @@ export function LiquidityTab() {
           onSelect={handleTokenPick}
           disabledAddress={showPicker === 'A' ? tokenB.address : tokenA.address}
           customTokens={customTokens}
+          tokens={curatedTokens}
           onAddCustomToken={handleAddCustom}
         />
       )}

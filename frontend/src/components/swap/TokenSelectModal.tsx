@@ -29,6 +29,18 @@ interface TokenSelectModalProps {
   onSelect: (token: TokenInfo) => void;
   disabledAddress?: string; // the other token in the pair
   customTokens: TokenInfo[];
+  /**
+   * The curated list to offer, defaulting to Ethereum's.
+   *
+   * 🔴 IT MUST BE EMPTY OFF MAINNET. DEFAULT_TOKENS is a list of MAINNET ERC20
+   * addresses. The same symbol lives at a DIFFERENT address on Base — and this
+   * repo has seven addresses that are a different live contract on another
+   * chain — so offering these on an L2 hands someone a token that is either
+   * nothing or something else entirely, and "add liquidity" would then create a
+   * pair against it. A pasted address still works everywhere; what is unsafe is
+   * a CURATED list presented as correct on a chain it was not curated for.
+   */
+  tokens?: TokenInfo[];
   onAddCustomToken: (token: TokenInfo) => void;
 }
 
@@ -50,7 +62,7 @@ function saveRecentToken(address: string) {
   } catch { /* ignore */ }
 }
 
-export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, customTokens, onAddCustomToken }: TokenSelectModalProps) {
+export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, customTokens, onAddCustomToken, tokens = DEFAULT_TOKENS }: TokenSelectModalProps) {
   const chainId = useChainId();
   const [search, setSearch] = useState('');
   const [importAddress, setImportAddress] = useState('');
@@ -115,7 +127,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
     setImportRiskAccepted(false);
   }, [importAddress]);
 
-  const allTokens = useMemo(() => [...DEFAULT_TOKENS, ...customTokens], [customTokens]);
+  const allTokens = useMemo(() => [...tokens, ...customTokens], [tokens, customTokens]);
 
   const handleSelect = (token: TokenInfo) => {
     saveRecentToken(token.address);
@@ -211,11 +223,11 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
   const isSpoofedSymbol = useMemo(() => {
     if (!importSymbol) return false;
     const sym = (importSymbol as string).toUpperCase();
-    return DEFAULT_TOKENS.some(t =>
+    return tokens.some(t =>
       t.symbol.toUpperCase() === sym &&
       t.address.toLowerCase() !== importAddress.toLowerCase()
     );
-  }, [importSymbol, importAddress]);
+  }, [importSymbol, importAddress, tokens]);
 
   const handleImport = () => {
     if (!importSymbol || importDecimals === undefined) return;
@@ -305,7 +317,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
           {/* Popular quick-select chips */}
           <div className="px-4 pb-2 flex flex-wrap gap-1.5">
             {['ETH', 'TOWELI', 'USDC', 'USDT', 'WBTC', 'WETH'].map(sym => {
-              const token = DEFAULT_TOKENS.find(t => t.symbol === sym);
+              const token = tokens.find(t => t.symbol === sym);
               if (!token) return null;
               const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();
               return (
@@ -358,7 +370,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                         <FallbackIcon symbol={token.symbol} size="w-4 h-4" bg="rgba(212,160,23,0.15)" />
                       )}
                       {token.symbol}
-                      {!DEFAULT_TOKENS.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
+                      {!tokens.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
                         <span className="text-[8px] text-warning/70 font-semibold ml-0.5">!</span>
                       )}
                     </button>
@@ -410,7 +422,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
                       <p className="text-white text-[13px] font-semibold leading-tight">{token.symbol}</p>
                       <p className="text-white text-[11px] leading-tight">{token.name}</p>
                     </div>
-                    {!DEFAULT_TOKENS.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
+                    {!tokens.some(t => t.address.toLowerCase() === token.address.toLowerCase()) && (
                       <span className="text-[9px] text-warning/70 font-semibold px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.20)' }}>Unverified</span>
                     )}
                     {token.isNative && (
