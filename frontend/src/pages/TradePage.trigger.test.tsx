@@ -137,7 +137,14 @@ describe('the trigger tab is reachable', () => {
     // 2026-09-03: 'Alerts' -> 'Limit'. That label was set while this tab WAS a
     // browser-only price watcher; it is now a real on-chain CoW order whose own
     // heading says "Limit Order", and /alerts in the nav is a different product.
-    expect(labels).toEqual(['Swap', 'Liquidity', 'DCA', 'Limit', 'TWAP', 'Trigger']);
+    // 'Liquidity' left this bar on 2026-09-06. It rendered the SAME
+    // <LiquidityTab /> that /liquidity renders, so the swap page was carrying a
+    // duplicate of another route's form as one of its six ORDER-TYPE tabs —
+    // which is also the odd one out: the other five are ways to place a trade.
+    // The form did not move away from users, it moved to the Pools section,
+    // and e2e/liquidity.spec.ts pins both that it is gone from here and that an
+    // old ?tab=liquidity link redirects there.
+    expect(labels).toEqual(['Swap', 'DCA', 'Limit', 'TWAP', 'Trigger']);
   });
 
   it('does not steal the default tab', () => {

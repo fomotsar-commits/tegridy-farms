@@ -33,6 +33,28 @@ test.describe('Liquidity surface', () => {
     await expect(page.getByRole('button', { name: /connect wallet/i }).first()).toBeVisible();
   });
 
+  test('the swap page no longer carries its own Liquidity tab', async ({ page, walletMock: _w }) => {
+    // It carried one until 2026-09-06, rendering the SAME <LiquidityTab /> this
+    // page renders — the identical form on two routes. Owner call: remove it
+    // from /swap, where it was one of six order-type tabs and had nothing to do
+    // with the other five, and leave it here where the section is Pools.
+    await page.goto('/swap');
+    await expect(page.getByRole('tab', { name: 'Swap', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('tab', { name: 'Liquidity', exact: true }),
+      'the swap page is showing a Liquidity tab again — the form lives on /liquidity',
+    ).toHaveCount(0);
+  });
+
+  test('an old ?tab=liquidity link lands on the page the form moved to', async ({ page, walletMock: _w }) => {
+    // Links shared while the tab lived on /swap still exist. An unknown tab
+    // resolves to 'swap', so without this they would silently land on the wrong
+    // surface — which looks like the feature was deleted rather than moved.
+    await page.goto('/swap?tab=liquidity');
+    await expect(page).toHaveURL(/liquidity$/);
+    await expect(page.locator('h1')).toContainText(/liquidity/i);
+  });
+
   test('connected wallet renders the LiquidityTab without page errors', async ({ page, walletMock }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (err) => pageErrors.push(err.message));
