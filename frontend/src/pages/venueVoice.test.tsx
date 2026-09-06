@@ -13,16 +13,22 @@
  * arrivalVoice() is 'venue' | 'toweli' | 'bungalow' — and HomePage already used
  * it. These two pages used the coarser predicate. `isToweliVoice()` is the fix.
  *
- * ⚠️ WHAT MAKES THESE TESTS MEAN SOMETHING. Every one of them FAILS on the
- * pre-fix wrappers, and that was checked by running them against the old
- * two-branch code before this file was committed — not assumed. The first
- * `describe` is the fix; the second is the regression guard that the classic
- * experience was RELOCATED and not deleted, which is the failure mode a careless
- * "remove TOWELI everywhere" pass would produce.
+ * ⚠️ WHAT MAKES THESE TESTS MEAN SOMETHING. Every one of them was RUN against
+ * the defective code and observed to fail — the five voice cases against the old
+ * two-branch wrapper, the two index cases against the wrong ladder floor — not
+ * assumed to. A test nobody has watched fail is a test that pins nothing.
+ *
+ * The other half of the rule — that the classic TOWELI experience was RELOCATED
+ * and not DELETED, which is what a careless "remove TOWELI everywhere" pass
+ * would produce — is `FarmPage.boostAndBatch.test.tsx`. It stands up the whole
+ * provider tree and renders ToweliFarm end to end, and as of 2026-09-05 it sets
+ * the toweli bungalow explicitly, so it goes red if the stack is deleted while
+ * everything below still passes.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
 
 
 vi.mock('wagmi', () => ({
@@ -128,9 +134,9 @@ describe('the venue speaks for the island, not for one resident', () => {
     renderFarm();
     // The index deliberately reads no chain (twelve pools, three chains), so it
     // must not print an APR at all — a fabricated 0% is the money-harmful shape
-    // this repo keeps relearning. Percentages are allowed inside the LOCK LADDER
-    // multipliers ("1.00x-4.00x"), which are contract constants, so the ban is
-    // on the % sign specifically.
+    // this repo keeps relearning. The ban is on the % SIGN specifically: the lock
+    // ladder's own multipliers are written "0.40×–4.00×" rather than as
+    // percentages, so a contract constant cannot be mistaken for a rate here.
     const table = screen.getByRole('table');
     expect(table.textContent).not.toMatch(/%/);
     expect(screen.getByText(/No rate is shown here because none is read here/i)).toBeInTheDocument();
@@ -140,6 +146,39 @@ describe('the venue speaks for the island, not for one resident', () => {
     renderFarm();
     const lp = screen.getByRole('link', { name: /provide liquidity/i });
     expect(lp).toHaveAttribute('href', '/liquidity');
+  });
+
+  it('states the lock ladder\'s REAL floor, which is 0.4x and not 1x', () => {
+    // ⚠️ THIS SHIPPED WRONG. The index advertised "1.00×–4.00×" while
+    // LighthouseLadder.sol:98 sets MIN_BOOST_BPS = 4_000 — 0.4x at seven days,
+    // mirrored in constants.ts and called "TOWELI parity" in lighthouseLadder.ts.
+    // A 1.00× floor tells a short-lock staker they get a full share of the
+    // rewards when the contract gives them four tenths of one: the worst case
+    // overstated by 2.5x, on the page the venue shows a stranger first.
+    //
+    // Asserted against the CONSTANTS rather than the literal "0.40×", so a
+    // genuine re-tune of the ladder moves the test and the UI together and only
+    // a DRIFT between them fails.
+    renderFarm();
+    const table = screen.getByRole('table').textContent ?? '';
+    const floor = `${(MIN_BOOST_BPS / 10_000).toFixed(2)}×`;
+    const ceiling = `${(MAX_BOOST_BPS / 10_000).toFixed(2)}×`;
+    expect(MIN_BOOST_BPS, 'precondition: the ladder floor is a fraction of a full share').toBeLessThan(10_000);
+    expect(table, `the ladder rows never state the ${floor} floor`).toContain(floor);
+    expect(table).toContain(ceiling);
+    expect(table, 'the 1.00x floor came back').not.toContain('1.00×');
+  });
+
+  it('claims no lock terms for the Solana pools, because the registry records none', () => {
+    // These rows said "Streamflow · locked" from `chain === 'solana'` alone.
+    // The registry has no lock field — it records the PROGRAM — and the retired
+    // BAYLA pool ran flat weights, so "locked" was a property nothing was read
+    // to establish, on five rows at once.
+    renderFarm();
+    const table = screen.getByRole('table').textContent ?? '';
+    expect(table, 'a Solana pool must still name its staking program').toContain('Streamflow');
+    expect(table, 'lock terms asserted for a pool whose terms are not in the registry')
+      .not.toContain('Streamflow · locked');
   });
 });
 

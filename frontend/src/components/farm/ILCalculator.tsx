@@ -2,9 +2,30 @@ import { useState } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { formatCurrency } from '../../lib/formatting';
 
-export function ILCalculator() {
+/**
+ * ⚠️ THE LABELS ARE PAIR-AGNOSTIC AS OF 2026-09-05, and that is a correctness
+ * fix rather than a wording preference.
+ *
+ * This component was written inside LPFarmingSection, on the TOWELI farm, where
+ * naming TOWELI was simply naming the pool in front of the reader. It was then
+ * promoted onto the venue's /liquidity page — which is the Pools section's
+ * landing tab and the second BottomNav tab, so EVERY arrival reaches it — and
+ * sits below a form where the visitor may have selected any ERC-20 pair. There
+ * it taught impermanent loss in one resident's ticker to a reader the venue was
+ * speaking to, about a pair they may not have chosen: the same
+ * one-resident's-token-as-the-venue's shape the 2026-09-05 voice fix removed
+ * from /farm and /dashboard, arriving by RELOCATION instead of by a bad gate.
+ *
+ * The maths at the top of this file was always pair-agnostic — only three
+ * strings were not. `pairLabel` lets a caller that genuinely knows the pair name
+ * it; both current call sites sit under a heading that already does, so neither
+ * passes one.
+ */
+export function ILCalculator({ pairLabel }: { pairLabel?: string } = {}) {
   const [open, setOpen] = useState(false);
-  const [priceChange, setPriceChange] = useState(50); // percentage change in TOWELI price
+  // Percentage change in the pooled token's price against the other side.
+  const [priceChange, setPriceChange] = useState(50);
+  const token = pairLabel ?? 'the pooled token';
 
   // IL formula: IL = 2 * sqrt(r) / (1 + r) - 1, where r = new_price / old_price
   const r = 1 + priceChange / 100;
@@ -38,19 +59,20 @@ export function ILCalculator() {
             initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
             <h4 className="text-white text-[14px] font-semibold mb-1">Impermanent Loss Calculator</h4>
             <p className="text-white text-[11px] mb-4">
-              Estimate how much you'd lose vs. simply holding, based on price change of TOWELI relative to ETH.
+              Estimate how much you&apos;d lose vs. simply holding, based on the price change of{' '}
+              {token} against the other side of the pair.
             </p>
 
             {/* Price change slider */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-white text-[11px]">TOWELI Price Change</span>
+                <span className="text-white text-[11px]">Price change</span>
                 <span className={`stat-value text-[14px] ${priceChange >= 0 ? 'text-success' : 'text-danger'}`}>
                   {priceChange >= 0 ? '+' : ''}{priceChange}%
                 </span>
               </div>
               <input type="range" min="-90" max="500" value={priceChange}
-                aria-label="TOWELI price change percentage"
+                aria-label="Price change percentage of the pooled token"
                 onChange={e => setPriceChange(parseInt(e.target.value))}
                 className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
                 style={{ background: `linear-gradient(90deg, var(--color-danger) 0%, var(--color-primary) 50%, var(--color-success) 100%)` }} />

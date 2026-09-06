@@ -54,7 +54,11 @@ describe('navConfig', () => {
     // SIX IS THE CEILING and it is a measured one, not a preference: the bar
     // shares an 800px row with the wordmark, the bungalow chip, Connect and the
     // theme toggle, and this repo has a documented 640-790px dead-band history
-    // from letting that row overflow. headerFitsAtEveryWidth pins the geometry;
+    // from letting that row overflow. e2e/header-reachability.spec.ts pins the
+    // geometry — it MEASURES (no overflow, Connect on-canvas) rather than
+    // enumerating labels, which is why the rename wave did not touch it. There
+    // is no `headerFitsAtEveryWidth` and no TopNav.responsive.test.ts, despite
+    // what this comment and TopNav.tsx both claimed until 2026-09-05;
     // this pins the count that geometry was measured against.
     expect(PRIMARY_NAV).toHaveLength(NAV_SECTIONS.length);
     expect(PRIMARY_NAV.length).toBeLessThanOrEqual(6);

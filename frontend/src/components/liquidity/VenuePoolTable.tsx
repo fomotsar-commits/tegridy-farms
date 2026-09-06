@@ -12,23 +12,40 @@ import { TOKEN_LOGOS } from '../farm/poolConfig';
  * and comparisons want aligned columns. It is also the shape every venue a
  * large wallet has already used presents pools in, so it needs no learning.
  *
- * ⚠️ EVERY NUMBER HERE HAS AN UNREADABLE STATE, AND IT IS NOT ZERO. `usePoolTVL`
- * already returns '–' for TVL and APR when the reserve or fee reads have not
- * landed (`isLoaded`, `feesReadOk`), and this table renders those verbatim
- * rather than coercing them to `$0` / `0%`. That is deliberate and it is the
- * repo's most-repeated bug class: a failed read that renders as a real zero
- * tells a visitor the pool is empty and pays nothing, which is a money-harmful
- * lie about a pool that may be neither. `aprIsEstimated` / `volIsEstimated`
- * carry the same honesty one step further — a derived figure is marked as
- * derived, in the footnote, not presented as a measurement.
+ * ══════════════════════════════════════════════════════════════════════════
+ * ⚠️ WHY THERE IS NO APR COLUMN. This is the most important thing in the file.
  *
- * ONE ROW TODAY, and the table says so rather than implying a catalogue.
- * `UPCOMING_POOLS` was emptied by the 2026-06-09 credibility fix that deleted
- * four speculative cards, and nothing here re-adds them: a pool appears in this
- * table when it exists on chain. The empty-ish state is honest and the "seed a
- * new pair" line below turns it into an invitation instead of a dead end —
- * which is the actual answer to "not friendly for LPing": the venue is small,
- * and the first LP in a new pair sets its price and owns all of it.
+ * The first cut of this table had one, reading `usePoolTVL().apr`, and it was
+ * WRONG in a way that mattered: that figure is derived from
+ * `SwapFeeRouter.totalETHFees()` (usePoolTVL.ts:48, :131-139), which is the
+ * VENUE's own platform fee — skimmed off `msg.value` BEFORE the swap reaches
+ * the pair (SwapFeeRouter.sol:721-732) — annualised against this pool's TVL.
+ *
+ * It is not the LP's income. The LP's income is the pair's 0.3% swap fee, of
+ * which 5/6 accrues into the reserves and 1/6 goes to the protocol's `feeTo`
+ * (TegridyPair.sol:16-17). Those are different parties taking different cuts of
+ * different bases. Worse, `totalETHFees` counts only swaps that went THROUGH
+ * the fee router, so it also undercounts the pool's actual activity.
+ *
+ * Printing that under a column head an LP reads as "what will I earn" is a
+ * money-harmful mislabel, and a table is where it does the most damage because
+ * a column head is read as a promise. So the column is gone, and the footnote
+ * says why rather than leaving the absence to look like an oversight. When a
+ * real LP-fee APR can be read — accumulated fees per LP token, from the pair —
+ * it can come back.
+ *
+ * (The same figure is labelled "APR" on `LivePoolCard` inside the TOWELI farm.
+ * That is pre-existing and NOT changed here: it has its own tests and its own
+ * surface, and silently redefining another page's numbers from this file would
+ * be worse than reporting it. It is written up for the operator.)
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * EVERY REMAINING NUMBER HAS AN UNREADABLE STATE, AND IT IS NOT ZERO.
+ * `usePoolTVL` returns '–' for TVL when the reserve read has not landed
+ * (`isLoaded`) and for volume when the fee read has not (`feesReadOk`), and this
+ * table renders those verbatim rather than coercing them to `$0`. A failed read
+ * that renders as a real zero tells a visitor the pool is empty and pays
+ * nothing, which is a lie about a pool that may be neither.
  */
 export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePoolTVL> }) {
   const rows = [
@@ -38,22 +55,11 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
       quote: 'ETH',
       baseLogo: TOKEN_LOGOS.TOWELI,
       quoteLogo: TOKEN_LOGOS.ETH,
-      kind: 'Constant product · 0.3%',
+      kind: 'Constant product · 0.3% fee',
       tvl: poolData.tvlFormatted,
-      apr: poolData.apr,
       vol: poolData.vol24hFormatted,
-      aprIsEstimated: poolData.aprIsEstimated,
-      volIsEstimated: poolData.volIsEstimated,
     },
   ];
-
-  // ⚠️ THE HEADERS AND THE FOOTNOTE READ THE SAME FLAG, and they did not in the
-  // first cut: the columns were hardcoded "Est. APR" / "Est. 24h volume" while
-  // the footnote branched on `aprIsEstimated`, so the live page rendered
-  // "EST. APR" above a sentence reading "APR and 24h volume are measured."
-  // Two labels for one fact is how a table starts lying about its own numbers.
-  const aprEstimated = rows.some((r) => r.aprIsEstimated);
-  const volEstimated = rows.some((r) => r.volIsEstimated);
 
   return (
     <section aria-labelledby="venue-pools-heading" className="mb-8">
@@ -66,21 +72,25 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
         </a>
       </div>
 
-      {/* overflow-x-auto on the WRAPPER, not the page: a five-column table has
-          to scroll inside its own box on a 390px phone rather than making the
-          document scroll sideways. */}
+      {/* overflow-x-auto on the WRAPPER, not the page: the table has to scroll
+          inside its own box on a 390px phone rather than making the document
+          scroll sideways. */}
       <div
         className="rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[560px]">
+          <table className="w-full text-left border-collapse min-w-[520px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-white/50">
                 <th scope="col" className="font-semibold px-4 py-3">Pool</th>
                 <th scope="col" className="font-semibold px-4 py-3 text-right">TVL</th>
-                <th scope="col" className="font-semibold px-4 py-3 text-right">{aprEstimated ? 'Est. APR' : 'APR'}</th>
-                <th scope="col" className="font-semibold px-4 py-3 text-right">{volEstimated ? 'Est. 24h volume' : '24h volume'}</th>
+                {/* "Routed", not "24h volume". The figure is reconstructed from
+                    the fee router's own take (usePoolTVL.ts:145-150), so it sees
+                    only swaps that came through the venue's router and not those
+                    that hit the pair directly. Naming the scope in the column
+                    head is cheaper than a footnote nobody reads. */}
+                <th scope="col" className="font-semibold px-4 py-3 text-right">Routed 24h</th>
                 <th scope="col" className="font-semibold px-4 py-3 text-right">
                   <span className="sr-only">Action</span>
                 </th>
@@ -101,17 +111,15 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
                         <span className="block text-white text-[14px] font-semibold whitespace-nowrap">
                           {r.base} / {r.quote}
                         </span>
-                        {/* Naming the pool TYPE inline, not in a legend. It is
-                            the thing that decides how the position behaves, and
-                            a reader should not have to look it up. */}
+                        {/* Naming the pool TYPE and its fee inline, not in a
+                            legend. Together they decide how the position
+                            behaves, and a reader should not have to look either
+                            one up. Both are contract constants, not reads. */}
                         <span className="block text-white/50 text-[11px] whitespace-nowrap">{r.kind}</span>
                       </span>
                     </div>
                   </th>
                   <td className="px-4 py-3.5 text-right text-white text-[14px] tabular-nums">{r.tvl}</td>
-                  <td className="px-4 py-3.5 text-right text-[14px] tabular-nums" style={{ color: 'var(--color-success)' }}>
-                    {r.apr}
-                  </td>
                   <td className="px-4 py-3.5 text-right text-white/80 text-[14px] tabular-nums">{r.vol}</td>
                   <td className="px-4 py-3.5 text-right">
                     <a
@@ -129,22 +137,25 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
         </div>
       </div>
 
-      {/* The footnote is load-bearing, not decoration. It says which figures are
-          measured and which are derived, and it says what a dash means — so a
-          dash reads as "we could not read it", which is what it is, rather than
-          as "nothing". */}
+      {/* The footnote is load-bearing, not decoration: it says what each number
+          is, what a dash means, and — the part most tables skip — what is NOT
+          here and why. An absent APR with no explanation reads as an oversight;
+          an absent APR with a reason reads as a standard. */}
       <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
-        TVL is a live read of the pair&apos;s reserves.{' '}
-        {aprEstimated || volEstimated
-          ? 'APR and 24h volume are estimated from those reserves and the fees the pool has accrued since it opened — not a measured trailing window. '
-          : 'APR and 24h volume are read from the pool’s own accrued fees. '}
-        A dash means the read did not land, never that the number is zero.
+        TVL is a live read of the pair&apos;s reserves. &ldquo;Routed 24h&rdquo; is reconstructed from the
+        venue router&apos;s own fee take, so it counts swaps that came through this venue and not
+        those that hit the pool directly. A dash means the read did not land, never that the number
+        is zero.{' '}
+        <strong className="text-white/70">There is deliberately no APR column:</strong> the only fee
+        figure this venue can read on chain is the router&apos;s platform fee, which is the
+        protocol&apos;s income rather than yours, and annualising it against the pool would misstate
+        what providing liquidity actually pays.
       </p>
 
       <p className="mt-3 text-[12.5px] text-white/60 leading-relaxed">
-        This venue is small on purpose and the list is short. Any ERC-20 pair can be opened here —
-        if the pair does not exist yet, the first deposit creates it, sets its starting price, and
-        owns 100% of it.
+        This venue is small on purpose and the list is short. Most ERC-20 pairs can be opened here —
+        ERC-777 tokens are refused by the factory — and if the pair does not exist yet, the first
+        deposit creates it and sets its starting price.
       </p>
 
       {/* /pools is the OTHER venue — the Solana AMM — and is a sibling tab, so

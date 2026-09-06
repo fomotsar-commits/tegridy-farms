@@ -64,11 +64,22 @@ export function LiquidityPrimer() {
 
         <div>
           <h3 className="text-white text-[13px] font-semibold mb-1">How do I get paid?</h3>
+          {/* ⚠️ CORRECTED 2026-09-05. This said the 0.3% "stays in the pool… not
+              claimed and not distributed", which is the textbook Uniswap-V2
+              description and is NOT what this fork does. TegridyPair.sol:16-17
+              splits it 5/6 to LPs via the reserves and 1/6 to the protocol's
+              `feeTo`, minted as LP inside `_mintFee` on every mint/burn and
+              harvestable permissionlessly. Telling an LP they keep all of it
+              overstates their income by ~17% of the fee. Naming the split is
+              also the honest thing: it is the venue's only revenue from this
+              pool and a large depositor will find it in the contract anyway. */}
           <p>
-            Every swap through the pool pays a 0.3% fee, and that fee stays in the pool. It is not
-            claimed and not distributed — the pool simply grows, so the share you hold is
-            redeemable for slightly more than you put in. You are paid in proportion to your share
-            and for as long as you hold it. Nothing is locked; you can withdraw at any block.
+            Every swap through the pool pays a 0.3% fee. Five sixths of it (about 0.25% of the
+            trade) accrues straight into the pool&apos;s reserves — not claimed, not distributed,
+            just left there — so the share you hold becomes redeemable for more than you put in.
+            The remaining sixth (about 0.05%) is the protocol&apos;s cut, and it is taken as newly
+            minted LP rather than out of your balance. You earn in proportion to your share, for as
+            long as you hold it. Nothing is locked; you can withdraw at any block.
           </p>
         </div>
 

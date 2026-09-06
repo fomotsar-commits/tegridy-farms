@@ -92,26 +92,7 @@ function dashTabFromQuery(v: string | null): DashTab | null {
  */
 export default function DashboardPage() {
   const bungalow = getBungalowIdentity();
-  if (!bungalow && !isToweliVoice()) {
-    return (
-      <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
-        <header className="mb-6">
-          <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
-            Jungle Bay Island
-          </p>
-          <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
-            Your positions
-          </h1>
-          <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-            Positions live in the room they were opened in — each resident&apos;s pool is its own
-            token, on its own chain, read by its own panel. Open a room to see what you hold there.
-            The venue itself holds nothing on your behalf.
-          </p>
-        </header>
-        <VenuePoolIndex />
-      </div>
-    );
-  }
+  if (!bungalow && !isToweliVoice()) return <VenueDashboard />;
   if (bungalow) {
     // Chain picks the panel: the Solana one is wallet-adapter-built to the
     // bone; EVM residents get the wagmi sibling (same seam as the farm
@@ -125,6 +106,43 @@ export default function DashboardPage() {
     );
   }
   return <ToweliDashboard />;
+}
+
+/**
+ * The venue's own /dashboard.
+ *
+ * ⚠️ ITS OWN COMPONENT, FOR THE REASON FarmPage's VenueEarn IS. This branch
+ * needs `usePageTitle`, and calling it inside a wrapper that returns three
+ * different trees would make it a conditional hook. It also shipped INLINE for
+ * one commit, which meant the venue dashboard kept whatever title, canonical
+ * URL and og:* tags the previously-visited route had set — usePageTitle's
+ * cleanup resets `document.title` only, so every other tag persists across a
+ * client-side navigation. FarmPage had already been extracted for exactly this;
+ * this one had not, and an adversarial review of the diff caught it.
+ */
+function VenueDashboard() {
+  usePageTitle(
+    'Your positions',
+    'Positions on Jungle Bay Island live in the room they were opened in — each resident pool is its own token, on its own chain.',
+  );
+  return (
+    <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">
+      <header className="mb-6">
+        <p className="text-[11px] uppercase tracking-wider label-pill mb-2" style={{ color: 'var(--color-kyle)' }}>
+          Jungle Bay Island
+        </p>
+        <h1 className="heading-luxury text-3xl md:text-4xl text-white leading-tight mb-3">
+          Your positions
+        </h1>
+        <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
+          Positions live in the room they were opened in &mdash; each resident&apos;s pool is its own
+          token, on its own chain, read by its own panel. Open a room to see what you hold there.
+          The venue itself holds nothing on your behalf.
+        </p>
+      </header>
+      <VenuePoolIndex />
+    </div>
+  );
 }
 
 function ToweliDashboard() {

@@ -42,8 +42,11 @@ export default function IslandPage() {
   usePageTitle('The island', `${VENUE.tagline}. The gallery, the marketplace, the community and the numbers.`);
 
   // Drop the lobby's own entry — a card linking to the page you are standing on
-  // is a dead click, and items[0] is this route by the `hub` invariant.
-  const doors = ISLAND_SECTION.items.filter((i) => i.to !== '/island');
+  // is a dead click. Keyed on the section's OWN hub rather than the literal
+  // '/island': navConfig.test.ts pins `hub === items[0].to`, so this is exactly
+  // "the lobby itself" for any future value of that route, and it makes the
+  // "not re-typed here" claim above literally true.
+  const doors = ISLAND_SECTION.items.filter((i) => i.to !== ISLAND_SECTION.hub);
 
   return (
     <div className="mx-auto w-full max-w-[900px] px-4 py-8 sm:py-10">

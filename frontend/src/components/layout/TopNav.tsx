@@ -341,8 +341,10 @@ export const TopNav = React.memo(function TopNav() {
                 this nav, the hamburger, the drawer overlay, the drawer itself,
                 BottomNav.tsx, AppLayout.tsx's content pb, and the two
                 max-width:799px blocks in index.css.
-              headerFitsAtEveryWidth in TopNav.responsive.test.ts pins the
-              invariant (no overflow, Connect on-canvas) rather than the literal. */}
+              e2e/header-reachability.spec.ts pins the invariant (no overflow,
+              Connect on-canvas) rather than the literal. NOTE: there is no
+              TopNav.responsive.test.ts, despite what this comment said until
+              2026-09-05 — the guard is the e2e spec, and it sweeps real widths. */}
           <nav aria-label="Main navigation" className="hidden min-[800px]:flex items-center gap-0.5">
             {/* THE SIX WORDS + DASHBOARD, 2026-09-05.
                 PRIMARY_NAV is derived from NAV_SECTIONS (navConfig.ts), so this

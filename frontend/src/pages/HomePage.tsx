@@ -1069,9 +1069,19 @@ export default function HomePage() {
         </div>
         )}
 
-        {/* Referral Widget for connected users — default-only: referral rewards
-            are the TOWELI program. */}
-        {address && !bungalowIdentity && (
+        {/* Referral Widget for connected users.
+            ⚠️ GATE COMPLETED 2026-09-05. This read `address && !bungalowIdentity`,
+            and its own comment already said why that is not enough: referral
+            rewards ARE the TOWELI program (the widget names a 1,000 TOWELI
+            staking-power threshold). `getBungalowIdentity()` is null for BOTH
+            "the TOWELI bungalow" AND "no bungalow chosen", so a stranger who
+            landed on the venue and connected a wallet was shown one resident's
+            referral programme as if it were the venue's. The sibling block ~650
+            lines above (the YieldCalculator) already carried the correct
+            three-part predicate; this one was simply missed. The venue has no
+            referral programme of its own — if one is ever built it has to be
+            built, not inherited. */}
+        {address && !bungalowIdentity && IS_TOWELI_ARRIVAL && (
           <div className="pb-16">
             <ReferralWidget
               address={address}
