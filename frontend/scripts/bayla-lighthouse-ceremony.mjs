@@ -510,9 +510,64 @@ async function fund() {
   // the live vault turns "trust the default" into something eyeballable
   // against the runbook before --broadcast.
   const nonce = Number(val('--nonce', '0'));
-  const rewardProgram = new PublicKey(sfConstants.REWARD_POOL_PROGRAM_ID.mainnet);
+
+  // WHICH REWARD PROGRAM. Added 2026-09-06. This used to be hardwired to
+  // REWARD_POOL_PROGRAM_ID (the CLASSIC program), which meant `--fund` could
+  // not fund a dynamic pool at all — you could create one with
+  // --dynamic-reward and enrol every staker into it with --enroll, and then
+  // have no way to put tokens in it. The SDK was never the blocker: its
+  // `prepareFundPoolInstructions` takes `rewardPoolType` like every other
+  // reward call. Only this derivation was wrong.
+  //
+  // The DEFAULT STAYS 'fixed' on purpose: every command in the runbook and in
+  // BAYLA_BUNGALOW.md §6g was written against the classic pool, and silently
+  // re-pointing them at a different program would be the worst possible
+  // failure — tokens landing in a vault nobody is watching.
+  const rewardPoolType = val('--reward-pool-type', 'fixed');
+  if (rewardPoolType !== 'fixed' && rewardPoolType !== 'dynamic') {
+    throw new Error(`--reward-pool-type must be 'fixed' or 'dynamic' (got '${rewardPoolType}')`);
+  }
+  const fundClient = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const rewardProgram = fundClient.getRewardProgram(rewardPoolType).programId;
   const rewardPool = deriveRewardPoolPDA(rewardProgram, new PublicKey(pool), new PublicKey(mint), nonce);
   const rewardVault = deriveRewardVaultPDA(rewardProgram, rewardPool);
+
+  // AMBIGUITY IS A STOP, NOT A DEFAULT. Once a stake pool carries reward pools
+  // under BOTH programs, "the reward pool" stops being a thing an operator can
+  // mean unambiguously, and a wrong guess sends real tokens to the wrong vault.
+  // Detect it and refuse rather than quietly taking the default. The check is
+  // read-only and costs one getProgramAccounts per program; if the read itself
+  // fails we say so and continue, because an RPC outage must not become a
+  // silent decision either.
+  if (!has('--reward-pool-type')) {
+    try {
+      const attached = await Promise.all(['fixed', 'dynamic'].map(async (kind) => {
+        const pid = fundClient.getRewardProgram(kind).programId;
+        const accs = await connection.getProgramAccounts(pid, {
+          filters: [{ memcmp: { offset: 10, bytes: pool } }],
+        });
+        return { kind, count: accs.length };
+      }));
+      const live = attached.filter((a) => a.count > 0);
+      if (live.length > 1) {
+        throw new Error(
+          `${pool} carries reward pools under BOTH programs (${live.map((l) => `${l.kind}:${l.count}`).join(', ')}). ` +
+          `Pass --reward-pool-type fixed|dynamic explicitly — there is no safe default once both exist.`,
+        );
+      }
+      if (live.length === 1 && live[0].kind !== rewardPoolType) {
+        throw new Error(
+          `${pool} has no ${rewardPoolType} reward pool, but does have a ${live[0].kind} one. ` +
+          `Pass --reward-pool-type ${live[0].kind} if that is what you meant to fund.`,
+        );
+      }
+    } catch (err) {
+      if (/BOTH programs|no .* reward pool/.test(String(err?.message ?? ''))) throw err;
+      log(`! could not check which reward programs are attached (${String(err?.message ?? err).slice(0, 80)})`);
+      log('  — verify rewardPool/rewardVault below by eye before --broadcast.');
+    }
+  }
+
   let vaultNow = 'unreadable';
   try {
     const bal = await connection.getTokenAccountBalance(rewardVault);
@@ -523,6 +578,8 @@ async function fund() {
   console.log(JSON.stringify({
     cluster: 'mainnet', stakePool: pool, rewardMint: mint,
     amount: `${amountWhole.toLocaleString()} ${tokenLabel} (${amountRaw.toString()} raw, ${decimals} decimals — read on-chain)`,
+    rewardPoolType,
+    rewardProgram: rewardProgram.toBase58(),
     rewardPoolNonce: nonce,
     rewardPool: rewardPool.toBase58(),
     rewardVault: rewardVault.toBase58(),
@@ -540,14 +597,14 @@ async function fund() {
   if (!keyPath) throw new Error('--broadcast requires --keypair <path-to-id.json>');
   const payer = Keypair.fromSecretKey(new Uint8Array(JSON.parse(readFileSync(keyPath, 'utf8'))));
   log(`signer ${payer.publicKey.toBase58()}`);
-  const client = new SolanaStakingClient({ clusterUrl, cluster: ICluster.Mainnet });
+  const client = fundClient;
   const ext = { invoker: payer, computePrice: 10_000, computeLimit: 'autoSimulate' };
 
   log('ensuring Streamflow treasury ATA for the reward mint…');
   await createAssociatedTokenAccountIdempotent(
     connection, payer, new PublicKey(mint), STREAMFLOW_TREASURY, undefined, new PublicKey(tokenProgramId),
   );
-  log(`fundPool… ${amountWhole.toLocaleString()} ${tokenLabel}`);
+  log(`fundPool… ${amountWhole.toLocaleString()} ${tokenLabel} into the ${rewardPoolType} pool`);
   const res = await client.fundPool({
     stakePool: pool,
     stakePoolMint: mint,
@@ -556,6 +613,7 @@ async function fund() {
     amount: amountRaw,
     feeValue: null,
     tokenProgramId,
+    rewardPoolType,
   }, ext);
   log(`✓ funded (tx ${res.txId})`);
   log(`solscan: https://solscan.io/tx/${res.txId}`);
