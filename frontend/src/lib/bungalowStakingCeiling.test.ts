@@ -108,6 +108,60 @@ describe('maxSafeStakeRaw — the size a lock can actually carry', () => {
     expect(both).toBe(maxSafeStakeRaw(POOL, FIXED, 31_536_000));
     expect(maxSafeStakeAcrossPools({ ...POOL, rewardPools: [DYNAMIC] as never }, 31_536_000)).toBeNull();
   });
+
+  // The five below came out of mutation-checking the cases above: each pins a
+  // guard that stayed green while the implementation was deliberately broken.
+
+  it('refuses a DYNAMIC pool on KIND alone, not because its rate happens to read zero', () => {
+    // A real dynamic pool reports rewardAmountRaw '0' / rewardPeriodSecs 0, so
+    // the rate guards catch it and the `kind` check never has to fire. Hand it a
+    // rate it cannot really have: `kind` must be what refuses, or the guard is
+    // decorative and a future dynamic program that does carry a rate gets a cap
+    // invented for it.
+    const impossible = { ...DYNAMIC, rewardAmountRaw: '7', rewardPeriodSecs: 1 };
+    expect(maxSafeStakeRaw(POOL, impossible, 31_536_000)).toBeNull();
+  });
+
+  it('prices the cap off the LOCK WEIGHT, not off the pool maximum', () => {
+    // 90 days carries 1.978x, not the ladder's 5.00x. Derived independently of
+    // the implementation, from 30,500,570 / (weight x days):
+    //   30,500,570 / (1.978022 x 90) = 171,330 BAYLA.
+    // Reading pool.maxWeightScaled here instead quotes 67,779 — 2.5x too tight.
+    // The "more permissive for shorter locks" case above cannot catch that: the
+    // term alone already makes every one of its orderings hold.
+    const cap = maxSafeStakeRaw(POOL, FIXED, 90 * 86_400);
+    expect(cap).not.toBeNull();
+    expect(Number(cap! / 1_000_000n)).toBe(171_330);
+  });
+
+  it('takes the TIGHTEST of two REAL caps, not the roomiest', () => {
+    // [DYNAMIC, FIXED] cannot show this — only one member yields a cap at all,
+    // so min and max agree and the comparison is never exercised. Two fixed
+    // pools disagree: the faster rate overflows sooner, and that is the one the
+    // position has to survive.
+    const slower = { ...FIXED, nonce: 2, rewardAmountRaw: '3' };
+    const tightest = maxSafeStakeAcrossPools(
+      { ...POOL, rewardPools: [slower, FIXED] as never },
+      31_536_000,
+    );
+    expect(tightest).toBe(maxSafeStakeRaw(POOL, FIXED, 31_536_000));
+    expect(Number(tightest! / 1_000_000n)).toBe(16_712);
+  });
+
+  it('DEGRADES to null on an unparseable rate — it must not throw at a render path', () => {
+    // BigInt('not-a-number') throws SyntaxError. This runs while the amount
+    // field renders, so a throw takes the panel down instead of dropping one
+    // number.
+    expect(() => maxSafeStakeRaw(POOL, { ...FIXED, rewardAmountRaw: 'not-a-number' }, 31_536_000)).not.toThrow();
+    expect(maxSafeStakeRaw(POOL, { ...FIXED, rewardAmountRaw: 'not-a-number' }, 31_536_000)).toBeNull();
+  });
+
+  it('DEGRADES to null on a non-finite duration, for the same reason', () => {
+    // BigInt(Math.trunc(NaN)) throws RangeError.
+    expect(() => maxSafeStakeRaw(POOL, FIXED, Number.NaN)).not.toThrow();
+    expect(maxSafeStakeRaw(POOL, FIXED, Number.NaN)).toBeNull();
+    expect(maxSafeStakeRaw(POOL, FIXED, Number.POSITIVE_INFINITY)).toBeNull();
+  });
 });
 
 describe('the offered lock ceiling', () => {
