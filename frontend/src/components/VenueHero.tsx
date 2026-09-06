@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
-import { OPEN_BUNGALOWS_EVENT } from '../lib/bungalows';
 import { HeatCard } from './HeatCard';
 
 /**
@@ -20,10 +18,8 @@ import { HeatCard } from './HeatCard';
  *    reading exists for any wallet, counted from its first buy.
  */
 export function VenueHero() {
-  const openBungalows = () => window.dispatchEvent(new Event(OPEN_BUNGALOWS_EVENT));
-  // Collapsed by default so the reading is one tap away without pushing the CTAs
-  // below the fold. See the disclosure below for why it is here at all.
-  const [openHeat, setOpenHeat] = useState(false);
+  // No local state left: the instrument is always open, so there is nothing to
+  // disclose and nothing to remember.
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
@@ -42,9 +38,11 @@ export function VenueHero() {
         {VENUE.heroPlain}
       </p>
 
-      <p className="text-white text-base md:text-lg mb-3 max-w-md leading-relaxed">
-        {VENUE.heroCopy}
-      </p>
+      {/* WAVE SEVEN, element B: VENUE.heroCopy used to sit here, four sentences
+          between the hook and the instrument. It is not deleted — it now opens
+          /start (OnboardingFlow), which is linked from this hero and is the page
+          a newcomer can return to and read without a wallet. The hero is three
+          lines now, and the third one is a question the field below answers. */}
       <p className="text-base md:text-lg mb-3 max-w-md leading-relaxed font-semibold" style={{ color: 'var(--color-kyle)' }}>
         {VENUE.heroHook}
       </p>
@@ -57,63 +55,58 @@ export function VenueHero() {
           HeatCard is wallet-free by construction: it falls back to a free-text
           address field ("0x… or a Solana address"), and is already embedded this
           way by LaunchGate. Nothing new is built here; it is mounted.
-          Collapsed by default so the three CTAs keep their position. */}
+          WAVE SEVEN, element B: it is NO LONGER COLLAPSED. The field and its Read
+          button render always, directly under the hook, because a disclosure that
+          hides the answer to the sentence immediately above it is a wall with a
+          handle on it. The Read button is now the only filled button in the hero. */}
       <div className="mb-6 max-w-md">
-        <button
-          type="button"
-          onClick={() => setOpenHeat((v) => !v)}
-          aria-expanded={openHeat}
-          className="text-[13px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
-          style={{ color: 'var(--color-kyle)' }}
-        >
-          {openHeat ? 'Hide' : 'Read your Heat — paste any address, no wallet needed'}
-        </button>
-        {openHeat && (
-          <div className="mt-3">
-            {/* The mechanical definition sits WITH the instrument, so the number
-                and the sentence that explains it are never separated. Both come
-                from lib/arrival.ts, which sources them from heatOracle.ts. */}
-            <p className="text-white/80 text-[12px] leading-relaxed mb-1">{VENUE.heatPlain}</p>
-            <p className="text-[12px] leading-relaxed mb-3" style={{ color: 'var(--color-kyle)' }}>
-              {VENUE.heatExample}
-            </p>
-            <HeatCard variant="embedded" />
-          </div>
-        )}
+        <HeatCard variant="embedded" />
+
+        {/* Under the card, in venue voice. The first sentence answers the question
+            every multi-wallet holder asks on sight, and answers it honestly rather
+            than pretending the island can see across wallets by itself. The second
+            says what to do about it, at the island's door, which is the only place
+            it can be done. */}
+        <p className="text-white/70 text-[12px] leading-relaxed mt-3">
+          Held time is measured per wallet. A bag moved to a new wallet starts that
+          wallet&apos;s clock at the move.
+        </p>
+        <p className="text-white/70 text-[12px] leading-relaxed mt-2">
+          Hold in several wallets?{' '}
+          <a
+            href="https://memetics.wtf/register"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-4"
+            style={{ color: 'var(--color-kyle)' }}
+          >
+            Bring them together at the island&apos;s door
+          </a>{' '}
+          and every one of them reads your whole flame.
+        </p>
+
+        {/* The mechanical definition stays WITH the instrument, so the number and
+            the sentence that explains it are never separated. Both come from
+            lib/arrival.ts, which sources them from heatOracle.ts. */}
+        <p className="text-white/60 text-[12px] leading-relaxed mt-3">{VENUE.heatPlain}</p>
+        <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'var(--color-kyle)' }}>
+          {VENUE.heatExample}
+        </p>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          onClick={openBungalows}
-          className="btn-primary px-7 py-2.5 text-[14px] inline-block text-center"
-          aria-label="Open the bungalow picker"
-        >
-          Pick a bungalow
-        </button>
-        {/* AE1(b), 2026-09-03: this was a FILLED gold gradient at the same 43px
-            height as the primary beside it. Three CTAs at equal weight is a
-            hierarchy problem on its own, but the specific harm was that the
-            loudest one — highest chroma, filled, warm against a cool ground —
-            was the ADVANCED path. The eye went to "Launch on Heat" first, which
-            is the action a first-time visitor is least ready for.
-            Outlined now, keeping the exact gold hue so nothing about the
-            venue's palette changes: same colour, less shout. "Pick a bungalow"
-            is the only filled button in the hero. */}
-        <Link
-          to="/launch"
-          className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#d4a843]"
-          style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(212,168,67,0.55)', color: '#d4a843', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-        >
-          Launch on Heat
-        </Link>
-        <Link
-          to="/scan"
-          className="px-7 py-2.5 text-[14px] font-semibold rounded-lg transition-all inline-block text-center hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#4CAF50]"
-          style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-        >
-          Scan any token
-        </Link>
-      </div>
+      {/* THE THREE CTAs ARE GONE FROM THE HERO, and none of them is orphaned.
+          AE1(b) already found that three near-equal buttons here were a hierarchy
+          problem; wave seven finishes the thought. A stranger now meets ONE number
+          before meeting any choice, and the choosing happens under the hall, in
+          <ThreePaths>, where they arrive having already seen what the place is.
+
+          Where each one went:
+            "Pick a bungalow"  -> the HOLD path, plus the hall itself directly
+                                  below, plus the picker's three other doors
+                                  (TopNav, Footer, BungalowDoorLanding).
+            "Launch on Heat"   -> the LAUNCH path, and navConfig's Launch section.
+            "Scan any token"   -> navConfig's Token Scanner (/scan).
+          The only filled button in the hero is now the instrument's own Read. */}
 
       {/* ARRIVAL FLOW 2026-08-31: orientation by invitation. The venue never
           auto-opens its welcome; this quiet pill is the door to the tour. */}

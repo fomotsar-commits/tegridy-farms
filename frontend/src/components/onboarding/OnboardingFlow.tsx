@@ -46,7 +46,17 @@ export default function OnboardingFlow() {
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-white">Start here</h1>
-          <p className="text-white/50 text-xs mt-1">
+          {/* WAVE SEVEN, element B: the venue's four-sentence self-description used
+              to be the third paragraph of the arrival hero, where it sat between
+              the hook and the instrument and pushed the number below the fold. The
+              hero keeps three lines now; this is where the paragraph LANDS, so it
+              is moved rather than deleted. It is still the only place the venue
+              describes itself at length, and /start is the page a newcomer can
+              come back to and read without a wallet. */}
+          <p className="text-white/75 text-[13.5px] leading-relaxed mt-3 max-w-2xl">
+            {VENUE.heroCopy}
+          </p>
+          <p className="text-white/50 text-xs mt-3">
             Step {current + 1} of {steps.length}
           </p>
         </div>

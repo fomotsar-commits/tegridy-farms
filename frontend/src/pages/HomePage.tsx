@@ -38,6 +38,7 @@ import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
 import { arrivalVoice, VENUE } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
 import { VenueDoors } from '../components/VenueDoors';
+import { ThreePaths } from '../components/ThreePaths';
 import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
@@ -607,6 +608,14 @@ export default function HomePage() {
             move in. Venue voice only: toweli keeps the classic home whole,
             an identity bungalow keeps its token-first home. */}
         {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <VenueDoors />}
+
+        {/* WAVE SEVEN, element C: THE THREE PATHS, on the same gate and directly
+            after the hall. This is where the hero's three CTAs went. A visitor
+            reaches it having already read one number and seen thirteen doors, so
+            the choice is made with context instead of before it. Each card states
+            its own requirement at the point of intent, and the launch floor is
+            read from the same config the gate enforces with, never typed. */}
+        {!bungalowIdentity && !IS_TOWELI_ARRIVAL && <ThreePaths />}
 
         {/* ARRIVAL FLOW 2026-08-31 (the noise cut): the farm's body speaks
             only in the farm's room. Core Loop, By the Numbers, the pulse and
