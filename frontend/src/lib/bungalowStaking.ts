@@ -195,6 +195,32 @@ export function claimCeilingReached(
   return accounted > CLASSIC_ACCOUNTED_CEILING;
 }
 
+/**
+ * The reward pools this entry could still be PAID from — i.e. everything the
+ * rescue exit is about to close and throw away for nothing.
+ *
+ * The rescue closes every reward entry indiscriminately. Before a second pool
+ * existed that was harmless: the only entry was the broken one, and its
+ * accrual was unreachable anyway. With a dynamic pool attached it is no longer
+ * harmless, because the dynamic entry is perfectly claimable and closing it
+ * simply destroys the balance. Claim these first, then rescue.
+ *
+ * A pool whose accrual cannot be READ is included: an unknown must not be
+ * silently written off, and a claim that turns out to be empty costs a fee and
+ * tells the truth, which is the better failure of the two.
+ */
+export function claimablePoolsBefore(
+  entry: Pick<StakeEntryView, 'accountedRaw' | 'pendingRaw'>,
+  rewardPools: RewardPoolView[],
+): RewardPoolView[] {
+  return rewardPools.filter((rp) => {
+    if (claimCeilingReached(entry, rp)) return false;      // cannot be paid — nothing to save
+    const pending = entry.pendingRaw?.[rp.nonce];
+    if (pending === null || pending === undefined) return true;  // unreadable: assume it matters
+    return pending > 0n;
+  });
+}
+
 /** True when ANY reward pool on this entry is past the ceiling. */
 export function anyClaimCeilingReached(
   entry: Pick<StakeEntryView, 'accountedRaw'>,
@@ -863,6 +889,29 @@ function writeFailure(err: unknown, fallback: string): Failure {
         'Your staked BAYLA is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
     };
   }
+  // A DRAINED pool reports a DIFFERENT NUMBER on each reward program, and one
+  // of those numbers means something else entirely on a third program:
+  //
+  //   classic RWRDdfRbi… 6012 RewardPoolDrained
+  //   dynamic RWRDyfZa…  6013 RewardPoolDrained   <-- same condition, new code
+  //   stake   STAKEvGqQ… 6013 LockedStake         <-- SAME NUMBER, different meaning
+  //
+  // So 6013 alone is ambiguous and must never be mapped blind. It is only the
+  // drained-vault case when the failing program is a REWARD program, which the
+  // Anchor message states outright — hence matching on the name rather than the
+  // number. Getting this backwards would tell someone their lock had not opened
+  // when in fact the vault was short, or vice versa.
+  //
+  // Verified by simulation 2026-09-06 against live dynamic pool 9YJfse8B…:
+  // `AnchorError ... Error Code: RewardPoolDrained. Error Number: 6013`.
+  if (/RewardPoolDrained/i.test(msg) || /\b6013\b/.test(msg) && /reward/i.test(msg)) {
+    return {
+      ok: false,
+      reason:
+        'The reward vault cannot cover this payout right now, so it reverted — nothing moved, nothing is lost. ' +
+        'This one DOES clear: it works again as soon as the vault is topped up, and rewards keep accruing meanwhile.',
+    };
+  }
   // A confirmation timeout is NOT "nothing moved": web3's TransactionExpired*
   // errors fire AFTER the transaction was broadcast, and it may still land.
   // Asserting "nothing moved" there invites a duplicate stake (a second
@@ -1007,6 +1056,16 @@ export async function unstakeAndClaim(args: {
  * `unstake` (error 6013 `LockedStake`) exactly as before, so this cannot be
  * used to leave before maturity. Streamflow has no early exit at any price and
  * this does not add one.
+ *
+ * IT CLOSES **EVERY** REWARD ENTRY, NOT JUST THE BROKEN ONE (2026-09-06). The
+ * SDK takes a `rewardPools` array and closes the entry on each, so the moment a
+ * second reward pool is attached this stops being "forfeit the stranded classic
+ * rewards" and becomes "forfeit the WORKING dynamic rewards too". That is a
+ * silent, uncompensated loss, and it appears the day the dynamic pool goes live
+ * — not before — which is exactly the kind of latent defect that ships.
+ *
+ * `claimablePoolsBefore` below is the fix: it names the pools this rescue can
+ * still be paid out of, so the caller claims those FIRST and only then closes.
  */
 export async function unstakeAndCloseForfeitingRewards(args: {
   invoker: SignerWalletAdapter;

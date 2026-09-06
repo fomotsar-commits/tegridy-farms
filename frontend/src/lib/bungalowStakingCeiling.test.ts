@@ -9,6 +9,7 @@ import {
   offeredMaxLockDays,
   lockCeilingApplies,
   lockPresets,
+  claimablePoolsBefore,
 } from './bungalowStaking';
 
 /**
@@ -144,5 +145,45 @@ describe('the offered lock ceiling', () => {
   it('the capped ladder still starts at the pool minimum', () => {
     const capped = lockPresets(BAYLA, OFFERED_LOCK_CEILING_DAYS).map((p) => p.days);
     expect(capped[0]).toBe(1);
+  });
+});
+
+describe('two reward pools — what the rescue exit must not throw away', () => {
+  const DEAD = { nonce: 0, kind: 'fixed' as const, rewardAmountRaw: '7', rewardPeriodSecs: 1 } as never;
+  const LIVE = { nonce: 1, kind: 'dynamic' as const, rewardAmountRaw: '0', rewardPeriodSecs: 0 } as never;
+  const over = CLASSIC_ACCOUNTED_CEILING + 1n;
+
+  it('keeps the WORKING dynamic pool and drops the dead classic one', () => {
+    // The exact state BAYLA is in the day the dynamic pool goes live: the
+    // classic entry is bricked, the dynamic entry is fine and holds real money.
+    const e = { accountedRaw: { 0: over, 1: null }, pendingRaw: { 0: 43_555_365n, 1: 900_000n } };
+    const keep = claimablePoolsBefore(e, [DEAD, LIVE]);
+    expect(keep.map((p) => p.nonce)).toEqual([1]);
+  });
+
+  it('drops a pool with genuinely nothing pending — a claim there is a wasted fee', () => {
+    const e = { accountedRaw: { 0: 0n, 1: null }, pendingRaw: { 0: 0n, 1: 0n } };
+    expect(claimablePoolsBefore(e, [DEAD, LIVE])).toEqual([]);
+  });
+
+  it('KEEPS a pool whose accrual could not be read — an unknown is never written off silently', () => {
+    const e = { accountedRaw: { 0: 0n, 1: null }, pendingRaw: { 0: null, 1: null } };
+    expect(claimablePoolsBefore(e, [DEAD, LIVE]).map((p) => p.nonce)).toEqual([0, 1]);
+  });
+
+  it('today, with only the classic pool attached and it dead, there is nothing to save first', () => {
+    const e = { accountedRaw: { 0: over }, pendingRaw: { 0: 43_555_365n } };
+    expect(claimablePoolsBefore(e, [DEAD])).toEqual([]);
+  });
+});
+
+describe('writeFailure distinguishes the two 6013s', () => {
+  it('reads a REWARD-program 6013 as a drained vault that clears', () => {
+    const msg = 'AnchorError thrown in claim_rewards.rs:221. Error Code: RewardPoolDrained. Error Number: 6013.';
+    expect(/RewardPoolDrained/i.test(msg) || (/\b6013\b/.test(msg) && /reward/i.test(msg))).toBe(true);
+  });
+  it('does NOT read a STAKE-program 6013 (LockedStake) as a drained vault', () => {
+    const msg = 'AnchorError thrown in unstake/base.rs:220. Error Code: LockedStake. Error Number: 6013.';
+    expect(/RewardPoolDrained/i.test(msg) || (/\b6013\b/.test(msg) && /reward/i.test(msg))).toBe(false);
   });
 });
