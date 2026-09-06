@@ -83,9 +83,13 @@ export const HEAT_K = 60;
  * several measured tokens deeply for five months while passing the wallet that has held
  * dust for six. The instrument IS the time rule.
  *
- * The half-year figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment
- * ("arrivals prove half a year, births don't") and, per spec, never appears in venue
- * code. See docs/HEAT_WAVE_TWO.md for the full record of that reversal (an earlier
+ * The figure that motivated the old floor is ISLAND-SIDE ENROLLMENT judgment and, per
+ * spec, never appears in venue code. The island re-cut that judgment on 2026-08-24: an
+ * arriving token now anchors at least NINETY DAYS past launch and then stands a
+ * measured ninety days. Its grammar, verbatim: "Arrivals prove ninety days. Births
+ * don't." This comment said "half a year" until wave seven's answer one, which made it
+ * a false attribution to the island for a fortnight.
+ * See docs/HEAT_WAVE_TWO.md for the full record of that reversal (an earlier
  * revision of this comment pointed at docs/HEAT_LAUNCH_GATE.md, which was never
  * written — the wave-two record is where the deviation flag actually lives).
  *
@@ -130,6 +134,15 @@ export interface HeatReading {
   breakdown: HeatBreakdownRow[];
   /** When OUR server read the upstream. Distinct from asOfUnix; never a substitute for it. */
   observedAt: number | null;
+  /**
+   * The X handle this flame is named with at the island's door, NORMALISED and stored
+   * WITHOUT its leading @ — see normalizeXHandle. Null means the flame is unnamed (or
+   * the upstream sent something that is not a usable handle).
+   *
+   * Stored bare so the island's "never compare handles with the @ in place" law is
+   * structural: there is only one form in memory, and painting adds the single @.
+   */
+  xHandle: string | null;
 }
 
 const TIER_WORDS = new Set<string>(['Elder', 'Builder', 'Resident', 'Observer', 'Drifter']);
@@ -170,6 +183,28 @@ export function heatEnvelopeFailure(payload: unknown): string | null {
   return null;
 }
 
+/**
+ * THE HANDLE LAW (island §5): strip every leading @, paint exactly one, and never
+ * compare handles with the @ in place. Returns the BARE handle, or null.
+ *
+ * IT ALSO VALIDATES, and that half is a security boundary rather than tidiness. This
+ * value comes from a third party and is about to become an `href` to x.com and a
+ * public byline on the board, the tape and every launch card. An unvalidated handle
+ * is an open redirect and a link-spoofing surface: `//evil.example`, `../../login`, a
+ * full `https://…` URL, or an RTL override that makes the rendered name read as
+ * somebody else's all survive a naive `replace(/^@+/, '')` and end up in the DOM.
+ *
+ * So we accept ONLY what X itself can issue — 1-15 of [A-Za-z0-9_] — and treat
+ * everything else as unnamed. An unnamed flame is a correct, honest render (the door
+ * line); a spoofed one is not. Failing closed here costs a real holder nothing,
+ * because a real handle always matches.
+ */
+export function normalizeXHandle(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const bare = raw.trim().replace(/^@+/, '');
+  return /^[A-Za-z0-9_]{1,15}$/.test(bare) ? bare : null;
+}
+
 /** Narrow the validated wire payload into our shape. Call only after heatEnvelopeFailure returns null. */
 export function parseHeatReading(payload: unknown): HeatReading {
   const p = payload as Record<string, unknown>;
@@ -183,6 +218,11 @@ export function parseHeatReading(payload: unknown): HeatReading {
     asOfUnix: typeof p.as_of_unix === 'number' ? p.as_of_unix : null,
     tokenCount: typeof p.token_count === 'number' ? p.token_count : rows.length,
     observedAt: typeof p.observedAt === 'number' ? p.observedAt : null,
+    // `/api/heat` serves `x_handle`; the BOARD (`/api/flames`) serves the same thing
+    // as `x_username`. Both names are real — read live 2026-09-06 — so neither reader
+    // may assume the other's spelling. A missing handle is an unnamed flame, NOT an
+    // envelope failure: heatEnvelopeFailure deliberately does not require this key.
+    xHandle: normalizeXHandle(p.x_handle),
     breakdown: rows.map((b) => ({
       tokenAddress: String(b.token_address ?? ''),
       chain: String(b.chain ?? ''),

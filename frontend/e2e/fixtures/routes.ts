@@ -571,6 +571,27 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    // WAVE SEVEN, element M. The shared read link. An unfurl BOT never reaches
+    // this route: middleware.js answers it at the edge with the holder's card,
+    // which is the whole reason the link exists. A HUMAN who clicks that card
+    // lands here and is handed to the instrument with the address already in
+    // it, so `?heat=` stays the one hydration path.
+    path: '/read/:address',
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'The read link hands a human to the instrument, hydrated, at /?heat=<address>.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
+    path: '/read',
+    owner: 'App.tsx',
+    gate: 'redirect',
+    why: 'A read link with no address is not an error page; it is the venue.',
+    redirectsTo: '/',
+    knownViolations: [],
+  },
+  {
     path: '/restake',
     owner: 'App.tsx',
     gate: 'redirect',
@@ -853,5 +874,8 @@ export function navigablePath(route: RouteSpec): string {
   // Zero address: every launcher probe fails -> the page's honest not-found
   // state, which still renders the h1 the sweep asserts.
   if (route.path === '/eth-curve/:token') return '/eth-curve/0x0000000000000000000000000000000000000000';
+  // Any well-formed address works: this leg only redirects to /?heat=<address>,
+  // and the instrument's own invalid-address state is covered by HeatCard's suite.
+  if (route.path === '/read/:address') return '/read/0x0000000000000000000000000000000000000000';
   return route.path;
 }

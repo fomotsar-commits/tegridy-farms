@@ -64,7 +64,7 @@ export function BirthQueuePanel() {
       </div>
       <p className="text-white/55 text-[12px] leading-relaxed mb-4 max-w-2xl">
         Every token launched here is announced to the island so its Heat is measured from birth rather than
-        after a half-year wait. A launch never waits on this: if the island is unreachable the birth stays
+        after a ninety-day wait. A launch never waits on this: if the island is unreachable the birth stays
         queued and retries, and the chain plus the token&apos;s JSON record remain the backfill truth.
       </p>
 

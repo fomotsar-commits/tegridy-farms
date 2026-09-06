@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { ISLAND_SECTION } from '../lib/navConfig';
 import { VENUE } from '../lib/arrival';
+import { FlamesBoard } from '../components/FlamesBoard';
 
 /**
  * IslandPage — the lobby behind the "Island" word.
@@ -62,6 +63,13 @@ export default function IslandPage() {
           about the venue rather than about a trade.
         </p>
       </header>
+
+      {/* WAVE SEVEN, element G: the lobby OPENS with the board. Twenty-five rows here
+          rather than the home's five, because someone who walked to /island came
+          looking for the island itself, not for a taste of it. It unmounts itself when
+          the island's board is off, so the five door cards below are never left
+          hanging under an empty heading. */}
+      <FlamesBoard limit={25} />
 
       {/* NO ArtImg ON THESE CARDS, DELIBERATELY. Every art-backed surface in
           this app is a registered (pageId, idx) in the studio inventory with a

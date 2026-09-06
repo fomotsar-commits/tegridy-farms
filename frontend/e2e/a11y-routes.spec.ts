@@ -210,7 +210,9 @@ test.describe('a11y — shared chrome', () => {
 test.describe('routes that redirect', () => {
   for (const route of REDIRECT_ROUTES) {
     test(`${route.path} lands on ${route.redirectsTo}`, async ({ page, walletMock: _w }) => {
-      await page.goto(route.path);
+      // navigablePath, not route.path: a redirect route may carry a param, and
+      // navigating to the literal "/read/:address" would assert nothing.
+      await page.goto(navigablePath(route));
       await expect(page, route.why).toHaveURL(new RegExp(`${route.redirectsTo!.replace('/', '\\/')}(\\?|$)`), {
         timeout: ROUTE_MOUNT_TIMEOUT,
       });

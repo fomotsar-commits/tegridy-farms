@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   heatEnvelopeFailure,
   parseHeatReading,
+  normalizeXHandle,
   isStale,
   tierFor,
   nextTier,
@@ -335,5 +336,85 @@ describe('the curve (display only — the oracle is the ruler)', () => {
     const floors = TIER_FLOORS.map((t) => t.floor);
     expect(floors).toEqual([...floors].sort((a, b) => b - a));
     expect(floors.at(-1)).toBe(0);
+  });
+});
+
+// ─── The handle law (island §5) ─────────────────────────────────────────────
+// "strip every leading @, paint exactly one, never compare handles with the @ in
+// place." The normaliser also VALIDATES, because this value becomes an href to
+// x.com and a public byline on the board, the tape and every launch card.
+
+describe('normalizeXHandle — the handle law', () => {
+  it('strips a leading @ and returns the bare handle', () => {
+    expect(normalizeXHandle('@_seacasa')).toBe('_seacasa');
+  });
+
+  it('reads a bare handle identically — the two forms cannot diverge', () => {
+    // The directive's own done-means: "@_seacasa" and "_seacasa" must paint the same.
+    expect(normalizeXHandle('_seacasa')).toBe(normalizeXHandle('@_seacasa'));
+  });
+
+  it('strips EVERY leading @, not just one', () => {
+    expect(normalizeXHandle('@@@ink_mfer')).toBe('ink_mfer');
+  });
+
+  it('tolerates surrounding whitespace from the wire', () => {
+    expect(normalizeXHandle('  @ink_mfer  ')).toBe('ink_mfer');
+  });
+
+  it('reads an unnamed flame as null rather than an empty byline', () => {
+    for (const empty of [null, undefined, '', '   ', '@', '@@', 42, {}, []]) {
+      expect(normalizeXHandle(empty)).toBeNull();
+    }
+  });
+
+  // The security half. Each of these survives a naive replace(/^@+/, '') and would
+  // reach the DOM as a link. An unnamed flame is honest; a spoofed one is not.
+  it.each([
+    ['//evil.example', 'protocol-relative URL — an open redirect in an href'],
+    ['https://evil.example', 'a whole URL where a handle belongs'],
+    ['../../login', 'path traversal out of x.com/'],
+    ['a/../../b', 'traversal in the middle'],
+    ['javascript:alert(1)', 'a script URL'],
+    ['name?next=evil', 'query smuggling'],
+    ['name#fragment', 'fragment smuggling'],
+    ['name with spaces', 'not an X handle'],
+    ['sixteencharacters', 'over X’s 15-character ceiling'],
+    ['emoji😀', 'non-ASCII'],
+    ['‮reversed', 'RTL override — renders as a different name than it links to'],
+  ])('refuses %s (%s)', (hostile) => {
+    expect(normalizeXHandle(hostile)).toBeNull();
+  });
+
+  it('accepts exactly what X itself can issue, and nothing wider', () => {
+    expect(normalizeXHandle('a')).toBe('a');
+    expect(normalizeXHandle('A_1')).toBe('A_1');
+    expect(normalizeXHandle('123456789012345')).toBe('123456789012345'); // 15, the ceiling
+    expect(normalizeXHandle('1234567890123456')).toBeNull(); // 16, over it
+  });
+});
+
+describe('parseHeatReading — the handle rides the reading', () => {
+  it('normalises the island’s x_handle onto the reading', () => {
+    const r = parseHeatReading({ ...WARM, x_handle: '@_seacasa' });
+    expect(r.xHandle).toBe('_seacasa');
+  });
+
+  it('reads a flame with no name as unnamed, not as a failure', () => {
+    // The live cold reference address answers exactly this: "x_handle": null.
+    expect(parseHeatReading({ ...WARM, x_handle: null }).xHandle).toBeNull();
+    expect(parseHeatReading(WARM).xHandle).toBeNull(); // key absent entirely
+  });
+
+  it('a missing handle is NEVER an envelope failure', () => {
+    // The inversion to avoid: an unnamed holder reading as an unreachable oracle.
+    expect(heatEnvelopeFailure({ ...WARM, x_handle: null })).toBeNull();
+    expect(heatEnvelopeFailure(WARM)).toBeNull();
+  });
+
+  it('a hostile handle degrades the flame to unnamed, not the whole reading', () => {
+    const r = parseHeatReading({ ...WARM, x_handle: '//evil.example' });
+    expect(r.xHandle).toBeNull();
+    expect(r.degrees).toBe(195.54); // the reading itself still stands
   });
 });
