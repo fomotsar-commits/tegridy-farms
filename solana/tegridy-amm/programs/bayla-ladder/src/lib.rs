@@ -742,12 +742,20 @@ fn exit_with_penalty(ctx: Context<Exit>, now: i64, penalty: u64) -> Result<()> {
 
 /* ═══════════════════════════════ accounts ═══════════════════════════════ */
 
+// EVERY Account / InterfaceAccount below is BOXED. First CI compile (2026-09-06):
+// `Exit::try_accounts` came in at 4152 bytes against SBF's 4096-byte frame — over
+// by 56 — and Stake / EmergencyWithdraw sit within a few bytes of the same line.
+// cp-swap boxes all of its InterfaceAccounts for exactly this; the workspace's
+// migration-rehearsal job even prints "Box large Account<T> fields" as the remedy.
+// Boxing moves the deserialised account to the heap and changes nothing else:
+// deref coercion carries every field access, method call and `&mut Pool` argument.
+
 #[derive(Accounts)]
 #[instruction(nonce: u8)]
 pub struct InitializePool<'info> {
     #[account(mut, address = deployer::ID @ LadderError::NotDeployAuthority)]
     pub payer: Signer<'info>,
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         init,
         payer = payer,
@@ -755,7 +763,7 @@ pub struct InitializePool<'info> {
         seeds = [POOL_SEED, mint.key().as_ref(), &[nonce]],
         bump,
     )]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(
         init,
         payer = payer,
@@ -765,7 +773,7 @@ pub struct InitializePool<'info> {
         seeds = [STAKE_VAULT_SEED, pool.key().as_ref()],
         bump,
     )]
-    pub stake_vault: InterfaceAccount<'info, TokenAccount>,
+    pub stake_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         init,
         payer = payer,
@@ -775,7 +783,7 @@ pub struct InitializePool<'info> {
         seeds = [REWARD_VAULT_SEED, pool.key().as_ref()],
         bump,
     )]
-    pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -785,9 +793,9 @@ pub struct Stake<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     /// Declared BEFORE `position`: its `next_nonce` seeds the position, and Anchor
     /// evaluates constraints in declaration order.
     #[account(
@@ -797,7 +805,7 @@ pub struct Stake<'info> {
         seeds = [USER_SEED, pool.key().as_ref(), owner.key().as_ref()],
         bump,
     )]
-    pub user_stats: Account<'info, UserStats>,
+    pub user_stats: Box<Account<'info, UserStats>>,
     #[account(
         init,
         payer = owner,
@@ -805,11 +813,11 @@ pub struct Stake<'info> {
         seeds = [POSITION_SEED, pool.key().as_ref(), owner.key().as_ref(), &user_stats.next_nonce.to_le_bytes()],
         bump,
     )]
-    pub position: Account<'info, Position>,
+    pub position: Box<Account<'info, Position>>,
     #[account(mut, constraint = owner_ata.mint == pool.mint && owner_ata.owner == owner.key())]
-    pub owner_ata: InterfaceAccount<'info, TokenAccount>,
+    pub owner_ata: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.stake_vault)]
-    pub stake_vault: InterfaceAccount<'info, TokenAccount>,
+    pub stake_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -819,9 +827,9 @@ pub struct Stake<'info> {
 pub struct Claim<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         has_one = pool,
@@ -829,11 +837,11 @@ pub struct Claim<'info> {
         seeds = [POSITION_SEED, pool.key().as_ref(), owner.key().as_ref(), &position.nonce.to_le_bytes()],
         bump = position.bump,
     )]
-    pub position: Account<'info, Position>,
+    pub position: Box<Account<'info, Position>>,
     #[account(mut, constraint = owner_ata.mint == pool.mint && owner_ata.owner == owner.key())]
-    pub owner_ata: InterfaceAccount<'info, TokenAccount>,
+    pub owner_ata: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.reward_vault)]
-    pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -843,9 +851,9 @@ pub struct Exit<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         has_one = pool,
@@ -853,7 +861,7 @@ pub struct Exit<'info> {
         seeds = [USER_SEED, pool.key().as_ref(), owner.key().as_ref()],
         bump = user_stats.bump,
     )]
-    pub user_stats: Account<'info, UserStats>,
+    pub user_stats: Box<Account<'info, UserStats>>,
     #[account(
         mut,
         close = owner,
@@ -862,13 +870,13 @@ pub struct Exit<'info> {
         seeds = [POSITION_SEED, pool.key().as_ref(), owner.key().as_ref(), &position.nonce.to_le_bytes()],
         bump = position.bump,
     )]
-    pub position: Account<'info, Position>,
+    pub position: Box<Account<'info, Position>>,
     #[account(mut, constraint = owner_ata.mint == pool.mint && owner_ata.owner == owner.key())]
-    pub owner_ata: InterfaceAccount<'info, TokenAccount>,
+    pub owner_ata: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.stake_vault)]
-    pub stake_vault: InterfaceAccount<'info, TokenAccount>,
+    pub stake_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.reward_vault)]
-    pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -879,9 +887,9 @@ pub struct EmergencyWithdraw<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         has_one = pool,
@@ -889,7 +897,7 @@ pub struct EmergencyWithdraw<'info> {
         seeds = [USER_SEED, pool.key().as_ref(), owner.key().as_ref()],
         bump = user_stats.bump,
     )]
-    pub user_stats: Account<'info, UserStats>,
+    pub user_stats: Box<Account<'info, UserStats>>,
     #[account(
         mut,
         close = owner,
@@ -898,11 +906,11 @@ pub struct EmergencyWithdraw<'info> {
         seeds = [POSITION_SEED, pool.key().as_ref(), owner.key().as_ref(), &position.nonce.to_le_bytes()],
         bump = position.bump,
     )]
-    pub position: Account<'info, Position>,
+    pub position: Box<Account<'info, Position>>,
     #[account(mut, constraint = owner_ata.mint == pool.mint && owner_ata.owner == owner.key())]
-    pub owner_ata: InterfaceAccount<'info, TokenAccount>,
+    pub owner_ata: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.stake_vault)]
-    pub stake_vault: InterfaceAccount<'info, TokenAccount>,
+    pub stake_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -910,9 +918,9 @@ pub struct EmergencyWithdraw<'info> {
 pub struct ClaimCarried<'info> {
     pub owner: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         has_one = pool,
@@ -920,11 +928,11 @@ pub struct ClaimCarried<'info> {
         seeds = [USER_SEED, pool.key().as_ref(), owner.key().as_ref()],
         bump = user_stats.bump,
     )]
-    pub user_stats: Account<'info, UserStats>,
+    pub user_stats: Box<Account<'info, UserStats>>,
     #[account(mut, constraint = owner_ata.mint == pool.mint && owner_ata.owner == owner.key())]
-    pub owner_ata: InterfaceAccount<'info, TokenAccount>,
+    pub owner_ata: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.reward_vault)]
-    pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -932,13 +940,13 @@ pub struct ClaimCarried<'info> {
 #[derive(Accounts)]
 pub struct Sweep<'info> {
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut, address = pool.stake_vault)]
-    pub stake_vault: InterfaceAccount<'info, TokenAccount>,
+    pub stake_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.reward_vault)]
-    pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -947,13 +955,13 @@ pub struct NotifyReward<'info> {
     #[account(address = pool.authority @ LadderError::Unauthorized)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     #[account(address = pool.mint)]
-    pub mint: InterfaceAccount<'info, Mint>,
+    pub mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut, constraint = funder_ata.mint == pool.mint && funder_ata.owner == authority.key())]
-    pub funder_ata: InterfaceAccount<'info, TokenAccount>,
+    pub funder_ata: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut, address = pool.reward_vault)]
-    pub reward_vault: InterfaceAccount<'info, TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -962,7 +970,7 @@ pub struct AuthorityOnly<'info> {
     #[account(address = pool.authority @ LadderError::Unauthorized)]
     pub authority: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
 }
 
 #[derive(Accounts)]
@@ -970,13 +978,13 @@ pub struct AcceptAuthority<'info> {
     #[account(address = pool.pending_authority @ LadderError::Unauthorized)]
     pub pending: Signer<'info>,
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
 }
 
 #[derive(Accounts)]
 pub struct ExecuteCapRaise<'info> {
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
 }
 
 /* ═════════════════════════════ layout tests ═════════════════════════════ */
