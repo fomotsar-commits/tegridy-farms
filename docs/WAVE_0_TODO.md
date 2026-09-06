@@ -32,6 +32,32 @@ All blocked on deployer `0xaA0caB9826f714A7be8FAC8fC98e87Fc27A54512` topping
 up (~0.013 ETH covers both scripts). Scripts use `vm.startBroadcast(pk)` —
 no `--private-key` flag needed.
 
+- [ ] **Redeploy `TegridyStaking`** — live at
+      `0xcaDc93E96De58EA554c71ca609974625615E046D`, and the source carries two
+      2026-09-05 security fixes the deployed bytecode does NOT have (commit
+      `539ba990`, tag `lend-eoa-whitelist-2026-09-05`):
+      * `[LEND-EOA-WHITELIST]` — the lending whitelist accepted a plain EOA or a
+        23-byte EIP-7702 delegated EOA, handing it the same transfer-guard
+        relaxation the restaking registry validates for. Now type-filtered at
+        propose AND execute time.
+      * `[LEND-RESIDUE-DEADLOCK]` — the residue/position guards were both gated
+        on `!_approved`, so APPROVING over existing untracked residue was a
+        permanent, permissionlessly-armable deadlock. Guard is now unconditional,
+        and mirrored onto `applyRestakingContract`'s incoming address.
+
+      Until this redeploy lands, the live contract is still vulnerable to both,
+      which is why the §4 whitelist step below carries a mandatory pre-check.
+      Neither is remotely exploitable (both writes are `onlyAdmin` behind the 48h
+      timelock) and the lending registry has **never held an entry on-chain** —
+      verified by log enumeration from deploy block 25,263,328 to head
+      25,912,642, against 83 events of positive control. So this is a
+      ship-with-the-next-redeploy item, not an emergency.
+
+      Size note: the fixes came in at 24,521 B — **55 B** under the EIP-170
+      ceiling, and 33 B SMALLER than the deployed 24,554 B. Ratcheted by
+      [`contracts/test/Audit_StakingEIP170Size.t.sol`](../contracts/test/Audit_StakingEIP170Size.t.sol);
+      re-measure before broadcasting.
+
 - [ ] **Redeploy `TegridyFeeHook`** with the source-patched constructor
       (`_owner` arg instead of `msg.sender`) so ownership lands on our EOA,
       not the Arachnid CREATE2 proxy. Mine the `0x0044` salt off-chain with
@@ -75,8 +101,40 @@ allowance + reward-funding calls the deploy scripts print as "NEXT STEPS".
 - [ ] **Staking ↔ NFT lending whitelist** —
       `TegridyStaking.proposeLendingContract(TEGRIDY_NFT_LENDING, true)` →
       wait 48h → `executeLendingContract()`.
+
+      > ⚠️ **READ TWO VALUES ON-CHAIN BEFORE PROPOSING — 2026-09-05
+      > [LEND-RESIDUE-DEADLOCK].** Against the CURRENTLY DEPLOYED staking
+      > bytecode (`0xcaDc93E96De58EA554c71ca609974625615E046D`), whitelisting an
+      > address that already carries unpaid reward residue **permanently
+      > deadlocks that residue and locks the registry slot**: once whitelisted
+      > the address counts as a tracked holder, so `claimUnsettled()` and
+      > `claimUnsettledFor()` both revert `Unauthorized`,
+      > `claimUnsettledForTokenId` pays from a per-tokenId ledger that is empty
+      > (it was never written, because the credit happened while the address was
+      > untracked), and the revoke that would undo it reverts
+      > `PendingLendingResidue`. The amount stays pinned inside
+      > `totalUnsettledRewards`, shrinking the reward pool for every staker,
+      > with no recovery path (`sweepToken` refuses the reward token).
+      >
+      > ```bash
+      > cast call 0xcaDc93E96De58EA554c71ca609974625615E046D "unsettledRewards(address)(uint256)" $TEGRIDY_NFT_LENDING --rpc-url $ETH_RPC_URL
+      > cast call 0xcaDc93E96De58EA554c71ca609974625615E046D "balanceOf(address)(uint256)" $TEGRIDY_NFT_LENDING --rpc-url $ETH_RPC_URL
+      > ```
+      >
+      > **Both MUST read 0.** Verified 0 / 0 on 2026-09-05 at head block
+      > 25,912,642 — but re-read them immediately before proposing, because
+      > `kick(uint256)` is PERMISSIONLESS and the 48h proposal window is public,
+      > so the value can change between propose and execute. If `unsettledRewards`
+      > is non-zero, drain it FIRST with `claimUnsettledFor(<addr>)` (which works
+      > precisely because the address is still untracked), then propose.
+      >
+      > The source fix makes this refuse itself rather than deadlock — the guard
+      > is now unconditional — but that fix is **NOT on the live contract**; it
+      > ships with the staking redeploy queued in §2 above. Until then this
+      > pre-check is the only protection.
+
 - [ ] **Staking ↔ new `TegridyLending`** (once V3Features lands) — same
-      two-step propose/execute pair.
+      two-step propose/execute pair, and the SAME pre-check above applies to it.
 - [ ] **`GaugeController` register gauges** —
       `proposeAddGauge(lpFarmAddress)` → wait 24h → `executeAddGauge()`
       per gauge that needs to vote-eligible.

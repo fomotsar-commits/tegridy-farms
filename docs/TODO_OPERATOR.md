@@ -29,6 +29,54 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-05 — PRIVILEGED-REGISTRY TYPE FILTERS — newest layer; supersedes everything below
+
+Commit `539ba990` on `claude/sad-hamilton-69698f`, tag `lend-eoa-whitelist-2026-09-05`.
+**Committed, NOT pushed, no PR opened.** 13 files, 3038 tests green, 30 new.
+
+A 204-agent adversarial sweep of the staking lending-whitelist fix found the same defect class
+repo-wide: **a slot that grants a security relaxation but never checks its entry is actually a
+contract** (`code.length == 0` = EOA; `== 23` = the `0xef0100‖addr` EIP-7702 delegation pointer,
+which HAS code and is still one private key). Four instances fixed, two left.
+
+### ⬜ REMAINING — an agent can do these alone
+
+- [ ] **`RevenueDistributor` restaking rotation has no type filter on either half.**
+      `proposeRestakingChange` (~`:717`) validates only `_restaking != address(0)`;
+      `executeRestakingChange` (~`:725`) validates nothing. Every sibling consumer of the same
+      interface filters. **LOW** — owner-gated, and the reads are gas-capped `try` calls, so a
+      bad entry degrades rather than bricks.
+      Fix: copy `MemeBountyBoard.setRestakingContract`'s three lines verbatim
+      (`uint256 codeLen = _restaking.code.length; if (codeLen == 0 || codeLen == 23) revert ...`)
+      into BOTH halves. Needs a `NotAContract` error added — the contract has none.
+- [ ] **`TegridyLending` accepted-collateral wire has no type filter on either half.**
+      `TegridyLendingAdmin.proposeAcceptedCollateral` (~`:405`) and
+      `TegridyLending.applyAcceptedCollateralChange` (~`:2612`) both zero-check only, while the
+      sibling `TegridyNFTLendingAdmin` (~`:149`) carries the full `codeLen > 0 && codeLen != 23`
+      gate PLUS an ERC165 preflight. **MEDIUM** but **not deployed** — `TEGRIDY_LENDING_ADDRESS`
+      is zeroed in `frontend/src/lib/constants.ts`, so this is pre-deploy hardening with no live
+      exposure. Do it before that contract ever ships.
+
+Both were verified at `file:line` by three independent refuters. Neither is a live exploit —
+both are owner-gated. They were kept OUT of `539ba990` deliberately: that diff already spans 6
+contracts, and widening a security change further costs more review quality than it buys.
+Each is a ~10-line change plus a mutation-checked test; model the test on
+[`contracts/test/Audit_AdminRotationEOA_2026_09_05.t.sol`](../contracts/test/Audit_AdminRotationEOA_2026_09_05.t.sol),
+which already covers the three fixed instances.
+
+### 🔴 REMAINING — only you can do these
+
+- [ ] **Push `539ba990` and open the PR** (base `mvp-launch`). Nothing is on a remote yet.
+- [ ] **Redeploy `TegridyStaking`** — the live contract at `0xcaDc93E9…046D` still runs pre-fix
+      bytecode. Tracked in [`WAVE_0_TODO.md`](WAVE_0_TODO.md) §2 with the full rationale.
+- [ ] **Before the queued staking↔NFT-lending whitelist**, read `unsettledRewards(addr)` and
+      `balanceOf(addr)` on the live staking contract — **both must be 0** or the whitelist
+      permanently deadlocks that residue against the DEPLOYED bytecode. Both read 0 on
+      2026-09-05, but `kick()` is permissionless and the 48h window is public, so re-read
+      immediately before proposing. Full runbook in [`WAVE_0_TODO.md`](WAVE_0_TODO.md) §4.
+
+---
+
 ## 🟢 2026-08-30 — ISLAND BUILDOUT (WO-3 dry-runs done) — newest layer; supersedes everything below
 
 Branch `claude/bungalow-buildout` (PR #341). Full plan: [`ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md).
