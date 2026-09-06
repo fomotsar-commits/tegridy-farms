@@ -5,7 +5,7 @@ import {
   T_CRACK_DURATION, T_EXIT_FINALIZE,
 } from './constants';
 import { preloadImages } from './preload';
-import { shouldSkipAtMount } from './skip';
+import { markArrivalSeen, shouldSkipAtMount } from './skip';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
   buildCrackPaths, MAX_PARTICLES,
@@ -565,12 +565,12 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
           const allDone = tickRagdollShards(exitDOMState.shards, W, H, now);
           if (allDone || exitElapsed >= T_EXIT_FINALIZE) {
             exitDOMState.cleanup();
-            sessionStorage.setItem('tf_loaded', '1');
+            markArrivalSeen();
             finalize();
             return;
           }
         } else if (exitElapsed >= T_EXIT_FINALIZE) {
-          sessionStorage.setItem('tf_loaded', '1');
+          markArrivalSeen();
           finalize();
           return;
         }
@@ -606,7 +606,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
 
         if (progress >= 1) {
           audioRef.current?.fadeOutAmbient(0.2);
-          sessionStorage.setItem('tf_loaded', '1');
+          markArrivalSeen();
           finalize();
           return;
         }

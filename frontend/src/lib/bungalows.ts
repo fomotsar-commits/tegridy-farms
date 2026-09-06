@@ -369,7 +369,9 @@ export const OPEN_BUNGALOWS_EVENT = 'tegridy:open-bungalows';
 
 /**
  * Surfaces that keep classic art in EVERY bungalow:
- *  - nav-logo: the TopNav replay button — a button, not a background.
+ *  - nav-logo: the TopNav mark on the way-back link — the venue's identity, not
+ *              a room's background. (It sat inside the splash-replay button until
+ *              wave seven element A retired that button and re-homed the mark.)
  *  - loader:   the intro splash. The island intro is shared; the bungalow
  *              choice comes AFTER it (and its slide titles are hardcoded to
  *              the classic pieces).

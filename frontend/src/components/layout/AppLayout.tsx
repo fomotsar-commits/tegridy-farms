@@ -12,6 +12,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 import { isChainConfigured, unconfiguredChainLabel } from '../../lib/chains';
 import { AppLoader } from '../loader';
+import { hasSeenArrival } from '../loader/skip';
 import { PriceProvider } from '../../contexts/PriceContext';
 import { ConfettiProvider } from '../Confetti';
 import { TransactionReceiptProvider } from '../TransactionReceipt';
@@ -135,9 +136,13 @@ export function AppLayout() {
   // fixtures) reads true here and never auto-opens the picker. It auto-opens
   // exactly once — first splash with no persisted choice — and any dismissal
   // persists a choice (see BungalowPicker), so it never nags.
-  const [freshSplash] = useState(() => {
-    try { return !sessionStorage.getItem('tf_loaded'); } catch { return false; }
-  });
+  // WAVE SEVEN, element A: reads through hasSeenArrival() rather than
+  // sessionStorage directly, so this and the loader's own decision can never
+  // disagree about what "already arrived" means. It answers to BOTH storages —
+  // the durable per-browser record and the transient per-session suppression the
+  // art studios and e2e fixtures rely on — which is exactly the set that used to
+  // read true here.
+  const [freshSplash] = useState(() => !hasSeenArrival());
   const [bungalowChosenAtMount] = useState(() => hasChosenBungalow());
   const [pickerDismissed, setPickerDismissed] = useState(false);
   // Footer's "Bungalows" button (and anything else) can reopen it any time.
