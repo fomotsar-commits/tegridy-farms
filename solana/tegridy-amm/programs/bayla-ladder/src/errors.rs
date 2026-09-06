@@ -55,4 +55,6 @@ pub enum LadderError {
     NothingToSweep,
     #[msg("Reward amount is too small to express as a per-second rate over the window — it would emit nothing")]
     RewardRateTooSmall,
+    #[msg("Mint carries a live mint authority — it could conjure the asset this pool prices")]
+    MintHasMintAuthority,
 }

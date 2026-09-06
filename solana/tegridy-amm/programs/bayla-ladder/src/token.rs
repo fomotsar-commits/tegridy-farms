@@ -92,7 +92,31 @@ pub fn transfer_from_vault<'a>(
 /// A FREEZE AUTHORITY is refused separately: it can freeze the vault's own token
 /// account and trap every staker's principal, defeating I-1 from outside the
 /// program entirely.
+///
+/// A LIVE MINT AUTHORITY is refused for the same reason and is strictly worse
+/// (AUDIT M-1, 2026-09-06 — the check was simply absent; `grep -rn mint_authority`
+/// returned nothing crate-wide, while the freeze rationale above covered it word for
+/// word). Because stake mint == reward mint, a minter can conjure the exact asset
+/// this ladder prices. Concretely: mint `deposit_cap`, stake it in one call, become
+/// ~100% of `total_weighted` — the accumulator's only divisor — take the entire
+/// funded window, and recover the principal penalty-free at maturity, at zero capital
+/// cost, while every other wallet is refused with `DepositCapExceeded`. It also
+/// removes the mitigating argument for M-4 (that occupying the cap costs the griefer
+/// the whole cap in locked capital).
+///
+/// Both checks sit ABOVE the legacy short-circuit deliberately. For a Tokenkeg mint
+/// the function returns immediately after them, so they are the entire gate.
+///
+/// WHAT THIS FORECLOSES, as a written decision rather than a side effect: an
+/// inflationary-rewards pool, where an authority mints emissions on demand instead of
+/// pre-funding them. The venue has already rejected that model, so refusing it here
+/// is the right trade — but it is a trade, and a future pool that wants it needs a
+/// different gate and a different disclosure, not a relaxed constant.
 pub fn assert_mint_admissible(mint_account: &InterfaceAccount<Mint>) -> Result<()> {
+    require!(
+        mint_account.mint_authority.is_none(),
+        LadderError::MintHasMintAuthority
+    );
     require!(
         mint_account.freeze_authority.is_none(),
         LadderError::MintHasFreezeAuthority

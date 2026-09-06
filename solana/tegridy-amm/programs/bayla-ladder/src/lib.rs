@@ -1077,6 +1077,7 @@ mod layout_tests {
         assert_eq!(LadderError::PrincipalInvariant as u32 + 6000, 6021);
         assert_eq!(LadderError::NothingToSweep as u32 + 6000, 6023);
         assert_eq!(LadderError::RewardRateTooSmall as u32 + 6000, 6024);
+        assert_eq!(LadderError::MintHasMintAuthority as u32 + 6000, 6025);
     }
 
     /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).
