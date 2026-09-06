@@ -228,7 +228,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     ? sameMintPools.reduce<bigint | null>((acc, rp) => (acc === null || rp.fundedRaw === null ? null : acc + rp.fundedRaw), 0n)
     : null;
   const minDays = pool ? Math.max(1, Math.ceil(pool.minDurationSecs / DAY)) : 1;
-  const maxDays = pool ? Math.max(minDays, Math.floor(pool.maxDurationSecs / DAY)) : minDays;
+  // The VENUE's ceiling, not the pool's — see OFFERED_LOCK_CEILING_DAYS. This
+  // clamps the presets, the custom-days input and `chosenDays` from one place,
+  // so no path can select a lock the ladder button never offered.
+  const maxDays = pool ? offeredMaxLockDays(pool) : minDays;
+  const poolMaxDays = pool ? Math.max(minDays, Math.floor(pool.maxDurationSecs / DAY)) : minDays;
+  const ceilingApplies = pool ? lockCeilingApplies(pool) : false;
   const presets = useMemo(() => (pool ? lockPresets(pool) : []), [pool]);
   // SAFE DEFAULT (2026-08-29): the SHORTEST lock the pool allows, never a
   // pre-selected 30 days — see defaultLockDays() for why this is a safety

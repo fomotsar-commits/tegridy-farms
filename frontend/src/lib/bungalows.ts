@@ -42,9 +42,12 @@ export interface BungalowIdentity {
   /** Quote pill under the CTAs (replaces the Towelie ticker). */
   museLine: string;
   museBy: string;
-  /** MuseBubble rotation pool (canon lines). Absent -> [museLine]. */
+  /** Rotation pool of canon lines. Absent -> [museLine]. Island canon: retained
+   *  in the registry, but no venue surface paints it since wave seven element E
+   *  retired the floating muse bubble. The hero pill paints museLine/museBy. */
   museLines?: readonly string[];
-  /** MuseBubble byline persona (e.g. 'the muse'). Absent -> museBy. */
+  /** Byline persona (e.g. 'the muse'). Absent -> museBy. Island canon, kept
+   *  and pinned by bungalows.test.ts; unpainted since element E. */
   museVoice?: string;
   /**
    * The resident's story card on the home page (rendered only in its own

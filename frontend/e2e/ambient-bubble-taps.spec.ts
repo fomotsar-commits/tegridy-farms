@@ -1,7 +1,7 @@
 /**
  * THE AMBIENT BUBBLES MUST NOT EAT THE PAGE'S TAPS.
  *
- * <TowelieAssistant> and <MuseBubble> both float a panel in the bottom-right
+ * <TowelieAssistant> floats a panel in the bottom-right
  * corner, and on a phone both sit at `bottom-20` to clear <BottomNav> — which
  * parks an opaque ~100-150px panel squarely OVER page content rather than in a
  * margin beside it. While that panel was `pointer-events-auto`, every tap that
