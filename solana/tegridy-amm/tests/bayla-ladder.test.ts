@@ -40,6 +40,7 @@ import {
   getAccount,
   mintTo,
   setAuthority,
+  transferChecked,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -149,6 +150,47 @@ describe("bayla-ladder", () => {
     return ata;
   }
 
+  /**
+   * Move tokens to a test wallet AFTER the mint authority has been revoked.
+   *
+   * `fund` MINTS, which the gate makes impossible the moment `makePool` revokes — and
+   * that is not a flaw in the gate, it is the gate working. The first CI run failed
+   * five tests on exactly this ("the total supply of this token is fixed"): scaffolding
+   * that assumed it could keep minting a fixed-supply token. Everything after pool
+   * creation transfers from the payer's pre-minted balance instead.
+   */
+  async function distribute(
+    mint: PublicKey,
+    from: PublicKey,
+    owner: Keypair,
+    amount: BN,
+    programId = TOKEN_2022_PROGRAM_ID
+  ) {
+    const ata = await createAccount(
+      conn,
+      payer,
+      mint,
+      owner.publicKey,
+      undefined,
+      undefined,
+      programId
+    );
+    await transferChecked(
+      conn,
+      payer,
+      from,
+      mint,
+      ata,
+      payer,
+      BigInt(amount.toString()),
+      DECIMALS,
+      [],
+      undefined,
+      programId
+    );
+    return ata;
+  }
+
   async function revokeMintAuthority(
     mint: PublicKey,
     programId = TOKEN_2022_PROGRAM_ID
@@ -214,7 +256,7 @@ describe("bayla-ladder", () => {
     const userAta = await fund(
       mint,
       payer as unknown as Keypair,
-      tok(2_000_000),
+      tok(50_000_000),
       programId
     );
     await revokeMintAuthority(mint, programId);
@@ -411,7 +453,7 @@ describe("bayla-ladder", () => {
     before(async () => {
       ctx = await makePool({ nonce: 20 });
       alice = await newWallet();
-      aliceAta = await fund(ctx.mint, alice, tok(600_000));
+      aliceAta = await distribute(ctx.mint, ctx.userAta, alice, tok(600_000));
     });
 
     const stakeIx = (
@@ -510,7 +552,7 @@ describe("bayla-ladder", () => {
     before(async () => {
       ctx = await makePool({ nonce: 30 });
       bob = await newWallet();
-      bobAta = await fund(ctx.mint, bob, tok(100_000));
+      bobAta = await distribute(ctx.mint, ctx.userAta, bob, tok(100_000));
       await program.methods
         .stake(tok(10_000), new BN(MAX_LOCK))
         .accounts({
@@ -562,7 +604,12 @@ describe("bayla-ladder", () => {
 
     it("REFUSES a non-authority", async () => {
       const stranger = await newWallet();
-      const strangerAta = await fund(ctx.mint, stranger, tok(1_000));
+      const strangerAta = await distribute(
+        ctx.mint,
+        ctx.userAta,
+        stranger,
+        tok(1_000)
+      );
       await rejectsWith(
         program.methods
           .notifyReward(tok(100), new BN(0))
@@ -619,7 +666,7 @@ describe("bayla-ladder", () => {
     beforeEach(async () => {
       ctx = await makePool({ nonce: 40 + Math.floor(Math.random() * 200) });
       carol = await newWallet();
-      carolAta = await fund(ctx.mint, carol, tok(100_000));
+      carolAta = await distribute(ctx.mint, ctx.userAta, carol, tok(100_000));
       await program.methods
         .stake(tok(10_000), new BN(MAX_LOCK))
         .accounts({
@@ -874,7 +921,13 @@ describe("bayla-ladder", () => {
     it("declare_degraded is ONE-WAY and closes the pool to new stakes (audit M-3)", async () => {
       const ctx2 = await makePool({ nonce: 61 });
       const dave = await newWallet();
-      const daveAta = await fund(ctx2.mint, dave, tok(10_000));
+      const daveAta = await distribute(
+        ctx2.mint,
+        ctx2.userAta,
+        dave,
+        tok(10_000),
+        ctx2.programId
+      );
 
       // POSITIVE CONTROL: staking works before the flag
       await program.methods
@@ -980,7 +1033,7 @@ describe("bayla-ladder", () => {
     it("reports CU for every instruction on the principal path", async () => {
       const ctx = await makePool({ nonce: 90 });
       const eve = await newWallet();
-      const eveAta = await fund(ctx.mint, eve, tok(50_000));
+      const eveAta = await distribute(ctx.mint, ctx.userAta, eve, tok(50_000));
       const used: Record<string, number> = {};
 
       const measure = async (name: string, sig: string) => {
