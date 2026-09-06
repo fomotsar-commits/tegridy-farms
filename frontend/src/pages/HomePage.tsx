@@ -724,9 +724,20 @@ export default function HomePage() {
 
         {/* Protocol Overview — farm-shaped product grid (Stake TOWELI to earn
             now…). The venue arrival keeps its clean line; the nav and the
-            hero CTAs carry the product routes there. Toweli and bungalow
-            homes keep the grid exactly as it was. */}
-        {(bungalowIdentity || IS_TOWELI_ARRIVAL) && (
+            hero CTAs carry the product routes there.
+
+            WAVE SEVEN, element D: THE ROOM SPEAKS ONLY ITS OWN TOKEN. This grid
+            used to render in every bungalow (`bungalowIdentity || ...`), so
+            BAYLA's room and PEPE's room both told their visitors to "Stake
+            TOWELI to earn now" — another resident's token, in someone else's
+            house. The venue arrival was cleaned of it in wave five and the
+            rooms were missed.
+
+            TOWELI's own home keeps the grid exactly as it was; it is his
+            furniture and it is true there. Every other door drops it, and what
+            replaces it is the room's own held-time read (element B, scoped) —
+            a number about the token whose room you are standing in. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
