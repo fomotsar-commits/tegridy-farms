@@ -38,20 +38,14 @@ vi.mock('framer-motion', () => {
   return { m: passthrough, motion: passthrough, AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</> };
 });
 
-const CUSTOM: TokenInfo = {
-  address: '0x1111111111111111111111111111111111111111',
-  symbol: 'MINE',
-  name: 'My Token',
-  decimals: 18,
-};
 
-function mount(tokens: TokenInfo[] | undefined, customTokens: TokenInfo[] = []) {
+function mount(tokens: TokenInfo[] | undefined) {
   return render(
     <TokenSelectModal
       open
       onClose={() => {}}
       onSelect={() => {}}
-      customTokens={customTokens}
+      customTokens={[]}
       onAddCustomToken={() => {}}
       {...(tokens === undefined ? {} : { tokens })}
     />,
