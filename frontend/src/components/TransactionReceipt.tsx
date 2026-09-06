@@ -12,7 +12,6 @@ import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
-import { SITE_URL } from '../lib/constants';
 import { VENUE } from '../lib/arrival';
 import { artImgProps } from '../lib/artSrcSet';
 
@@ -242,6 +241,10 @@ function TransactionReceiptOverlay({
 
   // Share-to-X gating: pending shows a confirmation modal; failed disables.
   const [showPendingShareModal, setShowPendingShareModal] = useState(false);
+  // Whether the receipt image reached the clipboard on the last share. An X web
+  // intent cannot carry an attachment, so the poster pastes it - and we must not
+  // tell them to paste something that is not there. `null` = not shared yet.
+  const [shareHint, setShareHint] = useState<'ready' | 'no-image' | null>(null);
 
   // Escape closes the topmost layer only: the pending-share confirm sits INSIDE
   // the receipt card, so dismissing it must not also throw away the receipt.
@@ -258,16 +261,57 @@ function TransactionReceiptOverlay({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [showPendingShareModal, onClose]);
 
-  const performShare = useCallback(() => {
-    const verb = config.verb;
-    const text = `Just ${verb} on @JungleBayAC! \u{1F33F} #TOWELI #DeFi`;
-    // F11: fall back to the canonical live origin, not the unowned tegridyfarms.io.
-    const url = etherscanUrl ?? SITE_URL;
+  /**
+   * Render the card to a PNG on the clipboard. Resolves TRUE only when an image
+   * actually landed there, so a caller never tells the user to paste something
+   * that is not on their clipboard.
+   */
+  const copyCardImage = useCallback(async (): Promise<boolean> => {
+    if (!cardRef.current) return false;
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#060c1a',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+      });
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, 'image/png');
+      });
+      if (!blob) return false;
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const performShare = useCallback(async () => {
+    // SHARE THE RECEIPT, NOT A SLOGAN. This posted "Just <verb> on
+    // @JungleBayAC!" plus hashtags and a bare Etherscan link. It reads as spam,
+    // it says nothing a reader can act on, and its link preview is Etherscan's
+    // page rather than anything of ours. What people actually post is the
+    // receipt itself - venue, rule, then the numbers - so send exactly that:
+    // the same block `buildReceiptText` already produces for the clipboard.
+    //
+    // It also retires a bug class rather than fixing it once more. The hashtag
+    // was hardcoded `#TOWELI` while this component mounts app-wide, so a BAYLA
+    // staker's tweet went out tagged with another resident's ticker. The format
+    // carries no hashtag at all, so the venue can no longer speak for a resident.
+    //
+    // The image is copied BEFORE the popup: a clipboard write needs the click's
+    // user gesture and loses it once focus moves to the new window. A web intent
+    // cannot carry an attachment, so the poster pastes it - and the hint only
+    // claims the image is ready when the write actually succeeded.
+    const imageReady = await copyCardImage();
+    setShareHint(imageReady ? 'ready' : 'no-image');
+    const text = buildShareText(receipt, config, rows, chainId);
     window.open(
-      `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+      `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
       '_blank',
     );
-  }, [config.verb, etherscanUrl]);
+  }, [copyCardImage, receipt, config, rows, chainId]);
 
   const handleShareX = useCallback(() => {
     if (status === 'failed') return; // disabled
@@ -279,33 +323,17 @@ function TransactionReceiptOverlay({
   }, [status, performShare]);
 
   const handleCopyImage = useCallback(async () => {
-    if (!cardRef.current) return;
+    if (await copyCardImage()) return;
+    // Fallback: copy the receipt as text. `chainId` is in the dep list now - it
+    // is read here and was missing, so after a chain switch this closure kept
+    // building the previous chain's explorer link.
     try {
-      const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: '#060c1a',
-        scale: 2,
-        logging: false,
-        useCORS: true,
-      });
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        try {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': blob }),
-          ]);
-        } catch {
-          // Fallback: copy receipt as text
-          const text = buildReceiptText(receipt, config, rows, timestamp, chainId);
-          await navigator.clipboard.writeText(text);
-        }
-      }, 'image/png');
-    } catch {
-      // Fallback: copy receipt as text
       const text = buildReceiptText(receipt, config, rows, timestamp, chainId);
       await navigator.clipboard.writeText(text);
+    } catch {
+      /* no clipboard at all - nothing further to offer */
     }
-  }, [receipt, config, rows, timestamp]);
+  }, [copyCardImage, receipt, config, rows, timestamp, chainId]);
 
   return (
     <m.div
@@ -506,6 +534,18 @@ function TransactionReceiptOverlay({
             </button>
           </div>
 
+          {shareHint && (
+            <p
+              data-testid="receipt-share-hint"
+              className="text-[11px] text-center mt-3"
+              style={{ color: shareHint === 'ready' ? 'rgba(255,255,255,0.62)' : 'rgba(255,178,55,0.85)' }}
+            >
+              {shareHint === 'ready'
+                ? 'Receipt image copied \u{2014} paste it into the post (Ctrl+V).'
+                : 'Could not copy the receipt image \u{2014} use Copy Image, then paste.'}
+            </p>
+          )}
+
           {/* R040 M5: pending-share warning. Modal lives inside the card so a
               tap on backdrop dismisses just the modal, not the receipt. */}
           {showPendingShareModal && (
@@ -552,6 +592,44 @@ function TransactionReceiptOverlay({
 }
 
 /* ─── Text fallback for clipboard ─── */
+
+/**
+ * The block sent to X.
+ *
+ * Deliberately the SAME shape as `buildReceiptText` below, because that is what
+ * people actually post - the venue's timeline is full of pasted receipts, and a
+ * reader learns more from four labelled numbers than from any slogan. Two
+ * differences: no timestamp (X stamps the post itself) and a hard character
+ * budget, because the intent truncates silently and the numbers are the point.
+ */
+const TWEET_LIMIT = 280;
+/** X rewrites every link to exactly this length, whatever the original. */
+const TCO_LEN = 23;
+
+function buildShareText(
+  receipt: ReceiptData,
+  config: { label: string },
+  rows: { label: string; value: string }[],
+  chainId?: number,
+): string {
+  const head = [`\u{1F33F} ${VENUE.name}`, '\u{2501}'.repeat(30), '', config.label, ''];
+  const validHash = sanitizeTxHash(receipt.data.txHash);
+  const txUrl = validHash ? getTxUrl(chainId, validHash) : null;
+  const tail = txUrl ? ['', `Tx: ${txUrl}`] : [];
+
+  // Measure the link at its POSTED length, not its literal one, or a long
+  // explorer URL makes us drop rows we did not need to.
+  const cost = (lines: string[]) =>
+    lines.reduce((n, l) => n + l.length + 1, 0) + (txUrl ? TCO_LEN - txUrl.length : 0);
+
+  const body = rows.map((r) => `${r.label}: ${r.value}`);
+  // Drop detail rows from the end rather than let X cut a number in half. Keep
+  // at least one: a receipt with no figures is not worth posting.
+  while (body.length > 1 && cost([...head, ...body, ...tail]) > TWEET_LIMIT) {
+    body.pop();
+  }
+  return [...head, ...body, ...tail].join('\n');
+}
 
 function buildReceiptText(
   receipt: ReceiptData,
