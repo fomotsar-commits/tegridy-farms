@@ -3,7 +3,7 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadCont
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_ROUTER_ABI, TEGRIDY_FACTORY_ABI, ERC20_ABI, UNISWAP_V2_PAIR_ABI } from '../lib/contracts';
-import { TEGRIDY_ROUTER_ADDRESS, TEGRIDY_FACTORY_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { liquidityVenueOn, type LiquidityVenue } from '../lib/chains/liquidityVenue';
 import { type TokenInfo } from '../lib/tokenList';
 import { getTxUrl } from '../lib/explorer';
 import { surfaceTxError } from '../lib/txErrors';
@@ -14,6 +14,13 @@ const PLACEHOLDER_ADDR = '0x0000000000000000000000000000000000000001' as const;
 export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | null) {
   const { address } = useAccount();
   const chainId = useChainId();
+  /**
+   * Router + factory + WETH for the CONNECTED chain, resolved together so an
+   * address and a chainId can never come from different chains. Null where we
+   * cannot serve a venue — never a fallback to mainnet, because falling back is
+   * how a wallet on Robinhood signs a mainnet-addressed approval.
+   */
+  const venue = useMemo(() => liquidityVenueOn(chainId), [chainId]);
   const userAddr = address ?? PLACEHOLDER_ADDR;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
@@ -31,13 +38,13 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // Resolve addresses (substitute WETH for native ETH)
   const addrA = useMemo(() => {
     if (!tokenA) return ZERO_ADDR;
-    return (tokenA.isNative ? WETH_ADDRESS : tokenA.address) as `0x${string}`;
-  }, [tokenA]);
+    return (tokenA.isNative ? (venue?.weth ?? ZERO_ADDR) : tokenA.address) as `0x${string}`;
+  }, [tokenA, venue]);
 
   const addrB = useMemo(() => {
     if (!tokenB) return ZERO_ADDR;
-    return (tokenB.isNative ? WETH_ADDRESS : tokenB.address) as `0x${string}`;
-  }, [tokenB]);
+    return (tokenB.isNative ? (venue?.weth ?? ZERO_ADDR) : tokenB.address) as `0x${string}`;
+  }, [tokenB, venue]);
 
   const decimalsA = tokenA?.decimals ?? 18;
   const decimalsB = tokenB?.decimals ?? 18;
@@ -49,18 +56,23 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // Get pair address from Tegridy Factory
   const tokensSelected = !!tokenA && !!tokenB && addrA.toLowerCase() !== addrB.toLowerCase();
 
-  // F201: pin reads to CHAIN_ID. Without this, a wrong-network wallet queries
-  // TEGRIDY_FACTORY on the connected chain → getPair returns nothing →
-  // LiquidityTab shows the misleading "No pool exists … plant one" + zero
-  // balances instead of a switch-network prompt.
-  const onRightChain = chainId === CHAIN_ID;
+  // F201: reads are pinned to the RESOLVED venue's chain. Without a pin, a
+  // wrong-network wallet queried the mainnet factory address on whatever chain it
+  // was on — and on Base that address is a live swapFeeRouter, so getPair did not
+  // revert, it returned nothing and the tab showed "No pool exists … plant one".
+  //
+  // "Right chain" now means "we resolved a venue here", not "this is mainnet" —
+  // which is what lets Base and Robinhood add liquidity at all. Their factories
+  // hold ZERO pairs today (measured: allPairsLength() == 0, allPairs(0) reverts,
+  // factory nonce 0x1), and addLiquidity is the call that creates the first one.
+  const onRightChain = !!venue;
 
   const { data: pairAddress, refetch: refetchPair } = useReadContract({
-    address: TEGRIDY_FACTORY_ADDRESS,
+    address: venue?.factory ?? ZERO_ADDR,
     abi: TEGRIDY_FACTORY_ABI,
     functionName: 'getPair',
     args: [addrA, addrB],
-    chainId: CHAIN_ID,
+    chainId: venue?.chainId ?? 0,
     query: { enabled: onRightChain && tokensSelected },
   });
 
@@ -74,18 +86,18 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     // wallet's network. [T9 read-layer pin]
     contracts: [
       // Pair info
-      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID },
-      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0', chainId: CHAIN_ID },
-      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'totalSupply', chainId: CHAIN_ID },
+      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: venue?.chainId ?? 0 },
+      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'token0', chainId: venue?.chainId ?? 0 },
+      { address: pairAddr, abi: UNISWAP_V2_PAIR_ABI, functionName: 'totalSupply', chainId: venue?.chainId ?? 0 },
       // LP balance + allowance
-      { address: pairAddr, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
-      { address: pairAddr, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS], chainId: CHAIN_ID },
+      { address: pairAddr, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: venue?.chainId ?? 0 },
+      { address: pairAddr, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, venue?.router ?? ZERO_ADDR], chainId: venue?.chainId ?? 0 },
       // Token A balance + allowance (only for ERC20, not native ETH)
-      { address: addrA, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
-      { address: addrA, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS], chainId: CHAIN_ID },
+      { address: addrA, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: venue?.chainId ?? 0 },
+      { address: addrA, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, venue?.router ?? ZERO_ADDR], chainId: venue?.chainId ?? 0 },
       // Token B balance + allowance (only for ERC20, not native ETH)
-      { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
-      { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, TEGRIDY_ROUTER_ADDRESS], chainId: CHAIN_ID },
+      { address: addrB, abi: ERC20_ABI, functionName: 'balanceOf', args: [userAddr], chainId: venue?.chainId ?? 0 },
+      { address: addrB, abi: ERC20_ABI, functionName: 'allowance', args: [userAddr, venue?.router ?? ZERO_ADDR], chainId: venue?.chainId ?? 0 },
     ],
     query: { enabled: onRightChain && !!address, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
@@ -228,22 +240,26 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   // AUDIT FIX M-8: every action below short-circuits on wrong chain so the
   // user can't burn ETH approving / adding liquidity on a non-mainnet chain
   // where the router/factory addresses are unallocated or colliding.
-  function _ensureChain(): boolean {
-    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return false; }
-    return true;
+  function _ensureVenue(): LiquidityVenue | null {
+    if (!venue) {
+      toast.error('No liquidity venue on this network — switch to a supported chain');
+      return null;
+    }
+    return venue;
   }
 
   function approveTokenA(amount: string) {
-    if (!_ensureChain()) return;
+    const v = _ensureVenue();
+    if (!v) return;
     if (!tokenA || tokenA.isNative) return;
     lastActionRef.current = 'approve';
     try {
       writeContract({
-        chainId: CHAIN_ID,
+        chainId: v.chainId,
         address: addrA,
         abi: ERC20_ABI,
         functionName: 'approve',
-        args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, decimalsA)],
+        args: [v.router, parseUnits(amount, decimalsA)],
       });
     } catch {
       toast.error('Invalid amount for token A approval');
@@ -251,16 +267,17 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   }
 
   function approveTokenB(amount: string) {
-    if (!_ensureChain()) return;
+    const v = _ensureVenue();
+    if (!v) return;
     if (!tokenB || tokenB.isNative) return;
     lastActionRef.current = 'approve';
     try {
       writeContract({
-        chainId: CHAIN_ID,
+        chainId: v.chainId,
         address: addrB,
         abi: ERC20_ABI,
         functionName: 'approve',
-        args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, decimalsB)],
+        args: [v.router, parseUnits(amount, decimalsB)],
       });
     } catch {
       toast.error('Invalid amount for token B approval');
@@ -268,16 +285,17 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   }
 
   function approveLP(amount: string) {
-    if (!_ensureChain()) return;
+    const v = _ensureVenue();
+    if (!v) return;
     if (!pairExists) return;
     lastActionRef.current = 'approve';
     try {
       writeContract({
-        chainId: CHAIN_ID,
+        chainId: v.chainId,
         address: pairAddr,
         abi: ERC20_ABI,
         functionName: 'approve',
-        args: [TEGRIDY_ROUTER_ADDRESS, parseUnits(amount, 18)],
+        args: [v.router, parseUnits(amount, 18)],
       });
     } catch {
       toast.error('Invalid LP amount for approval');
@@ -286,7 +304,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // Add liquidity — dispatches to correct variant based on ETH involvement
   function addLiquidity(amountAStr: string, amountBStr: string, slippageBps = 50) {
-    if (!_ensureChain()) return;
+    const v = _ensureVenue();
+    if (!v) return;
     if (!address || !tokenA || !tokenB) return;
     lastActionRef.current = 'liquidity';
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800); // 30min
@@ -303,8 +322,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         const ethMin = (ethAmount * slippageFactor) / 10000n;
 
         writeContract({
-          chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS,
+          chainId: v.chainId,
+          address: v.router,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'addLiquidityETH',
           args: [tokenAddr, tokenAmount, tokenMin, ethMin, address, deadline],
@@ -318,8 +337,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         const amountBMin = (amountBWei * slippageFactor) / 10000n;
 
         writeContract({
-          chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS,
+          chainId: v.chainId,
+          address: v.router,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'addLiquidity',
           args: [addrA, addrB, amountAWei, amountBWei, amountAMin, amountBMin, address, deadline],
@@ -332,7 +351,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
 
   // Remove liquidity — dispatches to correct variant
   function removeLiquidity(lpAmount: string, slippageBps = 50) {
-    if (!_ensureChain()) return;
+    const v = _ensureVenue();
+    if (!v) return;
     if (!address || !tokenA || !tokenB || !pairExists) return;
     lastActionRef.current = 'liquidity';
     try {
@@ -351,8 +371,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         const ethOut = isAEth ? expectedA : expectedB;
 
         writeContract({
-          chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS,
+          chainId: v.chainId,
+          address: v.router,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'removeLiquidityETH',
           args: [
@@ -365,8 +385,8 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
         });
       } else {
         writeContract({
-          chainId: CHAIN_ID,
-          address: TEGRIDY_ROUTER_ADDRESS,
+          chainId: v.chainId,
+          address: v.router,
           abi: TEGRIDY_ROUTER_ABI,
           functionName: 'removeLiquidity',
           args: [

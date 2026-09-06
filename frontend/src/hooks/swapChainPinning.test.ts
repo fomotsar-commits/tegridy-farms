@@ -38,6 +38,11 @@ const SWAP_STACK = [
   'hooks/useSwap.ts',
   'hooks/useSwapQuote.ts',
   'hooks/useSwapAllowance.ts',
+  // Liquidity is in scope for the same reason and then some: addLiquidity is the
+  // call that CREATES a pair, and it reaches TEGRIDY_ROUTER_ADDRESS and
+  // TEGRIDY_FACTORY_ADDRESS — two of the seven collided addresses. Unpinned on
+  // Robinhood, the router constant IS that chain's swapFeeRouter.
+  'hooks/useAddLiquidity.ts',
 ];
 
 /**

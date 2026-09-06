@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
@@ -13,7 +13,6 @@ import { formatTokenAmountGrouped, formatBalance } from '../lib/formatting';
 import { computeRouteSavings, aggOutUnits } from '../lib/routeSavings';
 import { DCATab } from '../components/swap/DCATab';
 import { LimitOrderTab } from '../components/swap/LimitOrderTab';
-import { LiquidityTab } from '../components/swap/LiquidityTab';
 import { CowSwapPanel } from '../components/swap/CowSwapPanel';
 import { TwapOrderPanel } from '../components/swap/TwapOrderPanel';
 import { TriggerOrderTab } from '../components/swap/TriggerOrderTab';
@@ -25,7 +24,7 @@ import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
 
-type Tab = 'swap' | 'liquidity' | 'dca' | 'limit' | 'twap' | 'trigger';
+type Tab = 'swap' | 'dca' | 'limit' | 'twap' | 'trigger';
 
 /**
  * Truncate to 6dp, never round up. The 50%/MAX quick-fills previously used
@@ -50,14 +49,13 @@ const floor6 = (n: number): number => Math.floor(n * 1e6) / 1e6;
 // hunting the alert-rule store landed on a swap tab. One name per thing.
 const TAB_LABELS: Record<Tab, string> = {
   swap: 'Swap',
-  liquidity: 'Liquidity',
   dca: 'DCA',
   limit: 'Limit',
   twap: 'TWAP',
   trigger: 'Trigger',
 };
 
-const VALID_TABS: Tab[] = ['swap', 'liquidity', 'dca', 'limit', 'twap', 'trigger'];
+const VALID_TABS: Tab[] = ['swap', 'dca', 'limit', 'twap', 'trigger'];
 
 // `?tab=limit` is canonical again, matching the tab's label and its heading.
 // `?tab=alerts` — canonical while the tab was called "Alerts" — stays a silent
@@ -68,26 +66,38 @@ function tabFromQuery(v: string | null): Tab | null {
   return (VALID_TABS as string[]).includes(v) ? (v as Tab) : null;
 }
 
-// Resolve the active tab. ?tab= is the canonical knob; the legacy
-// /liquidity path is treated as a synonym for ?tab=liquidity, overridden
-// by an explicit ?tab= when both are present.
-function resolveInitialTab(pathname: string, searchParams: URLSearchParams): Tab {
+// Resolve the active tab. ?tab= is the canonical knob.
+//
+// The /liquidity synonym is gone with the tab: that path routes to
+// PoolsHostPage (App.tsx) and never reaches this component, so the branch was
+// dead code claiming to handle a case it could not see.
+function resolveInitialTab(searchParams: URLSearchParams): Tab {
   const q = tabFromQuery(searchParams.get('tab'));
   if (q) return q;
-  if (pathname.startsWith('/liquidity')) return 'liquidity';
   return 'swap';
 }
+
+/**
+ * `?tab=liquidity` is a REDIRECT now, not a synonym.
+ *
+ * The Liquidity tab moved out of this page — /liquidity routes to PoolsHostPage,
+ * which renders the same LiquidityTab component this page used to. Links shared
+ * while the tab lived here still exist, and `tabFromQuery` would resolve an
+ * unknown tab to 'swap', silently landing someone on the wrong surface. Sending
+ * them where the form actually went is the honest answer.
+ */
+const MOVED_TABS: Record<string, string> = { liquidity: '/liquidity' };
 
 export default function TradePage() {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<Tab>(() => resolveInitialTab(location.pathname, searchParams));
+  const [tab, setTab] = useState<Tab>(() => resolveInitialTab(searchParams));
   // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
     swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
-    liquidity: { title: 'Liquidity', desc: 'Add or remove liquidity on memetics.finance native pools.' },
     // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
     dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
     // UPDATED 2026-07-19: CoW is now the PRIMARY path in this tab — a real
@@ -117,11 +127,13 @@ export default function TradePage() {
   useEffect(() => { trackPageView('trade'); }, []);
 
   // Keep state in sync when the URL changes (Back/Forward, external links).
-  // ?tab= wins; path is only consulted when ?tab= is absent.
+  // ?tab= is the only knob now that the path synonym is gone.
   useEffect(() => {
-    const next = resolveInitialTab(location.pathname, searchParams);
+    const moved = MOVED_TABS[searchParams.get('tab') ?? ''];
+    if (moved) { navigate(moved, { replace: true }); return; }
+    const next = resolveInitialTab(searchParams);
     if (next !== tab) setTab(next);
-  }, [location.pathname, searchParams, tab]);
+  }, [location.pathname, searchParams, tab, navigate]);
 
   const handleTabChange = (next: Tab) => {
     setTab(next);
@@ -245,7 +257,7 @@ export default function TradePage() {
         {/* Tab Toggle */}
         <div
           role="tablist"
-          aria-label="Trade view — swap, liquidity, DCA, limit order, TWAP, or trigger order"
+          aria-label="Trade view — swap, DCA, limit order, TWAP, or trigger order"
           onKeyDown={tabKeys.onKeyDown}
           className="flex gap-1.5 mb-6 p-1 rounded-2xl overflow-x-auto"
           // F521: bumped the bar background 0.4 -> 0.85 (matches the NFT-finance
@@ -711,13 +723,6 @@ export default function TradePage() {
               </p>
             </div>
           </>
-        )}
-
-        {/* Liquidity Tab */}
-        {tab === 'liquidity' && (
-          <m.div role="tabpanel" id="trade-panel-liquidity" aria-labelledby="trade-tab-liquidity" tabIndex={0} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-2xl overflow-hidden outline-none" style={{ border: '1px solid var(--color-purple-12)' }}>
-            <LiquidityTab />
-          </m.div>
         )}
 
         {/* DCA Tab */}
