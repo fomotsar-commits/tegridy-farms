@@ -20,6 +20,7 @@ import { TriggerOrderTab } from '../components/swap/TriggerOrderTab';
 import { MevProtectionPanel } from '../components/swap/MevProtectionPanel';
 import { TokenSelectModal } from '../components/swap/TokenSelectModal';
 import { ChainSwitch } from '../components/swap/ChainSwitch';
+import { ChainSwapAvailability } from '../components/swap/ChainSwapAvailability';
 import { ArtImg } from '../components/ArtImg';
 import { useTowelie } from '../hooks/useTowelie';
 import { useTabListKeys } from '../hooks/useTabListKeys';
@@ -232,6 +233,14 @@ export default function TradePage() {
             the "More" menu, which is why a Solana bungalow's "Trade" landed on
             an ETH swap that could not touch its token. */}
         <ChainSwitch active="ethereum" />
+
+        {/* Why this form is empty, when the wallet is on a chain we serve but
+            cannot swap on. Renders nothing on Ethereum and nothing on an
+            unconfigured chain — the app-wide wrong-network banner owns that one.
+            Placed ABOVE the tab strip on purpose: every tab under it (Liquidity,
+            DCA, Limit, TWAP, Trigger) is pinned to mainnet by the same gate, so
+            the explanation belongs to the surface, not to the swap tab. */}
+        <ChainSwapAvailability chainId={chainId} />
 
         {/* Tab Toggle */}
         <div

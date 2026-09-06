@@ -56,6 +56,35 @@ export interface ChainCapabilities {
    * indexer reports unavailable regardless of what this says.
    */
   readonly indexed: boolean;
+  /**
+   * THE APP CAN QUOTE AND EXECUTE AN AMM SWAP ON THIS CHAIN.
+   *
+   * This is a statement about the FRONTEND, not about the chain. The venue's
+   * V2-fork factory and router are deployed and correctly wired on every chain
+   * in this registry — `router.factory()` and `router.WETH()` resolve to that
+   * chain's own pair — but the swap stack (useSwap / useSwapQuote /
+   * useSwapAllowance / the meta-aggregator) is pinned to `CHAIN_ID` and reads
+   * none of those slots. So "the contracts exist here" and "a swap can happen
+   * here" are different questions, and this answers the second one.
+   *
+   * WHY IT MUST NOT BE INFERRED FROM `contracts.router != null`. That was the
+   * shape that made the page lie: on Base and Robinhood the router IS present,
+   * every quote read is disabled by the chain gate, `outputAmount` falls to 0n
+   * and the CTA goes dead with no explanation — and the wrong-network banner
+   * stays silent because both chains ARE configured. A visitor got a broken
+   * page and no reason for it.
+   *
+   * SEPARATELY, AND ALSO TRUE ON 2026-09-05: neither L2 has any pool to route
+   * against. Measured on-chain, three independent ways per chain —
+   * `allPairsLength()` returns 0, `allPairs(0)` REVERTS (what an empty array
+   * does at index 0), and each factory's account nonce is 0x1, meaning it has
+   * never executed a single CREATE. `launchCount()` is 0 on both curve
+   * launchers, which is why: the pair-creation path has never run. So flipping
+   * this flag is necessary but NOT sufficient — wiring a chain whose factory
+   * holds no pairs produces a page that quotes nothing, which is the same
+   * silence in a new costume.
+   */
+  readonly ammSwap: boolean;
 }
 
 export interface ChainContracts {

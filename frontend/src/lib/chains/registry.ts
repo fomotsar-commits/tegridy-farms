@@ -68,6 +68,9 @@ const MAINNET: ChainConfig = {
     referrals: isDeployed(REFERRAL_SPLITTER_ADDRESS),
     protocolOwnedLiquidity: isDeployed(POL_ACCUMULATOR_ADDRESS),
     indexed: true,
+    // The only chain the swap stack is wired for — every read and write in
+    // useSwap/useSwapQuote pins `chainId: CHAIN_ID`, which is 1.
+    ammSwap: true,
   },
   contracts: {
     weth: WETH_ADDRESS,
@@ -111,6 +114,13 @@ const BASE: ChainConfig = {
     referrals: false,
     protocolOwnedLiquidity: false,
     indexed: false,
+    // FALSE FOR TWO INDEPENDENT REASONS, and both must clear before it flips.
+    // (1) The swap stack does not read this chain's router/factory at all.
+    // (2) This chain's factory holds ZERO pairs — verified on-chain 2026-09-05
+    //     via allPairsLength() == 0, a reverting allPairs(0), and a factory
+    //     account nonce of 0x1 (never executed a CREATE). launchCount() is 0
+    //     on the curve launcher, so nothing has ever graduated into a pair.
+    ammSwap: false,
   },
   contracts: {
     weth: '0x4200000000000000000000000000000000000006',
@@ -158,6 +168,13 @@ const ROBINHOOD: ChainConfig = {
     referrals: false,
     protocolOwnedLiquidity: false,
     indexed: false,
+    // FALSE FOR TWO INDEPENDENT REASONS, and both must clear before it flips.
+    // (1) The swap stack does not read this chain's router/factory at all.
+    // (2) This chain's factory holds ZERO pairs — verified on-chain 2026-09-05
+    //     via allPairsLength() == 0, a reverting allPairs(0), and a factory
+    //     account nonce of 0x1 (never executed a CREATE). launchCount() is 0
+    //     on the curve launcher, so nothing has ever graduated into a pair.
+    ammSwap: false,
   },
   contracts: {
     weth: '0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73',
