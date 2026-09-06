@@ -148,7 +148,16 @@ pub fn last_time_applicable(now: i64, period_finish: i64) -> i64 {
 /// take the principal exit with it. BURNS the interval (I-11) when `total_weighted`
 /// is below `floor`: a desynchronised ledger that leaves a dust residue must err
 /// toward surplus, not pay that residue the whole pool's emission. `dt` is clamped
-/// at zero (I-15): `unix_timestamp` is validator-reported and not monotone.
+/// at zero (I-15).
+///
+/// CORRECTED 2026-09-06 (audit INFO). This used to say the sysvar "is
+/// validator-reported and not monotone". That is true of validator VOTE timestamps and
+/// FALSE of the Clock sysvar: `Bank::update_clock` clamps
+/// `if timestamp_estimate < ancestor_timestamp { unix_timestamp = ancestor_timestamp }`,
+/// unconditionally and not feature-gated. The wrong claim made three separate reviewers
+/// treat a dead path as live. The clamp below stays as free defence-in-depth — it costs
+/// one comparison and removes the need to trust a runtime detail — but it is defence,
+/// not a live requirement.
 pub fn reward_per_weight(
     stored: u128,
     last_update: i64,
@@ -264,7 +273,11 @@ pub fn payable(owed: u128, reward_vault: u64) -> (u64, u128) {
     } else {
         reward_vault
     };
-    (pay, owed - pay as u128)
+    // `saturating_sub`, so I-8's "saturating on every decrement" is literally true here
+    // rather than merely provable. Both branches are underflow-free by construction —
+    // `owed < vault` gives exactly zero, otherwise `owed >= vault` — but the reasoning
+    // was not written down anywhere and a future edit should not have to re-derive it.
+    (pay, owed.saturating_sub(pay as u128))
 }
 
 /// The 25% early-exit penalty, exact. Rounds DOWN, so the leaver never pays a base

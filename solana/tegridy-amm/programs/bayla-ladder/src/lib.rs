@@ -76,8 +76,11 @@
 //! - **I-13** the deposit cap is raise-only, on a 48 h timelock.
 //! - **I-14** pay before close, on every path that does both (AUDIT C1, proven by
 //!   `contracts/test/vendor/LadderOrderingPoC.t.sol`).
-//! - **I-15** `unix_timestamp` is validator-reported, not monotone: every elapsed is
-//!   `saturating_sub`.
+//! - **I-15** every elapsed is `saturating_sub` and the checkpoint mark never moves
+//!   backwards. CORRECTED 2026-09-06: this used to assert the Clock sysvar "is not
+//!   monotone". It is — `Bank::update_clock` clamps to the ancestor timestamp
+//!   unconditionally. The non-monotone thing is a validator's VOTE timestamp, which
+//!   this program never reads. Kept as defence-in-depth, not as a live requirement.
 //!
 //! ## Deliberately absent
 //!
@@ -200,25 +203,58 @@ fn checkpoint(pool: &mut Pool, now: i64) {
     pool.rpw_residue = rpw_residue;
     pool.emitted_residue = emitted_residue;
     pool.reward_per_weight_stored = rpw;
-    pool.last_update_time = applicable;
+    // `.max(...)`: the READ is already clamped (math.rs), but nothing clamped the WRITE,
+    // so a backwards clock would move the mark back and the next forward interval would
+    // be emitted twice (reproduced at 1.988x in a harness). Unreachable — the Clock
+    // sysvar is monotone — but it costs one comparison. See I-15.
+    pool.last_update_time = applicable.max(pool.last_update_time);
 }
 
 /// Synthetix `updateReward(account)` for one position, AFTER the pool checkpoint.
 /// I-9 is checked here because this is the one place the position's weight is
 /// multiplied by an accumulator delta.
-fn accrue_position(pool: &Pool, position: &mut Position) -> Result<()> {
-    require!(
-        position.weight <= pool.total_weighted,
-        LadderError::WeightInvariant
-    );
+/// `strict = false` is used by the EMERGENCY HATCH ONLY.
+///
+/// I-9's `require!` is correct everywhere it can refuse without stranding anything —
+/// but `emergency_withdraw` is not such a place. That instruction is the program's
+/// central promise, and a `require!` on its path converts a survivable accounting
+/// drift into permanently trapped principal. The reference floors here instead and
+/// says why (LighthouseLadder.sol `_close`), which is the same reasoning that makes
+/// every ledger decrement `saturating_sub` (I-8) — it is incoherent to tolerate a
+/// desynchronised ledger everywhere and then assert against it on the exit.
+///
+/// Unreachable today: `total_weighted`'s only writers are the paired `saturating_add`
+/// in `stake` and `saturating_sub` in `debit_closed`, and `total_weighted <=
+/// 4 x u64::MAX ~ 7.4e19` cannot saturate a u128. This is defence-in-depth pointed the
+/// right way round, not a live fix.
+fn accrue_position_inner(pool: &Pool, position: &mut Position, strict: bool) -> Result<()> {
+    if strict {
+        require!(
+            position.weight <= pool.total_weighted,
+            LadderError::WeightInvariant
+        );
+    }
+    // Clamped either way, so the multiply in `earned` stays bounded by the analysis in
+    // math.rs whichever path got here.
+    let weight = position.weight.min(pool.total_weighted);
     position.rewards_owed = earned(
-        position.weight,
+        weight,
         pool.reward_per_weight_stored,
         position.reward_per_weight_paid,
         position.rewards_owed,
     );
     position.reward_per_weight_paid = pool.reward_per_weight_stored;
     Ok(())
+}
+
+/// Every path except the hatch: refuse a desynchronised ledger rather than paying on it.
+fn accrue_position(pool: &Pool, position: &mut Position) -> Result<()> {
+    accrue_position_inner(pool, position, true)
+}
+
+/// The hatch: clamp and continue. Principal must leave even if the reward ledger is wrong.
+fn accrue_position_lenient(pool: &Pool, position: &mut Position) -> Result<()> {
+    accrue_position_inner(pool, position, false)
 }
 
 /// Debit a closing position from the pool ledger. Every decrement is FLOORED (I-8).
@@ -521,7 +557,9 @@ pub mod bayla_ladder {
         );
         let now = Clock::get()?.unix_timestamp;
         checkpoint(&mut ctx.accounts.pool, now);
-        accrue_position(&ctx.accounts.pool, &mut ctx.accounts.position)?;
+        // LENIENT on purpose — see `accrue_position_inner`. Nothing about the reward
+        // ledger may stand between a staker and their principal.
+        accrue_position_lenient(&ctx.accounts.pool, &mut ctx.accounts.position)?;
 
         let position = &ctx.accounts.position;
         let locked = now < position.lock_end;
@@ -1206,6 +1244,79 @@ mod layout_tests {
             deployer::ID,
             Pubkey::default(),
             "a non-devnet build must keep the fail-closed System-program sentinel — a              placeholder that WORKS is how an unprotected initializer ships"
+        );
+    }
+
+    /// THE HATCH MUST NOT REVERT ON A DESYNCHRONISED LEDGER.
+    ///
+    /// I-9 is a `require!` everywhere it can refuse without stranding anything. On
+    /// `emergency_withdraw` it cannot: a revert there converts a survivable accounting
+    /// drift into permanently trapped principal, which is the one outcome this program
+    /// exists to prevent. This pins the asymmetry so a future edit cannot quietly make
+    /// the hatch strict again.
+    #[test]
+    fn the_hatch_clamps_where_every_other_path_refuses() {
+        let mut pool = Pool {
+            total_weighted: 100, // ledger says less than the position claims
+            min_stake: HARD_MIN_STAKE_RAW,
+            ..Default::default()
+        };
+        pool.reward_per_weight_stored = 1_000_000_000_000_000;
+        let mk = || Position {
+            weight: 5_000, // > total_weighted: the desynchronised case
+            ..Default::default()
+        };
+
+        // every other path REFUSES
+        let mut p1 = mk();
+        assert!(
+            accrue_position(&pool, &mut p1).is_err(),
+            "the strict paths must still refuse a desynchronised ledger"
+        );
+
+        // the hatch CONTINUES, clamped
+        let mut p2 = mk();
+        assert!(
+            accrue_position_lenient(&pool, &mut p2).is_ok(),
+            "the emergency hatch must never revert on the reward ledger"
+        );
+        // and it accrues on the clamped weight, not the inflated one
+        assert_eq!(
+            p2.rewards_owed,
+            earned(100, pool.reward_per_weight_stored, 0, 0),
+            "the hatch must accrue on min(weight, total_weighted)"
+        );
+    }
+
+    /// ...AND THE HATCH MUST ACTUALLY BE WIRED TO IT.
+    ///
+    /// `the_hatch_clamps_where_every_other_path_refuses` proves the helper is lenient;
+    /// it does NOT prove `emergency_withdraw` calls the lenient one. Mutation-checked
+    /// and found wanting: swapping the call back to the strict version left every test
+    /// green. A handler's Context cannot be built without a validator, so this pins the
+    /// wiring at the source level, which is the same instrument the audit recommends
+    /// for the `close =` coupling.
+    #[test]
+    fn the_hatch_is_wired_to_the_lenient_accrual() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("pub fn emergency_withdraw")
+            .expect("emergency_withdraw not found — this test must be re-anchored");
+        let body = &src[start
+            ..start
+                + src[start..]
+                    .find(
+                        "
+    }",
+                    )
+                    .expect("could not find the end of emergency_withdraw")];
+        assert!(
+            body.contains("accrue_position_lenient("),
+            "emergency_withdraw must use the LENIENT accrual — a require! on this path              turns an accounting drift into permanently trapped principal"
+        );
+        assert!(
+            !body.contains("accrue_position(&"),
+            "emergency_withdraw must NOT use the strict accrual"
         );
     }
 

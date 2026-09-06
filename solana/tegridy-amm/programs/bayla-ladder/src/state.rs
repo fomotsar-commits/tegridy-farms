@@ -231,3 +231,24 @@ pub struct RewardAdded {
 pub struct Degraded {
     pub pool: Pubkey,
 }
+
+// `Default` cannot be derived: std implements it for `[u8; N]` only up to N = 32, and
+// both structs carry larger upgrade padding (audit L-8). Test-only, so the padding
+// never has to shrink to satisfy a convenience trait — the padding is the point.
+#[cfg(test)]
+impl Default for Pool {
+    fn default() -> Self {
+        // SAFETY: every field is a plain-old-data type with a valid all-zero
+        // representation (integers, bools, Pubkeys and byte arrays). No enums, no
+        // NonZero, no references.
+        unsafe { core::mem::zeroed() }
+    }
+}
+
+#[cfg(test)]
+impl Default for Position {
+    fn default() -> Self {
+        // SAFETY: as above.
+        unsafe { core::mem::zeroed() }
+    }
+}
