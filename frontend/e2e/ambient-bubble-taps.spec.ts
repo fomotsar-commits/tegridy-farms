@@ -117,29 +117,14 @@ test.describe('the ambient bubbles are read, not pressed', () => {
     assertBubbleIsInert(await probeBubble(page, '[aria-label="Dismiss Towelie"]'));
   });
 
-  test('MuseBubble passes taps through its body and keeps its dismiss', async ({ page }) => {
-    await page.addInitScript(() => {
-      try {
-        localStorage.setItem('tegridy-bungalow', 'bayla');
-        // The resident's welcome sheet and the consent bar both sit ABOVE this
-        // corner on a first visit (z-120). Neither is under test, and either one
-        // on top would answer the hit-test instead of the page.
-        localStorage.setItem('tegridy-onboarding-bayla-seen', '1');
-        localStorage.setItem('tegridy_telemetry_consent', 'denied');
-      } catch { /* private mode — the bubble renders either way */ }
-    });
-    // Off the doorstep: AppLayout hides every resident voice ON a settled
-    // bungalow's own door, so the muse only floats on the other routes.
-    await page.goto('/farm');
-
-    const dismiss = page.getByRole('button', { name: /line for this session$/i });
-    await expect(dismiss).toBeVisible({ timeout: 30_000 });
-
-    assertBubbleIsInert(await probeBubble(page, 'button[aria-label$="line for this session"]'));
-
-    // And the control works end to end, through Playwright's own actionability
-    // gate — which is itself a hit-test, so an intercepted dismiss fails here.
-    await dismiss.click({ timeout: 10_000 });
-    await expect(dismiss).toHaveCount(0);
-  });
+  // WAVE SEVEN, element E: the MuseBubble test that lived here is REMOVED,
+  // because the component it tested no longer mounts. The bubble floated
+  // bottom-right over every room on arrival, unasked, which is the class
+  // element E exists to remove. Its line was not lost with it: museLine
+  // renders in the room's own hero pill, where a visitor reads it without
+  // anything appearing over their content.
+  //
+  // TowelieAssistant above still mounts in his own farm and keeps its test.
+  // If a room ever wants an invited muse, it gets the treatment the room's
+  // welcome just got: behind a tap, with a test for the tap.
 });

@@ -42,8 +42,7 @@ import { PageTransition } from '../motion';
 import { OnboardingModal } from '../ui/OnboardingModal';
 import { BungalowPicker } from '../BungalowPicker';
 import { BungalowOnboarding } from '../bungalow/BungalowOnboarding';
-import { MuseBubble } from '../bungalow/MuseBubble';
-import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
@@ -158,6 +157,15 @@ export function AppLayout() {
     const openWelcome = () => setWelcomeRequested(true);
     window.addEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
     return () => window.removeEventListener(OPEN_VENUE_WELCOME_EVENT, openWelcome);
+  }, []);
+
+  // WAVE SEVEN, element E: the room's welcome, on request only. Same shape as
+  // the venue's above, because it is the same rule — a modal exists behind a tap.
+  const [aboutRequested, setAboutRequested] = useState(false);
+  useEffect(() => {
+    const openAbout = () => setAboutRequested(true);
+    window.addEventListener(OPEN_BUNGALOW_ABOUT_EVENT, openAbout);
+    return () => window.removeEventListener(OPEN_BUNGALOW_ABOUT_EVENT, openAbout);
   }, []);
   // Derived, not set in an effect (react-hooks/set-state-in-effect): auto-open
   // exactly once — first real splash, no persisted choice, not yet dismissed.
@@ -274,11 +282,17 @@ export function AppLayout() {
       {/* ARRIVAL IDENTITY 2026-08-27: Towelie floats only inside his own
           bungalow. Identity bungalows keep the muse; the venue default
           keeps the arrival clean. */}
-      {!onSettledDoorstep && (bungalowIdentity ? <MuseBubble bungalow={bungalowIdentity} /> : isToweliVoice() ? (
+      {/* WAVE SEVEN, element E: the MuseBubble mount is GONE from every room.
+          It floated bottom-right over the page on arrival, unasked, which is
+          the whole class this element removes. Nothing is lost: the muse LINE
+          already renders in the room's own hero pill (BungalowHero:89-97),
+          which is where a visitor reads it without a thing appearing over
+          their content. Towelie keeps his assistant in his own farm. */}
+      {!onSettledDoorstep && !bungalowIdentity && isToweliVoice() && (
         <Suspense fallback={null}>
           <TowelieAssistant />
         </Suspense>
-      ) : null)}
+      )}
       <BungalowPicker open={pickerOpen} onClose={closePicker} />
       {/* F7: only after the splash finishes (see splashDone above), and held
           back while the bungalow picker is up so a first visit sees intro →
@@ -289,9 +303,19 @@ export function AppLayout() {
           intro hands straight to the hero and the hall of doors. The venue's
           five-step welcome renders in INVITED mode (opens only from the
           hero's tour pill via OPEN_VENUE_WELCOME_EVENT). */}
+      {/* WAVE SEVEN, element E: a room's welcome is INVITED now, like the
+          venue's. It opened itself on the first visit to every bungalow; it
+          waits for the room's "About this bungalow" link instead. The copy is
+          kept, not cut — the lore card and this modal both still say it. */}
       {splashDone && !pickerOpen && !onSettledDoorstep && (
         bungalowIdentity
-          ? <BungalowOnboarding bungalow={bungalowIdentity} />
+          ? (
+            <BungalowOnboarding
+              bungalow={bungalowIdentity}
+              invitedOpen={aboutRequested}
+              onInvitedClose={() => setAboutRequested(false)}
+            />
+          )
           : isToweliVoice()
             ? <OnboardingModal />
             : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />

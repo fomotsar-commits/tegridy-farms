@@ -1,3 +1,17 @@
+// NOT MOUNTED ANYWHERE (wave seven, element E, 2026-09-06).
+//
+// This floated bottom-right over every bungalow room on arrival, unasked. That
+// is exactly the class element E removes: nothing opens over the page unless
+// somebody asked for it. AppLayout no longer mounts it.
+//
+// It is KEPT rather than deleted because nothing about the component is wrong —
+// the registry-driven lines, the rotation pool and the per-session dismiss are
+// all good work, and its line already has a home in the room hero'''s pill. If a
+// room ever wants an invited muse, this is the piece to mount behind a tap, the
+// way the room'''s welcome now is (OPEN_BUNGALOW_ABOUT_EVENT).
+//
+// Do not re-mount it unconditionally without re-reading element E.
+
 import { useEffect, useState } from 'react';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
 

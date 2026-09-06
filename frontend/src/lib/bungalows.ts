@@ -368,6 +368,17 @@ export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
 export const OPEN_BUNGALOWS_EVENT = 'tegridy:open-bungalows';
 
 /**
+ * Ask for a bungalow's three-step welcome (wave seven, element E).
+ *
+ * The welcome used to open ITSELF on the first visit to every room. Nothing
+ * opens over the page unasked any more, so the copy is not deleted — it moves
+ * behind the room's own "About this bungalow" link and comes when invited.
+ * Same shape as the venue's OPEN_VENUE_WELCOME_EVENT, deliberately: one
+ * mechanism for "a modal exists only behind a tap", not two that can drift.
+ */
+export const OPEN_BUNGALOW_ABOUT_EVENT = 'tegridy:open-bungalow-about';
+
+/**
  * Surfaces that keep classic art in EVERY bungalow:
  *  - nav-logo: the TopNav mark on the way-back link — the venue's identity, not
  *              a room's background. (It sat inside the splash-replay button until

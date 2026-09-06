@@ -112,8 +112,15 @@ test.describe('bungalow doors', () => {
     await expect(page.locator('text=Welcome to the Bayla bungalow')).toHaveCount(0);
     await expect(page.locator('text=— the muse')).toHaveCount(0); // her persona stays home
     await expect(page.locator('text=Ask me')).toHaveCount(0); // Towelie assistant too
-    // PEPE's own quiet line is welcome here.
-    await expect(page.locator('text=— the island')).toHaveCount(1);
+    // WAVE SEVEN, element E: "— the island" was the FLOATING MUSE BUBBLE's
+    // byline (museVoice), and that bubble is gone from every room — it opened
+    // over the page unasked, which is the class this element removes. The
+    // room's own quiet line is not lost with it: museLine still renders in the
+    // hero pill, credited to museBy rather than the bubble's persona.
+    await expect(page.locator('text=— the island')).toHaveCount(0);
+    // PEPE's own voice is still here, and the welcome that used to open itself
+    // now waits behind this.
+    await expect(page.getByRole('button', { name: 'About this bungalow' })).toBeVisible();
   });
 
   test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {
