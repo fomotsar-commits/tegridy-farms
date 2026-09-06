@@ -214,5 +214,42 @@ Per wave five's standing warning, **counts are read from a quiet machine only**:
 is on OneDrive and loaded runs have reported up to 70 false failures, including pure arithmetic
 that cannot regress from a copy change. A red from a loaded run is not evidence.
 
-Not yet run this wave: the full e2e suite, the production build, and the §6 cold walk (which
-needs a browser and, for element L, a phone).
+Not yet run this wave: the full e2e suite, the production build, and the rest of the §6 cold
+walk (element L still needs a phone).
+
+## Walked on a real deploy, 2026-09-06
+
+Vercel's GitHub integration auto-built a preview from the pushed branch (deployment for
+`50e0c97a`). **Walked in a browser against that deploy, not a dev server**, reading the live
+island. What was seen, not inferred:
+
+- **Element M's human path works.** `/read/0xd71caf9f…` redirected to `/?heat=0xd71caf9f…`
+  and the instrument hydrated and read on load, with no click.
+- **The read paints the island's order**, live: `ELDER` · `1,694 days held` · `1787.63°` ·
+  `on the island since January 2022` · `18 tokens counted`, then `Reckoned 7h ago`, then
+  `@_seacasa · On the board.`, then the 18-row breakdown summing to 1787.63°.
+- **The insertion rank was correctly ABSENT** — this flame is named, so its real position is
+  the island's to state. The suppression is not just unit-tested; it was observed.
+- **The board rendered five named flames** with degrees, tier verbatim, since-month and token
+  counts, both island doors under it, and `read Sep 6, 19:16 UTC`.
+- **THE STRIP HOLDS IN PRODUCTION.** Neither `wallet_count` nor `person_id` appears anywhere
+  in the rendered page. The unit test asserts it; the deploy confirms it.
+- The three paths render with `The floor is 80°.`, and the hero is three lines with the field
+  always open and one filled button.
+- Both proxy calls were observed at the network layer and both answered **200**:
+  `?resource=heat&address=…` and `?resource=flames&limit=5&claimed=1`.
+
+**Element A's premise is confirmed live, and it is worse than the source read suggested.**
+`get_page_text` returned the FULLY hydrated home — reading, board, paths, hall — while a
+screenshot at the same instant showed only the arrival film. The app is mounted and complete
+underneath an opaque `z-index: 9999` canvas for the full ~14.5 s. Nothing is waiting to
+render; it is purely a visibility and interactivity wall, exactly as element A argues.
+
+**Still not done, and it needs the operator:** the X card validator walk against
+`/read/<address>`. The preview sits behind **Vercel SSO deployment protection** (a bot request
+302s to `vercel.com/sso-api`), and X's crawler cannot authenticate. Turning protection off, or
+issuing a Protection Bypass for Automation token, is an account setting and therefore the
+operator's click, never Claude's. The same middleware path DID pass the validator on the live
+`/scan` card the same day (`Page fetched successfully · 14 metatags · twitter:card =
+summary_large_image · Card loaded successfully`), so the mechanism is proven; only this route's
+title is unwalked.
