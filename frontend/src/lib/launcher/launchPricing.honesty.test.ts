@@ -153,6 +153,7 @@ describe('the gate decision is the only source of the tier', () => {
         tokenCount: 3,
         breakdown: [],
         observedAt: 1_800_000_000,
+        xHandle: null,
       },
       1_800_000_000,
     );
