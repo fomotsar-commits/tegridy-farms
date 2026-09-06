@@ -29,6 +29,7 @@ import {
 import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
+import { SITE_URL } from '../lib/constants';
 
 const TIER_COLOR: Record<HeatTier, string> = {
   Elder: '#f5e4b8',
@@ -144,6 +145,16 @@ export interface HeatCardProps {
    */
   address?: string;
   /**
+   * Seed the lookup field and read it on mount, WITHOUT hiding the form.
+   *
+   * This is how a shared link arrives: `/read/<address>` and `/?heat=<address>` both
+   * land here, so the reader sees the number they were shown rather than an empty
+   * field they have to be told about. Distinct from `address` on purpose — `address`
+   * pins the card to one wallet and removes the form, which is right for the gate and
+   * wrong for a share, where the next thing a stranger does is read their own.
+   */
+  initialAddress?: string | null;
+  /**
    * Drop the outer panel chrome and the explainer paragraph, for embedding inside a
    * surface that has already introduced itself (the gate). The READING is unchanged:
    * degrees, tier word, held-since, reckoning date and the per-token breakdown all
@@ -154,14 +165,22 @@ export interface HeatCardProps {
   showEligibility?: boolean;
 }
 
-export function HeatCard({ address: pinned, variant = 'panel', showEligibility = true }: HeatCardProps = {}) {
+export function HeatCard({
+  address: pinned,
+  initialAddress = null,
+  variant = 'panel',
+  showEligibility = true,
+}: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const embedded = variant === 'embedded';
   // `draft` is null until the user types. The field's value is DERIVED from that plus
   // the connected wallet, rather than mirrored into state by an effect — so connecting,
   // switching accounts, or disconnecting needs no state sync and cannot desync.
-  const [draft, setDraft] = useState<string | null>(null);
-  const subject = pinned ?? connected ?? '';
+  // Seeded from `initialAddress` so a shared link arrives already reading. The field
+  // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
+  // be one paste away from their own.
+  const [draft, setDraft] = useState<string | null>(initialAddress);
+  const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [showMath, setShowMath] = useState(false);
@@ -197,11 +216,13 @@ export function HeatCard({ address: pinned, variant = 'panel', showEligibility =
   const autoReadFor = useRef<string | null>(null);
   useEffect(() => {
     if (!subject) return;
-    if (!pinned && draft !== null) return;
+    // A user-typed draft suspends the auto-read; the SEEDED one does not, or a shared
+    // link would arrive with the address in the field and nothing read.
+    if (!pinned && draft !== null && draft !== initialAddress) return;
     if (autoReadFor.current === subject) return;
     autoReadFor.current = subject;
     void look(subject);
-  }, [subject, pinned, draft, look]);
+  }, [subject, pinned, draft, initialAddress, look]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -329,6 +350,15 @@ function Reading({
   const next = nextTier(reading.degrees);
   const color = TIER_COLOR[reading.tier];
   const days = daysHeld(reading.heldSinceUnix, reading.asOfUnix);
+
+  // The post, built from served numbers only. SITE_URL rather than a literal host, so
+  // the link cannot drift from the venue's own canonical origin.
+  const shareIntent = useMemo(() => {
+    const text =
+      `${reading.tier}. ${days} days held. ${reading.degrees.toFixed(1)}° on Jungle Bay ` +
+      `Island's instrument. Held time counts here. ${SITE_URL}/read/${reading.address}`;
+    return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
+  }, [reading.tier, reading.degrees, reading.address, days]);
 
   // The delta is DERIVED from the reading, not a second fact about it, so it is
   // computed during render rather than pushed into state by an effect. This also
@@ -602,6 +632,25 @@ function Reading({
             Pick a bungalow
           </Link>
         </div>
+      )}
+
+      {/* THE SHARE. One button, under a WARM read only: a cold wallet has nothing to
+          post and asking it to would be the one moment this instrument shames someone.
+          The tier and the days lead the text because they are legible to a stranger who
+          has never heard of a degree; the number rides in the sentence; and the single
+          link is element M's read link, which unfurls as this holder's own card. The
+          holder chose to post their address, so nothing here is published on their
+          behalf — this only opens the composer. */}
+      {!reading.isCold && days !== null && (
+        <a
+          href={shareIntent}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block mb-4 px-5 py-2 text-[13px] font-semibold rounded-lg transition-all hover:brightness-110"
+          style={{ background: 'rgba(0,0,0,0.72)', border: `1px solid ${color}`, color }}
+        >
+          Post my number
+        </a>
       )}
 
       <button

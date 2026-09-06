@@ -11,6 +11,8 @@
  *                 deployer graph both emit "Copy share link" URLs, so without
  *                 this every shared read unfurled as the generic site card.
  *   /deployer     deployer-report share links (?address=<address>).
+ *   /read/<addr>  held-time share links — the card IS the holder's number, and
+ *                 is the whole reason the share exists (wave seven, element M).
  *
  * HONESTY RULE for the trust cards: the card states WHAT THE PAGE MEASURES and
  * identifies the subject — it NEVER asserts a verdict, score or band. The real
@@ -19,13 +21,28 @@
  * Identity (name/symbol) is fetched from a keyless upstream and is factual; if
  * that lookup fails the card degrades to the address alone. Never invent either.
  *
+ * WHY /read IS DIFFERENT, and why that is not the rule bending. The rule above
+ * exists because a /scan verdict is OURS, computed here from partly key-gated
+ * data, so the card could contradict the page. A heat reading is neither: it is
+ * SERVED whole by Jungle Bay Island's oracle, readable server-side, and is the
+ * same number the page itself will render. Printing the tier on the card is
+ * QUOTING the island, not asserting a band of our own — the venue never
+ * computes, re-tiers or rounds it into a judgement. The rule as written still
+ * binds every card whose subject we measure ourselves; it was never about
+ * refusing to repeat a number somebody else published.
+ *
+ * The honesty that DOES bind here is the other one: a cold wallet and a failed
+ * read both fall back to the generic card. A zero is never printed, because
+ * "this wallet has no held time" and "we could not reach the island" are
+ * different facts and neither of them is "0°".
+ *
  * Humans and JS-rendering crawlers (Google/Bing) fall straight through to
  * the SPA — serving them the stub would hurt UX and SEO. Zero serverless
  * functions added: this runs at the edge.
  */
 
 export const config = {
-  matcher: ["/nakamigos/:path*", "/scan", "/deployer"],
+  matcher: ["/nakamigos/:path*", "/scan", "/deployer", "/read/:path*"],
 };
 
 // Social unfurlers only — all fetch previews without executing JS.
@@ -184,12 +201,88 @@ async function trustCard(url, origin) {
   }));
 }
 
+// ── The held-time card (/read/<address>) ──────────────────────────────────
+//
+// Here the CARD IS THE PRODUCT. Everywhere else on this venue the unfurl is a
+// courtesy for a link somebody sent; a held-time share exists only so the number
+// travels, and a post whose card reads "memetics.finance" instead of "Elder ·
+// 1,694 days held" has failed at the one job it had.
+//
+// Read direct from the island, not through our own ?resource=heat proxy: this
+// runs server-side at the edge, so the upstream's CORS lock is irrelevant, and
+// going through our own origin would trip the proxy's origin gate (a request
+// from the edge carries no Origin header) for no gain.
+
+const HEAT_BASE = "https://memetics.wtf/api/heat";
+const READ_DESCRIPTION = "Held time counts here. Read any wallet, no wallet needed.";
+const READ_GENERIC_TITLE = "Read any wallet on Jungle Bay Island";
+
+/**
+ * A card-worthy reading, or null. Null covers three different facts on purpose —
+ * unreachable, unreadable, and genuinely cold — because all three produce the
+ * SAME card here, and none of them may produce a zero.
+ */
+async function heatReading(address) {
+  const j = await fetchJson(`${HEAT_BASE}/${address}`, { headers: { Accept: "application/json" } });
+  if (!j || typeof j !== "object") return null;
+  if (typeof j.degrees !== "number" || !Number.isFinite(j.degrees)) return null;
+  if (typeof j.tier !== "string" || !j.tier) return null;
+  if (j.is_cold === true) return null; // a real answer, but not a number to boast
+  const since = typeof j.held_since_unix === "number" ? j.held_since_unix : null;
+  const asOf = typeof j.as_of_unix === "number" ? j.as_of_unix : null;
+  // Days are the island's measured span, held_since to as_of — never to our clock.
+  if (since === null || asOf === null) return null;
+  return {
+    tier: j.tier,
+    degrees: j.degrees,
+    days: Math.max(0, Math.floor((asOf - since) / 86400)),
+  };
+}
+
+async function readCard(url, origin) {
+  const image = `${origin}/og.png`;
+  const siteName = "memetics.finance";
+  const address = (url.pathname.split("/")[2] || "").trim();
+
+  const generic = () =>
+    respond(ogHtml({
+      title: READ_GENERIC_TITLE,
+      description: READ_DESCRIPTION,
+      image,
+      url: `${origin}/`,
+      siteName,
+    }));
+
+  // An unparseable address is not an error worth a 400 here: a 400 shows the
+  // reader NO card at all, where the generic one still says what the link is.
+  // The human behind the same URL falls through to the SPA and meets the
+  // instrument's own invalid-address state.
+  if (!EVM_ADDRESS_RE.test(address) && !SOLANA_MINT_RE.test(address)) return generic();
+
+  const r = await heatReading(address);
+  if (!r) return generic();
+
+  return respond(ogHtml({
+    title: `${r.tier} · ${r.days.toLocaleString("en-US")} days held · ${r.degrees.toFixed(1)}° on Jungle Bay Island`,
+    description: READ_DESCRIPTION,
+    image,
+    url: `${origin}/read/${address}`,
+    siteName,
+  }));
+}
+
 export default async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
   if (!UNFURL_BOTS.test(ua)) return; // humans + JS crawlers → SPA
 
   const url = new URL(req.url);
   const origin = url.origin;
+
+  // Held-time share links (element M). Checked before the trust tools purely
+  // because it is the most-shared surface of the wave.
+  if (url.pathname === "/read" || url.pathname.startsWith("/read/")) {
+    return readCard(url, origin);
+  }
 
   // Trust-tool share links (the scanner + deployer graph both emit them).
   if (url.pathname === "/scan" || url.pathname === "/deployer") {

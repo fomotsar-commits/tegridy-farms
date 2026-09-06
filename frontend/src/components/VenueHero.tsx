@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { HeatCard } from './HeatCard';
 
@@ -20,6 +20,18 @@ import { HeatCard } from './HeatCard';
 export function VenueHero() {
   // No local state left: the instrument is always open, so there is nothing to
   // disclose and nothing to remember.
+  //
+  // `?heat=<address>` is where every shared read lands (element M): the read link
+  // /read/<address> redirects here, so a stranger who clicked a number in a post
+  // arrives with that number ALREADY ON SCREEN rather than an empty field and an
+  // instruction. Not validated here on purpose — an address that is not one reads as
+  // the field's own invalid state, which is the honest answer and the one the
+  // instrument already knows how to give. Length-capped only so a pathological query
+  // string cannot be poured into the input.
+  const [searchParams] = useSearchParams();
+  const heatParam = searchParams.get('heat');
+  const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : null;
+
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
@@ -60,7 +72,7 @@ export function VenueHero() {
           hides the answer to the sentence immediately above it is a wall with a
           handle on it. The Read button is now the only filled button in the hero. */}
       <div className="mb-6 max-w-md">
-        <HeatCard variant="embedded" />
+        <HeatCard variant="embedded" initialAddress={initialAddress} />
 
         {/* Under the card, in venue voice. The first sentence answers the question
             every multi-wallet holder asks on sight, and answers it honestly rather

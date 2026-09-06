@@ -236,6 +236,26 @@ function ScrollToTop() {
 }
 
 /**
+ * `/read/<address>` — the shared read link (wave seven, element M).
+ *
+ * TWO AUDIENCES, ONE URL. An unfurl bot never reaches this component: middleware.js
+ * intercepts it at the edge and answers with the holder's card, which is the entire
+ * reason the link exists. A HUMAN who clicks that card lands here and is handed to the
+ * instrument with the address already in it.
+ *
+ * A redirect rather than a second mount of the hero, so `?heat=` stays the ONE
+ * hydration path — a shared link and a pasted address cannot drift apart if there is
+ * only one way in. Validation is deliberately left to the instrument: an address that
+ * is not one belongs in the field's own invalid state, not in a silent bounce to the
+ * home page that leaves the reader wondering what happened to the link.
+ */
+function ReadRedirect() {
+  const { address = '' } = useParams();
+  const a = address.trim();
+  return <Navigate to={a ? `/?heat=${encodeURIComponent(a)}` : '/'} replace />;
+}
+
+/**
  * Param leg of the dev studio: validates :bungalowId against the registry so
  * a typo'd or hostile slug renders the public site, never a broken tool.
  */
@@ -407,6 +427,10 @@ function AnimatedRoutes() {
         <Route path="contracts" element={<Suspense fallback={<PageSkeleton />}><InfoPage /></Suspense>} />
         <Route path="treasury" element={<Suspense fallback={<PageSkeleton />}><StatsPage /></Suspense>} />
         <Route path="exposure" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
+        {/* The shared read link. Bots are answered at the edge by middleware.js;
+            these two routes are the human path. See ReadRedirect. */}
+        <Route path="read/:address" element={<ReadRedirect />} />
+        <Route path="read" element={<Navigate to="/" replace />} />
         <Route path="scan" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="deployer" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />
         <Route path="trust" element={<Suspense fallback={<PageSkeleton />}><TrustPage /></Suspense>} />

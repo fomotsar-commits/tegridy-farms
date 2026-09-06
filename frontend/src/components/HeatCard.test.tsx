@@ -349,3 +349,63 @@ describe('where this number would sit', () => {
     expect(h.fetchFlames).not.toHaveBeenCalled();
   });
 });
+
+describe('the share', () => {
+  it('builds the post from served numbers, ending in the read link', async () => {
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
+    expect(text).toBe(
+      `Elder. 1694 days held. 1785.1° on Jungle Bay Island's instrument. ` +
+        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+    );
+  });
+
+  it('opens the composer rather than posting anything', async () => {
+    mount();
+    const post = await screen.findByRole('link', { name: 'Post my number' });
+    expect(post.getAttribute('href')).toMatch(/^https:\/\/x\.com\/intent\/post\?text=/);
+  });
+
+  it('offers NO share on a cold read', async () => {
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ degrees: 0, tier: 'Drifter', is_cold: true, held_since_unix: null, as_of_unix: null, token_count: 0 }),
+    );
+    mount();
+    await screen.findByText(/Cold\. Nothing measured here yet\./);
+    expect(screen.queryByRole('link', { name: 'Post my number' })).toBeNull();
+  });
+});
+
+describe('a shared link arrives already reading', () => {
+  function mountShared(address: string) {
+    return render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" initialAddress={address} />
+      </MemoryRouter>,
+    );
+  }
+
+  it('reads the seeded address on mount, with no click', async () => {
+    mountShared(ADDR);
+    expect(await screen.findByText('Elder')).toBeTruthy();
+    expect(h.fetchHeat).toHaveBeenCalledWith(ADDR, expect.anything());
+  });
+
+  it('leaves the field editable, unlike a pinned card', async () => {
+    // Someone who followed a stranger's number should be one paste from their own.
+    const { container } = mountShared(ADDR);
+    await screen.findByText('Elder');
+    const field = container.querySelector('input');
+    expect(field).toBeTruthy();
+    expect((field as HTMLInputElement).value).toBe(ADDR);
+  });
+
+  it('lets an invalid seeded address read as the field’s own invalid state', async () => {
+    h.fetchHeat.mockRejectedValue(new Error('That is not an Ethereum or Solana address.'));
+    const { container } = mountShared('not-an-address');
+    await waitFor(() => expect(h.fetchHeat).toHaveBeenCalled());
+    // The bad value is shown back rather than silently swallowed.
+    expect((container.querySelector('input') as HTMLInputElement).value).toBe('not-an-address');
+  });
+});
