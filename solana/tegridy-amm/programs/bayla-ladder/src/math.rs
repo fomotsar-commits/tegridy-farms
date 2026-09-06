@@ -157,7 +157,16 @@ pub fn reward_per_weight(
     total_weighted: u128,
     floor: u128,
 ) -> u128 {
-    reward_per_weight_with_residue(stored, 0, last_update, applicable, rate, total_weighted, floor).0
+    reward_per_weight_with_residue(
+        stored,
+        0,
+        last_update,
+        applicable,
+        rate,
+        total_weighted,
+        floor,
+    )
+    .0
 }
 
 /// The same accumulator step, CARRYING THE TRUNCATION REMAINDER (audit M-2).
@@ -197,7 +206,10 @@ pub fn reward_per_weight_with_residue(
     }
     let dt = applicable.saturating_sub(last_update).max(0) as u128;
     let num = residue.saturating_add(dt.saturating_mul(rate).saturating_mul(PRECISION));
-    (stored.saturating_add(num / total_weighted), num % total_weighted)
+    (
+        stored.saturating_add(num / total_weighted),
+        num % total_weighted,
+    )
 }
 
 /// What one checkpoint EMITTED to the whole pool: `(rpw_now - rpw_stored) x
@@ -586,7 +598,11 @@ mod tests {
         assert_eq!(res, 0, "a burned interval must not bank a residue");
         let (rpw2, res2) =
             reward_per_weight_with_residue(100, 12_345, 0, 1_000, 1_000_000, 0, 4_000);
-        assert_eq!((rpw2, res2), (100, 0), "an empty pool must not bank a residue");
+        assert_eq!(
+            (rpw2, res2),
+            (100, 0),
+            "an empty pool must not bank a residue"
+        );
     }
 
     #[test]
@@ -606,7 +622,10 @@ mod tests {
         let scheduled = scheduled_total(0, penalty);
         assert_eq!(scheduled, penalty);
         let rate = new_reward_rate(scheduled, 0, 0, 0);
-        assert!(rate > 0, "a retained penalty must be schedulable with no fresh tokens");
+        assert!(
+            rate > 0,
+            "a retained penalty must be schedulable with no fresh tokens"
+        );
 
         // ...and it fits under the solvency ceiling the caller enforces, so the fix
         // opens a door without widening what the pool may promise.

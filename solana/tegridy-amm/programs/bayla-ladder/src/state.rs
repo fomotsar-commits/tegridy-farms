@@ -46,6 +46,17 @@ pub struct Pool {
     pub pending_cap: u64,
     pub pending_cap_ts: i64,
 
+    /// AUDIT M-4. The pool-wide cap alone let ONE wallet occupy a whole low-cap pool
+    /// and refuse every other depositor indefinitely — `MAX_POSITIONS` bounds client
+    /// enumeration, not capital, and a single position may be the entire cap. There is
+    /// no forced maturity, decay or kick, so the position simply sits there.
+    ///
+    /// Deliberately NOT a sentinel: there is no "0 means unlimited". A pool that wants
+    /// no per-wallet limit sets this equal to `deposit_cap`, which is explicit and
+    /// cannot be reached by forgetting to configure it. Carved from `_reserved`, so
+    /// `8 + Pool::INIT_SPACE` stays 508.
+    pub max_wallet_principal: u64,
+
     /// REAL principal, exactly as Synthetix means `_totalSupply`. Authoritative.
     pub total_principal: u64,
     /// Sum of every open position's weight. The accumulator's divisor.
@@ -99,7 +110,7 @@ pub struct Pool {
     pub rpw_residue: u128,
     pub emitted_residue: u128,
 
-    pub _reserved: [u8; 96],
+    pub _reserved: [u8; 88],
 }
 
 /// One position. PDA at [`POSITION_SEED`, pool, owner, nonce_le]. Every stake is its
@@ -160,8 +171,14 @@ pub struct UserStats {
     /// deferred. Deferred, never forfeited.
     pub rewards_carried: u128,
 
+    /// This wallet's live principal in this pool, against `Pool::max_wallet_principal`
+    /// (audit M-4). MUST be decremented on every close — `debit_closed` does it — or a
+    /// wallet self-locks out of the pool after its first exit, which would turn a
+    /// fairness guard into a denial of service against honest users.
+    pub principal: u64,
+
     /// See `Position::_reserved` — same reasoning, smaller struct (audit L-8).
-    pub _reserved: [u8; 32],
+    pub _reserved: [u8; 24],
 }
 
 #[event]

@@ -86,8 +86,15 @@
 //! in-pool removes an instruction, an address, and a whole class of admin discretion.
 //! The penalty and the ladder are compile-time constants: a stolen authority key can
 //! raise the cap (slowly, visibly), rotate itself, and declare the pool degraded —
-//! which only ever frees stakers. It cannot move principal, retune the penalty, or
-//! change what anyone was promised.
+//! which only ever frees stakers. It cannot move principal or retune the penalty.
+//!
+//! CORRECTED 2026-09-06 (audit M-3): this used to end "or change what anyone was
+//! promised", which was false. `declare_degraded` cannot touch
+//! `EARLY_EXIT_PENALTY_BPS`, but it zeroes the penalty on both exit doors and ends
+//! penalty inflow permanently — and before this commit it left `stake` open too, so
+//! the 4.00x rung could be bought with no lock at all. What is true is narrower and
+//! worth saying exactly: the flag can only move in the direction that frees stakers
+//! and closes the pool to new money.
 //!
 //! ## Where the penalty goes
 //!
@@ -101,11 +108,14 @@
 //! ## What is NOT ported from the Solidity, and why
 //!
 //! `LighthouseLadder.emergencyWithdraw` charges the 25% while locked, unconditionally.
-//! Here it charges nothing once `declare_degraded` has been called — the one-way flag
-//! that answers "what if the operator is the failure". Under the venue's own upgrade
-//! authority, holders will want a hatch that works when the venue is the problem, and
-//! charging them 25% then reads badly. Its cost is honest: it stops future penalty
-//! inflow, transferring value from stayers to leavers. Say so in the panel copy.
+//! Here BOTH early doors charge nothing once `declare_degraded` has been called — the
+//! one-way flag that answers "what if the operator is the failure". Under the venue's
+//! own upgrade authority, holders will want a hatch that works when the venue is the
+//! problem, and charging them 25% then reads badly.
+//!
+//! Its cost is honest and belongs in the panel copy: it stops future penalty inflow,
+//! transferring value from stayers to leavers, and it CLOSES THE POOL TO NEW STAKES
+//! permanently. A terminal state, not a maintenance mode.
 
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
@@ -214,6 +224,11 @@ fn accrue_position(pool: &Pool, position: &mut Position) -> Result<()> {
 /// Debit a closing position from the pool ledger. Every decrement is FLOORED (I-8).
 fn debit_closed(pool: &mut Pool, user: &mut UserStats, position: &Position) {
     pool.total_principal = pool.total_principal.saturating_sub(position.amount);
+    // AUDIT M-4: release the wallet's allocation. Omitting this would let a wallet stake
+    // up to its share ONCE and then be refused forever, turning a fairness guard into a
+    // denial of service against the honest users it protects. Floored, like every other
+    // ledger decrement (I-8).
+    user.principal = user.principal.saturating_sub(position.amount);
     pool.total_weighted = pool.total_weighted.saturating_sub(position.weight);
     user.open_positions = user.open_positions.saturating_sub(1);
 }
@@ -233,12 +248,39 @@ pub mod bayla_ladder {
         nonce: u8,
         min_stake: u64,
         deposit_cap: u64,
+        max_wallet_principal: u64,
     ) -> Result<()> {
+        // AUDIT L-6. `decimals` is bounded FIRST, and not for tidiness: the `10u64.pow`
+        // below overflows above 19, and `overflow-checks = true` in the workspace
+        // profile turns that into a panic. Nine is the ceiling Solana mints use.
+        let decimals = ctx.accounts.mint.decimals;
+        require!(decimals <= 9, LadderError::InvalidParameter);
+
+        // AUDIT L-6, the substance. `HARD_MIN_STAKE_RAW` is decimals-BLIND: 10,000 raw
+        // is 0.01 BAYLA at 6dp but 1e-14 tokens at 18dp — and there is no
+        // `set_min_stake` anywhere, so a pool initialised at the floor is unfixable
+        // except by migrating every staker. The reference spends 35 lines
+        // (LighthouseLadder.sol:101-135) on why its floor had to be a real quantity
+        // rather than a raw count. Bind it to the mint: 100 whole tokens, whatever the
+        // decimals are.
+        //
+        // NOT made settable later, deliberately: raising `min_stake` lifts the I-11
+        // burn threshold above the weight of already-open positions and starts burning
+        // intervals for legitimate live stakers.
+        let floor = 100u64
+            .checked_mul(10u64.pow(decimals as u32))
+            .ok_or(LadderError::Overflow)?;
         require!(
             min_stake >= HARD_MIN_STAKE_RAW,
             LadderError::InvalidParameter
         );
+        require!(min_stake >= floor, LadderError::InvalidParameter);
         require!(deposit_cap >= min_stake, LadderError::InvalidParameter);
+        // AUDIT M-4. Both bounds required, so the value cannot be reached by omission.
+        require!(
+            max_wallet_principal >= min_stake && max_wallet_principal <= deposit_cap,
+            LadderError::InvalidParameter
+        );
         token::assert_mint_admissible(&ctx.accounts.mint)?;
         // Pin to what ACTUALLY owns the mint. BAYLA is Token-2022; the first Streamflow
         // broadcast died with IncorrectProgramId for assuming legacy. Detect, never assume.
@@ -260,6 +302,7 @@ pub mod bayla_ladder {
         pool.reward_vault = ctx.accounts.reward_vault.key();
         pool.min_stake = min_stake;
         pool.deposit_cap = deposit_cap;
+        pool.max_wallet_principal = max_wallet_principal;
         // Everything else starts at zero, which is the correct initial state for a
         // Synthetix engine: no rate, no period, no emission, no liability.
         Ok(())
@@ -268,6 +311,21 @@ pub mod bayla_ladder {
     /// Open a position. Every stake is its OWN position: no top-up, so no boost
     /// blending and no way to buy a high multiplier for a short commitment.
     pub fn stake(ctx: Context<Stake>, amount: u64, lock_secs: i64) -> Result<()> {
+        // AUDIT M-3, entry side. `degraded` used to be read in exactly ONE expression in
+        // the whole program (the hatch's penalty), so after it fired anyone could open a
+        // 4-year position, take the 4.00x weight, and close it in the next slot for full
+        // principal and zero penalty — accrual preserved into `rewards_carried`. The
+        // ladder prices exactly one thing, commitment, and the flag removed the
+        // commitment while leaving the price. Honest stakers on short rungs were diluted
+        // by an actor who posted no lock at all.
+        //
+        // THE TRADE-OFF, stated rather than glossed: this hands the authority an
+        // IRREVERSIBLE deposit freeze, and `pause` is on the deliberately-absent list.
+        // The objection is weaker than it looks. A pause is reversible and its abuse is
+        // to TRAP people; this is one-way and can only ever RELEASE them — a stolen key
+        // firing it gives the thief nothing and gives every staker a free exit. And a
+        // pool whose operator has declared it broken should not be taking new money.
+        require!(!ctx.accounts.pool.degraded, LadderError::PoolDegraded);
         require!(amount > 0, LadderError::ZeroAmount);
         require!(lock_secs >= MIN_LOCK_SECS, LadderError::LockTooShort);
         require!(lock_secs <= MAX_LOCK_SECS, LadderError::LockTooLong);
@@ -312,6 +370,18 @@ pub mod bayla_ladder {
             new_principal <= pool.deposit_cap,
             LadderError::DepositCapExceeded
         );
+        // AUDIT M-4: the per-wallet share, against this wallet's LIVE principal — which
+        // `debit_closed` decrements, so an exit frees the allocation again.
+        let wallet_principal = ctx
+            .accounts
+            .user_stats
+            .principal
+            .checked_add(received)
+            .ok_or(LadderError::Overflow)?;
+        require!(
+            wallet_principal <= pool.max_wallet_principal,
+            LadderError::WalletCapExceeded
+        );
 
         let weight = weight_for(received, lock_secs);
         let user = &mut ctx.accounts.user_stats;
@@ -335,6 +405,7 @@ pub mod bayla_ladder {
         position.rewards_owed = 0;
 
         pool.total_principal = new_principal;
+        user.principal = wallet_principal;
         pool.total_weighted = pool.total_weighted.saturating_add(weight);
         user.next_nonce = nonce.checked_add(1).ok_or(LadderError::Overflow)?;
         user.open_positions = user.open_positions.saturating_add(1);
@@ -419,7 +490,17 @@ pub mod bayla_ladder {
             now < ctx.accounts.position.lock_end,
             LadderError::UseWithdrawMatured
         );
-        let penalty = penalty_for(ctx.accounts.position.amount);
+        // AUDIT M-3, exit side. This used to charge unconditionally, so in a degraded
+        // pool `emergency_withdraw` STRICTLY DOMINATED the door named after what the
+        // user is actually doing: 100% of principal against 75%, with `claim_carried`
+        // delivering the identical reward payout. Nobody could be forced into the paying
+        // door — `EmergencyWithdraw`'s account set is a strict subset of `Exit`'s — but
+        // they could pick it by name and burn 25% for nothing. The doors now agree.
+        let penalty = if ctx.accounts.pool.degraded {
+            0
+        } else {
+            penalty_for(ctx.accounts.position.amount)
+        };
         exit_with_penalty(ctx, now, penalty)
     }
 
@@ -588,10 +669,7 @@ pub mod bayla_ladder {
         // Either source alone is a legitimate reload. Scheduling a retained penalty with
         // no fresh capital is the whole point of the split, so `amount` may be zero —
         // but a call that schedules nothing at all is still refused.
-        require!(
-            amount > 0 || from_budget > 0,
-            LadderError::ZeroAmount
-        );
+        require!(amount > 0 || from_budget > 0, LadderError::ZeroAmount);
         require_keys_eq!(
             ctx.accounts.token_program.key(),
             ctx.accounts.pool.token_program,
@@ -1104,6 +1182,8 @@ mod layout_tests {
         assert_eq!(LadderError::NothingToSweep as u32 + 6000, 6023);
         assert_eq!(LadderError::RewardRateTooSmall as u32 + 6000, 6024);
         assert_eq!(LadderError::MintHasMintAuthority as u32 + 6000, 6025);
+        assert_eq!(LadderError::PoolDegraded as u32 + 6000, 6026);
+        assert_eq!(LadderError::WalletCapExceeded as u32 + 6000, 6027);
     }
 
     /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).
