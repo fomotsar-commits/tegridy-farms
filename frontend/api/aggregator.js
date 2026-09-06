@@ -315,6 +315,19 @@ export default async function handler(req, res) {
     return handleHeat(req, res);
   }
 
+  // `?resource=flames` proxies Jungle Bay Island's public board at memetics.wtf.
+  // Same CORS lock as `heat` above, so the same server-side reasoning applies. It
+  // also STRIPS the board's `person_id` and `wallet_count` before responding —
+  // those two de-anonymise a named flame, and stripping at the proxy makes the
+  // island's never-paint law structural rather than a promise in a component.
+  // Lazy import: the swap hot path never pays for it. See _lib/flames.js header.
+  //
+  // MUST stay above the `const provider` line below — same placement law as heat.
+  if (req.query.resource === "flames") {
+    const { handleFlames } = await import("./_lib/flames.js");
+    return handleFlames(req, res);
+  }
+
   // `?resource=births` signs a birth notify with the venue's shared secret and relays it
   // to the island's enrollment socket. Server-side because the SECRET is the whole
   // guarantee — a signature the browser could produce is one anybody could produce.
