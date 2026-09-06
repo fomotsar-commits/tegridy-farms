@@ -1132,6 +1132,18 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         if (_newAdmin == address(0)) revert ZeroAddress();
         if (swapFeeRouterAdmin == address(0)) revert Unauthorized(); // use setSwapFeeRouterAdmin first
         if (adminReplacementReadyAt != 0) revert AdminReplacementUnavailable(); // existing proposal pending
+        // AUDIT FIX 2026-09-05 [ADMIN-ROTATION-EOA] — reject EOAs and EIP-7702 delegated EOAs,
+        // mirroring `setSwapFeeRouterAdmin`'s [H-10 / L-06] filter. That filter guarded only the
+        // INSTALL path, which is one-shot (`AdminAlreadySet`), so this rotation pair was the only
+        // live route to the slot AND the only one without the check. `swapFeeRouterAdmin` is the
+        // `onlyAdmin` authority for applyTreasury / applyReferralSplitter / applyInputTokenFee /
+        // applyPremiumAccess / applyPolAccumulator / applyRevenueDistributor / applyFeeSplit, and
+        // every one of those parameters' timelock lives inside the SwapFeeRouterAdmin sister, not
+        // here — so an EOA in this slot replaces timelocked governance of the whole fee router
+        // with a single key that can call every `apply*` instantly.
+        // Unconditional, unlike the lending-whitelist sibling: this slot is a single non-zero
+        // address with no revoke branch, so there is no entry to strand.
+        if (_newAdmin.code.length == 0 || _newAdmin.code.length == 23) revert InvalidAdmin();
         pendingSwapFeeRouterAdmin = _newAdmin;
         adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
         emit SwapFeeRouterAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
@@ -1151,6 +1163,11 @@ contract SwapFeeRouter is OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGua
         if (block.timestamp > readyAt + 7 days) revert AdminReplacementUnavailable();
         address newAdmin = pendingSwapFeeRouterAdmin;
         if (newAdmin == address(0)) revert ZeroAddress(); // defensive
+        // AUDIT FIX 2026-09-05 [ADMIN-ROTATION-EOA] — execute-time recheck, same [L-18]
+        // rationale TegridyStaking.applyRestakingContract carries: the propose-time filter can
+        // go stale inside the 7-day window (a candidate that was a contract at propose time and
+        // is not at execute time). Cheap, and this is the last gate before the slot flips.
+        if (newAdmin.code.length == 0 || newAdmin.code.length == 23) revert InvalidAdmin();
         address oldAdmin = swapFeeRouterAdmin;
         swapFeeRouterAdmin = newAdmin;
         pendingSwapFeeRouterAdmin = address(0);

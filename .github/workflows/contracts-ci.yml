@@ -234,15 +234,25 @@ jobs:
           #
           # FLOOR_EXCEPTIONS — between BUDGET and EIP170. Deployable today; over the
           #   conservative floor only. Warning.
-          #   TegridyStaking — 24,554 B (re-measured 2026-08-19): 22 B under EIP-170.
+          #   TegridyStaking — 24,521 B (re-measured 2026-09-05): 55 B under EIP-170.
           #     This entry read "24,337 B ... 239 B under EIP-170 (measured 2026-07-24)"
-          #     until 2026-08-19; that was stale by 217 B and is the drift recorded in
+          #     until 2026-08-19, then "24,554 B ... 22 B" until 2026-09-05. The first was
+          #     stale by 217 B and is the drift recorded in
           #     docs/UNFINISHED_INVENTORY_2026_08_13.md. On main #99 reclaimed 573 B and
           #     took it off the list; that ABI-surface golf is NOT on mvp-launch, so here
-          #     it stays a floor-exception. It is now the tightest contract in the repo
-          #     AND it is live + on the redeploy list: 22 B is less than one line of
-          #     code, so the next change to it must extract to StakingViewLib or the
-          #     StakingMonitorView sister FIRST rather than spend the remainder.
+          #     it stays a floor-exception. It is live + on the redeploy list, so the next
+          #     change to it must extract to StakingViewLib or the StakingMonitorView
+          #     sister FIRST rather than spend the remainder.
+          #     2026-09-05 took it 24,554 -> 24,521 B across two security fixes:
+          #     [LEND-EOA-WHITELIST] folded three inline code-length checks into one
+          #     `_requireContract` helper (-46 B, funding a new check), then
+          #     [LEND-RESIDUE-DEADLOCK] added the approve-side residue guards (+13 B).
+          #     Two fixes shipped and 33 B RETURNED.
+          #     NOTE this allowlist only WARNS below the hard 24,576 limit, so it cannot
+          #     protect the 55 B. contracts/test/Audit_StakingEIP170Size.t.sol ratchets the
+          #     measured size in the test matrix, where an allowlist entry cannot soften it
+          #     — same rationale as Audit_RestakingEIP170Size.t.sol. THAT is the real gate;
+          #     this comment is documentation and must be updated alongside the ratchet.
           #   VoteIncentives — 24,477 B (re-measured 2026-08-19): 99 B under EIP-170.
           #     Also stale here until 2026-08-19, which read "24,274 B ... 302 B under";
           #     it had drifted 203 B. VoteIncentivesAdmin ALREADY EXISTS (10,762 B) and

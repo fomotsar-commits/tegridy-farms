@@ -29,6 +29,216 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-05 (LATE) — SESSION CARRY-OVER: what is left after the PR sweep
+
+Nineteen PRs merged and the queue emptied. Every status line below was **read from the live
+system today**, not carried forward. Where a number is quoted it is a measurement, and the
+command that reproduces it is given so it does not have to be trusted.
+
+### ✅ CLOSED today — do not re-open these
+
+- **The six lighthouse ladder pools are FIXED.** Redeployed and repinned (#433). Verified by
+  running the guard against trunk, not inferred: **6 of 6 at `6747 bytes / fixed / audited
+  constants`, exit 0**, up from `6098 / prefix`. All six still read `replaceable`, so nothing
+  had staked into a vulnerable pool before the swap. Deposit freeze lifted. Reproduce:
+  ```bash
+  node scripts/verify-ladder-builds.mjs     # expect: OK: all 6 ... exit 0
+  ```
+- **`MAX_FOT_FLOOR_HAIRCUT_BPS = 1000` — DECIDED: KEEP.** This was the one genuinely
+  expiring decision (a `constant`, fixed at deploy). Four analysis angles + two adversarial
+  reviewers; 5 of 6 said keep, both reviewers returned `mustChangeBeforeDeploy = false`.
+  Lowering strands a token permanently — both non-swap exits reject any token that has a WETH
+  pair (`withdrawTokenFees` :1683, `sweepTokens` :1838), so its fees have **no exit at all**.
+  Raising only widens a corridor that needs owner misconfiguration to open. Opt-in per token,
+  default 0, so nothing is worse off at any cap. **This no longer needs your attention.**
+- **Migrations 024/025 are cleared to apply** (see the runbook section for the proof). Still
+  needs your service-role credential — but the go/no-go is decided, including the silent
+  failure mode.
+
+### 🔴 O-NEW-1 — do NOT size key custody against the 10% FoT cap
+
+The cap's NatSpec used to claim it *"bounds what a captured owner can extract."* **It does
+not**, and that sentence was corrected in #431 — but if you formed a mental model from it,
+correct that too:
+
+`executeResetTWAPSnapshot` (`SwapFeeRouter.sol:1198-1211`) deletes `lastConversionSnapshot[token]`.
+`_enforceTWAPMinETHOut` then takes its bootstrap branch (`SwapFeeRouterConvertLib.sol:586-592`) —
+owner-only, `effectiveMin = callerMinETHOut`, i.e. **no TWAP floor at all**. A hostile owner
+passes `minETHOut = 0` and takes up to **100%**, on the **same** `TWAP_SNAPSHOT_RESET_TIMELOCK`
+the haircut uses.
+
+What actually bounds a captured owner is **key custody plus the untimelocked `pause()` /
+`guardianPause()`** — not any constant in that contract. Size custody accordingly.
+
+### ⬜ O-NEW-2 — set `vars.BASE_RPC` (5 minutes, makes an alarm trustworthy)
+
+`Address Registry — chain read` reads Base through **public** endpoints: `vars.BASE_RPC`
+defaults to empty, falling back to `mainnet.base.org` / `base.drpc.org`. Those serve roughly
+**five rapid calls then 429**, and the guard makes seven per pool.
+
+#424 fixed the guard side (outbound pacing + 429-aware backoff, measured 5-of-6 unreadable →
+0-of-6). But the daily run is still one throttle away from red-for-the-wrong-reason, and a
+guard that cries wolf is one nobody reads by the second week.
+
+```
+Repo → Settings → Secrets and variables → Actions → Variables
+  BASE_RPC = <keyed Base endpoint>      # ETH_RPC accepts the same treatment
+```
+Bound through `env:` in the workflow, never spliced into the script. Once set, a red genuinely
+means pre-fix bytecode.
+
+### ⬜ O-NEW-3 — the ladder guard's own failure mode, for whoever sees it next
+
+If `verify-ladder-builds.mjs` ever reports `UNREADABLE — transport` again: **suspect pacing
+before believing the chain is down.** That is exactly how it failed on 2026-09-05 — five of six
+pools "unreadable" while answering a paced client perfectly. The lesson generalises: a
+verification tool that is merely noisy is not an annoyance, it is *unavailable at the moment
+you depend on it*.
+
+### 📌 Not urgent, and deliberately recorded as such
+
+- **`recoverCallerCredit()` is NOT a blocker.** Read live 2026-09-05: `callerCredit` = 2.4e12
+  wei (**~$0.007**), and at 0.048 gwei the pull costs **~1.2x what it recovers**. "80% of fees
+  stranded" is true and it is 80% of a cent. The existing section's "do not pull yet" verdict
+  stands; `scripts/pull-caller-credit.mjs` reprices it on demand, which is why no figure is
+  hard-coded here. Even the before-a-redeploy caveat is bounded: after one, the balance is
+  still reachable via the owner-gated `recoverCallerCreditFrom(oldSplitter)`.
+
+
+## 🟢 2026-09-05 — PRIVILEGED-REGISTRY TYPE FILTERS — newest layer; supersedes everything below
+
+Commit `539ba990` on `claude/sad-hamilton-69698f`, tag `lend-eoa-whitelist-2026-09-05`.
+**Committed, NOT pushed, no PR opened.** 13 files, 3038 tests green, 30 new.
+
+A 204-agent adversarial sweep of the staking lending-whitelist fix found the same defect class
+repo-wide: **a slot that grants a security relaxation but never checks its entry is actually a
+contract** (`code.length == 0` = EOA; `== 23` = the `0xef0100‖addr` EIP-7702 delegation pointer,
+which HAS code and is still one private key). Four instances fixed, two left.
+
+### ⬜ REMAINING — an agent can do these alone
+
+- [ ] **`RevenueDistributor` restaking rotation has no type filter on either half.**
+      `proposeRestakingChange` (~`:717`) validates only `_restaking != address(0)`;
+      `executeRestakingChange` (~`:725`) validates nothing. Every sibling consumer of the same
+      interface filters. **LOW** — owner-gated, and the reads are gas-capped `try` calls, so a
+      bad entry degrades rather than bricks.
+      Fix: copy `MemeBountyBoard.setRestakingContract`'s three lines verbatim
+      (`uint256 codeLen = _restaking.code.length; if (codeLen == 0 || codeLen == 23) revert ...`)
+      into BOTH halves. Needs a `NotAContract` error added — the contract has none.
+- [ ] **`TegridyLending` accepted-collateral wire has no type filter on either half.**
+      `TegridyLendingAdmin.proposeAcceptedCollateral` (~`:405`) and
+      `TegridyLending.applyAcceptedCollateralChange` (~`:2612`) both zero-check only, while the
+      sibling `TegridyNFTLendingAdmin` (~`:149`) carries the full `codeLen > 0 && codeLen != 23`
+      gate PLUS an ERC165 preflight. **MEDIUM** but **not deployed** — `TEGRIDY_LENDING_ADDRESS`
+      is zeroed in `frontend/src/lib/constants.ts`, so this is pre-deploy hardening with no live
+      exposure. Do it before that contract ever ships.
+
+- [ ] **`contracts/foundry.toml:60` records SwapFeeRouter at 21,531 B / 3,045 B headroom — stale.**
+      Measured **22,279 B / 2,297 B** on 2026-09-05 with this branch rebased on trunk. Most of the
+      drift is TF-015's FoT-haircut state + timelocked setter (already on trunk); ~99 B is the
+      admin-rotation type filter in this PR. Not urgent — 2,297 B is comfortable, and TegridyStaking
+      is the contract that actually runs tight. Fold the correction into whatever next edits
+      `foundry.toml`, because **editing that file busts forge's cache and forces a ~45-minute
+      full rebuild**, so it is not worth a commit of its own. Consider giving SwapFeeRouter the
+      same ratchet treatment as
+      [`Audit_StakingEIP170Size.t.sol`](../contracts/test/Audit_StakingEIP170Size.t.sol) —
+      it is the second-tightest contract and, like staking was, is currently guarded only by a
+      comment and a CI step that merely warns.
+
+- [ ] **`ReferralSplitter` — the `[L-28]` EOA filter guards the DEAD path; the live one has none.**
+      Same shape as the SwapFeeRouter instance fixed in this PR. `setApprovedCaller` (~`:589`)
+      carries the filter but reverts `SetupAlreadyComplete` on its first line once
+      `completeSetup()` has run — and `recordFee` refuses to do anything until `setupComplete`
+      is true. So the filter exists exactly for the window in which the guarded function is
+      inert, and is absent for the contract's entire operational life: `proposeApprovedCaller`
+      (~`:607`) zero-checks only and `executeApprovedCaller` (~`:619`) checks nothing before
+      `approvedCallers[_caller] = true`. The contract's own `[L-28]` comment even notes the
+      timelocked path is "ALWAYS available even after `completeSetup` flips". **Verified at
+      source 2026-09-05.** **LOW** — `approvedCallers` is the `onlyApproved` credential for
+      `recordFee`, which conserves `msg.value`, so this is credential containment, not a theft
+      path. Reachable today with no EVM state transition, unlike the propose/execute drift cases.
+      Fix: add the filter to `proposeApprovedCaller` AND re-check in `executeApprovedCaller`
+      (the two-sided shape this PR adopted). `revokeApprovedCaller` must stay unconditional.
+- [ ] **DRY the rule across the admin sister, and cross-link all four sites.** After this PR the
+      single rule "reject `code.length` 0 or 23" lives at four sites in three shapes:
+      `TegridyStaking._requireContract` (the helper), two inline copies on
+      `TegridyStakingAdmin` (`proposeRestakingContract` + the new `proposeLendingContract`), and
+      a fourth inline copy in `TegridyStaking.applyRestakingContract` that deliberately reverts
+      `ZeroAddress()` instead of `NotAContract()`. No site cross-references the others, so the
+      next change to the rule (a second delegation designator, a different heuristic) has four
+      places to miss. The admin has **15,669 B** of headroom — no budget excuse, unlike the host.
+      Fix: same `_requireContract` helper on the admin, route both propose paths through it, and
+      add a one-line cross-reference at each site flagging that `applyRestakingContract` is the
+      intentional odd one out (its revert selector must not be unified — changing it is
+      caller-visible drift).
+- [ ] **Add the reward-attribution regression test for a LEGITIMATE escrow.**
+      `isLendingContract` confers six distinct powers; the new suite pins the transfer-guard
+      relaxation and leaves the money-bearing one untested: `_isTrackedHolder` gates the
+      per-tokenId reward ledger at seven credit sites and is the sole authority for
+      `claimUnsettledForTokenId`. The EOA direction is now closed by the type filter, but a
+      future edit to `_requireContract` or the `_approved` gate that broke a legitimate escrow's
+      attribution path would be caught by nothing — and that path is where escrowed borrowers'
+      rewards live. Fix: whitelist `LendEscrow`, drive a shortfall so it is credited **while
+      tracked**, then assert `unsettledByTokenIdHolder(tokenId, escrow) > 0` and that
+      `claimUnsettledForTokenId` pays that slice. The shortfall plumbing already exists in
+      [`StakingLendingWhitelistEOA_2026_09_05.t.sol`](../contracts/test/StakingLendingWhitelistEOA_2026_09_05.t.sol)
+      (`_seedUntrackedResidue` and its helpers) — this is the tracked-at-credit-time mirror.
+- [ ] **Decide `contracts/certora/`'s status — it is ungated and reads as coverage.**
+      `grep -rl certora .github/` returns nothing: no workflow builds or runs the harness, the
+      6-rule spec, or the `.conf`. Nobody has checked whether the harness still compiles against
+      the edited contract, and the spec contains no lending references at all. Either add a rule
+      asserting the invariant this PR creates (any state where `isLendingContract[x]` is true was
+      reached through a transition that saw `x.code.length != 0 && != 23`) — exactly what a
+      prover is good at and a unit test is not — or put a header in `contracts/certora/README.md`
+      recording that it is unmaintained and ungated, so no future reviewer mistakes it for
+      verification.
+
+### 🟡 One DECISION, not a task
+
+- [ ] **Whitelisting is also a power exercised *over* an address, and this PR narrows the target
+      set to contract holders. Record the call either way.** Every lens framed
+      `isLendingContract` as a privilege GRANTED. It is equally a privilege exercised AGAINST:
+      `applyLendingContract(victim, true)` immediately zeroes `votingPowerOf(victim)` and
+      `aggregateActiveBoostBps(victim)`, bars the victim from `claimUnsettled()`, and bars anyone
+      from `claimUnsettledFor(victim)` — with no requirement that the target consent, hold no
+      positions, or have any relationship to lending. The timelock and `onlyOwner` bound *who can
+      do it*, not *who it can be done to*. Post-fix the reachable targets are exactly the
+      addresses WITH code — i.e. multisig, vault and DAO-treasury stakers, the largest governance
+      weights. This may be entirely acceptable in a trust model where the same key already holds
+      pause and admin replacement, but it was never decided out loud. Pick one:
+      **(a)** add a sentence to `applyLendingContract`'s natspec stating the power plainly and
+      that it is accepted, or
+      **(b)** add `if (_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();`
+      so an address already holding positions cannot be conscripted — which also reinforces the
+      `[LEND-RESIDUE-DEADLOCK]` fix from the other side.
+      (b) is a behaviour change and needs its own mutation-checked test; (a) is a comment. Do not
+      leave it implicit a second time.
+
+All of the above were verified at `file:line` by three independent refuters. None is a live exploit —
+both are owner-gated. They were kept OUT of `539ba990` deliberately: that diff already spans 6
+contracts, and widening a security change further costs more review quality than it buys.
+Each is a ~10-line change plus a mutation-checked test; model the test on
+[`contracts/test/Audit_AdminRotationEOA_2026_09_05.t.sol`](../contracts/test/Audit_AdminRotationEOA_2026_09_05.t.sol),
+which already covers the three fixed instances.
+
+### 🔴 REMAINING — only you can do these
+
+- [x] ~~**Push and open the PR**~~ — **DONE**: [#437](https://github.com/fomotsar-commits/tegridy-farms/pull/437),
+      base `mvp-launch`, MERGEABLE. Rebased onto trunk `77b2dec7` first, because trunk had moved
+      10+ commits (incl. TF-015 landing in `SwapFeeRouter.sol`, a file this PR also edits) and a
+      **conflicting PR runs no CI in this repo while still reading clean**. 38 checks registered,
+      0 failures — above the ~27 floor that distinguishes a real run from a starved one.
+      **Still needs review + merge.**
+- [ ] **Redeploy `TegridyStaking`** — the live contract at `0xcaDc93E9…046D` still runs pre-fix
+      bytecode. Tracked in [`WAVE_0_TODO.md`](WAVE_0_TODO.md) §2 with the full rationale.
+- [ ] **Before the queued staking↔NFT-lending whitelist**, read `unsettledRewards(addr)` and
+      `balanceOf(addr)` on the live staking contract — **both must be 0** or the whitelist
+      permanently deadlocks that residue against the DEPLOYED bytecode. Both read 0 on
+      2026-09-05, but `kick()` is permissionless and the 48h window is public, so re-read
+      immediately before proposing. Full runbook in [`WAVE_0_TODO.md`](WAVE_0_TODO.md) §4.
+
+---
+
 ## 🟢 2026-08-30 — ISLAND BUILDOUT (WO-3 dry-runs done) — newest layer; supersedes everything below
 
 Branch `claude/bungalow-buildout` (PR #341). Full plan: [`ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md`](ISLAND_BUILDOUT_MASTER_PLAN_2026_08_30.md).
@@ -928,6 +1138,79 @@ construction: its credential can bind a chat and can *never* attach a wallet).
 | 3.3 | **Send the seacasa wave-three packet** | Written, never handed over. Add the fifth question: **when does the island publish its attestation signing key, and at what route?** Without it the Heat gate stays advisory — anyone reading the Airlock ABI can launch around it. |
 | 3.4 | Book the EVM firm audit | Sequenced after any admin-model change so the report is not invalidated. |
 | 3.5 | SEAL 911 / Safe Harbor · Immunefi (fix the 404'd link in `AUDITS.md:178` first) · DefiLlama (after the pool deepen) · legal entity + tax scoping | None started; none pending on anyone else. |
+
+---
+
+# Carried over 2026-09-05 — verified against the live systems, not assumed
+
+Four items that belong to nobody's tier yet. Each was checked against the running system today,
+so the status lines below are readings, not recollections.
+
+## ✅ Confirmed CLOSED today (do not re-do these)
+
+- **SIWE login WORKS.** `GET /api/auth/siwe?action=nonce` returns **200** with a real nonce and
+  expiry; `siwe_nonces` answers anon with `42501 permission denied`, i.e. the table exists and is
+  correctly service-role-only. Migration 014 landed. **Authentication is working in production for
+  the first time since launch** — the social tier is no longer dark.
+- **The RLS write-side hole is shut.** A `pg_policies` census returns **4** permissive-`true` rows
+  on the four user tables and **every one is `SELECT`**. All eight write-side `Anyone can …`
+  policies are gone, so ownership is enforced on every write path.
+- **`main` → Vercel Production is closed** (changed 2026-08-22, re-verified today). The settings
+  page reads *"Every commit pushed to the `mvp-launch` branch will create a Production
+  Deployment."* A `git push origin main` can no longer overwrite production.
+
+## 1. The last RLS decision — 4 read-side policies, yours to call
+
+These four survive by design (Section 2 of `015_drop_permissive_policy_overrides.sql`, left
+commented on purpose). Each makes one user's rows readable by anyone:
+
+| policy | verdict |
+|---|---|
+| `Anyone can read watchlist` | **Drop it.** A watchlist leaks trading intent — the most sensitive of the four. |
+| `Anyone can read favorites` | A behavioural profile. Defensible to keep, worth a thought. |
+| `Anyone can read profiles` | Public profiles are a normal product choice. Probably keep. |
+| `Anyone can read votes` | Vote *counts* are surely meant to be public — but this exposes **who voted for what, per wallet**. Dropping it blanks the public tally until an aggregate view exists, so do not drop it casually. |
+
+The owner-scoped SELECT twin already exists for each, so dropping one is sufficient — no other
+change needed:
+```sql
+DROP POLICY IF EXISTS "Anyone can read watchlist" ON public.user_watchlist;
+```
+
+## 2. 🔴 The Squads guard is a snapshot, not an invariant — and is currently unwired
+
+`frontend/src/lib/launcher/solana/squads.ts` verifies a multisig's `threshold >= 2` (offset 72,
+discriminator-guarded — the guard is what makes the hand-rolled offset safe). It **never reads
+`config_authority` at offset 40**, which its own layout comment at `:76` names.
+
+⇒ A multisig with a **non-null `config_authority`** can have its threshold lowered to 1 by that
+single key **after** the check passes. The check is a correct point-in-time read of a **mutable**
+value. The production vault happens to have `config_authority = None`, so the live account is safe
+**because of its own configuration, not because the guard verifies it** — point any Squads-gated
+constant at a *controlled* multisig and the guarantee evaporates silently.
+
+**Fix (one line, same guarded read):** also assert `config_authority == Pubkey::default()` (32 zero
+bytes at offset 40) before returning true.
+
+⚠️ **Second residual:** since the Meteora deletion (`ba871e0e`) this guard has **no caller in
+shipped code** — `squads.ts` survived, its callers (`dbcClient.ts`, `feeCustody.ts`,
+`submitLaunch.ts`) went with the rail. Re-wiring it for the own-venue work is a live task, not
+inherited safety.
+
+## 3. The predeploy gate no longer covers trunk
+
+Now that `mvp-launch` is the Production Branch, **a push to trunk auto-deploys with no local
+step**, so `scripts/predeploy-check.mjs` never runs on that path — it only ever gated CLI deploys,
+and says so in its own output. That is the correct branch to have wired; the point is that the
+guard is no longer in front of the common path. If trunk pushes should be gated, it has to move
+into CI.
+
+## 4. 140 git worktrees
+
+`git worktree list` reports **140** entries and `git worktree prune` finds nothing to remove —
+they are all real directories on disk, accumulated from months of agent runs. This is already slow
+enough to matter: it made a workflow's isolation check refuse outright rather than resolve. Worth a
+sweep of the ones whose branches are merged.
 
 ---
 
@@ -1949,6 +2232,33 @@ These go into the Supabase SQL editor by hand, in this order.
 **The ordering precondition for 024 is already satisfied.** 024 requires the frontend read to move
 off the anon key first, or every user silently gets zero rows. That shipped — both tables now read
 through `proxyRead()` and the proxy allowlist admits them. Verified on trunk 2026-09-04.
+
+**Why neither migration can break the proxy — the structural reason, not a grep (2026-09-05).**
+The "zero anon writers" check above is a text search, which can only ever say *nothing matched
+today*. The stronger guarantee is that the proxy does not use the `anon` role at all:
+
+- `api/auth/siwe.js:312-316` mints the SIWE JWT with **`role: "authenticated"`** (and
+  `aud: "authenticated"`).
+- `api/supabase-proxy.js:293-294` sends that JWT as `Authorization: Bearer`, with the anon key
+  only as `apikey`. In PostgREST the **JWT's `role` claim** picks the database role — the apikey
+  does not. So every proxied read and write executes as `authenticated`.
+- 025 revokes verbs `FROM anon`. It therefore cannot touch the proxy's write path, whatever a
+  grep does or does not find later.
+
+And the failure mode that would be SILENT — 024 dropping the last SELECT policy, so every user
+sees an empty list rather than an error — does not apply either. 024 drops only the two
+`Anyone can read …` policies; the owner-scoped twins survive and match on the same claim the JWT
+carries:
+
+```sql
+-- 004_security_hardening.sql:156-165, still current
+CREATE POLICY "Owner reads favorites" ON public.user_favorites FOR SELECT USING (
+  lower(wallet) = lower(current_setting('request.jwt.claims', true)::json->>'wallet')
+);
+```
+
+The JWT carries `wallet`, so an owner keeps reading their own rows and `anon` reads none. That is
+the whole intent of 024, and it holds by construction rather than by inspection.
 
 1. Run each file's ⛔ PREFLIGHT block. They were rewritten on 2026-09-04 because the originals
    could not fail: 024 read an HTTP status code (PostgREST answers an RLS-**denied** select with

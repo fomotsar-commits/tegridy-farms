@@ -229,6 +229,26 @@ contract TegridyStakingAdmin is OwnableNoRenounce, TimelockAdmin {
     // ─── Lending contract whitelist ───────────────────────────────────
     function proposeLendingContract(address _lending, bool _approved) external onlyOwner {
         if (_lending == address(0)) revert ZeroAddress();
+        // AUDIT FIX 2026-09-05 [LEND-EOA-WHITELIST] — reject EOAs and EIP-7702 delegated
+        // EOAs, exactly as `proposeRestakingContract` has since [L-25]. The two registries
+        // confer the SAME power over `StakingRewardLib.afterTokenTransfer`'s EOA
+        // single-position guard (:918 relaxes on `isLendingContract[from]` OR
+        // `from == restakingContract`), and the lending half additionally waives BOTH
+        // transfer-time guards in `TegridyStaking._beforeTokenTransfer`
+        // (`lendingExempt` — the 24h cooldown AND the 1h rate limit). Only the restaking
+        // registry validated its entries, so an admin-whitelisted EOA could hand a second
+        // staking position to an address that already holds one.
+        //
+        // Gated on `_approved`: a REVOKE must never require code. An entry that legitimately
+        // held code at approve time and later lost it (7702 un-delegation, a future EVM that
+        // re-enables SELFDESTRUCT) must still be removable — a code-gated revoke would pin it
+        // in the whitelist permanently, which is strictly worse than the defect being closed.
+        // Type-filter only, NOT a capability check: the operator MUST still verify the
+        // proposed contract is the intended lending escrow.
+        if (_approved) {
+            uint256 codeLen = _lending.code.length;
+            if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        }
         pendingLendingContract = _lending;
         pendingLendingContractApproval = _approved;
         _propose(LENDING_CONTRACT_CHANGE, LENDING_CONTRACT_CHANGE_TIMELOCK);

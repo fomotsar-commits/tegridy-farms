@@ -104,8 +104,10 @@ interface ITegridyStakingJbacVault {
 // `receive()`, so a plain ETH send reverts, and nothing in the staking flow ever attaches
 // value. Reaching it requires deliberately attaching ETH to an NFT approve/transfer.
 // NOT FIXABLE HERE, and that is why this is a suppression rather than a patch: the
-// contract is live, non-upgradeable, and sits at 24,554 B against the 24,576 B EIP-170
-// ceiling - 22 bytes of headroom, far less than any rescue function costs.
+// contract is live, non-upgradeable, and sits at 24,521 B against the 24,576 B EIP-170
+// ceiling - 55 bytes of headroom, far less than any rescue function costs.
+// (Was 24,554 B / 22 B until 2026-09-05; the measured figure is ratcheted by
+// contracts/test/Audit_StakingEIP170Size.t.sol, which is what keeps this line honest.)
 // slither-disable-next-line locked-ether
 contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pausable, PauseGuardian {
     using SafeTransferLib for address;
@@ -627,6 +629,43 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     // + `totalStaked` getters. Off-chain monitors (Forta/Defender) point at the
     // sister address — same ABI, same values.
 
+    /// @dev AUDIT FIX 2026-09-05 [LEND-EOA-WHITELIST] — the shared type-filter behind every
+    ///      contract-only wire on this contract. Rejects EOAs (`code.length == 0`) and
+    ///      EIP-7702 delegated EOAs, whose runtime code is exactly the 23-byte
+    ///      `0xef0100 ‖ addr` delegation pointer.
+    ///
+    ///      Extracted from three verbatim inline copies (`setJbacVault`,
+    ///      `setStakingAdmin`, `proposeAdminReplacement`) so that a FOURTH caller —
+    ///      `applyLendingContract`, which was missing the check entirely — could be added
+    ///      without consuming EIP-170 buffer. foundry.toml records the standing rule for that
+    ///      budget: pay for a new check with a DRY refactor that DELETES a duplicated pattern,
+    ///      never by spending the buffer. Measured outcome of applying it here: 24,554 B ->
+    ///      24,508 B (-46). [LEND-RESIDUE-DEADLOCK] then spent 13 B of that in the same
+    ///      commit, landing at 24,521 B — margin 22 B -> 55 B against the 24,576 ceiling.
+    ///      Two security fixes shipped AND the buffer still grew by 33 B.
+    ///
+    ///      The per-copy cost was NOT measured independently — only the -3 copies / +1 body /
+    ///      +4 calls net of 46 B was. (An earlier draft of this comment attributed a "~39 B per
+    ///      copy" figure to `setJbacVault`'s natspec; that number is the contract's then-current
+    ///      HEADROOM in a different argument, not a per-copy cost. Do not propagate it.)
+    ///
+    ///      NOTE the optimizer does NOT inline a private function with four call sites; an edit
+    ///      that reduces this to one call site would re-inline it and hand the 46 B straight
+    ///      back. contracts/test/Audit_StakingEIP170Size.t.sol ratchets the measured size so
+    ///      this paragraph cannot silently go stale again.
+    ///
+    ///      `applyRestakingContract`'s copy is deliberately NOT folded in: it reverts
+    ///      `ZeroAddress()` rather than `NotAContract()`, and rewriting that revert would
+    ///      change an existing error selector on a security path for byte savings this fix
+    ///      does not need.
+    ///
+    ///      Type-filter ONLY, NOT a capability check — every caller's natspec still leaves
+    ///      interface verification to the operator.
+    function _requireContract(address a) private view {
+        uint256 codeLen = a.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+    }
+
     /// @notice One-shot wire of the JBAC vault sister contract.
     /// @dev    AUDIT FIX (pass-8 batch-14). Mirrors the `setStakingAdmin` /
     ///         `setRestakingContract` one-shot pattern: rejects zero address,
@@ -639,8 +678,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX FRESH-2026 (post-fix scan3 EIP-7702 retrofit): length-23 carve-out.
         // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
         // EOAs); NOT a capability check.
-        uint256 codeLen = _vault.code.length;
-        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        _requireContract(_vault);
         // AUDIT FIX FRESH-2026 [H-STAKING-JBAC-VAULT-VERIFY]: vault wire-back
         // verification (`vault.staking() == address(this)`) is enforced
         // OFF-CHAIN by script/VerifyMVP.s.sol:113 (INV-7 invariant). The
@@ -675,7 +713,15 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     //     24,457 B  baseline (HEAD)
     //     24,535 B  +78  [BOOST-RESIDUAL-WIPE]      (reward correctness)
     //     24,608 B  +73  [L-11 fourth sibling]      (boost/JBAC correctness)
-    //     24,554 B  -54  MAX_MAX_UNSETTLED de-getter  <-- SHIPPED. 22 B headroom.
+    //     24,554 B  -54  MAX_MAX_UNSETTLED de-getter  <-- was SHIPPED. 22 B headroom.
+    //     24,508 B  -46  [LEND-EOA-WHITELIST] _requireContract DRY extraction: added a
+    //                    contract-check to applyLendingContract and still RECLAIMED 46 B by
+    //                    folding three inline code-length copies into one helper.
+    //     24,521 B  +13  [LEND-RESIDUE-DEADLOCK] approve-side residue guards
+    //                    <-- SHIPPED 2026-09-05. 55 B headroom. Net for the day: -33 B with
+    //                    two security fixes in. Ratcheted by
+    //                    contracts/test/Audit_StakingEIP170Size.t.sol — that assertion, not
+    //                    this comment, is what keeps the number honest.
     //     24,895 B  +341 tokenURI wire  <-- 319 B OVER the 24,576 EIP-170 ceiling
     //
     // 341 B = the `tokenURIReader()` auto-getter + the setter + the forwarding
@@ -2351,8 +2397,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
         // EOAs); NOT a capability check. Operator MUST verify the admin contract
         // implements ITegridyStakingApply.
-        uint256 codeLen = _admin.code.length;
-        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        _requireContract(_admin);
         stakingAdmin = _admin;
         emit StakingAdminReplaced(address(0), _admin);
     }
@@ -2423,8 +2468,7 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         // AUDIT FIX 2026-05-26 [L-25] — Type-filter only (rejects EOAs and 7702-delegated
         // EOAs); NOT a capability check. Operator MUST verify the proposed admin
         // contract implements ITegridyStakingApply.
-        uint256 codeLen = _newAdmin.code.length;
-        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        _requireContract(_newAdmin);
         pendingStakingAdmin = _newAdmin;
         adminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
         emit StakingAdminReplacementProposed(_newAdmin, adminReplacementReadyAt);
@@ -2523,6 +2567,13 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
         if (oldRestaking != address(0) && unsettledRewards[oldRestaking] > 0) {
             revert PendingRestakingResidue();
         }
+        // AUDIT FIX 2026-09-05 [LEND-RESIDUE-DEADLOCK] — mirror the guard onto the INCOMING
+        // address. Every check above tests `oldRestaking`; `_restaking` itself was unchecked.
+        // Wiring in an address that already carries untracked `unsettledRewards` flips
+        // `_isTrackedHolder` true over a bucket with no per-tokenId ledger backing and deadlocks
+        // it exactly as on the lending side — same closed exits, this guard included on the way
+        // back out. Drain via `claimUnsettledFor(_restaking)` while it is still untracked.
+        if (unsettledRewards[_restaking] > 0) revert PendingRestakingResidue();
         restakingContract = _restaking;
         // AUDIT FIX 2026-05-26 [M-07] — emit on the contract itself; previously only
         // TegridyStakingAdmin emitted RestakingContractChanged, leaving direct-admin
@@ -2548,14 +2599,66 @@ contract TegridyStaking is SoladyERC721, OwnableNoRenounce, ReentrancyGuard, Pau
     ///      `_accumulateRewards` tick and the next user-action tick, allowing a
     ///      whitelist flip to subtly re-shape the next accrual window. Mirrors
     ///      applyRewardRate's `updateReward` decoration.
+    /// @dev AUDIT FIX 2026-09-05 [LEND-EOA-WHITELIST] — execute-time contract check, the
+    ///      missing half of the pair `applyRestakingContract` has carried since [L-18].
+    ///      `isLendingContract` and `restakingContract` confer the SAME power over
+    ///      `StakingRewardLib.afterTokenTransfer`'s EOA single-position guard (:918 relaxes
+    ///      on `isLendingContract[from]` OR `from == restakingContract`), and the lending
+    ///      half additionally waives BOTH transfer-time guards in `_beforeTokenTransfer`
+    ///      (`lendingExempt` — the 24h cooldown AND the 1h rate limit, strictly more
+    ///      than the restaking hop, which is waived from the rate limit only). Only the
+    ///      restaking registry validated its entries, so an admin-whitelisted EOA — plain or
+    ///      EIP-7702 delegated — could hand a second staking position to an address that
+    ///      already holds one. Admin-gated behind the 48h timelock, so this is hardening for
+    ///      registry parity, not a live exploit.
+    ///
+    ///      Mirrors the restaking sibling on BOTH sides: `proposeLendingContract` fails fast
+    ///      so the 48h wait is not burned on a doomed proposal, and this recheck catches an
+    ///      address that stopped being a contract INSIDE the window — the [L-18] rationale
+    ///      (a future EVM that re-enables SELFDESTRUCT, or a script that passes an address
+    ///      which was a contract at propose time and is not at execute time).
+    ///
+    ///      Gated on `_approved`: a REVOKE must never require code. An entry that held code
+    ///      when it was legitimately approved and later lost it must stay removable — a
+    ///      code-gated revoke would pin it in the whitelist permanently, strictly worse than
+    ///      the defect being closed. Pinned by
+    ///      test/StakingLendingWhitelistEOA_2026_09_05.t.sol.
+    ///
+    ///      Safe to add: the live registry was enumerated before shipping this (staking
+    ///      0xcaDc93E9…046D from deploy block 25,263,328 to head 25,912,642 — zero
+    ///      `LendingContractApplied` logs against 83 events of positive control), so there
+    ///      is no existing entry for the new check to brick.
     function applyLendingContract(address _lending, bool _approved) external onlyAdmin updateReward {
         if (_lending == address(0)) revert ZeroAddress();
+        if (_approved) _requireContract(_lending);
         if (!_approved && balanceOf(_lending) > 0) revert PendingLendingPositions();
         // AUDIT FIX 2026-05-16 M12: same residue-strand guard as applyRestakingContract.
         // Revoking while unsettledRewards residue exists strands per-tokenId reward
         // attribution permanently. Operator MUST drain via the lending contract's
         // residual-claim flow before revoking the whitelist entry.
-        if (!_approved && unsettledRewards[_lending] > 0) revert PendingLendingResidue();
+        //
+        // AUDIT FIX 2026-09-05 [LEND-RESIDUE-DEADLOCK] — this guard is now UNCONDITIONAL. It
+        // read `!_approved && ...`, and that gap was a permanent deadlock on the APPROVE side.
+        // `unsettledRewards[X]` can be non-zero while X is UNTRACKED: the shortfall credit
+        // `unsettledRewards[holder] += residual` in StakingRewardLib is unconditional, while the
+        // `_creditByTokenId` call beside it runs ONLY under `_isTrackedHolder`. Approving X then
+        // flips `_isTrackedHolder(X)` true over a bucket with NO per-tokenId ledger backing, and
+        // every exit shuts at once: `claimUnsettled()` and `claimUnsettledFor(X)` both revert
+        // `Unauthorized` BECAUSE the holder is now tracked, `claimUnsettledForTokenId` pays from
+        // the empty per-(tokenId, holder) ledger, and the revoke that would undo it reverts on
+        // this very guard. The residue is then unrecoverable (`sweepToken` refuses the reward
+        // token) and stays pinned in `totalUnsettledRewards`, shrinking `rewardPool` for every
+        // user forever. That is verbatim the stranding class StakingRewardLib's own comment says
+        // the per-tokenId ledger exists to close — the ledger closes it for credits made WHILE
+        // tracked, not for an admin flipping tracked-ness over a pre-existing untracked bucket.
+        // `kick(uint256)` is permissionless, so a third party can arm it inside the public 48h
+        // propose window.
+        //
+        // Unconditional is also the SMALLER program — it deletes a condition rather than adding
+        // one — and it costs the operator nothing: the remedy is `claimUnsettledFor(X)`, which
+        // works precisely BECAUSE X is still untracked. Drain first, then approve.
+        // Pinned by test/StakingLendingWhitelistEOA_2026_09_05.t.sol.
+        if (unsettledRewards[_lending] > 0) revert PendingLendingResidue();
         isLendingContract[_lending] = _approved;
         // AUDIT FIX 2026-05-26 [M-08] — emit on the contract itself so direct-admin
         // observability matches the staking-admin sister event (LendingContractUpdated).
