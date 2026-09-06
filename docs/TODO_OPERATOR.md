@@ -57,6 +57,18 @@ which HAS code and is still one private key). Four instances fixed, two left.
       is zeroed in `frontend/src/lib/constants.ts`, so this is pre-deploy hardening with no live
       exposure. Do it before that contract ever ships.
 
+- [ ] **`contracts/foundry.toml:60` records SwapFeeRouter at 21,531 B / 3,045 B headroom — stale.**
+      Measured **22,279 B / 2,297 B** on 2026-09-05 with this branch rebased on trunk. Most of the
+      drift is TF-015's FoT-haircut state + timelocked setter (already on trunk); ~99 B is the
+      admin-rotation type filter in this PR. Not urgent — 2,297 B is comfortable, and TegridyStaking
+      is the contract that actually runs tight. Fold the correction into whatever next edits
+      `foundry.toml`, because **editing that file busts forge's cache and forces a ~45-minute
+      full rebuild**, so it is not worth a commit of its own. Consider giving SwapFeeRouter the
+      same ratchet treatment as
+      [`Audit_StakingEIP170Size.t.sol`](../contracts/test/Audit_StakingEIP170Size.t.sol) —
+      it is the second-tightest contract and, like staking was, is currently guarded only by a
+      comment and a CI step that merely warns.
+
 Both were verified at `file:line` by three independent refuters. Neither is a live exploit —
 both are owner-gated. They were kept OUT of `539ba990` deliberately: that diff already spans 6
 contracts, and widening a security change further costs more review quality than it buys.
