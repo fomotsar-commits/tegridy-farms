@@ -112,8 +112,42 @@ test.describe('bungalow doors', () => {
     await expect(page.locator('text=Welcome to the Bayla bungalow')).toHaveCount(0);
     await expect(page.locator('text=— the muse')).toHaveCount(0); // her persona stays home
     await expect(page.locator('text=Ask me')).toHaveCount(0); // Towelie assistant too
-    // PEPE's own quiet line is welcome here.
-    await expect(page.locator('text=— the island')).toHaveCount(1);
+    // WAVE SEVEN, element E: "— the island" was the FLOATING MUSE BUBBLE's
+    // byline (museVoice), and that bubble is gone from every room — it opened
+    // over the page unasked, which is the class this element removes. The
+    // room's own quiet line is not lost with it: museLine still renders in the
+    // hero pill, credited to museBy rather than the bubble's persona.
+    await expect(page.locator('text=— the island')).toHaveCount(0);
+    // PEPE's own voice is still here, and the welcome that used to open itself
+    // now waits behind this.
+    await expect(page.getByRole('button', { name: 'About this bungalow' })).toBeVisible();
+  });
+
+  test('a room speaks only its own token — no TOWELI furniture in it', async ({ page }) => {
+    // WAVE SEVEN, element D. The "Protocol Overview" grid rendered in EVERY
+    // bungalow, so BAYLA's room and PEPE's room both told their visitors to
+    // "Stake TOWELI to earn now" — another resident's token, in someone else's
+    // house. Wave five cleaned the venue arrival of it and missed the rooms.
+    //
+    // Asserted on the RENDERED page rather than on the gate expression: a
+    // source check would pass on any gate that merely mentions the right
+    // identifiers, which is not the same as the grid being absent.
+    await seedOverlays(page);
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem('tegridy-bungalow', 'pepe');
+        localStorage.setItem('tegridy-onboarding-pepe-seen', '1');
+      } catch { /* private mode */ }
+    });
+    await page.goto('/pepe');
+    await expect(page.locator('h1').first()).toContainText('PEPE', { timeout: 20_000 });
+
+    await expect(page.locator('text=Protocol Overview')).toHaveCount(0);
+    await expect(page.locator('text=Stake TOWELI')).toHaveCount(0);
+
+    // And TOWELI's own home keeps its furniture, because there it is true.
+    await page.goto('/toweli');
+    await expect(page.locator('text=Protocol Overview').first()).toBeVisible({ timeout: 20_000 });
   });
 
   test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {

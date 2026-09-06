@@ -19,10 +19,8 @@ import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/
 import {
   isStale,
   nextTier,
-  shareForDegrees,
   gateDecision,
   TIER_FLOORS,
-  HEAT_K,
   type HeatReading,
   type HeatTier,
 } from '../lib/heat/heatOracle';
@@ -722,37 +720,46 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
 }
 
 function Maths({ degrees }: { degrees: number }) {
-  const examples = [0.001, 0.005, 0.01, 0.02, 0.05];
   return (
     <div className="mt-3 rounded-xl p-4 text-[12.5px] leading-relaxed" style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}>
+      {/* WAVE SEVEN, element K: THE WHOLE LAW, AS THE ISLAND PUBLISHES IT.
+          This block taught the SIZE TERM as if it were the entire formula, and
+          then did arithmetic on it: a what-the-curve-pays table and a
+          single-token share needed for Observer. Under weight and loyalty
+          neither of those is anybody's number, so both are retired rather than
+          corrected. The oracle's served figure is the only complete truth, and
+          the venue quotes the law rather than reproducing it. */}
       <p className="text-white/75 mb-3">
-        For each measured token you hold, the island works out your{' '}
-        <strong className="text-white">time-weighted average balance</strong> — your balance at every
-        moment, not a snapshot — as a share of that token&apos;s total supply. It puts that share
-        through one curve:
+        The island measures one thing: <strong className="text-white">held time</strong>. Your heat
+        is read per token and summed across everything you hold, and each token&apos;s number is
+        built from three published terms:
       </p>
 
       <div className="rounded-lg px-3 py-2.5 mb-3 font-mono text-[12px] overflow-x-auto" style={{ background: 'rgba(0,0,0,0.55)', color: 'var(--color-kyle)' }}>
-        degrees = 100 × ( 1 − e<sup>−{HEAT_K} × share</sup> )
+        heat = weight × ( size + loyalty )
       </div>
 
-      <p className="text-white/60 mb-3">
-        Each token gives you between 0 and 100 degrees. Your total — <strong className="text-white/85">island heat</strong> — is
-        those per-token numbers <strong className="text-white/85">added together</strong>, which is why the
-        higher tiers need several tokens: one token alone can never exceed 100.
-      </p>
-
-      <div className="mb-3">
-        <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">What the curve pays</div>
-        <ul className="space-y-1">
-          {examples.map((s) => (
-            <li key={s} className="flex justify-between text-white/70 max-w-[300px]">
-              <span>{(s * 100).toFixed(s < 0.01 ? 1 : 0)}% of supply, held throughout</span>
-              <span className="stat-value">{(100 * (1 - Math.exp(-HEAT_K * s))).toFixed(1)}°</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <ul className="space-y-1.5 mb-3 text-white/70">
+        <li>
+          <strong className="text-white/85">Size</strong> is the share curve: your time-weighted
+          average balance as a share of that token&apos;s supply.{' '}
+          <span className="text-white/50">
+            TWAB is your balance at every moment rather than a snapshot.
+          </span>
+        </li>
+        <li>
+          <strong className="text-white/85">Loyalty</strong> is held days and nothing else.{' '}
+          <span className="text-white/50">It anchors to your first hold and only climbs.</span>
+        </li>
+        <li>
+          <strong className="text-white/85">Weight</strong> is the island&apos;s published
+          multiplier.{' '}
+          <span className="text-white/50">
+            The Apes carry triple weight, JBM and BAYLA carry their edge, the home team leans warm,
+            and every measured token counts.
+          </span>
+        </li>
+      </ul>
 
       <div className="mb-3">
         <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The tiers, on your total</div>
@@ -769,20 +776,13 @@ function Maths({ degrees }: { degrees: number }) {
       </div>
 
       <p className="text-white/50 text-[11.5px] mb-2">
-        To reach {TIER_FLOORS.find((t) => t.tier === 'Observer')!.floor}° on a{' '}
-        <em>single</em> token you would need about{' '}
-        <strong className="text-white/75">{((shareForDegrees(30) ?? 0) * 100).toFixed(2)}% of its whole supply</strong>,
-        held steadily rather than traded. Most wallets get there by holding several
-        measured tokens instead.
-      </p>
-
-      <p className="text-white/50 text-[11.5px] mb-2">
-        The island has published three properties of the instrument and no others: it is{' '}
+        The instrument is{' '}
         <strong className="text-white/75">continuous</strong> (your balance at every moment, not a
         snapshot), <strong className="text-white/75">zero-anchored</strong> (time before you first
         held counts as zero), and <strong className="text-white/75">velocity-blind</strong> (churn
-        earns nothing). The period the average is taken over has not been published, so this page
-        does not state one — and cannot reproduce the curve until it is.
+        earns nothing). The average is taken over{' '}
+        <strong className="text-white/75">your whole held time</strong>, which is the island&apos;s
+        own grammar for it: earned in days of staying, never in a single trade.
       </p>
 
       <p className="text-white/40 text-[11px]">

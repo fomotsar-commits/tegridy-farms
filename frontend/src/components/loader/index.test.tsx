@@ -37,14 +37,22 @@ function setReducedMotion(reduce: boolean) {
     })) as unknown as typeof window.matchMedia;
 }
 
+// WAVE SEVEN, element A: localStorage is cleared here too, and that is not
+// housekeeping. The arrival's durable record moved to localStorage so the film
+// plays once per BROWSER rather than once per tab — which means it now SURVIVES
+// between tests. The reduced-motion case writes it, and without this the next
+// test inherits "already arrived" and the splash never mounts. That is exactly
+// how it failed when the storage moved.
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   setReducedMotion(false);
 });
 
 afterEach(() => {
   window.matchMedia = realMatchMedia;
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 describe('the splash shell', () => {
@@ -93,7 +101,28 @@ describe('the splash shell', () => {
     expect(screen.queryByTestId('intro-overlay')).toBeNull();
     // The write has to land during the shell's own render: AppLayout's
     // `freshSplash` initializer reads this key, and it runs when children do.
-    expect(sessionStorage.getItem('tf_loaded')).toBe('1');
+    // It lands in LOCALSTORAGE now (wave seven, element A) — the record is
+    // durable per browser, not per tab, so a reduced-motion visitor is never
+    // asked again in a new tab either.
+    expect(localStorage.getItem('tf_loaded')).toBe('1');
+  });
+
+  it('still honours a per-SESSION suppression, which the art studios rely on', () => {
+    // The studios write sessionStorage to keep the splash out of their
+    // same-origin preview iframes. Promoting that write to localStorage would
+    // mean opening the art studio once permanently consumed a visitor's
+    // arrival, so the decision reads BOTH storages and this pins it.
+    sessionStorage.setItem('tf_loaded', '1');
+
+    render(
+      <AppLoader onComplete={vi.fn()}>
+        <p>the app</p>
+      </AppLoader>,
+    );
+
+    expect(screen.queryByTestId('intro-overlay')).toBeNull();
+    // ...and it stays transient: nothing promoted it to the durable record.
+    expect(localStorage.getItem('tf_loaded')).toBeNull();
   });
 
   it('paints the app WITHOUT waiting for the intro chunk', async () => {

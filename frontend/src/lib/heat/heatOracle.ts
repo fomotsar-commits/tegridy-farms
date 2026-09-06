@@ -12,8 +12,16 @@
 // warmth; only balance held across time does).
 //
 // island_heat is the SUM of per-token degrees across every token in the island's
-// measured registry. One token caps at 100°, which is why the upper tiers are
-// unreachable on a single position — Elder is earned across the culture.
+// measured registry.
+//
+// WAVE SEVEN, element K: two sentences that stood here are RETIRED, because the
+// island published the whole law and they were true only of a part of it. They
+// said one token caps at 100° and that the upper tiers are therefore unreachable
+// on a single position. Under the published formula, heat = weight · (size +
+// loyalty), neither holds: loyalty adds on top of the share curve, and weight
+// multiplies the pair, so no cap of 100 belongs to a token and no tier is
+// arithmetically out of reach from one position. The curve BELOW is the SIZE
+// TERM only. It is kept to explain the shape and assigns nothing.
 //
 // THE BOUNDARY (spec §"THE BOUNDARY"). The island computes judgement; the venue
 // reads it. Wherever our number and the oracle disagree, THE ORACLE IS THE RULER.
