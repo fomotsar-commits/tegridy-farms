@@ -1,0 +1,34 @@
+[package]
+name = "bayla-ladder"
+version = "0.1.0"
+description = "Lock-ladder staking with a flat 25% early exit — the Solana port of LighthouseLadder.sol"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "bayla_ladder"
+
+[features]
+no-entrypoint = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+devnet = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+
+[dependencies]
+# Pinned to the workspace's versions. Same Anchor as cp-swap and tegridy-launch,
+# so the Token-2022 idioms in `token.rs` are the ones already compiled and shipped
+# by the fork next door, not new ground.
+anchor-lang = { version = "0.32.1", features = ["init-if-needed", "event-cpi"] }
+anchor-spl = { version = "0.32.1", features = ["memo", "metadata"] }
+
+# `math.rs` stays dependency-free so its tests run under a bare `rustc --test`,
+# with no cargo, no build scripts and no validator — which is what lets the reward
+# engine and the ladder be verified on a box where the SBF toolchain is blocked.
+# Do not add a runtime dependency that breaks that.
+
+# NO [profile.release] here. Cargo ignores profiles on non-root workspace members;
+# the real settings (lto = "fat", codegen-units = 1, overflow-checks = true,
+# panic = "abort") live in the workspace root Cargo.toml and already apply.
