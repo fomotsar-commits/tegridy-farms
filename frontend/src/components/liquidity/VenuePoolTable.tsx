@@ -79,7 +79,20 @@ export function VenuePoolTable({ poolData }: { poolData: ReturnType<typeof usePo
         className="rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
       >
-        <div className="overflow-x-auto">
+        {/* `relative` IS LOAD-BEARING — it is what CONTAINS the sr-only span in the
+            last <th>. Tailwind's `sr-only` is `position:absolute`, and an
+            absolutely-positioned element is clipped by an ancestor's overflow
+            ONLY if that ancestor is its containing block, i.e. positioned. With
+            a STATIC scroll wrapper the span escaped the clip, painted at the
+            520px table's right edge, and dragged `documentElement.scrollWidth`
+            to 521 on a 390px phone — so the whole PAGE scrolled sideways while
+            the table itself sat there looking perfectly contained.
+
+            Measured live before the fix: /liquidity and /farm both scrolled
+            horizontally at 390px; /trust (same RouteTabs, no wide table) did
+            not. Proven by A/B/A in the page: remove the span -> 390, restore it
+            -> 521, add `relative` here -> 390. */}
+        <div className="relative overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[520px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-white/50">

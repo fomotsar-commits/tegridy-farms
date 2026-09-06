@@ -95,14 +95,24 @@ export function RouteTabs({ idPrefix, ariaLabel, items, active, onSelect }: Rout
               /* F402: min-w + the row's overflow-x-auto lets long strips scroll
                  on narrow phones instead of clipping, while flex-1 keeps the
                  equal-width look once there is room. */
-              /* 44px ON A PHONE (A11Y-R07's floor), 40px from md up. The three
+              /* 44px ON TOUCH (A11Y-R07's floor), 40px on desktop. The three
                  hosts this markup was extracted from all shipped a flat 40px —
                  about 4px under the repo's own touch floor for the primary way
                  to move between a page's sections, which is the exact defect
                  e2e/tab-target-size.spec.ts was written for on /community and
                  /nft-finance. Desktop keeps the tighter 40px: the floor is a
-                 finger, not a cursor. */
-              className="flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] md:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+                 finger, not a cursor.
+
+                 ⚠️ THE BREAKPOINT IS 800, NOT `md` (768), CORRECTED 2026-09-05.
+                 "Desktop" in this app means >=800px — that is where BottomNav
+                 hides and the TopNav row appears, and the seven coupled sites
+                 that define it are listed in TopNav.tsx. Keying the touch floor
+                 to `md` opened a 32px window, 768-799, where the app still
+                 renders its TOUCH chrome (BottomNav) while these tabs shrank to
+                 40px. Measured live across nine hosts at 799px before the fix.
+                 e2e/tab-target-size.spec.ts only ever swept 390px, which is why
+                 nothing caught it. */
+              className="flex-1 min-w-[64px] px-2 md:px-3 py-2 min-h-[44px] min-[800px]:min-h-[40px] rounded-xl text-[11.5px] md:text-[13.5px] font-medium text-white transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5"
               style={
                 active === item.to
                   ? { background: 'var(--color-stan)', boxShadow: '0 4px 12px var(--color-stan-40)' }
