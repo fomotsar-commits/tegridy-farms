@@ -3,7 +3,7 @@ import type { LoaderState, Particle } from './types';
 import {
   LOADER_GALLERY, LOADER_WORDS, GOLD,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
-  CURTAIN_TIMING, FILM_TIMING,
+  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS, SKIP_DISSOLVE_MS,
 } from './constants';
 import { preloadImages } from './preload';
 import { markArrivalSeen, shouldSkipAtMount } from './skip';
@@ -163,8 +163,16 @@ export function AppLoader({
    * scrolling is never blocked, and capture so a stopPropagation somewhere in
    * the app cannot strand the curtain up.
    *
-   * The Skip and Mute controls opt back into pointer events and stopPropagation,
-   * so tapping Mute does not also lift the curtain.
+   * THIS COMMENT USED TO CLAIM that Skip and Mute stopPropagation, "so tapping
+   * Mute does not also lift the curtain". That was false and the island measured
+   * it: these listeners are `pointerdown` on CAPTURE, so they run before the
+   * button's `click` ever fires, and stopPropagation cannot stop an event that
+   * has already finished. Tapping Mute lifted the curtain.
+   *
+   * The fix is not a bigger guard, it is removing the control: on a curtain that
+   * ANY gesture ends, audio cannot start before the gesture that ends it, so
+   * there is nothing to mute. The curtain renders Skip only; the film keeps both.
+   * Skip lifting the curtain is what Skip is for.
    */
   useEffect(() => {
     if (!visible) return;
@@ -191,6 +199,44 @@ export function AppLoader({
       }
     };
   }, [visible, full, skipIntro]);
+
+  /* WAVE SEVEN, element A: THE DEADLINE.
+   *
+   * The curtain's length was stated as a sum and the sum was wrong: it left out
+   * the wordmark's 2,000 ms and the preload gate's up-to-2,500 ms, so a guard
+   * read 2,000 while the island MEASURED the curtain alive at 4,250 ms warm and
+   * 6,100 ms behind a slow image. The lesson is not "add the missing terms" —
+   * it is that a promise held by arithmetic is only as good as the terms
+   * somebody remembered.
+   *
+   * So this enforces it directly. One timer, armed at mount, cleared on unmount.
+   * Whatever the image, the frame rate or the machine does, the curtain starts
+   * dissolving at BUDGET − dissolve and is gone at BUDGET.
+   *
+   * IN ITS OWN EFFECT, deliberately. The canvas effect below returns early when
+   * there is no 2D context, so a deadline living inside it would never arm on
+   * exactly the machines most likely to need it.
+   *
+   * Film only ever ends by choice: it is a deliberate viewing, so no deadline.
+   */
+  useEffect(() => {
+    if (!visible || full) return;
+    // TWO STAGES, and the second one is why this holds at all.
+    //
+    // `skipIntro` only sets the phase to 'skip'; the dissolve and the finalize
+    // that follow it live in the animation tick. On a machine with no 2D context
+    // the tick never starts (the canvas effect returns early), so a lone
+    // skipIntro would leave the overlay up forever — on precisely the machines a
+    // deadline is for. The first timer asks nicely and gets the dissolve; the
+    // second one ends it whatever happened. finalize() is idempotent for our
+    // purposes: it flips `visible` false, and the shell fires onComplete once.
+    const dissolveAt = window.setTimeout(skipIntro, CURTAIN_BUDGET_MS - SKIP_DISSOLVE_MS);
+    const goneAt = window.setTimeout(finalize, CURTAIN_BUDGET_MS);
+    return () => {
+      window.clearTimeout(dissolveAt);
+      window.clearTimeout(goneAt);
+    };
+  }, [visible, full, skipIntro, finalize]);
 
   /* F304: reveal the visible Skip button 400ms after the intro starts. */
   useEffect(() => {
@@ -526,7 +572,7 @@ export function AppLoader({
         drawGoldenLine(ctx!, W, H, 1, 0.1 + tp * 0.15);
         drawPurpleMist(ctx!, W, H, tp * 0.4);
         bloomIntensity = 0.5;
-        if (drawTextFormPhase(ctx!, W, H, elapsed, s)) {
+        if (drawTextFormPhase(ctx!, W, H, elapsed, s, timing.textForm)) {
           if (full) {
             s.phase = 'hold';
             s.t0 = now;
@@ -654,7 +700,7 @@ export function AppLoader({
       /* SKIP: Dissolve */
       if (phase === 'skip') {
         const skipElapsed = now - s.exitStart;
-        const progress = Math.min(1, skipElapsed / 400);
+        const progress = Math.min(1, skipElapsed / SKIP_DISSOLVE_MS);
 
         // Scatter particles outward
         for (const p of s.particles) {
@@ -758,32 +804,44 @@ export function AppLoader({
               zIndex: 0,
             }}
           />
-          {/* Mute button */}
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-            style={{
-              position: 'absolute',
-              pointerEvents: 'auto',
-              top: 16,
-              right: 16,
-              zIndex: 10,
-              background: 'rgba(0,0,0,0.4)',
-              border: '1px solid rgba(212,160,23,0.3)',
-              borderRadius: 8,
-              padding: '10px 14px',
-              cursor: 'pointer',
-              color: GOLD,
-              fontSize: 18,
-              lineHeight: 1,
-              opacity: 0.6,
-              transition: 'opacity 0.2s',
-            }}
-            onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = '1'; }}
-            onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = '0.6'; }}
-            aria-label={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? '\u{1F507}' : '\u{1F50A}'}
-          </button>
+          {/* Mute — THE FILM ONLY (wave seven, element A).
+
+              On the curtain this was a control for nothing that also broke the
+              thing it sat on. Any gesture ends the curtain, so audio can never
+              start before the gesture that ends it: there is no sound to mute.
+              And a pointerdown on it reached the window capture listener first,
+              so tapping Mute lifted the curtain. Measured by the island, not
+              reasoned about.
+
+              The film is a deliberate viewing with sound worth controlling, and
+              its overlay takes pointer events, so it keeps both controls. */}
+          {full && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+              style={{
+                position: 'absolute',
+                pointerEvents: 'auto',
+                top: 16,
+                right: 16,
+                zIndex: 10,
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid rgba(212,160,23,0.3)',
+                borderRadius: 8,
+                padding: '10px 14px',
+                cursor: 'pointer',
+                color: GOLD,
+                fontSize: 18,
+                lineHeight: 1,
+                opacity: 0.6,
+                transition: 'opacity 0.2s',
+              }}
+              onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = '1'; }}
+              onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = '0.6'; }}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted ? '\u{1F507}' : '\u{1F50A}'}
+            </button>
+          )}
           {/* F304: visible, labeled Skip affordance — appears 400ms in. */}
           {showSkip && (
             <button

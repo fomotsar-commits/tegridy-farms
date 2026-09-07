@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS,
+  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS, SKIP_DISSOLVE_MS,
   T_VOID_END, T_ART_COUNT, T_ART_DURATION,
 } from './constants';
 
@@ -49,11 +49,25 @@ describe('the curtain does not capture the page', () => {
     expect(overlayStyle).not.toContain("cursor: 'pointer'");
   });
 
-  it('opts BOTH controls back in, so Skip and Mute still work', () => {
-    // Two standalone 'auto's, one per control, beneath the overlay's ternary.
-    // If a control loses its opt-in it becomes unclickable while looking fine.
-    const optIns = src.match(/^\s+pointerEvents: 'auto',$/gm) ?? [];
-    expect(optIns).toHaveLength(2);
+  it('renders Mute for the FILM only, because on the curtain it broke what it sat on', () => {
+    // Counting opt-ins was the wrong question. Mute on the curtain was a control
+    // for nothing that ALSO lifted the curtain: the window listeners are
+    // pointerdown on capture, so they run before the button's click and its
+    // stopPropagation cannot stop an event that already finished. The island
+    // measured it. So this reads the decision -- Mute lives inside the `full`
+    // branch -- rather than counting how many things opted in.
+    // Anchored on the CALL, not the word: `indexOf('Mute')` finds the comment
+    // ABOVE explaining Mute, which is how the first version of this assertion
+    // failed. Third time on this file that a source grep matched prose instead
+    // of code, so: match something only the button can contain.
+    const muteAt = src.indexOf('toggleMute()');
+    expect(muteAt, 'the Mute control is gone entirely').toBeGreaterThan(0);
+    const before = src.slice(Math.max(0, muteAt - 900), muteAt);
+    expect(before, 'Mute is not gated on the film').toContain('{full && (');
+  });
+
+  it('keeps Skip on both, because Skip lifting the curtain is what Skip is for', () => {
+    expect(src).toContain("aria-label=\"Skip intro animation\"");
   });
 });
 
@@ -64,11 +78,37 @@ describe('two arrivals, one component', () => {
     expect(T_ART_COUNT).toBe(4);
   });
 
-  it('fits the curtain inside its stated budget with no input at all', () => {
-    // The element's promise is that the curtain is gone by 3000 ms. void + art
-    // + the 400 ms dissolve must leave room for the wordmark to form.
-    const floor = CURTAIN_TIMING.voidEnd + CURTAIN_TIMING.artCount * CURTAIN_TIMING.artDuration + 400;
-    expect(floor).toBeLessThan(CURTAIN_BUDGET_MS);
+  it('fits the curtain inside its budget counting EVERY leg', () => {
+    // The first version of this summed void + art + dissolve and called it the
+    // floor. It left out the wordmark's own time — which lived as a literal
+    // inside phases/textForm.ts and was the LONGEST leg — so it read 2,000 ms
+    // while the island measured the curtain alive at 4,250. A sum is only ever
+    // as honest as the terms somebody remembered, which is why the real promise
+    // is now a timer (see curtainDeadline.test.tsx) and this is a sanity check
+    // on the choreography rather than the guarantee.
+    const sum =
+      CURTAIN_TIMING.voidEnd +
+      CURTAIN_TIMING.artCount * CURTAIN_TIMING.artDuration +
+      CURTAIN_TIMING.textForm +
+      SKIP_DISSOLVE_MS;
+    expect(sum).toBe(2800);
+    expect(sum).toBeLessThanOrEqual(CURTAIN_BUDGET_MS);
+  });
+
+  it('counts the same legs the loader actually spends', () => {
+    // Each leg must be spent from the config, not re-typed at a call site. If a
+    // literal creeps back the sum above silently stops describing the run.
+    expect(src).toContain('timing.voidEnd');
+    expect(src).toContain('timing.artDuration');
+    expect(src).toContain('timing.artCount');
+    expect(src).toContain('timing.textForm');
+    expect(src).toContain('SKIP_DISSOLVE_MS');
+    const textForm = readFileSync(join(here, 'phases', 'textForm.ts'), 'utf8');
+    // POSITIVE, deliberately. The negative form (`not /const textDuration = \d/`)
+    // matched this file's own comment quoting the retired literal. Asserting the
+    // parameter EXISTS cannot be satisfied by prose about the parameter.
+    expect(textForm, 'the wordmark does not take its duration as a leg')
+      .toMatch(/textDuration: number,/);
   });
 
   it('leaves the film exactly as it was', () => {
@@ -78,6 +118,8 @@ describe('two arrivals, one component', () => {
       voidEnd: T_VOID_END,
       artCount: T_ART_COUNT,
       artDuration: T_ART_DURATION,
+      // The literal that used to live inside phases/textForm.ts, unchanged.
+      textForm: 2000,
     });
   });
 

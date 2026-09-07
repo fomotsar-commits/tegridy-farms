@@ -107,25 +107,54 @@ export interface ArrivalTiming {
   voidEnd: number;
   artCount: number;
   artDuration: number;
+  /**
+   * How long the wordmark takes to form.
+   *
+   * A LEG, not a literal, because leaving it out of the sum is exactly how the
+   * first version of this got the curtain's length wrong. It lived at
+   * phases/textForm.ts:9 as `const textDuration = 2000`, shared by the film and
+   * the curtain, and the curtain routes STRAIGHT into it — so the two longest
+   * legs of the run were invisible to anything reading this file.
+   */
+  textForm: number;
 }
 
 export const FILM_TIMING: ArrivalTiming = {
   voidEnd: T_VOID_END,
   artCount: T_ART_COUNT,
   artDuration: T_ART_DURATION,
+  textForm: 2000,
 };
 
 export const CURTAIN_TIMING: ArrivalTiming = {
   voidEnd: 400,
   artCount: 1,
   artDuration: 1200,
+  textForm: 800,
 };
+
+/** The dissolve the 'skip' phase spends. Read from here, not typed at the call site. */
+export const SKIP_DISSOLVE_MS = 400;
 
 /**
  * What the curtain must not exceed, end to end, with no input at all.
  *
- * 400 void + 1200 art + the textForm settle + the 400 ms dissolve. Stated as one
- * number because it is the element's promise ("the curtain is gone by 3000 ms"),
- * and a test can hold a promise where four separate constants cannot.
+ * THIS IS A DEADLINE, NOT A SUM — and that distinction is the whole lesson of
+ * this element. The first version stated it as a sum (void + art + dissolve) and
+ * a test "pinned the promise arithmetically". The arithmetic omitted the
+ * textForm settle and the preload gate, so the guard passed at 2,000 ms while
+ * the island MEASURED the curtain alive at 4,250 ms warm and 6,100 ms behind a
+ * slow image. A sum can only ever be as honest as the terms somebody remembered.
+ *
+ * So a timer now enforces it directly (AppLoader arms one at mount, curtain
+ * only). Whatever the image, the frame rate or the machine does, the curtain is
+ * dissolving at BUDGET − SKIP_DISSOLVE_MS and gone at BUDGET. That is one line
+ * that cannot be summed wrong.
+ *
+ * The island owns its half of the original error: the master said "about 2,500
+ * ms in total" and "a 600 ms dissolve", both written without reading
+ * textForm.ts:9 or the dissolve that actually spends 400. Its own law now:
+ * a duration is read from the line that spends it, never added from a
+ * constants file.
  */
 export const CURTAIN_BUDGET_MS = 3000;
