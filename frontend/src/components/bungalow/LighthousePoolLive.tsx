@@ -17,6 +17,7 @@ import {
   unstakeAndCloseForfeitingRewards,
   claimCeilingReached,
   anyClaimCeilingReached,
+  splitAccruedByClaimability,
   maxSafeStakeAcrossPools,
   offeredMaxLockDays,
   lockCeilingApplies,
@@ -332,13 +333,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     : null;
 
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
-  const pendingTotal = openEntries.reduce<bigint | null>((acc, e) => {
-    if (acc === null) return null;
-    const vals = Object.values(e.pendingRaw);
-    if (vals.length === 0) return acc;
-    if (vals.some((v) => v === null)) return null;
-    return acc + vals.reduce<bigint>((s, v) => s + (v as bigint), 0n);
-  }, 0n);
+  // THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID. This reduce was a
+  // byte-for-byte twin of the dashboard's, and had the same defect: a position
+  // past the u64 ceiling still reports a pending figure, so a dead position read
+  // as "N accrued" at the top of the page. Less visible than the dashboard's
+  // only because the per-entry rescue sits a few hundred pixels below it — the
+  // same lie, in smaller type. Split, so the header states the claimable figure
+  // and the stranded amount is named separately rather than folded in.
+  const { claimableRaw: pendingTotal, strandedRaw: pendingStranded, deadCount: pendingDeadCount } =
+    splitAccruedByClaimability(openEntries, pool?.rewardPools ?? []);
 
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
 
@@ -803,6 +806,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     <span className="stat-value text-white text-[14px]">{fmt(stakedTotal, decimals)}</span> {bungalow.symbol} staked
                     {' · '}
                     <span className="stat-value text-white text-[14px]">{fmt(pendingTotal, decimals)}</span> accrued
+                    {pendingDeadCount > 0 && (
+                      <>
+                        {' · '}
+                        <span className="stat-value text-[14px]" style={{ color: '#e3b341' }}>
+                          {fmt(pendingStranded, decimals)}
+                        </span>{' '}
+                        <span style={{ color: '#e3b341' }}>stranded</span>
+                      </>
+                    )}
                   </p>
                 </div>
                 <ul className="space-y-2">

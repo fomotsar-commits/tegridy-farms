@@ -43,17 +43,31 @@ const POOL = {
 vi.mock('../solana/SolanaProviders', () => ({
   SolanaProviders: ({ children }: { children: React.ReactNode }) => children,
 }));
+const walletState = vi.hoisted(() => ({
+  publicKey: null as { toBase58: () => string } | null,
+}));
 vi.mock('@solana/wallet-adapter-react', () => ({
-  useWallet: () => ({ publicKey: null, wallet: null, connected: false }),
+  useWallet: () => ({ publicKey: walletState.publicKey, wallet: null, connected: !!walletState.publicKey }),
 }));
 vi.mock('../solana/useSolanaConnect', () => ({
   useSolanaConnect: () => ({ connect: () => {}, connecting: false }),
 }));
+// u64::MAX + 1 — past the classic reward program's ceiling, so this position
+// can never be paid again and its pending must not be counted as accruing.
+const DEAD_ACCOUNTED = 18_446_744_073_709_551_616n;
+const entry = (nonce: number, accounted: bigint, pending: bigint) => ({
+  address: `Entry${nonce}`, nonce, amountRaw: 1_000_000n, durationSecs: 30 * DAY,
+  createdTs: 1, closedTs: 0, effectiveAmountRaw: 1_000_000n,
+  pendingRaw: { 0: pending }, accountedRaw: { 0: accounted },
+});
+const entriesState = vi.hoisted(() => ({ list: [] as unknown[] }));
+
 vi.mock('../../lib/bungalowStaking', async (importOriginal) => ({
   // The MATH stays real — that is the whole point of a wiring pin.
   ...(await importOriginal<typeof import('../../lib/bungalowStaking')>()),
   readPool: vi.fn(async () => ({ ok: true as const, pool: POOL })),
-  readEntries: vi.fn(async () => ({ ok: true as const, entries: [] })),
+  readEntries: vi.fn(async () => ({ ok: true as const, entries: entriesState.list })),
+  readWalletBalance: vi.fn(async () => ({ ok: true as const, raw: 0n })),
 }));
 
 const { LighthousePoolLive } = await import('./LighthousePoolLive');
@@ -86,5 +100,41 @@ describe('the offered-ceiling headline', () => {
     expect(unit).toMatch(/3 months/);
     expect(unit).toContain('1.98×');
     expect(unit).not.toMatch(/year/);
+  });
+});
+
+/**
+ * THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID.
+ *
+ * `pendingTotal` was a byte-for-byte twin of the dashboard's reduce, with the
+ * same defect: a position past u64::MAX still reports a pending figure, so the
+ * "N accrued" line at the top of the page counted rewards the program will
+ * revert on forever. Less visible than the dashboard's only because the rescue
+ * button sits a few hundred pixels below it — the same lie, in smaller type.
+ */
+describe('the "accrued" header on the pool page', () => {
+  it('excludes a position past the ceiling and names the stranded amount', async () => {
+    walletState.publicKey = { toBase58: () => 'StakerPk1111111111111111111111111111111111' };
+    entriesState.list = [
+      entry(0, DEAD_ACCOUNTED, 4_000_000n), // dead: 4 BAYLA stranded
+      entry(1, 10n, 900_000n),              // live: 0.9 BAYLA claimable
+    ];
+    render(<LighthousePoolLive bungalow={BUNGALOW} />);
+    const header = await screen.findByText(/accrued/);
+    const line = header.textContent ?? '';
+    // 0.9 accrued — NOT 4.9, which is what summing the dead position gives.
+    expect(line).toMatch(/0\.9\s*accrued/);
+    expect(line).not.toMatch(/4\.9\s*accrued/);
+    // And the stranded 4 is named rather than silently dropped.
+    expect(line).toMatch(/4\s*stranded/);
+  });
+
+  it('says nothing about stranding when every position is live', async () => {
+    walletState.publicKey = { toBase58: () => 'StakerPk1111111111111111111111111111111111' };
+    entriesState.list = [entry(0, 10n, 900_000n), entry(1, 20n, 100_000n)];
+    render(<LighthousePoolLive bungalow={BUNGALOW} />);
+    const header = await screen.findByText(/accrued/);
+    expect(header.textContent).toMatch(/1\s*accrued/);
+    expect(header.textContent).not.toMatch(/stranded/);
   });
 });
