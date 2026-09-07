@@ -16,6 +16,7 @@ import {
   unlockTs,
   configuredAnnualRate,
   rateIsPercent,
+  splitAccruedByClaimability,
   type PoolView,
   type StakeEntryView,
 } from '../../lib/bungalowStaking';
@@ -159,13 +160,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
     ? stakeRead.list.filter((e) => e.closedTs === 0)
     : [];
   const stakedRaw = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
-  const accruedRaw = openEntries.reduce<bigint | null>((acc, e) => {
-    if (acc === null) return null;
-    const vals = Object.values(e.pendingRaw);
-    if (vals.length === 0) return acc;
-    if (vals.some((v) => v === null)) return null;
-    return acc + vals.reduce<bigint>((s, v) => s + (v as bigint), 0n);
-  }, 0n);
+  // A position past the u64 ceiling still REPORTS a pending figure it can never
+  // be paid. Summing those into one "Accrued rewards" line told a holder with a
+  // dead position that rewards were accruing — see splitAccruedByClaimability.
+  const {
+    claimableRaw: accruedRaw,
+    strandedRaw,
+    deadCount,
+  } = splitAccruedByClaimability(openEntries, poolRead?.rewardPools ?? []);
   const nextUnlock = openEntries.length
     ? Math.min(...openEntries.map((e) => unlockTs(e)))
     : null;
@@ -302,6 +304,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                       <dt className="text-white/60">Accrued rewards</dt>
                       <dd className="text-white font-mono">{fmtRaw(accruedRaw, decimals)} {bungalow.symbol}</dd>
                     </div>
+                    {deadCount > 0 && (
+                      <div className="flex justify-between gap-3">
+                        <dt style={{ color: '#e3b341' }}>Stranded (cannot claim)</dt>
+                        <dd className="font-mono" style={{ color: '#e3b341' }}>
+                          {fmtRaw(strandedRaw, decimals)} {bungalow.symbol}
+                        </dd>
+                      </div>
+                    )}
                     <div className="flex justify-between gap-3">
                       <dt className="text-white/60">Open positions</dt>
                       <dd className="text-white font-mono">{openEntries.length}</dd>
@@ -313,6 +323,14 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                       </div>
                     )}
                   </dl>
+                  {deadCount > 0 && (
+                    <p className="text-[11px] mb-3" style={{ color: '#e3b341' }}>
+                      {deadCount === 1 ? 'One position has' : `${deadCount} positions have`}{' '}
+                      passed the reward program&rsquo;s counter limit, so those rewards can no
+                      longer be claimed &mdash; the claim reverts every time. Your principal is
+                      safe and still comes back. Open the position to get it out.
+                    </p>
+                  )}
                   {vaultRaw === 0n && (
                     <p className="text-[11px] mb-3" style={{ color: '#e3b341' }}>
                       The reward vault is empty, so nothing is being paid out today — your

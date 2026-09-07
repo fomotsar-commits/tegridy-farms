@@ -10,6 +10,7 @@ import {
   lockCeilingApplies,
   lockPresets,
   claimablePoolsBefore,
+  splitAccruedByClaimability,
 } from './bungalowStaking';
 
 /**
@@ -239,5 +240,60 @@ describe('writeFailure distinguishes the two 6013s', () => {
   it('does NOT read a STAKE-program 6013 (LockedStake) as a drained vault', () => {
     const msg = 'AnchorError thrown in unstake/base.rs:220. Error Code: LockedStake. Error Number: 6013.';
     expect(/RewardPoolDrained/i.test(msg) || (/\b6013\b/.test(msg) && /reward/i.test(msg))).toBe(false);
+  });
+});
+
+/**
+ * THE DASHBOARD MUST NOT COUNT STRANDED REWARDS AS ACCRUING.
+ *
+ * `BungalowDashboardPanel` summed `pendingRaw` across every open position and
+ * printed the total as "Accrued rewards" with no ceiling awareness at all. A
+ * holder whose position is past the ceiling was therefore told rewards were
+ * accruing, when `claim` reverts 6000 every time and always will. It already
+ * got the UNREADABLE half right; this is the DEAD half.
+ */
+describe('splitAccruedByClaimability', () => {
+  const DEAD = CLASSIC_ACCOUNTED_CEILING + 1n;
+  const entry = (accounted: bigint | null, pending: Record<number, bigint | null>) => ({
+    accountedRaw: { 0: accounted },
+    pendingRaw: pending,
+  });
+
+  it('keeps stranded rewards OUT of the claimable total', () => {
+    const r = splitAccruedByClaimability(
+      [entry(DEAD, { 0: 4_000n }), entry(10n, { 0: 900n })],
+      [FIXED],
+    );
+    expect(r.claimableRaw).toBe(900n);
+    expect(r.strandedRaw).toBe(4_000n);
+    expect(r.deadCount).toBe(1);
+  });
+
+  it('reports nothing dead when every position is live', () => {
+    const r = splitAccruedByClaimability([entry(10n, { 0: 900n }), entry(20n, { 0: 100n })], [FIXED]);
+    expect(r.claimableRaw).toBe(1_000n);
+    expect(r.strandedRaw).toBe(0n);
+    expect(r.deadCount).toBe(0);
+  });
+
+  it('an UNREADABLE pending poisons its own total and never reads as zero', () => {
+    const r = splitAccruedByClaimability([entry(10n, { 0: null }), entry(20n, { 0: 100n })], [FIXED]);
+    expect(r.claimableRaw).toBeNull();
+    // The stranded side is unaffected — one outage must not blank both figures.
+    expect(r.strandedRaw).toBe(0n);
+  });
+
+  it('classifies nothing as dead before the pool has been read', () => {
+    // Fails toward "not dead", exactly as the pool page does, so the two
+    // surfaces cannot contradict each other while a read is in flight.
+    const r = splitAccruedByClaimability([entry(DEAD, { 0: 4_000n })], []);
+    expect(r.deadCount).toBe(0);
+    expect(r.claimableRaw).toBe(4_000n);
+  });
+
+  it('never blocks on a DYNAMIC pool — it cannot hit the ceiling', () => {
+    const r = splitAccruedByClaimability([entry(DEAD, { 1: 7_000n })], [DYNAMIC]);
+    expect(r.deadCount).toBe(0);
+    expect(r.claimableRaw).toBe(7_000n);
   });
 });

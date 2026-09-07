@@ -283,8 +283,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // still lives on the buttons, where the choice is actually made.
   const weighted = pool ? !isFlatWeight(pool) : false;
   const rateAtMin = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.minDurationSecs) : 0;
-  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.maxDurationSecs) : 0;
-  const maxBoost = pool ? stakeWeight(pool, pool.maxDurationSecs) : 1;
+  // THE HEADLINE MUST QUOTE A RUNG SOMEONE CAN ACTUALLY PICK.
+  //
+  // `maxDays` is the OFFERED ceiling (OFFERED_LOCK_CEILING_DAYS), and the presets,
+  // the custom-days input and `chosenDays` are all clamped to it. These two stats
+  // were still reading `pool.maxDurationSecs`, so a pool configured to 365 days
+  // advertised its 365-day boost and APR beside a ladder that stops at 90 — the
+  // top number in the card was for a lock the form refuses to submit. Quote the
+  // longest lock actually on offer; :628 separately explains that the pool itself
+  // allows more and that those rungs are paused.
+  const offeredMaxSecs = maxDays * DAY;
+  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, offeredMaxSecs) : 0;
+  const maxBoost = pool ? stakeWeight(pool, offeredMaxSecs) : 1;
   // "Paying now" is the honest half: a configured rate the vault cannot back
   // pays nothing, and this venue says the zero out loud rather than printing
   // the configuration and hoping nobody checks the vault.
@@ -923,7 +933,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                   disabled={!invoker || !!action?.busy}
                                   onClick={() => {
                                     setRescueFor(null);
-                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce }));
+                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce, entry: e }));
                                   }}
                                   className="px-3 py-1.5 text-[12px] rounded-lg disabled:opacity-50"
                                   style={{ background: 'rgba(227,179,65,0.18)', border: '1px solid #e3b341', color: '#e3b341' }}

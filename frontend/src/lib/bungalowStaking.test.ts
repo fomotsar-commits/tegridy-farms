@@ -10,6 +10,7 @@ const getStakePool = vi.fn();
 const searchRewardPools = vi.fn();
 const searchStakeEntries = vi.fn();
 const unstakeAndClaim = vi.fn();
+const unstakeAndClose = vi.fn();
 const claimRewards = vi.fn();
 const getTokenAccountBalance = vi.fn();
 const getAccountInfo = vi.fn();
@@ -29,6 +30,7 @@ vi.mock('@streamflow/staking', () => ({
     searchStakeEntries = searchStakeEntries;
     searchRewardEntries = searchRewardEntries;
     unstakeAndClaim = unstakeAndClaim;
+    unstakeAndClose = unstakeAndClose;
     claimRewards = claimRewards;
     prepareStakeInstructions = prepareStakeInstructions;
     prepareCreateRewardEntryInstructions = prepareCreateRewardEntryInstructions;
@@ -55,8 +57,11 @@ import {
   readEntries,
   nextVacantNonce,
   stake,
+  unstakeAndCloseForfeitingRewards,
+  CLASSIC_ACCOUNTED_CEILING,
   WEIGHT_SCALE,
   type PoolView,
+  type RewardPoolView,
   type StakeEntryView,
 } from './bungalowStaking';
 
@@ -300,5 +305,87 @@ describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRu
     expect(vaultIsMateriallyEmpty(staked, mkRp(4_000_000n))).toBe(false);
     // Unreadable vault is an OUTAGE, not a verdict.
     expect(vaultIsMateriallyEmpty(staked, mkRp(null))).toBe(false);
+  });
+});
+
+/**
+ * THE RESCUE MUST CLAIM WHAT IT CAN BEFORE IT CLOSES.
+ *
+ * `unstakeAndClose` closes the reward entry on EVERY pool it is handed, not just
+ * the one past the u64 ceiling. With a single broken classic pool that costs
+ * nothing. The day a working dynamic pool is attached — the stated plan — closing
+ * blind would forfeit a live, claimable balance with no compensation and no
+ * warning. `claimablePoolsBefore` shipped as the fix with NO CALL SITE; this
+ * pins the wiring, not the helper.
+ */
+describe('unstakeAndCloseForfeitingRewards', () => {
+  const rp = (nonce: number, kind: 'fixed' | 'dynamic'): RewardPoolView => ({
+    address: `Rp${nonce}`, mint: 'MintAddr', kind, nonce, vault: `V${nonce}`, decimals: 6,
+    fundedRaw: 1_000n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400,
+    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+  });
+  const poolWith = (pools: RewardPoolView[]): PoolView => ({
+    address: POOL, mint: 'MintAddr', decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+    minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
+    minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
+    totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n, rewardPools: pools,
+  });
+  const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
+  // The classic pool (nonce 0) is past the ceiling and can never pay again; the
+  // dynamic pool (nonce 1) is healthy and holds a real balance. This is exactly
+  // the shape the venue will have once the dynamic rail is attached.
+  const DEAD_CLASSIC_LIVE_DYNAMIC = {
+    accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n, 1: 5n },
+    pendingRaw: { 0: 4_000n, 1: 9_000n },
+  };
+
+  it('claims the still-payable pool FIRST, then closes', async () => {
+    claimRewards.mockResolvedValue({ txId: 'CLAIM_SIG' });
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
+      entryNonce: 7,
+      entry: DEAD_CLASSIC_LIVE_DYNAMIC,
+    });
+    expect(r.ok).toBe(true);
+    // The DYNAMIC pool is claimed. The dead classic one is not — claiming it
+    // would revert 6000, which is the whole reason this door exists.
+    expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(claimRewards.mock.calls[0]![0].rewardPoolNonce).toBe(1);
+    expect(claimRewards.mock.calls[0]![0].depositNonce).toBe(7);
+    // ORDER IS THE POINT. Closing first destroys the balance the claim saves.
+    expect(claimRewards.mock.invocationCallOrder[0]!)
+      .toBeLessThan(unstakeAndClose.mock.invocationCallOrder[0]!);
+    expect(unstakeAndClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('ABORTS rather than forfeiting when the claim fails', async () => {
+    claimRewards.mockRejectedValue(new Error('vault dry'));
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
+      entryNonce: 7,
+      entry: DEAD_CLASSIC_LIVE_DYNAMIC,
+    });
+    expect(r.ok).toBe(false);
+    // The close must NOT have happened: burning a claimable balance to save a
+    // retry is the trade this change exists to refuse.
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/could not be claimed first/);
+  });
+
+  it('claims nothing when the only pool is the dead one — todays behaviour, unchanged', async () => {
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n }, pendingRaw: { 0: 4_000n } },
+    });
+    expect(r.ok).toBe(true);
+    expect(claimRewards).not.toHaveBeenCalled();
+    expect(unstakeAndClose).toHaveBeenCalledTimes(1);
   });
 });
