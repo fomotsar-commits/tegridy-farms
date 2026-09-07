@@ -809,7 +809,10 @@ describe("bayla-ladder", () => {
         .signers([carol])
         .rpc();
 
-      const stranger = await newWallet();
+      // NO `.signers([...])` — and the first CI run proved why. Passing one gave
+      // "unknown signer": the Sweep Accounts struct declares no Signer at all, so
+      // Anchor has nothing to attach it to. The instruction genuinely needs no
+      // authority; only a fee payer, which the provider supplies.
       await program.methods
         .sweepOrphanedPenalty()
         .accounts({
@@ -819,7 +822,6 @@ describe("bayla-ladder", () => {
           rewardVault: vaultPda(REWARD_VAULT_SEED, ctx.pool),
           tokenProgram: ctx.programId,
         })
-        .signers([stranger])
         .rpc();
 
       assert.equal(
@@ -1044,7 +1046,11 @@ describe("bayla-ladder", () => {
         used[name] = tx?.meta?.computeUnitsConsumed ?? -1;
       };
 
-      await measure("initialize_pool (already run)", "");
+      // (initialize_pool ran inside makePool above; its signature is not returned,
+      //  so it is measured separately when that helper is refactored to hand it back.
+      //  An earlier version called measure() with an EMPTY signature, which fails the
+      //  RPC with "Invalid param: WrongSize" — a measurement of nothing, reported as
+      //  a test failure rather than silently as a zero, which is the right direction.)
       const s1 = await program.methods
         .stake(tok(10_000), new BN(MAX_LOCK))
         .accounts({

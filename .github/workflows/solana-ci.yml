@@ -986,24 +986,45 @@ jobs:
         run: |
           echo "Nothing in this change set is in scope for solana-ci.yml;"
           echo "reporting its check as satisfied. See the scope job for the file list."
+      # DERIVED FROM `needs` ITSELF, never a hand-maintained list.
+      #
+      # It used to enumerate five jobs by name while `needs:` listed eight, so
+      # `bayla-ladder` and `ladder-constraints` sat OUTSIDE the aggregate entirely,
+      # and this job reported SUCCESS on two consecutive runs where
+      # ladder-constraints had FAILED. Branch protection reads this check, so a
+      # duplicated list here is the whole "green != checked" failure mode.
+      #
+      # `toJSON(needs)` cannot drift from the `needs:` block above, because it IS
+      # that block. Adding a job to `needs:` now adds it to the gate automatically.
+      # python3, not jq: it is on the runner AND on the dev box, so the parsing can
+      # be exercised locally instead of trusted.
       - name: Aggregate job results
         if: needs.scope.result != 'success' || needs.scope.outputs.run == 'true'
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           set -uo pipefail
-          FAILED=0
-          for PAIR in \
-            "diff-guard=${{ needs['diff-guard'].result }}" \
-            "build=${{ needs.build.result }}" \
-            "launch-curve=${{ needs['launch-curve'].result }}" \
-            "launch-constraints=${{ needs['launch-constraints'].result }}" \
-            "migration-rehearsal=${{ needs['migration-rehearsal'].result }}"; do
-            JOB="${PAIR%%=*}"
-            RESULT="${PAIR#*=}"
-            echo "${JOB}: ${RESULT}"
-            if [ "$RESULT" != "success" ]; then FAILED=1; fi
-          done
-          if [ "$FAILED" -ne 0 ]; then
-            echo "::error title=solana-ci did not fully pass::at least one job above is not 'success'. A skipped job counts as a failure here."
-            exit 1
-          fi
-          echo "All solana-ci jobs passed"
+          python3 - <<'AGG'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          # `scope` is handled by the complementary step above; everything else counts.
+          jobs = {k: v.get("result") for k, v in needs.items() if k != "scope"}
+          if not jobs:
+              print("::error title=aggregate checked nothing::needs resolved to no jobs")
+              sys.exit(1)
+          print(f"aggregating {len(jobs)} job(s):")
+          failed = []
+          for name in sorted(jobs):
+              result = jobs[name]
+              print(f"  {name}: {result}")
+              if result != "success":
+                  failed.append(name)
+          if failed:
+              print(
+                  "::error title=solana-ci did not fully pass::"
+                  + ", ".join(failed)
+                  + " did not succeed. A skipped job counts as a failure here."
+              )
+              sys.exit(1)
+          print("All solana-ci jobs passed")
+          AGG
