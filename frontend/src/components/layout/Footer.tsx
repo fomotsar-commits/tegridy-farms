@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
 import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { InstallPrompt } from '../pwa/InstallPrompt';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
@@ -178,6 +179,15 @@ export function Footer() {
               >
                 🏝️ Bungalows{getActiveBungalow() ? ` — ${getActiveBungalow()!.name}` : ''}
               </button>
+              {/* WAVE SEVEN, element E: the install offer, as a ROW.
+                  It used to be a fixed z-9500 dialog that opened itself the
+                  moment Chromium fired beforeinstallprompt, sitting at
+                  bottom-20 over the buttons a visitor was reaching for. It
+                  renders nothing unless the browser actually handed us an
+                  unfired prompt, so this row appears only when it can do
+                  something — and now the visitor finds it instead of wearing
+                  it. */}
+              <InstallPrompt />
             </div>
           </div>
 
