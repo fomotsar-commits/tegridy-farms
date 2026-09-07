@@ -17,6 +17,7 @@ import {
   unstakeAndCloseForfeitingRewards,
   claimCeilingReached,
   anyClaimCeilingReached,
+  splitAccruedByClaimability,
   maxSafeStakeAcrossPools,
   offeredMaxLockDays,
   lockCeilingApplies,
@@ -283,8 +284,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // still lives on the buttons, where the choice is actually made.
   const weighted = pool ? !isFlatWeight(pool) : false;
   const rateAtMin = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.minDurationSecs) : 0;
-  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.maxDurationSecs) : 0;
-  const maxBoost = pool ? stakeWeight(pool, pool.maxDurationSecs) : 1;
+  // THE HEADLINE MUST QUOTE A RUNG SOMEONE CAN ACTUALLY PICK.
+  //
+  // `maxDays` is the OFFERED ceiling (OFFERED_LOCK_CEILING_DAYS), and the presets,
+  // the custom-days input and `chosenDays` are all clamped to it. These two stats
+  // were still reading `pool.maxDurationSecs`, so a pool configured to 365 days
+  // advertised its 365-day boost and APR beside a ladder that stops at 90 — the
+  // top number in the card was for a lock the form refuses to submit. Quote the
+  // longest lock actually on offer; :628 separately explains that the pool itself
+  // allows more and that those rungs are paused.
+  const offeredMaxSecs = maxDays * DAY;
+  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, offeredMaxSecs) : 0;
+  const maxBoost = pool ? stakeWeight(pool, offeredMaxSecs) : 1;
   // "Paying now" is the honest half: a configured rate the vault cannot back
   // pays nothing, and this venue says the zero out loud rather than printing
   // the configuration and hoping nobody checks the vault.
@@ -322,13 +333,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     : null;
 
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
-  const pendingTotal = openEntries.reduce<bigint | null>((acc, e) => {
-    if (acc === null) return null;
-    const vals = Object.values(e.pendingRaw);
-    if (vals.length === 0) return acc;
-    if (vals.some((v) => v === null)) return null;
-    return acc + vals.reduce<bigint>((s, v) => s + (v as bigint), 0n);
-  }, 0n);
+  // THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID. This reduce was a
+  // byte-for-byte twin of the dashboard's, and had the same defect: a position
+  // past the u64 ceiling still reports a pending figure, so a dead position read
+  // as "N accrued" at the top of the page. Less visible than the dashboard's
+  // only because the per-entry rescue sits a few hundred pixels below it — the
+  // same lie, in smaller type. Split, so the header states the claimable figure
+  // and the stranded amount is named separately rather than folded in.
+  const { claimableRaw: pendingTotal, strandedRaw: pendingStranded, deadCount: pendingDeadCount } =
+    splitAccruedByClaimability(openEntries, pool?.rewardPools ?? []);
 
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
 
@@ -793,6 +806,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     <span className="stat-value text-white text-[14px]">{fmt(stakedTotal, decimals)}</span> {bungalow.symbol} staked
                     {' · '}
                     <span className="stat-value text-white text-[14px]">{fmt(pendingTotal, decimals)}</span> accrued
+                    {pendingDeadCount > 0 && (
+                      <>
+                        {' · '}
+                        <span className="stat-value text-[14px]" style={{ color: '#e3b341' }}>
+                          {fmt(pendingStranded, decimals)}
+                        </span>{' '}
+                        <span style={{ color: '#e3b341' }}>stranded</span>
+                      </>
+                    )}
                   </p>
                 </div>
                 <ul className="space-y-2">
@@ -923,7 +945,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                   disabled={!invoker || !!action?.busy}
                                   onClick={() => {
                                     setRescueFor(null);
-                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce }));
+                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce, entry: e }));
                                   }}
                                   className="px-3 py-1.5 text-[12px] rounded-lg disabled:opacity-50"
                                   style={{ background: 'rgba(227,179,65,0.18)', border: '1px solid #e3b341', color: '#e3b341' }}
