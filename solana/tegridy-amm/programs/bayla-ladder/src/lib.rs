@@ -1459,4 +1459,112 @@ mod layout_tests {
         // If a `reward_vault` field is ever added there, delete this test and explain
         // in the commit why I-12 no longer holds.
     }
+
+    /* ─────────────── why the MATURED door is a subset of the tested one ───────────────
+     *
+     * `withdraw_matured` cannot be driven on `solana-test-validator`: the minimum lock
+     * is 7 days and the validator has no clock warp. That is a real coverage hole, and
+     * these three pins are what bound it — they are NOT a substitute for execution, they
+     * are the argument that the unexecuted delta is two lines wide.
+     *
+     * `withdraw_matured` is `exit_with_penalty(ctx, now, 0)`. `early_exit` is the SAME
+     * function with a non-zero penalty, and CI drives it end-to-end every run. So the
+     * matured door's untested delta is exactly:
+     *   1. the maturity `require!` PASSING (its failing arm is tested), and
+     *   2. `penalty == 0`, which `transfer_from_vault` short-circuits to a no-op — so
+     *      the matured path issues FEWER CPIs than the path already proven.
+     * Each of those is pinned below. See `tests/matured.rs` for the execution itself.
+     */
+
+    /// The matured door must charge NOTHING. A non-zero literal here is a silent 25%
+    /// tax on every honest staker who waited out their lock.
+    #[test]
+    fn the_matured_door_charges_no_penalty() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("pub fn withdraw_matured")
+            .expect("withdraw_matured not found — this test must be re-anchored");
+        let body = &src[start
+            ..start
+                + src[start..]
+                    .find(
+                        "
+    }",
+                    )
+                    .expect("could not find the end of withdraw_matured")];
+        assert!(
+            body.contains("exit_with_penalty(ctx, now, 0)"),
+            "the matured door must pass a ZERO penalty — found:\n{body}"
+        );
+        assert!(
+            !body.contains("penalty_for("),
+            "withdraw_matured must never compute a penalty"
+        );
+    }
+
+    /// THE TWO DOORS MUST PARTITION TIME, not merely differ.
+    ///
+    /// `withdraw_matured` demands `now >= lock_end`; `early_exit` demands `now <
+    /// lock_end`. Together they are total: every position can always leave through
+    /// exactly one of them. If either comparison is ever loosened to match the other's
+    /// direction, a position becomes refused by BOTH doors — principal trapped until
+    /// the hatch, which is the failure mode this whole program exists to end.
+    #[test]
+    fn the_two_doors_partition_time() {
+        let src = include_str!("lib.rs");
+        let door = |name: &str| -> String {
+            let start = src.find(name).expect("door not found — re-anchor this test");
+            src[start
+                ..start
+                    + src[start..]
+                        .find(
+                            "
+    }",
+                        )
+                        .expect("could not find the end of the door")]
+                .to_string()
+        };
+        let matured = door("pub fn withdraw_matured");
+        let early = door("pub fn early_exit");
+        assert!(
+            matured.contains("now >= ctx.accounts.position.lock_end"),
+            "withdraw_matured must admit exactly the matured half-line"
+        );
+        assert!(
+            early.contains("now < ctx.accounts.position.lock_end"),
+            "early_exit must admit exactly the complement — the two arms must not          overlap and must leave no position with no door"
+        );
+    }
+
+    /// A ZERO TRANSFER IS SKIPPED, NOT ATTEMPTED — and that is load-bearing.
+    ///
+    /// It is what makes the matured path a strict SUBSET of the early-exit path CI
+    /// already executes: with `penalty == 0` the stake->reward leg issues no CPI at
+    /// all. Delete this guard and the matured door starts making an unproven
+    /// zero-amount `transfer_checked` CPI that nothing in the suite has ever run.
+    #[test]
+    fn a_zero_transfer_is_skipped_not_attempted() {
+        let src = include_str!("token.rs");
+        let start = src
+            .find("pub fn transfer_from_vault")
+            .expect("transfer_from_vault not found — this test must be re-anchored");
+        let body = &src[start
+            ..start
+                + src[start..]
+                    .find(
+                        "
+}",
+                    )
+                    .expect("could not find the end of transfer_from_vault")];
+        let guard = body
+            .find("if amount == 0")
+            .expect("the zero-amount short-circuit is GONE — the matured path is no          longer a subset of the tested early-exit path; re-read the note above");
+        let cpi = body
+            .find("transfer_checked(")
+            .expect("transfer_checked call not found — re-anchor this test");
+        assert!(
+            guard < cpi,
+            "the zero-amount guard must come BEFORE the CPI, or it guards nothing"
+        );
+    }
 }
