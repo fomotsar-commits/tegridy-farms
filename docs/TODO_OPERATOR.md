@@ -47,6 +47,18 @@ Two things it establishes that the fix itself did not:
 
 IDs continue the `C-0906-n` / `O-0906-n` series (1 and 2 are taken by the section below).
 
+> **✅ CLOSED by PR #452 (2026-09-06).** All three were re-verified at file:line against trunk
+> before being touched — no false positives. `claimablePoolsBefore` is now wired into
+> `unstakeAndCloseForfeitingRewards` itself (not left to the caller) and ABORTS rather than
+> forfeiting when a pre-close claim fails; a new lib helper `splitAccruedByClaimability` gives
+> **both** accrued surfaces the dead half — `BungalowDashboardPanel` gets a "Stranded (cannot
+> claim)" row and `LighthousePoolLive`'s header line gets a "· N stranded" clause; and
+> `maxBoost`/`rateAtMax` now quote `maxDays`, so the card reads **1.98× at 3 months** instead
+> of the self-contradictory "5.00× at 3 months". Every fix mutation-checked, mutation run first.
+> The C-0906-4 warning against subtracting on an UNKNOWN verdict was followed: only a POSITIVE
+> ceiling verdict strands anything, and an unreadable pending still poisons its total to "—".
+
+
 ### ✅ Settled by this sweep — recorded so nobody re-audits them
 
 - **The stake amount cap is genuinely ENFORCED, not merely displayed.**
@@ -63,7 +75,7 @@ IDs continue the `C-0906-n` / `O-0906-n` series (1 and 2 are taken by the sectio
     | grep -c 'ArithmeticError/i.test(msg)'                # 1
   ```
 
-### 🔴 C-0906-3 — `claimablePoolsBefore` shipped with NO CALLER, and it arms itself later
+### ✅ C-0906-3 — CLOSED (PR #452) — `claimablePoolsBefore` shipped with NO CALLER, and it arms itself later
 
 The most consequential item here, because it is **latent**: it does nothing today and becomes a
 silent, uncompensated loss the day the dynamic reward pool is attached — which is the stated plan.
@@ -89,7 +101,7 @@ Either wire it into the rescue path in `LighthousePoolLive.tsx` (claim the still
 close), or stop calling it "the fix" in that docblock. Do it **before** a second reward pool goes
 live, not after — after is when it costs someone their working rewards.
 
-### 🔴 C-0906-4 — BOTH headline "accrued" totals still count rewards that can never be claimed
+### ✅ C-0906-4 — CLOSED (PR #452) — BOTH headline "accrued" totals still count rewards that can never be claimed
 
 The ceiling guard never reached the second live-numbers surface. `BungalowDashboardPanel.tsx` calls
 the same `readEntries`, sums `Object.values(e.pendingRaw)` across open entries (`:162-168`), and
@@ -119,7 +131,7 @@ ceiling verdict is unreadable too — and `claimCeilingReached` deliberately ret
 because an unknown must never render as a verdict. Subtract only entries with a POSITIVE ceiling
 verdict, and caveat the rest; treating "unknown" as "fine" is how this bug class starts.
 
-### 🔴 C-0906-5 — the card still advertises 5.00× at 365 days, which the venue no longer sells
+### ✅ C-0906-5 — CLOSED (PR #452) — the card still advertises 5.00× at 365 days, which the venue no longer sells
 
 `OFFERED_LOCK_CEILING_DAYS = 90` clamps the ladder the UI offers, but the headline numbers beside it
 were not clamped with it:

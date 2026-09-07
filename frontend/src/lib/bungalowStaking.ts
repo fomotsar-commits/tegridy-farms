@@ -234,6 +234,42 @@ export function anyClaimCeilingReached(
   return rewardPools.some((rp) => claimCeilingReached(entry, rp));
 }
 
+/**
+ * Split a wallet's accrued rewards into what it can still be paid and what is
+ * stranded behind the ceiling.
+ *
+ * A position past the u64 ceiling still REPORTS a pending figure and can never
+ * be paid it — `claim` reverts 6000 for the rest of that position's life. Any
+ * surface that sums `pendingRaw` across positions and calls the total "accrued
+ * rewards" therefore tells a holder with a dead position that rewards are
+ * accruing. The dashboard did exactly that.
+ *
+ * `null` means UNREADABLE, never zero: one unreadable pending poisons the total
+ * it belongs to, so an outage shows as "—" and never as a confident number.
+ *
+ * With an empty `rewardPools` (no pool read yet) nothing is classified as dead,
+ * which matches how the pool page fails — toward "not dead" — so the two
+ * surfaces cannot contradict each other while a read is in flight.
+ */
+export function splitAccruedByClaimability(
+  entries: Pick<StakeEntryView, 'accountedRaw' | 'pendingRaw'>[],
+  rewardPools: Pick<RewardPoolView, 'nonce' | 'kind'>[],
+): { claimableRaw: bigint | null; strandedRaw: bigint | null; deadCount: number } {
+  const sum = (list: Pick<StakeEntryView, 'pendingRaw'>[]): bigint | null =>
+    list.reduce<bigint | null>((acc, e) => {
+      if (acc === null) return null;
+      const vals = Object.values(e.pendingRaw);
+      if (vals.length === 0) return acc;
+      if (vals.some((v) => v === null)) return null;
+      return acc + vals.reduce<bigint>((s, v) => s + (v as bigint), 0n);
+    }, 0n);
+  const dead = rewardPools.length
+    ? entries.filter((e) => anyClaimCeilingReached(e, rewardPools))
+    : [];
+  const live = entries.filter((e) => !dead.includes(e));
+  return { claimableRaw: sum(live), strandedRaw: sum(dead), deadCount: dead.length };
+}
+
 export type Result<T> = { ok: true } & T;
 export type Failure = { ok: false; reason: string };
 
@@ -1077,15 +1113,52 @@ export async function unstakeAndClaim(args: {
  * silent, uncompensated loss, and it appears the day the dynamic pool goes live
  * — not before — which is exactly the kind of latent defect that ships.
  *
- * `claimablePoolsBefore` below is the fix: it names the pools this rescue can
- * still be paid out of, so the caller claims those FIRST and only then closes.
+ * `claimablePoolsBefore` is the fix, and it is WIRED IN BELOW rather than left
+ * to the caller (2026-09-06). It shipped with no call site at all — definition,
+ * this docblock, and tests, nothing else — which is precisely how a latent
+ * defect stays latent. Doing it here means a second call site cannot forget it.
  */
 export async function unstakeAndCloseForfeitingRewards(args: {
   invoker: SignerWalletAdapter;
   pool: PoolView;
   entryNonce: number;
+  /**
+   * REQUIRED, so the rescue cannot be called without the information that tells
+   * it what it is about to destroy. Used only to decide which reward pools are
+   * still payable.
+   */
+  entry: Pick<StakeEntryView, 'accountedRaw' | 'pendingRaw'>;
 }): Promise<Result<{ txId: string }> | Failure> {
   try {
+    // CLAIM WHAT CAN STILL BE PAID, THEN CLOSE.
+    //
+    // With one classic pool past the ceiling this is empty and the behaviour is
+    // exactly as before. It becomes load-bearing the day the dynamic pool is
+    // attached, when closing blind would forfeit a WORKING reward balance.
+    const savable = claimablePoolsBefore(args.entry, args.pool.rewardPools);
+    for (const rp of savable) {
+      const claimed = await claimRewards({
+        invoker: args.invoker,
+        pool: args.pool,
+        rewardPool: rp,
+        entryNonce: args.entryNonce,
+      });
+      if (!claimed.ok) {
+        // ABORT RATHER THAN FORFEIT. A pool in `savable` is one that can still
+        // pay, so a failure here is transient — a dry vault, a dropped tx — and
+        // retrying is cheap. Closing anyway would burn that balance permanently
+        // to save a retry, which is the trade this whole change exists to stop.
+        // The principal is not trapped by this: the pools that CAN pay are the
+        // ones that work, so the normal exit remains open.
+        return {
+          ok: false,
+          reason:
+            `Rewards from pool #${rp.nonce} could not be claimed first, so the rescue ` +
+            `stopped before closing — closing now would destroy them permanently. ` +
+            `Your stake is untouched. ${claimed.reason}`,
+        };
+      }
+    }
     const client = await makeClient();
     // Same argument shape as unstakeAndClaim — the SDK aliases
     // UnstakeAndClaimArgs = UnstakeAndCloseArgs.
