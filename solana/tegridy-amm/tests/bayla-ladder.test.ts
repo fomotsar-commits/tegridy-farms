@@ -1038,12 +1038,34 @@ describe("bayla-ladder", () => {
       const eveAta = await distribute(ctx.mint, ctx.userAta, eve, tok(50_000));
       const used: Record<string, number> = {};
 
+      /**
+       * A measurement that cannot be taken must FAIL, never vanish.
+       *
+       * The first green run printed exactly ONE instruction and passed. `.rpc()`
+       * returns before the transaction is queryable, so `getTransaction` gave null
+       * for three of four, `?? -1` turned that into a sentinel, and both the print
+       * and the assertion were guarded by `if (v >= 0)` — three quarters of the
+       * measurement silently disappeared and the suite reported success. An
+       * unreadable value rendering as fine is the exact bug class this repo has a
+       * standing rule against, written by me into my own test.
+       */
       const measure = async (name: string, sig: string) => {
-        const tx = await conn.getTransaction(sig, {
-          commitment: "confirmed",
-          maxSupportedTransactionVersion: 0,
-        });
-        used[name] = tx?.meta?.computeUnitsConsumed ?? -1;
+        for (let i = 0; i < 30; i++) {
+          const tx = await conn.getTransaction(sig, {
+            commitment: "confirmed",
+            maxSupportedTransactionVersion: 0,
+          });
+          const cu = tx?.meta?.computeUnitsConsumed;
+          if (typeof cu === "number") {
+            used[name] = cu;
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        assert.fail(
+          `could not read compute units for ${name} (sig ${sig}) after 15s — ` +
+            `a measurement that cannot be taken must fail, not be skipped`
+        );
       };
 
       // (initialize_pool ran inside makePool above; its signature is not returned,
@@ -1117,18 +1139,21 @@ describe("bayla-ladder", () => {
       // eslint-disable-next-line no-console
       console.log("\n    COMPUTE UNITS CONSUMED");
       for (const [k, v] of Object.entries(used)) {
-        if (v >= 0) console.log(`      ${k.padEnd(22)} ${v.toLocaleString()}`);
+        // eslint-disable-next-line no-console
+        console.log(`      ${k.padEnd(22)} ${v.toLocaleString()}`);
       }
+      // Pin the COUNT, so a measurement that stops being taken fails loudly rather
+      // than shrinking the report.
+      assert.equal(
+        Object.keys(used).length,
+        4,
+        "every instruction on the principal path must be measured"
+      );
       // The default per-instruction budget is 200k. Anything close to it is a
-      // principal-path failure waiting for a busier pool.
+      // principal-path failure waiting for a busier pool. No `if` guard here: an
+      // instruction that could not be measured has already failed in `measure`.
       for (const [k, v] of Object.entries(used)) {
-        if (v >= 0) {
-          assert.isBelow(
-            v,
-            200_000,
-            `${k} is at or over the default CU budget`
-          );
-        }
+        assert.isBelow(v, 200_000, `${k} is at or over the default CU budget`);
       }
     });
   });
