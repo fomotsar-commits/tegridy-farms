@@ -33,7 +33,7 @@ on:
         required: true
         default: tegridy-launch
         type: choice
-        options: [tegridy-launch, cp-swap]
+        options: [tegridy-launch, cp-swap, bayla-ladder]
       cluster:
         description: "Which cfg arm to build (devnet uses the devnet feature)"
         required: true
@@ -41,12 +41,12 @@ on:
         type: choice
         options: [devnet, mainnet]
       program_id:
-        description: "tegridy-launch ONLY: program address to pin (base58). Ignored for cp-swap, whose identities are committed."
+        description: "tegridy-launch / bayla-ladder: program address to pin (base58). Ignored for cp-swap, whose identities are committed."
         required: false
         default: ""
         type: string
       deployer:
-        description: "tegridy-launch ONLY: pubkey allowed to call initialize_global (base58)."
+        description: "tegridy-launch: pubkey allowed to call initialize_global. bayla-ladder: pubkey allowed to call initialize_pool. REQUIRED for bayla-ladder in BOTH clusters (base58)."
         required: false
         default: ""
         type: string
@@ -56,9 +56,14 @@ permissions:
 
 env:
   SOLANA_VERSION: v2.3.0
+  ANCHOR_VERSION: 0.32.1
 
 jobs:
   build-deployable:
+    # bayla-ladder has its own job below: it needs `anchor build` (for the IDL a
+    # browser client cannot be written without) rather than bare `cargo build-sbf`,
+    # and that has to run from the workspace root where Anchor.toml lives.
+    if: inputs.program != 'bayla-ladder'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -233,5 +238,226 @@ jobs:
           path: |
             solana/tegridy-amm/target/deploy/*.so
             solana/tegridy-amm/target/deploy/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # bayla-ladder — the lock-ladder staking program.
+  #
+  # SEPARATE JOB, on purpose. Two things differ from the job above:
+  #
+  #  1. It builds with `anchor build`, not `cargo build-sbf`, because the IDL is
+  #     not optional here. `solana-ci` only ever produces the IDL inside a runner
+  #     and throws it away, so there is NO committed IDL and no way for anyone to
+  #     write a client. `cargo build-sbf` emits a `.so` and no IDL at all.
+  #  2. `anchor build` needs Anchor.toml, so it runs from the workspace root
+  #     rather than the program directory.
+  #
+  # The deployer gate is stricter than tegridy-launch's: `deployer::ID` is a
+  # COMPILE-TIME constant and BOTH cfg arms are `pubkey!`, the non-devnet one being
+  # the System-program sentinel `1111…` (fail-closed). So a mainnet build with no
+  # `deployer` input produces a binary whose `initialize_pool` NOBODY can call —
+  # the pool can never be created. `deployer` is therefore required in both
+  # clusters, and audit L-5 (deployer == program id makes initialize_pool demand a
+  # signature from a loader-owned account) is refused outright.
+  build-ladder-deployable:
+    if: inputs.program == 'bayla-ladder'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Workspace root: `anchor build` reads Anchor.toml from here.
+        working-directory: solana/tegridy-amm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+
+      - name: Validate the identities BEFORE building
+        # Same rule as the job above (audit fix TF-038): inputs are BOUND AS ENV
+        # VARS, never spliced into the script text. `${{ }}` substitutes before
+        # bash parses, so a crafted input would be executed by the very step whose
+        # job is to reject it.
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
+        run: |
+          set -euo pipefail
+          for name in PROGRAM_ID DEPLOYER; do
+            val="${!name}"
+            if [ -z "$val" ]; then
+              echo "::error::$name is REQUIRED for bayla-ladder. Without it the build is either pinned to an address nobody holds, or fail-closed and uncallable."
+              exit 1
+            fi
+            if ! printf '%s' "$val" | grep -qE '^[1-9A-HJ-NP-Za-km-z]{32,44}$'; then
+              echo "::error::$name is not a plausible base58 pubkey"
+              exit 1
+            fi
+          done
+          python3 - "$PROGRAM_ID" "$DEPLOYER" <<'PY'
+          import sys
+          A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+          vals = {}
+          for label, v in (("program_id", sys.argv[1]), ("deployer", sys.argv[2])):
+              n = 0
+              for c in v:
+                  n = n * 58 + A.index(c)
+              b = n.to_bytes((n.bit_length() + 7) // 8, "big")
+              b = b"\x00" * (len(v) - len(v.lstrip("1"))) + b
+              assert len(b) == 32, f"{label} decodes to {len(b)} bytes, not 32 - NOT a pubkey"
+              vals[label] = v
+              print(f"  {label}: {v} -> 32 bytes OK")
+          # AUDIT L-5. This exact collision shipped once: deployer::ID equalled
+          # declare_id!, so initialize_pool demanded a signature from the program's
+          # OWN loader-owned address and no Pool could ever be created.
+          assert vals["deployer"] != vals["program_id"], \
+              "deployer MUST NOT equal the program id - audit L-5, initialize_pool would be uncallable"
+          # The fail-closed sentinel is not a deployer.
+          assert vals["deployer"] != "11111111111111111111111111111111", \
+              "deployer is the System Program sentinel - that is the fail-closed placeholder, not a key you hold"
+          print("  L-5 check: deployer != program id OK")
+          PY
+
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor ${{ env.ANCHOR_VERSION }}
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install "$ANCHOR_VERSION"
+          avm use "$ANCHOR_VERSION"
+
+      - name: Pin the operator's identities into the source
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
+          CLUSTER: ${{ inputs.cluster }}
+        run: |
+          set -euo pipefail
+          python3 - programs/bayla-ladder/src/lib.rs "$PROGRAM_ID" "$DEPLOYER" "$CLUSTER" <<'PY'
+          import re, sys
+          path, program_id, deployer, cluster = sys.argv[1:5]
+          src = open(path).read()
+
+          src, n = re.subn(r'declare_id!\("[^"]+"\)', f'declare_id!("{program_id}")', src)
+          assert n == 1, f"expected exactly 1 declare_id!, patched {n}"
+
+          # Patch ONLY the arm this build selects, so the other stays fail-closed
+          # rather than silently becoming live too. Both arms are `pubkey!` here:
+          # devnet first, then the `1111...` sentinel.
+          marker = "pub mod deployer {"
+          head, sep, tail = src.partition(marker)
+          assert sep, "could not locate `pub mod deployer` - lib.rs layout changed"
+          arms = re.findall(r'pubkey!\("[^"]+"\)', tail)
+          assert len(arms) == 2, f"expected exactly 2 pubkey! arms in mod deployer, found {len(arms)}"
+          idx = 0 if cluster == "devnet" else 1
+          tail = tail.replace(arms[idx], f'pubkey!("{deployer}")', 1)
+          open(path, "w").write(head + sep + tail)
+          print(f"  declare_id! -> {program_id}")
+          print(f"  deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
+          PY
+          # Anchor.toml must agree or `anchor build` rewrites the id back.
+          # "$PROGRAM_ID" has passed the base58 gate, so it carries no `/`.
+          sed -i "s|^bayla_ladder = \".*\"|bayla_ladder = \"$PROGRAM_ID\"|" Anchor.toml
+          grep -E '^bayla_ladder' Anchor.toml
+
+      - name: Build
+        env:
+          CLUSTER: ${{ inputs.cluster }}
+        run: |
+          set -euo pipefail
+          SO=target/deploy/bayla_ladder.so
+          IDL=target/idl/bayla_ladder.json
+          # Delete first: `anchor build` can exit 0 having compiled nothing, and a
+          # stale artifact on disk would then pass `test -f` for a build that never
+          # ran. This workflow publishes what it finds.
+          rm -f "$SO" "$IDL"
+          : > /tmp/build.log
+          if [ "$CLUSTER" = "devnet" ]; then
+            anchor build -p bayla_ladder -- --features devnet 2>&1 | tee -a /tmp/build.log
+          else
+            anchor build -p bayla_ladder 2>&1 | tee -a /tmp/build.log
+          fi
+          test -f "$SO"  || { echo "::error::no $SO - the program was NOT compiled"; exit 1; }
+          test -f "$IDL" || { echo "::error::no $IDL - a client cannot be written without it"; exit 1; }
+          # A frame overflow is undefined behaviour on-chain, and the SBF build
+          # reports it WITHOUT failing. This program has already hit that limit once.
+          if grep -q "exceeded max offset" /tmp/build.log; then
+            echo "::error::SBF stack frame overflow - refusing to publish a deployable artifact"
+            grep -B3 "exceeded max offset" /tmp/build.log
+            exit 1
+          fi
+          ls -l "$SO" "$IDL"
+
+      - name: Assert the artifact's identity is what was ASKED for
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+        run: |
+          set -euo pipefail
+          IDL_ID=$(python3 -c "import json;print(json.load(open('target/idl/bayla_ladder.json'))['address'])")
+          SRC_ID=$(grep -oP 'declare_id!\("\K[^"]+' programs/bayla-ladder/src/lib.rs | head -1)
+          echo "requested=$PROGRAM_ID  idl=$IDL_ID  src=$SRC_ID"
+          # A mismatch here is the failure that looks fine and is unusable: the
+          # binary would be pinned to an address the operator does not control.
+          if [ "$IDL_ID" != "$PROGRAM_ID" ] || [ "$SRC_ID" != "$PROGRAM_ID" ]; then
+            echo "::error::program id mismatch - the artifact is NOT pinned to the requested address"
+            exit 1
+          fi
+
+      - name: Report what a deployer must check
+        env:
+          PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
+          CLUSTER: ${{ inputs.cluster }}
+        run: |
+          set -euo pipefail
+          SO=target/deploy/bayla_ladder.so
+          SIZE=$(stat -c%s "$SO")
+          sha256sum "$SO" | tee "$SO.sha256"
+          sha256sum target/idl/bayla_ladder.json | tee target/idl/bayla_ladder.json.sha256
+          {
+            echo "### bayla-ladder — deployable artifact"
+            echo ""
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| cluster | \`$CLUSTER\` |"
+            echo "| program id | \`$PROGRAM_ID\` |"
+            echo "| deployer (may call initialize_pool) | \`$DEPLOYER\` |"
+            echo "| commit | \`${{ github.sha }}\` |"
+            echo "| .so size | $SIZE bytes |"
+            echo "| .so sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |"
+            echo "| idl sha256 | \`$(sha256sum target/idl/bayla_ladder.json | cut -d' ' -f1)\` |"
+            echo ""
+            echo "Deploy rent is roughly \`size * 2 * 0.00000696\` SOL ≈ **$(python3 -c "print(f'{$SIZE*2*0.00000696:.3f}')") SOL**."
+            echo ""
+            echo "#### Deploy"
+            echo ""
+            echo '```bash'
+            echo "# 1. Unzip the artifact, then put YOUR program keypair (the one whose"
+            echo "#    pubkey is $PROGRAM_ID) at ./bayla_ladder-keypair.json"
+            echo "solana config set --url $([ "$CLUSTER" = devnet ] && echo devnet || echo mainnet-beta)"
+            echo "solana address   # must print $DEPLOYER"
+            echo "solana balance   # needs about $(python3 -c "print(f'{$SIZE*2*0.00000696+0.5:.1f}')") SOL"
+            echo ""
+            echo "solana program deploy bayla_ladder.so \\"
+            echo "  --program-id bayla_ladder-keypair.json"
+            echo ""
+            echo "# 2. Verify what actually landed:"
+            echo "solana program show $PROGRAM_ID"
+            echo '```'
+            echo ""
+            echo "> The upgrade authority defaults to the deploying wallet. For anything"
+            echo "> holding other people's principal that is not adequate — move it to a"
+            echo "> multisig or burn it. See \`BAYLA_LADDER_DEVNET_RUNBOOK.md\` §9."
+          } >> $GITHUB_STEP_SUMMARY
+
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: bayla-ladder-${{ inputs.cluster }}-${{ github.sha }}
+          path: |
+            solana/tegridy-amm/target/deploy/bayla_ladder.so
+            solana/tegridy-amm/target/deploy/bayla_ladder.so.sha256
+            solana/tegridy-amm/target/idl/bayla_ladder.json
+            solana/tegridy-amm/target/idl/bayla_ladder.json.sha256
           if-no-files-found: error
           retention-days: 30
