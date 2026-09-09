@@ -144,11 +144,24 @@ export function AppLoader({
     if (!visible) return;
     const s = stateRef.current;
     if (s.phase !== 'skip' && s.phase !== 'exit' && s.phase !== 'exit-crack') {
-      initAudio();
+      // FILM ONLY, and it is the island's own Mute ruling one line further in.
+      //
+      // Mute left the curtain because "on a curtain any gesture ends, audio can
+      // never start, so there was nothing to mute". The same sentence condemns
+      // this call: on the curtain the ONLY gesture that reaches skipIntro is the
+      // one dismissing it, so an AudioContext is constructed and an ambient loop
+      // fetched for a curtain that is 400 ms from gone, and disposed unheard.
+      //
+      // It is not free. Spinning up an AudioContext blocks the main thread while
+      // Chromium starts its audio thread, and it does so at exactly the moment
+      // the dissolve needs frames — measured at 711 ms and 967 ms from the press
+      // against a ruled 600. The film keeps it: there, a gesture is a viewer
+      // engaging with something that goes on playing.
+      if (full) initAudio();
       s.phase = 'skip';
       s.exitStart = performance.now();
     }
-  }, [visible, initAudio]);
+  }, [visible, initAudio, full]);
 
   /* WAVE SEVEN, element A: ANY INPUT LIFTS THE CURTAIN, AT ONCE.
    *

@@ -169,9 +169,27 @@ test.describe('the curtain, not the wall', () => {
 
     await expect(curtain(page)).toHaveCount(0, { timeout: 5_000 });
     const clock = await readClock(page);
-    // 600, not 200: the dissolve itself spends 400, so a 200 ms claim and a
-    // 400 ms dissolve cannot both be true. Ruled 600; the island measured 496.
-    expect(clock.removed! - pressedAt).toBeLessThanOrEqual(600);
+    const sincePress = clock.removed! - pressedAt;
+    const lifetime = clock.removed! - clock.added!;
+    console.log(`[arrival] gone ${Math.round(sincePress)} ms after the press (lifetime ${Math.round(lifetime)} ms)`);
+
+    // THE INVARIANT, which no machine can move: the KEYPRESS ended it, not the
+    // deadline. Without this the assertion below could pass on a box slow
+    // enough that the two endings converge, and the test would stop meaning
+    // anything at exactly the moment it looks green.
+    expect(lifetime, 'this ended on the deadline, not on the key').toBeLessThan(CURTAIN_BUDGET_MS - 500);
+
+    // THE RULED NUMBER. 600, not 200: the dissolve itself spends 400, so a
+    // 200 ms claim and a 400 ms dissolve cannot both be true. The island
+    // measured 496.
+    //
+    // REPORTED TO THE ISLAND, because the ruling is theirs to keep or move: one
+    // run of a full-file pass measured 967 ms while five runs in isolation
+    // passed, on a box that is shared with other work. 600 leaves 200 ms for
+    // the input round-trip and the frames around it, and since the preload gate
+    // went the art can now decode DURING the arrival rather than before it. The
+    // 400 ms is ours; the rest is the machine's.
+    expect(sincePress).toBeLessThanOrEqual(600);
   });
 
   test('a slow picture does not turn the arrival into a black screen', async ({ page, browserName }) => {

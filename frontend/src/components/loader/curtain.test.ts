@@ -191,4 +191,23 @@ describe('any input lifts it at once', () => {
     // value. Getting this wrong leaves a listener per mount, forever.
     expect(src).toContain('{ capture: true }');
   });
+
+  it(`does not build an audio engine on the curtain's way out`, () => {
+    // The island's Mute ruling, one line further in: on a curtain the only
+    // gesture that reaches skipIntro is the one dismissing it, so an
+    // AudioContext would be constructed and an ambient loop fetched for an
+    // overlay 400 ms from gone, then disposed unheard.
+    //
+    // It is not free, and the e2e caught the price. Constructing an
+    // AudioContext blocks the main thread while Chromium starts its audio
+    // thread, at exactly the moment the dissolve needs frames: gone 711 ms and
+    // 967 ms after the press against a ruled 600, then 448 ms with this gate.
+    //
+    // Scoped to skipIntro's own body. A whole-file assertion would pass on
+    // `handleClick`'s unconditional call, which is a different decision on a
+    // path the curtain cannot reach.
+    const skipIntro = src.slice(src.indexOf('const skipIntro'), src.indexOf('}, [visible, initAudio, full]'));
+    expect(skipIntro).toContain('if (full) initAudio();');
+    expect(skipIntro).not.toMatch(/^\s+initAudio\(\);$/m);
+  });
 });
