@@ -1101,8 +1101,26 @@ export default function HomePage() {
         {/* F90: FAQ teaser — Home never funneled to the FAQ page despite the
             copy + route existing. Additive panel with a CTA, consistent with the
             page's glass-panel styling. Default-only: the FAQ answers the TOWELI
-            farm, the wrong questions inside a bungalow. */}
-        {!bungalowIdentity && (
+            farm, the wrong questions inside a bungalow.
+
+            WAVE SEVEN, element C: C's FIFTH GATE. The teaser goes home to
+            /toweli with the other four. It reached the venue arrival because
+            its gate only asked about bungalows, and I read that as a fifth
+            section deliberately kept; the island's master always listed five
+            arrival gates, and C's own done-means already named "Questions about
+            the venue" among the strings the arrival must not contain.
+
+            THIS IS A GATE, NOT A DELETION, AND THE FAQ IS NOT LOST WITH IT.
+            The answers live at /faq, the arrival's footer links there
+            (Footer.tsx:45), and the teaser's two venue lines carried no answer
+            of their own — they were a second door to a page the footer already
+            opens. Inside /toweli it renders exactly as before, under
+            FAQ_INTRO's own headline.
+
+            The venue-voice copy goes with the gate rather than sitting behind
+            an unreachable ternary: a branch that cannot render is not a
+            decision somebody can read, it is a decision nobody can see. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <m.div
             className="rounded-2xl p-6 md:p-8 text-center"
@@ -1112,10 +1130,10 @@ export default function HomePage() {
             viewport={{ once: true }}
           >
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.headline : 'Questions about the venue'}
+              {FAQ_INTRO.headline}
             </h2>
             <p className="text-white/90 text-[13px] max-w-xl mx-auto mb-5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.subheading : 'Plain answers, checkable claims. Below are the questions we hear most.'}
+              {FAQ_INTRO.subheading}
             </p>
             <Link to="/faq" className="btn-primary px-6 py-2.5 text-[13px] inline-flex items-center gap-1.5">
               Read the FAQ

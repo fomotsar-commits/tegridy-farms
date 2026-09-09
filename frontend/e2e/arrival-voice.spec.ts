@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { FAQ_INTRO } from '../src/lib/copy';
 
 // ARRIVAL IDENTITY 2026-08-27 — the containment contract, walked end to end.
 //
@@ -90,6 +91,20 @@ test.describe('arrival voice', () => {
 
 const CUT_FROM_THE_VENUE = ['Launch & Verify', 'Ecosystem', 'The Collection'];
 
+// THE FAQ TEASER IS THE FIFTH GATE, AND IT NEEDS ITS OWN PAIR OF STRINGS.
+//
+// The other four are cut and restored under one name each, so a single list
+// serves both sides. This one is not: the teaser spoke venue copy on the
+// arrival and FAQ_INTRO's copy inside /toweli, and only the venue half is
+// leaving. Putting "Questions about the venue" in the list above would assert
+// /toweli contains a sentence it has never rendered, and the /toweli test would
+// red for the wrong reason -- which would look exactly like a broken gate.
+//
+// The two differ by ONE WORD ("venue" vs "farm"), so a looser match would pass
+// on either. Both are pinned exactly, and the /toweli side reads FAQ_INTRO
+// itself so the assertion cannot drift from the copy it is about.
+const FAQ_TEASER_ON_THE_VENUE = 'Questions about the venue';
+
 /** The whole rendered page, after the whileInView sections have mounted. */
 async function readWholePage(page: Page): Promise<string> {
   for (let i = 0; i < 3; i++) {
@@ -119,6 +134,33 @@ test.describe('the home, cut to the line', () => {
     for (const section of CUT_FROM_THE_VENUE) {
       expect(text, `"${section}" is still on the venue arrival`).not.toContain(section);
     }
+    // THE LOAD-BEARING ONE IS FAQ_INTRO, NOT THE RETIRED VENUE LINE.
+    //
+    // The island's break-the-fix was "widen the gate and watch the venue
+    // assertion go red". Widened, it stayed GREEN -- because the venue-voice
+    // copy left with the gate, so "Questions about the venue" is now a string
+    // that exists nowhere in the repo and an assertion about it cannot fail.
+    // That is the vacuous-guard class this wave keeps catching, in a guard
+    // written to prove a fix for it.
+    //
+    // So the teaser is identified by what it ACTUALLY renders. Widen the gate
+    // now and this line reds.
+    expect(text, 'the FAQ teaser is still on the venue arrival').not.toContain(FAQ_INTRO.headline);
+
+    // Kept as well, and deliberately not as the only one: it pins that the
+    // retired venue copy never comes back, which is a different claim from the
+    // teaser being gated and is worth its own line even though it cannot fail
+    // today.
+    expect(text, 'the retired venue-voice FAQ copy is back').not.toContain(FAQ_TEASER_ON_THE_VENUE);
+
+    // AND THE FAQ IS STILL REACHABLE, which is the difference between gating
+    // the teaser and hiding the answers. The teaser was a second door to a page
+    // the footer already opens; cutting it without this assertion would let a
+    // later change take the footer link too and stay green.
+    await expect(
+      page.locator('a[href="/faq"]').first(),
+      'the arrival cut the FAQ teaser AND lost its footer link to /faq',
+    ).toBeAttached();
   });
 
   test('and /toweli still renders every one of them', async ({ page }) => {
@@ -132,5 +174,8 @@ test.describe('the home, cut to the line', () => {
     for (const section of CUT_FROM_THE_VENUE) {
       expect(text, `"${section}" was DELETED, not gated`).toContain(section);
     }
+    // The teaser under its own headline, which is where it went rather than
+    // where it stopped existing.
+    expect(text, 'the FAQ teaser was DELETED, not gated').toContain(FAQ_INTRO.headline);
   });
 });
