@@ -262,12 +262,11 @@ function TransactionReceiptOverlay({
   }, [showPendingShareModal, onClose]);
 
   /**
-   * Render the card to a PNG on the clipboard. Resolves TRUE only when an image
-   * actually landed there, so a caller never tells the user to paste something
-   * that is not on their clipboard.
+   * Render the card to a PNG. Null when it could not be produced at all, so a
+   * caller never promises the user an image that does not exist.
    */
-  const copyCardImage = useCallback(async (): Promise<boolean> => {
-    if (!cardRef.current) return false;
+  const renderCardBlob = useCallback(async (): Promise<Blob | null> => {
+    if (!cardRef.current) return null;
     try {
       const html2canvas = (await import('html2canvas')).default;
       const canvas = await html2canvas(cardRef.current, {
@@ -276,16 +275,25 @@ function TransactionReceiptOverlay({
         logging: false,
         useCORS: true,
       });
-      const blob = await new Promise<Blob | null>((resolve) => {
+      return await new Promise<Blob | null>((resolve) => {
         canvas.toBlob(resolve, 'image/png');
       });
-      if (!blob) return false;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  /** Put the rendered card on the clipboard. True only if it actually landed. */
+  const copyCardImage = useCallback(async (): Promise<boolean> => {
+    const blob = await renderCardBlob();
+    if (!blob) return false;
+    try {
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [renderCardBlob]);
 
   const performShare = useCallback(async () => {
     // SHARE THE RECEIPT, NOT A SLOGAN. This posted "Just <verb> on
@@ -300,18 +308,54 @@ function TransactionReceiptOverlay({
     // staker's tweet went out tagged with another resident's ticker. The format
     // carries no hashtag at all, so the venue can no longer speak for a resident.
     //
-    // The image is copied BEFORE the popup: a clipboard write needs the click's
-    // user gesture and loses it once focus moves to the new window. A web intent
-    // cannot carry an attachment, so the poster pastes it - and the hint only
-    // claims the image is ready when the write actually succeeded.
-    const imageReady = await copyCardImage();
-    setShareHint(imageReady ? 'ready' : 'no-image');
+    // THE IMAGE, TWO WAYS. A tweet with the receipt card reads far better than
+    // one without, so attach it properly where the browser can and fall back to
+    // a paste where it cannot.
+    //
+    // 1. Web Share, when the platform will take FILES (mobile Safari/Chrome).
+    //    The card goes to the share sheet as a real attachment - nothing to
+    //    paste, which is the whole point on a phone. `canShare({ files })` is
+    //    the only honest probe: `navigator.share` exists in browsers that
+    //    silently drop files, and feature-detecting the method alone would send
+    //    a text-only post while telling the user the image went with it.
+    // 2. Otherwise the intent popup, with the card on the clipboard to paste.
+    //    A web intent cannot carry an attachment, and the clipboard write must
+    //    happen BEFORE the popup - it needs the click's user gesture and loses
+    //    it once focus moves to the new window.
     const text = buildShareText(receipt, config, rows, chainId);
+    const blob = await renderCardBlob();
+
+    if (blob) {
+      const file = new File([blob], 'memetics-receipt.png', { type: 'image/png' });
+      if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], text });
+          setShareHint(null); // the image went with it; nothing to tell them
+          return;
+        } catch (err) {
+          // A cancelled sheet is a decision, not a failure - do not then shove
+          // a popup at someone who just backed out. Anything else falls through
+          // to the intent path below.
+          if ((err as { name?: string })?.name === 'AbortError') return;
+        }
+      }
+    }
+
+    let copied = false;
+    if (blob) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+    setShareHint(copied ? 'ready' : 'no-image');
     window.open(
       `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`,
       '_blank',
     );
-  }, [copyCardImage, receipt, config, rows, chainId]);
+  }, [renderCardBlob, receipt, config, rows, chainId]);
 
   const handleShareX = useCallback(() => {
     if (status === 'failed') return; // disabled

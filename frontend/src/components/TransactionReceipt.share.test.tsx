@@ -18,11 +18,17 @@ import { wagmiMock } from '../test-utils/wagmi-mocks';
 import { TransactionReceiptProvider } from './TransactionReceipt';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
 
-// jsdom has no real canvas; failing the render is the honest default and drives
-// the "could not copy" branch. The success branch is exercised separately below.
+// jsdom has no real canvas. Failing the render is the honest default and drives
+// the "could not copy" branch; flip `canvasWorks` to exercise the paths that
+// need a real PNG.
+const canvasState = vi.hoisted(() => ({ works: false }));
 vi.mock('html2canvas', () => ({
   default: vi.fn(async () => {
-    throw new Error('no canvas in jsdom');
+    if (!canvasState.works) throw new Error('no canvas in jsdom');
+    return {
+      toBlob: (cb: (b: Blob | null) => void) =>
+        cb(new Blob(['fake-png'], { type: 'image/png' })),
+    };
   }),
 }));
 
@@ -53,6 +59,7 @@ let openSpy: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   wagmiMock.reset();
+  canvasState.works = false;
   openSpy = vi.fn();
   vi.stubGlobal('open', openSpy);
 });
@@ -95,6 +102,70 @@ describe('receipt share — posts the receipt', () => {
     openAndShare();
     await waitFor(() => expect(openSpy).toHaveBeenCalled());
     expect(sharedText(openSpy).length).toBeLessThanOrEqual(280);
+  });
+
+  it('attaches the card as a real file when the platform takes files', async () => {
+    canvasState.works = true;
+    // Typed with a parameter so the recorded call can be read back - a bare
+    // `vi.fn(async () => …)` has a zero-length argument tuple and tsc rejects
+    // indexing into it.
+    const shareSpy = vi.fn(async (_data: { files?: File[]; text?: string }) => undefined);
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      canShare: (d: { files?: File[] }) => Array.isArray(d?.files),
+      share: shareSpy,
+    });
+
+    openAndShare();
+    await waitFor(() => expect(shareSpy).toHaveBeenCalled());
+
+    const arg = shareSpy.mock.calls[0][0] as { files: File[]; text: string };
+    expect(arg.files[0].type).toBe('image/png');
+    expect(arg.text).toContain('MEMETICS.FINANCE');
+    // The image went WITH the post - there is nothing to paste, so no popup and
+    // no hint telling the user to do anything.
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('receipt-share-hint')).toBeNull();
+  });
+
+  it('a cancelled share sheet is a decision, not a failure', async () => {
+    canvasState.works = true;
+    const abort = Object.assign(new Error('cancelled'), { name: 'AbortError' });
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      canShare: () => true,
+      share: vi.fn(async () => { throw abort; }),
+    });
+
+    openAndShare();
+    // Backing out of the sheet must not then shove a popup at the user.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the intent when the share sheet fails for any other reason', async () => {
+    canvasState.works = true;
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      canShare: () => true,
+      share: vi.fn(async () => { throw new Error('NotAllowedError'); }),
+    });
+
+    openAndShare();
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    expect(sharedText(openSpy)).toContain('MEMETICS.FINANCE');
+  });
+
+  it('does not claim files are supported when canShare is absent', async () => {
+    canvasState.works = true;
+    const shareSpy = vi.fn(async (_data: unknown) => undefined);
+    // `share` exists but `canShare` does not - the browsers that silently drop
+    // attachments. Probing only for `share` would post text and lie about it.
+    vi.stubGlobal('navigator', { ...navigator, share: shareSpy });
+
+    openAndShare();
+    await waitFor(() => expect(openSpy).toHaveBeenCalled());
+    expect(shareSpy).not.toHaveBeenCalled();
   });
 
   it('tells the poster the truth when the image could not be copied', async () => {
