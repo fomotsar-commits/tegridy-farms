@@ -284,9 +284,13 @@ export default function HomePage() {
 
             {/* Jungle Bay bungalows: when the active bungalow speaks for itself
                 (Bayla), the whole H1→copy→CTA→quote cluster below is replaced by
-                its token-first hero. The chain pills above and the security badge
-                after stay — they are venue facts either way. The classic cluster
-                is untouched for the Toweli default. */}
+                its token-first hero. The chain pills above stay — they are venue
+                facts either way. The classic cluster is untouched for the Toweli
+                default.
+
+                The security badge used to stay here too. Wave seven, element C
+                moved it to the Check overview; see the note where it used to
+                render, below. */}
             {bungalowIdentity ? (
               <BungalowHero bungalow={bungalowIdentity} />
             ) : !IS_TOWELI_ARRIVAL ? (
@@ -389,27 +393,25 @@ export default function HomePage() {
             </>
             )}
 
-            {/* Security trust badge — visible in hero so first-time visitors
-                see security posture before scrolling. Links to /security.
-                HONESTY PASS 2026-06-11: no paid third-party audit exists, so the
-                badge states the actual (checkable) record: internal multi-agent
-                audit waves + Slither CI + the 1,500+ test suite. */}
-            <Link
-              to="/security"
-              aria-label="View security details: internal audit waves, Slither CI, and the test suite"
-              className="inline-flex items-center gap-2 mt-5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all hover:opacity-90"
-              style={{
-                background: 'rgba(139, 92, 246, 0.12)',
-                border: '1px solid rgba(245, 228, 184, 0.25)',
-                color: '#f5e4b8',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z" />
-                <path d="M9 12l2 2 4-4" />
-              </svg>
-              Internal audit waves · Slither CI · 1,500+ tests
-            </Link>
+            {/* WAVE SEVEN, element C: THE SECURITY BADGE MOVED TO THE CHECK
+                OVERVIEW. It is C's fifth and last item.
+
+                It was in the hero so a first-time visitor saw our posture
+                before scrolling, and that was the right instinct on a page
+                whose job was to explain the farm. The arrival's job is one
+                number and three paths, and the badge answered a question
+                nobody on it had asked yet.
+
+                NOT DELETED, AND NOT DILUTED: it renders on /trust, the Check
+                overview, directly above the paragraph that already sends a
+                visitor to Security and Risks. That is the page where somebody
+                IS asking, and it now leads with the checkable record rather
+                than only linking to it. /security itself still carries the same
+                record in full (SecurityPage.tsx:162).
+
+                The chain pills above stay. They are venue facts, they state
+                which chains this venue is on, and the island's ruling names
+                them as staying. */}
           </m.div>
 
           {/* Wallet-less yield calculator for first-time visitors.

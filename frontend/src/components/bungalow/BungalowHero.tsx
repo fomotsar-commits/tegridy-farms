@@ -8,8 +8,9 @@ import { shortenAddress } from '../../lib/formatting';
 /**
  * Token-first hero cluster for a bungalow that speaks for itself (Bayla).
  * Rendered by HomePage IN PLACE OF the TOWELI H1/copy/CTA/quote cluster when
- * `getBungalowIdentity()` is non-null; the chain pills and security badge
- * around it stay shared (they are venue facts, not token copy).
+ * `getBungalowIdentity()` is non-null; the chain pills around it stay shared
+ * (they are venue facts, not token copy). The security badge used to stay too;
+ * wave seven, element C moved it off the hero entirely, to /trust.
  *
  * Honesty rules carried over from the surface it replaces: no yield claims,
  * no numbers that drift — the copy speaks lore and links to checkable
