@@ -27,7 +27,8 @@ import {
   poolPda, vaultPda, userPda, positionPda,
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
-  toRaw, fmt,
+  ixClaimCarried, ixSweep,
+  toRaw, fmt, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
 } from './bayla-ladder-ops.mjs';
@@ -82,14 +83,50 @@ describe('account layouts', () => {
     expect(USER_L.SIZE).toBe(126);
   });
 
-  it('every offset is inside its account and ordered', () => {
-    for (const [L, name] of [[POOL_L, 'Pool'], [POSITION_L, 'Position'], [USER_L, 'UserStats']]) {
-      const offs = Object.entries(L).filter(([k]) => k !== 'SIZE').map(([, v]) => v);
-      expect(Math.min(...offs), `${name} starts after the discriminator`).toBeGreaterThanOrEqual(8);
-      expect(Math.max(...offs), `${name} stays in bounds`).toBeLessThan(L.SIZE);
-      // strictly increasing = declaration order, which is what borsh requires
-      expect(offs, `${name} offsets ascend`).toEqual([...offs].sort((a, c) => a - c));
-    }
+  // PIN THE TABLE, NOT ITS SHAPE.
+  //
+  // The previous version asserted only that offsets ascend and sit in bounds. A
+  // uniformly shifted table passes that, and so does any wrong-but-ascending one --
+  // and a decoder off by one byte still returns a number, so nothing else notices.
+  // These expected offsets are rebuilt INDEPENDENTLY here by summing a
+  // [field, byteSize] list transcribed from state.rs in declaration order, so the
+  // test and the implementation are two separate derivations that must agree.
+  const sizesToOffsets = (fields) => {
+    const out = {}; let off = 8;             // 8 = anchor discriminator
+    // `_reserved` counts toward SIZE but is never decoded, so it carries no offset
+    // entry — the upgrade padding is deliberately opaque to the client.
+    for (const [name, size] of fields) { if (name !== '_reserved') out[name] = off; off += size; }
+    out.SIZE = off; return out;
+  };
+  const K = 32, U64 = 8, U128 = 16, I64 = 8, U32 = 4, U8 = 1;
+
+  it('Pool offsets match an independent sum of state.rs', () => {
+    expect(POOL_L).toEqual(sizesToOffsets([
+      ['bump', U8], ['nonce', U8], ['mint', K], ['tokenProgram', K], ['decimals', U8],
+      ['authority', K], ['pendingAuthority', K], ['stakeVault', K], ['rewardVault', K],
+      ['minStake', U64], ['depositCap', U64], ['pendingCap', U64], ['pendingCapTs', I64],
+      ['maxWalletPrincipal', U64], ['totalPrincipal', U64], ['totalWeighted', U128],
+      ['rewardRate', U128], ['periodFinish', I64], ['lastUpdateTime', I64],
+      ['rewardPerWeightStored', U128], ['rewardsEmitted', U128], ['rewardsPaid', U128],
+      ['rewardFundedCumulative', U128], ['penaltyCollectedCumulative', U128],
+      ['orphanedPenalty', U64], ['degraded', U8], ['rpwResidue', U128],
+      ['emittedResidue', U128], ['_reserved', 88],
+    ]));
+  });
+
+  it('Position offsets match an independent sum of state.rs', () => {
+    expect(POSITION_L).toEqual(sizesToOffsets([
+      ['bump', U8], ['pool', K], ['owner', K], ['nonce', U32], ['amount', U64],
+      ['weight', U128], ['lockEnd', I64], ['rewardPerWeightPaid', U128],
+      ['rewardsOwed', U128], ['_reserved', 64],
+    ]));
+  });
+
+  it('UserStats offsets match an independent sum of state.rs', () => {
+    expect(USER_L).toEqual(sizesToOffsets([
+      ['bump', U8], ['pool', K], ['owner', K], ['nextNonce', U32], ['openPositions', U8],
+      ['rewardsCarried', U128], ['principal', U64], ['_reserved', 24],
+    ]));
   });
 });
 
@@ -271,5 +308,178 @@ describe('the constants quoted from math.rs', () => {
     expect(MIN_LOCK_SECS).toBe(7 * 86_400);
     expect(MAX_LOCK_SECS).toBe(4 * 365 * 86_400);
     expect(REWARDS_DURATION_SECS).toBe(90 * 86_400);
+  });
+});
+
+describe('decoders read the RIGHT field at the RIGHT width', () => {
+  // The refusal tests above only ever assert ok/reason, so a decoder that read
+  // `minStake` from `depositCap`'s offset, or used a u64 read where the struct has
+  // a u128, passed every one of them. This builds a buffer with a DISTINCT value
+  // per field at offsets transcribed by hand from state.rs (deliberately literal,
+  // so this is a second derivation rather than a restatement of POOL_L), then
+  // asserts every decoded field individually.
+  const K = (byte) => Buffer.alloc(32, byte);
+  const put = (buf, off, bytes) => Buffer.from(bytes).copy(buf, off);
+  const u64at = (buf, off, v) => buf.writeBigUInt64LE(BigInt(v), off);
+  const i64at = (buf, off, v) => buf.writeBigInt64LE(BigInt(v), off);
+  // u128 LE = low 8 bytes, then high 8 bytes
+  const u128at = (buf, off, v) => {
+    buf.writeBigUInt64LE(BigInt(v) & 0xffffffffffffffffn, off);
+    buf.writeBigUInt64LE(BigInt(v) >> 64n, off + 8);
+  };
+
+  it('Pool: every field comes back from its own offset, at its own width', () => {
+    const d = Buffer.alloc(508);
+    put(d, 0, ACCT.Pool);
+    d[8] = 254;
+    d[9] = 3;
+    put(d, 10, K(0x11));
+    put(d, 42, K(0x22));
+    d[74] = 6;
+    put(d, 75, K(0x33));
+    put(d, 107, K(0x44));
+    put(d, 139, K(0x55));
+    put(d, 171, K(0x66));
+    u64at(d, 203, 100000000);
+    u64at(d, 211, 999000000);
+    u64at(d, 219, 5);
+    i64at(d, 227, -7);
+    u64at(d, 235, 42000000);
+    u64at(d, 243, 777);
+    u128at(d, 251, (1n << 70n) + 5n);
+    u128at(d, 267, (1n << 68n) + 9n);
+    i64at(d, 283, 1700000000);
+    i64at(d, 291, 1600000000);
+    u128at(d, 315, (1n << 66n) + 1n);
+    u128at(d, 331, 123n);
+    u128at(d, 347, 456n);
+    u128at(d, 363, 789n);
+    u64at(d, 379, 31337);
+    d[387] = 1;
+
+    const r = decodePool(d);
+    expect(r.ok).toBe(true);
+    const v = r.value;
+    expect(v.bump).toBe(254);
+    expect(v.nonce).toBe(3);
+    expect(v.mint.toBuffer()).toEqual(K(0x11));
+    expect(v.tokenProgram.toBuffer()).toEqual(K(0x22));
+    expect(v.decimals).toBe(6);
+    expect(v.authority.toBuffer()).toEqual(K(0x33));
+    expect(v.pendingAuthority.toBuffer()).toEqual(K(0x44));
+    expect(v.stakeVault.toBuffer()).toEqual(K(0x55));
+    expect(v.rewardVault.toBuffer()).toEqual(K(0x66));
+    expect(v.minStake).toBe(100000000n);
+    expect(v.depositCap).toBe(999000000n);
+    expect(v.pendingCap).toBe(5n);
+    expect(v.pendingCapTs).toBe(-7n);
+    expect(v.maxWalletPrincipal).toBe(42000000n);
+    expect(v.totalPrincipal).toBe(777n);
+    expect(v.totalWeighted).toBe((1n << 70n) + 5n);
+    expect(v.rewardRate).toBe((1n << 68n) + 9n);
+    expect(v.periodFinish).toBe(1700000000n);
+    expect(v.lastUpdateTime).toBe(1600000000n);
+    expect(v.rewardsEmitted).toBe((1n << 66n) + 1n);
+    expect(v.rewardsPaid).toBe(123n);
+    expect(v.rewardFundedCumulative).toBe(456n);
+    expect(v.penaltyCollectedCumulative).toBe(789n);
+    expect(v.orphanedPenalty).toBe(31337n);
+    expect(v.degraded).toBe(true);
+  });
+
+  it('Position: every field comes back from its own offset', () => {
+    const d = Buffer.alloc(205);
+    put(d, 0, ACCT.Position);
+    put(d, 9, K(0x77));
+    put(d, 41, K(0x88));
+    d.writeUInt32LE(9, 73);
+    u64at(d, 77, 500000000);
+    u128at(d, 85, (1n << 65n) + 3n);
+    i64at(d, 101, 1800000000);
+    u128at(d, 125, 4242n);
+    const r = decodePosition(d);
+    expect(r.ok).toBe(true);
+    expect(r.value.pool.toBuffer()).toEqual(K(0x77));
+    expect(r.value.owner.toBuffer()).toEqual(K(0x88));
+    expect(r.value.nonce).toBe(9);
+    expect(r.value.amount).toBe(500000000n);
+    expect(r.value.weight).toBe((1n << 65n) + 3n);
+    expect(r.value.lockEnd).toBe(1800000000n);
+    expect(r.value.rewardsOwed).toBe(4242n);
+  });
+
+  it('UserStats: every field comes back from its own offset', () => {
+    const d = Buffer.alloc(126);
+    put(d, 0, ACCT.UserStats);
+    d.writeUInt32LE(4, 73);
+    d[77] = 2;
+    u128at(d, 78, 9000n);
+    u64at(d, 94, 12345n);
+    const r = decodeUserStats(d);
+    expect(r.ok).toBe(true);
+    expect(r.value.nextNonce).toBe(4);
+    expect(r.value.openPositions).toBe(2);
+    expect(r.value.rewardsCarried).toBe(9000n);
+    expect(r.value.principal).toBe(12345n);
+  });
+});
+
+describe('the two commands that had no builder at all', () => {
+  const pool = poolPda(PROGRAM, MINT, 0);
+  const p = {
+    mint: MINT,
+    tokenProgram: new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'),
+    stakeVault: vaultPda(PROGRAM, STAKE_VAULT_SEED, pool),
+    rewardVault: vaultPda(PROGRAM, REWARD_VAULT_SEED, pool),
+  };
+  const shp = (ix) => ix.keys.map((k) => (k.isSigner ? 'S' : '') + (k.isWritable ? 'W' : ''));
+
+  it('claim_carried matches the IDL and names NO stake vault', () => {
+    const ix = ixClaimCarried({ programId: PROGRAM, owner: OWNER, pool, p });
+    expect(shp(ix)).toEqual(['S', 'W', '', 'W', 'W', 'W', '']);
+    expect(b(ix.data)).toEqual([173, 173, 45, 126, 170, 32, 215, 248]);
+    const named = ix.keys.map((k) => k.pubkey.toBase58());
+    // Paid from the REWARD vault only: principal is never a reward source (I-12).
+    expect(named).toContain(p.rewardVault.toBase58());
+    expect(named).not.toContain(p.stakeVault.toBase58());
+  });
+
+  it('sweep is PERMISSIONLESS — it declares no signer at all', () => {
+    const ix = ixSweep({ programId: PROGRAM, pool, p });
+    expect(shp(ix)).toEqual(['W', '', 'W', 'W', '']);
+    expect(ix.keys.some((k) => k.isSigner)).toBe(false);
+    expect(ix.keys.map((k) => k.pubkey.toBase58())).toEqual([
+      pool.toBase58(), MINT.toBase58(), p.stakeVault.toBase58(),
+      p.rewardVault.toBase58(), p.tokenProgram.toBase58(),
+    ]);
+  });
+});
+
+describe('the hatch penalty the CLI now prints', () => {
+  // lib.rs:607-613 — emergency_withdraw charges penalty_for(amount) when
+  // `now < lock_end && !degraded`. math.rs floors amount * 2500 / 10000.
+  // The CLI claimed "no penalty" unconditionally until this was caught.
+  const pen = (amount) => (BigInt(amount) * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
+
+  it('is 25%, floored, exactly as math.rs computes it', () => {
+    expect(EARLY_EXIT_PENALTY_BPS).toBe(2500);
+    expect(BPS).toBe(10000);
+    expect(pen(1000000)).toBe(250000n);
+    expect(pen(3)).toBe(0n);
+    expect(pen(7)).toBe(1n);
+  });
+});
+
+describe('intArg refuses what silently became position #0', () => {
+  // Number('') is 0 and Number('abc') is NaN, and writeUInt32LE encodes BOTH as
+  // zero — so an unset shell variable addressed the first, usually largest position.
+  for (const bad of ['', 'abc', '-1', '1.5', 'NaN', '4294967296', '0x10', ' 1 2']) {
+    it('refuses ' + JSON.stringify(bad), () => {
+      expect(() => intArg({ nonce: bad }, 'nonce')).toThrow();
+    });
+  }
+  it('accepts real nonces', () => {
+    expect(intArg({ nonce: '0' }, 'nonce')).toBe(0);
+    expect(intArg({ nonce: '4294967295' }, 'nonce')).toBe(4294967295);
   });
 });
