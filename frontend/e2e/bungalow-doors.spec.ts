@@ -183,6 +183,16 @@ test.describe('bungalow doors', () => {
       expect(text.length, `/${id} rendered almost nothing, so this proves nothing`).toBeGreaterThan(400);
       expect(text, `/${id} is furnished with TOWELI`).not.toContain('TOWELI');
       expect(text, `/${id} still renders the shared Protocol Overview grid`).not.toContain('Protocol Overview');
+
+      // WAVE SEVEN, element C, measured from the room's side. The island found
+      // these three still rendering below the market card on /bayla and /pepe:
+      // a resident's visitor reading "Launch on Ethereum" and "Check a
+      // deployer" underneath someone else's token, then the venue's gallery.
+      // They are gated to /toweli now, and the other half of that gate --
+      // /toweli still rendering all three -- is asserted in arrival-voice.spec.
+      for (const section of ['Launch & Verify', 'Ecosystem', 'The Collection']) {
+        expect(text, `/${id} still renders the venue's "${section}"`).not.toContain(section);
+      }
     });
   }
 

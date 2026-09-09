@@ -78,3 +78,59 @@ test.describe('arrival voice', () => {
     await expect(page.getByText('Tegridy Farms')).toHaveCount(0);
   });
 });
+
+// --- WAVE SEVEN, element C: the home, cut to the line ----------------------
+//
+// The venue arrival is hero, hall, three paths, board, footer. Everything else
+// it used to carry is furniture that belongs to a room: /toweli renders it all,
+// whole, and /launch /scan /gallery are their own doors. Nothing is deleted --
+// which is why the second test here is not optional. A gate that cuts three
+// sections and a deletion that removes them look identical from the front door,
+// and only one of them is what the island ruled.
+
+const CUT_FROM_THE_VENUE = ['Launch & Verify', 'Ecosystem', 'The Collection'];
+
+/** The whole rendered page, after the whileInView sections have mounted. */
+async function readWholePage(page: Page): Promise<string> {
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(700);
+  }
+  return page.evaluate(() => document.body.innerText);
+}
+
+test.describe('the home, cut to the line', () => {
+  test('the venue arrival carries the line and nothing after it', async ({ page }) => {
+    test.slow();
+    await seedOverlays(page);
+    await page.addInitScript(() => {
+      try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
+    });
+    await page.goto('/');
+    await expect(page.locator('h1')).toContainText('MEMETICS.FINANCE', { timeout: 20_000 });
+
+    const text = await readWholePage(page);
+    expect(text.length, 'the venue arrival rendered almost nothing').toBeGreaterThan(400);
+
+    // THE LINE ITSELF, first -- otherwise this is a test that a page is empty.
+    expect(text, 'the hall is missing from the venue arrival').toContain('Jungle Bay');
+    expect(text, 'the footer is missing').toContain('memetics.finance');
+
+    for (const section of CUT_FROM_THE_VENUE) {
+      expect(text, `"${section}" is still on the venue arrival`).not.toContain(section);
+    }
+  });
+
+  test('and /toweli still renders every one of them', async ({ page }) => {
+    test.slow();
+    // The half that makes the cut a GATE rather than a deletion.
+    await seedOverlays(page);
+    await page.goto('/toweli');
+    await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(1, { timeout: 20_000 });
+
+    const text = await readWholePage(page);
+    for (const section of CUT_FROM_THE_VENUE) {
+      expect(text, `"${section}" was DELETED, not gated`).toContain(section);
+    }
+  });
+});

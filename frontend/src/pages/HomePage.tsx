@@ -805,6 +805,20 @@ export default function HomePage() {
             on any token and need no TOWELI position, so they belong on the front
             door. Same art-card pattern as Protocol Overview; nothing above or below
             was moved or removed. */}
+        {/* WAVE SEVEN, element C: LAUNCH & VERIFY, GATED.
+            It was written for a front door that funnelled everyone into
+            farm/swap/dashboard, and it was the right answer then. The three
+            paths are that answer now, above: they carry launch and scan as
+            deliberate choices with their requirements stated at the point of
+            intent, and they sit directly after the hall. Two blocks offering
+            the same two actions is not twice the invitation.
+
+            The island measured this one rendering below the market card in
+            /bayla and /pepe — a resident's visitor reading "Launch on Ethereum"
+            and "Check a deployer" under their token. Nothing is deleted:
+            /toweli renders it whole, and /launch and /scan are their own
+            rooms. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Launch &amp; Verify</h2>
@@ -884,6 +898,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
             only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
@@ -977,6 +992,12 @@ export default function HomePage() {
 
         {/* Ecosystem — ARRIVAL FLOW 2026-08-31: the subline places the island
             ABOVE the venue (the island is the world; the venue lives on it). */}
+        {/* WAVE SEVEN, element C: ECOSYSTEM, on the same gate.
+            It names the island above the venue, which is exactly right on
+            /toweli and redundant on the venue arrival — that page IS the island
+            now, with the hall on it — and simply someone else's furniture
+            inside a bungalow. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
           <p className="text-white text-[12px] mb-5">Jungle Bay Island. The world this venue lives on.</p>
@@ -1024,8 +1045,17 @@ export default function HomePage() {
             </m.div>
           </div>
         </div>
+        )}
 
         {/* Art Preview (moved below ecosystem) */}
+        {/* WAVE SEVEN, element C: THE COLLECTION, on the same gate.
+            The gallery is not deleted and not moved — /toweli renders it whole,
+            /gallery is still its own room, and the hall's thirteen doors carry
+            art of their own. What changes is that the venue arrival stops
+            spending a screen on it before a visitor has been given a reason to
+            care, and a resident's bungalow stops rendering the venue's gallery
+            underneath their own token. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <div className="flex items-end justify-between mb-6">
             <div>
@@ -1066,6 +1096,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* F90: FAQ teaser — Home never funneled to the FAQ page despite the
             copy + route existing. Additive panel with a CTA, consistent with the
