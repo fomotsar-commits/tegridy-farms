@@ -75,6 +75,11 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
+// The ATA is not created by the program: every token-moving instruction takes it as a
+// bare `constraint`, so a wallet that has never held this mint has no account for the
+// tokens to land in and the instruction fails on a missing account. The IDEMPOTENT
+// form is safe to prepend unconditionally - it is a no-op when the ATA exists.
+import { createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
 
 // ── constants ────────────────────────────────────────────────────────────────
 
@@ -450,6 +455,21 @@ function loadKeypair(path) {
   return Keypair.fromSecretKey(new Uint8Array(raw));
 }
 
+/**
+ * The instructions needed so `owner` can receive `mint`, or [] when it already can.
+ *
+ * Prepended rather than run separately: one transaction means there is no window in
+ * which the ATA exists but the stake did not happen, and no second signature.
+ */
+async function ensureAta(conn, payer, owner, p) {
+  const ata = ataFor(p.mint, owner, p.tokenProgram);
+  const info = await conn.getAccountInfo(ata);
+  if (info) return [];
+  console.log(`  note: ${owner.toBase58()} has no token account for this mint;`);
+  console.log(`        creating ${ata.toBase58()} in the same transaction.`);
+  return [createAssociatedTokenAccountIdempotentInstruction(payer, ata, owner, p.mint, p.tokenProgram)];
+}
+
 async function loadPool(conn, programId, poolKey) {
   const info = await conn.getAccountInfo(poolKey);
   if (!info) throw new Error(`no account at ${poolKey.toBase58()} — is the pool created, and is --rpc pointing at the right cluster?`);
@@ -692,7 +712,8 @@ async function main() {
       console.log(`  lock          ${lockDays} days`);
       console.log(`  position #    ${positionNonce}  (from UserStats.next_nonce${us.ok ? '' : ' — first stake'})`);
       console.log(`  position PDA  ${positionPda(programId, poolKey, owner.publicKey, positionNonce).toBase58()}`);
-      await submit(conn, [ixStake({
+      const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
+      await submit(conn, [...pre, ixStake({
         programId, owner: owner.publicKey, pool: poolKey, p, positionNonce, amountRaw, lockSecs,
       })], owner, { broadcast, label: 'stake' });
       return;
@@ -703,7 +724,8 @@ async function main() {
       const poolKey = new PublicKey(need(args, 'pool'));
       const p = await loadPool(conn, programId, poolKey);
       const n = intArg(args, 'nonce');
-      await submit(conn, [ixClaim({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
+      const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
+      await submit(conn, [...pre, ixClaim({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
         owner, { broadcast, label: 'claim' });
       return;
     }
@@ -723,7 +745,8 @@ async function main() {
         if (matured && early) console.log(`  ⚠ this position is MATURED — drop --early and withdraw for free`);
         if (!matured && !early) console.log(`  ⚠ this position is still LOCKED — withdraw_matured will refuse it; --early costs 25%`);
       }
-      await submit(conn, [ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
+      const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
+      await submit(conn, [...pre, ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
         owner, { broadcast, label: early ? 'early-exit (25% penalty)' : 'withdraw-matured' });
       return;
     }
@@ -768,7 +791,8 @@ async function main() {
           console.log(`  you receive   ${fmt(pos.value.amount, p.decimals)}`);
         }
       }
-      await submit(conn, [ixEmergencyWithdraw({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
+      const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
+      await submit(conn, [...pre, ixEmergencyWithdraw({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
         owner, { broadcast, label: 'emergency-withdraw' });
       return;
     }
@@ -783,7 +807,8 @@ async function main() {
       const us = decodeUserStats((await conn.getAccountInfo(userPda(programId, poolKey, owner.publicKey)))?.data);
       console.log(`\nclaim-carried`);
       console.log(`  rewards carried  ${us.ok ? fmt(us.value.rewardsCarried, p.decimals) : `— (${us.reason})`}`);
-      await submit(conn, [ixClaimCarried({ programId, owner: owner.publicKey, pool: poolKey, p })],
+      const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
+      await submit(conn, [...pre, ixClaimCarried({ programId, owner: owner.publicKey, pool: poolKey, p })],
         owner, { broadcast, label: 'claim-carried' });
       return;
     }

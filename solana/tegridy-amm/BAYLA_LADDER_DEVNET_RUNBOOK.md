@@ -106,9 +106,26 @@ risk**, documented in the program header: the mint account stays reallocatable f
 pool's life. A future `spl-token-2022` bump must re-verify the multisig-length padding
 noted there.
 
-On devnet you will not have the real BAYLA mint. Create a stand-in with **6 decimals
-under Token-2022, then revoke both authorities**, or the pool will refuse it — which is
-the gate working.
+On devnet you will not have the real BAYLA mint, so make a stand-in that passes both
+gates. **ORDER MATTERS AND THE OBVIOUS ORDER BRICKS IT**: revoke the mint authority and
+you can never mint again, so the supply has to exist first.
+
+```bash
+spl-token create-token --program-2022 --decimals 6      # -> MINT. No --enable-freeze,
+                                                        #    so there is NO freeze
+                                                        #    authority to revoke later.
+spl-token create-account <MINT>                          # your ATA
+spl-token mint <MINT> 10000000                           # SUPPLY FIRST...
+spl-token authorize <MINT> mint --disable                # ...THEN revoke. Irreversible.
+spl-token display <MINT>                                 # confirm both authorities empty
+```
+
+An earlier version of this section said "create, then revoke both authorities" with no
+commands. Followed literally that mints nothing and then makes minting impossible, and
+there is no freeze authority to revoke in the first place unless you asked for one.
+
+`spl-token display` must show no mint authority and no freeze authority, or
+`initialize_pool` will refuse the mint (audit M-1) — which is the gate working.
 
 ---
 
@@ -333,10 +350,21 @@ a local validator in CI. On devnet, drive it with the CLI from §5b — dry-run 
 then re-run with `--broadcast`:
 
 ```bash
+# FUND FIRST. A claim against an unfunded pool succeeds and pays ZERO, which proves
+# nothing and reads like the claim path working.
+node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000 --keypair <authority.json>
+
+# TWO positions: the exit below CLOSES the one it names, so a second is needed to
+# exercise the hatch. Nonces are assigned by the program from UserStats.next_nonce -
+# `positions` prints the real ones; do not assume 0 and 1.
 node scripts/bayla-ladder-ops.mjs stake --pool <p> --amount 500 --lock-days 7
+node scripts/bayla-ladder-ops.mjs stake --pool <p> --amount 500 --lock-days 7
+node scripts/bayla-ladder-ops.mjs positions --pool <p> --owner <you>
+
+# let a few minutes of the 90-day window accrue, then:
 node scripts/bayla-ladder-ops.mjs claim --pool <p> --nonce 0
-node scripts/bayla-ladder-ops.mjs exit  --pool <p> --nonce 0 --early   # 25% penalty
-node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 0           # 25% WHILE LOCKED
+node scripts/bayla-ladder-ops.mjs exit  --pool <p> --nonce 0 --early   # 25%, pays rewards
+node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 1           # 25%, defers rewards
 node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>             # what the hatch deferred
 node scripts/bayla-ladder-ops.mjs sweep --pool <p>                     # permissionless
 ```
