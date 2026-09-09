@@ -1,23 +1,34 @@
 #!/usr/bin/env node
 // ============================================================
-// venueHealth.mjs — synthetic availability probe for memetics.finance
+// venueHealth.mjs — the surfaces the synthetic monitor could not see
 //
-// WHY THIS AND NOT A CLIENT BEACON
-// --------------------------------
-// The obvious answer to "we found out about the outage from a user" is a
-// beacon in the browser that reports whether the app booted. It does not work,
-// for a reason that is structural rather than fixable:
+// THIS EXTENDS AN EXISTING MONITOR; IT DOES NOT REPLACE ONE
+// ---------------------------------------------------------
+// .github/workflows/synthetic-monitor.yml has probed production every 30
+// minutes since 2026-06-10, and it WORKS: on 2026-09-04 it went red at 20:55
+// and opened incident #385. Anything here that duplicated it would be a second
+// alarm for one outage, so this file deliberately covers only what that
+// workflow cannot reach, and its failures fold into the SAME incident rather
+// than raising a rival one.
 //
-//   A CLIENT BEACON CANNOT DISTINGUISH "BROKEN" FROM "NOBODY VISITED".
+// The existing monitor already covers: the app shell on both apex domains, the
+// www -> apex redirect, the Alchemy NFT floor-price path, the orderbook and the
+// trades endpoint — each with a body-content assertion, not merely a 200.
 //
-// Both produce silence, and during a real outage traffic FALLS — so the signal
-// gets quieter exactly when it needs to get louder, and 04:00 on a Tuesday
-// looks the same as a total failure. A beacon also cannot report the failure
-// that matters most: the one where the page never executes at all.
+// WHAT IT COULD NOT SEE, AND WHY THAT MATTERED
+// --------------------------------------------
+// Everything it probes is a Vercel surface. The indexer lives on Railway and
+// had ZERO coverage — no /ready, no /graphql, nothing. So the second half of
+// the 2026-09-04 incident went unseen: nginx caches its upstream IP at boot,
+// the indexer redeployed onto a new internal address, and every proxied path
+// died while the indexer itself sat there logging healthy. Solana RPC and the
+// EVM RPC path (as against the NFT path) were likewise unwatched.
 //
-// A probe run on a schedule from outside has neither problem. It also carries
-// no user data whatsoever, so it needs no consent gate, no PrivacyPage §3
-// amendment, and none of §9's 14-day notice — which the beacon design did.
+// WHY NOT A CLIENT BEACON, since that was the original proposal: a beacon
+// cannot distinguish "broken" from "nobody visited" — both are silence, and
+// during an outage traffic FALLS, so the signal gets quieter exactly when it
+// should get louder. It also carries user data, needing a PrivacyPage §3
+// amendment and §9's 14-day notice. A probe from outside has neither problem.
 //
 // WHAT IT CHECKS, AND WHY EACH ONE
 // --------------------------------
@@ -28,9 +39,6 @@
 //            is THE check: it went on answering HTTP 200 with a JSON-RPC error
 //            body, which is why nothing noticed. So a 200 is not enough here;
 //            the body must carry a real block number.
-//   nft      /api/alchemy NFT path — a separate Alchemy surface on the same
-//            key. When only one of the two breaks, that difference is the
-//            diagnosis.
 //   solana   /api/solrpc — independent provider. Stayed up on 2026-09-04, and
 //            that contrast is what localised the fault to Alchemy.
 //   indexer  the nginx /ready gate. Down for a different reason (nginx caches
@@ -38,20 +46,19 @@
 //            attributed correctly.
 //   graphql  the indexer actually serving rows, not merely answering /ready.
 //
-// EXIT CODES. 0 = every check passed. 1 = at least one failed. Under --probe
-// it always exits 0 and writes GITHUB_OUTPUT instead: the incident issue is the
-// alarm, not a red workflow badge, and a crashed probe that exits non-zero
-// would page on the monitor rather than on the venue.
+// EXIT CODES. 0 = every check passed, 1 = at least one failed. `--fails-only`
+// always exits 0 and prints NOTHING when healthy: the caller decides what a
+// failure means, and here the caller already owns an incident issue. A crash
+// is reported as a failed check rather than a non-zero exit, so a broken probe
+// pages on the venue's behalf instead of on its own.
 //
 // Usage:
-//   node scripts/monitoring/venueHealth.mjs             # local, human output
-//   node scripts/monitoring/venueHealth.mjs --probe     # CI: writes GITHUB_OUTPUT
-//   node scripts/monitoring/venueHealth.mjs --self-test # prove the checks can FAIL
+//   node scripts/monitoring/venueHealth.mjs              # local, human output
+//   node scripts/monitoring/venueHealth.mjs --fails-only # CI: one line per failure
+//   node scripts/monitoring/venueHealth.mjs --self-test  # prove the checks can FAIL
 // ============================================================
 
-import { appendFileSync } from 'node:fs';
-
-const PROBE = process.argv.includes('--probe');
+const FAILS_ONLY = process.argv.includes('--fails-only');
 const SELF_TEST = process.argv.includes('--self-test');
 
 const SITE = process.env.VENUE_SITE_URL || 'https://memetics.finance';
@@ -112,14 +119,6 @@ export const CHECKS = [
       }
       return { ok: true, detail: `block ${parseInt(hex, 16).toLocaleString('en-US')}` };
     },
-  },
-  {
-    id: 'nft',
-    what: 'NFT API proxy (/api/alchemy)',
-    run: () => req(`${SITE}/api/alchemy?endpoint=getContractMetadata&contractAddress=0xd774557b647330c91bf44cfeab205095f7e6c367`),
-    verdict: (r) => (r.ok
-      ? { ok: true, detail: `HTTP ${r.status}` }
-      : { ok: false, detail: r.error || `HTTP ${r.status}` }),
   },
   {
     id: 'solana',
@@ -230,48 +229,39 @@ async function main() {
   }
 
   const down = results.filter((r) => !r.ok);
+
+  if (FAILS_ONLY) {
+    // One line per failure, in the shape the calling workflow already uses for
+    // its own probes, so both sets read as a single list in a single incident.
+    // Silence means healthy — the caller tests for empty output.
+    for (const r of down) console.log(`- ${r.what}: ${r.detail}`);
+    process.exitCode = 0;
+    return;
+  }
+
   for (const r of results) {
     console.log(`${r.ok ? 'UP  ' : 'DOWN'}  ${r.what.padEnd(34)} ${r.detail}`);
   }
-
-  const summary = down.length === 0
-    ? `All ${results.length} venue checks passing.`
-    : `${down.length} of ${results.length} venue checks FAILING: ${down.map((d) => d.id).join(', ')}`;
-  console.log(`\n${summary}`);
-
-  if (PROBE && process.env.GITHUB_OUTPUT) {
-    const body = results.map((r) => `- ${r.ok ? '✅' : '❌'} **${r.what}** — ${r.detail}`).join('\n');
-    appendFileSync(process.env.GITHUB_OUTPUT, [
-      `venue_status=${down.length === 0 ? 'up' : 'down'}`,
-      `venue_summary=${summary}`,
-      'venue_body<<VENUE_EOF',
-      body,
-      'VENUE_EOF',
-    ].join('\n') + '\n');
-  }
-
-  // Under --probe the exit code stays 0 on purpose: the incident issue is the
-  // alarm. A red workflow badge for a venue outage pages the wrong person.
-  process.exitCode = PROBE ? 0 : (down.length === 0 ? 0 : 1);
+  console.log(
+    down.length === 0
+      ? `\nAll ${results.length} venue checks passing.`
+      : `\n${down.length} of ${results.length} venue checks FAILING: ${down.map((d) => d.id).join(', ')}`,
+  );
+  process.exitCode = down.length === 0 ? 0 : 1;
 }
 
 main().catch((e) => {
-  console.error(`ERROR — probe crashed: ${e?.message || e}`);
-  // A crashed probe must still say something, or `venue_status` is the empty
-  // string and the workflow's `if:` silently matches nothing — the same
-  // built-but-invisible shape this whole workstream exists to end.
-  if (PROBE && process.env.GITHUB_OUTPUT) {
-    try {
-      appendFileSync(process.env.GITHUB_OUTPUT, [
-        'venue_status=down',
-        `venue_summary=Probe crashed before it could check anything: ${String(e?.message || e).slice(0, 120)}`,
-        'venue_body<<VENUE_EOF',
-        `- ❌ **Probe crashed** — ${String(e?.message || e).slice(0, 300)}`,
-        'VENUE_EOF',
-      ].join('\n') + '\n');
-    } catch (writeErr) {
-      console.error(`ERROR — could not write GITHUB_OUTPUT: ${writeErr?.message || writeErr}`);
-    }
+  // A CRASH MUST SPEAK AS A FAILED CHECK, not as a silent non-zero exit. Under
+  // --fails-only the caller reads stdout and treats empty as healthy, so a
+  // probe that died without printing would be indistinguishable from a probe
+  // that found nothing wrong — the built-but-invisible shape this whole
+  // workstream exists to end, rebuilt inside the thing doing the watching.
+  const msg = String(e?.message || e).slice(0, 200);
+  if (FAILS_ONLY) {
+    console.log(`- Venue probe: crashed before it could check anything — ${msg}`);
+    process.exitCode = 0;
+    return;
   }
-  process.exitCode = PROBE ? 0 : 2;
+  console.error(`ERROR — probe crashed: ${msg}`);
+  process.exitCode = 2;
 });
