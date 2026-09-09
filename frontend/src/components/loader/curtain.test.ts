@@ -1,17 +1,25 @@
-// A CURTAIN, NOT A WALL — the guard on element A's central claim.
+// A CURTAIN, NOT A WALL - the DECISIONS behind element A, pinned at the source.
 //
-// This is a SOURCE guard, and it is a stopgap with a reason. The honest test is
-// an e2e that loads / cold and asserts `document.elementFromPoint` over the hero
-// returns the hero and not the canvas — because in this repo "visible" and
-// "clickable" are different questions and only the second one matters here. That
-// e2e cannot run yet: playwright.config.ts sets `reducedMotion: 'reduce'`
-// globally and the wallet fixture pre-seeds the arrival key, so every spec skips
-// the curtain before it can look at it. Writing the assertion against a curtain
-// that never mounts would be worse than this: it would pass vacuously and read
-// like coverage.
+// This file used to open with an apology: it said the honest test was an e2e
+// asserting elementFromPoint over the hero, that such a spec could not run
+// because playwright.config sets reducedMotion 'reduce' globally and the wallet
+// fixture pre-seeds the arrival key, and that this stood in until one landed.
 //
-// So this pins the three lines that decide it, at the source, until a spec that
-// opts out of both lands. If somebody deletes the pass-through, this goes red.
+// It has landed. e2e/arrival.spec.ts opts out of both and walks the real thing:
+// the hero reachable under a live curtain, the curtain gone inside its budget
+// by a MEASURED number, once per browser proved by loading the page twice, and
+// a slow picture that still draws. Every claim about behaviour belongs there.
+//
+// The apology goes; the file stays, and its job is now stated rather than
+// excused. These are DECISIONS, and a decision is cheapest to pin where it was
+// made: the pass-through, the two-stage deadline, the phase wiring, the timings
+// each variant is built from. An e2e can tell you the curtain went away in
+// 2,886 ms. Only this can tell you that it went away because a deadline was
+// armed rather than because that machine happened to be fast.
+//
+// Nothing here may assert a DURATION by adding constants together. That is the
+// habit that produced a green guard over a curtain living twice as long as it
+// claimed, and the number in the block comes from the e2e now, never from here.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';

@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { CURTAIN_BUDGET_MS, SKIP_DISSOLVE_MS } from './constants';
+import { ARRIVAL_SEEN_KEY } from './skip';
 
 // The preload NEVER resolves. A curtain that waits for the network is the
 // defect; a curtain that waits forever is the test.
@@ -114,6 +115,48 @@ describe('the curtain is gone by its budget, whatever the machine does', () => {
 
     vi.advanceTimersByTime(CURTAIN_BUDGET_MS * 4);
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  // ONCE PER BROWSER, AND THE DEADLINE IS WHY IT NEEDS ITS OWN GUARD.
+  //
+  // The mark used to live only in the animation tick, at the frames where the
+  // curtain ends by its own choreography. Arming the deadline made those frames
+  // unreachable — skipIntro at BUDGET - 400, a dissolve that needs 400, and the
+  // finalize timer at BUDGET winning the race — so `tf_loaded` was never
+  // written and the curtain replayed on every single load. The island measured
+  // five runs of five before anyone here noticed, because the guard that
+  // claimed "once per browser: yes" read the skip decision instead of loading
+  // the page twice.
+  //
+  // These two run under the same worst case as everything above: no 2D context,
+  // so the tick never runs at all. Move the mark back inside the tick and both
+  // go red immediately.
+  it('marks the arrival at MOUNT, not at a frame the deadline never allows', () => {
+    render(<AppLoader onComplete={vi.fn()} />);
+    expect(localStorage.getItem(ARRIVAL_SEEN_KEY)).toBe('1');
+  });
+
+  it('has already marked it by the moment onComplete fires', () => {
+    // Sampled INSIDE the callback. Asserting after the fact would pass on a
+    // write that landed late, which is the same bug wearing a later timestamp:
+    // AppLayout reads this during render, and by then it is over.
+    let markedWhenCalled: string | null | undefined;
+    const onComplete = vi.fn(() => {
+      markedWhenCalled = localStorage.getItem(ARRIVAL_SEEN_KEY);
+    });
+    render(<AppLoader onComplete={onComplete} />);
+
+    vi.advanceTimersByTime(CURTAIN_BUDGET_MS);
+    expect(onComplete).toHaveBeenCalled();
+    expect(markedWhenCalled).toBe('1');
+  });
+
+  it('does NOT mark at mount for the film, whose exits do their own marking', () => {
+    // The ruling is curtain-only. The film has no deadline, so its three calls
+    // in the tick are still reachable, and a mount-time mark there would
+    // consume the arrival of someone who closes the tab two seconds in.
+    render(<AppLoader full onComplete={vi.fn()} />);
+    expect(localStorage.getItem(ARRIVAL_SEEN_KEY)).toBeNull();
   });
 
   it('clears its timers on unmount rather than firing into a dead component', () => {

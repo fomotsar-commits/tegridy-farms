@@ -221,6 +221,29 @@ export function AppLoader({
    */
   useEffect(() => {
     if (!visible || full) return;
+
+    // SEEN MEANS SHOWN, AND THE MARK BELONGS HERE — AT MOUNT.
+    //
+    // It used to live only in the animation tick, at the three points where the
+    // curtain ends by its own frames. The deadline below made those points
+    // unreachable: skipIntro fires at BUDGET - 400, the dissolve needs its full
+    // 400, and the finalize timer at BUDGET races the very frame that would
+    // have marked the arrival — and wins. So nothing was written, and the
+    // curtain played again on every load, warm or slow, on every machine. The
+    // island measured five runs of five: `tf_loaded` null in all five. The
+    // commit that armed the deadline is the commit that broke once-per-browser,
+    // and the guard for it read the skip code instead of reloading a page.
+    //
+    // The mark no longer depends on HOW the curtain ends. A browser that has
+    // drawn its first frame has met the venue; a dissolve, a deadline, a
+    // keypress, or a tab closed at one second do not change that. The three
+    // calls still in the tick belong to the film's own exits and cost nothing.
+    //
+    // Ordering is safe: AppLayout's `freshSplash` reads this in a useState
+    // initializer, and React finishes the whole render pass before any effect
+    // runs — and the overlay is lazy besides, so it mounts a pass later still.
+    markArrivalSeen();
+
     // TWO STAGES, and the second one is why this holds at all.
     //
     // `skipIntro` only sets the phase to 'skip'; the dissolve and the finalize
@@ -328,6 +351,8 @@ export function AppLoader({
      * The Skip button (revealed at 400ms) stays as the deliberate opt-out. It is
      * not a substitute for this: it asks the user to notice an escape hatch,
      * whereas this bounds the trap. */
+    // FILM ONLY now — see the branch below. The curtain has a deadline instead,
+    // and a deadline plus a gate is a black screen.
     const PRELOAD_BUDGET_MS = 2500;
     let settled = false;
     const proceed = (loaded: HTMLImageElement[]) => {
@@ -340,12 +365,44 @@ export function AppLoader({
       rafId = requestAnimationFrame(tick);
     };
 
-    const preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
-
-    preloadImages(srcs).then((results) => {
-      window.clearTimeout(preloadTimer);
-      proceed(results.filter((r): r is HTMLImageElement => r !== null));
-    });
+    /* THE CURTAIN DOES NOT WAIT FOR THE PICTURE. THE FILM STILL DOES.
+     *
+     * The gate above bounds the wait at 2,500 ms, which was the right fix when
+     * the overlay had no other end. It is the wrong one under a 3,000 ms
+     * deadline: the wait and the deadline together turn a slow arrival into a
+     * BLACK SCREEN and nothing else. The island screenshotted it at +1,100 ms
+     * and +2,900 ms after mount — 100% black pixels both times, the name never
+     * forming — and then the home. The visitor whose first impression is
+     * already worst is the exact one who gets no arrival at all.
+     *
+     * So the curtain starts its void at mount with no art, and the preload
+     * lands INTO it while the void plays. The branch at the void's end is
+     * already written for both outcomes: a piece if one arrived, particles
+     * straight to the wordmark if none did. A picture that turns up after the
+     * void has ended is simply not part of this arrival — adopting it mid-phase
+     * would restart choreography the deadline has already half spent.
+     *
+     * The film keeps the gate. It is a deliberate viewing with no deadline, so
+     * waiting for its art is what the visitor asked for. */
+    // Declared out here because the effect's cleanup clears it, and the curtain
+    // branch never arms one — 0 is a no-op for clearTimeout.
+    let preloadTimer = 0;
+    if (full) {
+      preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
+      preloadImages(srcs).then((results) => {
+        window.clearTimeout(preloadTimer);
+        proceed(results.filter((r): r is HTMLImageElement => r !== null));
+      });
+    } else {
+      proceed([]);
+      preloadImages(srcs).then((results) => {
+        if (disposed || s.phase !== 'void') return;
+        const loaded = results.filter((r): r is HTMLImageElement => r !== null);
+        if (loaded.length === 0) return;
+        s.images = loaded;
+        s.titles = titles.slice(0, loaded.length);
+      });
+    }
 
     /* Create particles from last art image */
     function createParticles(img: HTMLImageElement) {
@@ -768,6 +825,12 @@ export function AppLoader({
         <div
           ref={overlayRef}
           onClick={handleClick}
+          // The e2e's clock. A MutationObserver stamps performance.now() when
+          // this node is added and when it is removed, so the measured lifetime
+          // is MOUNT-RELATIVE: a slow CI first paint cannot fail the budget and
+          // a slow curtain cannot pass it. Naming the variant here too, because
+          // "the film is up" and "the curtain is up" are different facts.
+          data-arrival={full ? 'film' : 'curtain'}
           style={{
             position: 'fixed',
             inset: 0,

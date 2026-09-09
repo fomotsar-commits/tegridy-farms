@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { BUNGALOWS } from '../src/lib/bungalows';
 
 // Jungle Bay bungalow doors — the memetics.finance/<bungalow> URL format.
 //
@@ -123,31 +124,87 @@ test.describe('bungalow doors', () => {
     await expect(page.getByRole('button', { name: 'About this bungalow' })).toBeVisible();
   });
 
-  test('a room speaks only its own token — no TOWELI furniture in it', async ({ page }) => {
-    // WAVE SEVEN, element D. The "Protocol Overview" grid rendered in EVERY
-    // bungalow, so BAYLA's room and PEPE's room both told their visitors to
-    // "Stake TOWELI to earn now" — another resident's token, in someone else's
-    // house. Wave five cleaned the venue arrival of it and missed the rooms.
-    //
-    // Asserted on the RENDERED page rather than on the gate expression: a
-    // source check would pass on any gate that merely mentions the right
-    // identifiers, which is not the same as the grid being absent.
+  // WAVE SEVEN, element D — THE SWEEP IS THE THIRTEEN DOORS, NOT A SAMPLE.
+  //
+  // The "Protocol Overview" grid rendered in EVERY bungalow, so BAYLA's room and
+  // PEPE's room both told their visitors to "Stake TOWELI to earn now" — another
+  // resident's token, in someone else's house. Wave five cleaned the venue
+  // arrival of it and missed the rooms entirely.
+  //
+  // This used to prove one room and two strings while the status block claimed
+  // thirteen doors. A claim about thirteen doors is measured on thirteen doors:
+  // the island measured them, and so does the file. The list is read from
+  // BUNGALOWS rather than typed here, so a fourteenth door cannot be added
+  // without this sweep noticing it.
+  //
+  // Asserted on the WHOLE RENDERED TEXT after a scroll to the bottom, not on the
+  // gate expression: a source check passes on any gate that merely mentions the
+  // right identifiers, and half these sections are `whileInView` and do not
+  // exist in the DOM until they are scrolled to.
+  async function readWholePage(page: Page): Promise<string> {
+    // Three passes down. One scrollTo lands before the sections it reveals have
+    // mounted, and each newly mounted section makes the page taller.
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(700);
+    }
+    return page.evaluate(() => document.body.innerText);
+  }
+
+  const DOORS = BUNGALOWS.map((b) => b.id);
+
+  test('there are thirteen doors, and this file knows all of them', () => {
+    // The sweep below is generated from this list. If a door is added and this
+    // number is not deliberately changed with it, the new room is swept anyway —
+    // this exists so the COUNT in the status block cannot drift from the code.
+    expect(DOORS).toHaveLength(13);
+    expect(DOORS).toContain('toweli');
+  });
+
+  for (const id of DOORS.filter((d) => d !== 'toweli')) {
+    test(`/${id} speaks only its own token — no TOWELI anywhere on the page`, async ({ page }) => {
+      test.slow();
+      await seedOverlays(page);
+      await page.addInitScript((door) => {
+        try {
+          // Seeded so the door's own persist-and-reload does not double the load.
+          // 'nb1' is deliberately not seeded: it is the QUIET slot, `live: false`,
+          // and setActiveBungalow's resolver refuses it — seeding it would assert
+          // a switch the app is right to refuse.
+          if (door !== 'nb1') localStorage.setItem('tegridy-bungalow', door);
+          localStorage.setItem(`tegridy-onboarding-${door}-seen`, '1');
+        } catch { /* private mode */ }
+      }, id);
+
+      await page.goto(`/${id}`);
+      await expect(page.locator('h1').first()).toBeVisible({ timeout: 20_000 });
+
+      const text = await readWholePage(page);
+      expect(text.length, `/${id} rendered almost nothing, so this proves nothing`).toBeGreaterThan(400);
+      expect(text, `/${id} is furnished with TOWELI`).not.toContain('TOWELI');
+      expect(text, `/${id} still renders the shared Protocol Overview grid`).not.toContain('Protocol Overview');
+    });
+  }
+
+  test("/toweli keeps its own furniture, because there it is true", async ({ page }) => {
+    test.slow();
+    // The other half of the ruling, and the one that makes the twelve above mean
+    // something: element D removes a grid from rooms it does not belong to. If it
+    // had simply been deleted, all twelve would be green and the venue would be
+    // poorer for it.
     await seedOverlays(page);
     await page.addInitScript(() => {
       try {
-        localStorage.setItem('tegridy-bungalow', 'pepe');
-        localStorage.setItem('tegridy-onboarding-pepe-seen', '1');
+        localStorage.setItem('tegridy-bungalow', 'toweli');
+        localStorage.setItem('tegridy-onboarding-toweli-seen', '1');
       } catch { /* private mode */ }
     });
-    await page.goto('/pepe');
-    await expect(page.locator('h1').first()).toContainText('PEPE', { timeout: 20_000 });
-
-    await expect(page.locator('text=Protocol Overview')).toHaveCount(0);
-    await expect(page.locator('text=Stake TOWELI')).toHaveCount(0);
-
-    // And TOWELI's own home keeps its furniture, because there it is true.
     await page.goto('/toweli');
-    await expect(page.locator('text=Protocol Overview').first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('h1').first()).toBeVisible({ timeout: 20_000 });
+
+    const text = await readWholePage(page);
+    expect(text).toContain('Protocol Overview');
+    expect(text).toContain('TOWELI');
   });
 
   test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {
