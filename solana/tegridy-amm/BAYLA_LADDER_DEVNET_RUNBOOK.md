@@ -98,7 +98,9 @@ WALLET=$(solana address)
 echo "program=$PROGRAM_ID deployer=$WALLET"
 ```
 
-Then patch both, using **the CI patcher itself** so the assertions run:
+You do **not** patch these by hand — §4's workflow does it, with assertions. Keep both
+values; you need them as workflow inputs and to verify the deploy. For reference, the
+patch it applies is:
 
 ```bash
 python3 - programs/bayla-ladder/src/lib.rs "$PROGRAM_ID" "$WALLET" <<'PY'
@@ -125,27 +127,56 @@ sed -i "s|^bayla_ladder = \".*\"|bayla_ladder = \"$PROGRAM_ID\"|" Anchor.toml
 > them, or one that merely contains that token, breaks the build in two ways at once.
 > This has already happened once.
 
-**A non-devnet build keeps `deployer::ID = Pubkey::default()`** — the System Program —
-which is fail-closed and uncallable by design. That is correct for mainnet: the
-mainnet authority is set deliberately, not left as a placeholder that works.
+**A non-devnet build keeps `deployer::ID = pubkey!("11111111111111111111111111111111")`**
+— the System Program, as an explicit base58 sentinel rather than `Pubkey::default()`.
+It is fail-closed and uncallable by design, which is correct for mainnet: the authority
+is set deliberately, not left as a placeholder that happens to work.
+
+That it is a `pubkey!` arm and not a `Pubkey::default()` matters mechanically: the
+artifact workflow patches *one* of the two `pubkey!` arms and asserts there are exactly
+two, so a change to that expression fails the build loudly instead of patching the wrong
+one.
 
 ---
 
-## 4. Build and verify the artifacts agree
+## 4. Build the artifact — in CI, because you cannot build it here
+
+**Do not try to `anchor build` on the Windows box.** The SBF toolchain cannot be
+installed on it (`Failed to install platform-tools: A required privilege is not held by
+the client`, os error 1314 — it needs the symlink privilege). There is no local path to
+a deployable `.so`, and that is not a temporary state.
+
+Run **`solana-deploy-artifact`** instead, from the Actions tab or the CLI:
 
 ```bash
-anchor build -p bayla_ladder -- --features devnet
-
-test -f target/deploy/bayla_ladder.so
-test -f target/idl/bayla_ladder.json     # the tests load this at runtime
-KEYPAIR_ID=$(solana-keygen pubkey target/deploy/bayla_ladder-keypair.json)
-IDL_ID=$(python3 -c "import json;print(json.load(open('target/idl/bayla_ladder.json'))['address'])")
-SRC_ID=$(grep -oP 'declare_id!\("\K[^"]+' programs/bayla-ladder/src/lib.rs | head -1)
-[ "$KEYPAIR_ID" = "$IDL_ID" ] && [ "$KEYPAIR_ID" = "$SRC_ID" ] || { echo "MISMATCH"; exit 1; }
+gh workflow run solana-deploy-artifact.yml \
+  -f program=bayla-ladder \
+  -f cluster=devnet \
+  -f program_id=$PROGRAM_ID \
+  -f deployer=$WALLET
 ```
 
-All three must agree. A mismatch here is the single most common way a deploy looks fine
-and is unusable.
+It patches those two identities into the source, builds with `anchor build` (so you get
+the **IDL as well as the `.so`** — `cargo build-sbf` emits no IDL), and publishes both
+plus their sha256s as a downloadable artifact. It refuses up front if either input is not
+a real base58 pubkey, if `deployer == program_id` (**audit L-5**), or if `deployer` is the
+fail-closed `1111…` sentinel.
+
+It also asserts, after building, that the IDL's `address` and the source's `declare_id!`
+both equal the `program_id` you asked for. That mismatch is the single most common way a
+deploy looks fine and is unusable, and it is checked for you now.
+
+```bash
+gh run download <run-id>          # -> deploy/bayla_ladder.so, idl/bayla_ladder.json
+```
+
+The run's summary page prints the sha256s, the rent estimate, and the deploy commands
+below with your addresses already filled in.
+
+> ⚠️ **`deployer` is required for BOTH clusters.** A mainnet build with no deployer keeps
+> the System-program sentinel, which is fail-closed: `initialize_pool` becomes uncallable
+> and **no pool can ever be created** — and you would only discover that after paying for
+> the deploy.
 
 ---
 
@@ -153,8 +184,13 @@ and is unusable.
 
 ```bash
 solana config set --url devnet
-solana program deploy target/deploy/bayla_ladder.so \
+solana address    # must print the $WALLET you built against
+solana balance    # the .so is ~512 KB, so budget ~7.6 SOL of rent + fees
+
+solana program deploy bayla_ladder.so \
   --program-id target/deploy/bayla_ladder-keypair.json
+
+solana program show $PROGRAM_ID     # verify what actually landed
 ```
 
 **Upgrade authority stays with the deploy wallet on devnet.** That is fine for devnet
@@ -162,7 +198,42 @@ and is *not* fine for mainnet — see §9.
 
 ---
 
+## 5b. The operator CLI — everything after the deploy
+
+`frontend/scripts/bayla-ladder-ops.mjs` drives the program directly. **Every command is a
+DRY RUN unless you pass `--broadcast`**: it builds the transaction, runs it through
+`simulateTransaction` against real chain state, and prints the program's own logs, error
+code and compute usage. A dry run that reports a program error has told you something
+true — it is not a formatting exercise.
+
+Amounts are **whole tokens** and are converted using the mint's own decimals, read
+on-chain. It refuses more precision than the mint has rather than truncating silently.
+
+```bash
+cd frontend
+export BAYLA_LADDER_PROGRAM=$PROGRAM_ID
+export SOLANA_RPC=https://api.devnet.solana.com
+
+node scripts/bayla-ladder-ops.mjs read --pool <pool>
+node scripts/bayla-ladder-ops.mjs positions --pool <pool> --owner <wallet>
+```
+
+Its discriminators, account ordering and struct offsets were verified field-by-field
+against the program's own IDL (0 mismatches) and are pinned by
+`scripts/bayla-ladder-ops.test.mjs`, so program drift fails in CI rather than as a
+confusing constraint error against a deployed program.
+
+---
+
 ## 6. Initialize the pool — the parameters are mostly IMMUTABLE
+
+```bash
+node scripts/bayla-ladder-ops.mjs init-pool --mint <mint> --nonce 0 --min-stake 100 --deposit-cap 1000000 --max-wallet 100000 --keypair <deployer.json>
+# dry run by default — re-run with --broadcast once the simulation looks right
+```
+
+The CLI refuses a bad configuration locally, with an explanation, instead of letting it
+surface as an on-chain constraint failure. The underlying instruction is:
 
 ```
 initialize_pool(nonce: u8, min_stake: u64, deposit_cap: u64, max_wallet_principal: u64)
@@ -194,6 +265,13 @@ Enforced at init, in this order:
 
 ## 7. Fund the 90-day window
 
+```bash
+node scripts/bayla-ladder-ops.mjs notify --pool <pool> --amount 50000 --keypair <authority.json>
+# dry run; add --broadcast to send
+```
+
+The CLI checks the L-1 floor and the authority match before building anything.
+
 ```
 notify_reward(amount: u64, from_budget: u64)
 ```
@@ -221,7 +299,17 @@ standard Synthetix behaviour.
 ## 8. Smoke test on devnet, in this order
 
 The integration suite (`tests/bayla-ladder.test.ts`, 27 tests) covers all of this against
-a local validator in CI. On devnet, drive it by hand and confirm each:
+a local validator in CI. On devnet, drive it with the CLI from §5b — dry-run each first,
+then re-run with `--broadcast`:
+
+```bash
+node scripts/bayla-ladder-ops.mjs stake --pool <p> --amount 500 --lock-days 7
+node scripts/bayla-ladder-ops.mjs claim --pool <p> --nonce 0
+node scripts/bayla-ladder-ops.mjs exit  --pool <p> --nonce 0 --early   # 25% penalty
+node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 0           # principal only
+```
+
+Confirm each:
 
 1. `initialize_pool` — then read Pool back and check `decimals`, `token_program`,
    `min_stake`, `deposit_cap` are what you passed.

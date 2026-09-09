@@ -1,0 +1,684 @@
+// bayla-ladder operator + tester CLI.
+//
+// The program is deployed by `solana program deploy`; everything AFTER that —
+// creating the pool, funding a reward window, and driving a real position
+// end-to-end — had no tooling at all. The only code that had ever called
+// `initialize_pool` was inline YAML inside `solana-ci.yml`, which cannot be run
+// anywhere but a CI runner. This is that tooling.
+//
+//   READ (no keypair, no signing, safe anywhere):
+//     node scripts/bayla-ladder-ops.mjs read --pool <addr>
+//     node scripts/bayla-ladder-ops.mjs positions --pool <addr> --owner <addr>
+//
+//   OPERATOR (dry run by default — builds, SIMULATES, prints; signs nothing):
+//     node scripts/bayla-ladder-ops.mjs init-pool --mint <m> --nonce 0 \
+//          --min-stake 100 --deposit-cap 1000000 --max-wallet 100000
+//     node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000
+//
+//   STAKER (same dry-run rule):
+//     node scripts/bayla-ladder-ops.mjs stake  --pool <p> --amount 500 --lock-days 90
+//     node scripts/bayla-ladder-ops.mjs claim  --pool <p> --nonce 0
+//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0        # matured, free
+//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 25% penalty
+//     node scripts/bayla-ladder-ops.mjs hatch  --pool <p> --nonce 0        # principal only
+//
+//   Add --broadcast to actually send. Without it NOTHING is signed or sent: the
+//   transaction is built and run through `simulateTransaction` with
+//   sigVerify:false, so you get the program's real logs and compute usage against
+//   real chain state before you commit a lamport. A dry run that "passes" is
+//   therefore evidence, not a formatting exercise.
+//
+// AMOUNTS ARE WHOLE TOKENS on the command line and converted with the mint's OWN
+// decimals, read on-chain. Never pass raw base units.
+//
+// Security posture, same as bayla-lighthouse-ceremony.mjs: --keypair reads a
+// standard solana id.json, secret keys are never printed, and broadcasting is an
+// explicit, separate act.
+//
+// ── why this file hand-encodes everything ────────────────────────────────────
+// `@coral-xyz/anchor` is not a dependency of this repo and adding it to ship one
+// script is not worth the weight. Discriminators are `sha256("global:<snake>")`
+// and `sha256("account:<Pascal>")`, first 8 bytes — the identical routine that
+// reproduces every committed value in
+// `src/lib/launcher/solana/curve/program.ts` byte-for-byte. Accounts are passed
+// in DECLARATION order because Anchor matches by POSITION, not by name; a
+// reordered list produces a confusing constraint failure rather than an obvious
+// one. The layout offsets below are hand-summed and their totals are asserted
+// against the sizes the program itself pins (508 / 205 / 126).
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
+// EXPLICIT, never off `globalThis` — the same rule `curve/ix.ts` states and for
+// the same reason. The seed constants below are built at module-eval time, and
+// under a jsdom test environment the ambient `Buffer` is a shim whose output
+// `findProgramAddressSync` cannot use: every bump comes back on-curve and it
+// throws "Unable to find a viable program address nonce". That failure names
+// nothing about Buffer, and importing this module poisoned an unrelated test in
+// the same file before the import was made explicit.
+import { Buffer } from 'buffer';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+  sendAndConfirmTransaction,
+} from '@solana/web3.js';
+
+// ── constants ────────────────────────────────────────────────────────────────
+
+const POOL_SEED = Buffer.from('pool');
+const POSITION_SEED = Buffer.from('position');
+const USER_SEED = Buffer.from('user');
+const STAKE_VAULT_SEED = Buffer.from('svault');
+const REWARD_VAULT_SEED = Buffer.from('rvault');
+
+/** math.rs — the ladder's own bounds. Quoted so a mistake is refused locally. */
+const MIN_LOCK_SECS = 7 * 86_400;
+const MAX_LOCK_SECS = 4 * 365 * 86_400;
+const REWARDS_DURATION_SECS = 90 * 86_400;
+
+const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+const TOKEN_LEGACY = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+
+const disc = (ns, name) => createHash('sha256').update(`${ns}:${name}`).digest().subarray(0, 8);
+
+const IX = {
+  initializePool: disc('global', 'initialize_pool'),
+  stake: disc('global', 'stake'),
+  claim: disc('global', 'claim'),
+  withdrawMatured: disc('global', 'withdraw_matured'),
+  earlyExit: disc('global', 'early_exit'),
+  emergencyWithdraw: disc('global', 'emergency_withdraw'),
+  claimCarried: disc('global', 'claim_carried'),
+  notifyReward: disc('global', 'notify_reward'),
+};
+const ACCT = {
+  Pool: disc('account', 'Pool'),
+  Position: disc('account', 'Position'),
+  UserStats: disc('account', 'UserStats'),
+};
+
+// Offsets INCLUDE the 8-byte discriminator. Totals are asserted below against the
+// sizes `account_sizes_are_pinned` fixes in the program itself — if the program's
+// layout moves and this file does not, the assertion fires here rather than
+// producing plausible-looking garbage.
+const POOL_L = {
+  bump: 8, nonce: 9, mint: 10, tokenProgram: 42, decimals: 74, authority: 75,
+  pendingAuthority: 107, stakeVault: 139, rewardVault: 171, minStake: 203,
+  depositCap: 211, pendingCap: 219, pendingCapTs: 227, maxWalletPrincipal: 235,
+  totalPrincipal: 243, totalWeighted: 251, rewardRate: 267, periodFinish: 283,
+  lastUpdateTime: 291, rewardPerWeightStored: 299, rewardsEmitted: 315,
+  rewardsPaid: 331, rewardFundedCumulative: 347, penaltyCollectedCumulative: 363,
+  orphanedPenalty: 379, degraded: 387, rpwResidue: 388, emittedResidue: 404,
+  SIZE: 508,
+};
+const POSITION_L = {
+  bump: 8, pool: 9, owner: 41, nonce: 73, amount: 77, weight: 85, lockEnd: 101,
+  rewardPerWeightPaid: 109, rewardsOwed: 125, SIZE: 205,
+};
+const USER_L = {
+  bump: 8, pool: 9, owner: 41, nextNonce: 73, openPositions: 77,
+  rewardsCarried: 78, principal: 94, SIZE: 126,
+};
+
+// ── tiny binary helpers ──────────────────────────────────────────────────────
+
+const u8 = (n) => Buffer.from([n & 0xff]);
+const u32le = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
+const u64le = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return b; };
+const i64le = (v) => { const b = Buffer.alloc(8); b.writeBigInt64LE(BigInt(v)); return b; };
+
+const rdU64 = (d, o) => d.readBigUInt64LE(o);
+const rdI64 = (d, o) => d.readBigInt64LE(o);
+const rdU128 = (d, o) => d.readBigUInt64LE(o) + (d.readBigUInt64LE(o + 8) << 64n);
+const rdKey = (d, o) => new PublicKey(d.subarray(o, o + 32));
+const rdBool = (d, o) => (d[o] === 0 ? false : d[o] === 1 ? true : null);
+
+function sameDisc(data, want) {
+  if (!data || data.length < 8) return false;
+  for (let i = 0; i < 8; i++) if (data[i] !== want[i]) return false;
+  return true;
+}
+
+/** Raw base units -> a readable decimal string. Never a float. */
+function fmt(raw, decimals) {
+  if (raw === null || raw === undefined) return '—';
+  const neg = raw < 0n;
+  const s = (neg ? -raw : raw).toString().padStart(decimals + 1, '0');
+  const whole = s.slice(0, s.length - decimals) || '0';
+  const frac = decimals > 0 ? s.slice(s.length - decimals).replace(/0+$/, '') : '';
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return (neg ? '-' : '') + (frac ? `${grouped}.${frac}` : grouped);
+}
+
+/** Whole tokens -> raw base units, exactly. Rejects more precision than the mint has. */
+function toRaw(human, decimals) {
+  const t = String(human).trim();
+  if (!/^\d+(\.\d+)?$/.test(t)) throw new Error(`not a positive amount: ${human}`);
+  const [w, f = ''] = t.split('.');
+  if (f.length > decimals) {
+    throw new Error(`${human} has ${f.length} decimal places but the mint has ${decimals}`);
+  }
+  return BigInt(w + f.padEnd(decimals, '0'));
+}
+
+// ── PDAs ─────────────────────────────────────────────────────────────────────
+
+const poolPda = (programId, mint, nonce) =>
+  PublicKey.findProgramAddressSync([POOL_SEED, mint.toBuffer(), Buffer.from([nonce])], programId)[0];
+const vaultPda = (programId, seed, pool) =>
+  PublicKey.findProgramAddressSync([seed, pool.toBuffer()], programId)[0];
+const userPda = (programId, pool, owner) =>
+  PublicKey.findProgramAddressSync([USER_SEED, pool.toBuffer(), owner.toBuffer()], programId)[0];
+const positionPda = (programId, pool, owner, nonce) =>
+  PublicKey.findProgramAddressSync(
+    [POSITION_SEED, pool.toBuffer(), owner.toBuffer(), u32le(nonce)], programId)[0];
+
+/** The owner's associated token account, for whichever token program owns the mint. */
+const ataFor = (mint, owner, tokenProgram) =>
+  PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), tokenProgram.toBuffer(), mint.toBuffer()], ATA_PROGRAM)[0];
+
+// ── decoders (a failure returns a REASON, never a zeroed struct) ─────────────
+
+function decodePool(data) {
+  if (!data) return { ok: false, reason: 'missing — no account at that address' };
+  if (data.length !== POOL_L.SIZE) return { ok: false, reason: `bad-length ${data.length} != ${POOL_L.SIZE}` };
+  if (!sameDisc(data, ACCT.Pool)) return { ok: false, reason: 'wrong-discriminator — not a bayla-ladder Pool' };
+  const degraded = rdBool(data, POOL_L.degraded);
+  if (degraded === null) return { ok: false, reason: 'malformed — `degraded` is neither 0 nor 1' };
+  return {
+    ok: true,
+    value: {
+      bump: data[POOL_L.bump], nonce: data[POOL_L.nonce],
+      mint: rdKey(data, POOL_L.mint), tokenProgram: rdKey(data, POOL_L.tokenProgram),
+      decimals: data[POOL_L.decimals],
+      authority: rdKey(data, POOL_L.authority), pendingAuthority: rdKey(data, POOL_L.pendingAuthority),
+      stakeVault: rdKey(data, POOL_L.stakeVault), rewardVault: rdKey(data, POOL_L.rewardVault),
+      minStake: rdU64(data, POOL_L.minStake), depositCap: rdU64(data, POOL_L.depositCap),
+      pendingCap: rdU64(data, POOL_L.pendingCap), pendingCapTs: rdI64(data, POOL_L.pendingCapTs),
+      maxWalletPrincipal: rdU64(data, POOL_L.maxWalletPrincipal),
+      totalPrincipal: rdU64(data, POOL_L.totalPrincipal),
+      totalWeighted: rdU128(data, POOL_L.totalWeighted),
+      rewardRate: rdU128(data, POOL_L.rewardRate),
+      periodFinish: rdI64(data, POOL_L.periodFinish),
+      lastUpdateTime: rdI64(data, POOL_L.lastUpdateTime),
+      rewardsEmitted: rdU128(data, POOL_L.rewardsEmitted),
+      rewardsPaid: rdU128(data, POOL_L.rewardsPaid),
+      rewardFundedCumulative: rdU128(data, POOL_L.rewardFundedCumulative),
+      penaltyCollectedCumulative: rdU128(data, POOL_L.penaltyCollectedCumulative),
+      orphanedPenalty: rdU64(data, POOL_L.orphanedPenalty),
+      degraded,
+    },
+  };
+}
+
+function decodePosition(data) {
+  if (!data) return { ok: false, reason: 'missing' };
+  if (data.length !== POSITION_L.SIZE) return { ok: false, reason: `bad-length ${data.length}` };
+  if (!sameDisc(data, ACCT.Position)) return { ok: false, reason: 'wrong-discriminator' };
+  return {
+    ok: true,
+    value: {
+      pool: rdKey(data, POSITION_L.pool), owner: rdKey(data, POSITION_L.owner),
+      nonce: data.readUInt32LE(POSITION_L.nonce), amount: rdU64(data, POSITION_L.amount),
+      weight: rdU128(data, POSITION_L.weight), lockEnd: rdI64(data, POSITION_L.lockEnd),
+      rewardsOwed: rdU128(data, POSITION_L.rewardsOwed),
+    },
+  };
+}
+
+function decodeUserStats(data) {
+  if (!data) return { ok: false, reason: 'missing — this wallet has never staked in this pool' };
+  if (data.length !== USER_L.SIZE) return { ok: false, reason: `bad-length ${data.length}` };
+  if (!sameDisc(data, ACCT.UserStats)) return { ok: false, reason: 'wrong-discriminator' };
+  return {
+    ok: true,
+    value: {
+      nextNonce: data.readUInt32LE(USER_L.nextNonce),
+      openPositions: data[USER_L.openPositions],
+      rewardsCarried: rdU128(data, USER_L.rewardsCarried),
+      principal: rdU64(data, USER_L.principal),
+    },
+  };
+}
+
+// ── instruction builders (PURE: no connection, no signing) ───────────────────
+
+const meta = (pubkey, isSigner, isWritable) => ({ pubkey, isSigner, isWritable });
+
+function ixInitializePool({ programId, payer, mint, tokenProgram, nonce, minStake, depositCap, maxWallet }) {
+  const pool = poolPda(programId, mint, nonce);
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(payer, true, true),
+      meta(mint, false, false),
+      meta(pool, false, true),
+      meta(vaultPda(programId, STAKE_VAULT_SEED, pool), false, true),
+      meta(vaultPda(programId, REWARD_VAULT_SEED, pool), false, true),
+      meta(tokenProgram, false, false),
+      meta(SystemProgram.programId, false, false),
+    ],
+    data: Buffer.concat([IX.initializePool, u8(nonce), u64le(minStake), u64le(depositCap), u64le(maxWallet)]),
+  });
+}
+
+function ixStake({ programId, owner, pool, p, positionNonce, amountRaw, lockSecs }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(owner, true, true),
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(userPda(programId, pool, owner), false, true),
+      meta(positionPda(programId, pool, owner, positionNonce), false, true),
+      meta(ataFor(p.mint, owner, p.tokenProgram), false, true),
+      meta(p.stakeVault, false, true),
+      meta(p.tokenProgram, false, false),
+      meta(SystemProgram.programId, false, false),
+    ],
+    data: Buffer.concat([IX.stake, u64le(amountRaw), i64le(lockSecs)]),
+  });
+}
+
+function ixClaim({ programId, owner, pool, p, positionNonce }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(owner, true, false),
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(positionPda(programId, pool, owner, positionNonce), false, true),
+      meta(ataFor(p.mint, owner, p.tokenProgram), false, true),
+      meta(p.rewardVault, false, true),
+      meta(p.tokenProgram, false, false),
+    ],
+    data: Buffer.from(IX.claim),
+  });
+}
+
+/** `Exit` backs BOTH doors — the only difference is the discriminator. */
+function ixExit({ programId, owner, pool, p, positionNonce, early }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(owner, true, true),
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(userPda(programId, pool, owner), false, true),
+      meta(positionPda(programId, pool, owner, positionNonce), false, true),
+      meta(ataFor(p.mint, owner, p.tokenProgram), false, true),
+      meta(p.stakeVault, false, true),
+      meta(p.rewardVault, false, true),
+      meta(p.tokenProgram, false, false),
+    ],
+    data: Buffer.from(early ? IX.earlyExit : IX.withdrawMatured),
+  });
+}
+
+/** The hatch. Note it declares NO reward vault — invariant I-12, enforced by the struct. */
+function ixEmergencyWithdraw({ programId, owner, pool, p, positionNonce }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(owner, true, true),
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(userPda(programId, pool, owner), false, true),
+      meta(positionPda(programId, pool, owner, positionNonce), false, true),
+      meta(ataFor(p.mint, owner, p.tokenProgram), false, true),
+      meta(p.stakeVault, false, true),
+      meta(p.tokenProgram, false, false),
+    ],
+    data: Buffer.from(IX.emergencyWithdraw),
+  });
+}
+
+function ixNotifyReward({ programId, authority, pool, p, amountRaw, fromBudgetRaw }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(authority, true, false),
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(ataFor(p.mint, authority, p.tokenProgram), false, true),
+      meta(p.rewardVault, false, true),
+      meta(p.tokenProgram, false, false),
+    ],
+    data: Buffer.concat([IX.notifyReward, u64le(amountRaw), u64le(fromBudgetRaw)]),
+  });
+}
+
+// ── plumbing ─────────────────────────────────────────────────────────────────
+
+function parseArgs(argv) {
+  // A leading flag means no command was given — `--help` must print usage, not be
+  // read as a subcommand and then die on an unrelated missing argument.
+  const hasCmd = argv.length > 0 && !argv[0].startsWith('--');
+  const out = { _: hasCmd ? argv[0] : undefined };
+  for (let i = hasCmd ? 1 : 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (!a.startsWith('--')) continue;
+    const k = a.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) out[k] = true;
+    else { out[k] = next; i++; }
+  }
+  return out;
+}
+
+function need(args, name) {
+  const v = args[name];
+  if (v === undefined || v === true) throw new Error(`--${name.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())} is required`);
+  return v;
+}
+
+function loadKeypair(path) {
+  const raw = JSON.parse(readFileSync(path, 'utf8'));
+  return Keypair.fromSecretKey(new Uint8Array(raw));
+}
+
+async function loadPool(conn, programId, poolKey) {
+  const info = await conn.getAccountInfo(poolKey);
+  if (!info) throw new Error(`no account at ${poolKey.toBase58()} — is the pool created, and is --rpc pointing at the right cluster?`);
+  if (!info.owner.equals(programId)) {
+    throw new Error(`${poolKey.toBase58()} is owned by ${info.owner.toBase58()}, not the ladder program ${programId.toBase58()}`);
+  }
+  const d = decodePool(info.data);
+  if (!d.ok) throw new Error(`could not decode Pool: ${d.reason}`);
+  return d.value;
+}
+
+/**
+ * DRY RUN IS THE DEFAULT AND IT IS NOT A FORMATTING EXERCISE.
+ *
+ * The transaction is built and run through `simulateTransaction` against real
+ * chain state with sigVerify off, so the program's own logs, its error code and
+ * its compute usage all come back before anything is signed. A dry run that
+ * reports a program error has told you something true.
+ */
+async function submit(conn, ixs, payer, { broadcast, label }) {
+  const tx = new Transaction().add(...ixs);
+  tx.feePayer = payer.publicKey ?? payer;
+  tx.recentBlockhash = (await conn.getLatestBlockhash('confirmed')).blockhash;
+
+  const sim = await conn.simulateTransaction(tx, undefined, false);
+  const logs = sim.value.logs ?? [];
+  const cu = sim.value.unitsConsumed;
+  console.log(`\n  simulation: ${sim.value.err ? 'FAILED' : 'ok'}${cu !== undefined ? `  (${cu.toLocaleString()} CU)` : ''}`);
+  for (const l of logs) console.log('    ' + l);
+  if (sim.value.err) {
+    console.log(`\n  ${label} would FAIL: ${JSON.stringify(sim.value.err)}`);
+    process.exitCode = 1;
+    return null;
+  }
+  if (!broadcast) {
+    console.log(`\n  DRY RUN — nothing signed, nothing sent. Re-run with --broadcast to execute.`);
+    return null;
+  }
+  const sig = await sendAndConfirmTransaction(conn, tx, [payer], { commitment: 'confirmed' });
+  console.log(`\n  ${label} SENT: ${sig}`);
+  return sig;
+}
+
+function printPool(p) {
+  const d = p.decimals;
+  const now = Math.floor(Date.now() / 1000);
+  console.log(`  mint                 ${p.mint.toBase58()}  (${d} dp)`);
+  console.log(`  token program        ${p.tokenProgram.toBase58()}${p.tokenProgram.equals(TOKEN_2022) ? '  (Token-2022)' : p.tokenProgram.equals(TOKEN_LEGACY) ? '  (legacy SPL)' : '  (UNKNOWN)'}`);
+  console.log(`  authority            ${p.authority.toBase58()}`);
+  if (!p.pendingAuthority.equals(PublicKey.default)) console.log(`  pending authority    ${p.pendingAuthority.toBase58()}`);
+  console.log(`  stake vault          ${p.stakeVault.toBase58()}`);
+  console.log(`  reward vault         ${p.rewardVault.toBase58()}`);
+  console.log(`  min stake            ${fmt(p.minStake, d)}`);
+  console.log(`  deposit cap          ${fmt(p.depositCap, d)}`);
+  console.log(`  max per wallet       ${fmt(p.maxWalletPrincipal, d)}`);
+  console.log(`  total principal      ${fmt(p.totalPrincipal, d)}`);
+  console.log(`  total weighted       ${p.totalWeighted}`);
+  console.log(`  reward rate          ${p.rewardRate}  (per second, scaled)`);
+  const left = Number(p.periodFinish) - now;
+  console.log(`  period finish        ${p.periodFinish === 0n ? 'never funded' : new Date(Number(p.periodFinish) * 1000).toISOString() + (left > 0 ? `  (${Math.floor(left / 86400)}d left)` : '  (ENDED)')}`);
+  console.log(`  rewards emitted      ${fmt(p.rewardsEmitted, d)}`);
+  console.log(`  rewards paid         ${fmt(p.rewardsPaid, d)}`);
+  console.log(`  outstanding owed     ${fmt(p.rewardsEmitted - p.rewardsPaid, d)}`);
+  console.log(`  penalties collected  ${fmt(p.penaltyCollectedCumulative, d)}`);
+  console.log(`  orphaned penalty     ${fmt(p.orphanedPenalty, d)}`);
+  if (p.degraded) console.log(`  ⚠ DEGRADED — the ladder is flat and early_exit charges nothing`);
+}
+
+// ── commands ─────────────────────────────────────────────────────────────────
+
+const USAGE = `bayla-ladder ops
+
+  read       --pool <addr>
+  positions  --pool <addr> --owner <addr>
+  init-pool  --mint <addr> --nonce <n> --min-stake <t> --deposit-cap <t> --max-wallet <t>
+  notify     --pool <addr> --amount <t> [--from-budget <t>]
+  stake      --pool <addr> --amount <t> --lock-days <d>
+  claim      --pool <addr> --nonce <n>
+  exit       --pool <addr> --nonce <n> [--early]
+  hatch      --pool <addr> --nonce <n>
+
+  common: --program <id> --rpc <url> --keypair <path> --broadcast
+          amounts are WHOLE TOKENS; dry run unless --broadcast`;
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args._ || args.help) { console.log(USAGE); return; }
+
+  const programId = new PublicKey(
+    args.program || process.env.BAYLA_LADDER_PROGRAM ||
+    (() => { throw new Error('--program <id> (or BAYLA_LADDER_PROGRAM) is required'); })());
+  const rpc = args.rpc || process.env.SOLANA_RPC || 'https://api.devnet.solana.com';
+  const conn = new Connection(rpc, 'confirmed');
+  const broadcast = args.broadcast === true;
+
+  console.log(`program ${programId.toBase58()}`);
+  console.log(`rpc     ${rpc}`);
+
+  const signer = () => {
+    const kp = loadKeypair(need(args, 'keypair'));
+    console.log(`signer  ${kp.publicKey.toBase58()}`);
+    return kp;
+  };
+
+  switch (args._) {
+    case 'read': {
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      console.log(`\nPool ${poolKey.toBase58()}  (nonce ${p.nonce})`);
+      printPool(p);
+      const sv = await conn.getTokenAccountBalance(p.stakeVault).catch(() => null);
+      const rv = await conn.getTokenAccountBalance(p.rewardVault).catch(() => null);
+      console.log(`\n  stake vault balance  ${sv ? fmt(BigInt(sv.value.amount), p.decimals) : '— unreadable'}`);
+      console.log(`  reward vault balance ${rv ? fmt(BigInt(rv.value.amount), p.decimals) : '— unreadable'}`);
+      if (sv && BigInt(sv.value.amount) < p.totalPrincipal) {
+        console.log(`  🔴 INVARIANT I-1 BROKEN: stake vault < total_principal`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    case 'positions': {
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const owner = new PublicKey(need(args, 'owner'));
+      const p = await loadPool(conn, programId, poolKey);
+      const us = decodeUserStats((await conn.getAccountInfo(userPda(programId, poolKey, owner)))?.data);
+      if (!us.ok) { console.log(`\nUserStats: ${us.reason}`); return; }
+      console.log(`\nUserStats for ${owner.toBase58()}`);
+      console.log(`  next nonce       ${us.value.nextNonce}`);
+      console.log(`  open positions   ${us.value.openPositions}`);
+      console.log(`  principal        ${fmt(us.value.principal, p.decimals)}`);
+      console.log(`  rewards carried  ${fmt(us.value.rewardsCarried, p.decimals)}`);
+      const now = Math.floor(Date.now() / 1000);
+      // Every nonce ever issued is probed: a CLOSED position leaves no account, so
+      // an absent one is reported as closed rather than skipped silently.
+      for (let n = 0; n < us.value.nextNonce; n++) {
+        const info = await conn.getAccountInfo(positionPda(programId, poolKey, owner, n));
+        const d = decodePosition(info?.data);
+        if (!d.ok) { console.log(`  #${n}  closed (${d.reason})`); continue; }
+        const v = d.value;
+        const left = Number(v.lockEnd) - now;
+        console.log(`  #${n}  ${fmt(v.amount, p.decimals)}  weight ${v.weight}  ` +
+          (left > 0 ? `locked ${Math.ceil(left / 86400)}d more` : 'MATURED — withdraw is free'));
+      }
+      return;
+    }
+
+    case 'init-pool': {
+      const payer = signer();
+      const mint = new PublicKey(need(args, 'mint'));
+      const nonce = Number(need(args, 'nonce'));
+      const mintInfo = await conn.getAccountInfo(mint);
+      if (!mintInfo) throw new Error(`no mint at ${mint.toBase58()}`);
+      const tokenProgram = mintInfo.owner;
+      const decimals = mintInfo.data[44];
+      // The program refuses both of these; refusing locally costs nothing and
+      // explains itself, instead of surfacing as a constraint failure.
+      const floor = 100n * 10n ** BigInt(decimals);
+      const minStake = toRaw(need(args, 'minStake'), decimals);
+      const depositCap = toRaw(need(args, 'depositCap'), decimals);
+      const maxWallet = toRaw(need(args, 'maxWallet'), decimals);
+      if (minStake < floor) throw new Error(`--min-stake must be at least 100 whole tokens (${fmt(floor, decimals)}); it has NO setter and cannot be changed later`);
+      if (depositCap < minStake) throw new Error('--deposit-cap must be >= --min-stake');
+      if (maxWallet < minStake || maxWallet > depositCap) throw new Error('--max-wallet must be between --min-stake and --deposit-cap');
+      const pool = poolPda(programId, mint, nonce);
+      console.log(`\ninit-pool`);
+      console.log(`  mint          ${mint.toBase58()}  (${decimals} dp, owner ${tokenProgram.toBase58()})`);
+      console.log(`  pool (PDA)    ${pool.toBase58()}`);
+      console.log(`  min stake     ${fmt(minStake, decimals)}   ⚠ PERMANENT — no setter exists`);
+      console.log(`  deposit cap   ${fmt(depositCap, decimals)}  (raise-only, 48h timelock)`);
+      console.log(`  max / wallet  ${fmt(maxWallet, decimals)}`);
+      await submit(conn, [ixInitializePool({
+        programId, payer: payer.publicKey, mint, tokenProgram, nonce, minStake, depositCap, maxWallet,
+      })], payer, { broadcast, label: 'init-pool' });
+      return;
+    }
+
+    case 'notify': {
+      const authority = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const amount = toRaw(args.amount ?? '0', p.decimals);
+      const fromBudget = toRaw(args.fromBudget ?? '0', p.decimals);
+      if (amount === 0n && fromBudget === 0n) throw new Error('nothing to schedule: pass --amount and/or --from-budget');
+      const scheduled = amount + fromBudget;
+      // audit L-1: rate = scheduled / 7_776_000, integer division. Below this the
+      // rate truncates to zero and the program refuses with RewardRateTooSmall.
+      if (scheduled < BigInt(REWARDS_DURATION_SECS)) {
+        throw new Error(`scheduling ${fmt(scheduled, p.decimals)} gives a per-second rate of ZERO; the minimum is ${fmt(BigInt(REWARDS_DURATION_SECS), p.decimals)}`);
+      }
+      if (!authority.publicKey.equals(p.authority)) {
+        throw new Error(`this pool's authority is ${p.authority.toBase58()}, not ${authority.publicKey.toBase58()}`);
+      }
+      console.log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days`);
+      console.log(`  fresh capital  ${fmt(amount, p.decimals)}  (transferred from your ATA)`);
+      console.log(`  from budget    ${fmt(fromBudget, p.decimals)}  (already in the reward vault)`);
+      console.log(`  rate           ~${fmt(scheduled / BigInt(REWARDS_DURATION_SECS), p.decimals)} / second`);
+      await submit(conn, [ixNotifyReward({
+        programId, authority: authority.publicKey, pool: poolKey, p, amountRaw: amount, fromBudgetRaw: fromBudget,
+      })], authority, { broadcast, label: 'notify-reward' });
+      return;
+    }
+
+    case 'stake': {
+      const owner = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const amountRaw = toRaw(need(args, 'amount'), p.decimals);
+      const lockDays = Number(need(args, 'lockDays'));
+      const lockSecs = lockDays * 86400;
+      if (lockSecs < MIN_LOCK_SECS) throw new Error(`--lock-days must be at least 7`);
+      if (lockSecs > MAX_LOCK_SECS) throw new Error(`--lock-days must be at most ${MAX_LOCK_SECS / 86400}`);
+      if (amountRaw < p.minStake) throw new Error(`below this pool's minimum of ${fmt(p.minStake, p.decimals)}`);
+      const us = decodeUserStats((await conn.getAccountInfo(userPda(programId, poolKey, owner.publicKey)))?.data);
+      // The position address is PROGRAM-ASSIGNED from next_nonce, so it has to be
+      // read before the instruction can be addressed at all.
+      const positionNonce = us.ok ? us.value.nextNonce : 0;
+      console.log(`\nstake`);
+      console.log(`  amount        ${fmt(amountRaw, p.decimals)}`);
+      console.log(`  lock          ${lockDays} days`);
+      console.log(`  position #    ${positionNonce}  (from UserStats.next_nonce${us.ok ? '' : ' — first stake'})`);
+      console.log(`  position PDA  ${positionPda(programId, poolKey, owner.publicKey, positionNonce).toBase58()}`);
+      await submit(conn, [ixStake({
+        programId, owner: owner.publicKey, pool: poolKey, p, positionNonce, amountRaw, lockSecs,
+      })], owner, { broadcast, label: 'stake' });
+      return;
+    }
+
+    case 'claim': {
+      const owner = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const n = Number(need(args, 'nonce'));
+      await submit(conn, [ixClaim({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
+        owner, { broadcast, label: 'claim' });
+      return;
+    }
+
+    case 'exit': {
+      const owner = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const n = Number(need(args, 'nonce'));
+      const early = args.early === true;
+      const pos = decodePosition((await conn.getAccountInfo(positionPda(programId, poolKey, owner.publicKey, n)))?.data);
+      if (pos.ok) {
+        const matured = Math.floor(Date.now() / 1000) >= Number(pos.value.lockEnd);
+        console.log(`\nposition #${n}: ${fmt(pos.value.amount, p.decimals)}, ${matured ? 'MATURED' : 'still locked'}`);
+        // The two doors partition time; taking the wrong one is refused on-chain,
+        // so say which one applies rather than letting it fail as a constraint.
+        if (matured && early) console.log(`  ⚠ this position is MATURED — drop --early and withdraw for free`);
+        if (!matured && !early) console.log(`  ⚠ this position is still LOCKED — withdraw_matured will refuse it; --early costs 25%`);
+      }
+      await submit(conn, [ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
+        owner, { broadcast, label: early ? 'early-exit (25% penalty)' : 'withdraw-matured' });
+      return;
+    }
+
+    case 'hatch': {
+      const owner = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const n = Number(need(args, 'nonce'));
+      console.log(`\nemergency-withdraw: principal ONLY, no reward accounting, no penalty.`);
+      console.log(`  Accrued rewards stay claimable via 'claim-carried' afterwards.`);
+      await submit(conn, [ixEmergencyWithdraw({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
+        owner, { broadcast, label: 'emergency-withdraw' });
+      return;
+    }
+
+    default:
+      console.log(USAGE);
+      process.exitCode = 1;
+  }
+}
+
+// Only run when invoked as a program. Importing this file (the test does) must
+// not execute a command — the pure pieces below are the point of the export.
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  main().catch((e) => {
+    console.error(`\nERROR: ${e.message}`);
+    process.exitCode = 1;
+  });
+}
+
+// Exported for the test. These are the constants and pure builders whose
+// correctness cannot be observed by running the CLI without a deployed program:
+// a wrong discriminator or a reordered account list produces a confusing
+// on-chain constraint failure, not a local one.
+export {
+  IX, ACCT, POOL_L, POSITION_L, USER_L,
+  poolPda, vaultPda, userPda, positionPda, ataFor,
+  decodePool, decodePosition, decodeUserStats,
+  ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
+  toRaw, fmt, parseArgs,
+  POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
+  MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
+};
