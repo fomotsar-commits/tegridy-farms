@@ -1,0 +1,112 @@
+# Venue Health Watch — synthetic availability probe for memetics.finance.
+#
+# WHY THIS EXISTS. On 2026-09-04 an Alchemy key rotation took the frontend and
+# the indexer dark together and the operator found out from a user. Nothing was
+# watching: client-side error reporting had no endpoint, and analytics is
+# consent-gated, so a visitor who declines the banner produces silence
+# indistinguishable from an outage.
+#
+# WHY A PROBE AND NOT A BROWSER BEACON. A beacon cannot distinguish "broken"
+# from "nobody visited" — both are silence, and during a real outage traffic
+# FALLS, so the signal gets quieter exactly when it should get louder. A probe
+# on a schedule has neither problem, and carries no user data at all, so it
+# needs no consent gate and no PrivacyPage amendment.
+#
+# The alarm is the incident ISSUE, not a red badge: the probe exits 0 under
+# --probe on purpose. A failing workflow pages whoever watches CI; an issue
+# with a title that names the broken surface pages whoever runs the venue.
+#
+# Modelled on .github/workflows/arb-linkage-monitor.yml, which established this
+# open / update / record-recovery shape in this repo.
+name: Venue Health Watch
+
+on:
+  schedule:
+    # Every 15 minutes. Fast enough that an outage is measured in minutes, slow
+    # enough that the probe is not itself meaningful load — 5 requests per run,
+    # ~480 requests/day against endpoints that serve far more than that.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  # Never let two probes race to open the same incident.
+  group: venue-health
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Probe the venue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The probe needs no dependencies and no secrets: every surface it checks
+      # is one an ordinary visitor can reach. That is the point — it verifies
+      # what a user would experience, not what our internals believe.
+      - name: Probe
+        id: probe
+        run: node scripts/monitoring/venueHealth.mjs --probe
+
+      # The self-test runs on every probe, not just on PRs. A monitor whose
+      # checks have quietly stopped being able to fail is worse than no monitor,
+      # because it manufactures confidence. Same reasoning the address-registry
+      # guard states in ci.yml: a green gate is equally consistent with a gate
+      # that cannot see anything.
+      - name: Prove the checks can still fail
+        run: node scripts/monitoring/venueHealth.mjs --self-test
+
+      - name: Open or update the venue incident
+        if: steps.probe.outputs.venue_status == 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUMMARY: ${{ steps.probe.outputs.venue_summary }}
+          DETAIL: ${{ steps.probe.outputs.venue_body }}
+        run: |
+          set -euo pipefail
+          BODY="$(printf '%s\n\n%s\n\n---\nRun: %s/%s/actions/runs/%s\nProbe: `scripts/monitoring/venueHealth.mjs`\n' \
+            "$SUMMARY" "$DETAIL" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label venue-health --state open --json number --jq '.[0].number // empty')"
+
+          if [ -n "$EXISTING" ]; then
+            # Comment only when the SET of failing checks has changed. A probe
+            # every 15 minutes would otherwise bury the incident in identical
+            # comments, and an issue nobody can read is an alarm nobody hears.
+            SEEN="$(gh issue view "$EXISTING" --repo "$GITHUB_REPOSITORY" --json body,comments \
+              --jq '[.body] + [.comments[].body] | .[-1]' 2>/dev/null || echo '')"
+            if [ "$SEEN" != "$BODY" ]; then
+              printf '%s\n' "$BODY" | gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file -
+            fi
+          else
+            printf '%s\n' "$BODY" | gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Venue health: $SUMMARY" \
+              --label venue-health \
+              --body-file -
+          fi
+
+      - name: Record recovery on an open incident
+        if: steps.probe.outputs.venue_status == 'up'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUMMARY: ${{ steps.probe.outputs.venue_summary }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label venue-health --state open --json number --jq '.[0].number // empty')"
+          [ -n "$EXISTING" ] || exit 0
+
+          # Recovery is recorded and the issue is CLOSED. Leaving it open would
+          # make the next outage reuse a stale incident and bury the new
+          # failure under an old title.
+          printf 'Recovered — %s\n\nRun: %s/%s/actions/runs/%s\n' \
+            "$SUMMARY" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            | gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file -
+          gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" --reason completed
