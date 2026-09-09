@@ -20,7 +20,17 @@
 //     node scripts/bayla-ladder-ops.mjs claim  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0        # matured, free
 //     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 25% penalty
-//     node scripts/bayla-ladder-ops.mjs hatch  --pool <p> --nonce 0        # principal only
+//     node scripts/bayla-ladder-ops.mjs hatch  --pool <p> --nonce 0
+//     node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>
+//
+// ⚠ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the SAME flat
+// 25% as `early_exit` when `now < lock_end` and the pool is not `degraded`
+// (lib.rs:607-613). It is free only after maturity, or once the pool is degraded.
+// This file said "no penalty" unconditionally and the runbook agreed with it; both
+// were wrong, and the penalty is invisible in a dry run because it rides inside a
+// base64 `Program data:` event line. `hatch` now reads the position and prints the
+// real number. What the hatch DOES avoid is the reward ledger: accrued rewards move
+// to `rewards_carried` and stay claimable, so it cannot revert on accounting drift.
 //
 //   Add --broadcast to actually send. Without it NOTHING is signed or sent: the
 //   transaction is built and run through `simulateTransaction` with
@@ -78,6 +88,9 @@ const REWARD_VAULT_SEED = Buffer.from('rvault');
 const MIN_LOCK_SECS = 7 * 86_400;
 const MAX_LOCK_SECS = 4 * 365 * 86_400;
 const REWARDS_DURATION_SECS = 90 * 86_400;
+/** math.rs: penalty_for(a) = a * 2500 / 10000, floored. Used by BOTH exit doors. */
+const EARLY_EXIT_PENALTY_BPS = 2_500;
+const BPS = 10_000;
 
 const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const TOKEN_LEGACY = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -94,6 +107,7 @@ const IX = {
   emergencyWithdraw: disc('global', 'emergency_withdraw'),
   claimCarried: disc('global', 'claim_carried'),
   notifyReward: disc('global', 'notify_reward'),
+  sweepOrphanedPenalty: disc('global', 'sweep_orphaned_penalty'),
 };
 const ACCT = {
   Pool: disc('account', 'Pool'),
@@ -338,6 +352,38 @@ function ixEmergencyWithdraw({ programId, owner, pool, p, positionNonce }) {
   });
 }
 
+/** Pays out `rewards_carried`. Reward vault only — it names no stake vault. */
+function ixClaimCarried({ programId, owner, pool, p }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(owner, true, false),
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(userPda(programId, pool, owner), false, true),
+      meta(ataFor(p.mint, owner, p.tokenProgram), false, true),
+      meta(p.rewardVault, false, true),
+      meta(p.tokenProgram, false, false),
+    ],
+    data: Buffer.from(IX.claimCarried),
+  });
+}
+
+/** PERMISSIONLESS: the Accounts struct declares no Signer at all. */
+function ixSweep({ programId, pool, p }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [
+      meta(pool, false, true),
+      meta(p.mint, false, false),
+      meta(p.stakeVault, false, true),
+      meta(p.rewardVault, false, true),
+      meta(p.tokenProgram, false, false),
+    ],
+    data: Buffer.from(IX.sweepOrphanedPenalty),
+  });
+}
+
 function ixNotifyReward({ programId, authority, pool, p, amountRaw, fromBudgetRaw }) {
   return new TransactionInstruction({
     programId,
@@ -371,10 +417,32 @@ function parseArgs(argv) {
   return out;
 }
 
+const flag = (name) => `--${name.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`;
+
 function need(args, name) {
   const v = args[name];
-  if (v === undefined || v === true) throw new Error(`--${name.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())} is required`);
+  if (v === undefined || v === true) throw new Error(`${flag(name)} is required`);
   return v;
+}
+
+/**
+ * A whole number, or a refusal.
+ *
+ * `Number('abc')` is NaN and `Number('')` is 0, and `writeUInt32LE` encodes BOTH as
+ * **zero** without complaining. So a typo — or an empty shell variable, which is
+ * exactly what `--nonce $Nonce` produces when `$Nonce` is unset — silently
+ * addressed position #0: the first and usually largest position a wallet owns.
+ * There is no recovering from having closed the wrong position.
+ */
+function intArg(args, name, { min = 0, max = 0xffffffff } = {}) {
+  const raw = need(args, name);
+  const s = String(raw).trim();
+  if (!/^\d+$/.test(s)) throw new Error(`${flag(name)} must be a whole number, got: ${JSON.stringify(raw)}`);
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < min || n > max) {
+    throw new Error(`${flag(name)} must be between ${min} and ${max}, got ${s}`);
+  }
+  return n;
 }
 
 function loadKeypair(path) {
@@ -420,9 +488,21 @@ async function submit(conn, ixs, payer, { broadcast, label }) {
     console.log(`\n  DRY RUN — nothing signed, nothing sent. Re-run with --broadcast to execute.`);
     return null;
   }
-  const sig = await sendAndConfirmTransaction(conn, tx, [payer], { commitment: 'confirmed' });
-  console.log(`\n  ${label} SENT: ${sig}`);
-  return sig;
+  try {
+    const sig = await sendAndConfirmTransaction(conn, tx, [payer], { commitment: 'confirmed' });
+    console.log(`\n  ${label} SENT: ${sig}`);
+    return sig;
+  } catch (e) {
+    // A CONFIRMATION FAILURE IS NOT PROOF THE TRANSACTION DID NOT LAND. It may
+    // have been broadcast and confirmed after the client stopped waiting. Re-running
+    // blind is how a stake, or a reward funding, happens twice.
+    console.log(`\n  WARNING: ${label} failed to CONFIRM - but it MAY ALREADY BE ON CHAIN.`);
+    console.log(`  Do NOT re-run this command yet. Check first:`);
+    console.log(`      node scripts/bayla-ladder-ops.mjs read --pool <pool>`);
+    console.log(`  and check your wallet balance. Re-run only once you are sure it did not land.`);
+    console.log(`  underlying error: ${e.message}`);
+    throw e;
+  }
 }
 
 function printPool(p) {
@@ -461,7 +541,9 @@ const USAGE = `bayla-ladder ops
   stake      --pool <addr> --amount <t> --lock-days <d>
   claim      --pool <addr> --nonce <n>
   exit       --pool <addr> --nonce <n> [--early]
-  hatch      --pool <addr> --nonce <n>
+  hatch      --pool <addr> --nonce <n>       # principal; 25% penalty WHILE LOCKED
+  claim-carried --pool <addr>
+  sweep      --pool <addr>                   # permissionless, no signer
 
   common: --program <id> --rpc <url> --keypair <path> --broadcast
           amounts are WHOLE TOKENS; dry run unless --broadcast`;
@@ -553,6 +635,12 @@ async function main() {
       console.log(`  min stake     ${fmt(minStake, decimals)}   ⚠ PERMANENT — no setter exists`);
       console.log(`  deposit cap   ${fmt(depositCap, decimals)}  (raise-only, 48h timelock)`);
       console.log(`  max / wallet  ${fmt(maxWallet, decimals)}`);
+      // The signer becomes pool.authority: the only key that can fund rewards, raise
+      // the cap or declare the pool degraded. Transfer is a two-step propose/accept,
+      // and there is no recovery if it is lost.
+      console.log(`  authority     ${payer.publicKey.toBase58()}`);
+      console.log(`                ^ becomes the POOL AUTHORITY (notify_reward, cap raises,`);
+      console.log(`                  declare_degraded). Transfer is two-step; loss is final.`);
       await submit(conn, [ixInitializePool({
         programId, payer: payer.publicKey, mint, tokenProgram, nonce, minStake, depositCap, maxWallet,
       })], payer, { broadcast, label: 'init-pool' });
@@ -614,7 +702,7 @@ async function main() {
       const owner = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
       const p = await loadPool(conn, programId, poolKey);
-      const n = Number(need(args, 'nonce'));
+      const n = intArg(args, 'nonce');
       await submit(conn, [ixClaim({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
         owner, { broadcast, label: 'claim' });
       return;
@@ -624,7 +712,7 @@ async function main() {
       const owner = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
       const p = await loadPool(conn, programId, poolKey);
-      const n = Number(need(args, 'nonce'));
+      const n = intArg(args, 'nonce');
       const early = args.early === true;
       const pos = decodePosition((await conn.getAccountInfo(positionPda(programId, poolKey, owner.publicKey, n)))?.data);
       if (pos.ok) {
@@ -644,11 +732,75 @@ async function main() {
       const owner = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
       const p = await loadPool(conn, programId, poolKey);
-      const n = Number(need(args, 'nonce'));
-      console.log(`\nemergency-withdraw: principal ONLY, no reward accounting, no penalty.`);
-      console.log(`  Accrued rewards stay claimable via 'claim-carried' afterwards.`);
+      const n = intArg(args, 'nonce');
+      // THE HATCH IS NOT FREE WHILE LOCKED, and this used to say it was.
+      //
+      // `emergency_withdraw` (lib.rs:607-613) charges the SAME flat 25% as
+      // `early_exit` when `now < lock_end` and the pool is not `degraded`. It is
+      // free only after maturity, or once the pool is degraded — the M-3 fix that
+      // made the two doors agree so neither dominates the other.
+      //
+      // The penalty is invisible in a dry run: it rides inside the `Withdrawn`
+      // event as a base64 `Program data:` line, so the simulation cannot correct a
+      // wrong claim on screen. It has to be computed and shown here.
+      const pos = decodePosition((await conn.getAccountInfo(positionPda(programId, poolKey, owner.publicKey, n)))?.data);
+      console.log(`\nemergency-withdraw — position #${n}`);
+      console.log(`  principal only. Accrued rewards are NOT lost: they move to`);
+      console.log(`  rewards_carried and stay claimable with 'claim-carried'.`);
+      if (!pos.ok) {
+        console.log(`  ⚠ could not read the position (${pos.reason}) — the penalty below is UNKNOWN.`);
+      } else {
+        const now = Math.floor(Date.now() / 1000);
+        const locked = now < Number(pos.value.lockEnd);
+        // Same arithmetic as math.rs `penalty_for`: amount * 2500 / 10000, floored.
+        const penalty = locked && !p.degraded
+          ? (pos.value.amount * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS)
+          : 0n;
+        console.log(`  amount        ${fmt(pos.value.amount, p.decimals)}`);
+        console.log(`  status        ${locked ? 'STILL LOCKED' : 'matured'}${p.degraded ? ', pool DEGRADED' : ''}`);
+        if (penalty > 0n) {
+          console.log(`  🔴 PENALTY    ${fmt(penalty, p.decimals)}  (25% — the hatch is NOT free while locked)`);
+          console.log(`  you receive   ${fmt(pos.value.amount - penalty, p.decimals)}`);
+          console.log(`  'exit --early' costs exactly the same 25% and ALSO pays your rewards out.`);
+          console.log(`  Waiting until ${new Date(Number(pos.value.lockEnd) * 1000).toISOString()} makes it free.`);
+        } else {
+          console.log(`  penalty       none — ${p.degraded ? 'the pool is degraded' : 'this position has matured'}`);
+          console.log(`  you receive   ${fmt(pos.value.amount, p.decimals)}`);
+        }
+      }
       await submit(conn, [ixEmergencyWithdraw({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
         owner, { broadcast, label: 'emergency-withdraw' });
+      return;
+    }
+
+    case 'claim-carried': {
+      // Pays out `rewards_carried` — the balance the hatch and a closing exit
+      // deposit. Without this command the CLI printed a number it could not move,
+      // and the hatch pointed at a command that did not exist.
+      const owner = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const us = decodeUserStats((await conn.getAccountInfo(userPda(programId, poolKey, owner.publicKey)))?.data);
+      console.log(`\nclaim-carried`);
+      console.log(`  rewards carried  ${us.ok ? fmt(us.value.rewardsCarried, p.decimals) : `— (${us.reason})`}`);
+      await submit(conn, [ixClaimCarried({ programId, owner: owner.publicKey, pool: poolKey, p })],
+        owner, { broadcast, label: 'claim-carried' });
+      return;
+    }
+
+    case 'sweep': {
+      // PERMISSIONLESS by design — `Sweep` declares no Signer at all. The fee payer
+      // is whoever runs it; it moves the retained penalty from the stake vault into
+      // the reward vault so it becomes schedulable budget.
+      const payer = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      console.log(`\nsweep-orphaned-penalty (permissionless — anyone may call it)`);
+      console.log(`  orphaned penalty  ${fmt(p.orphanedPenalty, p.decimals)}`);
+      if (p.orphanedPenalty === 0n) console.log(`  ⚠ nothing to sweep; the program will refuse this (NothingToSweep).`);
+      console.log(`  after sweeping, 'notify --from-budget' can schedule it as rewards.`);
+      await submit(conn, [ixSweep({ programId, pool: poolKey, p })],
+        payer, { broadcast, label: 'sweep-orphaned-penalty' });
       return;
     }
 
@@ -678,7 +830,8 @@ export {
   poolPda, vaultPda, userPda, positionPda, ataFor,
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
-  toRaw, fmt, parseArgs,
+  ixClaimCarried, ixSweep,
+  toRaw, fmt, parseArgs, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
 };

@@ -19,9 +19,24 @@ Lock-ladder staking with a flat 25% early exit — the Solana port of
 classic reward pool bricks claims permanently once `RewardEntry.accountedAmount` passes
 `u64::MAX` (42.4% of all 13,809 mainnet entries are already past it).
 
-The property that matters most: **principal is always recoverable.** Three doors —
-`withdraw_matured` (free), `early_exit` (25%), `emergency_withdraw` (free, principal
-only, no reward accounting) — and the hatch cannot revert on an accounting drift.
+The property that matters most: **principal is always recoverable.** Three doors:
+
+| door | price | notes |
+| --- | --- | --- |
+| `withdraw_matured` | free | only after `lock_end` |
+| `early_exit` | 25% | pays your rewards out on the way |
+| `emergency_withdraw` (the hatch) | **25% while still locked**, free once matured or once the pool is `degraded` | principal only; touches no reward accounting, so it cannot revert on drift |
+
+> 🔴 **THE HATCH IS NOT FREE WHILE LOCKED.** `lib.rs:607-613` charges the same
+> `penalty_for(amount)` as `early_exit` whenever `now < lock_end` and the pool is not
+> degraded. This document said "free" in two places and the CLI printed "no penalty"
+> unconditionally; both were wrong, and a review caught it before anyone ran it.
+>
+> What the hatch actually buys is **independence from the reward ledger**: it uses the
+> lenient accrual, moves anything owed to `rewards_carried` (claimable later with
+> `claim-carried`), and so cannot be blocked by an accounting drift or a dry reward
+> vault. At the same price, `early_exit` is the better door in a healthy pool because it
+> also pays the rewards out. The hatch is for when `early_exit` will not go through.
 
 | Constant | Value | Notes |
 | --- | --- | --- |
@@ -40,16 +55,31 @@ Account sizes are a client contract and are pinned as literals in CI:
 
 ## 1. Prereqs
 
+You need **`solana`, `gh` and `node` locally. You do NOT need `anchor` or the SBF
+toolchain** — neither can run on this machine (Application Control blocks `anchor.exe`
+outright), and §4 builds in CI precisely because of that. Solana CLI **2.3.0 and 0.32.1
+Anchor are what CI pins**; your local `solana` only signs and reads, so its version does
+not have to match. Verified compatible: a local `solana-cli 4.1.x` deploys a CI-built
+2.3.0 artifact, because `solana program deploy` still targets the upgradeable loader.
+
 ```bash
-solana --version   # must be 2.3.0
-anchor --version   # must be 0.32.1
+solana --version
+gh auth status
 ```
 
-Both are pinned in `.github/workflows/solana-ci.yml`. A different Anchor produces a
-different discriminator layout; do not improvise here.
+**You will not have a wallet on a fresh machine.** `solana address` fails with
+`No default signer found` until you make one, and every step below needs it:
 
-Devnet SOL: ~6 SOL for the program deploy plus rent. `solana airdrop 2` three times, or
-use <https://faucet.solana.com>.
+```bash
+solana-keygen new --no-bip39-passphrase --outfile <path-outside-the-repo>/devnet-deploy.json
+solana config set --url devnet --keypair <path-outside-the-repo>/devnet-deploy.json
+```
+
+Keep keys **outside the repo** so git cannot swallow them.
+
+Devnet SOL: the `.so` is ~512 KB, so rent is `size * 2 * 0.00000696` ≈ **7.2 SOL**, plus
+fees. The faucet caps each request, so ask repeatedly (`solana airdrop 2`) or use
+<https://faucet.solana.com>. The old "~6 SOL" figure here was short of the real number.
 
 ---
 
@@ -306,7 +336,9 @@ then re-run with `--broadcast`:
 node scripts/bayla-ladder-ops.mjs stake --pool <p> --amount 500 --lock-days 7
 node scripts/bayla-ladder-ops.mjs claim --pool <p> --nonce 0
 node scripts/bayla-ladder-ops.mjs exit  --pool <p> --nonce 0 --early   # 25% penalty
-node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 0           # principal only
+node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 0           # 25% WHILE LOCKED
+node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>             # what the hatch deferred
+node scripts/bayla-ladder-ops.mjs sweep --pool <p>                     # permissionless
 ```
 
 Confirm each:
@@ -320,9 +352,13 @@ Confirm each:
    (invariant I-12) and the stake vault is untouched.
 5. `early_exit`. Confirm exactly 25% is retained and **the penalty lands in the reward
    vault**, and that `withdraw_matured` refuses the same position.
-6. `emergency_withdraw` on a second position. Confirm principal returns in full with no
-   reward accounting, and that it works even if you have deliberately made the pool
-   `degraded`.
+6. `emergency_withdraw` on a second position, and test BOTH arms — this is the step
+   that was documented backwards. On a position that is **still locked** in a healthy
+   pool, confirm the hatch retains exactly 25% (`hatch` prints the number before you
+   broadcast) and that `pool.orphaned_penalty` rises by that amount. Then
+   `declare_degraded` and confirm the hatch becomes free. Either way, confirm the
+   accrued rewards were NOT destroyed: they land in `user_stats.rewards_carried` and
+   `claim-carried` pays them out.
 7. `sweep_orphaned_penalty` from a **stranger's** keypair — it is permissionless by
    design, and the struct declares no `Signer`.
 

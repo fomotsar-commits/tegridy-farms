@@ -343,18 +343,26 @@ jobs:
           assert n == 1, f"expected exactly 1 declare_id!, patched {n}"
 
           # Patch ONLY the arm this build selects, so the other stays fail-closed
-          # rather than silently becoming live too. Both arms are `pubkey!` here:
-          # devnet first, then the `1111...` sentinel.
+          # rather than silently becoming live too.
+          #
+          # ANCHORED ON THE #[cfg] ATTRIBUTE, NOT ON ORDINAL POSITION. Selecting
+          # arms[0]/arms[1] assumed the devnet arm is written first; reorder the two
+          # arms in lib.rs and a devnet build would silently patch the MAINNET
+          # constant and still compile. The cfg-anchored form is the one the repo
+          # already proved next door in solana-ci.yml and cannot pick the wrong arm.
           marker = "pub mod deployer {"
           head, sep, tail = src.partition(marker)
           assert sep, "could not locate `pub mod deployer` - lib.rs layout changed"
           arms = re.findall(r'pubkey!\("[^"]+"\)', tail)
           assert len(arms) == 2, f"expected exactly 2 pubkey! arms in mod deployer, found {len(arms)}"
-          idx = 0 if cluster == "devnet" else 1
-          tail = tail.replace(arms[idx], f'pubkey!("{deployer}")', 1)
+          cfg = r'#\[cfg\(feature = "devnet"\)\]' if cluster == "devnet" \
+                else r'#\[cfg\(not\(feature = "devnet"\)\)\]'
+          pat = r'(' + cfg + r'\s*pub const ID: Pubkey = pubkey!\(")[^"]+("\))'
+          tail, n = re.subn(pat, r'\g<1>' + deployer + r'\g<2>', tail, count=1)
+          assert n == 1, f"expected 1 {cluster} deployer arm, patched {n} - cfg layout changed"
           open(path, "w").write(head + sep + tail)
           print(f"  declare_id! -> {program_id}")
-          print(f"  deployer arm[{idx}] -> {deployer}  (cluster={cluster})")
+          print(f"  deployer ({cluster} cfg arm) -> {deployer}")
           PY
           # Anchor.toml must agree or `anchor build` rewrites the id back.
           # "$PROGRAM_ID" has passed the base58 gate, so it carries no `/`.
@@ -392,17 +400,48 @@ jobs:
       - name: Assert the artifact's identity is what was ASKED for
         env:
           PROGRAM_ID: ${{ inputs.program_id }}
+          DEPLOYER: ${{ inputs.deployer }}
+          CLUSTER: ${{ inputs.cluster }}
         run: |
           set -euo pipefail
-          IDL_ID=$(python3 -c "import json;print(json.load(open('target/idl/bayla_ladder.json'))['address'])")
-          SRC_ID=$(grep -oP 'declare_id!\("\K[^"]+' programs/bayla-ladder/src/lib.rs | head -1)
-          echo "requested=$PROGRAM_ID  idl=$IDL_ID  src=$SRC_ID"
-          # A mismatch here is the failure that looks fine and is unusable: the
-          # binary would be pinned to an address the operator does not control.
-          if [ "$IDL_ID" != "$PROGRAM_ID" ] || [ "$SRC_ID" != "$PROGRAM_ID" ]; then
-            echo "::error::program id mismatch - the artifact is NOT pinned to the requested address"
-            exit 1
-          fi
+          # READ BACK FROM THE IDL, WHICH THE COMPILER WROTE.
+          #
+          # Comparing the patched source against the value used to patch it proves
+          # nothing - `re.subn` already asserted its own count, so a source-vs-input
+          # check is tautological and would pass even if the patch step were a
+          # complete no-op. The IDL is a different witness: `anchor build` emits it
+          # from the COMPILED constants, so it reports what actually went into the
+          # binary. `deployer::ID` surfaces there as the `address` pin on
+          # initialize_pool's `payer` account - which is exactly the constant whose
+          # being wrong makes initialize_pool uncallable (audit L-5).
+          python3 - "$PROGRAM_ID" "$DEPLOYER" "$CLUSTER" <<'PY'
+          import json, sys
+          want_id, want_deployer, cluster = sys.argv[1], sys.argv[2], sys.argv[3]
+          idl = json.load(open("target/idl/bayla_ladder.json"))
+          got_id = idl["address"]
+          ip = next(i for i in idl["instructions"] if i["name"] == "initialize_pool")
+          payer = next(a for a in ip["accounts"] if a["name"] == "payer")
+          got_deployer = payer.get("address")
+          print(f"  program id: requested={want_id} compiled={got_id}")
+          print(f"  deployer  : requested={want_deployer} compiled={got_deployer}")
+          fail = []
+          if got_id != want_id:
+              fail.append("program id in the built IDL is not the one requested")
+          if got_deployer is None:
+              fail.append("initialize_pool's payer carries NO address pin - the deployer gate is gone")
+          elif got_deployer != want_deployer:
+              fail.append("deployer compiled into the binary is not the one requested")
+          # The fail-closed sentinel must never survive into a build someone deploys.
+          if got_deployer == "11111111111111111111111111111111":
+              fail.append("deployer is the System Program sentinel - initialize_pool would be UNCALLABLE")
+          if got_deployer == got_id:
+              fail.append("deployer == program id - audit L-5, initialize_pool would be UNCALLABLE")
+          if fail:
+              for f in fail:
+                  print(f"::error::{f}")
+              sys.exit(1)
+          print(f"  OK - the binary carries the requested identities ({cluster})")
+          PY
 
       - name: Report what a deployer must check
         env:
