@@ -229,7 +229,7 @@ jobs:
           echo "| size | $(stat -c%s "$SO") bytes |" >> $GITHUB_STEP_SUMMARY
           echo "| sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Rent for this binary is roughly \`size * 2 * 0.00000696\` SOL." >> $GITHUB_STEP_SUMMARY
+          echo "Deploy rent: ask the chain with \`solana rent $((SIZE * 2))\`. The \`size * 2 * 0.00000696\` rule of thumb OVERSTATES it by roughly 2 SOL at this size." >> $GITHUB_STEP_SUMMARY
           sha256sum "$SO" | tee "$SO.sha256"
 
       - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
@@ -467,7 +467,7 @@ jobs:
             echo "| .so sha256 | \`$(sha256sum "$SO" | cut -d' ' -f1)\` |"
             echo "| idl sha256 | \`$(sha256sum target/idl/bayla_ladder.json | cut -d' ' -f1)\` |"
             echo ""
-            echo "Deploy rent is roughly \`size * 2 * 0.00000696\` SOL ≈ **$(python3 -c "print(f'{$SIZE*2*0.00000696:.3f}')") SOL**."
+            echo "Deploy rent, quoted by the chain rather than the \`size * 2 * 0.00000696\` rule of thumb (which overstates by ~2 SOL): run \`solana rent $((SIZE * 2))\` for the default deploy (~5.2 SOL for this binary), or \`solana rent $SIZE\` with \`--max-len $SIZE\` (~2.6 SOL, no upgrade headroom)."
             echo ""
             echo "#### Deploy"
             echo ""
@@ -476,7 +476,7 @@ jobs:
             echo "#    pubkey is $PROGRAM_ID) at ./bayla_ladder-keypair.json"
             echo "solana config set --url $([ "$CLUSTER" = devnet ] && echo devnet || echo mainnet-beta)"
             echo "solana address   # must print $DEPLOYER"
-            echo "solana balance   # needs about $(python3 -c "print(f'{$SIZE*2*0.00000696+0.5:.1f}')") SOL"
+            echo "solana balance   # see the rent line above"
             echo ""
             echo "solana program deploy bayla_ladder.so \\"
             echo "  --program-id bayla_ladder-keypair.json"

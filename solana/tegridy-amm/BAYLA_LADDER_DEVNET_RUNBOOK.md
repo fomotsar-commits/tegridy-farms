@@ -77,9 +77,27 @@ solana config set --url devnet --keypair <path-outside-the-repo>/devnet-deploy.j
 
 Keep keys **outside the repo** so git cannot swallow them.
 
-Devnet SOL: the `.so` is ~512 KB, so rent is `size * 2 * 0.00000696` ≈ **7.2 SOL**, plus
-fees. The faucet caps each request, so ask repeatedly (`solana airdrop 2`) or use
-<https://faucet.solana.com>. The old "~6 SOL" figure here was short of the real number.
+**Devnet SOL — ask the chain, do not use the rule of thumb.** `size * 2 * 0.00000696`
+is an approximation that OVERSTATES this by about 2 SOL. `solana rent` is authoritative:
+
+```bash
+solana rent 1025008    # 2 x the 512,504-byte .so -> Rent-exempt minimum: 5.21 SOL
+solana rent 512504     # exact size, with --max-len -> 2.60 SOL
+```
+
+| deploy | ProgramData size | rent |
+| --- | --- | --- |
+| `solana program deploy` (default) | 2× the binary, so it can be upgraded to a larger one | **~5.21 SOL** |
+| `solana program deploy --max-len 512504` | exactly the binary | **~2.60 SOL** |
+
+Budget **~5.5 SOL** for the default, or **~2.8 SOL** with `--max-len`. On devnet, where
+the faucet is the constraint, `--max-len` is the sensible choice: it only forecloses
+upgrading to a *larger* binary, and a devnet program can simply be redeployed.
+
+⚠️ **The public faucet rate-limits hard by IP**, and `solana airdrop` then fails with
+"airdrop request failed. This can happen when the rate limit is reached." That is not a
+config error — the RPC is fine, the faucet is refusing. Use <https://faucet.solana.com>
+(it needs a CAPTCHA, so it is a human step) or wait for the limit to reset.
 
 ---
 
@@ -232,7 +250,7 @@ below with your addresses already filled in.
 ```bash
 solana config set --url devnet
 solana address    # must print the $WALLET you built against
-solana balance    # the .so is ~512 KB, so budget ~7.6 SOL of rent + fees
+solana balance    # need ~5.5 SOL, or ~2.8 with --max-len below
 
 solana program deploy bayla_ladder.so \
   --program-id target/deploy/bayla_ladder-keypair.json
