@@ -34,6 +34,7 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:net';
+import { pathToFileURL } from 'node:url';
 
 // THE FORK ENDPOINT IS A CONSUMABLE, NOT A CONSTANT. Two defaults have died
 // here now, and each death looked like a broken test suite first.
@@ -113,13 +114,13 @@ function diagnoseFork(tailText) {
   if (/Archive requests require a personal token/i.test(t)) {
     return 'the upstream now gates ARCHIVE requests behind a paid token — and a fork IS an archive request';
   }
-  if (/(401|403)/.test(t) && handshakeFailed) {
+  if (/\b(401|403)\b/.test(t) && handshakeFailed) {
     return 'the upstream refused the fork handshake for AUTH reasons (HTTP 401/403) — a plan or key gate, which waiting does not clear';
   }
-  if (/429/.test(t) && handshakeFailed) {
+  if (/\b429\b/.test(t) && handshakeFailed) {
     return 'the upstream RATE-LIMITED the fork handshake (HTTP 429) — this one may clear on a retry, unlike an auth gate';
   }
-  if (/(404|410)/.test(t) && handshakeFailed) {
+  if (/\b(404|410)\b/.test(t) && handshakeFailed) {
     return 'the upstream endpoint is GONE (HTTP 404/410) — the URL itself is dead, not throttled';
   }
   if (handshakeFailed) {
@@ -318,7 +319,22 @@ async function main() {
   });
 }
 
-main().catch((e) => {
-  console.error('[e2e] orchestrator error:', e);
-  process.exit(1);
-});
+// Only run when invoked as a program. Importing this file (the test does) must
+// not spawn anvil — the pure classifier below is the point of the export.
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  main().catch((e) => {
+    console.error('[e2e] orchestrator error:', e);
+    process.exit(1);
+  });
+}
+
+// Exported for the test. `diagnoseFork` is the piece whose correctness cannot be
+// observed by running this script: every branch but the archive one needs an
+// upstream that is failing in that specific way RIGHT NOW to exercise it, so
+// three of the four would sit unverified until the outage they exist to explain.
+// They shipped broken once already -- a `\b` that survived authoring as a raw
+// 0x08 byte, which matches nothing, and the live publicnode case passed anyway
+// because it hits the one branch that carries no word boundary.
+export { diagnoseFork };
