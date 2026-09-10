@@ -130,8 +130,19 @@ pub mod deployer {
     // `anchor_lang::solana_program::pubkey` instead brings in the MODULE, not the
     // macro, and fails with "cannot find macro `pubkey` in this scope".
     use super::{pubkey, Pubkey};
+    // PLACEHOLDER, and deliberately NOT the program-id value above — see
+    // bayla-ladder's audit note (L-5, 2026-09-06), where the two were identical and
+    // the initializer became uncallable. `launch-constraints` overwrites this with a
+    // fresh CI wallet before every build, so the committed value is never the one
+    // tested; but a placeholder equal to the program id reads as intentional and
+    // produces an uncallable initializer for anyone building `--features devnet`
+    // outside CI.
+    //
+    // KEEP THIS COMMENT ABOVE THE `cfg` ATTRIBUTE. The patcher in solana-ci.yml
+    // matches the attribute and the `pub const` on consecutive lines, and it asserts
+    // the program-id macro name never appears after `pub mod deployer {`.
     #[cfg(feature = "devnet")]
-    pub const ID: Pubkey = pubkey!("8YVjjc5ibXQRewh7xtUQMTVR9rrBJjBj4kBMLpbr3kV8");
+    pub const ID: Pubkey = pubkey!("EMQVYMPe2UffGAVNYK6ZveCFM2tHjc5DBiXGKYFE6DXA");
     #[cfg(not(feature = "devnet"))]
     pub const ID: Pubkey = pubkey!("11111111111111111111111111111111"); // SENTINEL (fail-closed)
 }

@@ -6,7 +6,7 @@ solana_version = "2.3.0"
 # Anchor resolves `anchor build -p <name>` against THIS list, not against
 # [programs.Localnet] — listing a program only in the latter yields
 # "not part of the workspace".
-members = ["programs/cp-swap", "programs/tegridy-launch"]
+members = ["programs/cp-swap", "programs/tegridy-launch", "programs/bayla-ladder"]
 
 [features]
 seeds = false
@@ -21,6 +21,10 @@ raydium_cp_swap = "3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y"
 # Our own bonding curve. Placeholder id — replaced with a dedicated keypair
 # before any real deploy, same as the cp-swap fork's.
 tegridy_launch = "CpFnacrACftonjeQ4hJBkja3PkrwvFSRFzBEk9oKhzED"
+# Lock-ladder staking with the 25% early exit — the Solana port of LighthouseLadder.sol.
+# Placeholder id, same convention as the two above; a dedicated keypair replaces it
+# before any real deploy.
+bayla_ladder = "GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4"
 
 
 [registry]

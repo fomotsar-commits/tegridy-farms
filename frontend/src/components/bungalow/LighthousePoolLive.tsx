@@ -15,6 +15,13 @@ import {
   stake,
   unstakeAndClaim,
   unstakeAndCloseForfeitingRewards,
+  claimCeilingReached,
+  anyClaimCeilingReached,
+  splitAccruedByClaimability,
+  maxSafeStakeAcrossPools,
+  offeredMaxLockDays,
+  lockCeilingApplies,
+  OFFERED_LOCK_CEILING_DAYS,
   claimRewards,
   lockPresets,
   defaultLockDays,
@@ -228,8 +235,17 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     ? sameMintPools.reduce<bigint | null>((acc, rp) => (acc === null || rp.fundedRaw === null ? null : acc + rp.fundedRaw), 0n)
     : null;
   const minDays = pool ? Math.max(1, Math.ceil(pool.minDurationSecs / DAY)) : 1;
-  const maxDays = pool ? Math.max(minDays, Math.floor(pool.maxDurationSecs / DAY)) : minDays;
-  const presets = useMemo(() => (pool ? lockPresets(pool) : []), [pool]);
+  // The VENUE's ceiling, not the pool's — see OFFERED_LOCK_CEILING_DAYS. This
+  // clamps the presets, the custom-days input and `chosenDays` from one place,
+  // so no path can select a lock the ladder buttons never offered.
+  const maxDays = pool ? offeredMaxLockDays(pool) : minDays;
+  const poolMaxDays = pool ? Math.max(minDays, Math.floor(pool.maxDurationSecs / DAY)) : minDays;
+  const ceilingApplies = pool ? lockCeilingApplies(pool) : false;
+  // The OFFERED ladder — the pool's own presets clamped to the venue ceiling.
+  const presets = useMemo(
+    () => (pool ? lockPresets(pool, OFFERED_LOCK_CEILING_DAYS) : []),
+    [pool],
+  );
   // SAFE DEFAULT (2026-08-29): the SHORTEST lock the pool allows, never a
   // pre-selected 30 days — see defaultLockDays() for why this is a safety
   // invariant rather than a preference.
@@ -237,6 +253,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   const chosenDays = Math.min(maxDays, Math.max(minDays, days ?? defaultDays));
   const chosenSecs = chosenDays * DAY;
   const amountRaw = toRaw(amount, decimals);
+  // The largest single position this lock length can carry before the classic
+  // reward program's cumulative counter overflows mid-term. `null` when no
+  // reward pool imposes one (dynamic pool, zero rate, unreadable config) — and
+  // an absent cap must never read as a cap of zero, so the gate below requires
+  // a non-null value before it blocks anything.
+  const safeCapRaw = pool ? maxSafeStakeAcrossPools(pool, chosenSecs) : null;
+  const overSafeCap = amountRaw !== null && safeCapRaw !== null && amountRaw > safeCapRaw;
   const invoker = wallet?.adapter as SignerWalletAdapter | undefined;
   const openEntries = entries.filter((e) => e.closedTs === 0);
 
@@ -261,8 +284,18 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // still lives on the buttons, where the choice is actually made.
   const weighted = pool ? !isFlatWeight(pool) : false;
   const rateAtMin = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.minDurationSecs) : 0;
-  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, pool.maxDurationSecs) : 0;
-  const maxBoost = pool ? stakeWeight(pool, pool.maxDurationSecs) : 1;
+  // THE HEADLINE MUST QUOTE A RUNG SOMEONE CAN ACTUALLY PICK.
+  //
+  // `maxDays` is the OFFERED ceiling (OFFERED_LOCK_CEILING_DAYS), and the presets,
+  // the custom-days input and `chosenDays` are all clamped to it. These two stats
+  // were still reading `pool.maxDurationSecs`, so a pool configured to 365 days
+  // advertised its 365-day boost and APR beside a ladder that stops at 90 — the
+  // top number in the card was for a lock the form refuses to submit. Quote the
+  // longest lock actually on offer; :628 separately explains that the pool itself
+  // allows more and that those rungs are paused.
+  const offeredMaxSecs = maxDays * DAY;
+  const rateAtMax = pool && primaryRp ? configuredAnnualRate(pool, primaryRp, offeredMaxSecs) : 0;
+  const maxBoost = pool ? stakeWeight(pool, offeredMaxSecs) : 1;
   // "Paying now" is the honest half: a configured rate the vault cannot back
   // pays nothing, and this venue says the zero out loud rather than printing
   // the configuration and hoping nobody checks the vault.
@@ -300,13 +333,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
     : null;
 
   const stakedTotal = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
-  const pendingTotal = openEntries.reduce<bigint | null>((acc, e) => {
-    if (acc === null) return null;
-    const vals = Object.values(e.pendingRaw);
-    if (vals.length === 0) return acc;
-    if (vals.some((v) => v === null)) return null;
-    return acc + vals.reduce<bigint>((s, v) => s + (v as bigint), 0n);
-  }, 0n);
+  // THE HEADER TOTAL MUST NOT COUNT WHAT CAN NEVER BE PAID. This reduce was a
+  // byte-for-byte twin of the dashboard's, and had the same defect: a position
+  // past the u64 ceiling still reports a pending figure, so a dead position read
+  // as "N accrued" at the top of the page. Less visible than the dashboard's
+  // only because the per-entry rescue sits a few hundred pixels below it — the
+  // same lie, in smaller type. Split, so the header states the claimable figure
+  // and the stranded amount is named separately rather than folded in.
+  const { claimableRaw: pendingTotal, strandedRaw: pendingStranded, deadCount: pendingDeadCount } =
+    splitAccruedByClaimability(openEntries, pool?.rewardPools ?? []);
 
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
 
@@ -593,6 +628,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                         when you can take your {bungalow.symbol} back.
                       </p>
                     )}
+
+                    {/* THE VENUE'S CEILING, said out loud. The pool still allows
+                        longer — its durations are create-only and cannot be
+                        changed — so this must read as "we stopped offering it",
+                        never as "the pool changed". Claiming the latter would be
+                        the kind of quiet substitution the honesty rules exist to
+                        prevent, and anyone can check the pool on-chain. */}
+                    {ceilingApplies && (
+                      <p className="text-[11px] mt-2 leading-relaxed" style={{ color: '#f0b26b' }}>
+                        We currently offer locks up to <strong>{labelForDays(maxDays)}</strong>, though this
+                        pool itself allows up to {labelForDays(poolMaxDays)}. Longer locks are paused while
+                        the reward rail is replaced: past roughly {maxDays} days a position&rsquo;s reward
+                        accounting runs out before the lock opens, and it stops paying for the rest of its
+                        term. Your {bungalow.symbol} would still come back in full — but it would sit there
+                        earning nothing collectable, and you could not move it.
+                      </p>
+                    )}
                   </div>
 
                   {/* On a DYNAMIC pool the honest answer to "what will I earn"
@@ -698,7 +750,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   <>
                   <button
                     type="button"
-                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked}
+                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked || overSafeCap}
                     onClick={() => invoker && amountRaw && void run('Stake', () => stake({
                       invoker, pool, amountRaw, durationSecs: chosenSecs, entries,
                     }))}
@@ -710,8 +762,26 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       : funded === null ? 'Vault unreadable — staking paused'
                       : !amountRaw || amountRaw === 0n ? 'Enter an amount'
                       : overBalance ? `Not enough ${bungalow.symbol}`
+                      : overSafeCap ? `Too large for a ${labelForDays(chosenDays)} lock`
                       : `Stake & lock for ${labelForDays(chosenDays)}`}
                   </button>
+                  {/* THE SIZE x DURATION CEILING. Above `safeCapRaw` the reward
+                      entry's cumulative counter passes u64::MAX before this lock
+                      lets the holder leave, and the position stops being able to
+                      claim for the rest of its term. Refusing the stake is the
+                      only honest option: the ladder's whole promise is that a
+                      longer lock earns more, and past this line a longer lock
+                      earns nothing for most of its life. */}
+                  {overSafeCap && safeCapRaw !== null && (
+                    <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
+                      A {labelForDays(chosenDays)} lock can hold at most{' '}
+                      <strong>{fmt(safeCapRaw, decimals)} {bungalow.symbol}</strong> in one position.
+                      Past that, the reward program&rsquo;s accounting for this position runs out before the
+                      lock opens and it stops paying — the stake would still be returned in full, but it would
+                      spend most of its term earning nothing claimable. Stake less here, or choose a shorter
+                      lock, or split it across several positions.
+                    </p>
+                  )}
                   {!entriesKnown && entriesForWallet?.reason && (
                     <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
                       {entriesForWallet.reason} Staking waits until your existing stakes are
@@ -736,6 +806,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     <span className="stat-value text-white text-[14px]">{fmt(stakedTotal, decimals)}</span> {bungalow.symbol} staked
                     {' · '}
                     <span className="stat-value text-white text-[14px]">{fmt(pendingTotal, decimals)}</span> accrued
+                    {pendingDeadCount > 0 && (
+                      <>
+                        {' · '}
+                        <span className="stat-value text-[14px]" style={{ color: '#e3b341' }}>
+                          {fmt(pendingStranded, decimals)}
+                        </span>{' '}
+                        <span style={{ color: '#e3b341' }}>stranded</span>
+                      </>
+                    )}
                   </p>
                 </div>
                 <ul className="space-y-2">
@@ -770,45 +849,95 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                           const exceedsVault =
                             entryPending !== null && funded !== null && entryPending > funded;
                           const nothingPending = entryPending === 0n;
+                          // 6000-precise gating. The classic reward entry's
+                          // cumulative `accountedAmount` has passed u64::MAX, so
+                          // claim_rewards can no longer do its arithmetic and
+                          // reverts ArithmeticError — PERMANENTLY, because the
+                          // counter never decreases. Proven on mainnet
+                          // 2026-09-06 by simulating the real instruction.
+                          //
+                          // This is a SEPARATE state from exceedsVault and must
+                          // not be folded into it: a drained vault is temporary
+                          // and clears on a top-up, this never clears. Offering
+                          // "Claim rewards" here spends the user's fee on a
+                          // transaction that cannot succeed.
+                          const ceilingHit = anyClaimCeilingReached(e, pool.rewardPools);
                           return (
                         <div className="flex flex-wrap items-center gap-2">
-                          {pool.rewardPools.map((rp) => (
+                          {pool.rewardPools.map((rp) => {
+                            const rpCeiling = claimCeilingReached(e, rp);
+                            return (
                             <button
                               key={rp.address || rp.nonce}
                               type="button"
-                              disabled={!invoker || !!action?.busy || nothingPending || exceedsVault}
-                              title={exceedsVault ? 'The vault cannot cover this claim — it reverts until a top-up; nothing is lost.' : nothingPending ? 'Nothing accrued yet.' : undefined}
+                              disabled={!invoker || !!action?.busy || nothingPending || exceedsVault || rpCeiling}
+                              title={rpCeiling
+                                ? 'This position has passed a hard limit in the reward program, so it can no longer pay out. It will not clear by retrying. Your staked BAYLA is unaffected and returns in full when the lock ends.'
+                                : exceedsVault ? 'The vault cannot cover this claim — it reverts until a top-up; nothing is lost.' : nothingPending ? 'Nothing accrued yet.' : undefined}
                               onClick={() => invoker && void run('Claim', () => claimRewards({ invoker, pool, rewardPool: rp, entryNonce: e.nonce }))}
                               className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
                             >
-                              {exceedsVault ? 'Nothing claimable yet' : 'Claim rewards'}
+                              {rpCeiling ? 'Rewards closed on this position'
+                                : exceedsVault ? 'Nothing claimable yet'
+                                : 'Claim rewards'}
                             </button>
-                          ))}
+                            );
+                          })}
                           <button
                             type="button"
-                            disabled={!invoker || !!action?.busy || locked || exceedsVault}
+                            disabled={!invoker || !!action?.busy || locked || exceedsVault || ceilingHit}
                             title={locked
                               ? 'The program refuses an unstake before the lock opens'
-                              : exceedsVault
-                                ? 'The exit pays rewards in the same transaction — it reverts until the vault covers them (nothing is lost).'
-                                : undefined}
+                              : ceilingHit
+                                ? 'This exit claims rewards in the same transaction, and this position can no longer pay them out — so it would revert. Take the principal below instead; the chain lets it out, only the rewards are gone.'
+                                : exceedsVault
+                                  ? 'The exit pays rewards in the same transaction — it reverts until the vault covers them (nothing is lost).'
+                                  : undefined}
                             onClick={() => invoker && void run('Unstake', () => unstakeAndClaim({ invoker, pool, entryNonce: e.nonce }))}
                             className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {locked ? `Locked · ${humanDuration(opensAt - nowSec)}`
+                              : ceilingHit ? 'Use “take principal” below'
                               : exceedsVault ? 'Exit blocked — vault unfunded'
                               : 'Unstake & claim'}
                           </button>
 
-                          {/* PRINCIPAL RESCUE. Only offered in the one state
-                              where the normal exit is impossible: the lock has
-                              OPENED but the reward vault cannot cover what is
-                              owed, so unstakeAndClaim reverts (6012) and the
-                              principal is otherwise stuck behind a funding gap.
-                              It closes the reward entry instead of claiming it,
+                          {/* PRINCIPAL RESCUE. Offered in the states where the
+                              normal exit is impossible because its CLAIM LEG
+                              reverts, leaving principal stuck behind it. It
+                              closes the reward entry instead of claiming it,
                               which is why it works — and why it costs the
-                              accrued rewards. Two-step on purpose. */}
-                          {!locked && exceedsVault && (
+                              accrued rewards. Two-step on purpose.
+
+                              TWO triggers, and both are load-bearing:
+
+                              (a) exceedsVault — the 6012 funding gap. Temporary:
+                                  clears on a top-up.
+
+                              (b) ceilingHit — the 6000 overflow. PERMANENT.
+                                  ADDED 2026-09-06, and this is the one that
+                                  would have trapped people. The original gate
+                                  was `exceedsVault` alone, on the assumption
+                                  that a funded vault means a working exit. It
+                                  does not: an entry past the u64 ceiling reverts
+                                  on the claim leg while the vault is fully
+                                  funded, so `exceedsVault` is FALSE, this button
+                                  never rendered, and the only control on screen
+                                  was the one call that cannot succeed. On the
+                                  live BAYLA pool that state arrives for the
+                                  1,000,000 entry on 2026-09-07 and for two more
+                                  by November, against a vault holding 884,896
+                                  BAYLA — i.e. exactly the case the old gate
+                                  reads as healthy.
+
+                              The chain itself never traps the principal: the
+                              stake program's `unstake` does not take the reward
+                              entry as an account at all, and an overflowed
+                              position was seen exiting on mainnet (tx
+                              2eLftTr3…, 2026-09-04) with no reward-program
+                              instruction in the transaction. Only the UI could
+                              trap it, and this is where. */}
+                          {!locked && (exceedsVault || ceilingHit) && (
                             rescueFor === e.nonce ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <button
@@ -816,7 +945,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                                   disabled={!invoker || !!action?.busy}
                                   onClick={() => {
                                     setRescueFor(null);
-                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce }));
+                                    if (invoker) void run('Rescue', () => unstakeAndCloseForfeitingRewards({ invoker, pool, entryNonce: e.nonce, entry: e }));
                                   }}
                                   className="px-3 py-1.5 text-[12px] rounded-lg disabled:opacity-50"
                                   style={{ background: 'rgba(227,179,65,0.18)', border: '1px solid #e3b341', color: '#e3b341' }}
@@ -835,7 +964,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               <button
                                 type="button"
                                 disabled={!invoker || !!action?.busy}
-                                title="Withdraws your principal WITHOUT claiming rewards. It closes the reward entry rather than paying it, so it cannot be blocked by the vault — and the accrued rewards are given up."
+                                title="Withdraws your principal WITHOUT claiming rewards. It closes the reward entry rather than paying it, so it cannot be blocked by an unfunded vault or by a position that has passed the reward program's limit — and the accrued rewards are given up."
                                 onClick={() => setRescueFor(e.nonce)}
                                 className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
                                 style={{ borderColor: 'rgba(227,179,65,0.5)', color: '#e3b341' }}
