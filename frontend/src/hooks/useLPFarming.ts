@@ -115,6 +115,24 @@ export function useLPFarming() {
   const minStakeUnread = isDeployed && onMainnet && !isReadLoading
     && data?.[10]?.status !== 'success';
 
+  // Entry [0], the POOL-WIDE total. Neither flag above speaks for it:
+  // `minStakeUnread` is entry [10] and `positionUnread` is [5][6][7], all of
+  // them wallet-scoped. LPFarmingSection.tsx:138 tests `totalStaked === 0n` and
+  // invites "be the first to stake LP to activate the live APR" — an invitation
+  // that is a CLAIM ABOUT THE POOL, and on an unread read it is offered on a
+  // farm that may be fully subscribed. No address in the scope, for the same
+  // reason as minStakeUnread: this is a fact about the pool, not the visitor.
+  //
+  // Entry [4] `totalRewardsFunded` rides along: it is the other pool-wide
+  // figure on that hero and fails the same way.
+  //
+  // DELIBERATELY NOT INCLUDED: entry [2] `periodFinish`. Same shape, but the LP
+  // reward period genuinely ended 2026-06-15 and the farm is unfunded, so the
+  // collapse and the truth render identically today. Fold it in HERE the day
+  // someone refunds the farm — until then a flag would fire on a true state.
+  const poolStatsUnread = isDeployed && onMainnet && !isReadLoading
+    && (data?.[0]?.status !== 'success' || data?.[4]?.status !== 'success');
+
   const positionUnread = isDeployed && onMainnet && !!address && !isReadLoading
     && (data?.[5]?.status !== 'success'
       || data?.[6]?.status !== 'success'
@@ -333,6 +351,7 @@ export function useLPFarming() {
     lpTotalSupply,
     minStake,
     minStakeUnread,
+    poolStatsUnread,
     minStakeFormatted: formatEther(minStake),
     stakedBalance,
     stakedBalanceFormatted: formatEther(stakedBalance),

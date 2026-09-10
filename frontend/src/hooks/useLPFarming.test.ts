@@ -342,3 +342,43 @@ describe('useLPFarming — an unread MIN_STAKE is not "no minimum"', () => {
     expect(result.current.minStakeUnread).toBe(true);
   });
 });
+
+// Entry [0] is the POOL-WIDE total, and neither existing flag speaks for it:
+// minStakeUnread is entry [10], positionUnread is [5][6][7], both wallet-scoped.
+// LPFarmingSection.tsx:138 tests `totalStaked === 0n` and invites "be the first
+// to stake LP to activate the live APR" — a claim about the POOL, offered on a
+// farm that may be fully subscribed.
+describe('useLPFarming — an unread pool total is not an empty pool', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('reports the pool total as unread when its entry fails', () => {
+    wagmiMock.setReadResult({ functionName: 'rawBalanceOf', address: LP_FARMING_ADDRESS, result: parseEther('100') });
+    wagmiMock.setReadResult({ functionName: 'earned', result: parseEther('50') });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: parseEther('999') });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(true);
+    // The wallet-scoped flag says nothing is wrong — which is why this one
+    // had to exist separately.
+    expect(result.current.positionUnread).toBe(false);
+    expect(result.current.totalStaked).toBe(0n);
+  });
+
+  it('a successfully read pool total is not unread', () => {
+    wagmiMock.setReadResult({ functionName: 'totalRawSupply', result: parseEther('5000') });
+    wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', result: parseEther('1000') });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(false);
+  });
+
+  it('a disconnected visitor still learns the pool totals are unread', () => {
+    // Pool-wide facts, so no address in the scope — same asymmetry as minStakeUnread.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(true);
+    expect(result.current.positionUnread).toBe(false);
+  });
+});

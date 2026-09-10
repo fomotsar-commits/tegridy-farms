@@ -135,7 +135,11 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               <>
                 <span className="stat-value text-[26px] font-bold text-white/70">&ndash;</span>
                 <span className="text-white/55 text-[10px]">
-                  {lpFarm.totalStaked === 0n
+                  {/* An unread pool total must not invite you to be first on a
+                      farm that may be fully subscribed. */}
+                  {lpFarm.poolStatsUnread
+                    ? 'pool totals unread — retry in a moment'
+                    : lpFarm.totalStaked === 0n
                     ? 'be the first to stake LP to activate the live APR'
                     : !lpFarm.isActive
                       ? 'between LP reward epochs — staked LP is safe'
