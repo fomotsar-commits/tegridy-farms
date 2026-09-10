@@ -78,6 +78,28 @@ export function useSwapAllowance(
   const sfrAllowance = allowanceData?.[0]?.status === 'success' ? allowanceData[0].result as bigint : 0n;
   const uniV2Allowance = allowanceData?.[1]?.status === 'success' ? allowanceData[1].result as bigint : 0n;
 
+  // THIS FILE SPENDS THE SAME COLLAPSED 0n WITH OPPOSITE POLARITY, which is why
+  // an earlier hand-check cleared it and it stayed on the ratchet baseline.
+  //
+  //   :87  needsApproval = ... activeAllowance < parsedAmount
+  //        Unread 0n makes this TRUE -> we offer Approve. Fails CLOSED. It
+  //        costs a click and it is CORRECT. Do not "fix" it; making that
+  //        nullable would invert it into the bug below.
+  //
+  //   :127 if (activeAllowance > 0n && activeAllowance < approvalAmount)
+  //        The R033 M-02 USDT two-step. Unread 0n answers NO, so the zero-write
+  //        is skipped and we fall through to a direct approve(spender, amount).
+  //        Fails OPEN.
+  //
+  // Mainnet USDT (tokenList.ts:50, in DEFAULT_TOKENS) reverts `approve`
+  // whenever the CURRENT allowance and the new value are both non-zero. That is
+  // the entire reason the two-step exists — and a failed read is exactly when
+  // we cannot know the current allowance is non-zero. So the guard against
+  // USDT's quirk is disarmed by the one condition it must survive, and the user
+  // pays mainnet gas for a transaction that reverts.
+  const allowanceUnread = !!fromToken && !fromToken.isNative && onRightChain && !!address
+    && (allowanceData?.[0]?.status !== 'success' || allowanceData?.[1]?.status !== 'success');
+
   // F186: the approval spender MUST equal the contract useSwap executes against
   // for this route — SFR for tegridy (and aggregator→tegridy), UniswapV2Router
   // for uniswap (and aggregator→uniswap). Single source of truth: swapSpenderFor().
@@ -124,7 +146,14 @@ export function useSwapAllowance(
     // less than what we need, write 0 first; the receipt-success effect in
     // useSwap will then dispatch the target-amount approve via
     // continueMultiStepApprove() below.
-    if (activeAllowance > 0n && activeAllowance < approvalAmount) {
+    // `|| allowanceUnread`: an allowance we could not read is not a zero one.
+    // Taking the two-step on an unknown allowance is SAFE in both worlds — the
+    // zero-write succeeds against an already-zero allowance and against a
+    // non-zero one, on USDT and on every well-behaved ERC-20 — whereas taking
+    // the one-step is safe in only one of them. This is the cheap side of the
+    // trade: one extra approve when the read was merely slow, against a
+    // guaranteed revert with the gas already spent when it was not.
+    if (allowanceUnread || (activeAllowance > 0n && activeAllowance < approvalAmount)) {
       pendingTargetAmountRef.current = approvalAmount;
       pendingSpenderRef.current = spender;
       pendingTokenRef.current = tokenAddr;
@@ -147,7 +176,7 @@ export function useSwapAllowance(
       functionName: 'approve',
       args: [spender, approvalAmount],
     });
-  }, [fromToken, parsedAmount, unlimitedApproval, spender, activeAllowance, onRightChain, writeContract]);
+  }, [fromToken, parsedAmount, unlimitedApproval, spender, activeAllowance, allowanceUnread, onRightChain, writeContract]);
 
   const continueMultiStepApprove = useCallback((): boolean => {
     // R-CHAINID: explicit chain re-check — function fires from a useEffect after

@@ -7,7 +7,6 @@
     "src/hooks/useGaugeList.ts",
     "src/hooks/useProtocolStats.ts",
     "src/hooks/useRestaking.ts",
-    "src/hooks/useSwapAllowance.ts",
     "src/hooks/useTegridyScore.ts"
   ]
 }
