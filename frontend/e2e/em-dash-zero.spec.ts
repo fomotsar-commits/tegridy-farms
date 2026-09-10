@@ -104,7 +104,10 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/alerts': 17,
   '/competitions': 18,
   '/yield': 21,
-  '/launch': 32,
+  // 32 until element F cut the header to one sentence; that sentence carried a
+  // prose dash. The fold itself moved none of them — a closed <details> keeps its
+  // children in the DOM, which is exactly why the fold uses one.
+  '/launch': 31,
   '/gallery': 82,
   '/changelog': 104,
 
