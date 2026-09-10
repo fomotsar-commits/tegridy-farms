@@ -21,6 +21,13 @@ const EvmLighthousePoolLive = lazy(() =>
 const EvmLadderPoolLive = lazy(() =>
   import('./EvmLadderPoolLive').then((m) => ({ default: m.EvmLadderPoolLive })),
 );
+// The venue's OWN Solana staking program (bayla-ladder), which is a different rail
+// from Streamflow rather than a different shape of it. Lazy for the same reason as
+// its siblings: check-dist-graph.mjs fails the build if the @solana chunk becomes
+// statically reachable from the entry, and it has caught that regression twice.
+const SolanaLadderPoolLive = lazy(() =>
+  import('./SolanaLadderPoolLive').then((m) => ({ default: m.SolanaLadderPoolLive })),
+);
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
 import { ArtImg } from '../ArtImg';
@@ -102,7 +109,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             (VITE_BAYLA_STAKE_POOL), the live Streamflow section after. The
             live section renders an EMPTY reward vault as a labeled real zero
             — funding is allowed to come last without the page ever lying. */}
-        {bungalow.stakePool ? (
+        {(bungalow.stakePool || bungalow.ladderPool) ? (
           <Suspense fallback={
             <div className="relative overflow-hidden rounded-2xl glass-card-animated" style={{ border: '1px solid var(--color-purple-75)' }}>
               <div className="absolute inset-0" style={{ background: 'rgba(4,9,18,0.85)' }} />
@@ -110,7 +117,19 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             </div>
           }>
             {bungalow.chain === 'solana' ? (
-              <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+              // BOTH, when both exist. The Streamflow pool holds locks that do not
+              // open until 2027, and a card that disappeared the moment a ladder pool
+              // was configured would hide those positions rather than migrate them.
+              // Each card reads its OWN program; neither is ever handed the other's
+              // account.
+              <>
+                {bungalow.stakePool && (
+                  <LighthousePoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
+                )}
+                {bungalow.ladderPool && (
+                  <SolanaLadderPoolLive bungalow={bungalow as Bungalow & { ladderPool: string }} />
+                )}
+              </>
             ) : bungalow.poolKind === 'ladder' ? (
               <EvmLadderPoolLive bungalow={bungalow as Bungalow & { stakePool: string }} />
             ) : (

@@ -210,13 +210,14 @@ async function pollConfirm(
 ): Promise<'confirmed' | 'reverted' | 'unknown'> {
   const start = now();
   for (;;) {
-    let status = null;
-    try {
-      const r = await conn.getSignatureStatuses([signature]);
-      status = r?.value?.[0] ?? null;
-    } catch {
-      status = null;
-    }
+    const status = await (async () => {
+      try {
+        const r = await conn.getSignatureStatuses([signature]);
+        return r?.value?.[0] ?? null;
+      } catch {
+        return null;
+      }
+    })();
     if (status) {
       if (status.err) return 'reverted';
       if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {

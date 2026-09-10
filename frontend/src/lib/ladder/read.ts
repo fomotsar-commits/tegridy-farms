@@ -26,6 +26,7 @@ import {
   decodeLadderPool,
   decodeLadderPosition,
   decodeLadderUserStats,
+  associatedTokenAddress,
   positionPda,
   userStatsPda,
   type LadderPoolView,
@@ -207,4 +208,41 @@ export function nextPositionNonce(wallet: LadderWalletView): number {
 /** This wallet's current principal in this pool — what the per-wallet cap counts. */
 export function walletPrincipalRaw(wallet: LadderWalletView): bigint {
   return wallet.stats?.principalRaw ?? 0n;
+}
+
+/**
+ * How much of the pool's mint this wallet actually holds.
+ *
+ * ONE call, and it distinguishes the two zeros. `getTokenAccountBalance` throws on a
+ * missing account, which makes "this wallet holds none" and "the RPC did not answer"
+ * the same exception — and this venue's rule is that those must never be the same
+ * answer. So it reads the account directly:
+ *
+ *   - no account            -> 0n. A wallet with no token account holds no tokens.
+ *                             That is a fact, and a real zero.
+ *   - the account is there  -> the `amount` field, at offset 64.
+ *   - the read threw        -> null. An outage, which the caller must render as one.
+ *
+ * Offset 64 is the `amount` u64 in the SPL token-account layout (mint 32, owner 32,
+ * amount 8), and Token-2022 keeps that base layout ahead of its extensions — which is
+ * why this works for BAYLA without branching on the token program.
+ */
+export async function readOwnerTokenBalance(
+  conn: Connection, mint: string, owner: PublicKey, tokenProgram: string,
+): Promise<bigint | null> {
+  let ata: PublicKey;
+  try {
+    ata = associatedTokenAddress(new PublicKey(mint), owner, new PublicKey(tokenProgram));
+  } catch {
+    return null;
+  }
+  try {
+    const info = await conn.getAccountInfo(ata, 'confirmed');
+    if (!info) return 0n;
+    if (info.data.length < 72) return null;   // not a token account; do not guess
+    const v = new DataView(info.data.buffer, info.data.byteOffset, info.data.byteLength);
+    return v.getBigUint64(64, true);
+  } catch {
+    return null;
+  }
 }
