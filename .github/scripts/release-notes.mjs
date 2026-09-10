@@ -142,9 +142,36 @@ function git(args) {
   }
 }
 
+/**
+ * `git ...` -> trimmed stdout. Unlike `git()` above, a git failure PROPAGATES.
+ * Use this everywhere an error is not also a legitimate answer.
+ */
+function gitStrict(args) {
+  return execFileSync('git', args, { encoding: 'utf-8' }).trim();
+}
+
 /** The previous release tag reachable from `tag`, or '' when there is none. */
 export function previousReleaseTag(tag, run = git) {
+  // The lenient runner is correct HERE and only here: "No names found" is the
+  // expected answer on a repo that has never cut a release, not a failure.
   return run(['describe', '--tags', '--abbrev=0', '--match', RELEASE_TAG_GLOB, `${tag}^`]);
+}
+
+/**
+ * The commit subjects between `prev` and `tag`.
+ *
+ * Deliberately NOT error-tolerant. By the time this runs, `prev` has been
+ * resolved by describe and `tag` has been verified to exist, so a failing
+ * `git log` means something is wrong with the checkout -- and an empty list
+ * would render as "No non-merge commits between X and Y", which is a
+ * confident, wrong, publishable sentence. An unreadable range must not read
+ * as an empty one.
+ */
+export function collectSubjects(prev, tag, run = gitStrict) {
+  if (!prev) return [];
+  return run(['log', '--no-merges', '--pretty=- %s (%h)', `${prev}..${tag}`])
+    .split('\n')
+    .filter((l) => l.trim() !== '');
 }
 
 function main() {
@@ -154,11 +181,7 @@ function main() {
     process.exit(1);
   }
   const prev = previousReleaseTag(tag);
-  const subjects = prev
-    ? git(['log', '--no-merges', '--pretty=- %s (%h)', `${prev}..${tag}`])
-        .split('\n')
-        .filter((l) => l.trim() !== '')
-    : [];
+  const subjects = collectSubjects(prev, tag);
   process.stdout.write(
     renderNotes({ tag, prev, subjects, repoUrl: (process.env.REPO_URL ?? '').replace(/\/+$/, '') }),
   );

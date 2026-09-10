@@ -40,6 +40,7 @@ import {
   globToRegExp,
   isReleaseTag,
   renderNotes,
+  collectSubjects,
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore -- plain .mjs guard script, deliberately untyped and outside src/
 } from '../../../.github/scripts/release-notes.mjs';
@@ -195,6 +196,29 @@ describe('release body is bounded', () => {
     const few = ['- fix: a thing (aaa1111)', '- feat: another thing (bbb2222)'];
     const body = renderNotes({ tag: 'v1.1.0', prev: 'v1.0.0', subjects: few, repoUrl: 'https://x/y' });
     for (const subject of few) expect(body).toContain(subject);
+  });
+
+  it('does not turn an unreadable range into an empty one', () => {
+    // The house's most-repeated bug class. If `git log` fails and the failure
+    // is swallowed, the body renders "No non-merge commits between X and Y" --
+    // a confident, wrong sentence, published. By the time this runs `prev` has
+    // been resolved and `tag` verified to exist, so a failure here is a broken
+    // checkout and must stop the release.
+    expect(() =>
+      collectSubjects('v1.0.0', 'v2.0.0', () => {
+        throw new Error('fatal: bad revision');
+      }),
+    ).toThrow();
+  });
+
+  it('asks git for nothing when there is no previous release tag', () => {
+    let called = false;
+    const subjects = collectSubjects('', 'v1.0.0', () => {
+      called = true;
+      return 'should not be reached';
+    });
+    expect(called).toBe(false);
+    expect(subjects).toEqual([]);
   });
 
   it('caps at MAX_SUBJECTS exactly, not one entry either side', () => {
