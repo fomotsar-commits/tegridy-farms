@@ -178,7 +178,7 @@ const POOL_L = {
   totalPrincipal: 243, totalWeighted: 251, rewardRate: 267, periodFinish: 283,
   lastUpdateTime: 291, rewardPerWeightStored: 299, rewardsEmitted: 315,
   rewardsPaid: 331, rewardFundedCumulative: 347, penaltyCollectedCumulative: 363,
-  orphanedPenalty: 379, degraded: 387,
+  orphanedPenalty: 379, degraded: 387, rpwResidue: 388,
 } as const;
 
 const POSITION_L = {
@@ -217,6 +217,10 @@ export interface LadderPoolView {
   rewardRate: bigint;
   periodFinish: bigint;
   lastUpdateTime: bigint;
+  /** Synthetix `rewardPerTokenStored`, scaled by PRECISION. */
+  rewardPerWeightStored: bigint;
+  /** `num % total_weighted` carried across checkpoints (audit M-2). */
+  rpwResidueRaw: bigint;
   rewardsEmitted: bigint;
   rewardsPaid: bigint;
   rewardFundedCumulative: bigint;
@@ -234,6 +238,13 @@ export interface LadderPositionView {
   amountRaw: bigint;
   weight: bigint;
   lockEnd: bigint;
+  /** Synthetix `userRewardPerTokenPaid`. */
+  rewardPerWeightPaid: bigint;
+  /**
+   * Rewards banked at this position's LAST interaction - NOT what it has earned
+   * since. Use `earnedNow()`; showing this raw is a stale number wearing a live
+   * label, and for a position nobody has touched it is a zero.
+   */
   rewardsOwed: bigint;
 }
 
@@ -304,6 +315,8 @@ export function decodeLadderPool(
       rewardRate: rdU128(v, POOL_L.rewardRate),
       periodFinish: rdI64(v, POOL_L.periodFinish),
       lastUpdateTime: rdI64(v, POOL_L.lastUpdateTime),
+      rewardPerWeightStored: rdU128(v, POOL_L.rewardPerWeightStored),
+      rpwResidueRaw: rdU128(v, POOL_L.rpwResidue),
       rewardsEmitted: rdU128(v, POOL_L.rewardsEmitted),
       rewardsPaid: rdU128(v, POOL_L.rewardsPaid),
       rewardFundedCumulative: rdU128(v, POOL_L.rewardFundedCumulative),
@@ -333,6 +346,7 @@ export function decodeLadderPosition(
       amountRaw: rdU64(v, POSITION_L.amount),
       weight: rdU128(v, POSITION_L.weight),
       lockEnd: rdI64(v, POSITION_L.lockEnd),
+      rewardPerWeightPaid: rdU128(v, POSITION_L.rewardPerWeightPaid),
       rewardsOwed: rdU128(v, POSITION_L.rewardsOwed),
     },
   };
@@ -495,4 +509,75 @@ export function rewardRunwaySecs(
   if (pool.rewardRate <= 0n) return null;
   const left = Number(pool.periodFinish) - Math.floor(nowSecs);
   return left > 0 ? left : 0;
+}
+
+/* ─────────────────── what a position has actually earned ─────────────────── */
+
+/**
+ * The accumulator's scale. `math.rs:84` — 1e12, derived rather than inherited from
+ * the Solidity's 1e18, and the bound analysis in that file's header depends on it.
+ */
+export const PRECISION = 1_000_000_000_000n;
+
+/**
+ * The divisor floor (invariant I-11): the weight of the smallest admissible stake at
+ * the smallest boost. Below it the accumulator does not advance at all, and the
+ * interval is BURNED rather than banked — so a client that ignores this floor
+ * over-reports what a nearly-empty pool has paid.
+ */
+export function minWeightFloor(minStakeRaw: bigint): bigint {
+  return (minStakeRaw * BigInt(MIN_BOOST_BPS)) / BigInt(BPS);
+}
+
+/** `last_time_applicable` — rewards stop accruing at `period_finish`, not at `now`. */
+export function lastTimeApplicable(nowSecs: number, periodFinish: bigint): bigint {
+  const now = BigInt(Math.floor(nowSecs));
+  return now < periodFinish ? now : periodFinish;
+}
+
+/**
+ * The accumulator as it stands RIGHT NOW, not as it was last checkpointed.
+ *
+ * `reward_per_weight_stored` only moves when somebody interacts with the pool, so a
+ * position nobody has touched for a month still reads `rewards_owed = 0` on chain.
+ * Rendering that stored value as "rewards" shows a real staker a zero that is simply
+ * out of date — the venue's most-repeated defect, in its most expensive form.
+ *
+ * This is `reward_per_weight_with_residue` (math.rs:204) transcribed exactly,
+ * residue included, so the figure it produces is the one the program will compute on
+ * the next interaction rather than an approximation of it.
+ */
+export function rewardPerWeightNow(
+  pool: Pick<
+    LadderPoolView,
+    'rewardPerWeightStored' | 'rpwResidueRaw' | 'lastUpdateTime' | 'periodFinish'
+    | 'rewardRate' | 'totalWeighted' | 'minStakeRaw'
+  >,
+  nowSecs: number,
+): bigint {
+  const floor = minWeightFloor(pool.minStakeRaw);
+  if (pool.totalWeighted === 0n || pool.totalWeighted < floor) return pool.rewardPerWeightStored;
+  const dtRaw = lastTimeApplicable(nowSecs, pool.periodFinish) - pool.lastUpdateTime;
+  const dt = dtRaw > 0n ? dtRaw : 0n;
+  const num = pool.rpwResidueRaw + dt * pool.rewardRate * PRECISION;
+  return pool.rewardPerWeightStored + num / pool.totalWeighted;
+}
+
+/**
+ * What this position would be paid if it claimed now.
+ *
+ * `earned` (math.rs) against a LIVE accumulator. The weight is clamped to
+ * `total_weighted` exactly as `accrue_position_inner` clamps it, so a desynchronised
+ * ledger produces the same figure here as it would on chain rather than a larger one
+ * the program would then refuse to pay.
+ */
+export function earnedNow(
+  position: Pick<LadderPositionView, 'weight' | 'rewardPerWeightPaid' | 'rewardsOwed'>,
+  pool: Parameters<typeof rewardPerWeightNow>[0],
+  nowSecs: number,
+): bigint {
+  const rpw = rewardPerWeightNow(pool, nowSecs);
+  const weight = position.weight < pool.totalWeighted ? position.weight : pool.totalWeighted;
+  const delta = rpw > position.rewardPerWeightPaid ? rpw - position.rewardPerWeightPaid : 0n;
+  return (weight * delta) / PRECISION + position.rewardsOwed;
 }

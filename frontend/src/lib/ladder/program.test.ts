@@ -27,6 +27,7 @@ import {
   boostBpsForLock, weightForStake, penaltyFor, quoteExit, checkDeposit,
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
   EARLY_EXIT_PENALTY_BPS, BPS,
+  PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
 } from './program';
 
 // The real devnet deployment.
@@ -299,5 +300,198 @@ describe('decoders refuse rather than invent', () => {
     expect(r.value.degraded).toBe(true);
     expect(r.value.mint).toBe(new PublicKey(k(0x11)).toBase58());
     expect(r.value.stakeVault).toBe(new PublicKey(k(0x55)).toBase58());
+  });
+});
+
+/* ─────────────── what a position has actually earned ─────────────── */
+
+describe('the reward accumulator', () => {
+  // A pool whose stored accumulator is at `rewardPerWeightStored` and which emits at
+  // `rewardRate`. Every field the live half reads is overridable, so each test can
+  // isolate one term.
+  const pool = (o: Partial<{
+    rewardPerWeightStored: bigint; rpwResidueRaw: bigint; lastUpdateTime: bigint;
+    periodFinish: bigint; rewardRate: bigint; totalWeighted: bigint; minStakeRaw: bigint;
+  }> = {}) => ({
+    rewardPerWeightStored: 0n,
+    rpwResidueRaw: 0n,
+    lastUpdateTime: 1_000n,
+    periodFinish: 1_000_000n,
+    rewardRate: 0n,
+    totalWeighted: 4_000_000_000_000n,
+    minStakeRaw: 0n,
+    ...o,
+  });
+
+  it('the layout arithmetic closes on the pinned account size', () => {
+    // rpw_residue sits at 388 ONLY if `degraded` is one byte at 387 and the two u128
+    // residues plus the 88-byte reserve fill the account exactly. An independent
+    // check on the offset rather than a restatement of it: if 388 is wrong, this sum
+    // misses 508.
+    expect(388 + 16 + 16 + 88).toBe(POOL_SIZE);
+  });
+
+  it("reads the accumulator fields from their own offsets, not a neighbour's", () => {
+    // MUTATION-CHECKED: reward_per_weight_stored (299) sits immediately before
+    // rewards_emitted (315), and both are u128 — so a one-slot slip decodes cleanly
+    // and silently reports the wrong quantity. Distinct values on each side.
+    const d = new Uint8Array(POOL_SIZE);
+    d.set(ACCOUNT_DISCRIMINATOR.Pool, 0);
+    const v = new DataView(d.buffer);
+    v.setBigUint64(299, 111n, true);          // reward_per_weight_stored
+    v.setBigUint64(315, 222n, true);          // rewards_emitted
+    v.setBigUint64(331, 333n, true);          // rewards_paid
+    v.setBigUint64(388, 444n, true);          // rpw_residue
+    const r = decodeLadderPool('POOL', d);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.rewardPerWeightStored).toBe(111n);
+    expect(r.value.rewardsEmitted).toBe(222n);
+    expect(r.value.rewardsPaid).toBe(333n);
+    expect(r.value.rpwResidueRaw).toBe(444n);
+  });
+
+  it("reads a position's paid mark from ITS own offset", () => {
+    const d = new Uint8Array(POSITION_SIZE);
+    d.set(ACCOUNT_DISCRIMINATOR.Position, 0);
+    const v = new DataView(d.buffer);
+    v.setBigUint64(109, 987n, true);          // reward_per_weight_paid
+    v.setBigUint64(125, 654n, true);          // rewards_owed
+    const r = decodeLadderPosition('POS', d);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.rewardPerWeightPaid).toBe(987n);
+    expect(r.value.rewardsOwed).toBe(654n);
+  });
+
+  it("matches the program's own `earned` fixtures, value for value", () => {
+    // Transcribed from math.rs's Rust unit tests, which is the point: agreeing with
+    // my own re-derivation would prove nothing. `rewardRate: 0` freezes the
+    // accumulator so these exercise `earned` alone.
+    expect(earnedNow(
+      { weight: 4_000_000_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 5n },
+      pool({ rewardPerWeightStored: 500_000_000_000n }),
+      2_000,
+    )).toBe(2_000_000_000_005n);
+
+    // no delta -> just what was owed
+    expect(earnedNow(
+      { weight: 4_000_000_000_000n, rewardPerWeightPaid: 9n, rewardsOwed: 42n },
+      pool({ rewardPerWeightStored: 9n }),
+      2_000,
+    )).toBe(42n);
+  });
+
+  it("PRECISION is the program's 1e12, not the Solidity's 1e18", () => {
+    expect(PRECISION).toBe(10n ** 12n);
+  });
+
+  it('a position nobody has touched has earned MORE than it has banked', () => {
+    // ⚠️ THE REASON THIS MATH EXISTS. `reward_per_weight_stored` only moves when
+    // somebody interacts with the pool, so a real staked position reads
+    // `rewards_owed = 0` on chain for as long as nobody pokes it. A card that
+    // renders that stored value tells a staker who has been earning for a month
+    // that they have earned nothing — a zero no read of THEIR position produced.
+    const p = { weight: 1_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const live = pool({ rewardRate: 1_000_000n, lastUpdateTime: 1_000n, totalWeighted: 1_000_000n });
+    expect(p.rewardsOwed).toBe(0n);                        // what the chain stores
+    expect(earnedNow(p, live, 2_000)).toBeGreaterThan(0n); // what it has earned
+  });
+
+  it('stops accruing at period_finish, not at now', () => {
+    // MUTATION-CHECKED: using `now` instead of `last_time_applicable` keeps paying
+    // out of a window that has closed, which over-reports every position in a pool
+    // whose rewards have run dry.
+    const p = { weight: 1_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const finished = pool({
+      rewardRate: 1_000_000n, lastUpdateTime: 1_000n, periodFinish: 2_000n,
+      totalWeighted: 1_000_000n,
+    });
+    const atFinish = earnedNow(p, finished, 2_000);
+    const longAfter = earnedNow(p, finished, 9_999_999);
+    expect(atFinish).toBeGreaterThan(0n);
+    expect(longAfter).toBe(atFinish);
+  });
+
+  it('carries the residue the program carries', () => {
+    // MUTATION-CHECKED (audit M-2): dropping `rpw_residue` from the numerator
+    // silently discards up to a full division remainder per checkpoint — the same
+    // loss that destroyed 7.4% of a plausible window before it was banked on chain.
+    const p = { weight: 1_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const base = { rewardRate: 1n, lastUpdateTime: 1_000n, totalWeighted: 999_983n };
+    const without = earnedNow(p, pool({ ...base, rpwResidueRaw: 0n }), 1_001);
+    const withResidue = earnedNow(p, pool({ ...base, rpwResidueRaw: 999_982n }), 1_001);
+    expect(withResidue).toBeGreaterThan(without);
+  });
+
+  it('does not advance below the I-11 weight floor — the interval is burned', () => {
+    // MUTATION-CHECKED: dropping the floor check reports rewards a pool this small
+    // never actually emits, because the on-chain accumulator does not move at all.
+    const p = { weight: 100n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const tiny = pool({ rewardRate: 1_000_000n, totalWeighted: 100n, minStakeRaw: 1_000_000n });
+    expect(minWeightFloor(1_000_000n)).toBe(400_000n);   // 1e6 * 4000bps / 1e4
+    expect(tiny.totalWeighted).toBeLessThan(minWeightFloor(tiny.minStakeRaw));
+    expect(earnedNow(p, tiny, 9_999)).toBe(0n);
+  });
+
+  it('an empty pool does not divide by zero', () => {
+    const p = { weight: 0n, rewardPerWeightPaid: 0n, rewardsOwed: 7n };
+    expect(earnedNow(p, pool({ totalWeighted: 0n, rewardRate: 5n }), 9_999)).toBe(7n);
+  });
+
+  it('clamps weight to the ledger exactly as the program does', () => {
+    // `accrue_position_inner` uses min(weight, total_weighted). Reporting the
+    // inflated figure would quote a payout the program then refuses to make.
+    const desynced = { weight: 5_000n, rewardPerWeightPaid: 0n, rewardsOwed: 0n };
+    const p = pool({ rewardPerWeightStored: PRECISION, totalWeighted: 100n, minStakeRaw: 0n });
+    expect(earnedNow(desynced, p, 1_000)).toBe(100n);   // not 5_000n
+  });
+
+  it('a backwards clock accrues nothing, rather than a negative', () => {
+    const p = { weight: 1_000_000n, rewardPerWeightPaid: 0n, rewardsOwed: 11n };
+    const behind = pool({ rewardRate: 1_000_000n, lastUpdateTime: 5_000n, totalWeighted: 1_000_000n });
+    expect(earnedNow(p, behind, 1_000)).toBe(11n);
+  });
+
+  it('lastTimeApplicable is a clamp, both ways', () => {
+    expect(lastTimeApplicable(5, 10n)).toBe(5n);
+    expect(lastTimeApplicable(50, 10n)).toBe(10n);
+  });
+
+  it('never reports a payout below what the chain has already banked', () => {
+    // `rewards_owed` is money the program has already committed to this position.
+    // Whatever the live half computes, the total can only be additive.
+    const p = { weight: 1n, rewardPerWeightPaid: 10n ** 30n, rewardsOwed: 12_345n };
+    expect(earnedNow(p, pool({ rewardPerWeightStored: 1n }), 2_000)).toBe(12_345n);
+  });
+
+  it('rewardPerWeightNow leaves a frozen pool exactly where it was', () => {
+    const frozen = pool({ rewardPerWeightStored: 777n, rewardRate: 0n });
+    expect(rewardPerWeightNow(frozen, 9_999_999)).toBe(777n);
+  });
+});
+
+describe('the accumulator is monotonic, whatever the clock says', () => {
+  // MUTATION-FOUND (A5), and the reason this is its own block rather than one more
+  // assertion inside `earnedNow`'s: removing the `dt` clamp left every earlier test
+  // GREEN. `earnedNow` clamps its own delta to zero, so a negative accumulator is
+  // completely invisible from there — the "backwards clock accrues nothing" test
+  // passed against code that computed a negative reward-per-weight and then hid it.
+  //
+  // On chain `reward_per_weight_stored` is a u128 and cannot go backwards. A client
+  // that returns a smaller one has produced a number no chain state could hold, and
+  // `rewardPerWeightNow` is exported — the next caller gets no second defence.
+  it('a clock behind the last checkpoint leaves the accumulator exactly where it was', () => {
+    const behind = {
+      rewardPerWeightStored: 500n,
+      rpwResidueRaw: 0n,
+      lastUpdateTime: 5_000n,
+      periodFinish: 1_000_000n,
+      rewardRate: 1_000_000n,
+      totalWeighted: 1_000_000n,
+      minStakeRaw: 0n,
+    };
+    expect(rewardPerWeightNow(behind, 1_000)).toBe(500n);
+    expect(rewardPerWeightNow(behind, 1_000)).toBeGreaterThanOrEqual(behind.rewardPerWeightStored);
   });
 });

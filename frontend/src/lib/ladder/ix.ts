@@ -21,6 +21,7 @@ import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import {
   IX_DISCRIMINATOR,
   SYSTEM_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   associatedTokenAddress,
   positionPda,
   userStatsPda,
@@ -205,5 +206,54 @@ export function claimCarriedIx(args: Common): TransactionInstruction {
       meta(k.tokenProgram, false, false),
     ],
     data: Buffer.from(IX_DISCRIMINATOR.claimCarried),
+  });
+}
+
+/* ─────────────────── the account every payout needs to exist ─────────────────── */
+
+/**
+ * Create the owner's associated token account, idempotently.
+ *
+ * ⚠️ THE LADDER PROGRAM WILL NOT CREATE IT. `owner_ata` is a plain
+ * `InterfaceAccount<TokenAccount>` with `mut` and a mint/owner constraint on every
+ * instruction that touches it (lib.rs — Stake, Claim, WithdrawMatured, EarlyExit,
+ * EmergencyWithdraw, ClaimCarried), NOT `init_if_needed`. An absent ATA is an
+ * `AccountNotInitialized` revert on the account, which reads like a program bug.
+ *
+ * For `stake` the ATA necessarily exists — the tokens being staked are in it. The
+ * exposure is on the way OUT: a staker who closed their ATA while locked, or who
+ * staked from one wallet's ATA that has since been closed, cannot claim or exit at
+ * all. The same defect bit the Streamflow path on devnet (AccountNotInitialized on
+ * the `to` account for every first-time staker, rehearsal tx 4B8hFc…KJRu), and the
+ * fix there was this same instruction in front.
+ *
+ * Idempotent, so it costs a few hundred CU and zero lamports when the account is
+ * already there. Prepending it unconditionally is cheaper than a read that decides
+ * whether to prepend it.
+ *
+ * Hand-encoded, like everything else here — `@solana/spl-token` is a heavy import
+ * for one 6-account instruction. VERIFIED byte-for-byte against that package's
+ * `buildAssociatedTokenAccountInstruction` (lib/cjs/instructions/associatedTokenAccount.js):
+ * data is the single byte 1, and the account order is
+ * payer, ata, owner, mint, systemProgram, tokenProgram.
+ */
+export function createAtaIdempotentIx(args: {
+  payer: PublicKey;
+  owner: PublicKey;
+  mint: PublicKey;
+  tokenProgram: PublicKey;
+}): TransactionInstruction {
+  const ata = associatedTokenAddress(args.mint, args.owner, args.tokenProgram);
+  return new TransactionInstruction({
+    programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+    keys: [
+      meta(args.payer, true, true),
+      meta(ata, false, true),
+      meta(args.owner, false, false),
+      meta(args.mint, false, false),
+      meta(SYSTEM_PROGRAM_ID, false, false),
+      meta(args.tokenProgram, false, false),
+    ],
+    data: Buffer.from([1]), // 0 = Create, 1 = CreateIdempotent, 2 = RecoverNested
   });
 }
