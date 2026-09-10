@@ -46,7 +46,7 @@ const ArrivalFilm = lazy(() =>
 /** One line per door: what is actually behind it. Keyed by route. */
 const BLURB: Record<string, string> = {
   '/gallery': 'Every piece the collective has made, and the artists behind them.',
-  '/nakamigos': 'Buy and sell the art. Our fee is 1% — the same as OpenSea, not a discount.',
+  '/nakamigos': 'Buy and sell the art. Our fee is 1%, the same as OpenSea. Not a discount.',
   '/community': 'Grants, bounties and the votes that direct them.',
   '/leaderboard': 'How the venue scores wallets, and where yours sits.',
   '/tokenomics': 'Supply, the treasury, lifetime fees, and your own tax reports.',
@@ -76,7 +76,7 @@ export default function IslandPage() {
           The island
         </h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          The place itself — its art, its people, its score and its money. Everything here is
+          The place itself: its art, its people, its score and its money. Everything here is
           about the venue rather than about a trade.
         </p>
       </header>
