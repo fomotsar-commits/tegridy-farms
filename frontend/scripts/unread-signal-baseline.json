@@ -8,7 +8,6 @@
     "src/hooks/usePoolData.ts",
     "src/hooks/useProtocolStats.ts",
     "src/hooks/useRestaking.ts",
-    "src/hooks/useRevenueStats.ts",
     "src/hooks/useSwapAllowance.ts"
   ]
 }

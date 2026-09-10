@@ -39,6 +39,12 @@ interface Props {
   /** `referrerOf(wallet)` — the permanent on-chain answer, when there is one. */
   onChainReferrer: string | null;
   hasReferrer: boolean;
+  /** `referrerOf` did not land. `hasReferrer` collapses to FALSE in that case,
+   *  which is indistinguishable from a genuine "not yet referred" — and this
+   *  file exists so that we never "offer a Link button that reverts". Optional
+   *  so the many render tests that construct this card need no edit; absent
+   *  means "the caller has nothing to say", which preserves today's behaviour. */
+  referrerUnread?: boolean;
   /** Sends `setReferrer`. Absent when no write path is wired. */
   onLink?: (address: `0x${string}`) => void;
   busy?: boolean;
@@ -56,12 +62,18 @@ export function ReferralAttributionCard({
   wallet,
   onChainReferrer,
   hasReferrer,
+  referrerUnread = false,
   onLink,
   busy,
 }: Props) {
   const { attribution, codeResolution, forget } = state;
   const selfReferral = attribution ? isSelfReferral(attribution.address, wallet) : false;
-  const canLink = !!onLink && !!attribution && !hasReferrer && !selfReferral && !!wallet;
+  // `!referrerUnread` is the whole point of this line. `hasReferrer` is false
+  // both when the wallet has no referrer AND when referrerOf never answered, so
+  // without it the button this file was written to suppress is offered on every
+  // partial read failure — and setReferrer reverts AlreadyReferred with the gas
+  // already spent.
+  const canLink = !!onLink && !!attribution && !hasReferrer && !referrerUnread && !selfReferral && !!wallet;
 
   return (
     <section
@@ -152,6 +164,17 @@ export function ReferralAttributionCard({
           {selfReferral && (
             <p role="alert" className="mt-2 text-[11px]" style={{ color: '#FFD37C' }}>
               This link points at the connected wallet. The splitter rejects a self-referral, so it cannot be linked.
+            </p>
+          )}
+
+          {/* Withheld, and said so. Suppressing the button without a word would
+              read as "you cannot link this", which is a different claim from
+              "we could not check" — and the self-referral case one line up sets
+              the precedent that a withheld button explains itself. */}
+          {referrerUnread && !selfReferral && (
+            <p role="alert" className="mt-2 text-[11px]" style={{ color: '#FFD37C' }}>
+              We could not read whether this wallet already has an on-chain referrer, so linking is held back for now —
+              that record is permanent and a second attempt reverts. Retry in a moment.
             </p>
           )}
 
