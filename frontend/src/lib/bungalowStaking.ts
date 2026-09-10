@@ -167,8 +167,12 @@ export interface StakeEntryView {
  * The hard ceiling on a CLASSIC reward entry's `accountedAmount`.
  *
  * WHY IT MATTERS. `accountedAmount` is cumulative and monotonic — a claim pays
- * out but never resets it — and the classic program's claim path narrows it to
- * a u64. Once it passes this value, `claim_rewards` reverts with Anchor error
+ * out but never resets it — and past a u64-shaped boundary the classic
+ * program's claim path stops being able to do the arithmetic on it. The exact
+ * narrowing is not visible from the IDL and is not assumed below; what is
+ * established is the boundary's LOCATION, and how that was established matters
+ * enough to be written out under PROVEN and the two headings after it. Once it
+ * passes this value, `claim_rewards` reverts with Anchor error
  * 6000 (`ArithmeticError`) and CAN NEVER SUCCEED AGAIN for that entry, because
  * the number only ever grows.
  *
@@ -177,6 +181,31 @@ export interface StakeEntryView {
  * above this value reverted 6000 and every entry below it succeeded. A repo-wide
  * scan of the classic program found 5,859 of 13,808 reward entries (42.4%)
  * already past it, so this is a property of the program, not of one pool.
+ *
+ * WHAT THE EIGHT SIMULATIONS PIN, EXACTLY. They BRACKET the threshold rather
+ * than land on it: the largest `accountedAmount` that still claimed was
+ * 14,396,165,000,000,000,000 and the smallest that reverted was
+ * 49,021,629,810,000,000,000, so the boundary lies somewhere between the two.
+ * `u64::MAX` is the only natural width inside that bracket, which is why it is
+ * the value here, but the bracket is the evidence and u64 is the reading of it.
+ * Narrowing this number further is a question for a re-simulation, not for
+ * arithmetic.
+ *
+ * THE 1e9 RESCALE IS WRONG, AND IT LOOKS RIGHT (checked 2026-09-09). The SDK's
+ * `RewardEntryAccumulator.getClaimableAmount()` computes
+ * `(accountedAmount - claimedAmount * 1e9) / 1e9` with
+ * `REWARD_AMOUNT_PRECISION_FACTOR = 1e9`, and the IDL types `accountedAmount`
+ * as `u128` against a `u64` `claimedAmount`. Read alone, that says the u64
+ * quantity on the claim path is the UNSCALED claimable and that this constant
+ * is 1e9 too small. It is not. `claimedAmount` cannot be negative, so the
+ * claimable of the two entries that actually reverted is at most 50,686,629,810
+ * and 49,021,629,810, both about 3.6e8 times BELOW `u64::MAX`. A threshold on
+ * the claimable would not fire until `accountedAmount` reached roughly 1.84e28,
+ * some 376,298,057x larger than the smallest value observed to revert, so it
+ * calls both known failures healthy. Whatever narrows inside the program, it is
+ * not the claimable; the SCALED counter is what tracks the observed verdicts.
+ * Note that nothing here reads `claimedAmount` at all, so a client-side model
+ * finer than this one cannot be settled without another chain read.
  *
  * It applies ONLY to `kind: 'fixed'` pools. The dynamic program tracks
  * rewards-per-share rather than per-position-times-time and does not accumulate
