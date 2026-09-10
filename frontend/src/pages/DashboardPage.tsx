@@ -319,7 +319,10 @@ function ToweliDashboard() {
               // read errored — a fabricated number about the protocol's flagship
               // claim, on the first screen a disconnected visitor sees. Same
               // shape RealYieldProof.tsx uses per call.
-              revenueStats.isDataError
+              // `|| globalUnread`: isDataError is the QUERY-level flag and
+              // allowFailure defaults true, so it cannot see one failed leg —
+              // which is the case that renders a fabricated 0.0000 ETH here.
+              revenueStats.isDataError || revenueStats.globalUnread
                 ? { l: 'ETH Distributed', v: '–', sub: 'read unavailable' }
                 : { l: 'ETH Distributed', v: revenueStats.isDataLoading ? null : `${revenueStats.totalDistributed.toFixed(4)} ETH` },
             ] as { l: string; v: string | null; sub?: string; showSparkline?: boolean }[]).map((s) => (

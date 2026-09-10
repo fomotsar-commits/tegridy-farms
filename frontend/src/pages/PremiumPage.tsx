@@ -453,7 +453,7 @@ export default function PremiumPage() {
               <div className="glass-card p-4">
                 <div className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Total Distributed</div>
                 <div className="stat-value text-white text-lg">{revenue.totalDistributed.toFixed(4)} ETH</div>
-                <div className="text-white text-[11px] mt-1">{revenue.epochCount} epochs</div>
+                <div className="text-white text-[11px] mt-1">{revenue.globalUnread ? '–' : `${revenue.epochCount} epochs`}</div>
               </div>
               <div className="glass-card p-4">
                 <div className="text-white text-[11px] uppercase tracking-wider label-pill mb-1">Your Pending</div>

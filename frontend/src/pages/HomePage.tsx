@@ -456,7 +456,7 @@ export default function HomePage() {
               // genuinely loading; once resolved, render the honest "0.0000 ETH"
               // (the value that backs the on-chain-verifiable pitch) instead of an
               // eternal skeleton. `loading: true` forces the shimmer branch below.
-              { l: 'ETH Distributed', v: revenueStats.isDataError ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && revenueStats.totalDistributed === 0) ? 'fee rail live · first at native-pool launch' : undefined },
+              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · first at native-pool launch' : undefined },
             ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
