@@ -121,6 +121,22 @@ export interface HeatBreakdownRow {
   degrees: number;
   firstSeenAtUnix: number | null;
   lastTransferAtUnix: number | null;
+  /**
+   * The island's own flag on this row, and it was arriving and being THROWN AWAY
+   * until 2026-09-09 — the upstream has always sent it, the parser below simply
+   * never read it, so nothing downstream could act on it.
+   *
+   * IT DOES NOT MEAN "DOES NOT COUNT", which is the obvious reading and the wrong
+   * one. Measured against the live envelope for a real 18-row flame: all 18 rows
+   * sum to 1792.96 and the envelope's own `degrees` is 1792.96, while the 4
+   * retired rows carry 155.61 of it. A retired row is still the holder's held
+   * time and still part of their number. Any copy that implies otherwise is
+   * telling somebody their time was taken away.
+   *
+   * Absent or non-boolean reads false: a row the island did not flag is a row
+   * that is not retired.
+   */
+  retired: boolean;
 }
 
 export interface HeatReading {
@@ -239,6 +255,7 @@ export function parseHeatReading(payload: unknown): HeatReading {
       degrees: typeof b.heat_degrees === 'number' ? b.heat_degrees : 0,
       firstSeenAtUnix: typeof b.first_seen_at_unix === 'number' ? b.first_seen_at_unix : null,
       lastTransferAtUnix: typeof b.last_transfer_at_unix === 'number' ? b.last_transfer_at_unix : null,
+      retired: b.retired === true,
     })),
   };
 }
