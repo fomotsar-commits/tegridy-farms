@@ -60,6 +60,15 @@ Anchor IDL is not written on-chain by `solana program deploy`, so there is no
 published copy to compare against. The correspondence argument is the binary hash
 plus same-compile provenance, above.
 
+**And the build reproduces.** Run `34312743243` built this same program source (the
+`programs/bayla-ladder` blob hashes at `133a9a22` and `ee73bb35` are identical) on a
+different day, against a different program id and a different deployer. Its IDL's raw
+sha256 is `3e22b6ad…` — different, as it must be, because those two identities are in
+the file. Put the two through `tools/check_committed_idl.py` and they are otherwise
+**byte-identical**. That is the guard below tested against a real independent rebuild
+rather than a synthetic one: it does not false-positive on a legitimate re-issue, and
+the IDL is reproducible from source rather than an accident of one runner.
+
 ### It is the DEVNET build's IDL
 
 Two fields are patched per build and differ in a mainnet artifact — `address`
