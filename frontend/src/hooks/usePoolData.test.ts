@@ -167,3 +167,99 @@ describe('usePoolData', () => {
     expect(result.current.totalStakedRaw).toBe(raw);
   });
 });
+
+// THE RESERVE ARITHMETIC, WHICH HAD NO COVERAGE AT ALL.
+//
+// `rewardsRemaining`, `secondsRemaining`, `isDry` and the `haveReads` that
+// gated all three were untested before this block — grep the 15 tests above for
+// any of those names and there are no hits. The formula is
+// `balanceOf(staking) − totalStaked − totalUnsettledRewards`, three separate
+// reads, and the flag that claimed to guard it (`stakingBalance > 0n`) checked
+// only the first one, and only that it was non-zero rather than that it landed.
+describe('usePoolData — an unread reserve is not an empty one', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  /** A healthy pool: 6.0M staked, 6.4M held, 400k of real reward reserve. */
+  function stubHealthyReserve() {
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: parseEther('6000000') });
+    wagmiMock.setReadResult({ functionName: 'totalUnsettledRewards', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: parseEther('6400000') });
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: parseEther('0.0713') });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: parseEther('6000000') });
+  }
+
+  it('reads the true reserve when every leg lands', () => {
+    stubHealthyReserve();
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.reserveUnread).toBe(false);
+    expect(result.current.rewardsRemaining).toBe(formatEther(parseEther('400000')));
+    expect(result.current.isDry).toBe(false);
+  });
+
+  it('does NOT advertise staker principal as reward reserve', () => {
+    // THE EXPENSIVE ONE. balanceOf lands, totalStaked does not. The old
+    // `haveReads = stakingBalance > 0n` was TRUE here, totalStaked collapsed to
+    // 0n, and `balance − 0 − unsettled` handed back the contract's entire
+    // holdings — 6.4M instead of 400k, a 16x overstatement of the reward pool,
+    // made of other people's principal. It passes every `> 0` hedge downstream
+    // because it is large and plausible, which is why no surface caught it.
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.reserveUnread).toBe(true);
+    expect(result.current.rewardsRemaining).not.toBe(formatEther(parseEther('6400000')));
+    expect(result.current.rewardsRemaining).toBe('0');
+    // And it must not swing to the opposite lie either: unread is not empty.
+    expect(result.current.isDry).toBe(false);
+  });
+
+  it('an unread balance is not an empty reserve', () => {
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.reserveUnread).toBe(true);
+    expect(result.current.isDry).toBe(false);
+  });
+
+  it('an unread unsettled-rewards leg poisons the subtraction too', () => {
+    // The third operand. It was never checked by anything.
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'totalUnsettledRewards', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.reserveUnread).toBe(true);
+  });
+
+  it('a GENUINELY empty reserve still reports dry — the collapse is not the bug', () => {
+    // The house convention keeps the zero; what it adds is the ability to tell
+    // this case apart from the one above. Both used to render identically.
+    wagmiMock.setReadResult({ functionName: 'totalStaked', result: parseEther('6000000') });
+    wagmiMock.setReadResult({ functionName: 'totalUnsettledRewards', result: 0n });
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: parseEther('6000000') });
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: parseEther('0.0713') });
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: parseEther('6000000') });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.reserveUnread).toBe(false);
+    expect(result.current.rewardsRemaining).toBe('0');
+    expect(result.current.isDry).toBe(true);
+  });
+
+  it('an unread APR leg is separate from the reserve', () => {
+    // Deliberately independent: a dark rewardRate must not blank a runway that
+    // was read fine, and a dark reserve must not blank a real APR.
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.aprUnread).toBe(true);
+    expect(result.current.reserveUnread).toBe(false);
+  });
+
+  it('an unread totalBoostedStake is an unread APR', () => {
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.aprUnread).toBe(true);
+  });
+});

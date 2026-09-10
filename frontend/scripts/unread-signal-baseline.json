@@ -5,7 +5,6 @@
     "src/hooks/useAutoRefreshBoost.ts",
     "src/hooks/useBribes.ts",
     "src/hooks/useGaugeList.ts",
-    "src/hooks/usePoolData.ts",
     "src/hooks/useProtocolStats.ts",
     "src/hooks/useRestaking.ts",
     "src/hooks/useRevenueStats.ts",
