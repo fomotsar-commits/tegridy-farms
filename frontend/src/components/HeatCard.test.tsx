@@ -409,3 +409,96 @@ describe('a shared link arrives already reading', () => {
     expect((container.querySelector('input') as HTMLInputElement).value).toBe('not-an-address');
   });
 });
+
+// ─── WAVE SEVEN, ELEMENT D: THE ROOM'S OWN READ ─────────────────────────────
+//
+// The directive's done-means, verbatim: "the scoped read with a fixture
+// breakdown paints the room's row first and the whole-flame line second."
+// So ORDER is asserted, not just presence — a block that printed both in the
+// wrong order would satisfy every toBeInTheDocument and miss the whole point.
+
+const PEPE = '0x6982508145454ce325ddbe47a25d4ec3d2311933';
+// A Solana mint: base58, with real capitals. The registry and the island do not
+// agree on case, which is the trap this element walks into if it compares raw.
+const BAYLA_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+
+function row(over: Record<string, unknown> = {}) {
+  return {
+    token_address: PEPE,
+    chain: 'ethereum',
+    name: 'Pepe',
+    symbol: 'PEPE',
+    heat_degrees: 338.21,
+    first_seen_at_unix: AS_OF - 400 * 86_400,
+    last_transfer_at_unix: AS_OF - 86_400,
+    retired: false,
+    ...over,
+  };
+}
+
+function mountScoped(scope: { address: string; symbol: string }) {
+  return render(
+    <MemoryRouter>
+      <HeatCard address={ADDR} variant="embedded" showEligibility={false} scopeTo={scope} />
+    </MemoryRouter>,
+  );
+}
+
+describe("element D — the room's own read", () => {
+  it('paints the room’s row FIRST and the whole flame SECOND', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+
+    await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+    const text = container.textContent ?? '';
+    const scoped = text.indexOf('338.21');
+    const flame = text.indexOf('your whole flame reads');
+    expect(scoped, 'the scoped number never rendered').toBeGreaterThan(-1);
+    expect(flame, 'the whole-flame line never rendered').toBeGreaterThan(-1);
+    expect(scoped, 'the flame came first — the room asks its own question first').toBeLessThan(flame);
+    expect(text).toContain('400 days held');
+    expect(text).toContain(`${DEGREES.toFixed(2)}`);
+  });
+
+  it('reads a wallet with no row as holding none, and still names the flame', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row({ token_address: '0xother', symbol: 'OTHER' })] }));
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() =>
+      expect(screen.getByText('This wallet holds no measured PEPE yet.')).toBeTruthy(),
+    );
+    // Never a bare "no" — a visitor with nothing HERE still has a flame, and
+    // hiding it would read as a zero.
+    expect(screen.getByText(/your whole flame reads/i)).toBeTruthy();
+  });
+
+  it('matches the contract case-insensitively, or every Solana room reads empty', async () => {
+    // The registry holds this mint with capitals; the island echoes lowercase.
+    // A raw === compare finds nothing and tells a holder they hold nothing.
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ breakdown: [row({ token_address: BAYLA_MINT.toLowerCase(), symbol: 'BAYLA', heat_degrees: 92.5 })] }),
+    );
+    mountScoped({ address: BAYLA_MINT, symbol: 'BAYLA' });
+    await waitFor(() => expect(screen.getByText('92.50')).toBeTruthy());
+    expect(screen.queryByText('This wallet holds no measured BAYLA yet.')).toBeNull();
+  });
+
+  it('shows a retired row WITH its degrees, because retired still counts', async () => {
+    // Measured on a live 18-row flame: the four retired rows carry 155.61 of its
+    // 1792.96 and the island's own total agrees. A retired row that rendered as
+    // absent, or as a zero, would tell a holder their time had been taken away.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row({ retired: true })] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() => expect(screen.getByText('338.21')).toBeTruthy());
+    expect(screen.getByText('RETIRED')).toBeTruthy();
+    expect(container.textContent).not.toContain('This wallet holds no measured');
+  });
+
+  it('never renders the venue’s whole-flame ladder inside a room', async () => {
+    // The room asks a narrower question. If the scope prop stopped taking
+    // effect, the full instrument would render here and this would catch it.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+    expect(container.textContent).not.toMatch(/Where the .* comes from/i);
+  });
+});

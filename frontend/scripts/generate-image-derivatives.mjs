@@ -51,7 +51,7 @@
  * cost almost nothing.
  */
 import sharp from 'sharp';
-import { readdirSync, statSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, dirname, extname } from 'node:path';
 
 /**
@@ -71,11 +71,6 @@ const DERIVED_DIR = join(PUBLIC_ROOT, '_derived');
 /** Where ArtImg reads what exists. Gitignored; a committed empty default ships beside it. */
 const MANIFEST = join('src', 'lib', 'artDerivatives.generated.json');
 
-/** The registry the door thumbnails are declared in. Read as TEXT, not imported:
- *  this script runs under plain Node with no TS loader (same constraint as
- *  scripts/render-bungalow-doors.mjs). */
-const BUNGALOWS_TS = join('src', 'lib', 'bungalows.ts');
-/** Per-thumbnail brightness multipliers for the settled-door grid. Committed. */
 /**
  * Only files big enough to be worth a second copy. Below this the derivative can
  * be LARGER than the original once webp overhead and a re-encode are paid for,

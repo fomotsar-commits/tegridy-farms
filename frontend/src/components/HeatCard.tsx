@@ -161,6 +161,21 @@ export interface HeatCardProps {
   variant?: 'panel' | 'embedded';
   /** Hide the launch-floor line, for surfaces where launching is not the subject. */
   showEligibility?: boolean;
+  /**
+   * READ THE SAME WALLET, BUT ANSWER ONE TOKEN'S QUESTION (wave seven, element D).
+   *
+   * A bungalow room asks something narrower than the venue does: not "what is
+   * this wallet's whole flame", but "what is this visitor's held time HERE".
+   * The reading is identical — same address, same fetch, same freshness, same
+   * failure sentences — so this is a presentation of it, not a second source.
+   * The directive's own words are "the instrument, element B, scoped".
+   *
+   * Everything that decides anything is untouched: the form, the loading arm,
+   * and the error arm all render exactly as they do on the venue, because an
+   * unreadable instrument in a room must fail the same way it fails anywhere
+   * else and must never read as a zero.
+   */
+  scopeTo?: { address: string; symbol: string };
 }
 
 export function HeatCard({
@@ -168,6 +183,7 @@ export function HeatCard({
   initialAddress = null,
   variant = 'panel',
   showEligibility = true,
+  scopeTo,
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const embedded = variant === 'embedded';
@@ -317,13 +333,17 @@ export function HeatCard({
 
         {state.kind === 'ready' && (
           <m.div key={state.reading.address} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <Reading
-              reading={state.reading}
-              now={now}
-              showMath={showMath}
-              onToggleMath={() => setShowMath((v) => !v)}
-              showEligibility={showEligibility}
-            />
+            {scopeTo ? (
+              <ScopedReading reading={state.reading} scopeTo={scopeTo} />
+            ) : (
+              <Reading
+                reading={state.reading}
+                now={now}
+                showMath={showMath}
+                onToggleMath={() => setShowMath((v) => !v)}
+                showEligibility={showEligibility}
+              />
+            )}
           </m.div>
         )}
       </AnimatePresence>
@@ -672,6 +692,83 @@ function Reading({
  * what a wallet is told here and what happens at submit cannot drift. It reads DEGREES,
  * not tenure: held time is already priced inside the number (see LAUNCH_FLOOR).
  */
+/**
+ * THE ROOM'S OWN READ — wave seven, element D.
+ *
+ * Two lines, in the order the directive sets: the row for THIS room's contract
+ * first, the whole flame second. The scoped number leads because it is the
+ * question the room asks; the flame follows so the visitor is never shown a
+ * small number without being told it is one token's share of a bigger one.
+ *
+ * MATCHED BY CONTRACT, CASE-INSENSITIVELY, and that is not a nicety: the
+ * registry stores EVM addresses lowercase and Solana mints in base58 with real
+ * capitals, while the island echoes back whatever it holds. A case-sensitive
+ * compare would silently find no row for every Solana room and print "holds no
+ * measured BAYLA yet" to somebody holding plenty.
+ *
+ * RETIRED ROWS STILL COUNT, which is why one is rendered exactly like any other
+ * with only the island's own word on it. Measured on a live 18-row flame: the
+ * four retired rows carry 155.61 of its 1792.96, and the island's own total
+ * agrees. The SENTENCE that explains the word to a visitor is the island's to
+ * write — §D calls for "the venue's existing retired grammar" and the venue has
+ * none for a row, only for a retired CLAIM. Asked; not invented here, because a
+ * guess would be the venue telling somebody something about their own held time
+ * that the island did not say.
+ */
+function ScopedReading({
+  reading,
+  scopeTo,
+}: {
+  reading: HeatReading;
+  scopeTo: { address: string; symbol: string };
+}) {
+  const want = scopeTo.address.trim().toLowerCase();
+  const row = reading.breakdown.find((r) => r.tokenAddress.trim().toLowerCase() === want) ?? null;
+  const days = row?.firstSeenAtUnix != null ? daysHeld(row.firstSeenAtUnix, reading.asOfUnix) : null;
+
+  return (
+    <div>
+      <p className="text-[11px] uppercase tracking-[0.16em] text-white/55 mb-2">
+        Your held time in {scopeTo.symbol}
+      </p>
+
+      {row ? (
+        <div className="mb-3">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="stat-value text-[26px] leading-none" style={{ color: TIER_COLOR[reading.tier] }}>
+              {row.degrees.toFixed(2)}
+            </span>
+            <span className="text-[15px]" style={{ color: TIER_COLOR[reading.tier] }}>&deg;</span>
+            {row.retired && (
+              <span
+                className="text-[9px] font-bold tracking-[0.14em] rounded-full px-2 py-0.5"
+                style={{ background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.22)' }}
+                title="The island marks this token retired. Its degrees still count toward your flame."
+              >
+                RETIRED
+              </span>
+            )}
+          </div>
+          {days !== null && (
+            <p className="text-white/80 text-[13px] mt-1">
+              {days.toLocaleString('en-US')} {days === 1 ? 'day' : 'days'} held
+              {row.firstSeenAtUnix != null && <> &middot; since {sinceLabel(row.firstSeenAtUnix)}</>}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-white/80 text-[13px] mb-3">
+          This wallet holds no measured {scopeTo.symbol} yet.
+        </p>
+      )}
+
+      <p className="text-white/60 text-[12px]">
+        your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
+      </p>
+    </div>
+  );
+}
+
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
   const floor = heatLaunchFloor();
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());

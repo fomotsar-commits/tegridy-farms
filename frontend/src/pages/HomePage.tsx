@@ -37,6 +37,7 @@ import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
 import { arrivalVoice, VENUE } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
+import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { ThreePaths } from '../components/ThreePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
@@ -578,6 +579,21 @@ export default function HomePage() {
         {bungalowIdentity?.market && (
           <div className="pb-8">
             <BungalowMarket bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* WAVE SEVEN, element D: THE ROOM'S OWN READ, in the directive's slot —
+            after the market card, before the holders. The instrument scoped to
+            this room's contract: your held time HERE first, your whole flame
+            second. Same reading as the venue's, presented to the narrower
+            question a room asks. */}
+        {bungalowIdentity?.address && (
+          <div className="pb-8">
+            <HeatCard
+              variant="embedded"
+              showEligibility={false}
+              scopeTo={{ address: bungalowIdentity.address, symbol: bungalowIdentity.symbol }}
+            />
           </div>
         )}
 
