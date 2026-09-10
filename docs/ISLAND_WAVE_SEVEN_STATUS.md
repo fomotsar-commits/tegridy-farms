@@ -292,6 +292,28 @@ the first value centred on the subject and put the headline straight on the ape'
 answer the old art had already reached from the other direction (`4% 85%`, pin the quiet
 corner).
 
+**🔴 AND THE FIRST TWO ATTEMPTS AT IT WERE BOTH WRONG, BOTH CAUGHT BY THE OWNER, AND
+BOTH WORTH RECORDING.**
+
+*It repainted a room it had no business in.* `home:0` is not the venue's surface — it is the
+SHARED classic one, drawn by the venue arrival, by the TOWELI room, and by anything else
+resolving the classic pool. Repointing it gave /toweli a new backdrop too. The venue reads
+`venue-home:0` now; `home:0` is byte-identical to what it was (`iph_0148` at `4% 85%`), which
+is asserted rather than eyeballed: the whole diff of `artOverrides.ts` against trunk is one
+ADDED line. `heroPreload.test.ts` gains the half that would have caught it in the first place
+— an assertion that the two surfaces are NOT the same picture, so pointing the venue back at
+`home:0` reds instead of quietly moving a room.
+
+*And the crop was tuned for the wrong thing.* I pinned it to the quiet dark corner (`20%`) to
+protect headline legibility, and on a phone that pushed the ape off the right edge entirely: a
+picture of a door with a shoulder in it. The owner's own screenshot is what showed it. Swept
+34 / 38 / 42 / 46 / 50 / 54% against real iPhone and iPad viewports and looked at all twelve
+frames: **42%** centres him with the doorway behind him, whole, at both sizes, and costs the
+desktop nothing (1440×900 has 159 px of horizontal slack in total). The lesson is the one
+this wave keeps relearning in a new costume — **the arithmetic answer and the looked-at answer
+were different, and the looked-at one was right.** Verified live on production at both sizes,
+and /toweli verified live still on its own picture.
+
 **AND CI WAS RED FOR A REASON THAT WAS NEVER THIS BRANCH.** `E2E Tests (Anvil fork — money
 paths)` had been failing in 89 seconds — on trunk too, at the merge of #467, and it would
 have failed on every PR opened from now on:
