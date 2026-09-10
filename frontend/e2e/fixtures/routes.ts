@@ -850,8 +850,27 @@ export const ROUTES: readonly RouteSpec[] = [
  * `main`. Audited once, on `/`, with `main` excluded. Without this the footer's
  * heading levels would be reported on all forty routes and each route's own
  * defect would be buried under a duplicate.
+ *
+ * EMPTY SINCE 2026-09-09, AND THE VIOLATION WAS NEVER THE CHROME'S FAULT.
+ *
+ * This carried `heading-order` for as long as the list has existed, filed
+ * against `components/layout/` because that is where the flagged node lives:
+ * the footer's first `<h4>`. The footer was innocent. `heading-order` judges a
+ * heading against the PREVIOUS one in document order, and the previous one was
+ * whatever the arrival's last section left behind — inside `main`, which this
+ * audit excludes from reporting but cannot exclude from the document.
+ *
+ * The arrival used to end on the FAQ teaser's `<h2>`, so the real sequence was
+ * h1 → h2 → h3 × 3 → **h2** → h4: a jump from h2 straight to h4, skipping h3,
+ * and the footer wore it. Wave seven's element C gated that teaser to /toweli,
+ * and the arrival now reads h1 → h2 (the hall) → h3 × 3 (the three paths)
+ * → h4 (the footer). No skip, nothing to declare.
+ *
+ * Measured, not deduced: the heading list above was read off the rendered page
+ * before and after. Kept as an empty list rather than deleted so the next
+ * regression still lands here with this note attached.
  */
-export const CHROME_KNOWN_VIOLATIONS: readonly string[] = ['heading-order'];
+export const CHROME_KNOWN_VIOLATIONS: readonly string[] = [];
 
 /** Routes that render a page and are audited. */
 export const AUDITABLE_ROUTES = ROUTES.filter((r) => r.gate === null);

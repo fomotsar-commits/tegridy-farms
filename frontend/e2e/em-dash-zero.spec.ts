@@ -179,14 +179,27 @@ async function settle(page: Page, path: string) {
 }
 
 test.describe('element I: em dashes in venue-voice prose', () => {
-  // Chromium only. Rendered copy is not engine-dependent, and this walks fifty
-  // routes — running it four times over would buy nothing and would put a long
-  // serial sweep on the two WebKit projects, which this box already collapses
-  // under load. The a11y sweep walks these same routes on every engine.
-  test.skip(({ browserName }) => browserName !== 'chromium', 'copy is not engine-dependent');
+  // THE DESKTOP PROJECT ONLY, AND IT MUST BE MATCHED BY PROJECT NAME.
+  //
+  // `browserName !== 'chromium'` is the wrong test and it cost a CI run to
+  // learn: the `mobile-chrome` project is a Pixel 5, so its browserName is
+  // 'chromium' too, and the guard ran there with the desktop baseline. At a
+  // phone width /exposure reads 2 where the desktop reads 1 — not different
+  // copy, a different set of components rendering. The numbers below are a
+  // desktop measurement and only the desktop project may be judged by them.
+  //
+  // Rendered copy is not engine-dependent, so one project is the honest amount
+  // of work here; four would also put a fifty-route serial sweep on the two
+  // WebKit projects, which this box already collapses under load.
+  //
+  // NOT WALKED, and therefore not claimed: copy that only a narrow viewport
+  // renders — the BottomNav's four tabs and the hamburger drawer. A mobile
+  // baseline is its own list, and this element has not asked for one yet.
+  // (asserted per test below, via test.info().project.name)
 
   for (const [path, budget] of Object.entries(VENUE_VOICE_DEBT)) {
     test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
       test.slow();
       await page.addInitScript(() => {
         try {
