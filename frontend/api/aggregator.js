@@ -412,6 +412,20 @@ export default async function handler(req, res) {
     return handleBotLink(req, res);
   }
 
+  // `?resource=tape` names the buyers on a room's trade tape (wave seven,
+  // element N). One call per tape, fanning out to the island's heat oracle with
+  // four reads in flight; the browser cannot do this itself because the oracle
+  // is CORS-locked, and doing it row-by-row would spend heat's own bucket twelve
+  // at a time. Its own rate-limit identifier for exactly that reason.
+  //
+  // MUST stay above the `const provider` line below — same placement law as
+  // heat and flames: a ?resource= call carries no provider, so a branch placed
+  // after it never runs and falls into the 404.
+  if (req.query.resource === "tape") {
+    const { handleTape } = await import("./_lib/tape.js");
+    return handleTape(req, res);
+  }
+
   // FLAT function at /api/aggregator. AUDIT FIX 2026-07-10: Vercel's nested /
   // catch-all dynamic function routing under /api/aggregator (both
   // `[provider]/[...path]` and a single `[...slug]`) did NOT route reliably with
