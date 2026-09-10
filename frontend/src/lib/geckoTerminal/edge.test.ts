@@ -44,7 +44,12 @@ function pathOf(url: string): string | null {
  */
 function expectServedByOurEdge(url: string): void {
   expect(url.startsWith('/'), `must be same-origin, got: ${url}`).toBe(true);
-  expect(url).not.toMatch(/api\.geckoterminal\.com/);
+  // A substring check, not a regex. An UNANCHORED host regex on a URL is the
+  // `js/regex/missing-regexp-anchor` shape — arbitrary hosts can sit either side
+  // of the match — and CodeQL is right to flag it even here, where the assertion
+  // is negative. The property wanted is "this host appears nowhere in the
+  // string", which is what `toContain` says directly.
+  expect(url).not.toContain('api.geckoterminal.com');
   expect(url.startsWith(GECKO_EDGE_RESOURCE)).toBe(true);
   const path = pathOf(url);
   expect(path, `no path param in: ${url}`).not.toBeNull();
