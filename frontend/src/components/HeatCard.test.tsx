@@ -502,3 +502,28 @@ describe("element D — the room's own read", () => {
     expect(container.textContent).not.toMatch(/Where the .* comes from/i);
   });
 });
+
+describe('element D — the room names its question before it has an answer', () => {
+  it('shows the scoped heading COLD, before any read', async () => {
+    // `variant="embedded"` drops the card's own title, which is right in the
+    // gate and was wrong in a room: it left a visitor looking at an address
+    // field and a Read button with nothing saying what they read. The question
+    // must exist before the answer does.
+    h.fetchHeat.mockImplementation(() => new Promise(() => {}));
+    render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" showEligibility={false} scopeTo={{ address: PEPE, symbol: 'PEPE' }} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy();
+  });
+
+  it('names it exactly once when the answer arrives', async () => {
+    // The heading moved out of the result block to sit above the form. If a
+    // copy of it were left behind, a room would ask its question twice.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() => expect(screen.getByText('338.21')).toBeTruthy());
+    expect(screen.getAllByText(/Your held time in PEPE/i)).toHaveLength(1);
+  });
+});

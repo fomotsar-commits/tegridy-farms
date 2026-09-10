@@ -589,11 +589,22 @@ export default function HomePage() {
             question a room asks. */}
         {bungalowIdentity?.address && (
           <div className="pb-8">
-            <HeatCard
-              variant="embedded"
-              showEligibility={false}
-              scopeTo={{ address: bungalowIdentity.address, symbol: bungalowIdentity.symbol }}
-            />
+            {/* THE ROOM SUPPLIES THE PANEL. `variant="embedded"` drops the card's
+                own chrome, which is right where a host has already introduced it
+                (the launch gate) and wrong here: on a room's full-bleed art the
+                block rendered as bare white type over a painting and was, in
+                plain terms, unreadable. This is BungalowHolders' panel, matched
+                exactly, so the room's three cards read as one set. */}
+            <div
+              className="rounded-2xl p-6"
+              style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
+            >
+              <HeatCard
+                variant="embedded"
+                showEligibility={false}
+                scopeTo={{ address: bungalowIdentity.address, symbol: bungalowIdentity.symbol }}
+              />
+            </div>
           </div>
         )}
 

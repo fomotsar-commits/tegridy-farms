@@ -256,6 +256,24 @@ export function HeatCard({
             }
       }
     >
+      {/* THE ROOM'S HEADING, and it has to sit OUTSIDE the ready state.
+          `embedded` deliberately drops the card's own title, which is right in
+          the gate (the gate introduces itself). In a room it left a cold
+          visitor looking at a bare address field and a Read button with
+          nothing saying what it reads — the question only appeared once the
+          answer did. */}
+      {scopeTo && (
+        <div className="mb-3">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-white/55">
+            Your held time in {scopeTo.symbol}
+          </p>
+          <p className="text-white/55 text-[12px] mt-0.5">
+            Read any wallet. Held time is the island's, not this room's — the
+            same number the venue reads, answered for {scopeTo.symbol}.
+          </p>
+        </div>
+      )}
+
       {!embedded && (
         <>
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
@@ -728,10 +746,6 @@ function ScopedReading({
 
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.16em] text-white/55 mb-2">
-        Your held time in {scopeTo.symbol}
-      </p>
-
       {row ? (
         <div className="mb-3">
           <div className="flex items-baseline gap-2 flex-wrap">
