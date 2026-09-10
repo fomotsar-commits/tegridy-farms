@@ -296,7 +296,19 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       </button>
                     );
                   })()}
-                  {lpFarm.minStake > 0n && (
+                  {/* An unread MIN_STAKE collapses to 0n, which fails BOTH tests below
+                      and used to render nothing at all — so the screen quietly claimed
+                      this pool has no minimum, and `belowMin` above stopped blocking.
+                      Say we could not read it instead. Staking stays enabled: the
+                      contract enforces MIN_STAKE regardless, so the cost here is a
+                      revert, and refusing a legitimate stake over one unanswered read
+                      of a constant would be the worse trade. */}
+                  {lpFarm.minStakeUnread ? (
+                    <p className="text-white/50 text-[10px] mt-2">
+                      Minimum stake <span className="font-mono">unread</span> &mdash; if this pool has one,
+                      a stake below it will revert. Retry in a moment to check.
+                    </p>
+                  ) : lpFarm.minStake > 0n && (
                     <p className="text-white/50 text-[10px] mt-2">
                       Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
                       {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (

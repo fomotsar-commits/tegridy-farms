@@ -282,3 +282,63 @@ describe('useLPFarming — a failed position read is not a zero position', () =>
     expect(result.current.positionUnread).toBe(false);
   });
 });
+
+// MIN_STAKE is entry [10] of the same batch, and `positionUnread` above covers
+// entries [5][6][7] only. Because the outage-as-zero guard tests its signal
+// vocabulary against the WHOLE FILE, that one correct flag exempted this
+// collapse from CI entirely -- while the guard's own failure message quoted this
+// file as an exemplar to copy. See the census in check-unread-signal.mjs.
+//
+// The consequence is the one LPFarmingSection.tsx:269 says the client-side floor
+// exists to prevent: `belowMin` is gated on `minStake > 0n`, so an unread
+// minimum stops blocking, the "Min stake N LP" notice disappears with it, and
+// the user gets the StakeBelowMinimum() revert and its scary gas estimate.
+describe('useLPFarming — an unread MIN_STAKE is not "no minimum"', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('reports the minimum as unread when its entry fails', () => {
+    // Every OTHER leg lands, so this is not a whole-batch outage that some
+    // broader flag would have caught -- it is the single-entry failure the
+    // file-scoped exemption hid.
+    wagmiMock.setReadResult({ functionName: 'rawBalanceOf', address: LP_FARMING_ADDRESS, result: parseEther('100') });
+    wagmiMock.setReadResult({ functionName: 'earned', result: parseEther('50') });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: parseEther('999') });
+
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(true);
+    // The position legs DID land, so the flag that already existed says nothing
+    // is wrong -- which is precisely why this one had to exist separately.
+    expect(result.current.positionUnread).toBe(false);
+    // The collapse is kept for display, as the house convention requires.
+    expect(result.current.minStake).toBe(0n);
+  });
+
+  it('a successfully read minimum is not unread', () => {
+    wagmiMock.setReadResult({ functionName: 'MIN_STAKE', address: LP_FARMING_ADDRESS, result: 10n ** 16n });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(false);
+    expect(result.current.minStake).toBe(10n ** 16n);
+  });
+
+  it('the wrong chain is not an outage', () => {
+    // MIN_STAKE is a pool constant, not a user read, so this flag is scoped
+    // without `address` -- but a batch that was never enabled still must not
+    // report a failure it never attempted.
+    wagmiMock.setChainId(11155111);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(false);
+  });
+
+  it('a disconnected visitor still learns the pool minimum', () => {
+    // The opposite of positionUnread's scoping, and deliberate: the minimum is
+    // a fact about the pool, so a logged-out visitor reading the farm page must
+    // still be told when we could not fetch it.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(true);
+  });
+});

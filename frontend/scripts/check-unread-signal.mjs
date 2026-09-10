@@ -142,6 +142,14 @@ export function scan(root = SRC_ROOT) {
  * MEASUREMENT of how much the file-scoped exemption covers, because a caveat in
  * prose is not a number anyone acts on.
  *
+ * IT MEASURES EXPOSURE, NOT DEBT, AND IT WILL NOT GO DOWN AS THESE ARE FIXED.
+ * The house convention KEEPS the collapse and adds a signal beside it, so a leg
+ * that has just been fixed correctly still counts here -- `minStake` below is
+ * guarded now and the 69 did not move. The number falls only if a file stops
+ * collapsing altogether, which is not what we ask for. Read it as "collapse
+ * sites this guard never looked at", never as a burn-down chart; the baseline
+ * is the burn-down chart.
+ *
  * Worked example, and the reason this exists: useLPFarming.ts derives
  * `positionUnread` from entries [5][6][7] of an 11-entry batch -- correctly, and
  * it is consumed on screen. That one signal also exempts entry [10], `minStake`,

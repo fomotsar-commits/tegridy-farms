@@ -97,6 +97,24 @@ export function useLPFarming() {
   // connected wallet with the batch actually enabled: an undeployed farm or a
   // wrong network never asked, which is a different fact with its own banner -
   // a not-attempted read must not render as a failed one.
+  // THE SAME SHAPE, FIVE ENTRIES ALONG, and the one nothing caught: MIN_STAKE
+  // collapsing to 0n reads as "this pool has no minimum". LPFarmingSection.tsx
+  // gates its client-side floor on `minStake > 0n` (:272) and the notice that
+  // says a minimum exists on the same test (:299), so an unread MIN_STAKE
+  // disarms the guard AND deletes the sentence explaining it -- handing the user
+  // the StakeBelowMinimum() revert, and the "scary revert-fallback gas estimate",
+  // that the guard's own comment says it was written to prevent.
+  //
+  // `positionUnread` below does NOT speak for this. It is scoped to entries
+  // [5][6][7], correctly, and the guard that walks this file exempts the whole
+  // file once it sees one signal word -- so this collapse has been invisible to
+  // CI while the file was quoted as an exemplar to copy. See the census in
+  // scripts/check-unread-signal.mjs.
+  //
+  // No `address` in the scope: MIN_STAKE is a pool constant, not a user read.
+  const minStakeUnread = isDeployed && onMainnet && !isReadLoading
+    && data?.[10]?.status !== 'success';
+
   const positionUnread = isDeployed && onMainnet && !!address && !isReadLoading
     && (data?.[5]?.status !== 'success'
       || data?.[6]?.status !== 'success'
@@ -314,6 +332,7 @@ export function useLPFarming() {
     isActive,
     lpTotalSupply,
     minStake,
+    minStakeUnread,
     minStakeFormatted: formatEther(minStake),
     stakedBalance,
     stakedBalanceFormatted: formatEther(stakedBalance),
