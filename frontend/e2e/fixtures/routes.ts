@@ -190,8 +190,16 @@ export async function gotoNakamigos(page: Page): Promise<void> {
 /**
  * THE MEASUREMENT BEHIND THE FOUR GECKOTERMINAL ROWS.
  *
+ * ⚠️ STILL VALID, BUT THE URL MOVED (2026-09-10). These four routes no longer
+ * read api.geckoterminal.com browser-direct: every GeckoTerminal read now goes
+ * to `/api/aggregator?resource=gecko-read` on our own origin, which forwards it
+ * with an `s-maxage` (see api/_lib/gecko-read.js). The three branches below are
+ * unchanged as a record of what was measured — what changes is the PATTERN a
+ * future stub would have to match. `'**api.geckoterminal.com/**'` intercepts
+ * nothing now; the equivalent is `'**resource=gecko-read**'`.
+ *
  * /terminal, /chart, /copy-trading and /competitions each read
- * api.geckoterminal.com browser-direct and keyless, and nothing stubs it. So
+ * GeckoTerminal keyless, and nothing stubs it. So
  * their audited DOM depends on whether a third party answered — which is
  * exactly the shape that flakes an EQUALITY assertion, if the ready branch and
  * the degraded branch violate different rules. The obvious fix is a route stub;
