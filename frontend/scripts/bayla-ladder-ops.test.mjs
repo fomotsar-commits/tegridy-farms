@@ -13,6 +13,13 @@
 // commit 193a2064). Not derived from the source by eye, and not from memory:
 // the IDL was downloaded and compared field by field, 0 mismatches.
 //
+// THAT WAS A SNAPSHOT, AND IT NO LONGER HAS TO BE. The IDL it was checked
+// against lived only inside a CI artifact GitHub deletes after 30 days, so
+// nothing could ever re-check these literals and a program change would have
+// moved the IDL while they stayed put. `solana/tegridy-amm/idl/bayla_ladder.json`
+// is committed now, and the last block in this file READS it — see `idl/README.md`
+// for how that file was tied to the binary actually deployed on devnet.
+//
 // This file exists because none of these can fail LOCALLY. A wrong
 // discriminator, a reordered account list or a shifted struct offset produces a
 // confusing on-chain constraint failure against a deployed program — after a
@@ -21,10 +28,11 @@
 // caught on this side of a transaction.
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { PublicKey } from '@solana/web3.js';
 import {
   IX, ACCT, POOL_L, POSITION_L, USER_L,
-  poolPda, vaultPda, userPda, positionPda,
+  poolPda, vaultPda, userPda, positionPda, ataFor,
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
@@ -541,5 +549,197 @@ describe('the pool nonce is a u8 and must be refused above 255', () => {
     // The masking is genuine, which is why the guard matters.
     const P = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
     expect(poolPda(P, MINT, 256).toBase58()).toBe(poolPda(P, MINT, 0).toBase58());
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE COMMITTED IDL — READ, not transcribed.
+//
+// Every block above restates values a human copied out of an IDL once. That was
+// the only option while the IDL existed solely inside a 30-day CI artifact: a
+// transcription cannot notice the thing it was transcribed from changing.
+//
+// `solana/tegridy-amm/idl/bayla_ladder.json` is committed, and came out of the
+// same `anchor build` as the .so whose sha256 matches the deployed devnet
+// program byte for byte (idl/README.md carries the hashes). So these tests can
+// compare the CLI against the program's own compiler output instead of against a
+// memory of it — and the moment the program's interface moves without this file
+// moving, the frontend test run says so.
+//
+// This is also what stops the committed IDL rotting: `solana-ci`'s
+// `ladder-constraints` job checks it against a FRESH `anchor build`
+// (`tools/check_committed_idl.py`), and this block checks the CLI against the
+// committed copy. Neither end is left asserting only about itself.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('the CLI against the COMMITTED IDL', () => {
+  const IDL_PATH = new URL('../../solana/tegridy-amm/idl/bayla_ladder.json', import.meta.url);
+  // The read is caught, but ONLY so the failure lands as a red test in this block
+  // instead of a collection error that takes the other sixty tests in this file
+  // down with it. It is never degraded to a skip: a missing or unparseable IDL
+  // means every assertion below is checking nothing, and "checking nothing" must
+  // not present as green — that is the repo's most repeated bug class.
+  let idl = null;
+  let readError = null;
+  try {
+    idl = JSON.parse(readFileSync(IDL_PATH, 'utf8'));
+  } catch (err) {
+    readError = err;
+  }
+  const need = () => {
+    if (!idl) throw new Error('the committed IDL is unreadable — see the first test in this block');
+    return idl;
+  };
+  const snake = (s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+  const spec = (name) => need().instructions.find((i) => i.name === name);
+
+  it('the IDL is committed and readable — its absence is a FAILURE, not a skip', () => {
+    expect(readError && String(readError?.message ?? readError)).toBeNull();
+  });
+
+  it('is the bayla-ladder IDL, not some other program dropped in its place', () => {
+    expect(need().metadata?.name).toBe('bayla_ladder');
+    expect(need().instructions.length).toBeGreaterThan(0);
+    expect(need().accounts.map((a) => a.name).sort()).toEqual(['Pool', 'Position', 'UserStats']);
+  });
+
+  // The CLI DERIVES its discriminators (sha256 of `global:<snake_name>`). The IDL
+  // carries the bytes Anchor's own macro emitted. Two independent derivations of
+  // the same eight bytes; if the CLI's name string is wrong, they part company.
+  describe('instruction discriminators', () => {
+    for (const [camel, bytes] of Object.entries(IX)) {
+      it(`${camel} — the CLI's bytes are the IDL's bytes`, () => {
+        const s = spec(snake(camel));
+        expect(s, `the committed IDL has no \`${snake(camel)}\` instruction`).toBeDefined();
+        expect(b(bytes)).toEqual(s.discriminator);
+      });
+    }
+  });
+
+  describe('account discriminators', () => {
+    for (const [name, bytes] of Object.entries(ACCT)) {
+      it(`${name} — the CLI's bytes are the IDL's bytes`, () => {
+        const s = need().accounts.find((a) => a.name === name);
+        expect(s, `the committed IDL has no \`${name}\` account`).toBeDefined();
+        expect(b(bytes)).toEqual(s.discriminator);
+      });
+    }
+  });
+
+  // ACCOUNT ORDER AND FLAGS, POSITION BY POSITION, FROM THE IDL ITSELF.
+  //
+  // Anchor matches accounts by POSITION, so a reordered list is not a style
+  // question: it deserialises the wrong account into the wrong constraint and
+  // surfaces on-chain as a violation naming an account that looks unrelated.
+  // The blocks above pin those orders as hand-written literals; here the
+  // expectation is generated from the IDL, so a program-side reorder is caught
+  // even if nobody remembers to update a literal.
+  //
+  // What is actually asserted per slot: the PUBKEY the CLI put there equals the
+  // one this table resolves the IDL's name to, and the signer/writable flags
+  // equal the IDL's. The name itself is only a label on the failure message —
+  // the CLI emits no names, so comparing them would be comparing the IDL to itself.
+  describe('account lists — order, flags and identity, generated from the IDL', () => {
+    const SYSTEM = new PublicKey('11111111111111111111111111111111');
+    const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+    const pool = poolPda(PROGRAM, MINT, 0);
+    const p = {
+      mint: MINT,
+      tokenProgram: TOKEN_2022,
+      stakeVault: vaultPda(PROGRAM, STAKE_VAULT_SEED, pool),
+      rewardVault: vaultPda(PROGRAM, REWARD_VAULT_SEED, pool),
+    };
+    const NONCE = 0;
+    const slot = {
+      payer: OWNER,
+      owner: OWNER,
+      authority: OWNER,
+      pool,
+      mint: MINT,
+      user_stats: userPda(PROGRAM, pool, OWNER),
+      position: positionPda(PROGRAM, pool, OWNER, NONCE),
+      owner_ata: ataFor(MINT, OWNER, TOKEN_2022),
+      funder_ata: ataFor(MINT, OWNER, TOKEN_2022),
+      stake_vault: p.stakeVault,
+      reward_vault: p.rewardVault,
+      token_program: TOKEN_2022,
+      system_program: SYSTEM,
+    };
+    // Arg widths, so the data length is derived from the IDL rather than restated.
+    const WIDTH = { u8: 1, u32: 4, u64: 8, i64: 8, u128: 16, pubkey: 32, bool: 1 };
+
+    const matches = (idlName, ix) => {
+      const s = spec(idlName);
+      expect(s, `the committed IDL has no \`${idlName}\``).toBeDefined();
+      const flags = (sg, w) => `${sg ? 'S' : ''}${w ? 'W' : ''}`;
+      const want = s.accounts.map((a) => {
+        const key = slot[a.name];
+        expect(key, `this test has no pubkey for the IDL account \`${idlName}.${a.name}\``).toBeDefined();
+        return `${a.name} ${flags(a.signer, a.writable)} ${key.toBase58()}`;
+      });
+      const got = ix.keys.map((k, i) =>
+        `${s.accounts[i]?.name ?? `EXTRA#${i}`} ${flags(k.isSigner, k.isWritable)} ${k.pubkey.toBase58()}`);
+      expect(got).toEqual(want);
+
+      expect(b(ix.data.subarray(0, 8))).toEqual(s.discriminator);
+      const argBytes = s.args.reduce((n, a) => {
+        expect(WIDTH[a.type], `unhandled IDL arg type \`${a.type}\` on ${idlName}`).toBeDefined();
+        return n + WIDTH[a.type];
+      }, 0);
+      expect(ix.data.length).toBe(8 + argBytes);
+    };
+
+    it('initialize_pool', () => matches('initialize_pool', ixInitializePool({
+      programId: PROGRAM, payer: OWNER, mint: MINT, tokenProgram: TOKEN_2022,
+      nonce: 0, minStake: 1n, depositCap: 2n, maxWallet: 2n,
+    })));
+
+    it('stake', () => matches('stake', ixStake({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE,
+      amountRaw: 1n, lockSecs: MIN_LOCK_SECS,
+    })));
+
+    it('claim', () => matches('claim', ixClaim({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE,
+    })));
+
+    it('withdraw_matured', () => matches('withdraw_matured', ixExit({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE, early: false,
+    })));
+
+    it('early_exit', () => matches('early_exit', ixExit({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE, early: true,
+    })));
+
+    it('emergency_withdraw', () => matches('emergency_withdraw', ixEmergencyWithdraw({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE,
+    })));
+
+    it('claim_carried', () => matches('claim_carried', ixClaimCarried({
+      programId: PROGRAM, owner: OWNER, pool, p,
+    })));
+
+    it('notify_reward', () => matches('notify_reward', ixNotifyReward({
+      programId: PROGRAM, authority: OWNER, pool, p, amountRaw: 5n, fromBudgetRaw: 7n,
+    })));
+
+    it('sweep_orphaned_penalty', () => matches('sweep_orphaned_penalty', ixSweep({
+      programId: PROGRAM, pool, p,
+    })));
+  });
+
+  // A NEW PROGRAM INSTRUCTION MUST NOT ARRIVE UNNOTICED.
+  //
+  // The gap this names is real and deliberate: the governance calls are run from
+  // a keypair the CLI has no builder for. Listing them means an instruction added
+  // to the program lands in NEITHER set and reds here, forcing the decision
+  // "build it, or write it down" instead of it being silently uncovered.
+  it('every instruction in the IDL is either driven by the CLI or knowingly not', () => {
+    const driven = Object.keys(IX).map(snake);
+    const notDriven = [
+      'accept_authority', 'propose_authority',
+      'propose_cap_raise', 'execute_cap_raise', 'cancel_cap_raise',
+      'declare_degraded',
+    ];
+    expect([...driven, ...notDriven].sort()).toEqual(need().instructions.map((i) => i.name).sort());
   });
 });
