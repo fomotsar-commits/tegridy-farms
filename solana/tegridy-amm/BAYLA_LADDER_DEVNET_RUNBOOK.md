@@ -2,6 +2,56 @@
 
 **Status: DEVNET ONLY. Do not deploy this to mainnet with real BAYLA yet.**
 
+---
+
+## ✅ THIS RUNBOOK HAS BEEN EXECUTED — devnet, 2026-09-09
+
+Everything below was run end to end, not just written. The addresses are real and live.
+
+| | |
+| --- | --- |
+| program | `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` |
+| pool (nonce 0) | `2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4` |
+| stand-in mint | `8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL` (Token-2022, 6dp, both authorities revoked) |
+| deployer / authority | `Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj` |
+| deployed with | `--max-len 512504` → **2.604 SOL** of rent |
+
+**Eight instructions executed against the deployed program.** Compute, measured live,
+against the 200 000 default budget:
+
+| instruction | CU |
+| --- | --- |
+| `initialize_pool` | 35 031 |
+| `stake` | 26 142 – 33 385 |
+| `notify_reward` | 12 335 |
+| `claim` | 16 022 |
+| `early_exit` | 28 725 |
+| `emergency_withdraw` | 18 957 |
+| `claim_carried` | 13 631 |
+| `sweep_orphaned_penalty` | 10 591 |
+
+**The accounting reconciled exactly.** Funded 50 000, plus two 25% penalties of 125,
+minus 0.59156 paid out → reward vault 50 249.408 44. `rewards_emitted == rewards_paid`,
+outstanding 0, `total_principal` 0, stake vault 0, `orphaned_penalty` swept to 0.
+
+**Two claims in this document became measurements:**
+
+- **The ladder is real and linear.** 500 tokens at 7 days → weight 200 000 000 (the
+  **0.40× floor**, not the 4.00× top); at 30 days → 228 450 000 (0.4569×). Both match
+  `MIN_BOOST + (MAX_BOOST − MIN_BOOST) × (lock − MIN) / (MAX − MIN)` exactly.
+- **The hatch penalty is real.** The `Withdrawn` event on a 500-token locked position
+  decodes to `amount = 375.00, penalty = 125.00`. ⚠️ The `transfer_checked` in that same
+  transaction moved **375** — the penalty exists ONLY inside the event, so a reader
+  watching token transfers, or a raw simulation, sees no penalty at all. That is exactly
+  how the "the hatch is free" error survived in this document and in the CLI.
+
+🔴 **STILL NEVER EXECUTED: `withdraw_matured`.** Positions `#2` (7-day) and `#3` (30-day)
+were opened on 2026-09-09 for this purpose. **`#2` matures 2026-09-16** — run
+`exit --pool <p> --nonce 2` (no `--early`) then and the last principal path is closed.
+It cannot be automated from a cloud runner: it needs the operator's local signing key.
+
+---
+
 The internal audit (2026-09-06, 82 agents, `docs/` + the audit artifact) returned
 **0 Critical / 1 High / 4 Medium / 11 Low**, and every one is fixed and merged. It also
 returned a verdict on sequencing that has not changed: this program had **never executed
@@ -77,9 +127,27 @@ solana config set --url devnet --keypair <path-outside-the-repo>/devnet-deploy.j
 
 Keep keys **outside the repo** so git cannot swallow them.
 
-Devnet SOL: the `.so` is ~512 KB, so rent is `size * 2 * 0.00000696` ≈ **7.2 SOL**, plus
-fees. The faucet caps each request, so ask repeatedly (`solana airdrop 2`) or use
-<https://faucet.solana.com>. The old "~6 SOL" figure here was short of the real number.
+**Devnet SOL — ask the chain, do not use the rule of thumb.** `size * 2 * 0.00000696`
+is an approximation that OVERSTATES this by about 2 SOL. `solana rent` is authoritative:
+
+```bash
+solana rent 1025008    # 2 x the 512,504-byte .so -> Rent-exempt minimum: 5.21 SOL
+solana rent 512504     # exact size, with --max-len -> 2.60 SOL
+```
+
+| deploy | ProgramData size | rent |
+| --- | --- | --- |
+| `solana program deploy` (default) | 2× the binary, so it can be upgraded to a larger one | **~5.21 SOL** |
+| `solana program deploy --max-len 512504` | exactly the binary | **~2.60 SOL** |
+
+Budget **~5.5 SOL** for the default, or **~2.8 SOL** with `--max-len`. On devnet, where
+the faucet is the constraint, `--max-len` is the sensible choice: it only forecloses
+upgrading to a *larger* binary, and a devnet program can simply be redeployed.
+
+⚠️ **The public faucet rate-limits hard by IP**, and `solana airdrop` then fails with
+"airdrop request failed. This can happen when the rate limit is reached." That is not a
+config error — the RPC is fine, the faucet is refusing. Use <https://faucet.solana.com>
+(it needs a CAPTCHA, so it is a human step) or wait for the limit to reset.
 
 ---
 
@@ -232,7 +300,7 @@ below with your addresses already filled in.
 ```bash
 solana config set --url devnet
 solana address    # must print the $WALLET you built against
-solana balance    # the .so is ~512 KB, so budget ~7.6 SOL of rent + fees
+solana balance    # need ~5.5 SOL, or ~2.8 with --max-len below
 
 solana program deploy bayla_ladder.so \
   --program-id target/deploy/bayla_ladder-keypair.json

@@ -29,6 +29,47 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-09 — BAYLA-LADDER IS LIVE ON DEVNET, and one dated task falls out of it
+
+The lock-ladder staking program is deployed and its whole lifecycle has been driven with
+real transactions. Full record, with the measured compute and the reconciled accounting:
+`solana/tegridy-amm/BAYLA_LADDER_DEVNET_RUNBOOK.md`.
+
+| | |
+| --- | --- |
+| program | `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` |
+| pool | `2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4` |
+| stand-in mint | `8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL` |
+| deployer / pool authority | `Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj` |
+| keys | `C:/Users/jimbo/solana-keys/` — outside the repo, **unbacked-up** |
+
+Eight of fifteen instructions executed on chain. Accounting reconciled to the last digit.
+The 0.40x floor rung and the 25% hatch penalty both moved from claim to measurement.
+
+### 🔴 O-0909-1 — DATED: run `withdraw_matured` on **2026-09-16**
+
+It is the ONLY principal path that has never executed anywhere. Position `#2` was opened
+at the 7-day minimum on 2026-09-09 specifically so it would mature on the 16th:
+
+```bash
+cd frontend
+node scripts/bayla-ladder-ops.mjs exit --pool 2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4   --nonce 2 --keypair C:/Users/jimbo/solana-keys/devnet-deploy.json
+# dry run first; add --broadcast. NO --early: the point is the FREE matured door.
+```
+
+Expect the full 500 back with **no** penalty, and `penalty_collected_cumulative`
+unchanged. **This cannot be automated from a cloud runner** — it needs the operator's
+local signing key. Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
+
+### 🔴 O-0909-2 — the devnet upgrade authority is a key Claude generated
+
+`Gut9toQ...` was generated during the 09-09 session so the deploy could proceed. It is
+fine for devnet and **must not be carried to mainnet**. The mainnet deployer is a
+compile-time constant baked into the binary, so it has to be chosen BEFORE the mainnet
+build, not after — see runbook §9.
+
+---
+
 ## 🟢 2026-09-06 (LATE) — POST-SHIP SWEEP: what the ceiling fix did not reach
 
 The ceiling fix is on trunk and the section below this one records it. This is the sweep that came
