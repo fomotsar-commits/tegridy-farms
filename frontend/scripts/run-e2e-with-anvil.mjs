@@ -84,13 +84,80 @@ async function portFree(port) {
   });
 }
 
-async function waitForPort(port, timeoutMs = 15_000) {
+// Poll for the port, but ALSO lose the race the moment anvil dies. A refused
+// fork kills anvil in about two seconds; the old shape ignored that and kept
+// polling a port nothing would ever bind, so a policy rejection at the upstream
+// reported itself as "did not bind within 20s" — a timeout, which reads as a
+// slow network or a busy runner. `died()` returns anvil's exit once it has one,
+// and the caller uses it to say what actually happened instead of guessing.
+async function waitForPort(port, timeoutMs = 15_000, died = () => null) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (!(await portFree(port))) return true;
+    if (died()) return false;
     await delay(250);
   }
   return false;
+}
+
+// ─── Name the cause, so the next occurrence is not a mystery ─────────────
+//
+// Every death this script has seen upstream looked the same from inside CI: a
+// wall of red with no endpoint named in the headline. The 2026-09-09 publicnode
+// gate sat for a full trunk run and several PRs reading as a broken money-path
+// suite, when not one test had run. So the tail is CLASSIFIED before it is
+// printed, and the verdict leads.
+function diagnoseFork(tailText) {
+  const t = String(tailText);
+  const handshakeFailed = /failed to get fork block number/i.test(t);
+  if (/Archive requests require a personal token/i.test(t)) {
+    return 'the upstream now gates ARCHIVE requests behind a paid token — and a fork IS an archive request';
+  }
+  if (/(401|403)/.test(t) && handshakeFailed) {
+    return 'the upstream refused the fork handshake for AUTH reasons (HTTP 401/403) — a plan or key gate, which waiting does not clear';
+  }
+  if (/429/.test(t) && handshakeFailed) {
+    return 'the upstream RATE-LIMITED the fork handshake (HTTP 429) — this one may clear on a retry, unlike an auth gate';
+  }
+  if (/(404|410)/.test(t) && handshakeFailed) {
+    return 'the upstream endpoint is GONE (HTTP 404/410) — the URL itself is dead, not throttled';
+  }
+  if (handshakeFailed) {
+    return 'anvil could not complete the fork handshake with the upstream';
+  }
+  return null;
+}
+
+// One loud, distinctly-titled failure. `::error::` puts the verdict in the job
+// summary and on the workflow-run page, where a generic timeout never appeared.
+function reportForkRefused(reason, tailText, fallbackHeadline) {
+  const named = reason !== null;
+  const headline = named
+    ? `Anvil could not fork ${FORK_URL} — ${reason}.`
+    : fallbackHeadline;
+  console.error('');
+  console.error(
+    `::error title=${named ? 'Anvil fork endpoint refused' : 'Anvil failed to start'}::${headline} ` +
+      'NO TEST RAN — this is the harness failing to reach a chain, not a money-path defect. ' +
+      'Set the ANVIL_FORK_URL repo secret to an RPC that serves archive reads.',
+  );
+  console.error('  ┌───────────────────────────────────────────────────────────────────');
+  console.error(`  │ ${named ? 'ANVIL FORK ENDPOINT REFUSED' : 'ANVIL FAILED TO START'}`);
+  console.error('  │');
+  console.error(`  │ endpoint : ${FORK_URL}`);
+  console.error(`  │ cause    : ${named ? reason : 'unknown — anvil produced no recognisable fork error'}`);
+  console.error('  │');
+  console.error('  │ NOT ONE TEST RAN. The money-path specs never reached Playwright, so');
+  console.error('  │ a red here says nothing about swap/stake/liquidity/lending/claim.');
+  console.error('  │');
+  console.error('  │ To fix: set the ANVIL_FORK_URL repo secret to an RPC that serves');
+  console.error('  │ ARCHIVE reads. Verify a candidate by FORKING it, never by a plain');
+  console.error('  │ `latest` read — publicnode still answers `latest` and cannot fork.');
+  console.error('  │   anvil --fork-url <candidate> --port 18545');
+  console.error('  └───────────────────────────────────────────────────────────────────');
+  console.error('  anvil said:');
+  console.error(String(tailText).replace(/^/gm, '  | '));
+  console.error('');
 }
 
 function spawnPlaywright(envExtra) {
@@ -152,6 +219,14 @@ async function main() {
     process.exit(1);
   });
 
+  // Latch the exit the instant it happens. A refused fork kills anvil in ~2s,
+  // and without this latch the startup wait below has no way to tell "not yet"
+  // from "never".
+  let anvilDied = null;
+  anvil.on('exit', (code, signal) => {
+    if (!anvilDied) anvilDied = { code, signal };
+  });
+
   // Drain both pipes. An unread pipe fills and blocks the child — and the tail
   // is the only diagnostic there is when a fork dies mid-run.
   const anvilTail = [];
@@ -162,10 +237,16 @@ async function main() {
   anvil.stdout.on('data', keepTail);
   anvil.stderr.on('data', keepTail);
 
-  const ready = await waitForPort(ANVIL_PORT, 20_000);
+  const ready = await waitForPort(ANVIL_PORT, 20_000, () => anvilDied);
   if (!ready) {
-    console.error('[e2e] anvil did not bind within 20s; aborting.');
-    console.error(anvilTail.join(''));
+    const tail = anvilTail.join('');
+    reportForkRefused(
+      diagnoseFork(tail),
+      tail,
+      anvilDied
+        ? `anvil exited (code=${anvilDied.code} signal=${anvilDied.signal}) before it ever bound :${ANVIL_PORT}.`
+        : `anvil did not bind :${ANVIL_PORT} within 20s and is still running.`,
+    );
     anvil.kill('SIGTERM');
     process.exit(1);
   }
@@ -189,9 +270,12 @@ async function main() {
     }
     console.log(`[e2e] fork ready at block ${height}`);
   } catch (e) {
-    console.error(`[e2e] anvil is listening but the fork is not usable: ${e.message}`);
-    console.error(`[e2e] upstream was ${FORK_URL}`);
-    console.error(anvilTail.join(''));
+    const tail = anvilTail.join('');
+    reportForkRefused(
+      diagnoseFork(tail),
+      tail,
+      `anvil is listening on :${ANVIL_PORT} but the fork is not usable: ${e.message}`,
+    );
     anvil.kill('SIGTERM');
     process.exit(1);
   }
