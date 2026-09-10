@@ -485,7 +485,7 @@ export default function ContractsPage() {
           </div>
 
           {/* Frontend-independence / self-custody fallback (2026-07-25). The app
-              is a convenience, not a dependency: if memetic.fun is ever DDoS'd,
+              is a convenience, not a dependency: if memetics.finance is ever DDoS'd,
               DNS-attacked, or taken down, funds are unaffected and every contract
               can be driven straight from Etherscan's verified Read/Write tabs.
               Sky tint (reassurance) to distinguish from the amber warning above. */}

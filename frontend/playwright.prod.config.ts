@@ -27,7 +27,10 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   use: {
-    baseURL: process.env.PROD_URL || 'https://memetic.fun',
+    // The canonical host (SITE_URL). Pointing the prod walk at the alias meant
+    // every navigation began with a 301 once the alias started redirecting —
+    // and the run was measuring a host the venue does not claim as its own.
+    baseURL: process.env.PROD_URL || 'https://memetics.finance',
     ...devices['Desktop Chrome'],
     // The intro overlay is a z-9999 canvas that eats interaction; reduced motion
     // skips it (reference_app_intro_overlay_blocks_probes).

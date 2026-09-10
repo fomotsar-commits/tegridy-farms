@@ -44,6 +44,7 @@
 
 import { parseUnits } from 'viem';
 import { BUNGALOWS } from '../bungalows';
+import { SITE_HOST } from '../constants';
 import { TOWELI_MARKET } from '../chart/market';
 import type { GeckoNetwork } from '../geckoTerminal/pools';
 import type { PoolTrade } from '../geckoTerminal/poolTrades';
@@ -542,5 +543,5 @@ export function cupShareText(
   newestFillIso: string,
 ): string {
   const provisional = status === 'complete' ? '' : ', provisional';
-  return `#${rank} of ${of} wallets (${poolsAnswered} of ${poolsTotal} pools answered${provisional}) on the Island Cup, memetic.fun/competitions, read at ${newestFillIso}`;
+  return `#${rank} of ${of} wallets (${poolsAnswered} of ${poolsTotal} pools answered${provisional}) on the Island Cup, ${SITE_HOST}/competitions, read at ${newestFillIso}`;
 }

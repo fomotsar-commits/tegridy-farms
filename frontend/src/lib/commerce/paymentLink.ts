@@ -130,6 +130,14 @@ export interface InvoiceTypedData {
  */
 export function invoiceTypedData(inv: Invoice): InvoiceTypedData {
   return {
+    // ⚠️ DO NOT REPOINT THIS AT THE CANONICAL HOST. It reads like a stale brand
+    // string, and a sweep that moved every `memetic.fun` in the repo to
+    // `memetics.finance` on 2026-09-09 deliberately skipped it. This is an
+    // EIP-712 DOMAIN SEPARATOR: the name is hashed into the digest a merchant
+    // signs. Change the string and every invoice ever signed stops verifying,
+    // silently — the signature does not become invalid-looking, it recovers to a
+    // different address. It is an opaque identifier that happens to contain a
+    // hostname; it is not a link, and nothing renders it to a user.
     domain: { name: 'memetic.fun checkout', version: '1', chainId: inv.chainId },
     types: INVOICE_TYPES,
     primaryType: 'Invoice',
