@@ -78,6 +78,34 @@ export function usePremiumAccess() {
   const userBalance = data?.[5]?.status === 'success' ? (data[5].result as bigint) : 0n;
   const allowance = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
 
+  // WHICH ENTRIES DID NOT LAND.
+  //
+  // `useReadContracts` defaults allowFailure to TRUE and this call does not
+  // override it, so ONE failed entry out of the seven still resolves the query
+  // SUCCESSFULLY: `isDataError` stays false and `isDataLoading` stays false.
+  // PremiumPage's red "Error Loading Data" banner (:167, gated on
+  // `premium.isDataError`) and every loading skeleton therefore stay hidden, and
+  // the page renders as if fully and confidently loaded while carrying a value
+  // nobody read. Per-entry is the only honest granularity here.
+  //
+  // Scoped to a batch that actually ran: a disconnected visitor and an
+  // undeployed contract never asked, and a not-attempted read must not be
+  // reported as a failed one.
+  const batchRan = !!address && isDeployed(PREMIUM_ACCESS_ADDRESS) && !isDataLoading;
+  const entryUnread = (i: number) => batchRan && data?.[i]?.status !== 'success';
+
+  /** Membership status unread. NOT the same fact as "you have no membership". */
+  const premiumUnread = entryUnread(0);
+
+  /** The purchase cannot be priced or afford-checked. Any one of these is fatal
+   *  to the quote: monthlyFee prices it, userBalance gates it, allowance routes
+   *  Approve vs Subscribe. They are collapsed into one flag because they arm the
+   *  SAME control and a partial answer is not a cheaper kind of wrong. */
+  const quoteUnread = entryUnread(2) || entryUnread(5) || entryUnread(6);
+
+  /** Display-only: the subscriber and revenue tiles. */
+  const statsUnread = entryUnread(3) || entryUnread(4);
+
   const monthlyFeeFormatted = Number(formatWei(monthlyFee, 18, 8));
   const totalRevenueFormatted = Number(formatWei(totalRevenue, 18, 4));
   const userBalanceFormatted = Number(formatWei(userBalance, 18, 4));
@@ -199,6 +227,9 @@ export function usePremiumAccess() {
   return {
     // Subscription status
     hasPremium,
+    premiumUnread,
+    quoteUnread,
+    statsUnread,
     isActive,
     isLifetime,
     expiresAt,
