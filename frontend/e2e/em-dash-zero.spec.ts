@@ -31,8 +31,8 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
 //
 // ── THE DEBT ────────────────────────────────────────────────────────────────
 //
-// 481 prose dashes across 52 routes (487 at the guard's landing; the sweep
-// has begun and nine routes are now finished), so this cannot land as `toBe(0)`
+// 476 prose dashes across 52 routes (487 at the guard's landing; the sweep
+// has begun and eleven routes are now finished), so this cannot land as `toBe(0)`
 // without landing red, and a permanently red gate is a gate people learn to
 // ignore. It lands as the repo's own knownViolations idiom instead
 // (e2e/fixtures/routes.ts): an EXACT count per route, asserted both ways.
@@ -69,13 +69,13 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/vesting': 0,
   '/farm': 0,
   '/island': 0,
-  '/exposure': 1,
+  '/airdrop': 0,
+  '/exposure': 0,
   '/nakamigos': 1,
   '/eth-curve/0x0000000000000000000000000000000000000000': 1,
-  '/swap': 2,
-  '/airdrop': 2,
+  '/swap': 1,
   '/zap': 1,
-  '/scan': 2,
+  '/scan': 1,
   '/deployer': 2,
   '/checkout': 2,
   '/chart': 2,

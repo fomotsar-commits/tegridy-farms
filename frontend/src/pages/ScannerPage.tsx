@@ -80,8 +80,8 @@ export default function ScannerPage() {
         <h1 className="heading-luxury text-2xl md:text-4xl text-text-primary tracking-tight mb-2">Token Scanner</h1>
         <p className="text-[14px] text-text-secondary max-w-[640px]">
           Paste an Ethereum, Base or Solana token address for a holder-concentration and distribution read. It is a{' '}
-          <span className="text-text-primary font-medium">descriptive measurement</span> — a disclosed method with its
-          components, the addresses it excluded, and a timestamp — not a verdict on anyone&apos;s intent.
+          <span className="text-text-primary font-medium">descriptive measurement</span>: a disclosed method with its
+          components, the addresses it excluded, and a timestamp. Not a verdict on anyone&apos;s intent.
         </p>
       </m.div>
 
