@@ -274,6 +274,44 @@ an on-chain read of those three, which is not a nav question and is not claimed 
 It reaches a visitor through Earn → NFT Loans rather than the top bar, which is the
 2026-09-05 tabbed-host arrangement and not a wave-seven change.
 
+## Outside the wave, and it was blocking everything
+
+**THE ARRIVAL HAS A NEW BACKDROP (owner pick, 2026-09-09).** `public/art/door-home.jpg`
+replaces `iphone/IMG_0148.jpg` as the venue arrival's full-page art, which is also the LCP
+image. Four sites, because this surface is PINNED rather than rotated: the file, the `ART`
+entry, `artOverrides.ts`'s `"home:0"`, and `theme-init.js`'s `HERO_SRC` (the `<link
+rel=preload>` the shell emits). `heroPreload.test.ts` pins the last two against each other,
+so missing the fourth fails the build rather than shipping a preload for a picture nobody
+sees. Deliberately NOT added to `ART_POOL_ALL`: that array's LENGTH feeds the deterministic
+hash that assigns art to every un-overridden surface, so one entry would silently reshuffle
+backgrounds app-wide. `iph_0148` stays in `ART` and in the pool; this repoints a surface, it
+does not retire a piece. **The crop was picked by eye at three widths, not by arithmetic** —
+the first value centred on the subject and put the headline straight on the ape's face at
+390 px and 820 px, because this image is 1.78 wide where the one it replaces was 1.41 and
+`object-cover` therefore zooms much harder on a tall screen. `20% 50%` instead, which is the
+answer the old art had already reached from the other direction (`4% 85%`, pin the quiet
+corner).
+
+**AND CI WAS RED FOR A REASON THAT WAS NEVER THIS BRANCH.** `E2E Tests (Anvil fork — money
+paths)` had been failing in 89 seconds — on trunk too, at the merge of #467, and it would
+have failed on every PR opened from now on:
+
+> `HTTP 403 — {"code":-32602,"message":"Archive requests require a personal token."}`
+
+`ethereum-rpc.publicnode.com` gated ARCHIVE requests behind a token on 2026-09-09, and an
+`anvil --fork-url` **is** an archive request. Not a rate limit, so waiting never cleared it.
+The repo had already met the same policy on publicnode's INDEXED requests months ago
+(`BungalowHolders.test.tsx:7` records it); this is that policy reaching archive.
+**Reproduced locally against anvil 1.5.1 rather than inferred from a CI log** — publicnode
+fails with the identical 403 on this machine, which is how it was proved to be the endpoint
+and not a runner IP. The FORK moved to `https://eth.drpc.org`; plain `latest` reads still
+answer on publicnode, so the seven other scripts pointing there are untouched. Proven end to
+end through the wrapper rather than around it (`npx playwright test` skips the anvil leg and
+would have looked fine): `[e2e] fork ready at block 25944402`, and
+`stake → claim → unstake (Anvil only)` passing in 14.0 s. Two defaults have now died at that
+line, so the note above it says what killed each and what to do next: if drpc rate-limits
+under CI load the durable answer is a funded key in a repo secret, not a fourth free endpoint.
+
 ## Counts
 
 **e2e, this tip:** `arrival.spec.ts` **16/16** · `bungalow-doors.spec.ts` **24/24** · `arrival-voice.spec.ts` **4/4** · `gauge-voting.spec.ts` **11/11** · `em-dash-zero.spec.ts` **50/50** (2.6 min), Chromium, `--workers=1`. The arrival spec reports its own numbers rather than asserting a sum: `curtain lifetime 2,895 ms` · `gone 448 ms after the press` · `slow-art lifetime 1,673 ms` · `slow-art canvas at +800 ms: 333/14,400 pixels lit`.
@@ -281,7 +319,7 @@ It reaches a visitor through Earn → NFT Loans rather than the top bar, which i
 **Loader vitest:** 58/58 across four files (`skip` 30, `curtain` 16 → decisions only, `curtainDeadline` 8, `index` 4). All four new guards were seen red on the pre-fix source before they were kept.
 
 
-**vitest 5619/5622 across 383 files** over `src/components`, `src/pages`, `src/lib` and
+**vitest 4375/4375 effective** over `src/lib` and `src/test` (4,396 run; the 21 reds are the concurrent session's `bungalowStakingCeiling` and `bungalowStakingRates`, and it is provable rather than assumed: `git log mvp-launch..HEAD` over both paths is EMPTY, no wave-seven commit has ever touched either). Plus 1,537/1,537 over `src/pages`, `src/components` and the `src/test` guards after the element C edits.
 `middleware.test.js`, on a quiet machine (`--maxWorkers=2 --testTimeout=30000`, 521 s).
 Typecheck 0 across both projects (`tsc -b --force` and `tsc -p tsconfig.test.json`) for every
 file this wave owns. eslint 0 errors on every file this wave has touched. Server-side: 774/774
