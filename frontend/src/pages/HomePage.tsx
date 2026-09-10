@@ -1107,6 +1107,7 @@ export default function HomePage() {
               referralPending={revenueStats.referralPending}
               referralPendingBig={revenueStats.referralPendingBig}
               hasReferrer={revenueStats.hasReferrer}
+              referrerUnread={revenueStats.referrerUnread}
               referrer={revenueStats.referrer}
               onClaim={revenueStats.claimReferralRewards}
               onSetReferrer={revenueStats.setReferrer}

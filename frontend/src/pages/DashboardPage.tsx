@@ -888,7 +888,14 @@ function ToweliDashboard() {
 
             {/* F148: friendly "all claimed" empty state when there's nothing
                 outstanding across staking, unsettled, ETH revenue, and referrals. */}
-            {pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
+            {/* `pendingUnread` is required here because this panel makes the
+                one claim a user acts on by doing NOTHING. pendingETH and
+                getReferralInfo collapse to 0n on a failed leg, and
+                `isDataError` cannot see a single failed leg (allowFailure
+                defaults true), so the panel rendered "all caught up" over
+                unread balances. Claiming is what resets the 7d / 14d / 90d
+                forfeiture clocks — silence here runs them down. */}
+            {!revenueStats.pendingUnread && pendingTotal < 0.01 && pos.unsettledRewards <= 0n && revenueStats.pendingRevenue < 0.000001 && revenueStats.referralPending < 0.000001 && (
               <m.div className="relative overflow-hidden rounded-xl glass-card-animated mb-5" style={{ border: '1px solid var(--color-purple-75)' }}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <div className="relative z-10 p-6 text-center">
@@ -911,6 +918,7 @@ function ToweliDashboard() {
                 referralPending={revenueStats.referralPending}
                 referralPendingBig={revenueStats.referralPendingBig}
                 hasReferrer={revenueStats.hasReferrer}
+                referrerUnread={revenueStats.referrerUnread}
                 referrer={revenueStats.referrer}
                 onClaim={revenueStats.claimReferralRewards}
                 onSetReferrer={revenueStats.setReferrer}

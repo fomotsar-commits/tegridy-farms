@@ -52,6 +52,30 @@ describe('ReferralWidget', () => {
     localStorage.clear();
   });
 
+  // `referrerOf` IS ONE-TIME AND PERMANENT, so an unread answer is not "no
+  // referrer". `hasReferrer` collapses to false either way, and the query-level
+  // error flags cannot see a single failed leg (allowFailure defaults true), so
+  // this form used to be offered to a wallet that already had a referrer — and
+  // setReferrer reverts AlreadyReferred with the gas already spent.
+  describe('an unread referrer withholds the link form and says why', () => {
+    it('offers the form when we know there is no referrer', () => {
+      renderWidget({ onSetReferrer: vi.fn(), hasReferrer: false });
+      expect(screen.getByLabelText('Referrer address')).toBeTruthy();
+    });
+
+    it('withholds it when referrerOf did not land', () => {
+      renderWidget({ onSetReferrer: vi.fn(), hasReferrer: false, referrerUnread: true });
+      expect(screen.queryByLabelText('Referrer address')).toBeNull();
+      expect(screen.getByText(/could not read whether you already have a referrer/i)).toBeTruthy();
+    });
+
+    it('still shows the on-chain referrer when that read DID land', () => {
+      renderWidget({ onSetReferrer: vi.fn(), hasReferrer: true, referrer: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' });
+      expect(screen.queryByLabelText('Referrer address')).toBeNull();
+      expect(screen.getByText(/referred by/i)).toBeTruthy();
+    });
+  });
+
   describe('the link it mints', () => {
     it('is built on the canonical live origin, not a hardcoded vanity domain', () => {
       const { container } = renderWidget();
