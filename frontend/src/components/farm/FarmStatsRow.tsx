@@ -10,7 +10,7 @@ import { artImgProps } from '../../lib/artSrcSet';
 
 interface FarmStatsRowProps {
   stats: { tvl: string; toweliPrice: string };
-  pool: { isDeployed: boolean; apr: string; aprDisclaimer?: string };
+  pool: { isDeployed: boolean; apr: string; aprDisclaimer?: string; aprUnread?: boolean };
   price: { displayPriceStale: boolean };
   priceData: number[];
   priceError: unknown;
@@ -21,7 +21,13 @@ export function FarmStatsRow({ stats, pool, price, priceData, priceError, season
   const items = [
     { l: 'Total Value Locked', v: stats.tvl, art: pageArt('farm-stats', 0), pos: 'center 30%' },
     { l: 'TOWELI Price', v: stats.toweliPrice + (price.displayPriceStale ? ' (stale)' : ''), art: pageArt('farm-stats', 1), pos: 'center 30%' },
-    { l: 'Emissions APR', v: pool.isDeployed ? `${pool.apr}%` : '–', accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprDisclaimer },
+    // `isDeployed` is a STATIC ADDRESS CHECK — it says the contract exists, not
+    // that anything was read. So a dark rewardRate rendered "Emissions APR: 0%"
+    // as a fact, under a sub-line reading "Bootstrap rate — falls as staking
+    // grows", while IncentivesStrip 200px down the SAME page printed '–' for
+    // the identical value. That treatment (IncentivesStrip.tsx:105) is the
+    // house-correct one; this row now matches it instead of contradicting it.
+    { l: 'Emissions APR', v: !pool.isDeployed || pool.aprUnread ? '–' : `${pool.apr}%`, accent: true, art: pageArt('farm-stats', 2), pos: 'center 0%', sub: pool.aprUnread ? undefined : pool.aprDisclaimer },
     // An expired window reads "Ended", never a frozen "0d left" (see lib/season.ts).
     { l: 'Season', v: season.shortLabel, sub: season.phase === 'ended' ? `${CURRENT_SEASON.name} — closed` : CURRENT_SEASON.name, art: pageArt('farm-stats', 3), pos: 'center 30%' },
   ];

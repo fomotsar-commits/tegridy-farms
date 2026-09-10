@@ -40,9 +40,43 @@ export function usePoolData() {
   // actually funded. The true remaining pool is the StakingRewardLib formula:
   //   balanceOf(staking) − totalStaked − totalUnsettledRewards
   // and the runway is that pool divided by rewardRate.
-  const haveReads = stakingBalance > 0n;
+  // `haveReads` TESTED A VALUE, NOT A READ, and its name said otherwise.
+  //
+  // It was `stakingBalance > 0n` — entry [6] alone, and only that it came back
+  // NON-ZERO. The very next line subtracts entries [0] and [5], which it never
+  // looked at. So on the partial failure where balanceOf lands and totalStaked
+  // does not, `haveReads` is true, totalStaked collapses to 0n, and
+  // `rawRemaining` becomes the contract's ENTIRE token balance — every staker's
+  // PRINCIPAL, advertised as reward reserve. With 6.0M staked over 400k of real
+  // reserve, /tokenomics reports 6,400,000 TOWELI remaining and ~1,041 days of
+  // runway against a true ~65.
+  //
+  // That number passes every hedge downstream, which is why nothing caught it:
+  // TokenomicsPage:231 and :240 correctly print '–' for an UNREAD zero, but a
+  // large plausible WRONG figure sails through `rewardsRemaining > 0`. The
+  // guards were built for a total outage; this is a partial one.
+  const batchRan = isDeployed && onMainnet && !isLoading;
+  const entryUnread = (i: number) => batchRan && data?.[i]?.status !== 'success';
+
+  /** The reserve arithmetic subtracts three separate reads. Any one missing
+   *  makes the difference meaningless, not merely imprecise. */
+  const reserveUnread = entryUnread(0) || entryUnread(5) || entryUnread(6);
+
+  /** APR is rewardRate over totalBoostedStake — entries [2] and [1]. Separate
+   *  from the reserve because they fail independently and gate different
+   *  surfaces; a dark APR must not blank a runway that was read fine. */
+  const aprUnread = entryUnread(1) || entryUnread(2);
+
   const rawRemaining = stakingBalance - totalStaked - totalUnsettled;
-  const rewardsRemaining = haveReads && rawRemaining > 0n ? rawRemaining : 0n;
+  const rewardsRemaining = !reserveUnread && stakingBalance > 0n && rawRemaining > 0n ? rawRemaining : 0n;
+  // THE RUNWAY STRADDLES BOTH FLAGS. It is rewardsRemaining (gated on
+  // `reserveUnread`) divided by rewardRate, which is entry [2] and therefore
+  // belongs to `aprUnread`. So a perfectly-read reserve over an UNREAD rate
+  // still yields 0 here, and TokenomicsPage's "Emissions End In" tile prints
+  // the sentence "Period ended" -- the exact claim the comment above says must
+  // never be asserted on a read that did not land, arriving through the other
+  // door. Consumers that need the runway must gate on `runwayUnread`, not on
+  // either flag alone.
   const secondsRemaining = rewardRate > 0n ? rewardsRemaining / rewardRate : 0n;
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
   const periodFinish = secondsRemaining > 0n ? nowSec + secondsRemaining : 0n;
@@ -52,7 +86,11 @@ export function usePoolData() {
   // rate-derived APR is a lie the moment isDry flips. Clamp at the SOURCE so
   // every consumer (farm strip, stat tiles, home pill, projections) inherits
   // the honest zero with no per-surface edits.
-  const isDry = haveReads && rewardsRemaining === 0n;
+  // "Genuinely empty", which is a CLAIM, so it needs the reads to have landed —
+  // not merely a non-zero balance. It clamps APR to 0 and prints "reserve empty"
+  // copy across four surfaces; asserting that on an unread reserve would tell a
+  // staker emissions had stopped when they had not.
+  const isDry = !reserveUnread && stakingBalance > 0n && rewardsRemaining === 0n;
 
   let apr = '0';
   // Numeric APR % for any math. Consumers MUST use this, not parseFloat(apr): once
@@ -87,6 +125,16 @@ export function usePoolData() {
     rewardsRemaining: formatEther(rewardsRemaining),
     /** True once reads landed and the reward pool is EMPTY — emissions are 0, whatever the rate says. */
     isDry,
+    /** The reserve arithmetic (balance − staked − unsettled) could not be completed.
+     *  Gate every remaining/runway/"period ended" CLAIM on this: an unread reserve
+     *  is not an exhausted one, and a partial read makes a plausible wrong number. */
+    reserveUnread,
+    /** rewardRate or totalBoostedStake did not land, so `apr`/`aprNum` are not a rate. */
+    aprUnread,
+    /** `secondsRemaining`/`periodFinish` are derived from BOTH axes, so a
+     *  runway claim needs both. Gating on `reserveUnread` alone still prints
+     *  "Period ended" when only the rate is dark. */
+    runwayUnread: reserveUnread || aprUnread,
     apr,
     aprNum,
     aprCapped,

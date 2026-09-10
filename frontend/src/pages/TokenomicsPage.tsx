@@ -184,7 +184,14 @@ export default function TokenomicsPage() {
                 { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
                 { l: 'Rewards / Second', v: pool.isDeployed ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
                 { l: 'Funded (lifetime)', v: pool.isDeployed ? `${formatNumber(totalFunded, 1)} TOWELI` : '–' },
-                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : 'Period ended' },
+                // "Period ended" is a SENTENCE, not a number, and it was the
+                // terminal branch — so an unread reserve told a staker in a
+                // multi-year lock that emissions were finished. Reading that,
+                // the rational move is to unstake early into
+                // EARLY_WITHDRAWAL_PENALTY_BPS = 2500: 25% of principal, on a
+                // farm still paying. The two tiles further down this page
+                // already print '–' for unread; this one never learned to.
+                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : pool.runwayUnread ? '–' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : 'Period ended' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
                   <span className="text-white text-[13px]">{r.l}</span>
