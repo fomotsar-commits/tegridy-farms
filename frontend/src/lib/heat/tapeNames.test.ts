@@ -13,7 +13,11 @@ const A1 = '0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca';
 const A2 = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
 
 function ok(names: Record<string, unknown>) {
-  return vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ names }) }));
+  // The url parameter is declared even though the happy path ignores it: without
+  // it the mock infers a zero-argument call signature, and `mock.calls[0][0]` is
+  // then a type error under tsconfig.test.json. The app and node projects do not
+  // typecheck this file, so it went green locally and red in CI.
+  return vi.fn(async (_url: string) => ({ ok: true, status: 200, json: async () => ({ names }) }));
 }
 
 beforeEach(() => vi.clearAllMocks());
