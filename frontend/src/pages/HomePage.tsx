@@ -604,6 +604,32 @@ export default function HomePage() {
                 showEligibility={false}
                 scopeTo={{ address: bungalowIdentity.address, symbol: bungalowIdentity.symbol }}
               />
+
+              {/* WAVE SEVEN, element D: THE POOL, OR THE HONEST LINE. §D asks a
+                  room for "its pool or its honest state", and this room could
+                  only ever get you to one — the hero's button goes to Earn, and
+                  says "The lighthouse" instead of "Stake" when there is no pool,
+                  which is honest about the BUTTON and silent about the token.
+
+                  A registry entry is not a deployment. REGISTERED, DEPLOYED and
+                  WIRED are three different facts in this repo, so this line
+                  states only the one it actually knows — that an address is on
+                  record — and sends the live question (is it funded, is the
+                  program verified) to the panel on Earn that really reads it.
+                  The no-pool sentence is BungalowFarmPanel's own, so a visitor
+                  meets one wording rather than two. */}
+              <p className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                {bungalowIdentity.stakePool ? (
+                  <>
+                    A {bungalowIdentity.symbol} pool is on record at{' '}
+                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
+                    Whether it is funded, and what it pays, is read live on{' '}
+                    <Link to="/farm" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                  </>
+                ) : (
+                  <>No {bungalowIdentity.symbol} staking program exists on-chain today.</>
+                )}
+              </p>
             </div>
           </div>
         )}
