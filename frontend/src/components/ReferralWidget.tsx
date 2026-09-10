@@ -23,6 +23,9 @@ interface ReferralWidgetProps {
   referralPending: number;
   referralPendingBig?: bigint;
   hasReferrer?: boolean;
+  /** `referrerOf` did not land, so `hasReferrer` false is not "no referrer".
+   *  Optional: absent preserves today's behaviour for callers with nothing to say. */
+  referrerUnread?: boolean;
   referrer?: string | null;
   onClaim?: () => void;
   onSetReferrer?: (addr: `0x${string}`) => void;
@@ -41,6 +44,7 @@ export function ReferralWidget({
   referralPending,
   referralPendingBig,
   hasReferrer,
+  referrerUnread = false,
   referrer,
   onClaim,
   onSetReferrer,
@@ -224,7 +228,18 @@ export function ReferralWidget({
 
         {/* Referred By / Set Referrer */}
         {onSetReferrer && (
-          hasReferrer && referrer ? (
+          referrerUnread ? (
+            /* Neither branch below is true yet: we do not know whether this
+               wallet has a referrer. Showing the form would invite a
+               setReferrer that reverts AlreadyReferred with the gas spent —
+               the hook refuses that write, but a form you cannot submit is a
+               worse answer than a sentence saying why. */
+            <div className="rounded-lg p-3 mb-5" style={{ background: 'rgba(255,211,124,0.08)', border: '1px solid rgba(255,211,124,0.3)' }}>
+              <p className="text-[12px]" style={{ color: '#FFD37C' }}>
+                Could not read whether you already have a referrer — linking is held back until that answer lands.
+              </p>
+            </div>
+          ) : hasReferrer && referrer ? (
             <div className="rounded-lg p-3 mb-5 flex items-center justify-between flex-wrap gap-2"
               style={{ background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.22)' }}>
               <p className="text-[12px] text-white/75">
