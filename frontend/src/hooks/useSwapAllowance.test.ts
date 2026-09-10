@@ -27,7 +27,25 @@ const USER = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' as `0x${string}`;
 const USDT = DEFAULT_TOKENS.find((t) => t.symbol === 'USDT')!;
 const AMOUNT = 1_000_000n; // 1 USDT, 6 decimals
 
-function setup(write: ReturnType<typeof vi.fn>) {
+/** The exact shape useSwapAllowance expects for writeContract.
+ *
+ *  Typed, not `ReturnType<typeof vi.fn>`: a bare `vi.fn()` is
+ *  `Mock<Procedure | Constructable>`, which is NOT assignable to a specific
+ *  call signature, and `write.mock.calls[0][0]` would be `any` — so the
+ *  assertions below would type-check against nothing. `npx tsc -b` is
+ *  INCREMENTAL and reported clean on the first pass here; only a rebase
+ *  invalidating the cache surfaced it, with the vitest suite green throughout
+ *  because vitest does not typecheck. */
+type WriteArgs = {
+  chainId?: number;
+  address: `0x${string}`;
+  abi: readonly unknown[];
+  functionName: string;
+  args: readonly unknown[];
+};
+const makeWrite = () => vi.fn((_args: WriteArgs) => {});
+
+function setup(write: ReturnType<typeof makeWrite>) {
   return renderHook(() => useSwapAllowance(USDT, AMOUNT, 'tegridy', 'tegridy', USER, write));
 }
 
@@ -45,7 +63,7 @@ describe('useSwapAllowance — an unread allowance takes the safe path', () => {
   it('a READ allowance of zero writes the target amount directly', () => {
     // The genuine fresh-token case. One approve, no zero-write — unchanged.
     wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
-    const write = vi.fn();
+    const write = makeWrite();
     const { result } = setup(write);
     act(() => { result.current.approve(); });
     expect(write).toHaveBeenCalledTimes(1);
@@ -56,7 +74,7 @@ describe('useSwapAllowance — an unread allowance takes the safe path', () => {
   it('a READ non-zero allowance below the target takes the two-step', () => {
     // The case the two-step was written for, still behaving.
     wagmiMock.setReadResult({ functionName: 'allowance', result: 500_000n });
-    const write = vi.fn();
+    const write = makeWrite();
     const { result } = setup(write);
     act(() => { result.current.approve(); });
     expect(write.mock.calls[0][0].args).toEqual([SWAP_FEE_ROUTER_ADDRESS, 0n]);
@@ -69,7 +87,7 @@ describe('useSwapAllowance — an unread allowance takes the safe path', () => {
     // spent. The zero-write is safe against BOTH an already-zero and a
     // non-zero allowance, so it is the correct branch under uncertainty.
     wagmiMock.setReadResult({ functionName: 'allowance', result: 0n, status: 'failure' });
-    const write = vi.fn();
+    const write = makeWrite();
     const { result } = setup(write);
     act(() => { result.current.approve(); });
     expect(write).toHaveBeenCalledTimes(1);
@@ -82,7 +100,7 @@ describe('useSwapAllowance — an unread allowance takes the safe path', () => {
     // and a later "simplify" pass that made one nullable value out of both
     // would invert it into the bug above.
     wagmiMock.setReadResult({ functionName: 'allowance', result: 0n, status: 'failure' });
-    const write = vi.fn();
+    const write = makeWrite();
     const { result } = setup(write);
     expect(result.current.needsApproval).toBe(true);
   });
