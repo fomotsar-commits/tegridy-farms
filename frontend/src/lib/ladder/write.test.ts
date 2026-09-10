@@ -33,6 +33,7 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ERRORS_RS = resolve(HERE, '../../../../solana/tegridy-amm/programs/bayla-ladder/src/errors.rs');
+const IDL_JSON = resolve(HERE, '../../../../solana/tegridy-amm/idl/bayla_ladder.json');
 
 const PROGRAM = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
 const MINT = new PublicKey('8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL');
@@ -89,6 +90,21 @@ describe('the Anchor error table is derived from the program, not remembered', (
     for (const code of [6001, 6002, 6003, 6004, 6005, 6006, 6007, 6008, 6020, 6026, 6027]) {
       expect(LADDER_ERRORS[code]?.human, `code ${code} has no human sentence`).toBeTruthy();
     }
+  });
+
+  it('agrees with the BUILT IDL too, which is the witness that actually shipped', () => {
+    // A SECOND, INDEPENDENT WITNESS. errors.rs is the source; the IDL is what
+    // `anchor build` produced from it and what the deployed program answers with. If
+    // somebody edits the enum without rebuilding, or rebuilds without editing, the two
+    // disagree and this fails — which no single-source check can see.
+    expect(existsSync(IDL_JSON), `IDL not found at ${IDL_JSON}`).toBe(true);
+    const idl = JSON.parse(readFileSync(IDL_JSON, 'utf8')) as { errors?: { code: number; name: string }[] };
+    expect(idl.errors?.length, 'the committed IDL declares no errors').toBeGreaterThan(20);
+    const fromIdl = Object.fromEntries((idl.errors ?? []).map((e) => [e.code, e.name]));
+    const mine = Object.fromEntries(
+      Object.entries(LADDER_ERRORS).map(([code, e]) => [Number(code), e.name]),
+    );
+    expect(mine).toEqual(fromIdl);
   });
 
   it('never tells a locked staker the hatch is free', () => {
