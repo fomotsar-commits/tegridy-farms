@@ -42,7 +42,7 @@
   // preload is a slightly later paint; a wrong one is 274 KB of a picture the
   // visitor will not see. src/lib/heroPreload.test.ts pins the href against
   // pageArt('home', 0) and this id against DEFAULT_BUNGALOW_ID.
-  var HERO_SRC = '/art/iphone/IMG_0148.jpg';
+  var HERO_SRC = '/art/door-home.jpg';
   var DEFAULT_BUNGALOW_ID = 'toweli';
   var BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
   try {
