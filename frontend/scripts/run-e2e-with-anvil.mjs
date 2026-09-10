@@ -53,8 +53,15 @@ import { pathToFileURL } from 'node:url';
 // publicnode, which is why every other script in this repo still points there
 // and only the FORK moved.
 //
-// If drpc starts rate-limiting under CI load, the durable answer is a funded
-// key in a repo secret rather than a fourth free endpoint.
+// If drpc starts rate-limiting under CI load, set the ANVIL_FORK_URL repo secret
+// (ci.yml reads it) to a funded endpoint rather than reaching for a fourth free
+// one. Probed the same day, so the next reader does not re-derive the roster:
+//   eth-mainnet.public.blastapi.io  FORKS -- verified keyless fallback
+//   eth.merkle.io                   HTTP 429 before the chain-id call
+//   rpc.payload.de                  connection refused
+// Probe a candidate by FORKING it and reading real state off the fork, e.g.
+// `eth_getBalance` on WETH: a bound port that answers nothing looks identical
+// to a healthy node until you ask it for something only an archive can serve.
 const FORK_URL = process.env.ANVIL_FORK_URL ?? 'https://eth.drpc.org';
 const FORK_BLOCK = process.env.ANVIL_FORK_BLOCK; // optional pin
 const ANVIL_PORT = Number(process.env.ANVIL_PORT ?? 8545);
