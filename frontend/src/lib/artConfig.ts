@@ -28,6 +28,11 @@ export const ART = {
   // character crop does not.
   islandMark: { id: 'island-mark', src: '/art/island-mark.png', title: 'Jungle Bay Island', description: 'The island in a sea of rugs' },
   jungleBus: { id: 'jungle-bus', src: '/art/jungle-bus.jpg', title: 'Jungle Bay Island', description: 'Get on the bus' },
+  // The venue arrival's backdrop (owner pick, 2026-09-09). Deliberately NOT in
+  // ART_POOL_ALL: that array's LENGTH feeds the deterministic hash rotation, so
+  // adding one entry to it would reshuffle the art on every un-overridden
+  // surface in the app. It is reachable by id, which is all `home:0` needs.
+  doorHome: { id: 'door-home', src: '/art/door-home.jpg', title: 'The Door', description: 'Held time counts on the other side' },
   poolParty: { id: 'pool-party', src: '/art/pool-party.jpg', title: 'Pool Party', description: 'Just vibin\'' },
   boxingRing: { id: 'boxing-ring', src: '/art/boxing-ring.jpg', title: 'Fight Night', description: 'Der Bar enters the ring' },
   busCrew: { id: 'bus-crew', src: '/art/bus-crew.jpg', title: 'The Crew', description: 'Rolling deep' },
