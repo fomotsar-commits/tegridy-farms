@@ -99,6 +99,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
   const decimals = poolRead?.decimals ?? bungalow.decimals ?? 6;
   const walletKey = publicKey?.toBase58() ?? '';
   const stakePool = bungalow.stakePool;
+  // ⚠️ THIS PANEL READS THE LIGHTHOUSE (Streamflow) POOL ONLY. When a bayla-ladder
+  // pool is also configured, every "nothing staked" sentence below becomes a claim
+  // about a program this panel never looked at — and telling someone with a live
+  // ladder position that they have nothing staked is the worst answer this surface
+  // can give. It does not read the ladder (that is /farm's card, which owns the
+  // ladder client); it stops speaking for it.
+  const ladderPool = bungalow.ladderPool;
 
   // Balance — same parsed-token-accounts read the swap page uses.
   useEffect(() => {
@@ -275,6 +282,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                   <p className="text-white/80 text-[12px] leading-relaxed mb-3">
                     {bungalow.symbol} staking runs on an audited Streamflow pool, non-custodial
                     and readable by anyone. Connect above and your position appears here.
+                    {ladderPool ? ' There is a lock-ladder pool too; the pool page covers both.' : ''}
                   </p>
                   <PoolFacts facts={poolFacts} symbol={bungalow.symbol} />
                   <Link to="/farm" className="btn-secondary px-4 py-2 text-[12px] inline-block">See the pool</Link>
@@ -283,11 +291,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                 <p className="text-white/70 text-[13px]">Reading your position…</p>
               ) : openEntries.length === 0 ? (
                 <>
-                  <h2 className="heading-luxury text-lg text-white mb-2">Nothing staked yet</h2>
+                  <h2 className="heading-luxury text-lg text-white mb-2">
+                    {ladderPool ? 'Nothing in the lighthouse pool' : 'Nothing staked yet'}
+                  </h2>
                   <p className="text-white/80 text-[12px] leading-relaxed mb-3">
-                    You hold {bungalow.symbol} but have no open stake. The pool page shows every
-                    lock length, what each one is configured to pay, and what the reward vault
-                    actually holds today.
+                    {ladderPool ? (
+                      <>
+                        You have no open stake in the lighthouse pool. This card reads that pool
+                        only — {bungalow.symbol} also has a lock-ladder pool, and anything you hold
+                        there is shown on the pool page, not here.
+                      </>
+                    ) : (
+                      <>
+                        You hold {bungalow.symbol} but have no open stake. The pool page shows every
+                        lock length, what each one is configured to pay, and what the reward vault
+                        actually holds today.
+                      </>
+                    )}
                   </p>
                   <PoolFacts facts={poolFacts} symbol={bungalow.symbol} />
                   <Link to="/farm" className="btn-primary px-4 py-2 text-[12px] inline-block">Stake {bungalow.symbol}</Link>
