@@ -117,7 +117,7 @@ export const ART_OVERRIDES: Record<string, ArtOverride> = {
   "history:0": { artId: "naka31", objectPosition: "50% 27%" },
   "history:1": { artId: "iph_0135", objectPosition: "50% 26%" },
   "history:2": { artId: "drop15" },
-  "home:0": { artId: "door-home", objectPosition: "20% 50%" },
+  "home:0": { artId: "iph_0148", objectPosition: "4% 85%" },
   "home:1": { artId: "jungle-bus", objectPosition: "0% 61%", scale: 1.05 },
   "home:10": { artId: "naka26", objectPosition: "50% 51%" },
   "home:11": { artId: "iph_0175", objectPosition: "50% 88%" },
@@ -355,4 +355,5 @@ export const ART_OVERRIDES: Record<string, ArtOverride> = {
   "wizard:0": { artId: "iph_0143", objectPosition: "50% 34%" },
   "wizard:1": { artId: "iph_0174", objectPosition: "50% 31%" },
   "wizard:2": { artId: "iph_0165", objectPosition: "50% 41%" },
+  "venue-home:0": { artId: "door-home", objectPosition: "42% 50%" },
 };

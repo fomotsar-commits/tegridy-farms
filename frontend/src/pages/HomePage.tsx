@@ -221,9 +221,28 @@ export default function HomePage() {
           app theme. The TopNav toggle still themes the chrome; the hero stays
           dark on purpose. Do NOT restyle the art-backed hero per theme. */}
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
-        {/* F66: this is the LCP image (preloaded in index.html). fetchPriority
-            high ensures the browser fetches it ahead of below-the-fold art. */}
-        <ArtImg pageId="home" idx={0} alt="" fetchPriority="high" className="w-full h-full object-cover object-center" />
+        {/* F66: this is the LCP image (preloaded by /theme-init.js). fetchPriority
+            high ensures the browser fetches it ahead of below-the-fold art.
+
+            TWO SURFACES, NOT ONE (2026-09-09). This read `pageId="home"` for every
+            voice, and `home:0` is shared: the venue arrival, the TOWELI room and
+            anything else resolving the classic pool all drew the same picture. So
+            giving the venue its own backdrop silently redecorated /toweli's home
+            as well, which is not the venue's to change.
+
+            The venue reads `venue-home:0` now. `home:0` is back to exactly what it
+            was, so /toweli is untouched, and a bungalow still resolves `home`
+            against its own pool through bungalowArtContext. One surface per voice
+            is also what lets each crop be tuned for the art that is actually in
+            it — the two pictures have different aspect ratios and want different
+            object-positions. */}
+        <ArtImg
+          pageId={IS_TOWELI_ARRIVAL || bungalowIdentity ? 'home' : 'venue-home'}
+          idx={0}
+          alt=""
+          fetchPriority="high"
+          className="w-full h-full object-cover object-center"
+        />
       </div>
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">

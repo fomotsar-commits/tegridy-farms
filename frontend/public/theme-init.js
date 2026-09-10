@@ -43,7 +43,7 @@
   // visitor will not see. src/lib/heroPreload.test.ts pins the href against
   // pageArt('home', 0) and this id against DEFAULT_BUNGALOW_ID.
   var HERO_SRC = '/art/door-home.jpg';
-  var DEFAULT_BUNGALOW_ID = 'toweli';
+  var VENUE_ID = 'venue';
   var BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
   try {
     if (window.location.pathname === '/') {
@@ -51,7 +51,13 @@
         new URLSearchParams(window.location.search).get('bungalow') ||
         localStorage.getItem(BUNGALOW_STORAGE_KEY) ||
         '';
-      if (chosen === '' || chosen === DEFAULT_BUNGALOW_ID) {
+      // '' is a first-ever visit and 'venue' is the "seen, chose nothing"
+      // sentinel; both render the venue's backdrop at `/`. Any other stored skin
+      // is mid-reset — the index route is a venue door that persists the
+      // sentinel and reloads — so it gets no preload rather than the wrong one,
+      // which is the trade this file already states: a missed preload is a
+      // slightly later paint, a wrong one is a picture the visitor never sees.
+      if (chosen === '' || chosen === VENUE_ID) {
         var link = document.createElement('link');
         // setAttribute for all four, not the IDL properties: `as` is not
         // reflected as a content attribute everywhere (jsdom does not reflect
