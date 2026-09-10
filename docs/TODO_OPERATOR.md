@@ -1076,10 +1076,14 @@ Also noted, same shape as mainnet: the Robinhood factory's `feeToSetter` is stil
 `docs/GOLIVE_HANDOFF.md` applies on this chain too — **`executeFeeToChange()` before
 `acceptFeeToSetter()`, and the first is the deployer's call, not the Safe's.**
 
+✅ **CLOSED 2026-08-27 on trunk — kept as history, and read the correction at the end of this
+block before acting on it.** Both defects below WERE true of trunk when this was written; neither
+is true of trunk now. The text is preserved because a later reader will meet the same shapes.
+
 🛑 **NEW 2026-08-26 — two PRE-DEPLOY defects in `StreamingRevenueDistributor`, found by an
 adversarial review and confirmed by independent adjudicators.** The contract is deployed nowhere
 (no `addresses.json` entry, no `lib/constants.ts` constant), so this is **not live money** — but
-both are true of trunk today and both must be closed before it ships:
+both were true of trunk when written and both must be closed before it ships:
 
 1. **A stranger can drive a victim's grace anchor BACKWARDS.** `_observeLockEnd` assigns
    `lastObservedLockEnd` with no `>` guard and is reachable from the permissionless `sync`.
@@ -1097,6 +1101,36 @@ both are true of trunk today and both must be closed before it ships:
 Full account, plus the three regressions that refuted the attempted fix:
 [`V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md`](V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md).
 ⛔ Branch `fix/v2-owner-timelocked-forfeit-v4` is **attempt 4 and is REFUTED — do not merge it.**
+
+**CORRECTION — what actually landed, verified against `origin/mvp-launch` on 2026-09-10.**
+
+- Defect 1 is **gone by deletion, not by a guard**. `afa10262` (merged in `18ac84ec`) deleted the
+  forfeit, the 7-day claim deadline, `_observeLockEnd` and `lastObservedLockEnd` outright. Neither
+  the function nor the state variable exists in the contract any more (the sole remaining grep hit
+  is a historical comment in `getReward` explaining the removal). There is no anchor left to drive
+  backwards and no gate left to slam shut. Attempt 5, not attempt 4, is what shipped.
+- Defect 2 is **fixed**. `_updateReward` now keeps the last-written mirror on an unreadable read
+  and emits `MirrorReadUnavailable`; it no longer writes a stranger-chosen zero. Pinned by
+  `test_StrangerSyncDuringAnOutageCannotDivertTheStream` and
+  `test_RevertingStakingReadDoesNotBrickAndDoesNotZero`.
+- A **third** critical, found during the same review and NOT listed above, also landed:
+  `eb541c6a` made the two power legs additive. It shipped with no test — restoring the exact
+  pre-fix `_tryEffectivePower` left all 35 tests in the suite green, so a re-break would have been
+  silent. Four regression tests now pin it (`test_LiveStakeAndRestakeAreSummedNotShortCircuited`
+  and the three beside it); under the pre-fix function they fail. The money form measures it: a
+  one-token veNFT gift to a 4,000-weight restaker, followed by one permissionless `sync`, paid the
+  1,000-weight attacker **9.9900 ETH of a 10 ETH schedule** against a fair share of ~2 ETH, and
+  the victim **0.00999 ETH** against a fair share of ~8 ETH.
+
+⚠️ **Still OPEN, and it is an OWNER decision, not an engineering one.** Once `restakingContract` is
+wired, a broken restaking read freezes the mirror of **every** account whose escrow power reads
+zero — a set dominated by exited and expired PLAIN stakers who never touched restaking.
+`_mirrorPower`'s re-ask does not rescue them; it is gated on `restakingContract == address(0)`. A
+frozen mirror keeps its share of the stream, so the cost falls on the other stakers (measured at
+~17.6% of entitlement per frozen peer of equal weight). The options are to extend the re-ask to the
+wired case or to accept and document the bounded peer cost; both are defensible, and
+`V2_FORFEIT_ATTEMPT5_REVIEW_2026_08_27.md` §5.2 is explicit that picking one silently is not. This
+is the last thing between the contract and a deploy.
 
 **Five standing rules.**
 
