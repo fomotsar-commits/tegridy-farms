@@ -21,6 +21,7 @@ import {
   residentLabelForPool,
 } from './bungalows';
 import { pageArt } from './artConfig';
+import { SITE_URL } from './constants';
 
 // Jungle Bay Island (2026-08-24): 13 bungalows, each a community token whose
 // art pool re-skins every pageArt() background surface. These tests pin:
@@ -424,9 +425,16 @@ describe('resolution order', () => {
     // the quiet no-address slot and the venue-default door (whose home is /)
     // stay out. A new resident added to the registry without a sitemap entry
     // fails here instead of silently shipping an unindexed door.
+    //
+    // THE HOST IS DERIVED, NOT TYPED. This read `https://memetic.fun/${b.id}`,
+    // which made a test meant to pin COVERAGE ("every settled door is listed")
+    // also pin the ORIGIN — so it enforced the alias host, and re-pointing the
+    // sitemap at SITE_URL on 2026-09-09 turned it red for doing the right thing.
+    // A literal here is a second declaration of which host is canonical, hiding
+    // in a test about something else.
     const xml = readFileSync(resolve(__dirname, '../../public/sitemap.xml'), 'utf-8');
     for (const b of BUNGALOWS) {
-      const inMap = xml.includes(`<loc>https://memetic.fun/${b.id}</loc>`);
+      const inMap = xml.includes(`<loc>${SITE_URL}/${b.id}</loc>`);
       if (b.address && b.id !== DEFAULT_BUNGALOW_ID) {
         expect(inMap, `${b.id} settled door missing from sitemap.xml`).toBe(true);
       } else {
