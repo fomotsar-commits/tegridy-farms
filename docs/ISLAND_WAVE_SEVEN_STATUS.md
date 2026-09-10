@@ -336,12 +336,12 @@ under CI load the durable answer is a funded key in a repo secret, not a fourth 
 
 ## Counts
 
-**e2e, this tip:** `arrival.spec.ts` **16/16** · `bungalow-doors.spec.ts` **24/24** · `arrival-voice.spec.ts` **4/4** · `gauge-voting.spec.ts` **11/11** · `em-dash-zero.spec.ts` **50/50** (2.6 min), Chromium, `--workers=1`. The arrival spec reports its own numbers rather than asserting a sum: `curtain lifetime 2,895 ms` · `gone 448 ms after the press` · `slow-art lifetime 1,673 ms` · `slow-art canvas at +800 ms: 333/14,400 pixels lit`.
+**e2e, this tip:** `em-dash-zero` **50/50** · `launch-fold` **4/4** · `a11y-routes` + `heat-gate` **90/90** · `bungalow-doors` **24/24** · `arrival` **16/16** · `arrival-voice` **4/4** · `gauge-voting` **11/11**. Chromium, `--workers=1`.<br><br>⚠️ **RUN THESE FROM A PORT OF YOUR OWN.** `playwright.config.ts` hardcodes :4173 with `reuseExistingServer`, and this box runs several sessions out of several worktrees. Another session's `vite preview` owned the port and 24 tests failed against ITS build — element C read as missing, TOWELI read as back in every room, none of it real. The symptom is failures that all look like your feature was never applied.
 
 **Loader vitest:** 58/58 across four files (`skip` 30, `curtain` 16 → decisions only, `curtainDeadline` 8, `index` 4). All four new guards were seen red on the pre-fix source before they were kept.
 
 
-**vitest 4375/4375 effective** over `src/lib` and `src/test` (4,396 run; the 21 reds are the concurrent session's `bungalowStakingCeiling` and `bungalowStakingRates`, and it is provable rather than assumed: `git log mvp-launch..HEAD` over both paths is EMPTY, no wave-seven commit has ever touched either). Plus 1,537/1,537 over `src/pages`, `src/components` and the `src/test` guards after the element C edits.
+**vitest 5838/5838 — ZERO failures.** The 21 reds this file has been attributing to the concurrent session are gone: merging trunk into the branch brought in the exports `bungalowStakingCeiling.test.ts` was missing, so the pair that could not compile now passes. The branch has a completely clean baseline for the first time this wave.
 `middleware.test.js`, on a quiet machine (`--maxWorkers=2 --testTimeout=30000`, 521 s).
 Typecheck 0 across both projects (`tsc -b --force` and `tsc -p tsconfig.test.json`) for every
 file this wave owns. eslint 0 errors on every file this wave has touched. Server-side: 774/774
