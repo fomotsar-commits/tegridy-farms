@@ -63,12 +63,30 @@ describe('usePremiumAccess — a partial batch failure is not a fact', () => {
     expect(result.current.holdsJBAC).toBe(false);
   });
 
+  it('an unread subscription does not downgrade a LIFETIME holder', () => {
+    // Entry [1] was the one entry of the seven covered by nothing. It renders
+    // only behind hasPremium, so the window is narrow — but inside it the
+    // collapse turns "LIFETIME GOLD CARD ACTIVE" into plain "GOLD CARD ACTIVE"
+    // and deletes the renewal countdown, the only on-screen prompt telling a
+    // monthly subscriber to renew before their access lapses.
+    stubAll();
+    wagmiMock.setReadResult({ functionName: 'getSubscription', result: null, status: 'failure' });
+    const { result } = renderHook(() => usePremiumAccess());
+    expect(result.current.subscriptionUnread).toBe(true);
+    expect(result.current.isLifetime).toBe(false);
+    expect(result.current.daysRemaining).toBe(0);
+    // Membership itself read fine — this is specifically the TERM that is dark.
+    expect(result.current.premiumUnread).toBe(false);
+    expect(result.current.hasPremium).toBe(true);
+  });
+
   it('everything landed: nothing is unread', () => {
     stubAll();
     const { result } = renderHook(() => usePremiumAccess());
     expect(result.current.premiumUnread).toBe(false);
     expect(result.current.quoteUnread).toBe(false);
     expect(result.current.statsUnread).toBe(false);
+    expect(result.current.subscriptionUnread).toBe(false);
     expect(result.current.hasPremium).toBe(true);
   });
 

@@ -196,9 +196,17 @@ export default function PremiumPage() {
               border: '1px solid rgba(212,160,23,0.3)',
             }}>
             <div className="text-[13px] font-semibold" style={{ color: '#d4a017' }}>
-              {premium.isLifetime ? '\u{1F451} LIFETIME GOLD CARD ACTIVE' : '\u{1F451} GOLD CARD ACTIVE'}
+              {premium.subscriptionUnread ? '\u{1F451} GOLD CARD ACTIVE' : premium.isLifetime ? '\u{1F451} LIFETIME GOLD CARD ACTIVE' : '\u{1F451} GOLD CARD ACTIVE'}
             </div>
-            {!premium.isLifetime && premium.daysRemaining > 0 && (
+            {/* An unread subscription must not delete the renewal prompt — that
+                line is the only thing telling a monthly subscriber to renew
+                before their access lapses. Say we could not read it. */}
+            {premium.subscriptionUnread && (
+              <p className="text-[12px] mt-1" style={{ color: '#FFD37C' }}>
+                Term details could not be read &mdash; if you are on a monthly plan, check your renewal date before it lapses.
+              </p>
+            )}
+            {!premium.subscriptionUnread && !premium.isLifetime && premium.daysRemaining > 0 && (
               <div className="text-white text-[12px] mt-1">
                 {premium.daysRemaining} days remaining
               </div>

@@ -120,6 +120,17 @@ export function usePremiumAccess() {
   /** Display-only: the subscriber and revenue tiles. */
   const statsUnread = entryUnread(3) || entryUnread(4);
 
+  /** getSubscription did not land, so `isLifetime`, `expiresAt` and
+   *  `daysRemaining` are not facts. Entry [1] was the one entry of the seven
+   *  covered by nothing.
+   *
+   *  It only renders behind `hasPremium`, so the reach is narrower than the
+   *  others — but inside that window the collapse SILENTLY DOWNGRADES a
+   *  LIFETIME holder to a plain one (PremiumPage.tsx:199) and deletes the
+   *  renewal countdown at :201, which is the only thing on screen telling a
+   *  monthly subscriber to renew before their access lapses. */
+  const subscriptionUnread = entryUnread(1);
+
   const monthlyFeeFormatted = Number(formatWei(monthlyFee, 18, 8));
   const totalRevenueFormatted = Number(formatWei(totalRevenue, 18, 4));
   const userBalanceFormatted = Number(formatWei(userBalance, 18, 4));
@@ -243,6 +254,7 @@ export function usePremiumAccess() {
     hasPremium,
     premiumUnread,
     jbacUnread,
+    subscriptionUnread,
     quoteUnread,
     statsUnread,
     isActive,
