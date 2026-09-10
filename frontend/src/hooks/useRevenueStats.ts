@@ -194,6 +194,13 @@ export function useRevenueStats() {
     // Revenue Distribution
     totalDistributed: Number(formatWei(totalDistributed, 18, 6)),
     totalClaimed: Number(formatWei(totalClaimed, 18, 6)),
+    /** ⚠ DERIVED FROM TWO INDEPENDENTLY-FAILING READS — totalDistributed minus
+     *  totalClaimed — which is the exact shape of the usePoolData reserve bug:
+     *  if totalClaimed alone fails it collapses to 0n and this becomes the whole
+     *  lifetime distributed figure, a large plausible wrong number that passes
+     *  any `> 0` hedge. It is harmless ONLY because nothing reads it today
+     *  (grep `.unclaimed` across src/ — no consumer). THE FIRST CONSUMER MUST
+     *  GATE ON `globalUnread`. */
     unclaimed: Number(formatWei(totalDistributed > totalClaimed ? totalDistributed - totalClaimed : 0n, 18, 6)),
     epochCount,
     pendingRevenue: Number(formatWei(pendingRevenue, 18, 6)),
