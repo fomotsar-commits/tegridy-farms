@@ -28,7 +28,7 @@ import {
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
-  toRaw, fmt, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
+  toRaw, fmt, intArg, parseArgs, EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
 } from './bayla-ladder-ops.mjs';
@@ -481,5 +481,65 @@ describe('intArg refuses what silently became position #0', () => {
   it('accepts real nonces', () => {
     expect(intArg({ nonce: '0' }, 'nonce')).toBe(0);
     expect(intArg({ nonce: '4294967295' }, 'nonce')).toBe(4294967295);
+  });
+});
+
+describe('the broadcast gate — the one behaviour that must never fail open', () => {
+  // Nothing sends unless `args.broadcast === true`, STRICTLY. That single
+  // comparison is the whole safety model of this tool and it had no test at all.
+  // The danger is a value that is truthy-but-not-true: `--broadcast false` parses
+  // the word "false" as the flag's VALUE, and a `==`/truthy check would send.
+  const gate = (argv) => parseArgs(argv).broadcast === true;
+
+  it('a bare --broadcast opens it', () => {
+    expect(gate(['read', '--pool', 'X', '--broadcast'])).toBe(true);
+    expect(gate(['read', '--broadcast', '--pool', 'X'])).toBe(true);
+  });
+
+  it('NOTHING else opens it', () => {
+    for (const argv of [
+      ['read', '--pool', 'X'],                       // absent
+      ['read', '--pool', 'X', '--broadcast', 'false'],  // the string "false"
+      ['read', '--pool', 'X', '--broadcast', 'true'],   // even the string "true"
+      ['read', '--pool', 'X', '--broadcast', '0'],
+      ['read', '--pool', 'X', '--broadcast', 'yes'],
+      ['read', '--pool', 'X', '--broadcast=true'],    // = form is a DIFFERENT key
+      ['read', '--pool', 'X', '--Broadcast'],         // case differs
+      ['read', '--pool', 'X', '-broadcast'],          // single dash is not a flag
+    ]) {
+      expect(gate(argv), `must stay closed for: ${argv.join(' ')}`).toBe(false);
+    }
+  });
+
+  it('a value-taking flag before it does not swallow it', () => {
+    // `--keypair path --broadcast` must still open the gate: the parser assigns
+    // "path" to --keypair and then sees --broadcast on its own.
+    const a = parseArgs(['stake', '--keypair', 'C:/k.json', '--broadcast']);
+    expect(a.keypair).toBe('C:/k.json');
+    expect(a.broadcast).toBe(true);
+  });
+
+  it('--broadcast immediately before another flag still opens it', () => {
+    const a = parseArgs(['stake', '--broadcast', '--nonce', '3']);
+    expect(a.broadcast).toBe(true);
+    expect(a.nonce).toBe('3');
+  });
+});
+
+describe('the pool nonce is a u8 and must be refused above 255', () => {
+  // u8() masks with & 0xff, so an unvalidated 256 silently addresses pool 0 —
+  // a DIFFERENT pool, possibly one that already exists.
+  it('refuses 256 and above', () => {
+    expect(() => intArg({ nonce: '256' }, 'nonce', { min: 0, max: 255 })).toThrow(/between 0 and 255/);
+    expect(() => intArg({ nonce: '1000' }, 'nonce', { min: 0, max: 255 })).toThrow();
+  });
+  it('accepts the real range', () => {
+    expect(intArg({ nonce: '0' }, 'nonce', { min: 0, max: 255 })).toBe(0);
+    expect(intArg({ nonce: '255' }, 'nonce', { min: 0, max: 255 })).toBe(255);
+  });
+  it('and 256 really would have collided with pool 0', () => {
+    // The masking is genuine, which is why the guard matters.
+    const P = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
+    expect(poolPda(P, MINT, 256).toBase58()).toBe(poolPda(P, MINT, 0).toBase58());
   });
 });
