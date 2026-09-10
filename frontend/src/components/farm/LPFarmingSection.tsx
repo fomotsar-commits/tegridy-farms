@@ -54,13 +54,34 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
   // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
   // still undefined at first render, leaving the section blank for the critical first
   // frame. See audit blocker: LPFarmingSection double-return null.
+  //
+  // ⚠ THE HEADING IS NOT PART OF THE SKELETON, and shimmering it was a real defect.
+  // "LP Farming" and its subtitle are compile-time constants — they depend on no read,
+  // so there is nothing to wait for before printing them. Standing two grey bars where
+  // the section's NAME goes meant that for as long as the batch was in flight, /farm
+  // showed a nameless pulsing box: a screen reader got nothing to announce, and a
+  // sighted user could not tell which section was loading. This is the section's
+  // identity disappearing while it loads — the same class of bug as rendering an
+  // unreadable value as a confident zero, one step earlier.
+  //
+  // It is not a hypothetical window either. The batch below retries twice (App.tsx
+  // sets retry: 2) with viem's 10s per-transport timeout behind a 2-endpoint fallback,
+  // so a degraded RPC can hold this state for tens of seconds. Measured on the CI
+  // Anvil fork it runs 2.5-6.7s on a COLD fork — see the named budget in
+  // e2e/claim-rewards.spec.ts, which this shape is what lets that spec separate
+  // "the section mounted" from "its reads landed".
+  //
+  // Shimmer only what the read actually decides: the stat tiles and the CTA. The
+  // house pattern elsewhere is the same — BountiesSection keeps its <h3> and
+  // skeletons the rows beneath it; this section was the only one that early-returned
+  // its own heading away.
   if (lpFarm.isReadLoading) {
     return (
-      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} aria-busy="true">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <div className="h-6 w-40 rounded bg-white/10 animate-pulse" />
-            <div className="h-4 w-64 rounded bg-white/10 animate-pulse mt-1.5" />
+            <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
+            <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
           </div>
         </div>
         <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
