@@ -31,8 +31,8 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
 //
 // ── THE DEBT ────────────────────────────────────────────────────────────────
 //
-// 465 prose dashes across 52 routes (487 at the guard's landing; the sweep
-// has begun and nineteen routes are now finished), so this cannot land as `toBe(0)`
+// 383 prose dashes across 52 routes (487 at the guard's landing; the sweep
+// has begun and twenty routes are now finished), so this cannot land as `toBe(0)`
 // without landing red, and a permanently red gate is a gate people learn to
 // ignore. It lands as the repo's own knownViolations idiom instead
 // (e2e/fixtures/routes.ts): an EXACT count per route, asserted both ways.
@@ -79,6 +79,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/swap': 0,
   '/zap': 0,
   '/eth-curve/0x0000000000000000000000000000000000000000': 0,
+  '/gallery': 0,
   '/nakamigos': 1,
   '/tokenomics': 3,
   '/lore': 3,
@@ -111,7 +112,6 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
   // children in the DOM, which is exactly why the fold uses one.
   '/launch': 31,
-  '/gallery': 82,
   '/changelog': 104,
 
 };
