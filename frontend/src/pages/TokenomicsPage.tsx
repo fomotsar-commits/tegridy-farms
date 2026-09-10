@@ -191,7 +191,7 @@ export default function TokenomicsPage() {
                 // EARLY_WITHDRAWAL_PENALTY_BPS = 2500: 25% of principal, on a
                 // farm still paying. The two tiles further down this page
                 // already print '–' for unread; this one never learned to.
-                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : pool.reserveUnread ? '–' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : 'Period ended' },
+                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : pool.runwayUnread ? '–' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : 'Period ended' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
                   <span className="text-white text-[13px]">{r.l}</span>

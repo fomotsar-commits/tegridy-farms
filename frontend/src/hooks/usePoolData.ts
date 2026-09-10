@@ -69,6 +69,14 @@ export function usePoolData() {
 
   const rawRemaining = stakingBalance - totalStaked - totalUnsettled;
   const rewardsRemaining = !reserveUnread && stakingBalance > 0n && rawRemaining > 0n ? rawRemaining : 0n;
+  // THE RUNWAY STRADDLES BOTH FLAGS. It is rewardsRemaining (gated on
+  // `reserveUnread`) divided by rewardRate, which is entry [2] and therefore
+  // belongs to `aprUnread`. So a perfectly-read reserve over an UNREAD rate
+  // still yields 0 here, and TokenomicsPage's "Emissions End In" tile prints
+  // the sentence "Period ended" -- the exact claim the comment above says must
+  // never be asserted on a read that did not land, arriving through the other
+  // door. Consumers that need the runway must gate on `runwayUnread`, not on
+  // either flag alone.
   const secondsRemaining = rewardRate > 0n ? rewardsRemaining / rewardRate : 0n;
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
   const periodFinish = secondsRemaining > 0n ? nowSec + secondsRemaining : 0n;
@@ -123,6 +131,10 @@ export function usePoolData() {
     reserveUnread,
     /** rewardRate or totalBoostedStake did not land, so `apr`/`aprNum` are not a rate. */
     aprUnread,
+    /** `secondsRemaining`/`periodFinish` are derived from BOTH axes, so a
+     *  runway claim needs both. Gating on `reserveUnread` alone still prints
+     *  "Period ended" when only the rate is dark. */
+    runwayUnread: reserveUnread || aprUnread,
     apr,
     aprNum,
     aprCapped,

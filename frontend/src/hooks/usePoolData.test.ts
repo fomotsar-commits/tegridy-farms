@@ -246,6 +246,39 @@ describe('usePoolData — an unread reserve is not an empty one', () => {
     expect(result.current.isDry).toBe(true);
   });
 
+  it('a read reserve over an UNREAD RATE is not "period ended"', () => {
+    // THE LEG THE FIRST PASS MISSED. secondsRemaining = rewardsRemaining /
+    // rewardRate, so it straddles both axes: the reserve legs can land
+    // perfectly and an unread rewardRate still drives it to 0. TokenomicsPage's
+    // "Emissions End In" tile gated on reserveUnread alone, so it went on
+    // printing the SENTENCE "Period ended" — the same claim that sends a locked
+    // staker into a 25% early-withdrawal penalty on a farm that is still paying.
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'rewardRate', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.aprUnread).toBe(true);
+    expect(result.current.reserveUnread).toBe(false);
+    // The reserve itself read fine...
+    expect(result.current.rewardsRemaining).toBe(formatEther(parseEther('400000')));
+    // ...but the runway derived from it is not a fact, and now says so.
+    expect(result.current.secondsRemaining).toBe(0);
+    expect(result.current.runwayUnread).toBe(true);
+  });
+
+  it('runwayUnread is also true when the reserve is the dark half', () => {
+    stubHealthyReserve();
+    wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n, status: 'failure' });
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.runwayUnread).toBe(true);
+  });
+
+  it('a fully-read pool has a runway', () => {
+    stubHealthyReserve();
+    const { result } = renderHook(() => usePoolData());
+    expect(result.current.runwayUnread).toBe(false);
+    expect(result.current.secondsRemaining).toBeGreaterThan(0);
+  });
+
   it('an unread APR leg is separate from the reserve', () => {
     // Deliberately independent: a dark rewardRate must not blank a runway that
     // was read fine, and a dark reserve must not blank a real APR.
