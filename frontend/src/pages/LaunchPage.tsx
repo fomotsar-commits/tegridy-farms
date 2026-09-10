@@ -1191,7 +1191,9 @@ function LauncherExplainer() {
           Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
           already deployed, a graduated launch has somewhere to go: a boosted LP-farming program on its own
           graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
-          ability to apply to the existing GaugeController for a share of TOWELI emissions.
+          ability to apply to the existing GaugeController for a share of TOWELI emissions. Both of those rails belong
+          to TOWELI, one resident of this island, and are named here because they are what actually exists — not
+          because a launch here is denominated in anyone's token.
         </p>
         <ul className="list-disc pl-4 space-y-1">
           <li>Every afterlife feature is opt-in and reviewed per feature. Launching grants none of them automatically.</li>

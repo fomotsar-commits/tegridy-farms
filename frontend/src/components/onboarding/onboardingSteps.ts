@@ -65,7 +65,11 @@ export const ONBOARDING_SURFACES: readonly OnboardingSurface[] = [
     id: 'farm',
     route: '/farm',
     label: 'Farm',
-    blurb: 'Stake and lock TOWELI. Longer locks weigh more; the boost is computed on-chain.',
+    // VOICE, and also FACT (2026-09-09). At venue voice /farm is the island
+    // INDEX — VenuePoolIndex, a table of every resident's pool — so "Stake and
+    // lock TOWELI" named the wrong destination as well as the wrong owner. The
+    // lock ladder itself is unchanged and still described.
+    blurb: 'Stake and lock in the island pools. Longer locks weigh more; the boost is computed on-chain.',
     isLive: () => isDeployed(TEGRIDY_STAKING_ADDRESS),
   },
   {
@@ -173,7 +177,11 @@ export function onboardingSteps(): OnboardingStep[] {
       title: 'What can go wrong',
       body: [
         'This is experimental software. The contracts can hold bugs, an audit does not prove their absence, and a loss here is usually permanent — there is no chargeback, no support desk that can reverse a signed transaction, and no insurance.',
-        'Token prices can go to zero, including TOWELI. Locked stake is locked: early exit carries an on-chain penalty. Never commit money you need back.',
+        // ⚠️ BROADENED, NOT WEAKENED (2026-09-09). This named TOWELI as the one
+        // token that could go to zero, which reads as an exemption for the
+        // other eleven residents — the opposite of what a disclosure is for.
+        // Every clause it made is still made, about every token here.
+        'Token prices can go to zero — every token listed here, and every token launched here. Locked stake is locked: early exit carries an on-chain penalty. Never commit money you need back.',
         'Parts of this venue are switched off on purpose and render as placeholders rather than pretending to work. Anything you are routed to from here is live; anything showing a placeholder is not, and no timeline is promised for it.',
       ],
       actions: pick('risks'),
