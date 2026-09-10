@@ -510,7 +510,18 @@ export default function PremiumPage() {
                 No subscription needed — just claim your access.
               </p>
             </div>
-            {address && premium.holdsJBAC && !premium.hasPremium && (
+            {/* An unread entitlement check must not read as "you own no ape".
+                The copy beside this button still promises the access is free,
+                and the paid plan grid above is fully armed — so hiding the
+                button silently leaves a holder with no way to claim and a live
+                purchase flow for what they already own. */}
+            {address && premium.jbacUnread && !premium.hasPremium && (
+              <p role="alert" className="text-[12px] flex-shrink-0 max-w-[260px] text-left" style={{ color: '#FFD37C' }}>
+                We could not check your JBAC holdings. If you hold one, your access is free &mdash;
+                do not buy a subscription until this loads.
+              </p>
+            )}
+            {address && premium.holdsJBAC && !premium.jbacUnread && !premium.hasPremium && (
               <button onClick={premium.activateNFTPremium}
                 disabled={premium.isPending || premium.isConfirming}
                 className="px-5 py-3 rounded-lg text-[13px] font-semibold flex-shrink-0"

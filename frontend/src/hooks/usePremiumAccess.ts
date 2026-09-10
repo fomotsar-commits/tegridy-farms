@@ -34,7 +34,7 @@ export function usePremiumAccess() {
   const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT
-  const { data: jbacBalance } = useReadContract({
+  const { data: jbacBalance, isError: isJbacError, isLoading: isJbacLoading } = useReadContract({
     address: JBAC_NFT_ADDRESS,
     abi: ERC20_ABI,
     chainId: CHAIN_ID,
@@ -43,6 +43,20 @@ export function usePremiumAccess() {
     query: { enabled: !!address },
   });
   const holdsJBAC = jbacBalance != null && (jbacBalance as bigint) > 0n;
+
+  /** The JBAC entitlement check did not land.
+   *
+   *  THIS IS A SEPARATE useReadContract, not part of the seven-entry batch, and
+   *  it originally destructured only `data` — so a failed read was
+   *  indistinguishable from "owns zero apes". It LOOKS fail-closed, because the
+   *  collapse HIDES the "Activate NFT Premium" button (PremiumPage.tsx:513).
+   *  Judged at the wallet it is fail-OPEN: the card's own copy two lines above
+   *  still reads "You get lifetime Gold Card access for free ... just claim your
+   *  access", while the paid plan grid is gated on `!hasPremium &&
+   *  !premiumUnread` — both false here — so Subscribe is fully armed at a
+   *  correct price. A JBAC holder is told the access is free, given no way to
+   *  take it, and handed a working purchase flow for what they already own. */
+  const jbacUnread = !!address && !isJbacLoading && isJbacError;
 
   const { data, refetch, isLoading: isDataLoading, isError: isDataError, error: dataError } = useReadContracts({
     contracts: [
@@ -228,6 +242,7 @@ export function usePremiumAccess() {
     // Subscription status
     hasPremium,
     premiumUnread,
+    jbacUnread,
     quoteUnread,
     statsUnread,
     isActive,

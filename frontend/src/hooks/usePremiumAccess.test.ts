@@ -9,7 +9,7 @@ vi.mock('sonner', () => ({
 vi.mock('../lib/explorer', () => ({ getTxUrl: () => 'https://example.test/tx' }));
 
 import { usePremiumAccess } from './usePremiumAccess';
-import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, CHAIN_ID } from '../lib/constants';
+import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID } from '../lib/constants';
 
 const USER = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
 
@@ -36,6 +36,31 @@ describe('usePremiumAccess — a partial batch failure is not a fact', () => {
     wagmiMock.reset();
     wagmiMock.setChainId(CHAIN_ID);
     wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('an unread JBAC balance is not "you own no ape"', () => {
+    // THE LEG THE FIRST PASS MISSED. This is a SEPARATE useReadContract, not
+    // part of the seven-entry batch, and it originally destructured only
+    // `data` — so a failed read read as "owns zero apes".
+    //
+    // It LOOKS fail-closed because the collapse HIDES the Activate button. It
+    // is not: the copy beside that button still promises the access is free,
+    // and the paid grid is gated on `!hasPremium && !premiumUnread` — both
+    // false here — so Subscribe stays armed at a correct price. A holder is
+    // told it is free, given no way to take it, and sold it anyway.
+    stubAll();
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: JBAC_NFT_ADDRESS, result: null, status: 'failure' });
+    const { result } = renderHook(() => usePremiumAccess());
+    expect(result.current.jbacUnread).toBe(true);
+    expect(result.current.holdsJBAC).toBe(false);
+  });
+
+  it('a read JBAC balance of zero is not unread', () => {
+    stubAll();
+    wagmiMock.setReadResult({ functionName: 'balanceOf', address: JBAC_NFT_ADDRESS, result: 0n });
+    const { result } = renderHook(() => usePremiumAccess());
+    expect(result.current.jbacUnread).toBe(false);
+    expect(result.current.holdsJBAC).toBe(false);
   });
 
   it('everything landed: nothing is unread', () => {
