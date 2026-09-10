@@ -6,7 +6,6 @@
     "src/hooks/useBribes.ts",
     "src/hooks/useGaugeList.ts",
     "src/hooks/usePoolData.ts",
-    "src/hooks/usePremiumAccess.ts",
     "src/hooks/useProtocolStats.ts",
     "src/hooks/useRestaking.ts",
     "src/hooks/useRevenueStats.ts",
