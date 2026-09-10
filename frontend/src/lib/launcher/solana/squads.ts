@@ -28,22 +28,67 @@
 //
 // THRESHOLD IS ENFORCED (2026-07-26 — previously an out-of-band manual check).
 // -----------------------------------------------------------------------------
-// `verifySquadsVault` now proves THREE things: (1) owner — the parent is a Squads-v4-owned
-// account, (2) PDA binding — the fee address is that parent's canonical vault PDA, and
+// `verifySquadsVault` now proves FOUR things: (1) owner — the parent is a Squads-v4-owned
+// account, (2) PDA binding — the fee address is that parent's canonical vault PDA,
 // (3) custody — the parent is a genuine `Multisig` account (verified by its 8-byte Anchor
-// discriminator) whose threshold is >= 2. This closes two holes the owner-only check left
-// open; both now FAIL CLOSED:
+// discriminator) whose threshold is >= 2, and (4) DURABILITY of (3) — the block below.
+// This closes two holes the owner-only check left open; both now FAIL CLOSED:
 //   • a 1-of-1 Squads multisig (threshold = 1) — a SINGLE-KEY drain of ALL accrued Solana
 //     fees — is rejected; and
 //   • any OTHER Squads-program-owned account type (Proposal / VaultTransaction /
 //     ProgramConfig) is rejected, because its discriminator is not the `Multisig` one.
 // Done WITHOUT the `@sqds/multisig` SDK (no new dep) via a discriminator-GUARDED byte read
-// (see `readMultisigThreshold`). The guard is what makes the hand-rolled offset safe — the
+// (see `readMultisigConfig`). The guard is what makes the hand-rolled offsets safe — the
 // earlier concern was that a wrong offset could ACCEPT a 1-of-1; here we only ever read the
 // threshold offset of a real `Multisig` account, so a wrong account type returns null and
-// is rejected, never accepted. Offset triple-confirmed (Anchor layout math, Squads v4
+// is rejected, never accepted. Offsets triple-confirmed (Anchor layout math, Squads v4
 // state.rs, and the operator's on-chain read of the production vault). An independent
 // Squads-tooling cross-check at go-live remains good practice.
+// -----------------------------------------------------------------------------
+//
+// …AND A THRESHOLD IS ONLY WORTH READING IF IT CANNOT MOVE (2026-09-10).
+// -----------------------------------------------------------------------------
+// The threshold check above is a POINT-IN-TIME read of a MUTABLE value, and until now
+// nothing here said so. Squads v4 multisigs come in two shapes:
+//   • AUTONOMOUS — `config_authority == Pubkey::default()` (32 zero bytes). Changing the
+//     threshold, adding a member or removing one goes through the multisig's OWN proposal
+//     process, i.e. it needs the very threshold this module just checked.
+//   • CONTROLLED — `config_authority` is some key. That ONE key calls the config
+//     instructions directly. A 3-of-5 read here becomes a 1-of-1 the moment the read
+//     returns, at the sole discretion of a single signer, and the fee address we are about
+//     to bless is then drainable by that signer alone — the EXACT outcome this module
+//     exists to prevent, arrived at one transaction later.
+// So the >= 2 rule only means anything on an AUTONOMOUS multisig, and `readMultisigConfig`
+// returns the threshold and that fact TOGETHER out of one discriminator-guarded read. It
+// deliberately REPLACES the old `readMultisigThreshold`: a decoder that hands back a
+// threshold WITHOUT its mutability is a decoder a future caller can use to rebuild this
+// hole, and this file's own doctrine is that an unprovable property must not be readable
+// as a proven one.
+//
+// The live vault happens to be autonomous. That was never something this code KNEW — it
+// was a property of the operator's configuration that the guard silently rode on. It is
+// checked now, so a DIFFERENT multisig cannot be blessed on the strength of this one's
+// configuration.
+// -----------------------------------------------------------------------------
+//
+// ⚠️ NOTHING CALLS `verifySquadsVault` TODAY, AND THAT IS STATED HERE ON PURPOSE.
+// -----------------------------------------------------------------------------
+// Its only importers were the Meteora DBC modules, deleted 2026-08-23. Since then the
+// export has had ZERO production callers — squads.test.ts is the only file that reaches
+// it — so the hole fixed above was never live, and closing it is hardening, not an
+// incident. Do not read the fix as "the guard now protects the treasury": the guard
+// protects nothing until something calls it.
+//
+// WHERE IT BELONGS, precisely: `frontend/scripts/tegridy-launch-operator.mjs`, the
+// `init-global` command. It takes `--fee-recipient <base58>` and its own help text says
+// "mainnet: the treasury Squads vault" — then accepts any parseable pubkey, an EOA
+// included. That value becomes `global.fee_recipient`, which is the account every trade
+// fee on the own-venue curve accrues to, i.e. exactly the custody this module exists to
+// prove. Wiring it is NOT a one-liner and is deliberately left out of the change that
+// fixed the guard: `SquadsVaultRef` needs provenance the CLI does not collect yet (two
+// new flags — the parent multisig and the vault index), the check must stay opt-in so a
+// devnet ceremony can still point at a plain wallet, and that script has no test harness
+// on this box to prove either behaviour. Wire it in a change that can verify it.
 // -----------------------------------------------------------------------------
 //
 // Program id verified 2026-07-17 against the Squads Protocol v4 deployment
@@ -65,15 +110,17 @@ const SQUADS_V4_PROGRAM_PUBKEY = new PublicKey(SQUADS_V4_PROGRAM_ID);
 const SEED_PREFIX = Buffer.from('multisig');
 const SEED_VAULT = Buffer.from('vault');
 
-// ── Squads v4 `Multisig` account layout (for the threshold check) ────────────
+// ── Squads v4 `Multisig` account layout (for the custody checks) ─────────────
 // Anchor account discriminator = sha256("account:Multisig")[0..8]. Computed and
 // pinned 2026-07-26 (standard Anchor derivation for the v4 `Multisig` struct).
-// Guards the threshold read below: without it, a DIFFERENT Squads-program account
+// Guards the reads below: without it, a DIFFERENT Squads-program account
 // (Proposal / VaultTransaction / ProgramConfig) would be byte-parsed as a Multisig
-// and yield a garbage "threshold".
+// and yield a garbage "threshold" and a garbage "config_authority".
 const MULTISIG_DISCRIMINATOR = Uint8Array.from([224, 116, 121, 186, 68, 161, 79, 236]);
 // Layout after the 8-byte discriminator (github.com/Squads-Protocol/v4 state.rs):
 //   create_key: Pubkey(32) @8 · config_authority: Pubkey(32) @40 · threshold: u16 @72.
+const CONFIG_AUTHORITY_OFFSET = 40;
+const CONFIG_AUTHORITY_LEN = 32;
 const THRESHOLD_OFFSET = 72;
 // A threshold of 1 is a single-key drain of all accrued fees — the exact thing the
 // vault gate exists to prevent. Genuine multisig custody requires >= 2 signers.
@@ -111,33 +158,61 @@ export function deriveSquadsVaultPda(multisig: string, vaultIndex: number): stri
   return pda.toBase58();
 }
 
+/** What one discriminator-guarded read of a Squads v4 `Multisig` account yields. */
+export interface MultisigConfig {
+  /** `threshold`: u16 LE @72 — how many members must sign a vault transaction. */
+  threshold: number;
+  /**
+   * `config_authority == Pubkey::default()` — i.e. NOBODY can rewrite this multisig's
+   * config unilaterally, so `threshold` above is a property of the multisig rather than
+   * of one key's current goodwill. `false` means a single signer can set the threshold
+   * to 1 whenever it likes, which makes the threshold read meaningless.
+   */
+  autonomous: boolean;
+}
+
 /**
- * Parse the multisig threshold from raw Squads account data, but ONLY if the data is a
- * genuine Squads v4 `Multisig` account (proven by its 8-byte Anchor discriminator).
- * Returns the threshold, or `null` when the data is not a Multisig account / is too
- * short. A `null` result means "cannot prove multisig custody" and the caller MUST treat
- * it as fail-closed (reject).
+ * Parse a Squads v4 `Multisig`'s threshold AND its mutability from raw account data, but
+ * ONLY if the data is a genuine `Multisig` account (proven by its 8-byte Anchor
+ * discriminator). Returns `null` when the data is not a Multisig account / is too short.
+ * A `null` result means "cannot prove multisig custody" and the caller MUST treat it as
+ * fail-closed (reject).
  *
- * FAIL-CLOSED BY CONSTRUCTION — this is what makes the hand-rolled offset safe (the
+ * THE TWO FIELDS COME BACK TOGETHER ON PURPOSE. This replaced `readMultisigThreshold`,
+ * which returned the threshold alone — and a threshold alone is a point-in-time read of a
+ * value one key may be free to change (see the module header). Handing both out of a
+ * single call is what stops a caller from checking `>= 2` and believing it will hold.
+ *
+ * FAIL-CLOSED BY CONSTRUCTION — this is what makes the hand-rolled offsets safe (the
  * concern the module header used to raise). The discriminator check guarantees we only
- * ever read offset 72 of an actual `Multisig` account, whose fixed layout puts the
- * threshold there; any other account type, or short data, returns `null` (reject) rather
- * than a spuriously-high threshold that would ACCEPT a bad vault. Never throws; pure.
- * Exported for unit testing.
+ * ever read offsets 40 and 72 of an actual `Multisig` account, whose fixed layout puts
+ * `config_authority` and `threshold` there; any other account type, or short data,
+ * returns `null` (reject) rather than a spuriously-high threshold — or a spurious
+ * "autonomous" — that would ACCEPT a bad vault. Never throws; pure. Exported for unit
+ * testing.
  */
-export function readMultisigThreshold(data: Uint8Array | null | undefined): number | null {
+export function readMultisigConfig(data: Uint8Array | null | undefined): MultisigConfig | null {
   if (!data || data.length < THRESHOLD_OFFSET + 2) return null;
   for (let i = 0; i < MULTISIG_DISCRIMINATOR.length; i++) {
     if (data[i] !== MULTISIG_DISCRIMINATOR[i]) return null; // not a `Multisig` account
   }
+  // config_authority: Pubkey(32) @40. All-zero is Pubkey::default(), i.e. "no authority".
+  let autonomous = true;
+  for (let i = CONFIG_AUTHORITY_OFFSET; i < CONFIG_AUTHORITY_OFFSET + CONFIG_AUTHORITY_LEN; i++) {
+    if (data[i] !== 0) {
+      autonomous = false;
+      break;
+    }
+  }
   // threshold: u16, little-endian, at offset 72.
-  return data[THRESHOLD_OFFSET]! | (data[THRESHOLD_OFFSET + 1]! << 8);
+  const threshold = data[THRESHOLD_OFFSET]! | (data[THRESHOLD_OFFSET + 1]! << 8);
+  return { threshold, autonomous };
 }
 
 /**
  * Verify on-chain that `ref.address` is genuinely the Squads v4 vault PDA of a real
  * Squads multisig — the multisig-custodied account that can actually sign the Meteora
- * fee claim. Both checks are required:
+ * fee claim. Every check below is required; any one of them failing returns false:
  *   1. `ref.address === deriveSquadsVaultPda(ref.multisig, ref.vaultIndex)` — it IS
  *      that multisig's vault PDA (off-curve, System-owned by design), not an EOA or an
  *      unrelated account. This is a pure string compare (no fetch).
@@ -146,14 +221,22 @@ export function readMultisigThreshold(data: Uint8Array | null | undefined): numb
  *
  * CHECKS THRESHOLD (2026-07-26): also requires the parent to be a genuine `Multisig`
  * account (8-byte discriminator) whose threshold is >= 2, so a 1-of-1 (single-key drain)
- * or a non-`Multisig` Squads account is rejected fail-closed. See `readMultisigThreshold`
+ * or a non-`Multisig` Squads account is rejected fail-closed. See `readMultisigConfig`
  * and the module header block for the discriminator-guarded rationale.
  *
+ * CHECKS THAT THE THRESHOLD CANNOT MOVE (2026-09-10): and requires the multisig to be
+ * AUTONOMOUS — `config_authority == Pubkey::default()`. A CONTROLLED multisig's threshold
+ * is one transaction, by one key, away from 1, so a >= 2 read on it proves nothing about
+ * the moment the fee address is actually used. This is the difference between "the vault
+ * is safe" and "the vault is safe as long as its current owner keeps choosing to be";
+ * only the first is something a guard can assert. See the module header.
+ *
  * Returns:
- *   • `true`  — both checks pass.
+ *   • `true`  — all four checks pass.
  *   • `false` — the address is not the derived vault PDA, or the multisig does not
- *               exist / is not Squads-owned. Fail-closed: the operator wrapper must
- *               refuse the launch on `false`.
+ *               exist / is not Squads-owned / is not a `Multisig` account / is 1-of-1 /
+ *               is CONTROLLED. Fail-closed: the operator wrapper must refuse the launch
+ *               on `false`.
  *
  * Throws only on malformed input (empty/invalid base58) or an RPC failure — a
  * transport error is NOT silently coerced to `false` (that would let a network blip
@@ -188,10 +271,12 @@ export async function verifySquadsVault(connection: Connection, ref: SquadsVault
     return false; // not Squads-owned — a look-alike
   }
 
-  // (3) It must be a genuine `Multisig` account (discriminator) with threshold >= 2.
-  //     A 1-of-1 multisig is a single-key drain of all accrued fees; a non-`Multisig`
-  //     Squads account (Proposal / VaultTransaction) can never sign a claim. Both are
-  //     fail-closed here: readMultisigThreshold returns null → reject.
-  const threshold = readMultisigThreshold(info.data);
-  return threshold !== null && threshold >= MIN_MULTISIG_THRESHOLD;
+  // (3) It must be a genuine `Multisig` account (discriminator) with threshold >= 2, and
+  //     (4) that threshold must be beyond any single key's reach — an AUTONOMOUS multisig.
+  //     A 1-of-1 multisig is a single-key drain of all accrued fees; a CONTROLLED one is
+  //     the same drain one config transaction later; a non-`Multisig` Squads account
+  //     (Proposal / VaultTransaction) can never sign a claim at all. All three are
+  //     fail-closed here: readMultisigConfig returns null → reject.
+  const config = readMultisigConfig(info.data);
+  return config !== null && config.autonomous && config.threshold >= MIN_MULTISIG_THRESHOLD;
 }

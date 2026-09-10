@@ -244,7 +244,7 @@ export default function TradePage() {
             trades on Solana. Without this the only route between the two was
             the "More" menu, which is why a Solana bungalow's "Trade" landed on
             an ETH swap that could not touch its token. */}
-        <ChainSwitch active="ethereum" />
+        <ChainSwitch />
 
         {/* Why this form is empty, when the wallet is on a chain we serve but
             cannot swap on. Renders nothing on Ethereum and nothing on an
