@@ -639,6 +639,25 @@ jobs:
           fi
           ls -l target/deploy/bayla_ladder.so target/idl/bayla_ladder.json
 
+      # THE COMMITTED IDL MUST STILL DESCRIBE THIS PROGRAM.
+      #
+      # `anchor build` cannot run on the operator's Windows box (platform-tools needs
+      # a symlink privilege it does not have), so for most of this program's life the
+      # only IDL in existence was inside a CI artifact GitHub deletes after 30 days -
+      # an interface description with an expiry date, for a program that is deployed.
+      # `idl/bayla_ladder.json` is committed now, and a committed generated file that
+      # nothing checks is a file that goes stale silently. This job has just built a
+      # fresh one; compare them.
+      #
+      # The two per-build identities (declare_id! and the cfg-gated deployer::ID,
+      # which this job patches with THROWAWAY keys) are normalised - after being
+      # asserted present, so a build that LOST the deployer gate cannot read as a
+      # match. Nothing else is normalised; see tools/check_committed_idl.py.
+      - name: The committed IDL must match this build
+        run: |
+          set -euo pipefail
+          python3 tools/check_committed_idl.py idl/bayla_ladder.json target/idl/bayla_ladder.json
+
       - name: Install JS deps (yarn, matching the committed lockfile)
         run: yarn install --frozen-lockfile
 
