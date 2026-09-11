@@ -128,23 +128,37 @@ export default function LeaderboardPage() {
                 never swapped, and nothing on-chain has changed - reload to try again.
               </div>
             )}
+            {/* The other half: the staking, LP and referral reads. Each one's
+                collapse understates points exactly as a refused swap scan does,
+                so it withholds the same figures (pointsUnread below). */}
+            {points.metricsUnread && (
+              <div
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 mb-4 text-[12px] text-amber-100"
+                data-testid="points-positions-unread"
+              >
+                Your staking, LP or referral position could not be read just now - the network did
+                not answer. Points and tier are withheld rather than shown short, and any badge
+                earned by staking, providing liquidity or referring may be missing below. This is
+                not a statement that you hold no position - reload to try again.
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Points</p>
-                {points.swapCountUnread
+                {points.pointsUnread
                   ? <p className="stat-value text-xl text-white">–</p>
                   : <AnimatedCounter value={points.data?.points ?? 0} decimals={0} className="stat-value text-xl text-white" />}
               </div>
               <div className="rounded-lg p-3 text-center" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-1">Tier</p>
-                <p className="stat-value text-lg" style={{ color: points.tier?.color }}>{points.swapCountUnread ? '–' : points.tier?.name}</p>
+                <p className="stat-value text-lg" style={{ color: points.tier?.color }}>{points.pointsUnread ? '–' : points.tier?.name}</p>
               </div>
             </div>
 
             {/* Progress to next tier. Gated on the same flag as the Points tile:
                 a bar filled from an understated total is that understatement
                 drawn rather than written, aria-valuenow included. */}
-            {points.nextTier && !points.swapCountUnread && (
+            {points.nextTier && !points.pointsUnread && (
               <div className="mb-4">
                 <div className="flex items-center justify-between text-[11px] mb-1.5">
                   <span className="text-white">Progress to {points.nextTier.name}</span>
