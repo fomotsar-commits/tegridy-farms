@@ -3,30 +3,6 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
-import DOOR_THUMB_LUMA from '../lib/doorThumbLuma.generated.json';
-
-const LUMA = DOOR_THUMB_LUMA as Record<string, number>;
-
-/**
- * The filter a dimmed door wears.
- *
- * `grayscale(1)` alone was the whole treatment, and desaturation says nothing
- * about LIGHTNESS — so each tile landed wherever its painting's own exposure put
- * it. Measured across the door thumbnails that was a 3.1x spread (0.270 for
- * wrestler.jpg up to 0.841 for mumu-bull.jpg), which is why a few doors read as
- * switched off while others read as barely dimmed. The per-image multiplier is
- * measured at build time by scripts/generate-image-derivatives.mjs; see its
- * LUMA_TARGET comment for why the target is the set's own median.
- *
- * A thumbnail with no measurement keeps plain `grayscale(1)` — exactly the
- * previous behaviour — so a missing manifest degrades to "not normalised"
- * rather than to an unstyled or invisible tile.
- */
-function dimmedFilter(thumb: string): string {
-  const k = LUMA[thumb];
-  return k ? `grayscale(1) brightness(${k})` : 'grayscale(1)';
-}
-
 /**
  * THE HALL OF DOORS — the venue arrival's island map.
  *
@@ -126,12 +102,19 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
           }`}
           style={{
             ...(bungalow.thumbPosition ? { objectPosition: bungalow.thumbPosition } : {}),
-            // The `grayscale` utility class moved in here so the desaturation and
-            // the per-image brightness are ONE declaration. Tailwind's filter
-            // utilities and an inline `filter` overwrite each other rather than
-            // composing, so keeping the class as well would have silently dropped
-            // whichever lost.
-            ...(state === 'open' ? {} : { filter: dimmedFilter(bungalow.thumb) }),
+            // WAVE SEVEN, element H: NO GRAYSCALE FILTER. A settled door wore
+            // `grayscale(1)` plus a per-image brightness multiplier, and the
+            // whole apparatus existed to make the greying land evenly across
+            // paintings whose exposures varied 3.1x. It made a resident's art
+            // into a switched-off tile on the venue's own front door.
+            //
+            // Every door is in colour now. What a door IS still reads at a
+            // glance, from things that carry meaning rather than from draining
+            // the art: the SETTLED / LIVE / QUIET chip above, the accent border
+            // and glow an open door gets and a settled one does not, and the
+            // hover scale that only a live door answers with. The 25% opacity
+            // step on the settled Link stays: it is depth, not desaturation,
+            // and it lifts to full on hover and focus.
           }}
         />
       </div>
@@ -263,7 +246,7 @@ export function VenueDoors() {
               actually read rather than scan. */}
           <p className="text-white text-[16px] max-w-[60ch] leading-relaxed" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
             Every island community keeps a door at the venue. {openCount} {openCount === 1 ? 'door is' : 'doors are'} open
-            in full color. Settled doors are greyed while their people move in; each one still opens to its plaque,
+            for business. Settled doors are marked while their people move in; each one still opens to its plaque,
             contract and trade route. Walk in where you hold.
           </p>
         </div>

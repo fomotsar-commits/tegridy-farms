@@ -92,7 +92,7 @@ export function VenuePoolIndex() {
         </h2>
         <p className="text-white/65 text-[13px] leading-relaxed max-w-[64ch]">
           Every resident community runs its own pool, in its own token, on its own chain. Pick a
-          room to see its live rate, its reward balance and what your position is worth — those
+          room to see its live rate, its reward balance and what your position is worth. Those
           numbers are read on chain there, where a failed read can say so.
         </p>
       </div>
@@ -169,8 +169,8 @@ export function VenuePoolIndex() {
 
       <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
         No rate is shown here because none is read here. Twelve pools across three chains would be
-        twelve calls before this list could draw, and a call that does not answer renders as a zero
-        — which would read as &ldquo;empty, pays nothing&rdquo; about a pool that may be neither.
+        twelve calls before this list could draw, and a call that does not answer renders as a zero,
+        which would read as &ldquo;empty, pays nothing&rdquo; about a pool that may be neither.
         Each room reads its own.
       </p>
 

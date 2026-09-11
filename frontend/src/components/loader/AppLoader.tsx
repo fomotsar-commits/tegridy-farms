@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { LoaderState, Particle } from './types';
 import {
-  LOADER_GALLERY, LOADER_WORDS, GOLD, T_VOID_END, T_ART_DURATION, T_ART_COUNT,
+  LOADER_GALLERY, LOADER_WORDS, GOLD,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
+  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS, SKIP_DISSOLVE_MS,
 } from './constants';
 import { preloadImages } from './preload';
-import { shouldSkipAtMount } from './skip';
+import { markArrivalSeen, shouldSkipAtMount } from './skip';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
   buildCrackPaths, MAX_PARTICLES,
@@ -27,8 +28,26 @@ import { PostFX } from './fx/postfx';
 // module's lazy chunk. The prop is GONE rather than ignored: an optional
 // `children` that silently rendered nothing is the kind of prop someone passes
 // once and then debugs for an hour.
-export function AppLoader({ onComplete }: { onComplete?: () => void }) {
-  const [visible, setVisible] = useState(() => !shouldSkipAtMount());
+export function AppLoader({
+  onComplete,
+  full = false,
+}: {
+  onComplete?: () => void;
+  /**
+   * Play THE FILM: four pieces, shatter, vortex, hold, click-to-crack — the whole
+   * ~14.5 s arrival, unchanged. This is what "Watch the arrival" mounts in the
+   * Island lobby, for somebody who came to see it.
+   *
+   * Default false is THE CURTAIN: one piece, the name forming, gone in about two
+   * and a half seconds, pass-through throughout. A stranger meets the venue, not
+   * a wall in front of it.
+   */
+  full?: boolean;
+}) {
+  // The film is always deliberate: somebody clicked to watch it, so it never
+  // consults the skip decision. Only the arrival asks whether it should play.
+  const [visible, setVisible] = useState(() => (full ? true : !shouldSkipAtMount()));
+  const timing = full ? FILM_TIMING : CURTAIN_TIMING;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<AudioEngine | null>(null);
@@ -125,20 +144,135 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     if (!visible) return;
     const s = stateRef.current;
     if (s.phase !== 'skip' && s.phase !== 'exit' && s.phase !== 'exit-crack') {
-      initAudio();
+      // FILM ONLY, and it is the island's own Mute ruling one line further in.
+      //
+      // Mute left the curtain because "on a curtain any gesture ends, audio can
+      // never start, so there was nothing to mute". The same sentence condemns
+      // this call: on the curtain the ONLY gesture that reaches skipIntro is the
+      // one dismissing it, so an AudioContext is constructed and an ambient loop
+      // fetched for a curtain that is 400 ms from gone, and disposed unheard.
+      //
+      // It is not free. Spinning up an AudioContext blocks the main thread while
+      // Chromium starts its audio thread, and it does so at exactly the moment
+      // the dissolve needs frames — measured at 711 ms and 967 ms from the press
+      // against a ruled 600. The film keeps it: there, a gesture is a viewer
+      // engaging with something that goes on playing.
+      if (full) initAudio();
       s.phase = 'skip';
       s.exitStart = performance.now();
     }
-  }, [visible, initAudio]);
+  }, [visible, initAudio, full]);
 
-  /* ESC to skip with style */
+  /* WAVE SEVEN, element A: ANY INPUT LIFTS THE CURTAIN, AT ONCE.
+   *
+   * Escape used to be the only key, and a click had to land on the overlay
+   * during one of three phases. That is a wall with a handle on it: a visitor
+   * who starts typing, scrolls, or reaches for anything has already told us
+   * they are done watching, and the honest response is to get out of the way.
+   *
+   * The curtain is pass-through now (pointerEvents: 'none' below), so these are
+   * bound on the WINDOW rather than the overlay — the events reach the app
+   * underneath, and we listen alongside rather than intercepting. Passive, so
+   * scrolling is never blocked, and capture so a stopPropagation somewhere in
+   * the app cannot strand the curtain up.
+   *
+   * THIS COMMENT USED TO CLAIM that Skip and Mute stopPropagation, "so tapping
+   * Mute does not also lift the curtain". That was false and the island measured
+   * it: these listeners are `pointerdown` on CAPTURE, so they run before the
+   * button's `click` ever fires, and stopPropagation cannot stop an event that
+   * has already finished. Tapping Mute lifted the curtain.
+   *
+   * The fix is not a bigger guard, it is removing the control: on a curtain that
+   * ANY gesture ends, audio cannot start before the gesture that ends it, so
+   * there is nothing to mute. The curtain renders Skip only; the film keeps both.
+   * Skip lifting the curtain is what Skip is for.
+   */
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') skipIntro();
+    if (!visible) return;
+
+    // THE FILM IS DELIBERATE, so it does not flinch. Somebody clicked "Watch the
+    // arrival" to see it; dismissing it because they scrolled or pressed a key
+    // would be the opposite of the courtesy this effect exists for. Escape and
+    // the Skip button still end it, as they always did.
+    const events: (keyof WindowEventMap)[] = full
+      ? ['keydown']
+      : ['pointerdown', 'touchstart', 'keydown', 'wheel', 'scroll'];
+
+    const lift = (e: Event) => {
+      if (full && !(e instanceof KeyboardEvent && e.key === 'Escape')) return;
+      skipIntro();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [skipIntro]);
+
+    for (const type of events) {
+      window.addEventListener(type, lift, { passive: true, capture: true });
+    }
+    return () => {
+      for (const type of events) {
+        window.removeEventListener(type, lift, { capture: true });
+      }
+    };
+  }, [visible, full, skipIntro]);
+
+  /* WAVE SEVEN, element A: THE DEADLINE.
+   *
+   * The curtain's length was stated as a sum and the sum was wrong: it left out
+   * the wordmark's 2,000 ms and the preload gate's up-to-2,500 ms, so a guard
+   * read 2,000 while the island MEASURED the curtain alive at 4,250 ms warm and
+   * 6,100 ms behind a slow image. The lesson is not "add the missing terms" —
+   * it is that a promise held by arithmetic is only as good as the terms
+   * somebody remembered.
+   *
+   * So this enforces it directly. One timer, armed at mount, cleared on unmount.
+   * Whatever the image, the frame rate or the machine does, the curtain starts
+   * dissolving at BUDGET − dissolve and is gone at BUDGET.
+   *
+   * IN ITS OWN EFFECT, deliberately. The canvas effect below returns early when
+   * there is no 2D context, so a deadline living inside it would never arm on
+   * exactly the machines most likely to need it.
+   *
+   * Film only ever ends by choice: it is a deliberate viewing, so no deadline.
+   */
+  useEffect(() => {
+    if (!visible || full) return;
+
+    // SEEN MEANS SHOWN, AND THE MARK BELONGS HERE — AT MOUNT.
+    //
+    // It used to live only in the animation tick, at the three points where the
+    // curtain ends by its own frames. The deadline below made those points
+    // unreachable: skipIntro fires at BUDGET - 400, the dissolve needs its full
+    // 400, and the finalize timer at BUDGET races the very frame that would
+    // have marked the arrival — and wins. So nothing was written, and the
+    // curtain played again on every load, warm or slow, on every machine. The
+    // island measured five runs of five: `tf_loaded` null in all five. The
+    // commit that armed the deadline is the commit that broke once-per-browser,
+    // and the guard for it read the skip code instead of reloading a page.
+    //
+    // The mark no longer depends on HOW the curtain ends. A browser that has
+    // drawn its first frame has met the venue; a dissolve, a deadline, a
+    // keypress, or a tab closed at one second do not change that. The three
+    // calls still in the tick belong to the film's own exits and cost nothing.
+    //
+    // Ordering is safe: AppLayout's `freshSplash` reads this in a useState
+    // initializer, and React finishes the whole render pass before any effect
+    // runs — and the overlay is lazy besides, so it mounts a pass later still.
+    markArrivalSeen();
+
+    // TWO STAGES, and the second one is why this holds at all.
+    //
+    // `skipIntro` only sets the phase to 'skip'; the dissolve and the finalize
+    // that follow it live in the animation tick. On a machine with no 2D context
+    // the tick never starts (the canvas effect returns early), so a lone
+    // skipIntro would leave the overlay up forever — on precisely the machines a
+    // deadline is for. The first timer asks nicely and gets the dissolve; the
+    // second one ends it whatever happened. finalize() is idempotent for our
+    // purposes: it flips `visible` false, and the shell fires onComplete once.
+    const dissolveAt = window.setTimeout(skipIntro, CURTAIN_BUDGET_MS - SKIP_DISSOLVE_MS);
+    const goneAt = window.setTimeout(finalize, CURTAIN_BUDGET_MS);
+    return () => {
+      window.clearTimeout(dissolveAt);
+      window.clearTimeout(goneAt);
+    };
+  }, [visible, full, skipIntro, finalize]);
 
   /* F304: reveal the visible Skip button 400ms after the intro starts. */
   useEffect(() => {
@@ -202,7 +336,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
     let exitDOMState: ReturnType<typeof buildExitDOM> | null = null;
 
     /* Load images */
-    const chosen = shuffle(LOADER_GALLERY).slice(0, T_ART_COUNT);
+    const chosen = shuffle(LOADER_GALLERY).slice(0, timing.artCount);
     const srcs = chosen.map((a) => a.src);
     const titles = chosen.map((a) => a.title);
 
@@ -230,6 +364,8 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
      * The Skip button (revealed at 400ms) stays as the deliberate opt-out. It is
      * not a substitute for this: it asks the user to notice an escape hatch,
      * whereas this bounds the trap. */
+    // FILM ONLY now — see the branch below. The curtain has a deadline instead,
+    // and a deadline plus a gate is a black screen.
     const PRELOAD_BUDGET_MS = 2500;
     let settled = false;
     const proceed = (loaded: HTMLImageElement[]) => {
@@ -242,12 +378,44 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       rafId = requestAnimationFrame(tick);
     };
 
-    const preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
-
-    preloadImages(srcs).then((results) => {
-      window.clearTimeout(preloadTimer);
-      proceed(results.filter((r): r is HTMLImageElement => r !== null));
-    });
+    /* THE CURTAIN DOES NOT WAIT FOR THE PICTURE. THE FILM STILL DOES.
+     *
+     * The gate above bounds the wait at 2,500 ms, which was the right fix when
+     * the overlay had no other end. It is the wrong one under a 3,000 ms
+     * deadline: the wait and the deadline together turn a slow arrival into a
+     * BLACK SCREEN and nothing else. The island screenshotted it at +1,100 ms
+     * and +2,900 ms after mount — 100% black pixels both times, the name never
+     * forming — and then the home. The visitor whose first impression is
+     * already worst is the exact one who gets no arrival at all.
+     *
+     * So the curtain starts its void at mount with no art, and the preload
+     * lands INTO it while the void plays. The branch at the void's end is
+     * already written for both outcomes: a piece if one arrived, particles
+     * straight to the wordmark if none did. A picture that turns up after the
+     * void has ended is simply not part of this arrival — adopting it mid-phase
+     * would restart choreography the deadline has already half spent.
+     *
+     * The film keeps the gate. It is a deliberate viewing with no deadline, so
+     * waiting for its art is what the visitor asked for. */
+    // Declared out here because the effect's cleanup clears it, and the curtain
+    // branch never arms one — 0 is a no-op for clearTimeout.
+    let preloadTimer = 0;
+    if (full) {
+      preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
+      preloadImages(srcs).then((results) => {
+        window.clearTimeout(preloadTimer);
+        proceed(results.filter((r): r is HTMLImageElement => r !== null));
+      });
+    } else {
+      proceed([]);
+      preloadImages(srcs).then((results) => {
+        if (disposed || s.phase !== 'void') return;
+        const loaded = results.filter((r): r is HTMLImageElement => r !== null);
+        if (loaded.length === 0) return;
+        s.images = loaded;
+        s.titles = titles.slice(0, loaded.length);
+      });
+    }
 
     /* Create particles from last art image */
     function createParticles(img: HTMLImageElement) {
@@ -339,7 +507,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* VOID */
       if (phase === 'void') {
         drawVoidPhase(ctx!, W, H, elapsed);
-        if (elapsed >= T_VOID_END) {
+        if (elapsed >= timing.voidEnd) {
           if (s.images.length === 0) {
             s.phase = 'textForm';
             s.t0 = now;
@@ -368,17 +536,29 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* ART GALLERY */
       if (phase === 'art') {
         const artElapsed = elapsed;
-        const pieceIdx = Math.floor(artElapsed / T_ART_DURATION);
-        const pieceTime = artElapsed % T_ART_DURATION;
+        const pieceIdx = Math.floor(artElapsed / timing.artDuration);
+        const pieceTime = artElapsed % timing.artDuration;
         bloomIntensity = 0.3;
 
         drawGoldenLine(ctx!, W, H, 1, 0.2);
         drawPurpleMist(ctx!, W, H, 0.5);
 
         if (pieceIdx >= s.images.length) {
-          s.phase = 'shatter';
-          s.t0 = now;
-          createParticles(s.images[s.images.length - 1]!);
+          if (full) {
+            s.phase = 'shatter';
+            s.t0 = now;
+            createParticles(s.images[s.images.length - 1]!);
+          } else {
+            // THE CURTAIN SKIPS THE SPECTACLE. No shatter, no vortex: the single
+            // piece becomes the wordmark directly. createParticles seeds them
+            // FROM the art, so the picture dissolves into the name rather than
+            // being replaced by it — the same effect the film reaches the long
+            // way round, in a fraction of the time.
+            s.phase = 'textForm';
+            s.t0 = now;
+            createParticles(s.images[s.images.length - 1]!);
+            assignTextTargets();
+          }
           rafId = requestAnimationFrame(tick);
           return;
         }
@@ -462,9 +642,20 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         drawGoldenLine(ctx!, W, H, 1, 0.1 + tp * 0.15);
         drawPurpleMist(ctx!, W, H, tp * 0.4);
         bloomIntensity = 0.5;
-        if (drawTextFormPhase(ctx!, W, H, elapsed, s)) {
-          s.phase = 'hold';
-          s.t0 = now;
+        if (drawTextFormPhase(ctx!, W, H, elapsed, s, timing.textForm)) {
+          if (full) {
+            s.phase = 'hold';
+            s.t0 = now;
+          } else {
+            // THE CURTAIN ENDS ON ITS OWN. The film holds on the wordmark and
+            // waits to be clicked; the curtain has said the name and has nothing
+            // left to ask for, so it dissolves. Routed through the existing
+            // 'skip' phase rather than a new one — that phase already scatters
+            // the particles over 400 ms, marks the arrival seen and finalizes,
+            // which is exactly the ending this needs.
+            s.phase = 'skip';
+            s.exitStart = now;
+          }
         }
       }
 
@@ -565,12 +756,12 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
           const allDone = tickRagdollShards(exitDOMState.shards, W, H, now);
           if (allDone || exitElapsed >= T_EXIT_FINALIZE) {
             exitDOMState.cleanup();
-            sessionStorage.setItem('tf_loaded', '1');
+            markArrivalSeen();
             finalize();
             return;
           }
         } else if (exitElapsed >= T_EXIT_FINALIZE) {
-          sessionStorage.setItem('tf_loaded', '1');
+          markArrivalSeen();
           finalize();
           return;
         }
@@ -579,7 +770,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       /* SKIP: Dissolve */
       if (phase === 'skip') {
         const skipElapsed = now - s.exitStart;
-        const progress = Math.min(1, skipElapsed / 400);
+        const progress = Math.min(1, skipElapsed / SKIP_DISSOLVE_MS);
 
         // Scatter particles outward
         for (const p of s.particles) {
@@ -606,7 +797,7 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
 
         if (progress >= 1) {
           audioRef.current?.fadeOutAmbient(0.2);
-          sessionStorage.setItem('tf_loaded', '1');
+          markArrivalSeen();
           finalize();
           return;
         }
@@ -629,7 +820,11 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
       window.removeEventListener('touchmove', onTouchMove);
       exitDOMState?.cleanup();
     };
-  }, [visible, finalize, initAudio]);
+    // `full` and `timing` are stable for the life of a mount: the prop never
+    // changes on a given loader, and `timing` is one of two module constants
+    // rather than a fresh object. Listing them satisfies the exhaustive-deps
+    // rule without ever re-running the choreography mid-flight.
+  }, [visible, finalize, initAudio, full, timing]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -643,13 +838,36 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
         <div
           ref={overlayRef}
           onClick={handleClick}
+          // The e2e's clock. A MutationObserver stamps performance.now() when
+          // this node is added and when it is removed, so the measured lifetime
+          // is MOUNT-RELATIVE: a slow CI first paint cannot fail the budget and
+          // a slow curtain cannot pass it. Naming the variant here too, because
+          // "the film is up" and "the curtain is up" are different facts.
+          data-arrival={full ? 'film' : 'curtain'}
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: 9999,
             background: '#000',
-            cursor: 'pointer',
             touchAction: 'none',
+            // WAVE SEVEN, element A: A CURTAIN, NOT A WALL.
+            //
+            // This overlay used to capture every pointer on the page for the
+            // whole film. The evidence is in this file's own note at :211-217 —
+            // elementFromPoint over the Connect button returned CANVAS at 1s,
+            // 3s, 6s and 10s, indefinitely. The home was mounted and complete
+            // underneath the entire time (loader/index.tsx renders children
+            // OUTSIDE the Suspense boundary); it was simply unreachable.
+            //
+            // Pass-through now. The hero, its instrument field and the bar are
+            // all interactive from the first paint, and the curtain is just
+            // something drawn in front. The two controls below opt back IN, so
+            // Skip and Mute still work.
+            //
+            // The FILM opts back in: "Watch the arrival" is a deliberate viewing
+            // and its click-to-crack exit is part of the art. `handleClick` above
+            // serves it, and is simply unreachable on the arrival's curtain.
+            pointerEvents: full ? 'auto' : 'none',
           }}
         >
           <canvas
@@ -662,37 +880,52 @@ export function AppLoader({ onComplete }: { onComplete?: () => void }) {
               zIndex: 0,
             }}
           />
-          {/* Mute button */}
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleMute(); }}
-            style={{
-              position: 'absolute',
-              top: 16,
-              right: 16,
-              zIndex: 10,
-              background: 'rgba(0,0,0,0.4)',
-              border: '1px solid rgba(212,160,23,0.3)',
-              borderRadius: 8,
-              padding: '10px 14px',
-              cursor: 'pointer',
-              color: GOLD,
-              fontSize: 18,
-              lineHeight: 1,
-              opacity: 0.6,
-              transition: 'opacity 0.2s',
-            }}
-            onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = '1'; }}
-            onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = '0.6'; }}
-            aria-label={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? '\u{1F507}' : '\u{1F50A}'}
-          </button>
+          {/* Mute — THE FILM ONLY (wave seven, element A).
+
+              On the curtain this was a control for nothing that also broke the
+              thing it sat on. Any gesture ends the curtain, so audio can never
+              start before the gesture that ends it: there is no sound to mute.
+              And a pointerdown on it reached the window capture listener first,
+              so tapping Mute lifted the curtain. Measured by the island, not
+              reasoned about.
+
+              The film is a deliberate viewing with sound worth controlling, and
+              its overlay takes pointer events, so it keeps both controls. */}
+          {full && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+              style={{
+                position: 'absolute',
+                pointerEvents: 'auto',
+                top: 16,
+                right: 16,
+                zIndex: 10,
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid rgba(212,160,23,0.3)',
+                borderRadius: 8,
+                padding: '10px 14px',
+                cursor: 'pointer',
+                color: GOLD,
+                fontSize: 18,
+                lineHeight: 1,
+                opacity: 0.6,
+                transition: 'opacity 0.2s',
+              }}
+              onMouseEnter={(e) => { (e.target as HTMLElement).style.opacity = '1'; }}
+              onMouseLeave={(e) => { (e.target as HTMLElement).style.opacity = '0.6'; }}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+            >
+              {muted ? '\u{1F507}' : '\u{1F50A}'}
+            </button>
+          )}
           {/* F304: visible, labeled Skip affordance — appears 400ms in. */}
           {showSkip && (
             <button
               onClick={(e) => { e.stopPropagation(); skipIntro(); }}
               style={{
                 position: 'absolute',
+                // Opts back in: the curtain itself is pass-through now.
+                pointerEvents: 'auto',
                 bottom: 24,
                 right: 16,
                 zIndex: 10,
