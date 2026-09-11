@@ -207,4 +207,74 @@ describe('useUserPosition', () => {
     expect(result.current.boostMultiplier).toBe(0);
     expect(result.current.positionUnread).toBe(false);
   });
+
+  // ───── OUTAGE-AS-ZERO: the paused() read (multicall index 3) ─────────
+  //
+  // Index 3 collapsed to `false` on a failed entry - the honest "staking is
+  // running" - and neither positionUnread nor accrualInputsUnread covers it.
+  // The staking card hangs its pause-only exit on this flag, so an unanswered
+  // read hid the one door that works during a pause.
+
+  describe('paused(): UNREAD vs a GENUINE read', () => {
+    /** A live, locked staker whose every OTHER read landed. */
+    function stubLiveStaker() {
+      wagmiMock.setReadResult({ functionName: 'userTokenId', result: 7n });
+      wagmiMock.setReadResult({ functionName: 'balanceOf', result: 0n });
+      wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
+      wagmiMock.setReadResult({ functionName: 'unsettledRewards', result: 0n });
+      wagmiMock.setReadResult({ functionName: 'rewardRate', result: 10n ** 18n });
+      wagmiMock.setReadResult({ functionName: 'totalBoostedStake', result: 10n ** 24n });
+      wagmiMock.setReadResult({
+        functionName: 'getPosition',
+        result: [1000n * 10n ** 18n, 20_000n, BigInt(Math.floor(Date.now() / 1000) + 40 * 86400), BigInt(90 * 86400), false, false],
+      });
+      wagmiMock.setReadResult({ functionName: 'earned', result: 5n * 10n ** 18n });
+    }
+
+    it('an unread paused() is null, never a definite false', () => {
+      // OLD: `: false` - an outage reported "staking is running".
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: undefined, status: 'failure' });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.isPaused).toBeNull();
+      // Only the pause read failed: this is not a position outage, and nothing
+      // else in the hook says index 3 did not land.
+      expect(result.current.positionUnread).toBe(false);
+      expect(result.current.accrualInputsUnread).toBe(false);
+      expect(result.current.hasPosition).toBe(true);
+    });
+
+    it('a paused() read that returned false stays a definite false', () => {
+      // Passes on the old code too - the other half of the pair: fails if the
+      // fix is ever widened into reporting every pause state as unknown.
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: false });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.isPaused).toBe(false);
+    });
+
+    it('a paused() read that returned true is true', () => {
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: true });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.isPaused).toBe(true);
+      expect(result.current.accrualPerSec).toBe(0);
+    });
+
+    it('an unread pause does not tick the live claimable counter', () => {
+      // OLD: `!isPaused` was `!false` on an outage, so a contract that may be
+      // paused - and a paused one accrues nothing - ticked phantom rewards.
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: undefined, status: 'failure' });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.accrualPerSec).toBe(0);
+    });
+
+    it('a read false still ticks - the counter is not switched off wholesale', () => {
+      stubLiveStaker();
+      wagmiMock.setReadResult({ functionName: 'paused', result: false });
+      const { result } = renderHook(() => useUserPosition());
+      expect(result.current.accrualPerSec).toBeGreaterThan(0);
+    });
+  });
 });
