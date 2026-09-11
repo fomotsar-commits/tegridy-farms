@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { BUNGALOWS, DEFAULT_BUNGALOW_ID, setActiveBungalow } from '../../lib/bungalows';
-import { TEGRIDY_STAKING_ADDRESS, isDeployed, MIN_BOOST_BPS, MAX_BOOST_BPS } from '../../lib/constants';
+import { TEGRIDY_STAKING_ADDRESS, isDeployed } from '../../lib/constants';
+import { poolShape } from '../../lib/poolShape';
 
 /**
  * Every pool on the island, for a visitor who has chosen no room yet.
@@ -31,34 +32,6 @@ import { TEGRIDY_STAKING_ADDRESS, isDeployed, MIN_BOOST_BPS, MAX_BOOST_BPS } fro
  * returned it.
  */
 
-/**
- * The lock ladder's endpoints, as multipliers, from the contract constants
- * rather than a literal.
- *
- * ⚠️ THIS SHIPPED AS "1.00×–4.00×" AND THAT WAS WRONG AT THE BOTTOM END.
- * `MIN_BOOST_BPS` is 4_000, i.e. **0.4x at seven days** — LighthouseLadder.sol:98
- * says so in its own trailing comment, constants.ts carries the same pair, and
- * lighthouseLadder.ts:47 calls it "TOWELI parity". Advertising a 1.00× floor
- * tells a short-lock staker they get a full share when the contract gives them
- * four tenths of one, which overstates the worst case by 2.5×. It is derived
- * here so the next re-tune of the ladder cannot leave this string behind.
- */
-const BOOST_FLOOR = `${(MIN_BOOST_BPS / 10_000).toFixed(2)}×`;
-const BOOST_CEILING = `${(MAX_BOOST_BPS / 10_000).toFixed(2)}×`;
-
-/** What the row can honestly say about a pool's shape, from the registry alone. */
-function poolShape(kind: 'plain' | 'ladder' | undefined, chain: string): string {
-  // ⚠️ "Streamflow", not "Streamflow · locked". The registry records the PROGRAM
-  // (Solana pools are always Streamflow — bungalows.ts:95) and nothing about
-  // lock terms: there is no lock field, and the retired BAYLA pool ran flat
-  // weights. Asserting "locked" for all five Solana rows from `chain` alone is
-  // exactly the kind of claim this file's header forbids — a property nothing
-  // was read to establish. The room states its own terms.
-  if (chain === 'solana') return 'Streamflow';
-  if (kind === 'ladder') return `Lock ladder · 7d–4y, ${BOOST_FLOOR}–${BOOST_CEILING}`;
-  return 'No lock';
-}
-
 const CHAIN_LABEL: Record<string, string> = {
   ethereum: 'Ethereum',
   base: 'Base',
@@ -80,13 +53,13 @@ export function VenuePoolIndex() {
   // Every settled resident that actually has a staking program registered. A
   // bungalow with no `stakePool` has nothing to list, and listing it with a
   // dash would advertise a pool that does not exist.
-  const rows: PoolRow[] = BUNGALOWS.filter((b) => b.live && b.stakePool).map((b) => ({
+  const rows: PoolRow[] = BUNGALOWS.filter((b) => b.live && (b.stakePool || b.ladderPool)).map((b) => ({
     id: b.id,
     symbol: b.symbol,
     name: b.name,
     chain: b.chain,
     accent: b.accent,
-    terms: poolShape(b.poolKind, b.chain),
+    terms: poolShape(b),
   }));
 
   // ⚠️ TOWELI IS A ROW, NOT A FOOTNOTE, AND THAT IS THE WHOLE POINT OF THE PAGE.
@@ -107,7 +80,7 @@ export function VenuePoolIndex() {
       name: toweli.name,
       chain: toweli.chain,
       accent: toweli.accent,
-      terms: poolShape('ladder', toweli.chain),
+      terms: poolShape({ poolKind: 'ladder', chain: toweli.chain }),
     });
   }
 

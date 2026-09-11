@@ -288,6 +288,14 @@ gh run download <run-id>          # -> deploy/bayla_ladder.so, idl/bayla_ladder.
 The run's summary page prints the sha256s, the rent estimate, and the deploy commands
 below with your addresses already filled in.
 
+> 📄 **You do not need a run to get an IDL any more.** `idl/bayla_ladder.json` is
+> committed — it is the IDL from run `34336193019`, whose `.so` sha256 matches what
+> is deployed at `HzxzfSQ…` on devnet byte for byte. GitHub deletes the artifact 30
+> days after the run, so the committed copy is the durable one; `idl/README.md`
+> carries the hashes and the two fields a mainnet build changes. `ladder-constraints`
+> re-checks it against a fresh `anchor build` on every push, so it cannot go stale
+> quietly. You still need the artifact for the **`.so`** — that is not committed.
+
 > ⚠️ **`deployer` is required for BOTH clusters.** A mainnet build with no deployer keeps
 > the System-program sentinel, which is fail-closed: `initialize_pool` becomes uncallable
 > and **no pool can ever be created** — and you would only discover that after paying for
@@ -336,7 +344,9 @@ node scripts/bayla-ladder-ops.mjs positions --pool <pool> --owner <wallet>
 Its discriminators, account ordering and struct offsets were verified field-by-field
 against the program's own IDL (0 mismatches) and are pinned by
 `scripts/bayla-ladder-ops.test.mjs`, so program drift fails in CI rather than as a
-confusing constraint error against a deployed program.
+confusing constraint error against a deployed program. That test now **reads
+`idl/bayla_ladder.json`** rather than restating a transcription of it, so the check is
+live: it was a snapshot only for as long as the IDL lived in an expiring artifact.
 
 ---
 
