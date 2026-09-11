@@ -31,8 +31,9 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
 //
 // ── THE DEBT ────────────────────────────────────────────────────────────────
 //
-// 383 prose dashes across 52 routes (487 at the guard's landing; the sweep
-// has begun and twenty routes are now finished), so this cannot land as `toBe(0)`
+// 266 prose dashes across 50 routes (487 at the guard's landing). 22 routes
+// are finished, two of them records whose entries leave the count by
+// structure (ruling 1), so this cannot land as `toBe(0)`
 // without landing red, and a permanently red gate is a gate people learn to
 // ignore. It lands as the repo's own knownViolations idiom instead
 // (e2e/fixtures/routes.ts): an EXACT count per route, asserted both ways.
@@ -80,6 +81,11 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/zap': 0,
   '/eth-curve/0x0000000000000000000000000000000000000000': 0,
   '/gallery': 0,
+  // RECORDS (the island's ruling 1). Each page's record subtree is skipped by
+  // structure; its chrome, including the label naming it the venue's record, is
+  // walked and held at zero like any finished route.
+  '/changelog': 0,
+  '/contracts': 0,
   '/nakamigos': 1,
   '/tokenomics': 3,
   '/lore': 3,
@@ -95,7 +101,6 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/privacy': 7,
   '/trust': 7,
   '/pools': 9,
-  '/contracts': 9,
   '/nft-finance': 10,
   '/treasury': 10,
   '/developers': 10,
@@ -112,7 +117,6 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
   // children in the DOM, which is exactly why the fold uses one.
   '/launch': 31,
-  '/changelog': 104,
 
 };
 
@@ -161,6 +165,13 @@ async function proseDashes(page: Page): Promise<ProseHit[]> {
       // Never rendered, or hidden from everyone: not copy anybody reads.
       if (SKIP.has(el.tagName)) continue;
       if (el.closest('[aria-hidden="true"]')) continue;
+      // A RECORD KEEPS ITS WORDS (the island's ruling 1). A page marks its
+      // record subtree `data-record` and the walk skips it BY STRUCTURE:
+      // /changelog's entries and /contracts' registry. The chrome around a
+      // record is still walked
+      // and still held at zero. src/pages/recordSurfaces.test.ts pins which
+      // files may declare a record at all, so this is not an escape hatch.
+      if (el.closest('[data-record]')) continue;
       // THE DISCRIMINATOR. Exactly U+2014 is the unreadable placeholder.
       if (data.trim() === '—') continue;
       hits.push({ text: data.trim().slice(0, 90), owner: el.tagName });
@@ -245,6 +256,36 @@ test.describe('element I: em dashes in venue-voice prose', () => {
           ? `${path} gained prose em dashes (${budget} -> ${hits.length}). First few:\n${shown}`
           : `${path} is DOWN to ${hits.length} from ${budget}. Good: lower the number in VENUE_VOICE_DEBT to ${hits.length} (or delete the entry if it is 0).`,
       ).toBe(budget);
+    });
+  }
+
+  // RULING 1's OTHER HALF. Skipping a record is honest only while the record is
+  // really on the page and really labeled as the venue's: a route that failed
+  // to render would read zero too. And a record keeps its words, so it still
+  // holds the dashes it was written with. If it ever reads clean, somebody
+  // swept a record, which is the thing the ruling says not to do.
+  for (const path of ['/changelog', '/contracts']) {
+    test(`${path} keeps its record, labeled as the venue's`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          sessionStorage.setItem('tf_loaded', '1');
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      await settle(page, path);
+
+      const record = page.locator('[data-record]');
+      await expect(record).toHaveCount(1);
+      await expect(
+        page.getByText(/^The venue's record\. Entries keep the words they were written in\.$/),
+      ).toBeVisible();
+      const recordText = await record.evaluate((el) => el.textContent ?? '');
+      expect(recordText.length, `${path}'s record rendered empty`).toBeGreaterThan(500);
+      expect(recordText, `${path}'s record reads clean of dashes, so it was swept`).toContain('—');
     });
   }
 });
