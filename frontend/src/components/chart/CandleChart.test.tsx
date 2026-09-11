@@ -102,7 +102,7 @@ describe('ChartStatus is the answer in every non-ready state', () => {
     expect(screen.getByText(/Older swaps exist behind this page/)).toBeInTheDocument();
     expect(screen.getByText(/oldest bucket was cut by that page boundary/)).toBeInTheDocument();
     expect(screen.getByText(/2 rows could not be priced/)).toBeInTheDocument();
-    expect(screen.getByText(/drawn as gaps — no price is invented across them/)).toBeInTheDocument();
+    expect(screen.getByText(/drawn as gaps; no price is invented across them/)).toBeInTheDocument();
   });
 
   it('offers a retry only where retrying is the right move', () => {
@@ -236,5 +236,26 @@ describe('ChartStatus on the GeckoTerminal branch', () => {
       expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
       view.unmount();
     }
+  });
+});
+
+// ELEMENT I ON THE READY BRANCH. Every string below renders only once a candle
+// source answers, which the CI e2e never sees: it aborts the GeckoTerminal feed
+// and the CI build has no VITE_INDEXER_URL, so element I's guard read /chart at
+// ZERO while production, where the indexer answers, showed 36 prose-dash nodes
+// (walked 2026-09-11). This pins the ready branch where
+// the guard cannot reach it.
+describe('the chart speaks without prose em dashes once it has data', () => {
+  const series = buildCandleSeries([trade(0, 10), trade(4, 20)], HOUR, { truncated: false });
+
+  it('keeps U+2014 out of the gap tooltip, the legend and the per-gap table row', () => {
+    const { container } = render(<CandleChart series={series} baseSymbol="TOWELI" quoteSymbol="WETH" />);
+    const title = svgOf(container).querySelector('rect[fill="url(#candle-gap-hatch)"] title')!;
+    expect(title.textContent).toContain('No trade for 3 buckets:');
+    const text = container.textContent ?? '';
+    expect(text).toContain('No trade: gap, not a price');
+    expect(text).toContain('Not returned by the source. No price is claimed');
+    expect(title.textContent).not.toContain('\u2014');
+    expect(text).not.toContain('\u2014');
   });
 });
