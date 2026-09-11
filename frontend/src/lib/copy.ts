@@ -146,6 +146,16 @@ export const FAQ_INTRO = {
     "Look. We're not gonna bullshit you. This is a real farm. With real yield. Earned with held time. Below are the questions we hear most.",
 } as const;
 
+/**
+ * WAVE SEVEN, row Q: THE VENUE'S FAQ OPENER. /faq speaks as the venue now.
+ * FAQ_INTRO above stays the TOWELI room's own, and HomePage's room FAQ still
+ * reads it, so rewriting that one in place would have changed the room's voice.
+ */
+export const VENUE_FAQ_INTRO = {
+  headline: 'Frequently asked questions',
+  subheading: 'The venue, in short answers.',
+} as const;
+
 // ═══════════════════════════════════════════════════════════════
 // Towelie one-liners — rotate randomly in confirm modals and
 // empty states. Accessible, dismissable, never blocking.

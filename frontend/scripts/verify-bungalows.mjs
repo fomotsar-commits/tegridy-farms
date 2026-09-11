@@ -137,9 +137,11 @@ try {
         ok('B: Trade BAYLA routes in-venue or to Jupiter', tradeHrefs.length >= 1, tradeHrefs[0] ?? 'none');
       }
     }
-    // The nav-logo replay button is a BUTTON — must keep classic art.
-    const navLogo = await page.$eval('button[title^="Replay splash"] img', (i) => i.getAttribute('src'));
-    ok('B: nav-logo button art is NOT bayla', !!navLogo && !navLogo.includes(ART_DIR), navLogo ?? 'missing');
+    // The nav logo must keep classic art in every bungalow. It used to live inside
+    // the splash-replay button; wave seven element A retired that button and
+    // re-homed the mark on the way-back link, so this reads the link now.
+    const navLogo = await page.$eval('a[title="Back to memetics.finance"] img', (i) => i.getAttribute('src'));
+    ok('B: nav-logo art is NOT bayla', !!navLogo && !navLogo.includes(ART_DIR), navLogo ?? 'missing');
     ok('B: every bayla image request succeeded', failedImages.length === 0, failedImages.join('; ') || 'no 4xx/5xx');
 
     // Footer shows the active bungalow + reopens the picker.
