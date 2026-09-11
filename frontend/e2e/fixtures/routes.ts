@@ -467,8 +467,8 @@ export const ROUTES: readonly RouteSpec[] = [
       'and nothing stubs it, so the tape read-ledger renders whichever answer the feed gives and the leader ' +
       'board is drawn ONLY when that read lands — a refused or rate-limited read leaves every pool unread ' +
       'and draws no board. A rule id pinned here therefore has to hold for both answers. The venue-router ' +
-      'section below is always in its unread state (VITE_INDEXER_URL is unset and the Ponder indexer is ' +
-      'hosted nowhere), so its three "could not be read" notices render and none of them draws a table. The ' +
+      'section below is one line in this build (VITE_INDEXER_URL is unset here, though production has it), ' +
+      'so it draws no notice and no table. The ' +
       'follow form and the pasted-Solana-address field are the only live controls — both write to ' +
       'localStorage and need no chain. The sized mirror plans, their refusals and the realised entry-lag ' +
       'figures need a connected wallet and a live feed this sweep cannot guarantee, and are pinned ' +

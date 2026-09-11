@@ -20,7 +20,8 @@ import { useIndexedQuery, type IndexedStatus } from './useIndexedQuery';
 // the rows were read over is anchored once, and only the judgement about them
 // moves.
 //
-// THE INDEXER IS NOT HOSTED, so with VITE_INDEXER_URL unset this parks in
+// WITHOUT AN INDEXER. Production has one configured; with VITE_INDEXER_URL
+// unset (CI, local builds, previews) this parks in
 // `unavailable` and there are no candidates. That is "we could not read what
 // this wallet did", never "this wallet has not traded".
 

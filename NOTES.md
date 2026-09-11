@@ -63,6 +63,70 @@ Aside, from the same simulation: `git merge --abort` refuses ("not uptodate")
 once you edit a file the merge *added*. On a throwaway branch that still points
 at your own HEAD, `git reset --hard` is the clean exit.
 
+## 2026-09-11 — a test for one clause of an OR is vacuous under an all-fail fixture
+
+**Believed:** "every read fails" is the strongest fixture for an unread flag. If the
+flag fires when everything fails, it fires.
+
+**Measured** (PR #514, `useLPFarming`'s
+`statsUnread = poolStatsUnread || minStakeUnread || <clause over four more reads>`):
+with a chain term put back on the clause alone, both new tests, one hook-level and
+one rendered, still PASSED, 60/60, under an all-fail fixture. `poolStatsUnread` had
+set the union by itself, so the clause under test never decided anything. Failing
+ONE leg that only the clause covers, while the totals and the minimum land, the same
+mutation failed exactly 6 of 63.
+
+**Do:** to test one member of an OR, make every other member false, and assert that
+they are false in the test itself. Then the member under test is the only thing
+that can answer. "Everything failed" tests the union, not the clause.
+
+## 2026-09-10 — a guard that cannot fire is armed, not inert
+
+**Believed:** a condition that is always true under the current config is dead
+weight at worst. `enabled: isDeployed && chainId === CHAIN_ID` on a read that is
+already pinned `chainId: CHAIN_ID` looks like harmless belt-and-braces.
+
+**Measured** (`@wagmi/core` 3.6.5 source as installed, git history, and a real
+browser):
+
+- Under a ONE-chain wagmi config, `useChainId()` cannot leave that chain.
+  `createConfig` ignores a connector's move to an unconfigured chain ("If chain
+  is not configured, then don't switch over to it"), and `validatePersistedChainId`
+  rejects an unconfigured persisted one. The gate was added (R043, 2026-04-26)
+  under `chains: [mainnet]`, so it was always true and never observed doing
+  anything.
+- Adding Base and Robinhood (2026-08-21) made `useChainId()` follow the wallet.
+  That commit pinned 135 reads so they would come from mainnet "exactly as
+  before", and left the gates next to those pins alone. From that day the gates
+  fired, and nothing had ever tested what happens when they do.
+- `useChainId()` is a PERSISTED store value, not "the wallet's chain":
+  `partialize` writes `chainId` to localStorage and `actions/disconnect.js` never
+  resets it. In Playwright Chromium, logged out, with `wagmi.store` seeded
+  `{ chainId: 8453, current: null }` (what a disconnect leaves behind), the store
+  still read 8453 after the app loaded.
+- A disabled TanStack query is neither loading nor failed. `isLoading` is
+  `isPending && isFetching` (query-core `queryObserver.js`), fetchStatus is
+  `idle`, and `data` is undefined. So there is no skeleton, every per-index
+  `status` check reads as not-success, and any unread flag scoped by the same
+  gate stays silent. In that browser run the LP farm printed "Total LP Staked
+  0.0000", "Total Funded 0 TOWELI" and "be the first to stake LP" on 8453, while
+  the same run on chain 1 printed 528.1998 and 2,000 TOWELI. With the gate
+  removed, both chains printed the chain-1 text.
+
+**Why no test saw it:** the shared wagmi mock answered reads whatever
+`query.enabled` said, so every gate was invisible to every test that used it.
+Making it honour `enabled` broke exactly one suite of 38 (`useBribes.test.ts`,
+5 tests). Those tests stubbed reads of a contract whose address is zeroed, which
+are reads production never issues.
+
+**Do:**
+- When a config widens (one chain to many, a flag to a list), grep for guards
+  that compare against the OLD single value. They change meaning with no diff.
+- Treat `useChainId()` as "last known chain", including for disconnected
+  visitors. Gate WRITES on it; pin READS with `chainId` instead of gating them.
+- A test double must refuse what the real thing refuses. A mock that serves
+  disabled queries turns every `enabled:` condition into untested code.
+
 ## 2026-09-10 — a partial-coverage gap gets fixed one leg at a time, by whoever trips on which leg
 
 **Believed:** a green `node frontend/scripts/check-unread-signal.mjs` means no file
@@ -140,6 +204,7 @@ default for it. Before writing "the query failed", check whether the library can
 the query fail at all.
 
 ---
+
 ## 2026-09-10 — an accordion that unmounts closed answers is invisible to every DOM audit
 
 **Believed:** mounting an accordion's answer only while it is open
