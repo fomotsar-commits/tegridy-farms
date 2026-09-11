@@ -15,6 +15,30 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — a test that lets two endings race pins only the one that wins
+
+**Believed:** the arrival curtain has a hard deadline so that it is gone within its
+3,000 ms budget, and `arrival.spec.ts` asserted exactly that budget with no input, so the
+deadline was taken to be under test.
+
+**Measured:** the curtain ends on whichever comes first, its own animation or the
+deadline, and on an unloaded box the animation won at about 2,880 ms. So the test never
+ran the deadline: deleting the deadline timer left it green. The deadline's own bug
+(armed at the budget, so always a few ms late) surfaced only when a slow CI runner let
+the animation lose, at 3,002 to 3,010 ms in three tries of three (PR #524). Throttling the
+CPU makes that path likely, never certain. Taking the curtain's 2D context away stops the
+animation outright, and then only the deadline can end the curtain. That test failed 10
+of 10 on the pre-fix build (3,011 to 3,021 ms), passed 20 of 20 on #530's fix (2,903 to
+2,916 ms), and failed 4 of 4 with the deadline timer deleted.
+
+**Technique:** when two mechanisms race to end something, test each one with the other
+disabled. A test that lets them race pins only the winner on the machine running it, so
+a mutation of the loser cannot fail it. Disable the rival at a boundary the test can
+reach (here, an init script that makes `getContext` return null for the curtain's canvas
+only), assert that the disabling happened, and assert something only the loser's path
+produces (the curtain was still up when the deadline's dissolve began), so that a third
+way of ending cannot pass for it.
+
 ## 2026-09-11 — a deadline armed at the budget can only be met late
 
 **Believed:** `setTimeout(finish, BUDGET)` enforces "gone within BUDGET". The arrival
