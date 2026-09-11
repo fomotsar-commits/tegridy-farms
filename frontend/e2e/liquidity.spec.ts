@@ -17,7 +17,9 @@
  * Wallet fixture: e2e/fixtures/wallet.ts. See swap.spec.ts for why the anvil
  * gate lives INSIDE the test that needs it rather than in describe scope.
  */
-import { test, expect, expectTxReceipt, advancePastApproval } from './fixtures/wallet';
+import {
+  test, expect, expectTxReceipt, advancePastApproval, expectMinedSuccessfully, forkTxCount,
+} from './fixtures/wallet';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
 
@@ -143,8 +145,15 @@ test.describe('Liquidity surface', () => {
     // matches NOTHING at all, and the 20s `toBeEnabled` guard fires — that is the 22.4s
     // and 21.9s retries. One cause, all three durations.
     await advancePastApproval(cta, /^Grow the Crop$/, 'add liquidity');
+    // ASK THE CHAIN, THEN THE PAGE. `expectMinedSuccessfully` reads this click's own
+    // transaction off the node, so a revert fails HERE, under a message that says so,
+    // instead of surfacing later as a missing or stale link. The receipt check then demands
+    // the link for THAT hash: this card also renders a receipt for the TOWELI approval just
+    // sent, and that link must not stand in for the add.
+    const addSent = forkTxCount(page);
     await cta.click();
-    const addHash = await expectTxReceipt(page, 'add liquidity');
+    const addHash = await expectMinedSuccessfully(page, 'add liquidity', addSent);
+    await expectTxReceipt(page, 'add liquidity', { hash: addHash });
 
     // THE ADD MUST HAVE MINTED LP. A receipt alone does not prove that — an approval
     // has one too. This banner renders only when `hasLP` is true, i.e. the on-chain LP
@@ -163,10 +172,20 @@ test.describe('Liquidity surface', () => {
     await panel.getByRole('button', { name: '100%' }).click();
 
     await advancePastApproval(cta, /^Pull Crop Out$/, 'remove liquidity');
+    const removeSent = forkTxCount(page);
     await cta.click();
-    // `notHash` matters here: this surface overwrites ONE receipt line, so without it
-    // the add's link satisfies the remove's assertion and the burn need never happen.
-    await expectTxReceipt(page, 'remove liquidity', addHash);
+    // ⚠ THIS IS THE LEG THAT FLAKED. It failed in CI in three shapes — the empty-state
+    // assertion below timing out, `expectTxReceipt` finding no link, and a 3.0m test
+    // timeout inside `expectTxReceipt` — and all three are what a burn that REVERTED looks
+    // like from the DOM. The revert mechanism is gas; see `bufferGas` in the fixture.
+    //
+    // This line used to pass `addHash` as `notHash`, and that could not guard it: it bars
+    // the ADD's link, while the link on the card at the moment of this click is the LP
+    // APPROVAL's — a third hash. So a burn that never landed passed here on the approval's
+    // receipt and failed thirty seconds later below, as "the burn did not land". The exact
+    // hash the click sent is what closes that.
+    const removeHash = await expectMinedSuccessfully(page, 'remove liquidity', removeSent);
+    await expectTxReceipt(page, 'remove liquidity', { hash: removeHash });
 
     // And the position is genuinely gone — the empty-state copy the app renders when
     // `hasLP` goes false (LiquidityTab.tsx:526).

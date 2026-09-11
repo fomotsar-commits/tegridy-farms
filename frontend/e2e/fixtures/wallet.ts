@@ -111,27 +111,136 @@ type Rpc = (method: string, params: unknown[]) => Promise<unknown>;
  * still sitting on the page — the second transaction need never have happened. Pass the
  * hash the previous leg returned and this waits for a link pointing somewhere else.
  *
- * Returns the transaction hash it matched, so the next leg can demand a different one.
+ * ⚠ THIRD FALSE GREEN, and `notHash` cannot close it: an APPROVAL can leave a receipt too.
+ * LiquidityTab renders its "Confirmed! View on Explorer" line for ANY confirmed write, so
+ * the approval `advancePastApproval` sends just before a leg's click leaves a fresh
+ * `/tx/0x…` link on the card — a hash equal to NEITHER leg. Pass `{ hash }` instead — the
+ * transaction the click actually sent, from `expectMinedSuccessfully` — and only a link to
+ * exactly that transaction satisfies this.
+ *
+ * Every read is bounded, and existence and freshness are re-asked together on every poll.
+ * These surfaces hide the line while a write is pending and CLEAR it 4s after a success
+ * (useAddLiquidity: `setTimeout(() => reset(), 4000)`), so a link one assertion saw is
+ * routinely gone by the next. This used to end in an unbounded `getAttribute`, and when the
+ * link vanished between the checks and that read, it waited out the whole TEST budget:
+ * the 3.0m first attempt in CI run 34499281352, which printed "Test timeout of 180000ms
+ * exceeded" and none of the messages this function exists to print.
+ *
+ * Returns the matched hash (lower-case), captured during the passing poll rather than
+ * re-read after it — a second read races the same 4s clear.
  */
-export async function expectTxReceipt(page: Page, what: string, notHash?: string): Promise<string> {
-  const link = page.locator('a[href*="/tx/0x"]');
-  await expect(
-    link.first(),
-    `${what}: no explorer link to a transaction hash appeared. A receipt link points at ` +
-      `/tx/0x…; the static token link on these pages is NOT a receipt and must not satisfy this.`,
-  ).toBeVisible({ timeout: 30_000 });
-  await expect(link.first()).toHaveAttribute('href', /\/tx\/0x[0-9a-fA-F]{64}/);
-  if (notHash) {
-    await expect(
-      link.first(),
-      `${what}: the only receipt on the page is still the PREVIOUS step's (${notHash}). ` +
-        `This step's transaction never confirmed — the stale link must not satisfy this leg.`,
-    ).not.toHaveAttribute('href', new RegExp(notHash, 'i'), { timeout: 30_000 });
-  }
-  const href = (await link.first().getAttribute('href')) ?? '';
-  const hash = /0x[0-9a-fA-F]{64}/.exec(href)?.[0];
-  if (!hash) throw new Error(`${what}: receipt href ${href} carried no 0x<64 hex> hash.`);
-  return hash;
+export async function expectTxReceipt(
+  page: Page,
+  what: string,
+  prior?: string | { hash: string },
+): Promise<string> {
+  const notHash = typeof prior === 'string' ? prior.toLowerCase() : undefined;
+  const wantHash = typeof prior === 'object' ? prior.hash.toLowerCase() : undefined;
+  const links = page.locator('a[href*="/tx/0x"]');
+  let matched = null as string | null;
+
+  const observe = async (): Promise<string> => {
+    // Non-blocking by construction: `count` and `isVisible` never wait, and `getAttribute`
+    // gets 1s instead of its default, which is unbounded. A miss means "not there this poll".
+    const hashes: string[] = [];
+    const n = await links.count();
+    for (let i = 0; i < n; i++) {
+      const link = links.nth(i);
+      if (!(await link.isVisible().catch(() => false))) continue;
+      const href = await link.getAttribute('href', { timeout: 1_000 }).catch(() => null);
+      // A receipt link points at /tx/0x<64 hex>; the static token links these pages carry
+      // do not, and must never satisfy this.
+      const hash = href ? /0x[0-9a-fA-F]{64}/.exec(href)?.[0]?.toLowerCase() : undefined;
+      if (hash) hashes.push(hash);
+    }
+    if (hashes.length === 0) return 'NO VISIBLE RECEIPT LINK ON THE PAGE AT ALL';
+    if (wantHash) {
+      if (!hashes.includes(wantHash)) return `ONLY RECEIPTS FOR OTHER TRANSACTIONS (${hashes.join(', ')})`;
+      matched = wantHash;
+    } else {
+      if (hashes[0] === notHash) return `STILL THE PREVIOUS STEP'S RECEIPT (${hashes[0]})`;
+      matched = hashes[0];
+    }
+    return matched;
+  };
+
+  await expect
+    .poll(observe, {
+      timeout: 30_000,
+      message:
+        `${what}: no receipt link ${wantHash ? `to ${wantHash}` : 'for THIS step'} appeared within 30s. ` +
+        `The value below is what was on the page at the deadline. "NO VISIBLE RECEIPT LINK…" means ` +
+        `nothing rendered: the app never saw a transaction confirm. "ONLY RECEIPTS FOR OTHER…" or ` +
+        `"STILL THE PREVIOUS STEP'S…" means a DIFFERENT transaction's link is up — an approval, or ` +
+        `the last leg — and it must not stand in for this one.`,
+    })
+    .toMatch(/^0x[0-9a-f]{64}$/);
+
+  if (!matched) throw new Error(`${what}: the receipt poll passed without capturing a hash.`);
+  return matched;
+}
+
+/**
+ * Every transaction a page has sent to the fork, oldest first. Recorded by the anvil
+ * bridge, so it sees a send whether or not the app ever renders anything for it.
+ */
+const forkSends = new WeakMap<Page, Array<{ hash: string; selector: string }>>();
+
+/** How many transactions this page has sent to the fork so far. Read it BEFORE the click. */
+export function forkTxCount(page: Page): number {
+  return forkSends.get(page)?.length ?? 0;
+}
+
+/**
+ * Assert the first transaction the page sent after `since` MINED SUCCESSFULLY — read off
+ * the node, not the DOM — and return its hash.
+ *
+ * `expectTxReceipt` pins the UI; this pins the chain, and only the chain can tell "it
+ * reverted" from "it is slow" from "the app forgot to render it". A reverted transaction
+ * renders NO receipt line, so a DOM-only leg reports a revert as something else: a missing
+ * link, a stale one, or — when an approval's link satisfied the receipt check — a balance
+ * that "never updated" thirty seconds later. The add → remove leg failed in CI in all three
+ * of those shapes.
+ *
+ * Call this first, then `expectTxReceipt(page, what, { hash })` with what it returns.
+ */
+export async function expectMinedSuccessfully(page: Page, what: string, since: number): Promise<string> {
+  let sent: { hash: string; selector: string } | undefined;
+  await expect
+    .poll(() => {
+      sent = forkSends.get(page)?.[since];
+      return sent !== undefined;
+    }, {
+      timeout: 30_000,
+      message: `${what}: the app never sent a transaction to the fork — the click did not reach the wallet.`,
+    })
+    .toBe(true);
+  const { hash, selector } = sent as { hash: string; selector: string };
+
+  type MinedReceipt = { status: string; gasUsed: string };
+  let receipt = null as MinedReceipt | null;
+  await expect
+    .poll(async () => {
+      receipt = (await anvilRpc('eth_getTransactionReceipt', [hash])) as MinedReceipt | null;
+      return receipt !== null;
+    }, { timeout: 30_000, message: `${what}: ${hash} was sent but never mined on the fork.` })
+    .toBe(true);
+  const mined = receipt as MinedReceipt;
+  if (mined.status === '0x1') return hash;
+
+  const limit = BigInt(((await anvilRpc('eth_getTransactionByHash', [hash])) as { gas: string }).gas);
+  const used = BigInt(mined.gasUsed);
+  throw new Error(
+    `${what}: the transaction REVERTED on-chain (${hash}, selector ${selector}). ` +
+      `Gas limit ${limit}, gas used ${used}. ` +
+      (limit - used <= limit / 100n
+        ? `It burned essentially its whole limit: that is OUT OF GAS, not bad arguments — see ` +
+          `bufferGas in this file for why an unpadded estimate goes short on this fork.`
+        : `It did not exhaust its gas, so the contract rejected the arguments (slippage, ` +
+          `deadline, allowance); debug_traceTransaction ${hash} names the require that tripped.`) +
+      ` The app renders NO receipt for a reverted transaction, so a DOM assertion would have ` +
+      `blamed the UI for this.`,
+  );
 }
 
 /**
@@ -771,6 +880,45 @@ async function routeAppReadsToAnvil(page: Page, rpcUrl: string): Promise<void> {
   }
 }
 
+/** Headroom over anvil's estimate, as a percentage — the padding a wallet adds before signing. */
+const GAS_BUFFER_PCT = 50n;
+
+/**
+ * Pad an unsigned transaction's gas the way a wallet does before it signs.
+ *
+ * ⚠ THIS WAS THE `full add → remove cycle` FLAKE. The app never sets `gas` — for a JSON-RPC
+ * account wagmi and viem leave it to the wallet — and this bridge used to forward that gap
+ * to anvil, which filled it with its own `eth_estimateGas`: exact to the gas, no margin.
+ *
+ * An exact estimate is only as good as the block it was taken against, and on this pair
+ * the block's TIMESTAMP changes the cost. TegridyPair._update writes both cumulative prices
+ * only when `block.timestamp` has moved since the pair's last update (TegridyPair.sol:519).
+ * Anvil lets consecutive blocks share a second, so a transaction estimated in the SAME
+ * second as the pair's last update is priced without those two SSTOREs — and if it then
+ * lands in the next second it needs them. Measured on a mainnet fork with every block
+ * timestamp pinned by hand (automine off), identical calldata and state:
+ *
+ *     removeLiquidityETH estimated at T, limit 207_033, mined at T   -> used 163_888, success
+ *     removeLiquidityETH estimated at T, limit 207_033, mined at T+1 -> used 206_923, REVERTED
+ *     removeLiquidityETH estimated at T, limit 310_549, mined at T+1 -> used 172_080, success
+ *
+ * `pair.burn` alone costs 101_958 at T and 112_199 at T+1; the +10_241 is exactly those two
+ * writes. addLiquidityETH is exposed the same way (limit 185_552 against a real need of
+ * 195_793) whenever it lands the second after something else touched the pair.
+ *
+ * If estimation FAILS, the transaction goes through untouched. Anvil does NOT reject it —
+ * it mines it at the block gas limit and it reverts on-chain, exactly as before this
+ * existed — and `expectMinedSuccessfully` is what names that revert.
+ */
+async function bufferGas(rpc: Rpc, tx: Record<string, unknown>): Promise<void> {
+  try {
+    const estimate = BigInt((await rpc('eth_estimateGas', [tx])) as string);
+    tx.gas = `0x${((estimate * (100n + GAS_BUFFER_PCT)) / 100n).toString(16)}`;
+  } catch {
+    // Leave `gas` unset: see above.
+  }
+}
+
 async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
   let nextId = 1;
 
@@ -820,8 +968,17 @@ async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
       // fresh fork) can transact and NO private key is ever handled by the
       // fixture, the specs, or CI.
       if (method === 'eth_sendTransaction') {
-        const from = (params?.[0] as { from?: string } | undefined)?.from;
-        if (from) await rpc('anvil_impersonateAccount', [from]);
+        const tx = params?.[0] as Record<string, unknown> | undefined;
+        if (typeof tx?.from === 'string') await rpc('anvil_impersonateAccount', [tx.from]);
+        if (tx && tx.gas === undefined) await bufferGas(rpc, tx);
+        const hash = (await rpc(method, params)) as string;
+        // Recorded so a spec can read this transaction's fate straight off the node — see
+        // `expectMinedSuccessfully`. The bridge is the one place that sees every send,
+        // whatever the app does with it afterwards.
+        const log = forkSends.get(page) ?? [];
+        log.push({ hash, selector: String(tx?.data ?? '').slice(0, 10) });
+        forkSends.set(page, log);
+        return hash;
       }
       return rpc(method, params);
     },
