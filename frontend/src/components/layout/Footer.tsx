@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
 import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { InstallPrompt } from '../pwa/InstallPrompt';
+import { ConsentRow } from '../ui/ConsentRow';
 import { NFT_FINANCE_LIVE, COMMUNITY_LIVE, PREMIUM_LIVE } from '../../lib/navConfig';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
@@ -264,6 +265,11 @@ export function Footer() {
             </div>
           </div>
         </div>
+
+        {/* WAVE SEVEN, row S: the consent ask, as a ROW. It renders only while
+            the answer is pending, in the footer's flow and never over the page.
+            ConsentRow says what did not change about consent itself. */}
+        <ConsentRow />
 
         {/* Bottom bar */}
         <div className="accent-divider" />

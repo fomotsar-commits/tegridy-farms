@@ -1,30 +1,67 @@
 /**
- * A11Y-R13 — the consent banner is a banner, and says so.
+ * WAVE SEVEN, row S: THE CONSENT ASK IS A FOOTER ROW.
  *
- * It declared role="dialog" with aria-live="polite" and none of the dialog
- * contract: no aria-modal, no focus move, no trap, no Escape, no restore. A
- * screen-reader user was told a dialog had appeared and was never put inside
- * it. It is structurally a bottom strip over a fully usable page, and telemetry
- * stays off until a button is pressed, so the defect was the CLAIM, not the
- * missing trap — role="region" is the true one. Fails on the pre-change file.
+ * The island's done-means: the row is present while the six-route overlay sweep
+ * (e2e/arrival.spec.ts) stays green, and the storage key appears in no rendered
+ * text node. The e2e holds the first half and the key across real routes; this
+ * file pins the component, which is where the key used to be printed.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { ConsentBanner } from './ConsentBanner';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { ConsentRow } from './ConsentRow';
+import { getConsent } from '../../lib/consent';
+
+const KEY = 'tegridy_telemetry_consent';
+const LINE = 'Analytics are anonymous and off until you say yes.';
 
 beforeEach(() => localStorage.clear());
 
-describe('ConsentBanner', () => {
-  it('announces itself as a named region, not as a dialog', () => {
-    render(<ConsentBanner />);
-    expect(screen.getByRole('region', { name: 'Privacy consent' })).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+describe('ConsentRow', () => {
+  it('asks in one line and answers in two words', () => {
+    render(<ConsentRow />);
+    expect(screen.getByText(LINE)).toBeInTheDocument();
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Yes', 'No']);
   });
 
-  it('gives both choices a 44px target', () => {
-    render(<ConsentBanner />);
-    for (const name of ['Decline', 'Accept']) {
+  it('never prints the storage key it writes to', () => {
+    const { container } = render(<ConsentRow />);
+    expect(container.textContent ?? '').not.toContain(KEY);
+  });
+
+  it('is a group named by its sentence, never a dialog, never over content', () => {
+    const { container } = render(<ConsentRow />);
+    expect(screen.getByRole('group', { name: LINE })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    for (const el of Array.from(container.querySelectorAll<HTMLElement>('*'))) {
+      expect(el.className, el.outerHTML.slice(0, 80)).not.toMatch(/(^|\s)(fixed|sticky|absolute)(\s|$)|z-\[/);
+      expect(el.style.position).toBe('');
+    }
+  });
+
+  it('gives both words a 44px target', () => {
+    render(<ConsentRow />);
+    for (const name of ['Yes', 'No']) {
       expect(screen.getByRole('button', { name }).className).toContain('min-h-[44px]');
     }
+  });
+
+  it('Yes grants, No denies, and either answer takes the row away', () => {
+    const yes = render(<ConsentRow />);
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+    expect(getConsent()).toBe('granted');
+    expect(yes.container.textContent).toBe('');
+    yes.unmount();
+
+    localStorage.clear();
+    const no = render(<ConsentRow />);
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    expect(getConsent()).toBe('denied');
+    expect(no.container.textContent).toBe('');
+  });
+
+  it('renders nothing once the visitor has answered', () => {
+    localStorage.setItem(KEY, 'denied');
+    const { container } = render(<ConsentRow />);
+    expect(container.firstChild).toBeNull();
   });
 });

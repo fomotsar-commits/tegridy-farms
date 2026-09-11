@@ -475,16 +475,14 @@ export const test = base.extend<Fixtures>({
         // AppLayout), but pin the choice too so specs that clear sessionStorage
         // or replay the splash stay picker-free.
         localStorage.setItem('tegridy-bungalow', 'toweli');
-        // ConsentBanner is a THIRD full-width fixed overlay that this list
-        // missed (role=dialog, z-[120], bottom-0 — AppLayout.tsx:187). On short
-        // viewports it and the fixed header sandwich the page, so Playwright
-        // cannot land a click on the launch door's audit toggle, which is the
-        // `locator.click: Test timeout of 30000ms exceeded` in CI.
-        //
-        // `getConsent()` returns 'pending' — and the banner shows — for anything
-        // that is not exactly 'granted' or 'denied' (src/lib/consent.ts:18-24),
-        // so the key has to hold one of those two. 'denied' is chosen so the
-        // suite never opts a synthetic visitor into telemetry.
+        // Consent is answered up front. It used to be load-bearing: the ask was
+        // a full-width fixed banner that, with the fixed header, sandwiched the
+        // page on short viewports so Playwright could not land a click on the
+        // launch door's audit toggle. Since wave seven row S it is a footer row
+        // in the page's flow and covers nothing. The seed stays so every spec
+        // meets the same footer and a synthetic visitor is never opted into
+        // telemetry. getConsent() reads 'pending' for anything but exactly
+        // 'granted' or 'denied' (src/lib/consent.ts), hence 'denied'.
         localStorage.setItem('tegridy_telemetry_consent', 'denied');
       } catch { /* ignore */ }
     });

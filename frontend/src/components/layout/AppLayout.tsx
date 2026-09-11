@@ -43,7 +43,6 @@ import { OnboardingModal } from '../ui/OnboardingModal';
 import { BungalowPicker } from '../BungalowPicker';
 import { BungalowOnboarding } from '../bungalow/BungalowOnboarding';
 import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
-import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
@@ -320,10 +319,8 @@ export function AppLayout() {
             ? <OnboardingModal />
             : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />
       )}
-      {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
-          (consent === 'pending'); analytics + error reporting are blocked
-          until the user clicks Accept or Decline. */}
-      <ConsentBanner />
+      {/* R046 / H-1: the consent ask is a footer row now (ConsentRow, wave
+          seven row S). Telemetry stays blocked until it is answered. */}
       {/* WALLET-02: advisory notice when a wallet connection stalls. Not a
           <Toaster> toast on purpose — RainbowKit pins its modal at
           z-index 2147483646, so anything lower renders behind the very

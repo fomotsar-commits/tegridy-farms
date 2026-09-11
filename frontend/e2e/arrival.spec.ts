@@ -413,13 +413,35 @@ test.describe('zero unasked overlays', () => {
       await page.waitForTimeout(CURTAIN_BUDGET_MS);
 
       // No dialog opened itself. The room's welcome is invited now, and the
-      // install offer is a footer row.
+      // install offer and the consent ask are footer rows.
       await expect(page.locator('[role="dialog"]')).toHaveCount(0);
 
       // And every hero control answers for itself.
       const covered = await page.evaluate(heroHitTest, false);
 
       expect(covered, `something is sitting on a control at ${path}`).toEqual([]);
+
+      // ROW S. A cold load, so consent is unanswered and the ask IS on the page,
+      // as a row in the footer's flow. That is why the sweep above is green with
+      // it present rather than because it was absent.
+      await expect(
+        page.getByRole('group', { name: 'Analytics are anonymous and off until you say yes.' }),
+      ).toHaveCount(1);
+      // And the storage key it writes to is in no rendered text node.
+      const keyNodes = await page.evaluate(() => {
+        const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const found: string[] = [];
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const el = node.parentElement;
+          if (el && SKIP.has(el.tagName)) continue;
+          const text = node.textContent ?? '';
+          if (text.includes('telemetry_consent')) found.push(text.trim().slice(0, 80));
+        }
+        return found;
+      });
+      expect(keyNodes, `the consent storage key is printed at ${path}`).toEqual([]);
     });
   }
 
