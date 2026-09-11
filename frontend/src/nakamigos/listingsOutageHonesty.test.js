@@ -101,10 +101,11 @@ function setup({ os, book }) {
 
 // A failed orderbook attempt is retried after 1s and then 2s (orderbook.js
 // withRetry). Fake timers skip those sleeps without changing how many attempts
-// run or what the function resolves to. Every turn yields a real macrotask, so
-// a dynamic import that has to load a module still gets to finish. The test's
-// own timeout is the bound: a turn cap would run out while that load is in
-// flight, before the retry timers even exist.
+// run or what the function resolves to. Drain until the promise settles and
+// let the test's own timeout be the bound. Do not cap the turns: after a
+// vi.doUnmock, the dynamic import inside fetchListings resolved late enough
+// that a 120-turn cap ran out with the orderbook request still unsent, and
+// the retry timers created after that were never advanced.
 async function settle(promise) {
   let settled = false;
   const tracked = promise.finally(() => {
@@ -232,8 +233,8 @@ describe("real listings are never blanked by a partial failure", () => {
   });
 });
 
-// LAST on purpose: this leg swaps the module registry, and anything after it
-// would load its orderbook module afresh.
+// Last, so no other test in this file runs against the module registry this
+// leg resets.
 describe("a rejected orderbook load", () => {
   afterEach(() => {
     vi.doUnmock("./lib/orderbook");
