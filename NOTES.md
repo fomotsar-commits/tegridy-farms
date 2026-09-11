@@ -15,6 +15,53 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — a guard that cannot fire is armed, not inert
+
+**Believed:** a condition that is always true under the current config is dead
+weight at worst. `enabled: isDeployed && chainId === CHAIN_ID` on a read that is
+already pinned `chainId: CHAIN_ID` looks like harmless belt-and-braces.
+
+**Measured** (`@wagmi/core` 3.6.5 source as installed, git history, and a real
+browser):
+
+- Under a ONE-chain wagmi config, `useChainId()` cannot leave that chain.
+  `createConfig` ignores a connector's move to an unconfigured chain ("If chain
+  is not configured, then don't switch over to it"), and `validatePersistedChainId`
+  rejects an unconfigured persisted one. The gate was added (R043, 2026-04-26)
+  under `chains: [mainnet]`, so it was always true and never observed doing
+  anything.
+- Adding Base and Robinhood (2026-08-21) made `useChainId()` follow the wallet.
+  That commit pinned 135 reads so they would come from mainnet "exactly as
+  before", and left the gates next to those pins alone. From that day the gates
+  fired, and nothing had ever tested what happens when they do.
+- `useChainId()` is a PERSISTED store value, not "the wallet's chain":
+  `partialize` writes `chainId` to localStorage and `actions/disconnect.js` never
+  resets it. In Playwright Chromium, logged out, with `wagmi.store` seeded
+  `{ chainId: 8453, current: null }` (what a disconnect leaves behind), the store
+  still read 8453 after the app loaded.
+- A disabled TanStack query is neither loading nor failed. `isLoading` is
+  `isPending && isFetching` (query-core `queryObserver.js`), fetchStatus is
+  `idle`, and `data` is undefined. So there is no skeleton, every per-index
+  `status` check reads as not-success, and any unread flag scoped by the same
+  gate stays silent. In that browser run the LP farm printed "Total LP Staked
+  0.0000", "Total Funded 0 TOWELI" and "be the first to stake LP" on 8453, while
+  the same run on chain 1 printed 528.1998 and 2,000 TOWELI. With the gate
+  removed, both chains printed the chain-1 text.
+
+**Why no test saw it:** the shared wagmi mock answered reads whatever
+`query.enabled` said, so every gate was invisible to every test that used it.
+Making it honour `enabled` broke exactly one suite of 38 (`useBribes.test.ts`,
+5 tests). Those tests stubbed reads of a contract whose address is zeroed, which
+are reads production never issues.
+
+**Do:**
+- When a config widens (one chain to many, a flag to a list), grep for guards
+  that compare against the OLD single value. They change meaning with no diff.
+- Treat `useChainId()` as "last known chain", including for disconnected
+  visitors. Gate WRITES on it; pin READS with `chainId` instead of gating them.
+- A test double must refuse what the real thing refuses. A mock that serves
+  disabled queries turns every `enabled:` condition into untested code.
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
