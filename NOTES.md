@@ -93,6 +93,84 @@ the query fail at all.
 
 ---
 
+## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
+
+**Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
+proves the app redirected to `/liquidity`.
+
+**Measured** (Playwright 1.62, chromium, `frontend/e2e/liquidity.spec.ts`, 50 runs with an
+init script logging every `history.replaceState`): the assertion passed on its first poll
+while the page was still on `http://host/swap?tab=liquidity` in **48 of 50** runs — that
+URL ends in "liquidity" too. The line asserted nothing; the only real wait was the next
+one (the `h1`), so a failure "at the URL check" was really the heading line. Assert the
+path: `toHaveURL(url => url.pathname === '/liquidity')`.
+
+**Second trap, same test.** The redirect was a `useEffect` inside the lazy page it was
+redirecting *away from*. A stack captured inside the `replaceState` hook named
+`TradePage-<hash>.js` as the caller, and the request log gave the order: host chunk →
+page chunk (109 KB) → full swap render → *then* the destination's two chunks — four
+serial lazy loads where a direct visit has two. Moving it to a route-level `<Navigate>`,
+normalised to each run's `load` event under 8 workers: redirect p50 665ms → 164ms,
+heading p50 1274ms → 728ms, runs that fetched the swap chunks 30/30 → 0/30.
+
+**Reproducing it:** 50 unthrottled runs, at 1 and at 8 workers, never failed. A 6x CDP
+CPU throttle (`Emulation.setCPUThrottlingRate`, chromium only) reproduced the reported
+failure in 1 of 5 — URL check passed on `/swap?tab=liquidity`, then the heading timed
+out after 5s with `Received string: "Swap"`, the redirect firing 6.6s after `load` —
+while the fixed build passed 5/5 with the redirect at most 1.05s after `load`. A load
+flake you cannot reproduce is a throttle level you have not tried.
+
+**Do:** decide URL-only redirects where the URL is first read (the route element), never
+in an effect inside a lazy component. To pin it, *hold* the chunks the redirect must not
+need — `page.route(pattern, () => {})` never answers — so a regression fails every run,
+not only the slow one (pre-fix: 4/4 device projects failed; post-fix: 4/4 passed). Pair
+it with a control that the pattern still matches a request somewhere, or a chunk rename
+silently turns the hold into a no-op.
+
+---
+
+## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
+
+**Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
+the fix for a cold `await import(...)` inside a test is to hoist it to a static
+import at the top of the file.
+
+**Checked** against the source of four candidates listed that way:
+
+| file | the import sits in | bound |
+|---|---|---|
+| `holderOutageRender.test.jsx` :34, :53 | `it()` body | 5000ms |
+| `offerBookOutageHonesty.test.jsx` :48 (and 9 more at the same depth) | `it()` body | 5000ms |
+| `offerErrorHonesty.test.jsx` :85 | top-level `beforeEach` | **10000ms** |
+| `cancelAllWalletGuard.test.jsx` :124-125 | top-level `beforeEach` | **10000ms** |
+
+Half the list was on the other clock. And `cancelAllWalletGuard` calls
+`vi.resetModules()` before that import **on purpose**: its comment says a static
+import "would give them two" `CollectionContext` instances, so the provider and the
+component would stop sharing state. Hoisting it would not fix a flake; it would
+break the thing the test exists to check.
+
+**Do**, before touching any slow-test candidate:
+
+1. Find where the cost sits — body (5s) or hook (10s). See the entry below.
+2. `grep resetModules` in the file. If it resets, a hoist is illegal. The only move
+   that keeps module identity is a bare warming import at the top, because every
+   post-reset import still comes from one registry.
+3. Only then rank by duration.
+
+Measured on merged trunk `f8bda8b9` (full suite, 588 files / 8343 tests, 0
+failures, a quiet 188s run), slowest test per file: `holderOutageRender` **3528ms,
+its import in the body — about 1.4x headroom, the only thin one** ·
+`offerBookOutageHonesty` 1810ms · `offerErrorHonesty` 1638ms (hook plus one body
+import, not split) · `cancelAllWalletGuard` 1494ms (hook) · `bot-noncustodial`
+251ms — the same test that was seen timing out at 5020ms under heavy load. One run
+ranks nothing.
+
+**The general form:** a conclusion is only as wide as the population screened. The
+first sweep for this flake class looked only at files that reset inside hooks,
+found nothing close to its bound, and reported that — while a body-bound test sat
+at 1.4x in a directory the sweep never covered.
+
 ## 2026-09-10 — "flaky" can be a UI defect, and a warn-only gate hides it forever
 
 **Believed:** a test that fails then passes on retry is nondeterministic — timing
