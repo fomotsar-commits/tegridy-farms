@@ -19,7 +19,7 @@ export default function ZapPage() {
           that supports it, grouped into fewer confirmations.
         </p>
         <p className="mt-2 text-[12px] text-white/50">
-          A zap is several transactions, not one. It can stop part-way — this page keeps track of exactly which steps
+          A zap is several transactions, not one. It can stop part-way, so this page keeps track of exactly which steps
           landed, holds that state across a reload, and resumes without repeating anything already confirmed.
         </p>
       </header>

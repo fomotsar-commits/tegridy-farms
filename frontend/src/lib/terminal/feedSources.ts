@@ -17,7 +17,7 @@ import type { SourceReadiness } from '../alerts/sources';
 export type TerminalFeedSourceId = 'geckoterminal' | 'indexer';
 
 const INDEXER_UNSET_DETAIL =
-  'VITE_INDEXER_URL is not set, so the venue’s own pairs — with in-window activity counts and a head-block time — are not read on this deployment. The market feed above does not need it.';
+  'VITE_INDEXER_URL is not set, so the venue’s own pairs are not read on this deployment. The market feed above does not need it.';
 
 /**
  * Live config, read on every call.

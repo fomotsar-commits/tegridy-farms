@@ -1,0 +1,305 @@
+import { test, expect, type Page } from '@playwright/test';
+import { gotoRoute, waitForQuiescence, gotoNakamigos, ROUTES, navigablePath } from './fixtures/routes';
+
+// ELEMENT I — ZERO EM DASHES IN VENUE-VOICE PROSE, AND THE DEBT ON THE WAY THERE.
+//
+// THE DISCRIMINATOR, which is the whole reason this guard can exist.
+//
+// The em dash is two different things in this repo and only one of them is
+// copy. `usePoolMarket.ts:13` states the other outright: "null means NOT READ,
+// and the UI must render it as '—', never as 0". A dozen surfaces emit that
+// bare dash when a read fails, and it must never be edited away — a zero where
+// a read failed is the repo's most repeated bug class.
+//
+// So a body-wide count cannot answer this element's question, and neither can a
+// copy review: somebody has to decide, per dash, which of the two it is. That
+// is an exemption list, and an exemption list rots.
+//
+// The rule that replaces it is structural, and it needs no judgement at all:
+//
+//   a text node that CONTAINS U+2014 and whose trimmed content is NOT exactly
+//   U+2014 is PROSE and fails; a node whose trimmed content IS exactly U+2014
+//   is the unreadable placeholder and passes BY CONSTRUCTION.
+//
+// The placeholder emitters are all `{cond ? value : '—'}` — their own JSX
+// expression child, therefore their own text node, therefore exactly U+2014.
+// They are safe without being named, and they stay safe as new ones are added.
+//
+// TEXT NODES, NEVER innerText. innerText flattens an element's whole subtree
+// into one string, which glues a placeholder to the prose beside it and reports
+// both as one prose hit. The walker below reads the nodes themselves.
+//
+// ── THE DEBT ────────────────────────────────────────────────────────────────
+//
+// 214 prose dashes across 44 routes (487 at the guard's landing). 22 routes
+// are finished, two of them records whose entries leave the count by
+// structure (ruling 1), so this cannot land as `toBe(0)`
+// without landing red, and a permanently red gate is a gate people learn to
+// ignore. It lands as the repo's own knownViolations idiom instead
+// (e2e/fixtures/routes.ts): an EXACT count per route, asserted both ways.
+//
+// Both ways is the point. A new dash fails the route, AND a fixed one fails it
+// too, until the number here comes down with it. A list that can only be
+// appended to is a list that stops being read.
+//
+// Where the count is 0 the route is finished, and the assertion is the island's
+// ruling exactly: it fails on the first prose node, and it prints that node's
+// text so the failure names the copy rather than a number.
+//
+// ── SCOPE ───────────────────────────────────────────────────────────────────
+//
+// Every venue-voice route: everything AUDITABLE_ROUTES reaches whose census
+// voice (e2e/fixtures/routes.ts) is not 'bungalow' or 'toweli'. The doors and
+// the TOWELI room speak their own token's voice and are not this element's
+// subject; the last test in this file holds the table to that.
+//
+// The nine routes measured before this guard existed were the ones the island
+// and the venue had both been walking by hand; they came to 141. They are nine
+// of fifty-one. The venue's own nav reaches the rest.
+
+/** Routes whose numbers are not a guess. Measured 2026-09-09 against the
+ *  production build under `vite preview`, twice, identical both passes. */
+const VENUE_VOICE_DEBT: Record<string, number> = {
+  '/': 0,
+  '/faq': 0,
+  '/history': 0,
+  '/start': 0,
+  '/admin': 0,
+  '/launch/0x0000000000000000000000000000000000000000': 0,
+  // Swept to zero 2026-09-10. A route at zero stops carrying a budget and
+  // starts failing on the FIRST prose node, naming the copy that broke it.
+  '/vesting': 0,
+  '/farm': 0,
+  '/island': 0,
+  '/airdrop': 0,
+  '/exposure': 0,
+  '/chart': 0,
+  '/checkout': 0,
+  '/dashboard': 0,
+  '/deployer': 0,
+  '/scan': 0,
+  '/swap': 0,
+  '/eth-curve/0x0000000000000000000000000000000000000000': 0,
+  '/gallery': 0,
+  // Row Q put /security's classic protocol under TOWELI's name and cut the
+  // banner's last dash: finished.
+  '/security': 0,
+  // RECORDS (the island's ruling 1). Each page's record subtree is skipped by
+  // structure; its chrome, including the label naming it the venue's record, is
+  // walked and held at zero like any finished route.
+  '/changelog': 0,
+  '/contracts': 0,
+  // TOWELI'S PROTOCOL PAGES LEFT THIS TABLE with row Q: /tokenomics, /treasury,
+  // /premium, /lore, /referrals and /zap open in the TOWELI room and speak its
+  // voice, like the doors (29 dashes went with them, /zap already at zero).
+  '/nakamigos': 1,
+  '/terms': 3,
+  '/terminal': 2,
+  '/solana': 4,
+  '/launch-simulator': 4,
+  '/leaderboard': 4,
+  '/community': 5,
+  '/liquidity': 6,
+  '/privacy': 7,
+  '/trust': 7,
+  '/pools': 9,
+  '/nft-finance': 10,
+  '/developers': 10,
+  '/risks': 3,
+  '/copy-trading': 11,
+  '/tax': 13,
+  '/curve-launch': 14,
+  '/eth-curve': 15,
+  '/alerts': 17,
+  '/competitions': 17,
+  '/yield': 21,
+  // 32 until element F cut the header to one sentence; that sentence carried a
+  // prose dash. The fold itself moved none of them — a closed <details> keeps its
+  // children in the DOM, which is exactly why the fold uses one.
+  '/launch': 31,
+
+};
+
+/**
+ * The four GeckoTerminal routes, with the feed aborted at the browser.
+ *
+ * e2e/fixtures/routes.ts already measured what these routes do: /copy-trading
+ * is a 154-row table of ~31.8k chars when the feed answers and a ~5.5k-char
+ * list of "could not be read" notices when it does not. Its own note says a
+ * stub is warranted for "a route whose two branches DO differ" — an a11y rule
+ * set survives that difference, a CHARACTER COUNT plainly might not.
+ *
+ * So the feed is aborted here and the degraded branch is what is pinned. The
+ * abort really intercepts because playwright.config sets serviceWorkers:
+ * 'block'; without it public/sw.js answers first and the stub is a no-op.
+ *
+ * MEASURED, NOT ASSUMED: aborted, these four read 3 / 2 / 12 / 18, which is
+ * what the unstubbed sweep read too. OWED, and not claimed: I cannot make a
+ * third party answer on demand, so I have not walked the ready branch's copy
+ * with the feed certainly live. If those tables carry dashes, they are not in
+ * this baseline.
+ */
+const FEED_ROUTES = new Set(['/terminal', '/chart', '/copy-trading', '/competitions']);
+
+/** `/nakamigos` opens on a full-viewport splash with no `main` behind it, so it
+ *  needs the fixture's own driver rather than the standard mount probe. */
+const NAKAMIGOS = '/nakamigos';
+
+interface ProseHit {
+  text: string;
+  owner: string;
+}
+
+/** Every prose em-dash text node on the page, in document order. */
+async function proseDashes(page: Page): Promise<ProseHit[]> {
+  return page.evaluate(() => {
+    const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+    const hits: { text: string; owner: string }[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const data = node.textContent ?? '';
+      if (!data.includes('—')) continue;
+      const el = node.parentElement;
+      if (!el) continue;
+      // Never rendered, or hidden from everyone: not copy anybody reads.
+      if (SKIP.has(el.tagName)) continue;
+      if (el.closest('[aria-hidden="true"]')) continue;
+      // A RECORD KEEPS ITS WORDS (the island's ruling 1). A page marks its
+      // record subtree `data-record` and the walk skips it BY STRUCTURE:
+      // /changelog's entries and /contracts' registry. The chrome around a
+      // record is still walked
+      // and still held at zero. src/pages/recordSurfaces.test.ts pins which
+      // files may declare a record at all, so this is not an escape hatch.
+      if (el.closest('[data-record]')) continue;
+      // A TOWELI SECTION ON A VENUE PAGE, OR THE TOWELI ROOM'S BAND (row Q):
+      // TOWELI's voice, not the venue's. Skipped by structure; the same source
+      // guard pins which files may declare a TOWELI section.
+      if (el.closest('[data-voice="toweli"]') || el.closest('[data-room="toweli"]')) continue;
+      // THE DISCRIMINATOR. Exactly U+2014 is the unreadable placeholder.
+      if (data.trim() === '—') continue;
+      hits.push({ text: data.trim().slice(0, 90), owner: el.tagName });
+    }
+    return hits;
+  });
+}
+
+/** Mount the route and let the whileInView sections arrive before reading. */
+async function settle(page: Page, path: string) {
+  if (path === NAKAMIGOS) await gotoNakamigos(page);
+  else await gotoRoute(page, path);
+  // Three passes down: one scrollTo lands before the sections it reveals have
+  // mounted, and each newly mounted section makes the page taller.
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(500);
+  }
+  // The repo's settle, rather than a fixed sleep: routes.ts's own header
+  // records that a fixed wait under-reported findings on /farm.
+  await waitForQuiescence(page, { quietMs: 600, timeout: 12_000 });
+}
+
+test.describe('element I: em dashes in venue-voice prose', () => {
+  // THE DESKTOP PROJECT ONLY, AND IT MUST BE MATCHED BY PROJECT NAME.
+  //
+  // `browserName !== 'chromium'` is the wrong test and it cost a CI run to
+  // learn: the `mobile-chrome` project is a Pixel 5, so its browserName is
+  // 'chromium' too, and the guard ran there with the desktop baseline. At a
+  // phone width /exposure reads 2 where the desktop reads 1 — not different
+  // copy, a different set of components rendering. The numbers below are a
+  // desktop measurement and only the desktop project may be judged by them.
+  //
+  // Rendered copy is not engine-dependent, so one project is the honest amount
+  // of work here; four would also put a fifty-route serial sweep on the two
+  // WebKit projects, which this box already collapses under load.
+  //
+  // NOT WALKED, and therefore not claimed: copy that only a narrow viewport
+  // renders — the BottomNav's four tabs and the hamburger drawer. A mobile
+  // baseline is its own list, and this element has not asked for one yet.
+  // (asserted per test below, via test.info().project.name)
+
+  for (const [path, budget] of Object.entries(VENUE_VOICE_DEBT)) {
+    test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          sessionStorage.setItem('tf_loaded', '1');
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          // 'venue', NOT the wallet fixture's 'toweli'. Footer.tsx:180 renders
+          // `🏝️ Bungalows — Toweli` as its own text node whenever any registry
+          // bungalow is active, which would put one prose dash in the footer of
+          // every route on this list and blame each page for its chrome.
+          // 'venue' is the "seen, chose nothing" sentinel and resolves to null.
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      if (FEED_ROUTES.has(path)) {
+        await page.route('**api.geckoterminal.com/**', (r) => r.abort());
+      }
+
+      await settle(page, path);
+
+      const hits = await proseDashes(page);
+      const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+
+      if (budget === 0) {
+        // FINISHED ROUTE. The island's ruling, exactly: fail on the first prose
+        // node, and name the copy rather than a count.
+        expect(hits.length, `${path} is at zero and gained prose em dashes:\n${shown}`).toBe(0);
+        return;
+      }
+
+      // BOTH WAYS. Fewer than the number here is a fix, and it fails until the
+      // number comes down with it -- that is what stops this list from becoming
+      // an append-only tally nobody reads.
+      expect(
+        hits.length,
+        hits.length > budget
+          ? `${path} gained prose em dashes (${budget} -> ${hits.length}). First few:\n${shown}`
+          : `${path} is DOWN to ${hits.length} from ${budget}. Good: lower the number in VENUE_VOICE_DEBT to ${hits.length} (or delete the entry if it is 0).`,
+      ).toBe(budget);
+    });
+  }
+
+  // RULING 1's OTHER HALF. Skipping a record is honest only while the record is
+  // really on the page and really labeled as the venue's: a route that failed
+  // to render would read zero too. And a record keeps its words, so it still
+  // holds the dashes it was written with. If it ever reads clean, somebody
+  // swept a record, which is the thing the ruling says not to do.
+  for (const path of ['/changelog', '/contracts']) {
+    test(`${path} keeps its record, labeled as the venue's`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'measured on the desktop project only');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          sessionStorage.setItem('tf_loaded', '1');
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      await settle(page, path);
+
+      const record = page.locator('[data-record]');
+      await expect(record).toHaveCount(1);
+      await expect(
+        page.getByText(/^The venue's record\. Entries keep the words they were written in\.$/),
+      ).toBeVisible();
+      const recordText = await record.evaluate((el) => el.textContent ?? '');
+      expect(recordText.length, `${path}'s record rendered empty`).toBeGreaterThan(500);
+      expect(recordText, `${path}'s record reads clean of dashes, so it was swept`).toContain('—');
+    });
+  }
+
+  // ROW Q. This table walks venue-voice routes only: a route the census puts in
+  // the TOWELI room or behind another resident's door is not the venue's copy.
+  test('the debt table walks only routes the census gives the venue', () => {
+    for (const path of Object.keys(VENUE_VOICE_DEBT)) {
+      const route = ROUTES.find((r) => navigablePath(r) === path);
+      expect(route, `${path} is not in the route fixture`).toBeTruthy();
+      expect(['venue', 'record', 'legal'], `${path} has census voice ${route?.voice}`).toContain(route?.voice);
+    }
+  });
+});

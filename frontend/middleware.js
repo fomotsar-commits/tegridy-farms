@@ -14,22 +14,24 @@
  *   /read/<addr>  held-time share links — the card IS the holder's number, and
  *                 is the whole reason the share exists (wave seven, element M).
  *
- * HONESTY RULE for the trust cards: the card states WHAT THE PAGE MEASURES and
- * identifies the subject — it NEVER asserts a verdict, score or band. The real
- * read is computed client-side from holder data that is partly key-gated, so a
- * card claiming "safe"/"concentrated" could contradict the page it links to.
+ * HONESTY RULE, one law for every card here: a card ASSERTS NOTHING OF THE
+ * VENUE'S OWN. It states what the page measures, identifies the subject, and
+ * repeats only figures somebody else published. It never carries a verdict,
+ * score or band that this venue computed.
+ *
+ * That is why /scan and /deployer name their subject and stop: their read is
+ * OURS, computed client-side from partly key-gated holder data, so a card
+ * claiming "safe" or "concentrated" could contradict the page it links to.
  * Identity (name/symbol) is fetched from a keyless upstream and is factual; if
  * that lookup fails the card degrades to the address alone. Never invent either.
  *
- * WHY /read IS DIFFERENT, and why that is not the rule bending. The rule above
- * exists because a /scan verdict is OURS, computed here from partly key-gated
- * data, so the card could contradict the page. A heat reading is neither: it is
- * SERVED whole by Jungle Bay Island's oracle, readable server-side, and is the
- * same number the page itself will render. Printing the tier on the card is
- * QUOTING the island, not asserting a band of our own — the venue never
- * computes, re-tiers or rounds it into a judgement. The rule as written still
- * binds every card whose subject we measure ourselves; it was never about
- * refusing to repeat a number somebody else published.
+ * And it is why /read MAY print a tier, without the rule bending. A heat
+ * reading is not ours: Jungle Bay Island serves it whole, it is readable
+ * server-side, and it is the same number the page itself will render. Printing
+ * it is QUOTING the island verbatim, not asserting a band of our own — the
+ * venue never computes, re-tiers or rounds it into a judgement. One law, and
+ * both cards obey it. (Wording ruled by the island, wave seven answer two §1.6,
+ * so the next reader finds one rule here rather than two.)
  *
  * The honesty that DOES bind here is the other one: a cold wallet and a failed
  * read both fall back to the generic card. A zero is never printed, because

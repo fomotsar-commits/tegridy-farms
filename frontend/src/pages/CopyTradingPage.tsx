@@ -21,6 +21,7 @@ import { TAPE_RETURN_RANKING } from '../lib/copytrade/tapeLeaderboard';
 import { DEFAULT_QUOTE_TOKEN } from '../lib/copytrade/quoteTokens';
 import type { PoolFamily } from '../lib/copytrade/tape';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { isIndexerConfigured } from '../lib/indexer/client';
 
 // COPY TRADING — follow an address, size the mirror, place it yourself.
 //
@@ -192,15 +193,19 @@ export default function CopyTradingPage() {
           </div>
         </div>
 
+        {/* WAVE SEVEN, row Q: THE SOON STATE IS ONE LINE. The router half needs
+            the venue's indexer, which is hosted nowhere yet. Without one, its
+            three unread panels collapse to the sentence that keeps their point:
+            router fills are missing from the tape above. With one, the panels
+            render exactly as before, each behind its own read state. */}
         <section className="mt-10">
-          <h2 className="text-sm font-semibold text-white">Venue router (needs the indexer)</h2>
-          <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-white/70">
-            Swaps routed through this venue's own SwapFeeRouter are not on the island tape — only the
-            Ponder indexer records them, and it is hosted nowhere yet. These three panels stay
-            visible in their unread state on purpose: an absent section would hide the fact that
-            router fills are missing from everything above.
-          </p>
-
+          <h2 className="text-sm font-semibold text-white">Venue router</h2>
+          {!isIndexerConfigured() ? (
+            <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-white/70">
+              Swaps routed through this venue&apos;s own router are not on the island tape above. They
+              appear here once the venue&apos;s indexer is hosted.
+            </p>
+          ) : (
           <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
             <div className="space-y-6">
               <CopyDataNotice
@@ -253,6 +258,7 @@ export default function CopyTradingPage() {
               />
             </div>
           </div>
+          )}
         </section>
       </div>
     </div>

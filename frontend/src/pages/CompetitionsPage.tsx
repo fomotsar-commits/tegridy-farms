@@ -12,6 +12,11 @@ import { StandingsTable } from '../components/competitions/StandingsTable';
 import { YourRank } from '../components/competitions/YourRank';
 import { SEASONS } from '../lib/competitions/season';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { isIndexerConfigured } from '../lib/indexer/client';
+
+/** A season boundary as a calendar day, in UTC: the season table's own clock. */
+const utcDay = (unix: number) =>
+  new Date(unix * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 // TRADING COMPETITIONS — two boards, each named by what actually reads it.
 //
@@ -99,6 +104,18 @@ export default function CompetitionsPage() {
 
           <ScoringRules />
 
+          {/* WAVE SEVEN, row Q: THE SOON STATE IS ONE LINE. The router season is
+              declared, but nothing reads it until the venue's indexer is hosted.
+              Without one, the season card, its read notice and its table
+              collapse to the sentence that says what opens and when. With one,
+              all three render exactly as before, behind the same gates. */}
+          {!isIndexerConfigured() && season ? (
+            <p className="rounded-xl border border-white/15 bg-white/[0.02] p-4 text-xs leading-relaxed text-white/75">
+              {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: its standings open once the
+              venue&apos;s indexer is hosted. Nothing is being counted until then.
+            </p>
+          ) : (
+            <>
           {season ? (
             <SeasonCard
               seasons={SEASONS}
@@ -126,6 +143,8 @@ export default function CompetitionsPage() {
           {standings.standings ? (
             <StandingsTable standings={standings.standings} account={address ?? null} />
           ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

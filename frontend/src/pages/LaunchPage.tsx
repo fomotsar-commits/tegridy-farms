@@ -73,7 +73,6 @@ import { isAddress, getAddress, type Address } from 'viem';
 import { CHAIN_ID } from '../lib/constants';
 import {
   dayTwoEconomyPhrase,
-  dayTwoEconomyShortPhrase,
   type LpEmissionsPhase,
 } from '../lib/lpEmissions';
 import { useLpEmissionsPhase } from '../hooks/useLpEmissionsPhase';
@@ -541,7 +540,7 @@ export default function LaunchPage() {
   if (!isLauncherEnabled()) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-10">
-        <LaunchHeader lpPhase={lpPhase} />
+        <LaunchHeader />
         {/* ⚠ UNREACHABLE TODAY. LAUNCHER_ENABLED is true (lib/launcher/config.ts), so
             isLauncherEnabled() short-circuits this whole branch and the live wizard
             renders instead. Kept as the fail-closed path if the flag is ever turned
@@ -573,7 +572,7 @@ export default function LaunchPage() {
     <>
       <PageArtBackdrop pageId="launch" />
       <div className="relative z-10 max-w-3xl mx-auto px-4 py-10">
-      <LaunchHeader lpPhase={lpPhase} />
+      <LaunchHeader />
 
       {/* THE DOOR, above the wizard. It reads held time live and explains itself, so a
           cold builder learns what warmth is here rather than at the submit button.
@@ -642,15 +641,50 @@ export default function LaunchPage() {
           first-time launcher needs (audited template, what a Fact Sheet is and is not,
           the fee split, the afterlife) was reaching nobody. Below the wizard so the
           four steps still lead the page. */}
-      <LauncherExplainer />
+      {/* WAVE SEVEN, element F: EVERY ESSAY SECTION, UNCHANGED, UNDER ONE DOOR.
+          The copy inside is byte-identical — "unchanged" is the directive's own
+          word, and it is also what keeps four source-reading tests green
+          (launchFeeCopy, meteoraRetired, termsLauncherCoverage, attentionSplits
+          all regex this file rather than the DOM).
 
-      {/* Graduation destination. Above the re-attestation panel because it answers the
-          question that panel presupposes — which venue the liquidity went to, on what
-          lock terms, and who collects that pool's fee. States plainly that graduation
-          runs through the external migrator today. */}
-      <div className="mt-12">
-        <GraduationVenuePanel />
-      </div>
+          A <details>, not a conditional render, and that is load-bearing twice
+          over. It is keyboard- and screen-reader-native with no JS; and a closed
+          <details> keeps its children IN THE DOM, so the em-dash guard's text
+          walk still counts them and /launch's budget does not silently drop by
+          thirty when a visitor has not opened the door.
+
+          PostGraduationReattest stays OUTSIDE. It is a working tool rather than
+          prose, and folding it would hide the unlabelled input that IS
+          /launch's declared `form-field-label` violation — the a11y sweep
+          would then find [] against an expected list and red for a reason that
+          has nothing to do with this element. */}
+      <details
+        className="group rounded-2xl overflow-hidden mt-10"
+        style={{ background: 'rgba(4,9,18,0.6)', border: '1px solid var(--color-purple-25)' }}
+      >
+        <summary className="cursor-pointer list-none px-4 py-3.5 min-h-[48px] flex items-center justify-between gap-3 text-white text-[14px] font-semibold">
+          <span>How the rail works</span>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"
+            strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            className="opacity-60 flex-shrink-0 transition-transform group-open:rotate-180"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </summary>
+
+        <div className="px-4 pb-5 pt-1">
+          <LauncherExplainer />
+
+          {/* Graduation destination. Above the re-attestation panel because it answers the
+              question that panel presupposes — which venue the liquidity went to, on what
+              lock terms, and who collects that pool's fee. States plainly that graduation
+              runs through the external migrator today. */}
+          <div className="mt-12">
+            <GraduationVenuePanel />
+          </div>
+        </div>
+      </details>
 
       {/* Post-graduation re-attestation — the fully-verifiable fee disclosure, read
           from the graduated pool's StreamableFeesLocker. Distinct from the pre-launch
@@ -828,7 +862,7 @@ function LaunchStatusBanner({ status, attest, onAttest, schemaReady, onResetLaun
           ba4d3399 corrected this sentence to a static "period ended and is not currently
           funded"; the live read replaces it so a re-funded period needs no code change. */}
       <p className="text-emerald-200/60 text-xs mt-3 leading-relaxed">
-        After the auction graduates into a V4 pool, this token can plug into the Tegridy
+        After the auction graduates into a V4 pool, this token can plug into the venue's day-2
         economy — {dayTwoEconomyPhrase(lpPhase)}. Few launchers give a launch any day-2
         economy at all.
       </p>
@@ -1081,7 +1115,7 @@ function LauncherExplainer() {
 
       <ExplainerCard title="Why an audited template matters">
         <p>
-          Neither you nor Tegridy writes the token contract. Every launch is pinned to Doppler's{' '}
+          Neither you nor the venue writes the token contract. Every launch is pinned to Doppler's{' '}
           <code className="text-white/70">DopplerERC20V1</code> factory — the template already whitelisted on Doppler's
           mainnet Airlock, with no mint, no fee-on-transfer, no blacklist, and no upgrade path.
         </p>
@@ -1155,7 +1189,7 @@ function LauncherExplainer() {
       <ExplainerCard title="The Launch Afterlife — a day 2">
         <p>
           Most launchers graduate a token into nothing. Because this launcher sits inside a DeFi protocol that is
-          already deployed, a graduated Tegridy launch has somewhere to go: a boosted LP-farming program on its own
+          already deployed, a graduated launch has somewhere to go: a boosted LP-farming program on its own
           graduated pool — one per-pool staker escrowing Uniswap V4 position NFTs, boosted by veTOWELI — and the
           ability to apply to the existing GaugeController for a share of TOWELI emissions.
         </p>
@@ -1207,15 +1241,22 @@ function LauncherExplainer() {
   );
 }
 
-function LaunchHeader({ lpPhase }: { lpPhase: LpEmissionsPhase }) {
+function LaunchHeader() {
   return (
     <div className="mb-6">
       <h1 className="text-2xl font-bold text-white">Launch a token</h1>
+      {/* WAVE SEVEN, element F: ONE SENTENCE. This was 38 words carrying four
+          claims — the rail, the audited template, the Fact Sheet, the V4
+          graduation and the day-2 economy — stacked above a wizard nobody had
+          reached yet. Every one of them is still made, in full, inside "How the
+          rail works" below, which is where somebody who wants them goes.
+
+          `dayTwoEconomyShortPhrase(lpPhase)` leaves with it rather than being
+          hardcoded away: the Afterlife card in the explainer renders the same
+          live phrase, so the claim keeps its one source and cannot go stale in
+          two places. */}
       <p className="text-white/60 text-sm mt-1 max-w-xl">
-        The verifiable, V4-native rail. Every launch uses Doppler's audited non-upgradeable template, publishes a
-        machine-checked Fact Sheet, and graduates into a Uniswap V4 pool — with a day-2 economy{' '}
-        {/* "LP farming today" was hardcoded and went stale the day the emissions period ended. */}
-        ({dayTwoEconomyShortPhrase(lpPhase)}) that few other launchers offer.
+        Ship a token with its disclosure attached, on an audited template.
       </p>
     </div>
   );
@@ -1314,7 +1355,7 @@ function StepDetails({ w, set }: { w: WizardState; set: <K extends keyof WizardS
   return (
     <div>
       <Field label="Token name">
-        <input className={inputCls} value={w.name} onChange={(e) => set('name', e.target.value)} placeholder="Tegridy Launch" maxLength={64} />
+        <input className={inputCls} value={w.name} onChange={(e) => set('name', e.target.value)} placeholder="Your token" maxLength={64} />
       </Field>
       <Field label="Symbol">
         <input className={inputCls} value={w.symbol} onChange={(e) => set('symbol', e.target.value.toUpperCase())} placeholder="TGL" maxLength={11} />

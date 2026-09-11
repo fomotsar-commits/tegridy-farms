@@ -127,12 +127,22 @@ test.describe('HomePage yield calculator (wallet-less)', () => {
     await expect(page.locator('body')).toContainText(/See what you'd earn/i);
   });
 
-  test('audit badge links to /security', async ({ page }) => {
-    await gotoRoute(page, '/');
-    // aria-label is now "View security details: internal audit waves, Slither CI,
-    // and the test suite" (HomePage.tsx:264). The link and its href are unchanged.
+  test('the audit badge is on the Check overview, and not on the arrival', async ({ page }) => {
+    // WAVE SEVEN, element C. This walked '/' until the badge moved off the
+    // venue arrival's hero to /trust, the Check overview. It moves in the same
+    // commit as the badge, because a green test for a surface that no longer
+    // exists is worse than a red one.
+    await gotoRoute(page, '/trust');
     const badge = page.getByRole('link', { name: /View security details/i });
     await expect(badge).toBeVisible();
     await expect(badge).toHaveAttribute('href', '/security');
+
+    // AND THE OTHER HALF, which is what makes this a move rather than a copy.
+    // Without it, re-adding the hero badge leaves every assertion green.
+    await gotoRoute(page, '/');
+    await expect(
+      page.getByRole('link', { name: /View security details/i }),
+      'the security badge is back on the venue arrival',
+    ).toHaveCount(0);
   });
 });

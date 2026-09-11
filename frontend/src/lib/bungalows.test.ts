@@ -77,7 +77,7 @@ describe('bungalow registry', () => {
           expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
         }
       }
-      expect(b.identity?.museVoice, `${b.id} bubble speaks as the island, never another resident`).toBe('the island');
+      expect(b.identity?.museVoice, `${b.id} canon voice is the island, never another resident`).toBe('the island');
     }
     for (const b of BUNGALOWS.filter((x) => !x.live)) {
       expect(b.artPool, `${b.id} has no art pool until it goes live`).toBeUndefined();

@@ -53,10 +53,14 @@ import { pageArt } from '../../lib/artConfig';
 import { artSrcSet, derivedUrl } from '../../lib/artSrcSet';
 
 function navLogo(): HTMLImageElement {
-  // The replay-splash button wraps it; it is the only <img> inside that control.
-  const button = screen.getByLabelText('Replay splash screen (full reload)');
-  const img = button.querySelector('img');
-  expect(img, 'the nav logo <img> is gone from the splash-replay button').toBeTruthy();
+  // WAVE SEVEN, element A: this used to reach the logo THROUGH the splash-replay
+  // button's aria-label. That button is retired (one door for the film), and the
+  // logo was living inside it — so the mark moved to the way-back link rather
+  // than leaving with the affordance that happened to wrap it. Anchored on the
+  // link now, which is where the venue's identity actually belongs.
+  const home = screen.getByTitle('Back to memetics.finance');
+  const img = home.querySelector('img');
+  expect(img, 'the nav logo <img> is gone from the way-back link').toBeTruthy();
   return img as HTMLImageElement;
 }
 
