@@ -598,9 +598,23 @@ async function main() {
       const rv = await conn.getTokenAccountBalance(p.rewardVault).catch(() => null);
       console.log(`\n  stake vault balance  ${sv ? fmt(BigInt(sv.value.amount), p.decimals) : '— unreadable'}`);
       console.log(`  reward vault balance ${rv ? fmt(BigInt(rv.value.amount), p.decimals) : '— unreadable'}`);
-      if (sv && BigInt(sv.value.amount) < p.totalPrincipal) {
-        console.log(`  🔴 INVARIANT I-1 BROKEN: stake vault < total_principal`);
+      // INVARIANT I-1: the stake vault must hold at least the tracked principal.
+      //
+      // THREE OUTCOMES, NOT TWO. This used to check `if (sv && ...)`, so an
+      // UNREADABLE vault skipped the check entirely and the command exited 0 -
+      // reporting success for a solvency question it never got to ask. That is the
+      // bug class this repo names most often: a zero is only publishable when a read
+      // returned it.
+      if (!sv) {
+        console.log(`  ⚠ INVARIANT I-1 UNVERIFIED: the stake vault could not be read.`);
+        console.log(`    This is an OUTAGE, not a pass. Re-run before acting on it.`);
         process.exitCode = 1;
+      } else if (BigInt(sv.value.amount) < p.totalPrincipal) {
+        console.log(`  🔴 INVARIANT I-1 BROKEN: stake vault < total_principal`);
+        console.log(`    ${fmt(BigInt(sv.value.amount), p.decimals)} held vs ${fmt(p.totalPrincipal, p.decimals)} owed.`);
+        process.exitCode = 1;
+      } else {
+        console.log(`  invariant I-1 holds: vault >= total_principal`);
       }
       return;
     }
@@ -634,7 +648,10 @@ async function main() {
     case 'init-pool': {
       const payer = signer();
       const mint = new PublicKey(need(args, 'mint'));
-      const nonce = Number(need(args, 'nonce'));
+      // u8() masks with & 0xff, so an unvalidated 256 silently addresses pool 0 -
+      // a different pool than the operator asked for, possibly one that exists.
+      // The position-nonce sites were fixed first; this one was missed.
+      const nonce = intArg(args, 'nonce', { min: 0, max: 255 });
       const mintInfo = await conn.getAccountInfo(mint);
       if (!mintInfo) throw new Error(`no mint at ${mint.toBase58()}`);
       const tokenProgram = mintInfo.owner;

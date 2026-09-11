@@ -79,8 +79,12 @@ every surviving item re-checked at the file and line before it was written here.
 Two things it establishes that the fix itself did not:
 
 * **The ceiling is not a BAYLA problem.** Five residents run Solana/Streamflow pools — BAYLA, BOBO,
-  BRAINLET, RIZZ, SOY — and `bungalows.ts:95` states the rule: *"Solana pools are always
-  Streamflow."* PR #445's own `math.rs` reports **5,859 of 13,809 reward entries (42.4%)** past the
+  BRAINLET, RIZZ, SOY. (⚠️ This paragraph used to quote `bungalows.ts:95` — *"Solana pools are always
+  Streamflow"* — as the governing rule. That is no longer true, and the docstring saying it has been
+  rewritten: a Solana pool now names its program by which FIELD carries its address, `stakePool` for
+  Streamflow and `ladderPool` for the venue's own bayla-ladder. All five still run Streamflow today,
+  so the ceiling still reaches all five; the rule that guaranteed it is gone.) PR #445's own
+  `math.rs` reports **5,859 of 13,809 reward entries (42.4%)** past the
   ceiling program-wide on 2026-09-06. The shipped UI fix reaches all five automatically (one shared
   component); what has **not** happened for the other four is the incident response.
 * **Three things shipped inert or stale**, below. None is a regression — each is something the fix
