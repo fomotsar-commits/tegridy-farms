@@ -25,6 +25,7 @@ import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES, FAQ_INTRO } from '../lib/copy';
+import { TOWELI_FAQ_DATA } from '../lib/faqData';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -1209,8 +1210,35 @@ export default function HomePage() {
             <p className="text-white/90 text-[13px] max-w-xl mx-auto mb-5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
               {FAQ_INTRO.subheading}
             </p>
+            {/* WAVE SEVEN, row Q: THE ROOM'S OWN FAQ. The answers that describe
+                TOWELI's protocol left /faq, which speaks as the venue now, and
+                live here word for word (lib/faqData.ts). Native <details>, so a
+                closed answer is still on the page. */}
+            <div className="text-left max-w-2xl mx-auto mb-6 space-y-4">
+              {TOWELI_FAQ_DATA.map((section) => (
+                <div key={section.category}>
+                  <h3
+                    className="text-purple-300 text-xs font-semibold uppercase tracking-widest mb-2"
+                    style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+                  >
+                    {section.category}
+                  </h3>
+                  <div
+                    className="rounded-xl overflow-hidden divide-y divide-white/5"
+                    style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
+                  >
+                    {section.items.map((item) => (
+                      <details key={item.q} className="px-4 py-3">
+                        <summary className="cursor-pointer text-white text-sm font-medium">{item.q}</summary>
+                        <p className="mt-2 text-gray-400 text-sm leading-relaxed">{item.a}</p>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
             <Link to="/faq" className="btn-primary px-6 py-2.5 text-[13px] inline-flex items-center gap-1.5">
-              Read the FAQ
+              The venue&apos;s FAQ
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
