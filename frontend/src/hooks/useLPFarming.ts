@@ -102,6 +102,41 @@ export function useLPFarming() {
       || data?.[6]?.status !== 'success'
       || data?.[7]?.status !== 'success');
 
+  // The same fact for the seven FARM-WIDE reads, which `positionUnread` never
+  // covered. Deliberately WITHOUT its `!!address` term: this batch is enabled on
+  // `isDeployed && onMainnet` alone - `userAddr` falls back to the zero address -
+  // so these seven were asked, and could fail, with nobody connected at all.
+  // FarmPage renders the section at isConnected={false} for the logged-out public
+  // surface, where every one of these zeros was unsignalled.
+  //
+  // PARTIAL failure is the shape that gets through. A total failure already shows
+  // up as `data` undefined, which trips this (and positionUnread) via the
+  // `!== 'success'`. But viem gives every entry of a multicall `allowFailure:
+  // true`, so ONE reverting sub-call comes back `status: 'failure'` beside ten
+  // 'success' siblings - and a rejected chunk fails only its own entries. Either
+  // way some of these eleven land and some do not.
+  //
+  // One flag for all seven rather than one per index, matching positionUnread:
+  // the four stat tiles and the APR hero are read as a set, and a per-index
+  // carve-out silently stops covering a figure the moment someone renders it.
+  // `lpTotalSupply` (9) has no consumer today and is in here for exactly that
+  // reason - over-blanking is the safe direction, publishing an unread zero is not.
+  const statsUnread = isDeployed && onMainnet && !isReadLoading
+    && (data?.[0]?.status !== 'success'      // totalRawSupply
+      || data?.[1]?.status !== 'success'     // rewardRate
+      || data?.[2]?.status !== 'success'     // periodFinish
+      || data?.[3]?.status !== 'success'     // rewardsDuration
+      || data?.[4]?.status !== 'success'     // totalRewardsFunded
+      || data?.[9]?.status !== 'success'     // LP totalSupply
+      || data?.[10]?.status !== 'success');  // MIN_STAKE
+
+  // Index 8 (`allowance`) is the one entry of the eleven neither flag covers, and
+  // that is deliberate rather than an oversight: its zero is the only collapse here
+  // that fails CLOSED. An unread allowance reads as "not approved", so the section
+  // offers Approve and `stake()` refuses early - the cost is one redundant approval,
+  // never a stake armed on an allowance nobody read. Do not "fix" it by folding 8
+  // into a flag that blanks figures; if it ever needs signalling it needs its own.
+
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
   // F100: the raw Synthetix-style `rewardRate` storage value stays non-zero
@@ -325,6 +360,16 @@ export function useLPFarming() {
      * without checking this first.
      */
     positionUnread,
+    /**
+     * The farm-wide reads (total staked, reward rate, period, funding, LP supply,
+     * MIN_STAKE) did not all land. Every one of them collapses to 0n/0, and each
+     * zero is also a legitimate on-chain value - an empty farm, an unfunded
+     * schedule - so this flag is the only thing separating them. Unlike
+     * `positionUnread` it does NOT require a connected wallet: the batch runs for
+     * logged-out visitors too. Gate the stat tiles and the APR hero on this
+     * before printing a figure or an invitation derived from one.
+     */
+    statsUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,
