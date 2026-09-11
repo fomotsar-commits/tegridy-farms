@@ -15,6 +15,47 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — a deadline armed at the budget can only be met late
+
+**Believed:** `setTimeout(finish, BUDGET)` enforces "gone within BUDGET". The arrival
+curtain's timer was armed at exactly 3,000 ms, and its e2e asserted `lifetime <= 3000`.
+
+**Measured:** CI read the curtain at 3,002 to 3,010 ms in five tries on one PR, and the
+same commit passed at 2,935 ms on a retry. A timer fires at or after its delay, the
+removal it triggers still costs a render, and this timer was armed in a passive effect,
+which runs after paint, so its clock started after the one the test reads. With the CPU
+throttled locally, trunk's curtain lived 3,105 to 3,288 ms (x4) and 3,421 to 3,542 ms
+(x6). Arming it in a layout effect and ending it 100 ms early brought those to 2,982 to
+3,021 ms and 3,030 to 3,090 ms. That holds the budget at CI's load, and at x4 in five
+runs of six. At x6 it still misses: the timer cannot fire until the frame in progress
+ends, and on a saturated main thread nothing fires on time.
+
+**Technique:** a timer can keep an "at most N ms" promise only by firing early. Keep a
+measured slack back from the budget, bound it in a test from both sides (larger than the
+lateness measured, smaller than the time the on-time path needs), and start the timer's
+clock where the test's clock starts. To reproduce a few-ms timing flake locally, throttle
+the CPU with CDP (`Emulation.setCPUThrottlingRate`) until the slow path is the one that
+runs. Then measure the old build and the new build interleaved at the same rate, because
+back-to-back batches measure the box's load as much as the change.
+
+## 2026-09-11 — a callback prop in a useCallback's deps restarts every effect that lists it
+
+**Believed:** listing `finalize` in a long-lived effect's dependencies was harmless,
+because nothing about the component changes while it plays.
+
+**Measured:** `finalize` was `useCallback(..., [onComplete])`, and the parent passed
+`onComplete={() => setSplashDone(true)}`, a new function on every render (this build has
+no React Compiler). So every render of the parent cleared the curtain's deadline and
+armed a fresh one, and re-ran the canvas effect, which starts the animation again from
+its first phase. A unit test showed it on trunk code: after a re-render at 2,000 ms the
+deadline had not fired by 3,000 ms, and the canvas effect had run 3 times for one mount.
+
+**Technique:** keep a callback prop out of long-lived effects' dependency chains. Hold it
+in a ref updated in a layout effect, and call `ref.current` from a stable callback. Test
+it by re-rendering with a NEW function and asserting two things: the effect did not
+re-run (count something it does once per run, here `getContext`), and the new function
+is the one that gets called.
+
 ## 2026-09-11 — a local fallback that accepts a bad argument hides it until production
 
 **Believed:** a green unit suite plus a working dev server means a rate-limited
