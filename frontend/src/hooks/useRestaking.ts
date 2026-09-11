@@ -22,8 +22,9 @@ export function useRestaking() {
   const isSuccess = isReceiptFetched && !isReverted;
 
   // Read user's staking position + restaking state in parallel.
-  // R043 H-062-02: chainId pin on every entry, gate on the canonical chain.
-  const onMainnet = chainId === CHAIN_ID;
+  // R043 H-062-02: chainId pin on every entry. NOT also gated on the wallet's
+  // chain: the pins read mainnet from anywhere, and restake/unrestake/claimAll
+  // keep their own `chainId !== CHAIN_ID` guards (see useLPFarming.ts).
   const { data, refetch, isLoading: isDataLoading } = useReadContracts({
     contracts: [
       // Staking: get user's tokenId
@@ -38,7 +39,7 @@ export function useRestaking() {
       { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'totalBonusDistributed', chainId: CHAIN_ID },
       { address: TEGRIDY_RESTAKING_ADDRESS, abi: TEGRIDY_RESTAKING_ABI, functionName: 'bonusRewardPerSecond', chainId: CHAIN_ID },
     ],
-    query: { enabled: !!address && isDeployed && onMainnet, refetchInterval: 30_000 },
+    query: { enabled: !!address && isDeployed, refetchInterval: 30_000 },
   });
 
   // Parse results
