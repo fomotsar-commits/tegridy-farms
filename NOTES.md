@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — the retry's error is not the failure's error
+
+**Believed:** when an E2E test fails all three attempts, the last attempt's error
+is the failure — and a money-path spec that goes red on the first trunk commit
+containing a PR that touched that page is that PR's regression.
+
+**Observed** (`E2E Tests (Anvil fork — money paths)`, trunk `1325f685`, run
+`34558450845`, `e2e/stake.spec.ts` stake → claim → unstake):
+
+| attempt | error |
+|---|---|
+| 1 | `anvil_setBalance: failed to get account … HTTP error 408 … "Request timeout on the free plan, please upgrade to paid plan"` |
+| retry #1 | `stake: no explorer link to a transaction hash appeared` (30s) |
+| retry #2 | the same, 30s |
+
+Only attempt 1 named the cause: the fork's upstream RPC refused during test
+setup. Both retries reported a downstream symptom that reads exactly like an app
+defect — on a commit that had just merged a change to `/farm`.
+
+**Re-running the same job on the same SHA: 22/22 clean, 0 flaky.** Same code,
+different outcome — the upstream, not the merge.
+
+**Do**, when a fork-backed E2E goes red:
+
+1. Read attempt 1's error, not the last retry's. Here only attempt 1 named the
+   cause.
+2. Grep the log for the upstream's own words — `free plan`, `HTTP error 4`,
+   `failed to get account` — before reading any assertion.
+3. Re-run the job on the same SHA. It is the one test that separates "the code
+   changed" from "the world changed", and it costs a single job.
+
+The fork upstream is `eth.drpc.org`'s keyless tier (`.github/workflows/ci.yml`).
+Until a funded key goes in `secrets.ANVIL_FORK_URL`, expect this to recur — and
+to land on whichever PR merged last.
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
