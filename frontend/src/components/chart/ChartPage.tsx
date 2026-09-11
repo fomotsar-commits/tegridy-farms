@@ -23,7 +23,7 @@ import { IndexedVenueChart } from './IndexedVenueChart';
 // PRO CHARTING — candles for the island's pools, read from GeckoTerminal.
 //
 // WHAT CHANGED AND WHY. This page used to read the F1 indexer for BOTH halves —
-// the pool list and the candles — and that indexer is hosted nowhere, so the
+// the pool list and the candles — and that indexer was hosted nowhere then, so the
 // whole surface was two "could not read" banners under a heading. Meanwhile the
 // same app has been drawing GeckoTerminal candles in production on every
 // bungalow page for weeks (components/bungalow/BungalowMarket.tsx). The fix was
@@ -73,7 +73,7 @@ function scanHrefFor(market: ChartableMarket, baseAddress: string | null): strin
 export default function ChartPage() {
   usePageTitle(
     'Pro Charting',
-    "Candlestick charts for the island's pools, read from GeckoTerminal's own OHLCV feed — with every bucket the source did not return drawn as a gap rather than filled in with a price that never traded.",
+    "Candlestick charts for the island's pools, read from GeckoTerminal's own OHLCV feed, with every bucket the source did not return drawn as a gap rather than filled in with a price that never traded.",
   );
 
   const [params, setParams] = useSearchParams();
