@@ -15,6 +15,54 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — zeroing an input does not withdraw the claim built on it
+
+**Believed:** F100 fixed "the LP farm advertises a live APR after its reward
+period ends" by zeroing the reward rate once `periodFinish` passed. Its commit
+said the UI would "never advertise a dead emission schedule". The per-day tile
+did read 0, so the fix looked complete.
+
+**Measured** by mounting the real `useLPFarming` hook under `LPFarmingSection`
+with mainnet's own state: past `periodFinish` 1781493095, and a residual
+`rewardRate` of 3306878306878306 still in storage. The APR hero rendered `0.00%`
+in green, captioned "estimated from staked TVL · falls as more LP is staked".
+The derived figure's null-guard tested whether its *inputs* were present (pool
+loaded, supply non-zero, something staked, price positive), and they all were.
+A zero numerator over a finite denominator is a well-formed number, so the guard
+let it through as a confident, live-looking APR. The caption written for the
+ended state sat in the null branch the guard never took, so it was unreachable
+in exactly the state it was written for.
+
+**Do:** when a fix neutralises an input by setting it to 0, don't stop at that
+input. Trace every value derived from it, and ask whether the zero reaches the
+screen as "absent" or as "zero". Guards that test whether data is present cannot
+see a semantic state such as "ended". The state has to be passed down as its own
+flag and checked first. An unreachable branch whose copy names a real state is
+the cheapest detector there is.
+
+### A counter-test's fixture default can pin the next bug
+
+A sibling PR on the same section added a "genuine zero" counter-test, `reports
+a real empty farm as 0, and keeps the invitation`. Its point was sound: an empty
+farm is publishable, and a fix that blanked every zero would be a bug. But its
+base fixture was documented as "all reads landed, on an **ended** schedule with
+nothing staked". So it asserted "be the first to stake LP" on a farm paying
+nothing, which is exactly the bug above. Merging the two branches locally left
+**1 failure in 103: that test**. Giving it a live schedule made it 103/103.
+"Every read landed, every value zero" is not a neutral state. It is a specific
+state of the system, with claims attached.
+
+**Do:** in a counter-test ("the honest case must still render X"), set the state
+the claim depends on explicitly, and never inherit it from a base fixture's
+defaults. Before calling a fix done, list open PRs (`gh pr list --state open`),
+check which of them touch your files (`gh pr diff <n> --name-only`), merge the
+overlapping ones into a throwaway branch, and run both suites. Two PRs can each
+be green and still contradict each other.
+
+Aside, from the same simulation: `git merge --abort` refuses ("not uptodate")
+once you edit a file the merge *added*. On a throwaway branch that still points
+at your own HEAD, `git reset --hard` is the clean exit.
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
