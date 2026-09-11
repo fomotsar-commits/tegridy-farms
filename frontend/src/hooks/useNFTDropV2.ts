@@ -110,6 +110,33 @@ export function useNFTDropV2(dropAddress: string) {
   /** The price read was attempted and did not land. `currentPrice` is 0n here, and that 0 is not a price. */
   const priceUnread = enabled && onMainnet && !!data && data[1]?.status !== 'success';
 
+  // OUTAGE-AS-OPEN. The other reads the Mint button gates on collapse the same
+  // way, and every one of them lands on the side that DISARMS a guard: unread
+  // `paused` is false, unread `maxSupply` is 0 so `isSoldOut` below reads "not
+  // sold out", unread `maxPerWallet` is 0, which the contract means as "no cap"
+  // (TegridyDropV2.sol:528), and unread `mintPhase` is 0, i.e. CLOSED - so the
+  // page told buyers "the creator hasn't opened the sale yet" about a sale it
+  // never read. Same two facts as the price, same scoping. Written out per
+  // index, not as a loop, so a per-index scan can see which reads are covered.
+  /** mintPhase, totalSupply, maxSupply, maxPerWallet and paused ALL came back `status: 'success'`. */
+  const saleStateReadOk =
+    data?.[0]?.status === 'success' && // mintPhase
+    data?.[2]?.status === 'success' && // totalSupply
+    data?.[3]?.status === 'success' && // maxSupply
+    data?.[5]?.status === 'success' && // maxPerWallet
+    data?.[8]?.status === 'success'; // paused
+  /** A sale-state read was attempted and did not land. Phase, supply, cap and pause above are then display defaults, not the contract's state. */
+  const saleStateUnread = enabled && onMainnet && !!data && !saleStateReadOk;
+  // The remaining collapses are left unsignalled ON PURPOSE (adjudicated
+  // 2026-09-10), so a per-index scan still lists them:
+  //   [4] owner -> '' hides the owner panels: fails closed, claims nothing to a buyer.
+  //   [6] paidPerWallet -> 0n makes canRefund false, which only matters on a
+  //       cancelled sale - and cancelSale() reverts CancelAfterFirstMint once
+  //       anything has minted (TegridyDropV2.sol:1066, in every live template),
+  //       so no wallet can be owed a refund: "No refund owed" is true by construction.
+  //   [7] revealed, [10] creator -> no consumer.   [11] contractURI -> '' falls
+  //       back to the on-chain name, a display default.
+
   /** Only meaningful when `priceReadOk`. */
   const currentPriceFormatted = Number(formatWei(currentPrice, 18, 8));
   const mintPriceFormatted = Number(formatWei(mintPrice, 18, 8));
@@ -226,6 +253,15 @@ export function useNFTDropV2(dropAddress: string) {
       });
       return;
     }
+    // OUTAGE-AS-OPEN. Same rule for the rest of the sale: an unread pause,
+    // phase, supply or wallet cap is a guard that stopped guarding, not a
+    // green light. A successful read of any of them passes straight through.
+    if (!saleStateReadOk) {
+      toast.error('Sale state could not be read', {
+        description: 'Reload before minting - the pause, phase, supply and wallet cap must all be known.',
+      });
+      return;
+    }
     lastActionRef.current = 'mint';
     const totalCost = currentPrice * BigInt(quantity);
     writeContract({
@@ -298,6 +334,8 @@ export function useNFTDropV2(dropAddress: string) {
     currentPriceFormatted,
     priceReadOk,
     priceUnread,
+    saleStateReadOk,
+    saleStateUnread,
     /** The wallet is on CHAIN_ID, i.e. the reads above were actually issued. */
     onMainnet,
     // NB: total/supply alias kept so shared launchpad components that accept
