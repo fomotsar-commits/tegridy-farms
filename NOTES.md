@@ -15,6 +15,59 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — the partial-coverage scan over- AND under-reports, and a pre-fix run can fail for the wrong reason
+
+**Believed:** the per-index scan's gap list (method: #502) is the set of reads that
+publish an outage as a zero. Fix the list and the file is clean.
+
+**Measured** on six candidate files at trunk `1325f685`. Each gap index was
+adjudicated by what its zero *asserts*, then fixed and mutation-checked (#508 #512
+#515 #517 #518):
+
+- **It over-reports.** 25 gap indices; 15 made a claim or armed a control. Of the
+  other 10: a fail-closed owner panel, two reads with no consumer, a display
+  fallback, three allowances whose only failure mode is an extra Approve, two reads
+  whose failure renders the same `–` as a real zero, and one claim that is **true by
+  construction**. An unread `paidPerWallet` renders "No refund owed", but only on a
+  cancelled sale, and `cancelSale()` reverts `CancelAfterFirstMint` once anything has
+  minted. Read the contract before signalling.
+- **It under-reports.** Four claim sites have no `status === 'success' ? … : 0` to
+  match:
+  - a collapse through an intermediate `undefined`
+    (`x = ok ? r : undefined; n = x ? f(x) : 0`), twice in one hook;
+  - a separate `useBalance` feeding the same "Not enough ETH" claim as a batch read;
+  - an early `return { …, lpSupply: 0n }` that zeroed a value the hook *had* read,
+    whenever the price feed was stale. That became "0.00% of LP supply" on the
+    treasury page.
+- **The claim can be the bug when the control is already safe.** A CTA was disabled
+  on an unread balance before any fix, because a collapsed 0 is short of any amount.
+  "Fails closed" was true, and the button still said "Not enough TOWELI" about a
+  wallet nobody read.
+
+**New vacuity shape for the pre-fix run.** Testing an unexported component meant
+adding `export` in the fix. Restoring trunk's file for the pre-fix run then fails
+*every* test on the missing named export. That is a red run that proves nothing about
+behaviour. Reconstruct pre-fix as trunk **plus only the test-enabling change**. The
+honest split was then 4 fail / 2 pass, and the 2 are the genuine-zero guard rails.
+
+**Redundant gates make equivalent mutants.** Gating `insufficientX` on
+`balanceXKnown` *and* the CTA's `disabled` on `balanceUnknown` makes removing either
+one unobservable: the label checks "unknown" first, and `disabled` has the other
+gate. One of two belt-and-braces gates always survives a single-line mutation.
+Decide which one the tests pin and say so, rather than chasing it.
+
+**Tooling trap.** JSX *text* does not process `\u` escapes: `Minting closed —
+the creator…` rendered six literal characters with tsc and eslint clean. The Claude
+Code Edit tool normalises `—` in both strings, so it cannot target the literal
+escape ("old_string and new_string are exactly the same"). Fix it with a script that
+builds the backslash from `String.fromCharCode(92)`.
+
+**Do:** read the scan's output as a lower bound on where to look and an upper bound
+on what to fix. For each gap, write down what the zero asserts before touching it.
+Reconstruct pre-fix states rather than just `git show`-ing them.
+
+---
+
 ## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
 
 **Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
