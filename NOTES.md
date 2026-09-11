@@ -15,6 +15,35 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — an accordion that unmounts closed answers is invisible to every DOM audit
+
+**Believed:** mounting an accordion's answer only while it is open
+(`{isOpen && <div id={panelId}>…</div>}`, framer-motion's `AnimatePresence`
+pattern) is the accessible shape, as long as the button carries `aria-expanded`
+and `aria-controls`.
+
+**Measured** on `/faq` with the repo's axe sweep (`e2e/a11y-routes.spec.ts`,
+Chromium, production build under `vite preview`, `--workers=1`). The route carried
+`aria-valid-attr-value` as a known violation: every closed button's
+`aria-controls` named an id that was not in the document. With every panel always
+rendered and given the `hidden` attribute while closed, the finding is gone. The
+route's exact known-violation list went from `['aria-valid-attr-value']` to `[]`
+and the sweep stayed green.
+
+**The second cost is silent.** Anything that reads the page's text (a
+banned-string guard, a copy census, an em-dash count) has nothing to read in an
+answer that is not mounted, so on an unmount-on-close page it checks the
+questions and nothing else. Seen directly with the panels mounted: one forbidden
+answer added under a harmless question ("How does staking work?") turned the
+voice census red, although that answer was closed and nothing on screen showed
+it.
+
+**Technique:** keep the panel mounted and toggle `hidden`. That takes it out of
+view and out of the accessibility tree, so a screen reader still meets only the
+open answer, while its text stays in the DOM. A walker that judges a page's copy
+must then NOT skip `hidden` subtrees. Skipping `aria-hidden` is still right,
+because that marks decoration rather than content.
+
 ## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
 
 **Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
