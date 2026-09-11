@@ -161,7 +161,7 @@ export function CandleChart({ series, baseSymbol, quoteSymbol, newestMayBeOpen =
                 fill="url(#candle-gap-hatch)"
               >
                 <title>
-                  {`No trade for ${box.slot.buckets} bucket${box.slot.buckets === 1 ? '' : 's'} — ${utcLabel(box.slot.startSec)} to ${utcLabel(box.slot.endSec)}. Drawn as a gap; no price is claimed for this time.`}
+                  {`No trade for ${box.slot.buckets} bucket${box.slot.buckets === 1 ? '' : 's'}: ${utcLabel(box.slot.startSec)} to ${utcLabel(box.slot.endSec)}. Drawn as a gap; no price is claimed for this time.`}
                 </title>
               </rect>
             ) : (
@@ -239,7 +239,7 @@ export function CandleChart({ series, baseSymbol, quoteSymbol, newestMayBeOpen =
             style={{ backgroundImage: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.22) 0 2px, transparent 2px 5px)' }}
             aria-hidden="true"
           />
-          No trade — gap, not a price
+          No trade: gap, not a price
         </span>
         <span>
           {baseSymbol} priced in {quoteSymbol}
@@ -277,7 +277,7 @@ export function CandleChart({ series, baseSymbol, quoteSymbol, newestMayBeOpen =
                   <tr key={`row-gap-${slot.startSec}`} className="border-t border-white/10">
                     <th scope="row" className="py-1 pr-3 font-normal">{utcLabel(slot.startSec)}</th>
                     <td className="py-1 pr-3" colSpan={4}>
-                      Not returned by the source — no price is claimed
+                      Not returned by the source. No price is claimed
                     </td>
                     <td className="py-1">{`gap, ${slot.buckets} bucket${slot.buckets === 1 ? '' : 's'}`}</td>
                   </tr>

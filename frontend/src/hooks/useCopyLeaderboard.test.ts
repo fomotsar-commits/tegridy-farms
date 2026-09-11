@@ -1,7 +1,7 @@
 // THE UNAVAILABLE PATH IS THE RESTING STATE.
 //
-// The indexer is hosted nowhere, so `unavailable` is what every visitor to the
-// copy-trading page sees today. These pin that the board is null in that state
+// Without VITE_INDEXER_URL (CI, local builds, previews), `unavailable` is what
+// every visitor to the copy-trading page sees. These pin that the board is null in that state
 // rather than an empty ranking — an empty copy-trading board is a claim that
 // nobody is trading the venue.
 
