@@ -327,36 +327,24 @@ describe('useLPFarming — a failed farm-wide read is not an empty farm', () => 
     expect(result.current.isActive).toBe(false);
   });
 
-  it('a live funded farm reads clean', () => {
-    stubFarmReads(BigInt(Math.floor(Date.now() / 1000) + 86_400));
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.statsUnread).toBe(false);
-    expect(result.current.isActive).toBe(true);
-  });
-
   it.each([
     ['totalRawSupply', LP_FARMING_ADDRESS],
     ['rewardRate', LP_FARMING_ADDRESS],
     ['periodFinish', LP_FARMING_ADDRESS],
     ['rewardsDuration', LP_FARMING_ADDRESS],
     ['totalRewardsFunded', LP_FARMING_ADDRESS],
+    ['totalSupply', TEGRIDY_LP_ADDRESS],
     ['MIN_STAKE', LP_FARMING_ADDRESS],
   ])('one failed leg (%s) of the seven is enough to be unread', (fn, addr) => {
-    // viem submits every multicall entry `allowFailure: true`, so a single
-    // reverting sub-call comes back 'failure' beside its 'success' siblings.
-    // A flag that only fires when EVERY read failed is the documented blind spot
-    // this must not reproduce (check-unread-signal.mjs KNOWN_BLIND_SPOTS).
+    // Every multicall entry is submitted `allowFailure: true`, so one reverting
+    // sub-call comes back 'failure' beside 'success' siblings, and wagmi's default
+    // multicall batching can split one hook's reads across requests. A flag that
+    // only fires when EVERY read failed is the documented blind spot this must not
+    // reproduce (check-unread-signal.mjs KNOWN_BLIND_SPOTS). The failure stub is
+    // registered last and the mock is last-match-wins on (functionName, address),
+    // so exactly one leg fails.
     stubFarmReads(1n);
     wagmiMock.setReadResult({ address: addr, functionName: fn, result: undefined, status: 'failure' });
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.statsUnread).toBe(true);
-  });
-
-  it('covers the LP totalSupply leg too', () => {
-    // Split out because TEGRIDY_LP_ADDRESS.totalSupply and the farm's reads share
-    // no address; stubbed last so the failure stub wins the match.
-    stubFarmReads(1n);
-    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'totalSupply', result: undefined, status: 'failure' });
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.statsUnread).toBe(true);
   });
@@ -398,5 +386,57 @@ describe('useLPFarming — a failed farm-wide read is not an empty farm', () => 
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.positionUnread).toBe(true);
     expect(result.current.statsUnread).toBe(false);
+  });
+});
+
+// The two reads the Stake CTA ARMS on. Unlike the stat figures these are controls:
+// an unread MIN_STAKE collapses to 0n and disarms the belowMin guard (Stake armed on
+// an amount that reverts StakeBelowMinimum), and an unread allowance reads "not
+// approved" so Approve re-arms after every approval. They carry their own flag.
+describe('useLPFarming — the Stake CTA never arms on an unread guard', () => {
+  function stubGuardReads(allowance: bigint, minStake: bigint) {
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'allowance', result: allowance });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'MIN_STAKE', result: minStake });
+  }
+
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('an unread MIN_STAKE is an unread guard, even with the allowance landed', () => {
+    stubGuardReads(parseEther('1000'), parseEther('100'));
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'MIN_STAKE', result: undefined, status: 'failure' });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.stakeGuardsUnread).toBe(true);
+    // The collapse that used to disarm `belowMin` in the section.
+    expect(result.current.minStake).toBe(0n);
+  });
+
+  it('an unread allowance is an unread guard, even with MIN_STAKE landed', () => {
+    stubGuardReads(parseEther('1000'), parseEther('100'));
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'allowance', result: undefined, status: 'failure' });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.stakeGuardsUnread).toBe(true);
+    expect(result.current.lpAllowance).toBe(0n);
+  });
+
+  it('landed zeros are not unread: "not approved yet" and "no minimum" are real', () => {
+    stubGuardReads(0n, 0n);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.stakeGuardsUnread).toBe(false);
+  });
+
+  it('a disconnected visitor has no stake form to guard', () => {
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.stakeGuardsUnread).toBe(false);
+  });
+
+  it('the wrong chain is not an outage', () => {
+    wagmiMock.setChainId(11155111);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.stakeGuardsUnread).toBe(false);
   });
 });

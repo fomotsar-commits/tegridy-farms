@@ -133,7 +133,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             >
               <p>
                 The farm&rsquo;s figures could not be read just now &mdash; the network did
-                not answer. The numbers below are unknown, not zero: this is not a
+                not answer. The farm figures below are unknown, not zero: this is not a
                 statement that nothing is staked or that rewards have ended. Retry before
                 acting on them.
               </p>
@@ -321,6 +321,22 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     // revert-fallback gas estimate. Block it client-side instead.
                     const belowMin = stakeWei > 0n && lpFarm.minStake > 0n && stakeWei < lpFarm.minStake;
                     const needsApproval = stakeWei > 0n && lpFarm.lpAllowance < stakeWei;
+                    // Both guards above read a collapsed zero when their read failed:
+                    // `belowMin` DISARMS (no minimum) and `needsApproval` re-arms Approve
+                    // after every approval. Neither may pick the CTA on a read that did
+                    // not land, so the CTA becomes the Retry - a control that can do no harm.
+                    if (stakeWei > 0n && lpFarm.stakeGuardsUnread) {
+                      return (
+                        <button
+                          type="button"
+                          className="btn-secondary w-full py-2 text-sm rounded-lg"
+                          data-testid="lp-farming-stake-guards-unread"
+                          onClick={() => { void lpFarm.refetch(); }}
+                        >
+                          Couldn&rsquo;t check your approval or the minimum &mdash; Retry
+                        </button>
+                      );
+                    }
                     if (belowMin) {
                       return (
                         <button className="btn-primary w-full py-2 text-sm rounded-lg" disabled>

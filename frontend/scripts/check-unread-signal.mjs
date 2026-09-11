@@ -50,6 +50,7 @@ const KNOWN_BLIND_SPOTS = [
   'a bare `return 0` inside a useMemo (useSwapQuote priceImpact, PR #420) -- too common a literal to match without drowning in false positives',
   'aggregate flags computed with .every() so they only fire when EVERY read failed (useMyLoans, PR #406) -- a partial failure stays silent',
   'server-side JSON wires (api/**), which use the Observed/ReadFailed pair instead; this guard only walks src/',
+  'PARTIAL coverage -- the signal check is per FILE, so a flag over SOME indices passes a file that collapses others unsignalled (useLPFarming signalled 3 of its 11 until statsUnread; useUserPosition `paused`; useNFTDropV2 signals 1 of 11). Diff the collapsed indices against per-index status checks',
 ];
 
 const ZEROISH = String.raw`(?:0n|0|\[\]|false|''|"")`;

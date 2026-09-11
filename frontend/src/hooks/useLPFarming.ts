@@ -102,25 +102,30 @@ export function useLPFarming() {
       || data?.[6]?.status !== 'success'
       || data?.[7]?.status !== 'success');
 
-  // The same fact for the seven FARM-WIDE reads, which `positionUnread` never
-  // covered. Deliberately WITHOUT its `!!address` term: this batch is enabled on
+  // The same fact for the seven FARM-WIDE reads, which had no signal at all.
+  // Deliberately WITHOUT positionUnread's `!!address` term: this batch is enabled on
   // `isDeployed && onMainnet` alone - `userAddr` falls back to the zero address -
-  // so these seven were asked, and could fail, with nobody connected at all.
-  // FarmPage renders the section at isConnected={false} for the logged-out public
-  // surface, where every one of these zeros was unsignalled.
+  // so these seven were asked, and could fail, with nobody connected. FarmPage
+  // renders the section at isConnected={false} for the logged-out public surface.
   //
-  // PARTIAL failure is the shape that gets through. A total failure already shows
-  // up as `data` undefined, which trips this (and positionUnread) via the
-  // `!== 'success'`. But viem gives every entry of a multicall `allowFailure:
-  // true`, so ONE reverting sub-call comes back `status: 'failure'` beside ten
-  // 'success' siblings - and a rejected chunk fails only its own entries. Either
-  // way some of these eleven land and some do not.
+  // How a failure actually arrives (wagmi 3 / viem 2, as installed): the query does
+  // NOT reject and `data` does NOT go undefined. Every multicall entry is submitted
+  // `allowFailure: true`, so a whole-transport outage resolves as eleven
+  // `status: 'failure'` entries, and one reverting sub-call as one 'failure' beside
+  // ten 'success' siblings. Partial failure has a second route: wagmi's
+  // createConfig defaults `batch: { multicall: true }`, so each of these eleven is
+  // queued into a scheduler shared with every other read on the client and cut into
+  // aggregate3 requests at 1024 bytes of calldata - a rejected request fails only
+  // its own entries. Only per-index status checks see any of this; `!data` and
+  // `isError` see none of it.
   //
   // One flag for all seven rather than one per index, matching positionUnread:
   // the four stat tiles and the APR hero are read as a set, and a per-index
   // carve-out silently stops covering a figure the moment someone renders it.
   // `lpTotalSupply` (9) has no consumer today and is in here for exactly that
   // reason - over-blanking is the safe direction, publishing an unread zero is not.
+  // MIN_STAKE (10) is in here so the notice - and its Retry - appears when it
+  // fails; the control it arms is gated separately, below.
   const statsUnread = isDeployed && onMainnet && !isReadLoading
     && (data?.[0]?.status !== 'success'      // totalRawSupply
       || data?.[1]?.status !== 'success'     // rewardRate
@@ -130,12 +135,18 @@ export function useLPFarming() {
       || data?.[9]?.status !== 'success'     // LP totalSupply
       || data?.[10]?.status !== 'success');  // MIN_STAKE
 
-  // Index 8 (`allowance`) is the one entry of the eleven neither flag covers, and
-  // that is deliberate rather than an oversight: its zero is the only collapse here
-  // that fails CLOSED. An unread allowance reads as "not approved", so the section
-  // offers Approve and `stake()` refuses early - the cost is one redundant approval,
-  // never a stake armed on an allowance nobody read. Do not "fix" it by folding 8
-  // into a flag that blanks figures; if it ever needs signalling it needs its own.
+  // The two reads the Stake CTA ARMS on: `allowance` (8) picks Approve vs Stake, and
+  // MIN_STAKE (10) is the belowMin guard. Blanking a figure is not enough for these -
+  // they are controls. An unread MIN_STAKE collapses to 0n and `minStake > 0n && …`
+  // DISARMS the guard, arming Stake on a sub-minimum amount that reverts
+  // StakeBelowMinimum() (wagmi's writeContract does not simulate first). An unread
+  // allowance reads as "not approved", so Approve re-arms after every approval for
+  // as long as the read keeps failing, each one wasted gas, and Stake never appears.
+  // While either is unread the section puts Retry in the CTA's place and arms
+  // nothing. Wallet-scoped like positionUnread: the stake form only renders connected.
+  const stakeGuardsUnread = isDeployed && onMainnet && !!address && !isReadLoading
+    && (data?.[8]?.status !== 'success'      // LP allowance
+      || data?.[10]?.status !== 'success');  // MIN_STAKE
 
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
@@ -362,14 +373,26 @@ export function useLPFarming() {
     positionUnread,
     /**
      * The farm-wide reads (total staked, reward rate, period, funding, LP supply,
-     * MIN_STAKE) did not all land. Every one of them collapses to 0n/0, and each
-     * zero is also a legitimate on-chain value - an empty farm, an unfunded
-     * schedule - so this flag is the only thing separating them. Unlike
+     * MIN_STAKE) were asked and did not all land. Every one of them collapses to
+     * 0n/0, and each zero is also a legitimate on-chain value - an empty farm, an
+     * unfunded schedule - so on mainnet this flag is what separates them. Unlike
      * `positionUnread` it does NOT require a connected wallet: the batch runs for
      * logged-out visitors too. Gate the stat tiles and the APR hero on this
      * before printing a figure or an invitation derived from one.
+     *
+     * NOT covered: off mainnet the batch is never enabled, so every value is a
+     * zero nobody asked for and this is false. That is a separate "not attempted"
+     * state this hook does not expose (the same gate sits on useFarmStats,
+     * usePoolData and usePoolTVL).
      */
     statsUnread,
+    /**
+     * The allowance or MIN_STAKE read - the two the Stake CTA arms on - did not
+     * land. Their zeros are not display values: an unread MIN_STAKE disarms the
+     * minimum guard and an unread allowance re-arms Approve. Never pick Approve
+     * or Stake while this is set.
+     */
+    stakeGuardsUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,
