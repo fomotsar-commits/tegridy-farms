@@ -20,13 +20,15 @@
  * returns, rather than what this file assumes it returns. The fixture is mainnet's
  * own state (lib/lpEmissions.ts:9-11) — a past periodFinish with the residual
  * rewardRate still in storage — so a regression in EITHER layer shows up here.
+ * Every read in the hook's batch is stubbed as LANDED, so the period is the only
+ * thing deciding the hero: no unread flag, today's or a wider one, can pre-empt it.
  *
  * MUTATION CHECK, run against the pre-fix component: the two ended-period cases
  * fail (the first on "0.00%", the second on "be the first"). The live-period cases
  * are negative controls and pass both ways — they fail only if the fix were made by
  * deleting the APR or the invitation outright. The unread case also passes both
  * ways: it pins the ORDER the fix had to keep, and fails if `!isActive` is moved
- * above `poolStatsUnread`.
+ * above the unread branch.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, within } from '@testing-library/react';
@@ -51,7 +53,7 @@ vi.mock('../../contexts/PriceContext', () => ({ useTOWELIPrice: () => ({ priceIn
 
 import { useLPFarming } from '../../hooks/useLPFarming';
 import { LPFarmingSection } from './LPFarmingSection';
-import { LP_FARMING_ADDRESS, CHAIN_ID } from '../../lib/constants';
+import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, CHAIN_ID } from '../../lib/constants';
 
 // Mainnet, lib/lpEmissions.ts:9-11: periodFinish is 2026-06-15, and the residual
 // rewardRate (~0.0033 TOWELI/sec) is still in storage because nothing overwrote it.
@@ -59,11 +61,22 @@ const ENDED_PERIOD_FINISH = 1_781_493_095n;
 const RESIDUAL_REWARD_RATE = 3_306_878_306_878_306n;
 const livePeriodFinish = () => BigInt(Math.floor(Date.now() / 1000) + 30 * 86_400);
 
+// The unread caption's WORDING is not what these pin — that it wins, or is absent, is.
+const UNREAD = /unread|could not be read/i;
+
+/** All eleven batch reads LANDED (same stubs as useLPFarming.test.ts's field test). */
 function stubFarm({ periodFinish, totalStaked }: { periodFinish: bigint; totalStaked: bigint }) {
   wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'totalRawSupply', result: totalStaked });
   wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rewardRate', result: RESIDUAL_REWARD_RATE });
   wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'periodFinish', result: periodFinish });
+  wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rewardsDuration', result: 604_800n });
   wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'totalRewardsFunded', result: parseEther('1000000') });
+  wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rawBalanceOf', result: 0n });
+  wagmiMock.setReadResult({ functionName: 'earned', result: 0n });
+  wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: 0n });
+  wagmiMock.setReadResult({ functionName: 'allowance', result: 0n });
+  wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'totalSupply', result: parseEther('10000') });
+  wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'MIN_STAKE', result: 10n ** 16n });
 }
 
 function Farm() {
@@ -89,9 +102,9 @@ describe('LPFarmingSection — APR hero on an ended reward period', () => {
     renderWithProviders(<Farm />);
 
     // Preconditions, so nothing below can pass for the wrong reason: the hook
-    // really reports an ended period, and the pool totals really were read.
+    // really reports an ended period, and no read is flagged unread.
     expect(screen.getByText('Period Ended')).toBeInTheDocument();
-    expect(hero()).not.toHaveTextContent(/unread/i);
+    expect(hero()).not.toHaveTextContent(UNREAD);
 
     expect(hero()).not.toHaveTextContent('0.00%');
     // Not merely "not zero": an ended period has no rate to quote at all.
@@ -110,12 +123,12 @@ describe('LPFarmingSection — APR hero on an ended reward period', () => {
   });
 
   it('an unread pool total still outranks the ended caption', () => {
-    // periodFinish lands and says ENDED; totalRawSupply is left unstubbed, so it fails.
-    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'periodFinish', result: ENDED_PERIOD_FINISH });
-    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'totalRewardsFunded', result: parseEther('1000000') });
+    // Everything landed and the period says ENDED — except the pool total.
+    stubFarm({ periodFinish: ENDED_PERIOD_FINISH, totalStaked: parseEther('1000') });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'totalRawSupply', result: undefined, status: 'failure' });
     renderWithProviders(<Farm />);
 
-    expect(hero()).toHaveTextContent(/pool totals unread/i);
+    expect(hero()).toHaveTextContent(UNREAD);
     expect(hero()).not.toHaveTextContent(/reward period ended/i);
     expect(hero()).not.toHaveTextContent(/be the first/i);
   });
