@@ -56,7 +56,7 @@ const rpcError = (message) =>
  * `url`. A non-HTTP upstream (ws://, ipc) is handed back untouched, unrelayed.
  */
 export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backoffMs = BACKOFF_MS }) {
-  const stats = { requests: 0, retried: 0, recovered: 0, exhausted: 0, answers: {} };
+  const stats = { requests: 0, retried: 0, recovered: 0, exhausted: 0, retrying: 0, answers: {} };
   if (!/^https?:\/\//i.test(upstream)) {
     return { url: upstream, stats, report: () => {}, close: async () => {}, bypassed: true };
   }
@@ -112,6 +112,7 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
     stats.requests++;
     let answer;
     let attempts = 0;
+    let retrying = false;
     for (;;) {
       const next = await attempt(body, headers, deadline);
       attempts++;
@@ -121,10 +122,14 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
       answer = next;
       if (!answer.retry) break;
       stats.answers[answer.why] = (stats.answers[answer.why] ?? 0) + 1;
+      // Counted while it lasts: a run can end mid-retry (a 408 storm at the fork handshake
+      // outlasts the orchestrator's 20s bind wait), and the report must still see it.
+      if (!retrying) { retrying = true; stats.retrying++; }
       const wait = backoffMs[Math.min(attempts - 1, backoffMs.length - 1)];
       if (Date.now() + wait >= deadline) break;
       await delay(wait);
     }
+    if (retrying) stats.retrying--;
     if (attempts > 1) stats.retried++;
     if (answer.retry) stats.exhausted++;
     else if (attempts > 1) stats.recovered++;
@@ -150,15 +155,17 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
 
   function report(log = console.log) {
     const seen = Object.entries(stats.answers).map(([why, n]) => `${why} x${n}`).join(', ');
+    const pending = stats.retrying ? `, ${stats.retrying} still retrying at exit` : '';
     log(
       `[e2e] fork relay: ${stats.requests} upstream read(s) to ${host}; ${stats.retried} retried, ` +
-        `${stats.recovered} recovered, ${stats.exhausted} gave up${seen ? ` (${seen})` : ''}.`,
+        `${stats.recovered} recovered, ${stats.exhausted} gave up${pending}${seen ? ` (${seen})` : ''}.`,
     );
-    if (stats.exhausted > 0) {
+    if (stats.exhausted + stats.retrying > 0) {
       log(
-        `::error title=Fork upstream gave up::${stats.exhausted} fork read(s) to ${host} still failed after ` +
-          `retrying for up to ${deadlineMs / 1000}s (${seen}). anvil received that failure, so a red after it ` +
-          'can be the upstream, not the product: read the anvil tail and the FIRST attempt before debugging a spec.',
+        `::error title=Fork upstream gave up::${stats.exhausted + stats.retrying} fork read(s) to ${host} kept ` +
+          `failing (${seen}): ${stats.exhausted} still failed after retrying for up to ${deadlineMs / 1000}s` +
+          `${pending}. A red in this run can be the upstream, not the product: read the anvil tail and the ` +
+          'FIRST attempt before debugging a spec.',
       );
     } else if (stats.retried > 0) {
       log(

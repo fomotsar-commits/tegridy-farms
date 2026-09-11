@@ -213,6 +213,19 @@ describe('report', () => {
     expect(lines(relay).join('\n')).toMatch(/::error title=Fork upstream gave up::1 fork read/);
   });
 
+  it('counts a read still being retried when the run ends as failing, not as nothing', async () => {
+    // A 408 storm at the fork handshake outlasts the orchestrator's 20s bind wait, so the run
+    // exits while the relay is still retrying. "0 gave up" would be a false all-clear.
+    const up = await fakeUpstream([{ status: 408, body: DRPC_408 }]);
+    const relay = await relayTo(up.url, { deadlineMs: 1_500, backoffMs: [50] });
+    const inFlight = post(relay.url, CALL).catch(() => {});
+    await expect.poll(() => up.seen.length).toBeGreaterThan(1);
+    const out = lines(relay).join('\n');
+    expect(out).toMatch(/0 gave up, 1 still retrying at exit/);
+    expect(out).toMatch(/::error title=Fork upstream gave up::1 fork read/);
+    await inFlight;
+  });
+
   it('names the upstream by host only, never the path or query where a key lives', async () => {
     const up = await fakeUpstream([{ status: 408, body: DRPC_408 }]);
     const relay = await relayTo(`${up.url}/v2/SECRETKEY?dkey=SECRETTOO`, { deadlineMs: 200, backoffMs: [50] });
