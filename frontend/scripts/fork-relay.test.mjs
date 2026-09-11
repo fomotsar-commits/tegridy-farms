@@ -111,16 +111,29 @@ describe('startForkRelay', () => {
     expect(relay.stats).toMatchObject({ retried: 0, exhausted: 0 });
   });
 
-  it("gives up at the deadline and hands anvil the upstream's own last answer", async () => {
+  it("gives up by the deadline, never after it, and hands anvil the upstream's own last answer", async () => {
     const up = await fakeUpstream([{ status: 408, body: DRPC_408 }]);
-    const relay = await relayTo(up.url, { deadlineMs: 400, backoffMs: [50] });
+    // The second backoff alone overshoots the deadline, so the relay must stop rather than
+    // sleep through it: an answer that lands after anvil's own timeout is an answer anvil
+    // never reads, and anvil then reports its clock instead of the upstream.
+    const relay = await relayTo(up.url, { deadlineMs: 400, backoffMs: [50, 5_000] });
     const started = Date.now();
     // Unchanged, so anvil's error still reads "HTTP error 408 … free plan": a dead upstream
     // fails the run in its own words, exactly as it did before the relay existed.
     expect(await post(relay.url, CALL)).toEqual({ status: 408, body: DRPC_408 });
-    expect(Date.now() - started).toBeLessThan(1_500);
-    expect(up.seen.length).toBeGreaterThan(2);
+    expect(Date.now() - started).toBeLessThan(400);
+    expect(up.seen).toHaveLength(2);
     expect(relay.stats).toMatchObject({ retried: 1, recovered: 0, exhausted: 1 });
+  });
+
+  it("hands anvil the upstream's last real answer when the deadline cuts a retry short", async () => {
+    // 408, then a retry that never answers. The deadline aborts that retry, and what anvil
+    // hears must still be the 408 the upstream actually sent, not a 504 the relay made up.
+    const up = await fakeUpstream([{ status: 408, body: DRPC_408 }, 'hang']);
+    const relay = await relayTo(up.url, { deadlineMs: 300, backoffMs: [50] });
+    expect(await post(relay.url, CALL)).toEqual({ status: 408, body: DRPC_408 });
+    expect(up.seen).toHaveLength(2);
+    expect(relay.stats.exhausted).toBe(1);
   });
 
   it('answers 504 at the deadline instead of leaving anvil waiting on a hung upstream', async () => {
