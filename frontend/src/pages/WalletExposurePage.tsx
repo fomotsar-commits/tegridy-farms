@@ -329,7 +329,7 @@ export default function WalletExposurePage() {
       <header className="mb-6">
         <h1 className="heading-luxury text-3xl md:text-4xl text-white mb-2">Wallet Exposure</h1>
         <p className="text-white/70 text-[14px] leading-relaxed max-w-2xl">
-          A descriptive, method-disclosed read of how concentrated each token you hold is — effective
+          A descriptive, method-disclosed read of how concentrated each token you hold is: effective
           holder count, top-holder share, and (when available) bundle and sniper supply. This is a
           measurement of on-chain distribution, not a verdict on any project’s intent.
         </p>

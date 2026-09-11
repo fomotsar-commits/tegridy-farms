@@ -25,6 +25,7 @@ import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
 import { TOWELIE_QUOTES, FAQ_INTRO } from '../lib/copy';
+import { TOWELI_FAQ_DATA } from '../lib/faqData';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
 import { RealYieldProof } from '../components/RealYieldProof';
@@ -37,6 +38,7 @@ import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
 import { arrivalVoice, VENUE } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
+import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
 import { ThreePaths } from '../components/ThreePaths';
 import { FlamesBoard } from '../components/FlamesBoard';
@@ -303,9 +305,13 @@ export default function HomePage() {
 
             {/* Jungle Bay bungalows: when the active bungalow speaks for itself
                 (Bayla), the whole H1→copy→CTA→quote cluster below is replaced by
-                its token-first hero. The chain pills above and the security badge
-                after stay — they are venue facts either way. The classic cluster
-                is untouched for the Toweli default. */}
+                its token-first hero. The chain pills above stay — they are venue
+                facts either way. The classic cluster is untouched for the Toweli
+                default.
+
+                The security badge used to stay here too. Wave seven, element C
+                moved it to the Check overview; see the note where it used to
+                render, below. */}
             {bungalowIdentity ? (
               <BungalowHero bungalow={bungalowIdentity} />
             ) : !IS_TOWELI_ARRIVAL ? (
@@ -408,27 +414,25 @@ export default function HomePage() {
             </>
             )}
 
-            {/* Security trust badge — visible in hero so first-time visitors
-                see security posture before scrolling. Links to /security.
-                HONESTY PASS 2026-06-11: no paid third-party audit exists, so the
-                badge states the actual (checkable) record: internal multi-agent
-                audit waves + Slither CI + the 1,500+ test suite. */}
-            <Link
-              to="/security"
-              aria-label="View security details: internal audit waves, Slither CI, and the test suite"
-              className="inline-flex items-center gap-2 mt-5 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all hover:opacity-90"
-              style={{
-                background: 'rgba(139, 92, 246, 0.12)',
-                border: '1px solid rgba(245, 228, 184, 0.25)',
-                color: '#f5e4b8',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z" />
-                <path d="M9 12l2 2 4-4" />
-              </svg>
-              Internal audit waves · Slither CI · 1,500+ tests
-            </Link>
+            {/* WAVE SEVEN, element C: THE SECURITY BADGE MOVED TO THE CHECK
+                OVERVIEW. It is C's fifth and last item.
+
+                It was in the hero so a first-time visitor saw our posture
+                before scrolling, and that was the right instinct on a page
+                whose job was to explain the farm. The arrival's job is one
+                number and three paths, and the badge answered a question
+                nobody on it had asked yet.
+
+                NOT DELETED, AND NOT DILUTED: it renders on /trust, the Check
+                overview, directly above the paragraph that already sends a
+                visitor to Security and Risks. That is the page where somebody
+                IS asking, and it now leads with the checkable record rather
+                than only linking to it. /security itself still carries the same
+                record in full (SecurityPage.tsx:162).
+
+                The chain pills above stay. They are venue facts, they state
+                which chains this venue is on, and the island's ruling names
+                them as staying. */}
           </m.div>
 
           {/* Wallet-less yield calculator for first-time visitors.
@@ -576,6 +580,58 @@ export default function HomePage() {
         {bungalowIdentity?.market && (
           <div className="pb-8">
             <BungalowMarket bungalow={bungalowIdentity} />
+          </div>
+        )}
+
+        {/* WAVE SEVEN, element D: THE ROOM'S OWN READ, in the directive's slot —
+            after the market card, before the holders. The instrument scoped to
+            this room's contract: your held time HERE first, your whole flame
+            second. Same reading as the venue's, presented to the narrower
+            question a room asks. */}
+        {bungalowIdentity?.address && (
+          <div className="pb-8">
+            {/* THE ROOM SUPPLIES THE PANEL. `variant="embedded"` drops the card's
+                own chrome, which is right where a host has already introduced it
+                (the launch gate) and wrong here: on a room's full-bleed art the
+                block rendered as bare white type over a painting and was, in
+                plain terms, unreadable. This is BungalowHolders' panel, matched
+                exactly, so the room's three cards read as one set. */}
+            <div
+              className="rounded-2xl p-6"
+              style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}
+            >
+              <HeatCard
+                variant="embedded"
+                showEligibility={false}
+                scopeTo={{ address: bungalowIdentity.address, symbol: bungalowIdentity.symbol }}
+              />
+
+              {/* WAVE SEVEN, element D: THE POOL, OR THE HONEST LINE. §D asks a
+                  room for "its pool or its honest state", and this room could
+                  only ever get you to one — the hero's button goes to Earn, and
+                  says "The lighthouse" instead of "Stake" when there is no pool,
+                  which is honest about the BUTTON and silent about the token.
+
+                  A registry entry is not a deployment. REGISTERED, DEPLOYED and
+                  WIRED are three different facts in this repo, so this line
+                  states only the one it actually knows — that an address is on
+                  record — and sends the live question (is it funded, is the
+                  program verified) to the panel on Earn that really reads it.
+                  The no-pool sentence is BungalowFarmPanel's own, so a visitor
+                  meets one wording rather than two. */}
+              <p className="text-white/55 text-[12px] mt-4 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                {bungalowIdentity.stakePool ? (
+                  <>
+                    A {bungalowIdentity.symbol} pool is on record at{' '}
+                    <span className="font-mono text-white/70">{shortenAddress(bungalowIdentity.stakePool)}</span>.
+                    Whether it is funded, and what it pays, is read live on{' '}
+                    <Link to="/farm" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">Earn</Link>.
+                  </>
+                ) : (
+                  <>No {bungalowIdentity.symbol} staking program exists on-chain today.</>
+                )}
+              </p>
+            </div>
           </div>
         )}
 
@@ -743,9 +799,20 @@ export default function HomePage() {
 
         {/* Protocol Overview — farm-shaped product grid (Stake TOWELI to earn
             now…). The venue arrival keeps its clean line; the nav and the
-            hero CTAs carry the product routes there. Toweli and bungalow
-            homes keep the grid exactly as it was. */}
-        {(bungalowIdentity || IS_TOWELI_ARRIVAL) && (
+            hero CTAs carry the product routes there.
+
+            WAVE SEVEN, element D: THE ROOM SPEAKS ONLY ITS OWN TOKEN. This grid
+            used to render in every bungalow (`bungalowIdentity || ...`), so
+            BAYLA's room and PEPE's room both told their visitors to "Stake
+            TOWELI to earn now" — another resident's token, in someone else's
+            house. The venue arrival was cleaned of it in wave five and the
+            rooms were missed.
+
+            TOWELI's own home keeps the grid exactly as it was; it is his
+            furniture and it is true there. Every other door drops it, and what
+            replaces it is the room's own held-time read (element B, scoped) —
+            a number about the token whose room you are standing in. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Protocol Overview</h2>
@@ -813,6 +880,20 @@ export default function HomePage() {
             on any token and need no TOWELI position, so they belong on the front
             door. Same art-card pattern as Protocol Overview; nothing above or below
             was moved or removed. */}
+        {/* WAVE SEVEN, element C: LAUNCH & VERIFY, GATED.
+            It was written for a front door that funnelled everyone into
+            farm/swap/dashboard, and it was the right answer then. The three
+            paths are that answer now, above: they carry launch and scan as
+            deliberate choices with their requirements stated at the point of
+            intent, and they sit directly after the hall. Two blocks offering
+            the same two actions is not twice the invitation.
+
+            The island measured this one rendering below the market card in
+            /bayla and /pepe — a resident's visitor reading "Launch on Ethereum"
+            and "Check a deployer" under their token. Nothing is deleted:
+            /toweli renders it whole, and /launch and /scan are their own
+            rooms. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-2xl text-white tracking-tight mb-1" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Launch &amp; Verify</h2>
@@ -892,6 +973,7 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* How It Works — the three-step TOWELI farm walkthrough; TOWELI room
             only (ARRIVAL FLOW 2026-08-31: the venue teaches the island, not
@@ -985,6 +1067,12 @@ export default function HomePage() {
 
         {/* Ecosystem — ARRIVAL FLOW 2026-08-31: the subline places the island
             ABOVE the venue (the island is the world; the venue lives on it). */}
+        {/* WAVE SEVEN, element C: ECOSYSTEM, on the same gate.
+            It names the island above the venue, which is exactly right on
+            /toweli and redundant on the venue arrival — that page IS the island
+            now, with the hall on it — and simply someone else's furniture
+            inside a bungalow. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Ecosystem</h2>
           <p className="text-white text-[12px] mb-5">Jungle Bay Island. The world this venue lives on.</p>
@@ -1032,8 +1120,17 @@ export default function HomePage() {
             </m.div>
           </div>
         </div>
+        )}
 
         {/* Art Preview (moved below ecosystem) */}
+        {/* WAVE SEVEN, element C: THE COLLECTION, on the same gate.
+            The gallery is not deleted and not moved — /toweli renders it whole,
+            /gallery is still its own room, and the hall's thirteen doors carry
+            art of their own. What changes is that the venue arrival stops
+            spending a screen on it before a visitor has been given a reason to
+            care, and a resident's bungalow stops rendering the venue's gallery
+            underneath their own token. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <div className="flex items-end justify-between mb-6">
             <div>
@@ -1074,12 +1171,31 @@ export default function HomePage() {
             ))}
           </div>
         </div>
+        )}
 
         {/* F90: FAQ teaser — Home never funneled to the FAQ page despite the
             copy + route existing. Additive panel with a CTA, consistent with the
             page's glass-panel styling. Default-only: the FAQ answers the TOWELI
-            farm, the wrong questions inside a bungalow. */}
-        {!bungalowIdentity && (
+            farm, the wrong questions inside a bungalow.
+
+            WAVE SEVEN, element C: C's FIFTH GATE. The teaser goes home to
+            /toweli with the other four. It reached the venue arrival because
+            its gate only asked about bungalows, and I read that as a fifth
+            section deliberately kept; the island's master always listed five
+            arrival gates, and C's own done-means already named "Questions about
+            the venue" among the strings the arrival must not contain.
+
+            THIS IS A GATE, NOT A DELETION, AND THE FAQ IS NOT LOST WITH IT.
+            The answers live at /faq, the arrival's footer links there
+            (Footer.tsx:45), and the teaser's two venue lines carried no answer
+            of their own — they were a second door to a page the footer already
+            opens. Inside /toweli it renders exactly as before, under
+            FAQ_INTRO's own headline.
+
+            The venue-voice copy goes with the gate rather than sitting behind
+            an unreachable ternary: a branch that cannot render is not a
+            decision somebody can read, it is a decision nobody can see. */}
+        {IS_TOWELI_ARRIVAL && !bungalowIdentity && (
         <div className="pb-16">
           <m.div
             className="rounded-2xl p-6 md:p-8 text-center"
@@ -1089,13 +1205,40 @@ export default function HomePage() {
             viewport={{ once: true }}
           >
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.headline : 'Questions about the venue'}
+              {FAQ_INTRO.headline}
             </h2>
             <p className="text-white/90 text-[13px] max-w-xl mx-auto mb-5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>
-              {IS_TOWELI_ARRIVAL ? FAQ_INTRO.subheading : 'Plain answers, checkable claims. Below are the questions we hear most.'}
+              {FAQ_INTRO.subheading}
             </p>
+            {/* WAVE SEVEN, row Q: THE ROOM'S OWN FAQ. The answers that describe
+                TOWELI's protocol left /faq, which speaks as the venue now, and
+                live here word for word (lib/faqData.ts). Native <details>, so a
+                closed answer is still on the page. */}
+            <div className="text-left max-w-2xl mx-auto mb-6 space-y-4">
+              {TOWELI_FAQ_DATA.map((section) => (
+                <div key={section.category}>
+                  <h3
+                    className="text-purple-300 text-xs font-semibold uppercase tracking-widest mb-2"
+                    style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
+                  >
+                    {section.category}
+                  </h3>
+                  <div
+                    className="rounded-xl overflow-hidden divide-y divide-white/5"
+                    style={{ background: 'rgba(13, 21, 48, 0.85)', border: '1px solid var(--color-purple-12)' }}
+                  >
+                    {section.items.map((item) => (
+                      <details key={item.q} className="px-4 py-3">
+                        <summary className="cursor-pointer text-white text-sm font-medium">{item.q}</summary>
+                        <p className="mt-2 text-gray-400 text-sm leading-relaxed">{item.a}</p>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
             <Link to="/faq" className="btn-primary px-6 py-2.5 text-[13px] inline-flex items-center gap-1.5">
-              Read the FAQ
+              The venue&apos;s FAQ
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />

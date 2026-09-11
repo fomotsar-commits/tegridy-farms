@@ -708,7 +708,7 @@ export default function TradePage() {
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
                 The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
                 pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee,
-                on-chain, claimable any time) and graduates into this venue with the LP burned — and every token here is{' '}
+                on-chain, claimable any time) and graduates into this venue with the LP burned. Every token here is{' '}
                 <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline">scannable</Link>.
               </p>
             </div>
