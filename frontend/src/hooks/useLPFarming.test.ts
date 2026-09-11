@@ -283,14 +283,114 @@ describe('useLPFarming — a failed position read is not a zero position', () =>
   });
 });
 
-// OUTAGE-AS-ZERO, the other seven. `positionUnread` covers three of the eleven
-// batched reads; totalRawSupply/rewardRate/periodFinish/rewardsDuration/
-// totalRewardsFunded/LP-totalSupply/MIN_STAKE all collapse to 0n/0 with nothing
-// beside them. The section printed "Total LP Staked 0", invited visitors to "be
-// the first to stake", and titled an amber "0 / day" with "The reward period has
-// ended" -- three claims about the farm off reads that never landed. And because
-// `positionUnread` requires `!!address`, none of it was signalled on the
-// logged-out surface (FarmPage.tsx:429), where this batch still runs.
+// MIN_STAKE is entry [10] of the same batch, and `positionUnread` above covers
+// entries [5][6][7] only. Because the outage-as-zero guard tests its signal
+// vocabulary against the WHOLE FILE, that one correct flag exempted this
+// collapse from CI entirely -- while the guard's own failure message quoted this
+// file as an exemplar to copy. See the census in check-unread-signal.mjs.
+//
+// The consequence is the one LPFarmingSection.tsx:269 says the client-side floor
+// exists to prevent: `belowMin` is gated on `minStake > 0n`, so an unread
+// minimum stops blocking, the "Min stake N LP" notice disappears with it, and
+// the user gets the StakeBelowMinimum() revert and its scary gas estimate.
+describe('useLPFarming — an unread MIN_STAKE is not "no minimum"', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('reports the minimum as unread when its entry fails', () => {
+    // Every OTHER leg lands, so this is not a whole-batch outage that some
+    // broader flag would have caught -- it is the single-entry failure the
+    // file-scoped exemption hid.
+    wagmiMock.setReadResult({ functionName: 'rawBalanceOf', address: LP_FARMING_ADDRESS, result: parseEther('100') });
+    wagmiMock.setReadResult({ functionName: 'earned', result: parseEther('50') });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: parseEther('999') });
+
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(true);
+    // The position legs DID land, so the flag that already existed says nothing
+    // is wrong -- which is precisely why this one had to exist separately.
+    expect(result.current.positionUnread).toBe(false);
+    // The collapse is kept for display, as the house convention requires.
+    expect(result.current.minStake).toBe(0n);
+  });
+
+  it('a successfully read minimum is not unread', () => {
+    wagmiMock.setReadResult({ functionName: 'MIN_STAKE', address: LP_FARMING_ADDRESS, result: 10n ** 16n });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(false);
+    expect(result.current.minStake).toBe(10n ** 16n);
+  });
+
+  it('the wrong chain is not an outage', () => {
+    // MIN_STAKE is a pool constant, not a user read, so this flag is scoped
+    // without `address` -- but a batch that was never enabled still must not
+    // report a failure it never attempted.
+    wagmiMock.setChainId(11155111);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(false);
+  });
+
+  it('a disconnected visitor still learns the pool minimum', () => {
+    // The opposite of positionUnread's scoping, and deliberate: the minimum is
+    // a fact about the pool, so a logged-out visitor reading the farm page must
+    // still be told when we could not fetch it.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.minStakeUnread).toBe(true);
+  });
+});
+
+// Entry [0] is the POOL-WIDE total, and neither existing flag speaks for it:
+// minStakeUnread is entry [10], positionUnread is [5][6][7], both wallet-scoped.
+// LPFarmingSection.tsx:138 tests `totalStaked === 0n` and invites "be the first
+// to stake LP to activate the live APR" — a claim about the POOL, offered on a
+// farm that may be fully subscribed.
+describe('useLPFarming — an unread pool total is not an empty pool', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('reports the pool total as unread when its entry fails', () => {
+    wagmiMock.setReadResult({ functionName: 'rawBalanceOf', address: LP_FARMING_ADDRESS, result: parseEther('100') });
+    wagmiMock.setReadResult({ functionName: 'earned', result: parseEther('50') });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'balanceOf', result: parseEther('999') });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(true);
+    // The wallet-scoped flag says nothing is wrong — which is why this one
+    // had to exist separately.
+    expect(result.current.positionUnread).toBe(false);
+    expect(result.current.totalStaked).toBe(0n);
+  });
+
+  it('a successfully read pool total is not unread', () => {
+    wagmiMock.setReadResult({ functionName: 'totalRawSupply', result: parseEther('5000') });
+    wagmiMock.setReadResult({ functionName: 'totalRewardsFunded', result: parseEther('1000') });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(false);
+  });
+
+  it('a disconnected visitor still learns the pool totals are unread', () => {
+    // Pool-wide facts, so no address in the scope — same asymmetry as minStakeUnread.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(true);
+    expect(result.current.positionUnread).toBe(false);
+  });
+});
+
+// OUTAGE-AS-ZERO, the whole farm-wide set. The two describes above each cover a
+// part of it -- minStakeUnread [10], poolStatsUnread [0][4] -- and each was wired
+// to one sentence. `statsUnread` is their union plus the four reads neither covers
+// ([1] rewardRate, [2] periodFinish, [3] rewardsDuration, [9] LP totalSupply), and
+// it is what the section's tiles, APR figure and notice gate on. Without it an
+// unread periodFinish still titled an amber "0 / day" with "The reward period has
+// ended", and a landed total beside an unread rewardRate printed a "0.00%" APR.
+// Scoped without `address`, like the two above: the batch runs logged-out too.
 describe('useLPFarming — a failed farm-wide read is not an empty farm', () => {
   /** Every farm-wide read landing successfully at `value`. */
   function stubFarmReads(value: bigint) {
@@ -386,57 +486,5 @@ describe('useLPFarming — a failed farm-wide read is not an empty farm', () => 
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.positionUnread).toBe(true);
     expect(result.current.statsUnread).toBe(false);
-  });
-});
-
-// The two reads the Stake CTA ARMS on. Unlike the stat figures these are controls:
-// an unread MIN_STAKE collapses to 0n and disarms the belowMin guard (Stake armed on
-// an amount that reverts StakeBelowMinimum), and an unread allowance reads "not
-// approved" so Approve re-arms after every approval. They carry their own flag.
-describe('useLPFarming — the Stake CTA never arms on an unread guard', () => {
-  function stubGuardReads(allowance: bigint, minStake: bigint) {
-    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'allowance', result: allowance });
-    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'MIN_STAKE', result: minStake });
-  }
-
-  beforeEach(() => {
-    wagmiMock.reset();
-    wagmiMock.setChainId(CHAIN_ID);
-    wagmiMock.setAccount({ address: USER, isConnected: true });
-  });
-
-  it('an unread MIN_STAKE is an unread guard, even with the allowance landed', () => {
-    stubGuardReads(parseEther('1000'), parseEther('100'));
-    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'MIN_STAKE', result: undefined, status: 'failure' });
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.stakeGuardsUnread).toBe(true);
-    // The collapse that used to disarm `belowMin` in the section.
-    expect(result.current.minStake).toBe(0n);
-  });
-
-  it('an unread allowance is an unread guard, even with MIN_STAKE landed', () => {
-    stubGuardReads(parseEther('1000'), parseEther('100'));
-    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'allowance', result: undefined, status: 'failure' });
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.stakeGuardsUnread).toBe(true);
-    expect(result.current.lpAllowance).toBe(0n);
-  });
-
-  it('landed zeros are not unread: "not approved yet" and "no minimum" are real', () => {
-    stubGuardReads(0n, 0n);
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.stakeGuardsUnread).toBe(false);
-  });
-
-  it('a disconnected visitor has no stake form to guard', () => {
-    wagmiMock.setAccount({ address: undefined, isConnected: false });
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.stakeGuardsUnread).toBe(false);
-  });
-
-  it('the wrong chain is not an outage', () => {
-    wagmiMock.setChainId(11155111);
-    const { result } = renderHook(() => useLPFarming());
-    expect(result.current.stakeGuardsUnread).toBe(false);
   });
 });

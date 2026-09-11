@@ -54,13 +54,34 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
   // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
   // still undefined at first render, leaving the section blank for the critical first
   // frame. See audit blocker: LPFarmingSection double-return null.
+  //
+  // ⚠ THE HEADING IS NOT PART OF THE SKELETON, and shimmering it was a real defect.
+  // "LP Farming" and its subtitle are compile-time constants — they depend on no read,
+  // so there is nothing to wait for before printing them. Standing two grey bars where
+  // the section's NAME goes meant that for as long as the batch was in flight, /farm
+  // showed a nameless pulsing box: a screen reader got nothing to announce, and a
+  // sighted user could not tell which section was loading. This is the section's
+  // identity disappearing while it loads — the same class of bug as rendering an
+  // unreadable value as a confident zero, one step earlier.
+  //
+  // It is not a hypothetical window either. The batch below retries twice (App.tsx
+  // sets retry: 2) with viem's 10s per-transport timeout behind a 2-endpoint fallback,
+  // so a degraded RPC can hold this state for tens of seconds. Measured on the CI
+  // Anvil fork it runs 2.5-6.7s on a COLD fork — see the named budget in
+  // e2e/claim-rewards.spec.ts, which this shape is what lets that spec separate
+  // "the section mounted" from "its reads landed".
+  //
+  // Shimmer only what the read actually decides: the stat tiles and the CTA. The
+  // house pattern elsewhere is the same — BountiesSection keeps its <h3> and
+  // skeletons the rows beneath it; this section was the only one that early-returned
+  // its own heading away.
   if (lpFarm.isReadLoading) {
     return (
-      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} aria-busy="true">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <div className="h-6 w-40 rounded bg-white/10 animate-pulse" />
-            <div className="h-4 w-64 rounded bg-white/10 animate-pulse mt-1.5" />
+            <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
+            <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
           </div>
         </div>
         <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
@@ -164,6 +185,10 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               <>
                 <span className="stat-value text-[26px] font-bold text-white/70">&ndash;</span>
                 <span className="text-white/55 text-[10px]">
+                  {/* An unread pool total must not invite you to be first on a
+                      farm that may be fully subscribed. `statsUnread` includes the
+                      pool totals (poolStatsUnread) and every other farm-wide read,
+                      and the notice above carries the Retry this points at. */}
                   {lpFarm.statsUnread
                     ? 'the farm figures could not be read — retry above'
                     : lpFarm.totalStaked === 0n
@@ -321,22 +346,6 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                     // revert-fallback gas estimate. Block it client-side instead.
                     const belowMin = stakeWei > 0n && lpFarm.minStake > 0n && stakeWei < lpFarm.minStake;
                     const needsApproval = stakeWei > 0n && lpFarm.lpAllowance < stakeWei;
-                    // Both guards above read a collapsed zero when their read failed:
-                    // `belowMin` DISARMS (no minimum) and `needsApproval` re-arms Approve
-                    // after every approval. Neither may pick the CTA on a read that did
-                    // not land, so the CTA becomes the Retry - a control that can do no harm.
-                    if (stakeWei > 0n && lpFarm.stakeGuardsUnread) {
-                      return (
-                        <button
-                          type="button"
-                          className="btn-secondary w-full py-2 text-sm rounded-lg"
-                          data-testid="lp-farming-stake-guards-unread"
-                          onClick={() => { void lpFarm.refetch(); }}
-                        >
-                          Couldn&rsquo;t check your approval or the minimum &mdash; Retry
-                        </button>
-                      );
-                    }
                     if (belowMin) {
                       return (
                         <button className="btn-primary w-full py-2 text-sm rounded-lg" disabled>
@@ -362,7 +371,19 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       </button>
                     );
                   })()}
-                  {lpFarm.minStake > 0n && (
+                  {/* An unread MIN_STAKE collapses to 0n, which fails BOTH tests below
+                      and used to render nothing at all — so the screen quietly claimed
+                      this pool has no minimum, and `belowMin` above stopped blocking.
+                      Say we could not read it instead. Staking stays enabled: the
+                      contract enforces MIN_STAKE regardless, so the cost here is a
+                      revert, and refusing a legitimate stake over one unanswered read
+                      of a constant would be the worse trade. */}
+                  {lpFarm.minStakeUnread ? (
+                    <p className="text-white/50 text-[10px] mt-2">
+                      Minimum stake <span className="font-mono">unread</span> &mdash; if this pool has one,
+                      a stake below it will revert. Retry in a moment to check.
+                    </p>
+                  ) : lpFarm.minStake > 0n && (
                     <p className="text-white/50 text-[10px] mt-2">
                       Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
                       {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (
