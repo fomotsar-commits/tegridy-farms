@@ -5,7 +5,7 @@
 //
 // "Can a visitor arriving at this entry do the thing it names?" For /tax that
 // is: build a report from history THIS VENUE READS. Until now the answer was no
-// for one reason — the only source was the F1 indexer, which is hosted nowhere,
+// for one reason — the only source was the F1 indexer, which was hosted nowhere then,
 // so the surface could read nobody's history and every export was a header over
 // a whole-period gap. The pill was keyed to `isIndexerConfigured()` and it was
 // telling the truth.
