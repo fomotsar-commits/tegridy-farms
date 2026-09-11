@@ -15,6 +15,23 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — a test for one clause of an OR is vacuous under an all-fail fixture
+
+**Believed:** "every read fails" is the strongest fixture for an unread flag. If the
+flag fires when everything fails, it fires.
+
+**Measured** (PR #514, `useLPFarming`'s
+`statsUnread = poolStatsUnread || minStakeUnread || <clause over four more reads>`):
+with a chain term put back on the clause alone, both new tests, one hook-level and
+one rendered, still PASSED, 60/60, under an all-fail fixture. `poolStatsUnread` had
+set the union by itself, so the clause under test never decided anything. Failing
+ONE leg that only the clause covers, while the totals and the minimum land, the same
+mutation failed exactly 6 of 63.
+
+**Do:** to test one member of an OR, make every other member false, and assert that
+they are false in the test itself. Then the member under test is the only thing
+that can answer. "Everything failed" tests the union, not the clause.
+
 ## 2026-09-10 — a guard that cannot fire is armed, not inert
 
 **Believed:** a condition that is always true under the current config is dead
