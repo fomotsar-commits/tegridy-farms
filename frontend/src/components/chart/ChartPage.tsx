@@ -149,7 +149,7 @@ export default function ChartPage() {
           <section aria-label="Pool">
             <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-white/50">Pool</h2>
             <p className="mb-3 max-w-2xl text-xs leading-relaxed text-white/60">
-              Every pool the island's own registry names — this venue's token and each resident's
+              Every pool the island's own registry names: this venue's token and each resident's
               primary pair. The list is a fact this page can read without asking anyone, so it is
               complete here even when the price source is not answering.
             </p>
@@ -256,7 +256,7 @@ export default function ChartPage() {
             </h2>
             <ul className="space-y-2 text-xs leading-relaxed text-white/75">
               <li>
-                Candles: GeckoTerminal per-bucket OHLC for this pool, read by this venue — not
+                Candles: GeckoTerminal per-bucket OHLC for this pool, read by this venue. Not
                 computed or oracled by it.
               </li>
               {!isIndexerConfigured() ? (

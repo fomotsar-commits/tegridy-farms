@@ -427,6 +427,9 @@ export default function ChangelogPage() {
           <p className="text-gray-400 text-sm md:text-base">
             Protocol updates and development history
           </p>
+          <p className="text-white/55 text-[12px] mt-2">
+            The venue&apos;s record. Entries keep the words they were written in.
+          </p>
         </m.div>
 
         {/* Timeline */}
@@ -434,7 +437,14 @@ export default function ChangelogPage() {
           {/* Vertical line */}
           <div className="absolute left-[19px] md:left-[23px] top-2 bottom-2 w-px bg-purple-500/20" />
 
-          <div className="space-y-8">
+          {/* WAVE SEVEN, element I, ruling 1: THIS SUBTREE IS A RECORD.
+              A dated record keeps its words, so element I's guard skips
+              everything inside `data-record`, by structure, the way it skips a
+              standalone placeholder. Nothing here is on an editorial list. The
+              chrome above (the title, the intro line, and the label naming this
+              the venue's record) is outside it and held at zero.
+              src/pages/recordSurfaces.test.ts pins which files may declare one. */}
+          <div className="space-y-8" data-record="changelog">
             {CHANGELOG.map((entry, idx) => (
               <m.div
                 key={idx}
