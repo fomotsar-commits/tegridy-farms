@@ -15,6 +15,78 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — a per-test timeout is a third clock, and a slow body can be a sleep
+
+**Believed** (the candidate list in the entry below): `holderOutageRender` was the
+one thin test — 3528ms, "about 1.4x headroom" against the 5000ms body bound —
+because of its in-body `await import()`, and `--testTimeout=2000` would reproduce
+it on demand, as it had for the previous instance of this class.
+
+**Measured** (vitest 4.1.11, trunk `dd7885ba`, each body split with
+`performance.now()`, 3 runs of the file alone):
+
+| test | bound | in-body import | the rest of the body |
+|---|---|---|---|
+| CollectionHealth (the "thin" one) | **20000ms**: `it(name, fn, 20000)` | 36–41ms | `findByText` **3160–3198ms** |
+| HolderAnalytics | 5000ms | **276–315ms** | ~70ms |
+
+All three beliefs were wrong.
+
+1. **The third argument to `it()` is its own clock**, and the CLI does not
+   override it. Under `--testTimeout=200` the 20000ms test passed at ~3170ms
+   while its 5000ms neighbour timed out, 3 runs of 3. So read the closing
+   `}, N)` before calling a test near-timeout. The table in the entry below is
+   wrong for `holderOutageRender` :53 and for every in-body import in
+   `offerBookOutageHonesty` — each of those tests passes 20000 or 30000.
+2. **The slow part was a sleep, not a load.** Three seconds of that body is a
+   retry backoff: `lib/orderbook.js`'s `withRetry` sleeps 1s, then 2s. It runs
+   because Node's `fetch` cannot parse the relative URL `/api/orderbook` under
+   jsdom (`Failed to parse URL from /api/orderbook?...`), and the code treats
+   that as transient. It measured 3012–3027ms every run. A cold import grows
+   with CPU load and a timer barely does, so a split that shows one near-constant
+   segment of whole seconds is a timer. No import hoist moves it.
+3. **A repro gate has to be sized from the split, not the reported duration.**
+   `--testTimeout=2000` **passed** on the unfixed file, because the real in-body
+   cost was ~300ms. A 200ms gate then failed one post-fix run of three at 235ms
+   during a load spike. What separated the two cleanly: a threshold between the
+   quiet pre-fix (≥292ms) and post-fix (≤98ms) durations, 165ms, with pristine
+   and fixed runs **interleaved** so load drift lands on both. The unfixed file
+   timed out 6 of 6 and the fixed one passed 6 of 6 (45–147ms, CPU load 3–100%).
+
+**Do:** split a slow test with `performance.now()` before choosing a fix; read the
+`it()` call's third argument before naming its bound; size any timeout gate from
+the split, interleave it, and record the load next to every number.
+
+### A timeout's second failure is a ghost
+
+The full-suite run after the fix was the heavier of the two (415s vs 314s). In
+it, `volumeFallbackHonesty`'s Hero test — 4921ms in the run before — hit `Test
+timed out in 5000ms.`, and the test after it failed as well, with
+`expected [ <span …(2)></span> ] to have a length of +0 but got 1`. That second
+failure is not a second defect. Forcing the first test to time out
+(`-t Hero --testTimeout=400`) produced the identical assertion 3 runs of 3;
+letting it finish (`--testTimeout=1500`) passed 6 of 6. A timeout does not cancel
+the body. Vitest stops waiting, runs cleanup and moves on, and the body resumes
+when its import resolves — rendering into the next test's document.
+
+**Do:** in a red run, fix the first timeout in a file and re-run before reading
+any failure that follows it.
+
+### Incidental
+
+- A relative-URL `fetch` under jsdom is an instant `TypeError`. Any component
+  that calls its own `/api/...` therefore runs its error path, and its retry
+  schedule, in every test that renders it — whatever the test thinks it covers.
+- A "mutation applied" check can be defeated by the fix's own comment. `grep -c
+  'await import('` counted the new comment explaining why the import was hoisted,
+  and the script correctly refused to run. Anchor the check on the code's shape
+  (`= await import(`), not on a phrase a comment can repeat.
+- The fix itself, full suite on the same base, before → after: HolderAnalytics
+  874ms → 208ms, and a botLink signature test with the same shape 1033ms → 2ms.
+  Both were measured in the heavier of the two runs.
+
+---
+
 ## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
 
 **Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
@@ -65,6 +137,10 @@ import at the top of the file.
 | `offerBookOutageHonesty.test.jsx` :48 (and 9 more at the same depth) | `it()` body | 5000ms |
 | `offerErrorHonesty.test.jsx` :85 | top-level `beforeEach` | **10000ms** |
 | `cancelAllWalletGuard.test.jsx` :124-125 | top-level `beforeEach` | **10000ms** |
+
+*Corrected 2026-09-11 (see the entry above): `holderOutageRender` :53 and every
+in-body import in `offerBookOutageHonesty` sit in tests that pass an explicit
+`20000` or `30000`, so neither is on the 5000ms clock.*
 
 Half the list was on the other clock. And `cancelAllWalletGuard` calls
 `vi.resetModules()` before that import **on purpose**: its comment says a static
