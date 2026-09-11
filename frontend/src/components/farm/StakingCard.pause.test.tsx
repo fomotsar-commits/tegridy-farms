@@ -280,9 +280,11 @@ describe('StakingCard × useUserPosition — PAUSED, lock EXPIRED', () => {
   });
 
   it('confirm sends emergencyExit (emergencyExitPosition), not the forfeiting door', () => {
-    // Also true of the old code, which sent emergencyExitPosition to everyone.
-    // Kept as the other half of the split: fails if it ever collapses onto the
-    // forfeiting door, which would cost this staker the rewards it has earned.
+    // The ROUTING assertion is also true of the old code, which sent
+    // emergencyExitPosition to everyone - the old code fails this test only at
+    // the relabelled button. Kept as the other half of the split: it fails if the
+    // split ever collapses onto the forfeiting door, which would cost this
+    // staker the rewards it has earned.
     stubStaker({ lock: 'expired', paused: true });
     renderWithProviders(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: /withdraw \+ claim/i }));

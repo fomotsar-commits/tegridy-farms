@@ -254,6 +254,7 @@ describe('useUserPosition', () => {
     });
 
     it('a paused() read that returned true is true', () => {
+      // Control - passes on the old code too.
       stubLiveStaker();
       wagmiMock.setReadResult({ functionName: 'paused', result: true });
       const { result } = renderHook(() => useUserPosition());
