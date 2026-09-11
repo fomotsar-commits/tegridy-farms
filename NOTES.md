@@ -15,6 +15,112 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — a partial-coverage gap gets fixed one leg at a time, by whoever trips on which leg
+
+**Believed:** a green `node frontend/scripts/check-unread-signal.mjs` means no file
+outside its baseline publishes an unread contract read as a zero.
+
+**Measured:** the guard's verdict is one `SIGNAL_RE.test(src)` per **file**, so one
+`…Unread` flag anywhere passes a file that collapses eleven reads and signals three.
+At `f8bda8b9`, `useLPFarming.ts` was exactly that: `positionUnread` over indices 5–7,
+nothing over the other eight, beside a green guard. It then took **three separate
+changes** to cover the farm-wide reads of that one file, each fixing the leg it had
+tripped over: `3610c147` (MIN_STAKE, [10]), `7d6fdab6` (the pool totals, [0][4]) and
+#499 (the rest of the set, [1][2][3][9]). `032af111` has since put this shape on the
+guard's printed blind-spot list and added a census, which on trunk `1325f685` reads
+**16 files, 69 collapse sites** exempted by a file-scoped signal. By its own comment
+the census measures exposure and does not go down as legs are fixed — so it cannot
+say *which* reads are unguarded.
+
+**Do:** turn the census into findings with a per-index diff, per `data`-ish variable:
+
+- collapsed = `X?.[i]?.status === 'success' ? … : 0n | 0 | [] | false | ''`
+- covered = `X?.[i]?.status !== 'success'` — **and** the bare `X[i]?.status` form
+  written after a `!!data` guard, **and** `=== 'success'` inside a positive-polarity
+  `const …ReadOk = …;` flag. Without the last two the scan reported covered reads as
+  gaps (two false alarms on trunk) and missed a real signal (`useNFTDropV2.ts:111`).
+- Match the ternary's middle with `[^;]{0,200}?`, **not** `[\s\S]{0,200}?`. The
+  permissive form lets a lazy match run into the next statement, pairing an index
+  whose fallback is *not* a zero with the next line's `: ''` — it reported the wrong
+  index and hid the real one until tightened.
+
+The output is a candidate list, not a verdict. On trunk `1325f685` it finds eight
+guard-passing files with uncovered collapses. Adjudicated: `useLPFarming` [1][2][3][9]
+(#499; [8] is left out on purpose, see below); `useUserPosition` [3], where `paused`
+collapses to `false`; and `useNFTDropV2`, which signals index 1 of its eleven
+collapses, so an unread `maxSupply` makes `isSoldOut = maxSupply > 0 && …` read "not
+sold out". Not yet adjudicated: `AMMSection`, `useAddLiquidity`, `useFarmStats`,
+`usePoints`, `usePoolTVL`.
+
+**A gap is not automatically a bug — ask which way the zero fails, then what it
+costs.** In the same batch, `allowance → 0n` reads "not approved": no stake is ever
+armed on it, but Approve re-arms after every approval while the read keeps failing,
+so "fails closed" is not a bound on cost. `MIN_STAKE → 0n` fails the other way —
+`minStake > 0n && …` *disarms* the minimum guard — and is still deliberately not
+blocked: the contract enforces the minimum regardless, so the section says the
+minimum is unread and leaves Stake armed, because refusing a legitimate stake over one
+unanswered read of a constant costs more than a revert. Same collapse, same batch,
+three different right answers.
+
+### How a read failure actually arrives on this stack
+
+**Believed:** a whole-batch failure leaves `data` undefined; and one hook's eleven
+calls cannot be split across requests, because `lib/wagmi.ts` configures no `batch`.
+Both wrong — and #499 was first written, reviewed and committed against them.
+
+**Measured** (installed wagmi 3.7.7, @wagmi/core 3.6.5, viem 2.56.1 — read from source):
+
+- The query does **not** reject. `allowFailure` defaults to `true` (viem
+  `actions/public/multicall.js:54`; @wagmi/core `actions/readContracts.js:5`). A
+  rejected aggregate3 request becomes one `status: 'failure'` entry per call
+  (`multicall.js:164-174`), and any other throw falls back to per-call `allSettled`
+  failure entries (`readContracts.js:33-42`; only `ContractFunctionExecutionError` is
+  rethrown). A total outage is eleven `'failure'` entries with `data` **defined** and
+  `isError` **false**. `data` is undefined only before the first fetch or while the
+  query is disabled.
+- Absent config is not "off": @wagmi/core `createConfig.js:132` defaults
+  `batch: { multicall: true }`. Every call is then queued into one scheduler shared by
+  the whole client and cut into aggregate3 requests at 1024 bytes of calldata, so one
+  hook's reads can land in different requests and fail independently.
+
+So on this stack `!data` and `isError` catch **no** RPC failure, whole or partial —
+only per-index `status` checks do. Partial failure exists by construction; how often
+it happens in production has not been measured.
+
+**Do:** before reasoning from what a config file leaves out, read the library's
+default for it. Before writing "the query failed", check whether the library can make
+the query fail at all.
+
+---
+## 2026-09-10 — an accordion that unmounts closed answers is invisible to every DOM audit
+
+**Believed:** mounting an accordion's answer only while it is open
+(`{isOpen && <div id={panelId}>…</div>}`, framer-motion's `AnimatePresence`
+pattern) is the accessible shape, as long as the button carries `aria-expanded`
+and `aria-controls`.
+
+**Measured** on `/faq` with the repo's axe sweep (`e2e/a11y-routes.spec.ts`,
+Chromium, production build under `vite preview`, `--workers=1`). The route carried
+`aria-valid-attr-value` as a known violation: every closed button's
+`aria-controls` named an id that was not in the document. With every panel always
+rendered and given the `hidden` attribute while closed, the finding is gone. The
+route's exact known-violation list went from `['aria-valid-attr-value']` to `[]`
+and the sweep stayed green.
+
+**The second cost is silent.** Anything that reads the page's text (a
+banned-string guard, a copy census, an em-dash count) has nothing to read in an
+answer that is not mounted, so on an unmount-on-close page it checks the
+questions and nothing else. Seen directly with the panels mounted: one forbidden
+answer added under a harmless question ("How does staking work?") turned the
+voice census red, although that answer was closed and nothing on screen showed
+it.
+
+**Technique:** keep the panel mounted and toggle `hidden`. That takes it out of
+view and out of the accessibility tree, so a screen reader still meets only the
+open answer, while its text stays in the DOM. A walker that judges a page's copy
+must then NOT skip `hidden` subtrees. Skipping `aria-hidden` is still right,
+because that marks decoration rather than content.
+
 ## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
 
 **Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
