@@ -161,11 +161,14 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
         `${stats.recovered} recovered, ${stats.exhausted} gave up${pending}${seen ? ` (${seen})` : ''}.`,
     );
     if (stats.exhausted + stats.retrying > 0) {
+      const how = [
+        stats.exhausted && `${stats.exhausted} still failed after retrying for up to ${deadlineMs / 1000}s`,
+        stats.retrying && `${stats.retrying} still being retried when the run ended`,
+      ].filter(Boolean).join(', ');
       log(
         `::error title=Fork upstream gave up::${stats.exhausted + stats.retrying} fork read(s) to ${host} kept ` +
-          `failing (${seen}): ${stats.exhausted} still failed after retrying for up to ${deadlineMs / 1000}s` +
-          `${pending}. A red in this run can be the upstream, not the product: read the anvil tail and the ` +
-          'FIRST attempt before debugging a spec.',
+          `failing (${seen}): ${how}. A red in this run can be the upstream, not the product: read the anvil ` +
+          'tail and the FIRST attempt before debugging a spec.',
       );
     } else if (stats.retried > 0) {
       log(
