@@ -15,6 +15,36 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — dropping a read gate re-arms every control the unread state was holding down
+
+**Believed:** a gate like `enabled: … && useChainId() === CHAIN_ID`, on reads already pinned
+with `chainId: CHAIN_ID`, only decides whether a figure shows. Delete it and the worst case is
+one more RPC call.
+
+**Found** (#526): CollectionDetailV2's Mint button had no chain term in its `disabled` expression.
+Off mainnet it was held down by `!drop.priceReadOk`, and that was false only because the gated
+price read never ran. Deleting the gate, correctly, lets the price land on Base, and the button
+arms under its own label "Switch to Ethereum Mainnet". `mint()` refused by itself, so a click
+only toasted, but the disabled state had been an accident of the read gate. Measured with the
+fix in place: removing the explicit `!drop.onMainnet` from `mintDisabled` fails both connected
+off-mainnet cases in `CollectionDetailV2.offMainnet.test.tsx`, on `toBeDisabled()`.
+
+**Do:** before deleting a read gate, grep its consumers for controls that need a positive read
+(`*ReadOk`, `status === 'success'`, `!== undefined`) and ask whether the gate was that control's
+real guard. If it was, write the guard into the control.
+
+**The test-side twin, same session: a guard's test can be held by an upstream copy of the
+guard.** `useAutoRefreshBoost` gates on the wallet's chain, and its test "stays quiet on the
+wrong chain" looked like it pinned that. It did not. The hook's input `holdsJBAC` came from
+`useNFTBoost`, which carried the same gate, so off mainnet it was `null` and the hook was
+disabled regardless. Measured (vitest, the original test file):
+- with the pre-fix `useNFTBoost` and `useAutoRefreshBoost`'s own gate deleted, the test
+  **passes**;
+- with `useNFTBoost`'s gate dropped, the same deletion **fails** it.
+
+The mutation that proves a guard is "delete this guard, with every upstream copy of it gone",
+not "delete this guard" in a tree where something else still holds the line.
+
 ## 2026-09-10 — an accordion that unmounts closed answers is invisible to every DOM audit
 
 **Believed:** mounting an accordion's answer only while it is open
