@@ -29,6 +29,47 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟢 2026-09-09 — BAYLA-LADDER IS LIVE ON DEVNET, and one dated task falls out of it
+
+The lock-ladder staking program is deployed and its whole lifecycle has been driven with
+real transactions. Full record, with the measured compute and the reconciled accounting:
+`solana/tegridy-amm/BAYLA_LADDER_DEVNET_RUNBOOK.md`.
+
+| | |
+| --- | --- |
+| program | `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` |
+| pool | `2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4` |
+| stand-in mint | `8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL` |
+| deployer / pool authority | `Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj` |
+| keys | `C:/Users/jimbo/solana-keys/` — outside the repo, **unbacked-up** |
+
+Eight of fifteen instructions executed on chain. Accounting reconciled to the last digit.
+The 0.40x floor rung and the 25% hatch penalty both moved from claim to measurement.
+
+### 🔴 O-0909-1 — DATED: run `withdraw_matured` on **2026-09-16**
+
+It is the ONLY principal path that has never executed anywhere. Position `#2` was opened
+at the 7-day minimum on 2026-09-09 specifically so it would mature on the 16th:
+
+```bash
+cd frontend
+node scripts/bayla-ladder-ops.mjs exit --pool 2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4   --nonce 2 --keypair C:/Users/jimbo/solana-keys/devnet-deploy.json
+# dry run first; add --broadcast. NO --early: the point is the FREE matured door.
+```
+
+Expect the full 500 back with **no** penalty, and `penalty_collected_cumulative`
+unchanged. **This cannot be automated from a cloud runner** — it needs the operator's
+local signing key. Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
+
+### 🔴 O-0909-2 — the devnet upgrade authority is a key Claude generated
+
+`Gut9toQ...` was generated during the 09-09 session so the deploy could proceed. It is
+fine for devnet and **must not be carried to mainnet**. The mainnet deployer is a
+compile-time constant baked into the binary, so it has to be chosen BEFORE the mainnet
+build, not after — see runbook §9.
+
+---
+
 ## 🟢 2026-09-06 (LATE) — POST-SHIP SWEEP: what the ceiling fix did not reach
 
 The ceiling fix is on trunk and the section below this one records it. This is the sweep that came
@@ -38,8 +79,12 @@ every surviving item re-checked at the file and line before it was written here.
 Two things it establishes that the fix itself did not:
 
 * **The ceiling is not a BAYLA problem.** Five residents run Solana/Streamflow pools — BAYLA, BOBO,
-  BRAINLET, RIZZ, SOY — and `bungalows.ts:95` states the rule: *"Solana pools are always
-  Streamflow."* PR #445's own `math.rs` reports **5,859 of 13,809 reward entries (42.4%)** past the
+  BRAINLET, RIZZ, SOY. (⚠️ This paragraph used to quote `bungalows.ts:95` — *"Solana pools are always
+  Streamflow"* — as the governing rule. That is no longer true, and the docstring saying it has been
+  rewritten: a Solana pool now names its program by which FIELD carries its address, `stakePool` for
+  Streamflow and `ladderPool` for the venue's own bayla-ladder. All five still run Streamflow today,
+  so the ceiling still reaches all five; the rule that guaranteed it is gone.) PR #445's own
+  `math.rs` reports **5,859 of 13,809 reward entries (42.4%)** past the
   ceiling program-wide on 2026-09-06. The shipped UI fix reaches all five automatically (one shared
   component); what has **not** happened for the other four is the incident response.
 * **Three things shipped inert or stale**, below. None is a regression — each is something the fix

@@ -46,7 +46,15 @@ export function useUserPosition() {
   const tokenId = (data?.[0]?.status === 'success' ? data[0].result as bigint : 0n);
   const walletBalance = (data?.[1]?.status === 'success' ? data[1].result as bigint : 0n);
   const allowance = (data?.[2]?.status === 'success' ? data[2].result as bigint : 0n);
-  const isPaused = (data?.[3]?.status === 'success' ? data[3].result as boolean : false);
+  // OUTAGE-AS-ZERO. `paused` collapsed to `false` on a failed entry, and false
+  // is also the honest "staking is running". The staking card hangs its
+  // pause-only exit off this flag, so an unanswered read HID the one door that
+  // works during a pause - for an expired-lock staker, the only exit the card
+  // offers. Neither `positionUnread` nor `accrualInputsUnread` covers index 3,
+  // so nothing else said the read had failed. Unknown stays unknown: `null` is
+  // "we did not read it" (failed, pending, or never issued) and `false` only
+  // ever comes from the chain.
+  const isPaused: boolean | null = data?.[3]?.status === 'success' ? data[3].result as boolean : null;
   const unsettledRewards = (data?.[4]?.status === 'success' ? data[4].result as bigint : 0n);
   // Default 0n on a failed/disabled read so accrual silently switches off
   // rather than ticking from a made-up rate.
@@ -121,10 +129,12 @@ export function useUserPosition() {
   // rewardPerToken grows by rewardRate/totalBoostedStake per second, and this
   // position earns that times its boostedAmount — which is exactly
   // amount * boostBps / BOOST_PRECISION (TegridyStaking.sol:2258).
-  // If any input is missing, the pool is paused, or the position is empty, the
-  // rate is 0 and pendingLive stays pinned to the exact on-chain value.
+  // If any input is missing, the pool is paused (or its pause state is unread),
+  // or the position is empty, the rate is 0 and pendingLive stays pinned to the
+  // exact on-chain value. Only a READ `false` may tick: a paused contract
+  // accrues nothing, so ticking on an unknown pause invents rewards.
   const boostedAmount = (stakedAmount * BigInt(boostBps)) / 10000n;
-  const accrualPerSec = (!isPaused && rewardRate > 0n && totalBoostedStake > 0n && boostedAmount > 0n)
+  const accrualPerSec = (isPaused === false && rewardRate > 0n && totalBoostedStake > 0n && boostedAmount > 0n)
     ? Number(formatEther(rewardRate)) * (Number(boostedAmount) / Number(totalBoostedStake))
     : 0;
 
@@ -187,6 +197,9 @@ export function useUserPosition() {
     isLocked,
     canWithdraw,
     autoMaxLock,
+    /** `true`/`false` only when the `paused()` read landed; `null` when it did
+     *  not. Never read null as "running": gate pause-only controls on
+     *  `=== true` and render an explicit unknown state for `null`. */
     isPaused,
     unsettledRewards,
     unsettledFormatted: unsettledRewards ? formatEther(unsettledRewards) : '0',
