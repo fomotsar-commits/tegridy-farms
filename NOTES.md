@@ -66,6 +66,7 @@ binary.
   backoff landed the next attempt just before the deadline (a 504 at 431ms against a 400ms
   deadline, in the unit test that caught it). That swaps the upstream's words for the
   retrier's.
+
 ## 2026-09-10 — a partial-coverage gap gets fixed one leg at a time, by whoever trips on which leg
 
 **Believed:** a green `node frontend/scripts/check-unread-signal.mjs` means no file
