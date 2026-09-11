@@ -92,13 +92,47 @@ export interface Bungalow {
    */
   stakePool?: string;
   /**
-   * Which staking program `stakePool` is. Solana pools are always Streamflow.
-   * EVM pools come in two shapes and the card must follow the CONTRACT, never
-   * a guess: 'plain' = the vendored no-lock Synthetix staker (the first 2026
-   * -08-30 round), 'ladder' = LighthouseLadder, the locked 0d..4y / 1.00x..
-   * 4.00x build with the always-open emergency hatch. Absent = 'plain'.
+   * Which staking program `stakePool` is. EVM ONLY, and deliberately so.
+   *
+   * EVM pools come in two shapes and the card must follow the CONTRACT, never a
+   * guess: 'plain' = the vendored no-lock Synthetix staker (the first 2026-08-30
+   * round), 'ladder' = LighthouseLadder, the locked build with the always-open
+   * emergency hatch. Absent = 'plain'.
+   *
+   * ⚠️ THE LADDER'S FLOOR IS 0.40x AT SEVEN DAYS, not 1.00x at zero. This docstring
+   * said "0d..4y / 1.00x..4.00x" until 2026-09-10; LighthouseLadder.sol:98,
+   * lighthouseLadder.ts:45-48 and the card's own visible copy all say otherwise, and
+   * a 1.00x floor overstates the worst case by two and a half times.
+   *
+   * ⚠️ AND IT SAID "Solana pools are always Streamflow", WHICH IS NO LONGER TRUE.
+   * A Solana pool now names its program by which FIELD carries its address:
+   * `stakePool` is Streamflow, `ladderPool` is bayla-ladder (below). It is not
+   * `poolKind`, because `scripts/verify-ladder-builds.mjs` reads this field to decide
+   * which pools it must verify on chain and requires a 0x-40-hex address beside it —
+   * a Solana row would be dropped by that parser with no output and no failure, and a
+   * gate that silently covers nothing is worse than one that does not exist.
    */
   poolKind?: 'plain' | 'ladder';
+  /**
+   * `bayla-ladder` pool address — the venue's OWN Solana staking program, the port
+   * of LighthouseLadder.sol.
+   *
+   * ── IT SITS BESIDE `stakePool`, IT DOES NOT REPLACE IT ────────────────────
+   * The lighthouse (Streamflow) pool holds real stakers with real locks, and one of
+   * those locks does not open until 2027. Repointing `stakePool` at a ladder address
+   * would hand a 508-byte bayla-ladder account to the Streamflow SDK and render those
+   * positions as an outage — money that exists, shown as unreadable. So a bungalow
+   * may carry both, and the farm panel renders both cards while a migration is in
+   * flight.
+   *
+   * ── ABSENT BY DEFAULT, AND THAT IS THE FEATURE GATE ───────────────────────
+   * Deliberately the OPPOSITE shape to `stakePool` above, which ships a hardcoded
+   * address that WINS whenever its env var is blank. There is no mainnet bayla-ladder
+   * deployment, so a hardcoded id here would be a live-looking address on a cluster
+   * the app does not talk to. Set BOTH VITE_BAYLA_LADDER_POOL and
+   * VITE_BAYLA_LADDER_PROGRAM, or the card never mounts.
+   */
+  ladderPool?: string;
   /**
    * Token decimals as a PRE-READ fallback for staking/balance surfaces —
    * the live pool read still wins (it reads the mint on-chain); this field
@@ -189,6 +223,24 @@ const BAYLA_STAKE_POOL =
   || 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f';
 
 /**
+ * The bayla-ladder pool, if an operator has deployed one and pointed at it.
+ *
+ * ⚠️ NO FALLBACK, ON PURPOSE. Every other address in this file ships hardcoded so no
+ * env var is load-bearing. This one must not: there is no mainnet bayla-ladder
+ * deployment yet, and the only pool that exists is on devnet — a cluster this app
+ * never talks to (the browser's sole Solana transport is /api/solrpc, whose upstream
+ * is mainnet). A hardcoded devnet address would render a live-looking card over
+ * accounts that do not exist where the app is looking.
+ *
+ * The program id comes from VITE_BAYLA_LADDER_PROGRAM, read in lib/ladder/program.ts.
+ * BOTH must be set. Note the near-miss with the operator CLI's own environment: that
+ * tool reads BAYLA_LADDER_PROGRAM (no VITE_ prefix) and defaults to devnet, so a
+ * shell that has done the devnet ceremony is NOT configured for this.
+ */
+const BAYLA_LADDER_POOL =
+  (import.meta.env?.VITE_BAYLA_LADDER_POOL as string | undefined)?.trim() || '';
+
+/**
  * Identity for a settled resident wearing the PLACEHOLDER skin (owner call,
  * 2026-08-30: "put something on so at least they are functional; we will
  * custom art them later"). Honest by construction — registry facts only, no
@@ -267,6 +319,7 @@ export const BUNGALOWS: Bungalow[] = [
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
     stakePool: BAYLA_STAKE_POOL,
+    ladderPool: BAYLA_LADDER_POOL || undefined,
     // 6 per the mint itself — verified 2026-08-28 against mainnet
     // (getAccountInfo jsonParsed): owner Token-2022, decimals 6, extensions
     // [metadataPointer, tokenMetadata] only — NO transfer-fee extension, so

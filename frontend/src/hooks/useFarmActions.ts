@@ -266,6 +266,32 @@ export function useFarmActions() {
     });
   };
 
+  /**
+   * The PAUSED door for a stake that is still LOCKED: `emergencyWithdrawPosition`
+   * (TegridyStaking.sol:2211). It is `whenPaused`, returns the full principal with
+   * no early-exit penalty, and pays NO rewards - it has no `updateReward` and never
+   * calls `_getReward`, so the position's unclaimed TOWELI is forfeited for good.
+   * Reverts ExpectedPause while the contract is running.
+   */
+  const emergencyWithdraw = (tokenId: bigint, force: boolean = false) => {
+    if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
+    if (!pendingEthGuard(force)) return;
+    txAddressRef.current = address;
+    writeContract({
+      chainId: CHAIN_ID,
+      address: TEGRIDY_STAKING_ADDRESS,
+      abi: TEGRIDY_STAKING_ABI,
+      functionName: 'emergencyWithdrawPosition',
+      args: [tokenId],
+    });
+  };
+
+  /**
+   * The pause-INDEPENDENT door for an EXPIRED lock: `emergencyExitPosition`
+   * (TegridyStaking.sol:2226). Reverts LockStillActive before lockEnd, and PAYS
+   * the accrued rewards before returning principal - it forfeits nothing. It is
+   * not the door for a locked stake during a pause; that is emergencyWithdraw.
+   */
   const emergencyExit = (tokenId: bigint, force: boolean = false) => {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (!pendingEthGuard(force)) return;
@@ -310,6 +336,7 @@ export function useFarmActions() {
     claim,
     toggleAutoMaxLock,
     extendLock,
+    emergencyWithdraw,
     emergencyExit,
     claimUnsettled,
     revalidateBoost,
