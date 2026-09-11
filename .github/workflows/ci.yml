@@ -481,7 +481,10 @@ jobs:
       - name: Money-path E2E against an Anvil mainnet fork
         env:
           E2E_REQUIRE_ANVIL: "1"
-          ANVIL_FORK_URL: https://ethereum-rpc.publicnode.com
+          # publicnode gated archive requests behind a token on 2026-09-09 and a
+          # fork IS an archive request. See scripts/run-e2e-with-anvil.mjs for the
+          # reproduction and for what to do when this one dies too.
+          ANVIL_FORK_URL: https://eth.drpc.org
           PLAYWRIGHT_JSON_OUTPUT_NAME: anvil-report.json
         run: |
           npm run e2e -- --project=chromium --reporter=list,json \

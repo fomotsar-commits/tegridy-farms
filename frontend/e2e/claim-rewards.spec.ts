@@ -22,8 +22,58 @@ test.describe('Claim rewards surfaces', () => {
   test('/farm mounts the reward-bearing sections when connected', async ({ page, walletMock }) => {
     await walletMock.connect();
     await page.goto('/farm');
-    await expect(page.getByRole('heading', { name: /lp farming/i })).toBeVisible();
+    // TWO SEPARATE FACTS, and collapsing them into one assertion is what made this
+    // the flakiest test in the Anvil job.
+    //
+    // It used to be this line alone, on the default 5s budget. It could not
+    // distinguish "the section is not there" from "the section is there and still
+    // reading", because LPFarmingSection's loading skeleton rendered no heading at
+    // all — two grey `animate-pulse` bars stood where its name goes. So a heading
+    // that depends on nothing was gated behind an 11-call batch read, and on a COLD
+    // Anvil fork that read is a coin flip against 5s. Measured on trunk across six
+    // CI runs: clean passes at 2.5s / 3.8s / 3.9s, failures at 6.4s / 6.4s / 6.7s,
+    // each of which then passed on retry #1 in 2.6-3.3s against a now-warm fork.
+    // `retries: 2` therefore converted a real UI defect into `flaky`, which this
+    // job reports as a WARNING and not a failure (ci.yml only fails on skips), so
+    // it sat on trunk half-green for as long as the spec existed.
+    //
+    // The skeleton now carries the section's real heading — it is a compile-time
+    // constant and never needed a read — so:
+    //
+    //   1. the heading proves the section MOUNTED, and resolves on first paint;
+    //   2. a read-derived stat proves the batch LANDED, on its own named budget.
+    //
+    // Do not merge these back together. Asserting only (1) would pass over a
+    // section wedged in its skeleton forever, which is precisely the user-facing
+    // failure this surface must not have; asserting only (2) would stop covering
+    // the mount. LPFarmingSection.loading.test.tsx pins the split from the other
+    // side — it fails if the skeleton ever starts rendering the stats.
+    await expect(
+      page.getByRole('heading', { name: /lp farming/i }),
+      'the LP farming section did not mount on /farm at all — its heading is a static ' +
+        'string that needs no chain read, so this is a render failure, not RPC latency.',
+    ).toBeVisible();
     await expect(page.getByRole('heading', { name: /stake toweli/i })).toBeVisible();
+
+    // 30s, matching this file's other chain-dependent budgets.
+    //
+    // BE PRECISE ABOUT WHAT WAS MEASURED: the 6.4-6.7s figures above are whole-TEST
+    // durations, of which 5s was the old assertion waiting and giving up. So the
+    // cold read is known to exceed 5s and its true ceiling was never observed —
+    // the old budget abandoned before it landed. 30s is therefore headroom over an
+    // unmeasured bound, not a tight fit to a known one, which is the right shape
+    // here: the job runs on a fork whose first read of every storage slot is a
+    // round trip to a public upstream, and the failure this guards is a section
+    // that NEVER resolves, not one that resolves slowly. If this starts timing
+    // out, read useLPFarming's batch (gated `isDeployed && onMainnet`, and note
+    // that a disabled query would render the panel, not this skeleton — TanStack's
+    // isLoading is `isPending && isFetching`) before touching the number.
+    await expect(
+      page.getByText(/total lp staked/i),
+      'the LP farming section mounted but never left its loading skeleton — the ' +
+        'useLPFarming batch read never resolved. For a user on a slow RPC that is a ' +
+        'reward-bearing surface stuck as a shimmer. Check the multicall, not this timeout.',
+    ).toBeVisible({ timeout: 30_000 });
     // No position ⇒ no claim CTA.
     //
     // ⚠ THIS ASSERTION USED TO BE VACUOUS. It read `/^claim\s+\d/i` — "claim", space,

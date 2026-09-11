@@ -33,6 +33,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const FILES: Record<string, string> = {
   'bungalow/LighthousePoolLive.tsx': join(HERE, 'bungalow', 'LighthousePoolLive.tsx'),
+  'bungalow/SolanaLadderPoolLive.tsx': join(HERE, 'bungalow', 'SolanaLadderPoolLive.tsx'),
   'farm/StakingCard.tsx': join(HERE, 'farm', 'StakingCard.tsx'),
 };
 
