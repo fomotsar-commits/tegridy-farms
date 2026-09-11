@@ -1118,7 +1118,8 @@ function formatCountdown(nowSec: number, deadlineSec: number): string {
   return `${s}s`;
 }
 
-function PoolAdminPanel({
+/** Exported for its test (AMMSection.poolAdminPending.test.tsx); rendered only by PoolCard below. */
+export function PoolAdminPanel({
   poolAddress,
   poolType,
   spotPrice,
@@ -1184,15 +1185,22 @@ function PoolAdminPanel({
   // offered a Pause button that would revert on an already-paused pool.
   // Unknown is its own state here.
   const isPaused = state?.[0]?.status === 'success' ? (state[0].result as boolean) : null;
-  const pendingSpot = state?.[1]?.status === 'success' ? (state[1].result as bigint) : 0n;
-  const pendingSpotAfter = state?.[2]?.status === 'success' ? Number(state[2].result as bigint) : 0;
-  const pendingDeltaVal = state?.[3]?.status === 'success' ? (state[3].result as bigint) : 0n;
-  const pendingDeltaAfter = state?.[4]?.status === 'success' ? Number(state[4].result as bigint) : 0;
+  // The timelock reads get the same treatment, for the same reason. A failed
+  // `…ExecuteAfter` read used to default to 0, the contract's own "nothing
+  // queued", so the panel HID a pending timelocked change from the pool's owner
+  // and offered Propose in place of Execute/Cancel - a call that reverts
+  // ExistingProposalPending (TegridyNFTPool.sol:543, :570) whenever a proposal
+  // is in fact queued. A failed VALUE read beside a landed schedule printed
+  // "Pending → 0", a wrong statement of what Execute would set.
+  const pendingSpot = state?.[1]?.status === 'success' ? (state[1].result as bigint) : null;
+  const pendingSpotAfter = state?.[2]?.status === 'success' ? Number(state[2].result as bigint) : null;
+  const pendingDeltaVal = state?.[3]?.status === 'success' ? (state[3].result as bigint) : null;
+  const pendingDeltaAfter = state?.[4]?.status === 'success' ? Number(state[4].result as bigint) : null;
 
-  const spotPending = pendingSpotAfter > 0;
-  const spotReady = spotPending && nowSec >= pendingSpotAfter;
-  const deltaPending = pendingDeltaAfter > 0;
-  const deltaReady = deltaPending && nowSec >= pendingDeltaAfter;
+  const spotPending = pendingSpotAfter !== null && pendingSpotAfter > 0;
+  const spotReady = pendingSpotAfter !== null && pendingSpotAfter > 0 && nowSec >= pendingSpotAfter;
+  const deltaPending = pendingDeltaAfter !== null && pendingDeltaAfter > 0;
+  const deltaReady = pendingDeltaAfter !== null && pendingDeltaAfter > 0 && nowSec >= pendingDeltaAfter;
 
   const busy = isPending || isConfirming;
 
@@ -1273,16 +1281,22 @@ function PoolAdminPanel({
             <p className="text-[10px] uppercase tracking-wider text-white/55">Spot Price</p>
             <p className="text-[13px] font-mono text-white">{formatTokenAmount(formatEther(spotPrice), 4)} ETH</p>
           </div>
-          {spotPending && (
+          {pendingSpotAfter !== null && pendingSpotAfter > 0 && (
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {formatTokenAmount(formatEther(pendingSpot), 4)}</p>
+              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {pendingSpot === null ? '–' : formatTokenAmount(formatEther(pendingSpot), 4)}</p>
               <p className="text-[11.5px] text-yellow-200">{spotReady ? 'Ready to execute' : `Unlocks in ${formatCountdown(nowSec, pendingSpotAfter)}`}</p>
             </div>
           )}
         </div>
-        {spotPending ? (
+        {pendingSpotAfter === null ? (
+          <p data-testid="spot-schedule-unread" className="text-[11.5px] text-amber-300">
+            Unknown — whether a spot-price change is queued could not be read. Propose,
+            Execute and Cancel stay disabled until it is; reload.
+          </p>
+        ) : spotPending ? (
           <div className="flex gap-2">
-            <button onClick={() => call('executeSpotPriceChange')} disabled={busy || !spotReady}
+            {/* Execute needs the queued VALUE as well: never sign a change you cannot see. */}
+            <button onClick={() => call('executeSpotPriceChange')} disabled={busy || !spotReady || pendingSpot === null}
               className="flex-1 py-2 rounded-lg text-[11.5px] font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
               Execute
             </button>
@@ -1311,16 +1325,22 @@ function PoolAdminPanel({
             <p className="text-[10px] uppercase tracking-wider text-white/55">Delta</p>
             <p className="text-[13px] font-mono text-white">{formatTokenAmount(formatEther(delta), 4)} ETH</p>
           </div>
-          {deltaPending && (
+          {pendingDeltaAfter !== null && pendingDeltaAfter > 0 && (
             <div className="text-right">
-              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {formatTokenAmount(formatEther(pendingDeltaVal), 4)}</p>
+              <p className="text-[10px] uppercase tracking-wider text-yellow-300/80">Pending → {pendingDeltaVal === null ? '–' : formatTokenAmount(formatEther(pendingDeltaVal), 4)}</p>
               <p className="text-[11.5px] text-yellow-200">{deltaReady ? 'Ready to execute' : `Unlocks in ${formatCountdown(nowSec, pendingDeltaAfter)}`}</p>
             </div>
           )}
         </div>
-        {deltaPending ? (
+        {pendingDeltaAfter === null ? (
+          <p data-testid="delta-schedule-unread" className="text-[11.5px] text-amber-300">
+            Unknown — whether a delta change is queued could not be read. Propose, Execute
+            and Cancel stay disabled until it is; reload.
+          </p>
+        ) : deltaPending ? (
           <div className="flex gap-2">
-            <button onClick={() => call('executeDeltaChange')} disabled={busy || !deltaReady}
+            {/* Execute needs the queued VALUE as well: never sign a change you cannot see. */}
+            <button onClick={() => call('executeDeltaChange')} disabled={busy || !deltaReady || pendingDeltaVal === null}
               className="flex-1 py-2 rounded-lg text-[11.5px] font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
               Execute
             </button>
