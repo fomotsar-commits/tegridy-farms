@@ -15,6 +15,54 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — an exact gas estimate is only good for the second it was taken in
+
+**Believed:** if `eth_estimateGas` returns N, the same transaction against the same
+state mines at limit N. (A step earlier in the same chase: that the cost was
+"non-monotonic in the gas limit" — offer more gas, burn less. It was neither.)
+
+**Measured** (anvil 1.5.1, mainnet fork, `removeLiquidityETH` on a Uniswap-V2-style
+pair; automine off, every block timestamp pinned by hand with
+`evm_setNextBlockTimestamp` + `evm_mine`; byte-identical calldata and state):
+
+| estimate taken at | mined at | limit | used | result |
+|---|---|---|---|---|
+| T (= the pair's last update) | T | 207,033 | 163,888 | success |
+| T | **T+1** | 207,033 | **206,923** | **reverted — out of gas** |
+| T | T+1 | 310,549 (×1.5) | 172,080 | success |
+
+A V2 pair's `_update` writes both cumulative prices only when `block.timestamp` has
+moved since its last update. `pair.burn` cost 101,958 in the same second and 112,199
+one second later: the +10,241 is exactly those two SSTOREs. **Anvil lets consecutive
+blocks share a timestamp**, and a transaction sent with no `gas` is priced by anvil's
+own estimate against the pending block, exact to the gas — so anything estimated in
+the same second as the pair's last touch and mined in the next one is ~10k short.
+"Burn less at a higher limit" was the same-second block being cheaper, not the limit.
+
+Where it bit: an e2e bridge that forwarded the app's gas-less `eth_sendTransaction`
+unpadded. The UI runs add → approve → remove inside about a second, so the remove
+was often estimated in the add's second. The real spec against a fresh fork, trunk
+code: 2 of 9 runs failed, both out of gas one second after the add. Padded +50%, as a
+wallet would: 0 of 14, including one run where the race happened and the padding
+absorbed it.
+
+**Also measured:** anvil does **not** reject a gas-less send whose estimate fails. It
+mines it at the block gas limit (60,000,000 observed) and it reverts on-chain.
+
+**Do:** pad any transaction you hand a node without a limit. When a revert's
+`gasUsed` is within ~1% of its limit it ran out of gas — look at what changed
+between estimate and inclusion (timestamp, block, state), not at the arguments.
+
+### A test that dies at 3.0m and passes in 4.8s is an unbounded wait
+
+The first attempt ran into the whole 180s test budget; every assertion in the spec
+had a 20-30s budget. The error was `locator.getAttribute: Test timeout of 180000ms
+exceeded`: a Playwright locator read with no `timeout` inherits the TEST's, and the
+receipt link it wanted had been removed (the surface clears it 4s after a success).
+So the run printed nothing about what went wrong. A duration far beyond every
+assertion budget means an unbounded wait, not a slow system — find it, and bound
+every locator read that sits inside a poll.
+
 ## 2026-09-10 — "flaky" can be a UI defect, and a warn-only gate hides it forever
 
 **Believed:** a test that fails then passes on retry is nondeterministic — timing
