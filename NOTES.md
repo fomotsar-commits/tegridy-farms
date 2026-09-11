@@ -15,6 +15,48 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
+
+**Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
+the fix for a cold `await import(...)` inside a test is to hoist it to a static
+import at the top of the file.
+
+**Checked** against the source of four candidates listed that way:
+
+| file | the import sits in | bound |
+|---|---|---|
+| `holderOutageRender.test.jsx` :34, :53 | `it()` body | 5000ms |
+| `offerBookOutageHonesty.test.jsx` :48 (and 9 more at the same depth) | `it()` body | 5000ms |
+| `offerErrorHonesty.test.jsx` :85 | top-level `beforeEach` | **10000ms** |
+| `cancelAllWalletGuard.test.jsx` :124-125 | top-level `beforeEach` | **10000ms** |
+
+Half the list was on the other clock. And `cancelAllWalletGuard` calls
+`vi.resetModules()` before that import **on purpose**: its comment says a static
+import "would give them two" `CollectionContext` instances, so the provider and the
+component would stop sharing state. Hoisting it would not fix a flake; it would
+break the thing the test exists to check.
+
+**Do**, before touching any slow-test candidate:
+
+1. Find where the cost sits — body (5s) or hook (10s). See the entry below.
+2. `grep resetModules` in the file. If it resets, a hoist is illegal. The only move
+   that keeps module identity is a bare warming import at the top, because every
+   post-reset import still comes from one registry.
+3. Only then rank by duration.
+
+Measured on merged trunk `f8bda8b9` (full suite, 588 files / 8343 tests, 0
+failures, a quiet 188s run), slowest test per file: `holderOutageRender` **3528ms,
+its import in the body — about 1.4x headroom, the only thin one** ·
+`offerBookOutageHonesty` 1810ms · `offerErrorHonesty` 1638ms (hook plus one body
+import, not split) · `cancelAllWalletGuard` 1494ms (hook) · `bot-noncustodial`
+251ms — the same test that was seen timing out at 5020ms under heavy load. One run
+ranks nothing.
+
+**The general form:** a conclusion is only as wide as the population screened. The
+first sweep for this flake class looked only at files that reset inside hooks,
+found nothing close to its bound, and reported that — while a body-bound test sat
+at 1.4x in a directory the sweep never covered.
+
 ## 2026-09-10 — a slow vitest "test" is often a slow *hook*, and hooks get 10s
 
 **Believed:** a test reported at 2353ms is 2353ms from its 5000ms `testTimeout`,
