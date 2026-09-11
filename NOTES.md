@@ -140,7 +140,6 @@ default for it. Before writing "the query failed", check whether the library can
 the query fail at all.
 
 ---
-
 ## 2026-09-10 — an accordion that unmounts closed answers is invisible to every DOM audit
 
 **Believed:** mounting an accordion's answer only while it is open
