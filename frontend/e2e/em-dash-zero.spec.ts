@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
+import { gotoRoute, waitForQuiescence, gotoNakamigos, ROUTES, navigablePath } from './fixtures/routes';
 
 // ELEMENT I — ZERO EM DASHES IN VENUE-VOICE PROSE, AND THE DEBT ON THE WAY THERE.
 //
@@ -31,7 +31,7 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
 //
 // ── THE DEBT ────────────────────────────────────────────────────────────────
 //
-// 266 prose dashes across 50 routes (487 at the guard's landing). 22 routes
+// 214 prose dashes across 44 routes (487 at the guard's landing). 22 routes
 // are finished, two of them records whose entries leave the count by
 // structure (ruling 1), so this cannot land as `toBe(0)`
 // without landing red, and a permanently red gate is a gate people learn to
@@ -48,9 +48,10 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos } from './fixtures/routes';
 //
 // ── SCOPE ───────────────────────────────────────────────────────────────────
 //
-// Every venue-voice route: everything AUDITABLE_ROUTES reaches minus the
-// thirteen bungalow doors and /toweli, which speak their own token's voice and
-// their own farm's voice and are not this element's subject.
+// Every venue-voice route: everything AUDITABLE_ROUTES reaches whose census
+// voice (e2e/fixtures/routes.ts) is not 'bungalow' or 'toweli'. The doors and
+// the TOWELI room speak their own token's voice and are not this element's
+// subject; the last test in this file holds the table to that.
 //
 // The nine routes measured before this guard existed were the ones the island
 // and the venue had both been walking by hand; they came to 141. They are nine
@@ -78,40 +79,39 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/deployer': 0,
   '/scan': 0,
   '/swap': 0,
-  '/zap': 0,
   '/eth-curve/0x0000000000000000000000000000000000000000': 0,
   '/gallery': 0,
+  // Row Q put /security's classic protocol under TOWELI's name and cut the
+  // banner's last dash: finished.
+  '/security': 0,
   // RECORDS (the island's ruling 1). Each page's record subtree is skipped by
   // structure; its chrome, including the label naming it the venue's record, is
   // walked and held at zero like any finished route.
   '/changelog': 0,
   '/contracts': 0,
+  // TOWELI'S PROTOCOL PAGES LEFT THIS TABLE with row Q: /tokenomics, /treasury,
+  // /premium, /lore, /referrals and /zap open in the TOWELI room and speak its
+  // voice, like the doors (29 dashes went with them, /zap already at zero).
   '/nakamigos': 1,
-  '/tokenomics': 3,
-  '/lore': 3,
   '/terms': 3,
-  '/terminal': 3,
+  '/terminal': 2,
   '/solana': 4,
   '/launch-simulator': 4,
   '/leaderboard': 4,
   '/community': 5,
   '/liquidity': 6,
-  '/referrals': 6,
-  '/premium': 7,
   '/privacy': 7,
   '/trust': 7,
   '/pools': 9,
   '/nft-finance': 10,
-  '/treasury': 10,
   '/developers': 10,
-  '/security': 11,
-  '/risks': 12,
-  '/copy-trading': 12,
+  '/risks': 3,
+  '/copy-trading': 11,
   '/tax': 13,
   '/curve-launch': 14,
   '/eth-curve': 15,
   '/alerts': 17,
-  '/competitions': 18,
+  '/competitions': 17,
   '/yield': 21,
   // 32 until element F cut the header to one sentence; that sentence carried a
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
@@ -172,6 +172,10 @@ async function proseDashes(page: Page): Promise<ProseHit[]> {
       // and still held at zero. src/pages/recordSurfaces.test.ts pins which
       // files may declare a record at all, so this is not an escape hatch.
       if (el.closest('[data-record]')) continue;
+      // A TOWELI SECTION ON A VENUE PAGE, OR THE TOWELI ROOM'S BAND (row Q):
+      // TOWELI's voice, not the venue's. Skipped by structure; the same source
+      // guard pins which files may declare a TOWELI section.
+      if (el.closest('[data-voice="toweli"]') || el.closest('[data-room="toweli"]')) continue;
       // THE DISCRIMINATOR. Exactly U+2014 is the unreadable placeholder.
       if (data.trim() === '—') continue;
       hits.push({ text: data.trim().slice(0, 90), owner: el.tagName });
@@ -288,4 +292,14 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       expect(recordText, `${path}'s record reads clean of dashes, so it was swept`).toContain('—');
     });
   }
+
+  // ROW Q. This table walks venue-voice routes only: a route the census puts in
+  // the TOWELI room or behind another resident's door is not the venue's copy.
+  test('the debt table walks only routes the census gives the venue', () => {
+    for (const path of Object.keys(VENUE_VOICE_DEBT)) {
+      const route = ROUTES.find((r) => navigablePath(r) === path);
+      expect(route, `${path} is not in the route fixture`).toBeTruthy();
+      expect(['venue', 'record', 'legal'], `${path} has census voice ${route?.voice}`).toContain(route?.voice);
+    }
+  });
 });

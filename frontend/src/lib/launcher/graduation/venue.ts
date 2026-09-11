@@ -208,7 +208,11 @@ export function plannedVenueMigrator(): {
       'Deploy the venue graduation migrator and verify it on Etherscan.',
       'Whetstone whitelists it on the Airlock: setModuleState(migrator, 4). Airlock.create rejects a non-whitelisted module, so launches fail at CREATE time without this.',
       'Grant the standing initializer allowance the migrator needs. Airlock.migrate transfers the graduated balances in BEFORE calling the migrator, so a revert there strands them rather than merely failing.',
-      'Only then set TEGRIDY_V4_MIGRATOR_ADDRESS in frontend/src/lib/launcher/constants.ts and redeploy.',
+      // WAVE SEVEN, row Q: this step used to print the OPERATOR's instruction
+      // (a constant's name and a repo path) to every visitor of /launch; the
+      // voice census found it. It says what happens instead. The operator's
+      // own steps live in docs/GRADUATION_VENUE_DECISION.md.
+      'Only then does this launcher point at it.',
     ],
   };
 }

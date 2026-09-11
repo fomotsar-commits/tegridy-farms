@@ -1,4 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
+import { ToweliRoomStrip } from './ToweliRoomStrip';
+import { isToweliRoomPage } from '../../lib/routeVoice';
 import { useAccount, useSwitchChain } from 'wagmi';
 import { trackWalletConnect } from '../../lib/analytics';
 import { mainnet } from 'wagmi/chains';
@@ -258,6 +260,9 @@ export function AppLayout() {
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
         <main id="main-content" tabIndex={-1}>
+          {/* WAVE SEVEN, row Q: TOWELI's protocol pages carry the room's band,
+              in flow and first in main (ToweliRoomStrip says why). */}
+          {isToweliRoomPage(location.pathname) && <ToweliRoomStrip />}
           <PageTransition pathname={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />
