@@ -71,6 +71,13 @@ export function usePoolTVL() {
     const reserves = data?.[0]?.status === 'success' ? data[0].result as readonly [bigint, bigint, number] : undefined;
     const token0 = data?.[1]?.status === 'success' ? (data[1].result as string).toLowerCase() : undefined;
     const lpSupply = data?.[2]?.status === 'success' ? data[2].result as bigint : 0n;
+    // OUTAGE-AS-ZERO. `lpSupply` feeds TreasuryPage's POL share, where a 0 turned
+    // into "0.00% of LP supply" and "$0.00" - the treasury holds no LP, said about
+    // a supply nobody read. Read independently of the reserves, so it is also
+    // returned (with this flag) on the no-TVL path below, which used to hardcode 0n.
+    const lpSupplyReadOk = data?.[2]?.status === 'success';
+    // Same shape for the router's fee rate, which turns fees into volume below.
+    const feeBpsReadOk = !hasFeeRouter || data?.[4]?.status === 'success';
 
     // F109: live staker fee-share. Loaded-and-zero is meaningful (governance
     // could route 0% to stakers); undefined means the read hasn't landed, so the
@@ -90,7 +97,7 @@ export function usePoolTVL() {
       : null;
 
     if (!reserves || !token0 || ethUsd <= 0) {
-      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply: 0n, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps, feesReadOk: true };
+      return { tvl: 0, tvlFormatted: '–', toweliReserve: 0n, wethReserve: 0n, lpSupply, lpSupplyReadOk, apr: '–', aprNum: 0, vol24hFormatted: '–', aprIsEstimated: true, volIsEstimated: true, isLoaded: false, stakerSharePct, stakerShareLoaded, referralFeeBps, feesReadOk: true, feeBpsReadOk };
     }
 
     const isToken0Toweli = token0 === TOWELI_ADDRESS.toLowerCase();
@@ -138,15 +145,24 @@ export function usePoolTVL() {
       const annualFees = dailyFees * 365;
       aprNum = (annualFees / tvl) * 100;
 
+      // Volume is fees ÷ the rate they were charged at, so it is only as good as
+      // the rate. A failed feeBps read collapsed to 0n and landed in the 0.3%
+      // fallback, printed as an exact figure: a volume computed from a rate
+      // nobody read. Three cases now, not two:
       if (feeBps > 0n) {
+        // The rate was read: the figure is the chain's.
         const feeRate = Number(feeBps) / 10000;
         vol24h = feeRate > 0 ? dailyFees / feeRate : 0;
-      } else {
+        volIsEstimated = false;
+      } else if (feeBpsReadOk) {
+        // A READ 0 (applyFee accepts it): the router charges nothing now, so the
+        // rate those fees were collected at is no longer on-chain. Assume the
+        // historical 0.3% - and keep volIsEstimated, so it prints as "~… (est.)".
         vol24h = dailyFees / 0.003;
       }
+      // Otherwise the rate was never read: vol24h stays 0 and renders '–'.
 
       aprIsEstimated = false;
-      volIsEstimated = false;
     } else if (tvl > 0 && feesReadOk) {
       // F485: with no on-chain fees we do NOT fabricate volume/APR from an
       // assumed turnover ratio — the honesty mandate forbids rendering a number
@@ -188,6 +204,8 @@ export function usePoolTVL() {
       toweliReserve,
       wethReserve,
       lpSupply,
+      /** False when the LP totalSupply read did not land — `lpSupply` is then 0n and not a supply. */
+      lpSupplyReadOk,
       apr,
       aprNum,
       vol24hFormatted,
@@ -199,6 +217,8 @@ export function usePoolTVL() {
       referralFeeBps,
       /** False when the fee read did not land — "no fees yet" is then unknowable. */
       feesReadOk,
+      /** False when the router's fee RATE did not land — volume is then '–', never a figure at an assumed rate. */
+      feeBpsReadOk,
     };
   }, [data, ethUsd, hasFeeRouter, hasReferralSplitter]);
 }

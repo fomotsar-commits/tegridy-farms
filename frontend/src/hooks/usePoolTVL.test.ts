@@ -154,3 +154,82 @@ describe('usePoolTVL — H-062-03 sanity guards', () => {
     expect(result.current.aprNum).toBe(0);
   });
 });
+
+// OUTAGE-AS-ZERO (2026-09-10): two collapses the file had no signal for.
+// [4] feeBps: volume is fees ÷ rate, and a failed rate read collapsed to 0n and
+// landed in the 0.3% fallback, printed as an exact figure. [2] LP totalSupply:
+// collapsed to 0n, and the no-TVL early return hardcoded 0n even when it WAS
+// read — TreasuryPage turned either into "0.00% of LP supply".
+describe('usePoolTVL — the fee rate and the LP supply are read, not assumed', () => {
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    currentPrice.ethUsd = 0;
+    currentPrice.ethUsdForDisplay = 0;
+  });
+
+  /** $600,000 of TVL and `fees` of routed ETH fees, every other read landed. */
+  function loadedPool(fees: bigint) {
+    currentPrice.ethUsdForDisplay = 3000;
+    wagmiMock.setReadResult({ functionName: 'getReserves', result: [parseEther('100'), parseEther('100'), 0] as const });
+    wagmiMock.setReadResult({ functionName: 'token0', result: TOWELI_ADDRESS });
+    wagmiMock.setReadResult({ functionName: 'totalSupply', result: parseEther('100') });
+    wagmiMock.setReadResult({ functionName: 'totalETHFees', result: fees });
+  }
+
+  it('an unread fee RATE gives no volume — not one at an assumed 0.3%', () => {
+    // OLD: feeBps 0n → `vol24h = dailyFees / 0.003`, volIsEstimated false → a
+    // confident "$…" computed from a rate nobody read.
+    loadedPool(parseEther('1'));
+    wagmiMock.setReadResult({ functionName: 'feeBps', result: undefined, status: 'failure' });
+    const { result } = renderHook(() => usePoolTVL());
+
+    expect(result.current.feeBpsReadOk).toBe(false);
+    expect(result.current.vol24hFormatted).toBe('–');
+    // APR never used the rate; it is still the chain's figure.
+    expect(result.current.aprIsEstimated).toBe(false);
+    expect(result.current.apr).not.toBe('–');
+  });
+
+  it('a fee rate READ as 0 still gives a volume — marked as the estimate it is', () => {
+    // A real 0 (applyFee accepts it) means the historical rate is off-chain, so
+    // 0.3% is an assumption. OLD: printed exact. NEW: "~… (est.)".
+    loadedPool(parseEther('1'));
+    wagmiMock.setReadResult({ functionName: 'feeBps', result: 0n });
+    const { result } = renderHook(() => usePoolTVL());
+
+    expect(result.current.feeBpsReadOk).toBe(true);
+    expect(result.current.volIsEstimated).toBe(true);
+    expect(result.current.vol24hFormatted).toMatch(/^~\$.+ \(est\.\)$/);
+  });
+
+  it('a read, non-zero fee rate gives the chain\'s volume, unmarked', () => {
+    // NOT DISCRIMINATING — the unchanged path; fails if the fix over-widens.
+    loadedPool(parseEther('1'));
+    wagmiMock.setReadResult({ functionName: 'feeBps', result: 50n });
+    const { result } = renderHook(() => usePoolTVL());
+
+    expect(result.current.volIsEstimated).toBe(false);
+    expect(result.current.vol24hFormatted).toMatch(/^\$/);
+  });
+
+  it('an unread LP supply is flagged — its 0n is not a supply', () => {
+    loadedPool(0n);
+    wagmiMock.setReadResult({ functionName: 'totalSupply', result: undefined, status: 'failure' });
+    const { result } = renderHook(() => usePoolTVL());
+
+    expect(result.current.lpSupplyReadOk).toBe(false);
+    expect(result.current.lpSupply).toBe(0n);
+  });
+
+  it('a READ LP supply survives the no-TVL path instead of being zeroed', () => {
+    // No display price → the early return. OLD: `lpSupply: 0n` regardless.
+    loadedPool(0n);
+    currentPrice.ethUsdForDisplay = 0;
+    const { result } = renderHook(() => usePoolTVL());
+
+    expect(result.current.isLoaded).toBe(false);
+    expect(result.current.lpSupplyReadOk).toBe(true);
+    expect(result.current.lpSupply).toBe(parseEther('100'));
+  });
+});
