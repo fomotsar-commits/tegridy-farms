@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAccount, useReadContract, usePublicClient, useChainId } from 'wagmi';
+import { useAccount, useReadContract, usePublicClient } from 'wagmi';
 import { type Address } from 'viem';
 import { TEGRIDY_LENDING_ADDRESS, TEGRIDY_NFT_LENDING_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { TEGRIDY_LENDING_ABI, TEGRIDY_NFT_LENDING_ABI } from '../lib/contracts';
@@ -48,8 +48,11 @@ type ReadResult = { status: 'success'; result: unknown } | { status: 'failure' }
 
 export function useMyLoans() {
   const { address } = useAccount();
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
+  // Every read below goes to mainnet: the counts are pinned `chainId: CHAIN_ID`
+  // and the scans use the mainnet client. NOT gated on useChainId() ===
+  // CHAIN_ID as well: for a wallet on Base or Robinhood that gate zeroed both
+  // counts and skipped both scans, an empty list with neither failure flag set,
+  // which the dashboard can only read as "no loans". See useLPFarming.ts.
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const tokenDeployed = isDeployed(TEGRIDY_LENDING_ADDRESS);
   const nftDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
@@ -59,7 +62,7 @@ export function useMyLoans() {
     abi: TEGRIDY_LENDING_ABI,
     functionName: 'loanCount',
     chainId: CHAIN_ID,
-    query: { enabled: tokenDeployed && onMainnet, refetchInterval: REFETCH_MS },
+    query: { enabled: tokenDeployed, refetchInterval: REFETCH_MS },
   });
 
   const { data: nftLoanCount, isError: nftCountError } = useReadContract({
@@ -67,7 +70,7 @@ export function useMyLoans() {
     abi: TEGRIDY_NFT_LENDING_ABI,
     functionName: 'loanCount',
     chainId: CHAIN_ID,
-    query: { enabled: nftDeployed && onMainnet, refetchInterval: REFETCH_MS },
+    query: { enabled: nftDeployed, refetchInterval: REFETCH_MS },
   });
 
   const tokenCount = tokenLoanCount ? Number(tokenLoanCount) : 0;
@@ -95,7 +98,7 @@ export function useMyLoans() {
   // giant multicall for high-id contracts and lets a single bad loan in
   // one chunk fail without poisoning the whole batch.
   useEffect(() => {
-    if (!publicClient || !onMainnet || !tokenDeployed || tokenCount === 0 || !address) {
+    if (!publicClient ||!tokenDeployed || tokenCount === 0 || !address) {
       setTokenResults([]);
       setTokenLoading(false);
       return;
@@ -133,10 +136,10 @@ export function useMyLoans() {
     })();
     return () => { cancelled = true; };
     // F130: refreshNonce in deps re-runs the scan every REFETCH_MS via the shared tick.
-  }, [publicClient, onMainnet, tokenDeployed, tokenCount, address, refreshNonce]);
+  }, [publicClient,tokenDeployed, tokenCount, address, refreshNonce]);
 
   useEffect(() => {
-    if (!publicClient || !onMainnet || !nftDeployed || nftCount === 0 || !address) {
+    if (!publicClient ||!nftDeployed || nftCount === 0 || !address) {
       setNftResults([]);
       setNftLoading(false);
       return;
@@ -174,7 +177,7 @@ export function useMyLoans() {
     })();
     return () => { cancelled = true; };
     // F130: refreshNonce in deps gives the NFT scan its own 60s refresh (it had none).
-  }, [publicClient, onMainnet, nftDeployed, nftCount, address, refreshNonce]);
+  }, [publicClient,nftDeployed, nftCount, address, refreshNonce]);
 
   const outstanding = useMemo<MyLoan[]>(() => {
     if (!address) return [];
