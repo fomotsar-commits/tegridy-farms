@@ -126,12 +126,13 @@ export interface HeatBreakdownRow {
    * until 2026-09-09 — the upstream has always sent it, the parser below simply
    * never read it, so nothing downstream could act on it.
    *
-   * IT DOES NOT MEAN "DOES NOT COUNT", which is the obvious reading and the wrong
-   * one. Measured against the live envelope for a real 18-row flame: all 18 rows
-   * sum to 1792.96 and the envelope's own `degrees` is 1792.96, while the 4
-   * retired rows carry 155.61 of it. A retired row is still the holder's held
-   * time and still part of their number. Any copy that implies otherwise is
-   * telling somebody their time was taken away.
+   * WHAT IT MEANS (the island, answer7): a mint the island no longer scans, a
+   * migrated or scrapped token's history. Measured against the live envelope for
+   * a real 18-row flame: all 18 rows sum to 1792.96 and the envelope's own
+   * `degrees` is 1792.96, so the island's total still includes the 4 retired
+   * rows (155.61 of it). The island is dropping them from its envelope and sum.
+   * Until that lands, HeatCard greys and labels them, leaves them out of the
+   * token count and out of its own sum line, and says the total includes them.
    *
    * Absent or non-boolean reads false: a row the island did not flag is a row
    * that is not retired.

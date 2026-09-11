@@ -482,14 +482,15 @@ describe("element D — the room's own read", () => {
     expect(screen.queryByText('This wallet holds no measured BAYLA yet.')).toBeNull();
   });
 
-  it('shows a retired row WITH its degrees, because retired still counts', async () => {
-    // Measured on a live 18-row flame: the four retired rows carry 155.61 of its
-    // 1792.96 and the island's own total agrees. A retired row that rendered as
-    // absent, or as a zero, would tell a holder their time had been taken away.
+  it('shows a retired row greyed, with the word and its own degrees', async () => {
+    // Row R: greyed, with the word "retired". The row's degrees stay on screen:
+    // a retired row that rendered as absent, or as a zero, would tell a holder
+    // their time had been taken away, and the number is the island's to paint.
     h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row({ retired: true })] }));
     const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
     await waitFor(() => expect(screen.getByText('338.21')).toBeTruthy());
-    expect(screen.getByText('RETIRED')).toBeTruthy();
+    expect(screen.getByText('retired')).toBeTruthy();
+    expect((screen.getByText('338.21') as HTMLElement).style.color).toBe('rgba(255, 255, 255, 0.45)');
     expect(container.textContent).not.toContain('This wallet holds no measured');
   });
 
@@ -525,5 +526,66 @@ describe('element D — the room names its question before it has an answer', ()
     mountScoped({ address: PEPE, symbol: 'PEPE' });
     await waitFor(() => expect(screen.getByText('338.21')).toBeTruthy());
     expect(screen.getAllByText(/Your held time in PEPE/i)).toHaveLength(1);
+  });
+});
+
+// ─── WAVE SEVEN, ROW R: A RETIRED ROW IS LABELED ────────────────────────────
+//
+// The island's done-means, verbatim: "a fixture reading with one retired: true
+// row renders that row labeled and the count without it; break the fix by
+// dropping the label and watch the test red."
+//
+// Three rows, one retired. token_count is 3 because on the live read
+// token_count equalled the row count, retired rows included.
+
+describe('row R: a retired row is labeled, not counted, not summed', () => {
+  const OLD = row({ token_address: '0xold', symbol: 'OLD', name: 'Old', heat_degrees: 50, retired: true });
+  const BBB = row({ token_address: '0xbbb', symbol: 'BBB', name: 'Bee', heat_degrees: 10 });
+  const readingWith = (degrees: number) =>
+    wireReading({ degrees, token_count: 3, breakdown: [OLD, row(), BBB] });
+  const SYMBOLS = new Set(['PEPE', 'BBB', 'OLD']);
+
+  it('renders the retired row greyed with the word, after the live rows, and the count without it', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(398.21));
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByText('2 tokens counted')).toBeTruthy());
+
+    const order = Array.from(container.querySelectorAll('li'))
+      .map((li) => li.querySelector('span')?.textContent?.trim() ?? '')
+      .filter((t) => SYMBOLS.has(t));
+    expect(order).toEqual(['PEPE', 'BBB', 'OLD']);
+
+    const retired = container.querySelectorAll('li[data-retired="true"]');
+    expect(retired).toHaveLength(1);
+    expect(retired[0].textContent).toContain('OLD');
+    expect(retired[0].textContent).toContain('retired');
+    expect(retired[0].textContent).toContain('50.00');
+    expect(retired[0].querySelector('span')?.className).toContain('text-white/40');
+  });
+
+  it('sums the live rows only, and says the island total still includes the retired row', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(398.21));
+    mount();
+    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
+    expect(screen.getByText('348.21°')).toBeTruthy();
+    expect(screen.getByText(/still includes the retired row\./)).toBeTruthy();
+    expect(screen.queryByText(/These rows sum to/)).toBeNull();
+  });
+
+  it('once the island drops it from its sum, nothing more is said', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(348.21));
+    mount();
+    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
+    expect(screen.queryByText(/still includes the retired/)).toBeNull();
+    expect(screen.queryByText(/These rows sum to/)).toBeNull();
+  });
+
+  it('a real disagreement is still flagged, against the live sum', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(500));
+    mount();
+    await waitFor(() =>
+      expect(screen.getByText(/These rows sum to 348\.21°, but the island reports 500\.00°/)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/still includes the retired/)).toBeNull();
   });
 });
