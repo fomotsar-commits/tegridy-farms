@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
-import { Routes, Route, Navigate, Link, useLocation, useNavigationType, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -269,6 +269,27 @@ function BungalowStudioDoor() {
   );
 }
 
+/**
+ * `/swap`, with an old `?tab=liquidity` link answered BEFORE the swap page loads.
+ *
+ * The Liquidity tab left the swap page for /liquidity (the Pools section's landing
+ * tab), but links shared while it lived here still exist, and TradePage resolves an
+ * unknown tab to 'swap' — so unredirected they land on the wrong surface, which reads
+ * as the feature having been deleted rather than moved.
+ *
+ * The redirect used to be an effect inside TradePage, which put the whole swap page in
+ * front of a decision the URL had already made: fetch TradeHostPage, fetch TradePage's
+ * own ~110 KB chunk, render the swap page, and only then start fetching the page the
+ * link was going to — four serial chunk loads where /liquidity has two. Measured
+ * 2026-09-10, that queue is what e2e/liquidity.spec.ts's heading assertion was waiting
+ * on. The URL is known on the first render, so it is read here, like ReadRedirect.
+ */
+function SwapRoute() {
+  const [searchParams] = useSearchParams();
+  if (searchParams.get('tab') === 'liquidity') return <Navigate to="/liquidity" replace />;
+  return <Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>;
+}
+
 function AnimatedRoutes() {
   return (
     <>
@@ -356,7 +377,7 @@ function AnimatedRoutes() {
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
         {/* SWAP IS A TABBED HOST. Two routes, one strip: Ethereum / Solana.
             Every path still renders its own page standalone from a deep link. */}
-        <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="swap" element={<SwapRoute />} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
         {/* POOLS IS ITS OWN SECTION 2026-09-05, and /liquidity is a real page
             rather than a path alias.

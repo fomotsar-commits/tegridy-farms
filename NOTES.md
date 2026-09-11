@@ -44,6 +44,42 @@ open answer, while its text stays in the DOM. A walker that judges a page's copy
 must then NOT skip `hidden` subtrees. Skipping `aria-hidden` is still right,
 because that marks decoration rather than content.
 
+## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
+
+**Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
+proves the app redirected to `/liquidity`.
+
+**Measured** (Playwright 1.62, chromium, `frontend/e2e/liquidity.spec.ts`, 50 runs with an
+init script logging every `history.replaceState`): the assertion passed on its first poll
+while the page was still on `http://host/swap?tab=liquidity` in **48 of 50** runs — that
+URL ends in "liquidity" too. The line asserted nothing; the only real wait was the next
+one (the `h1`), so a failure "at the URL check" was really the heading line. Assert the
+path: `toHaveURL(url => url.pathname === '/liquidity')`.
+
+**Second trap, same test.** The redirect was a `useEffect` inside the lazy page it was
+redirecting *away from*. A stack captured inside the `replaceState` hook named
+`TradePage-<hash>.js` as the caller, and the request log gave the order: host chunk →
+page chunk (109 KB) → full swap render → *then* the destination's two chunks — four
+serial lazy loads where a direct visit has two. Moving it to a route-level `<Navigate>`,
+normalised to each run's `load` event under 8 workers: redirect p50 665ms → 164ms,
+heading p50 1274ms → 728ms, runs that fetched the swap chunks 30/30 → 0/30.
+
+**Reproducing it:** 50 unthrottled runs, at 1 and at 8 workers, never failed. A 6x CDP
+CPU throttle (`Emulation.setCPUThrottlingRate`, chromium only) reproduced the reported
+failure in 1 of 5 — URL check passed on `/swap?tab=liquidity`, then the heading timed
+out after 5s with `Received string: "Swap"`, the redirect firing 6.6s after `load` —
+while the fixed build passed 5/5 with the redirect at most 1.05s after `load`. A load
+flake you cannot reproduce is a throttle level you have not tried.
+
+**Do:** decide URL-only redirects where the URL is first read (the route element), never
+in an effect inside a lazy component. To pin it, *hold* the chunks the redirect must not
+need — `page.route(pattern, () => {})` never answers — so a regression fails every run,
+not only the slow one (pre-fix: 4/4 device projects failed; post-fix: 4/4 passed). Pair
+it with a control that the pattern still matches a request somewhere, or a chunk rename
+silently turns the hold into a no-op.
+
+---
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
