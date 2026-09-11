@@ -15,6 +15,53 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-10 — "deployed == source" means the BROADCAST's commit, and a write mock never encodes
+
+**Believed:** to confirm a live contract behaves like `contracts/src`, build trunk
+and compare it with the chain; and a hook test that asserts
+`functionName: 'x'` on the wagmi write mock proves the button can send `x`.
+
+**Measured** on TegridyStaking (`0xcaDc93E96De58EA554c71ca609974625615E046D`) while
+re-wiring its paused exit (#510):
+
+- **Trunk was the wrong build target.** Five commits had touched
+  `TegridyStaking.sol` since the deploy. The Foundry broadcast
+  (`contracts/broadcast/<Script>.s.sol/<chainId>/run-latest.json`) records a
+  top-level `"commit"`, here `833b757`. Built at that commit in a detached
+  worktree (`forge build src/TegridyStaking.sol`, via_ir, 21 s wall), the executable
+  runtime matched the chain byte for byte: **24,284 of 24,337 bytes.**
+- **The other 53 bytes are CBOR metadata, and they did not match although the
+  code did.** A metadata mismatch is not a code mismatch. Strip
+  `2 + uint16(last two bytes)` from the end of both before comparing.
+- **Two kinds of slot differ by construction; handle both rather than skipping
+  them.** Library link slots (`deployedBytecode.linkReferences`): fill them from
+  the broadcast's `libraries` and assert the chain holds the same 20 bytes at
+  every offset (10 of 10 matched). Immutables (`immutableReferences`) compile as
+  zeros: adopt the chain's values and PRINT them, so a wrong constructor argument
+  is visible (20 slots, 2 addresses).
+- **A wagmi write mock never ABI-encodes.** With the new ABI entry deleted
+  (mutation), 58 of 59 tests in the affected files still passed, including the
+  one asserting `functionName: 'emergencyWithdrawPosition'`. A real wallet would
+  have thrown `AbiFunctionNotFoundError` at encode time. The only test that
+  failed runs `encodeFunctionData` against the real ABI and checks the selector
+  (`0x5f667fc0`) read out of the deployed dispatcher, which pins the ABI to the
+  chain and not just to itself.
+- **Fork-proving behaviour does not need the repo's build.** A standalone Foundry
+  project (only `forge-std` plus an inline interface) compiled 20 files in 2.3 s,
+  and 4 tests against `vm.createSelectFork("https://eth.drpc.org")` ran in 10 s.
+  Every call hit the on-chain bytecode, so repo source was not what got tested.
+  Make the rig BINDING first: top up the reward reserve and assert
+  `earned() > 0` before comparing "pays" with "forfeits". Otherwise both look
+  like "returned the principal".
+
+**Do:** before changing UI semantics on a live contract, build the broadcast's
+`commit`, not trunk, and compare with metadata stripped, link slots asserted and
+immutables printed. Then diff just the functions you depend on between that
+commit and trunk. For every hand-written ABI entry a button relies on, keep one
+test that ENCODES the call against the real ABI.
+
+---
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
