@@ -57,6 +57,95 @@ first sweep for this flake class looked only at files that reset inside hooks,
 found nothing close to its bound, and reported that — while a body-bound test sat
 at 1.4x in a directory the sweep never covered.
 
+## 2026-09-10 — "flaky" can be a UI defect, and a warn-only gate hides it forever
+
+**Believed:** a test that fails then passes on retry is nondeterministic — timing
+noise in the harness — and a CI job that ends green has nothing to report.
+
+**Measured** (`e2e/claim-rewards.spec.ts`, the Anvil-fork job, six consecutive CI
+runs on trunk, read from the job logs):
+
+| outcome | attempt 1 | retry #1 |
+|---|---|---|
+| clean pass | 2.5s / 3.8s / 3.9s | — |
+| fail → pass | 6.4s / 6.4s / 6.7s | 2.6s / 2.6s / 3.3s |
+
+(Whole-test durations, not read latency — 5s of each failure was the assertion
+waiting and giving up, so the underlying read is known only to EXCEED 5s. Its
+ceiling was never observed, because nothing waited long enough to see it. Worth
+saying out loud: a failed assertion measures your budget, not the thing.)
+
+The retry is not a second roll of the same die. Attempt 1 pays an Anvil fork's
+COLD state — the first read of every storage slot is a round trip to the public
+upstream — and by retry the fork has cached it. **A retry that is consistently
+~2.5x faster than the attempt it replaces is measuring a warm cache, not luck.**
+That signature separates "slow" from "broken" before you read any app code.
+
+The 5s number on the other side of it is Playwright's default `expect` timeout.
+Nothing in the repo chose it; the assertion simply never named one, and the
+cold-fork cost straddles it.
+
+**Do:** when a test is called flaky, diff attempt-1 against retry duration first.
+Comparable → nondeterminism. Retry much faster → first-run cost, and the fix is
+either a named budget or removing the dependency on that cost.
+
+### The gate that let it live on trunk
+
+`playwright.config.ts` sets `retries: process.env.CI ? 2 : 0`, and ci.yml's
+money-path guard fails the run on `skipped != 0` but only `::warning`s on
+`flaky != 0` — deliberately, so one fork-RPC flake cannot read as a coverage
+loss. Both decisions are individually right. Together they mean a defect that
+fails EVERY first attempt still produces a green job, forever, with the evidence
+sitting in a warning nobody opens.
+
+**Do:** a warn-only flaky lane needs someone reading the warnings. Grep job logs
+for `passed only on retry` across recent runs — a title that appears in most of
+them is not flaky, it is failing with a retry budget covering for it.
+
+### The defect underneath: a skeleton that hides its section's name
+
+`LPFarmingSection` early-returned a loading skeleton that drew two grey
+`animate-pulse` bars where its `<h2>LP Farming</h2>` and subtitle go. Both are
+compile-time constants — no read gates them — so the section withheld its own
+identity for the length of an RPC round trip: an unnamed region to a screen
+reader, and the one unlabelled box among five labelled sections to everyone else.
+
+That is not a brief flicker. Read from the installed packages, not from docs:
+viem 2.56.1's `http` transport defaults to a **10s** timeout and retries **3x**
+per transport (`buildRequest.js`: `retryCount = 3`), the app puts two endpoints
+behind a `fallback`, and `App.tsx` sets `retry: 2` on the QueryClient with
+TanStack's default backoff (`min(1000 * 2**n, 30000)` — 1s then 2s). A degraded
+RPC therefore holds a "loading" state for tens of seconds.
+
+**Do:** a skeleton should shimmer what the read decides and print what it does
+not. Text that is a literal in the component has nothing to wait for.
+
+### Why this made the test unfixable-by-timeout
+
+The assertion was `getByRole('heading', {name: /lp farming/i})`. With no heading
+in the skeleton, that single locator had to mean two different things — "the
+section mounted" and "its reads landed" — so there was no budget that was both
+tight enough to catch a section wedged in its skeleton and loose enough to
+tolerate a cold fork. Splitting it (heading = mounted, a read-derived stat =
+landed, each with its own budget) is what made a named timeout honest rather
+than a way to stop the test complaining.
+
+**Do:** if you cannot pick a timeout without trading away a real failure, the
+assertion is conflating two facts. Split it before tuning the number.
+
+### Incidental
+
+- `anvil.exe` and `cast.exe` are blocked by Windows Application Control on this
+  box, sandboxed or not ("An Application Control policy has blocked this file").
+  The fork job cannot be reproduced locally here — CI job logs are the
+  measurement of record. `vitest` and `playwright` (mock mode) run fine.
+- The default preview port 4173 is routinely held by another session's `vite
+  preview`, and `playwright.config.ts` sets `reuseExistingServer: !CI` — so a
+  local run silently tests whatever build that server holds. Verify the port is
+  free (`netstat -ano | grep :4173`) or run with a config on another port.
+
+---
+
 ## 2026-09-10 — a slow vitest "test" is often a slow *hook*, and hooks get 10s
 
 **Believed:** a test reported at 2353ms is 2353ms from its 5000ms `testTimeout`,
