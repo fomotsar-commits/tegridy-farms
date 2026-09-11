@@ -138,6 +138,50 @@ export function useLPFarming() {
       || data?.[6]?.status !== 'success'
       || data?.[7]?.status !== 'success');
 
+  // The section's figures are read as a SET - four stat tiles and the APR hero - so
+  // they gate on one flag over every farm-wide read: the pool totals and the minimum
+  // above, plus the four neither covers ([1] rewardRate, [2] periodFinish,
+  // [3] rewardsDuration, [9] LP totalSupply). Deliberately WITHOUT positionUnread's
+  // `!!address` term: this batch is enabled on `isDeployed && onMainnet` alone -
+  // `userAddr` falls back to the zero address - so these were asked, and could
+  // fail, with nobody connected. FarmPage renders the section at
+  // isConnected={false} for the logged-out public surface.
+  //
+  // [2] is in here although poolStatsUnread leaves it out. "Reward Rate (ended)" and
+  // "Period Ended" printed off an unread periodFinish publish a read that never
+  // landed as a claim about the schedule; that it happens to match the truth today
+  // (the period did end 2026-06-15) is luck, not a read. [1] is the worst of the
+  // set: a landed total beside an unread rewardRate gives the APR hero a finite
+  // denominator over a zero numerator - a confident "0.00%".
+  //
+  // How a failure actually arrives (wagmi 3 / viem 2, as installed): the query does
+  // NOT reject and `data` does NOT go undefined. Every multicall entry is submitted
+  // `allowFailure: true`, so a whole-transport outage resolves as eleven
+  // `status: 'failure'` entries, and one reverting sub-call as one 'failure' beside
+  // ten 'success' siblings. Partial failure has a second route: wagmi's
+  // createConfig defaults `batch: { multicall: true }`, so each entry is queued into
+  // a scheduler shared with every other read on the client and cut into aggregate3
+  // requests at 1024 bytes of calldata - a rejected request fails only its own
+  // entries. Only per-index status checks see any of this; `!data` and `isError`
+  // see none of it.
+  //
+  // `lpTotalSupply` (9) has no consumer today and is in here so a per-index
+  // carve-out cannot silently stop covering it the moment someone renders it;
+  // over-blanking is the safe direction, publishing an unread zero is not.
+  const statsUnread = poolStatsUnread || minStakeUnread
+    || (isDeployed && onMainnet && !isReadLoading
+      && (data?.[1]?.status !== 'success'      // rewardRate
+        || data?.[2]?.status !== 'success'     // periodFinish
+        || data?.[3]?.status !== 'success'     // rewardsDuration
+        || data?.[9]?.status !== 'success'));  // LP totalSupply
+
+  // Entry [8] (`allowance`) is the one read none of these flags covers. Its zero
+  // fails CLOSED: an unread allowance reads as "not approved", so the section offers
+  // Approve and `stake()` refuses early - no stake is ever armed on an allowance
+  // nobody read. It is not free: each Approve while the read keeps failing is a
+  // redundant approval's gas, and Stake stays out of reach until the read lands.
+  // If that ever needs signalling it needs its own flag, not one that blanks figures.
+
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
   // F100: the raw Synthetix-style `rewardRate` storage value stays non-zero
@@ -363,6 +407,23 @@ export function useLPFarming() {
      * without checking this first.
      */
     positionUnread,
+    /**
+     * Some farm-wide read (total staked, reward rate, period, rewards duration,
+     * funding, LP supply, MIN_STAKE) was asked and did not land - the union of
+     * `poolStatsUnread`, `minStakeUnread` and the four reads neither covers. Every
+     * one of them collapses to 0n/0, and each zero is also a legitimate on-chain
+     * value - an empty farm, an unfunded or ended schedule - so on mainnet this
+     * flag is what separates them. Unlike `positionUnread` it does NOT require a
+     * connected wallet: the batch runs for logged-out visitors too. Gate the stat
+     * tiles and the APR hero on this before printing a figure or an invitation
+     * derived from one.
+     *
+     * NOT covered: off mainnet the batch is never enabled, so every value is a
+     * zero nobody asked for and this is false. That is a separate "not attempted"
+     * state this hook does not expose (the same gate sits on useFarmStats,
+     * usePoolData and usePoolTVL).
+     */
+    statsUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,
