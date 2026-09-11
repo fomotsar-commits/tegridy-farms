@@ -49,6 +49,9 @@ frontend/public/art/**            linguist-vendored
 frontend/public/nakamigos/**      linguist-vendored
 frontend/public/collections/**    linguist-vendored
 frontend/src/generated.ts         linguist-generated
+# Anchor IDLs: emitted by `anchor build` in CI, committed because the operator's
+# machine cannot run that build and the CI artifact expires. See solana/tegridy-amm/idl/README.md.
+solana/tegridy-amm/idl/*.json     linguist-generated
 contracts/out/**                  linguist-generated
 contracts/cache/**                linguist-generated
 contracts/broadcast/**            linguist-generated

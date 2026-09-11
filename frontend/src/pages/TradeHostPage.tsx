@@ -2,8 +2,8 @@ import { lazy } from 'react';
 import { SectionHost } from './SectionHost';
 import { SWAP_SECTION } from '../lib/navConfig';
 
-// The Ethereum swap surface. Also answers /liquidity, which it treats as a
-// synonym for its own `?tab=liquidity` — see resolveInitialTab in TradePage.
+// The Ethereum swap surface. An old `/swap?tab=liquidity` link never reaches it:
+// App.tsx's SwapRoute redirects that to /liquidity before this chunk loads.
 const TradePage = lazy(() => import('./TradePage'));
 // The Jupiter surface. Same venue, second chain.
 const SolanaSwapPage = lazy(() => import('./SolanaSwapPage'));
