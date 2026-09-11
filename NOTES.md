@@ -15,6 +15,49 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — a local fallback that accepts a bad argument hides it until production
+
+**Believed:** a green unit suite plus a working dev server means a rate-limited
+API handler works, because every call to the limiter goes through the same module
+in both places.
+
+**Measured:** `/api/aggregator?resource=tape` answered `500
+FUNCTION_INVOCATION_FAILED` on every production request (both domains, reproduced
+with curl) while its unit suite and every local run were green. The handler called
+the global limiter without `windowSec`. The shared limiter builds Upstash's sliding
+window as `` `${windowSec} s` ``, so production built `"undefined s"` and Upstash
+threw ("Unable to parse window size"). Off Vercel the same module falls back to an
+in-memory limiter, which took `undefined` without complaint: the window became
+`NaN` and never reset, and nothing threw. The handler's own suite mocked the limiter
+module entirely. Three layers each looked fine: the mock, the fallback, and an
+untyped options object.
+
+**Technique:** when a library has a lenient local fallback and a strict production
+backend, test the ARGUMENTS a caller passes, not the fallback's behaviour. Here:
+assert the mocked limiter was called with `windowSec`, and add a source check that
+every call site passes one (45 of them; one was missing it). No runtime test can see
+this class, because every path the tests reach is the lenient one.
+
+## 2026-09-11 — a guard calibrated in CI measures CI's environment, not production's
+
+**Believed:** an exact-count e2e guard that is green in CI means the deployed page
+reads the same, because the bundle is byte-identical.
+
+**Measured:** the same per-route spec (a count of prose em dashes, asserted exactly),
+run against production after a deploy, read five routes differently: `/chart` 36
+against CI's 0, `/developers` 11 (10), `/copy-trading` 12 (11), `/alerts` 14 (17),
+`/launch` 30 (31). The bundle was identical; the environment was not. Production had
+an indexer URL configured and answering, serverless functions running, and push
+keys set. CI's `vite preview` build had none of the three, so no branch gated on them
+ever rendered there. `/chart`'s 36 were tooltips and table rows on the indexed chart,
+a branch CI can never reach.
+
+**Technique:** write down where a guard's numbers hold, and for branches CI cannot
+render, pin the copy at the source instead (here, a scan of the chart's components,
+its lib and the hooks that feed it). Then run the same guard against production
+after each deploy: every difference is an environment-gated branch the CI run never
+saw.
+
 ## 2026-09-10 — a partial-coverage gap gets fixed one leg at a time, by whoever trips on which leg
 
 **Believed:** a green `node frontend/scripts/check-unread-signal.mjs` means no file
