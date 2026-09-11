@@ -15,6 +15,58 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-11 — anvil's `--retries` never retries a 408, and `--compute-units-per-second` never throttles
+
+**Believed:** anvil's fork flags let it ride out a flaky upstream. Raise `--retries`,
+lengthen `--fork-retry-backoff`, lower `--compute-units-per-second`, and a free RPC
+plan's intermittent timeout gets absorbed.
+
+**Checked** in the source of anvil 1.7.1 (tag `v1.7.1`, the version CI pins) and the
+alloy-transport 2.0.1 it locks. The fork provider retries through alloy's
+`RetryBackoffLayer`, whose `should_retry` is `TransportErrorKind::is_retry_err`: HTTP
+**429 and 503** and no other status (plus a few rate-limit JSON-RPC bodies, a null
+response, a missing batch item). A 408 returns on the first answer. `--retries` caps that
+layer and `--fork-retry-backoff` is its sleep, so neither ever engages on a 408.
+`compute_units_per_second` is read only *inside* the retry branch, to lengthen a backoff.
+It is not a rate limiter and never delays a first attempt; `--no-rate-limit` just sets it
+to `u64::MAX`.
+
+**Measured** on anvil 1.5.1 (alloy-transport 1.1.1, the same predicate), with a logging
+shim between anvil and drpc that answered drpc's own 408 body to the first ask of a fresh
+account's reads:
+
+| arm | `anvil_setBalance` | upstream asked |
+|---|---|---|
+| 408, no flags | `failed to get account … HTTP error 408` | once |
+| 408, `--retries 10 --fork-retry-backoff 100` | same error | once |
+| 408, `--no-rate-limit --compute-units-per-second 50 --timeout 90000` | same error | once |
+| **429**, no flags (control) | ok | twice (`429,200`) |
+
+The control is what makes "once" mean something: the counter sees a retry when anvil
+makes one.
+
+**Worse on 1.7.1.** A failed fork read inside block building hits
+`apply_pre_execution_changes().expect(…)`, a panic. CI's anvil died with SIGABRT on the
+EIP-2935 history-contract read (`GetStorage(0x0000f908…2935, …, HTTP error 408`) and
+every later test failed in ~150ms. anvil 1.5.1 does not read that contract when mining
+(checked, also under `--hardfork prague`), so the crash does not reproduce on the older
+binary.
+
+**Do:**
+
+- Retry *below* anvil, in front of `--fork-url`, and pass refusals (401/403/404/410)
+  through on the first answer so a dead endpoint still fails in its own words.
+- To learn whether a client retries status X, put a counting shim in front of it and
+  inject X, **with a control status the client is known to retry**. A soak against the real
+  endpoint cannot stand in for this. On 2026-09-11, 40 drpc forks at ~180 reads each saw
+  zero 408s, though the same endpoint had cost 2 of 30 CI jobs. The rate moves with the
+  provider's load and cannot be summoned.
+- A deadline-bounded retry loop must hand back the last *real* answer when the deadline
+  cuts a retry short. A first draft turned drpc's 408 into a relay-made 504 whenever a
+  backoff landed the next attempt just before the deadline (a 504 at 431ms against a 400ms
+  deadline, in the unit test that caught it). That swaps the upstream's words for the
+  retrier's.
+
 ## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
 
 **Believed:** after `page.goto('/swap?tab=liquidity')`, `await expect(page).toHaveURL(/liquidity$/)`
