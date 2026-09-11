@@ -51,6 +51,59 @@ silently turns the hold into a no-op.
 
 ---
 
+## 2026-09-10 — a waited `count()` can still be vacuous: the role was wrong
+
+**Believed:** a `count()`-gated assertion that reads 0 right after `page.goto` is
+a timing bug. Wait for the page to mount and the count becomes honest.
+
+**Measured** (#519: `e2e/a11y-smoke.spec.ts`, "TradePage swap amount input has a
+contextual aria-label", instrumented; all four device projects at `--workers=1`,
+production build under `vite preview`). The old test ran `goto('/swap')`, then
+`if ((await getByRole('textbox', { name: /amount of .* to pay/i }).count()) > 0)`
+assert visible. `count()` read 0 on every project:
+
+| project | count() ran at | route mounted then? | count() |
+|---|---|---|---|
+| chromium | +153ms after load | no (skeleton `aria-busy`) | 0 |
+| iphone-safari | +739ms | no | 0 |
+| ipad-safari | +152ms | no | 0 |
+| mobile-chrome | +902ms | **yes**, input in the DOM | **0** |
+
+After mount, on every project: textbox **0**, spinbutton **1**.
+
+`<input type="number">` has the implicit role **spinbutton**, not textbox, and
+Playwright's role engine follows that mapping. So `getByRole('textbox')` never
+matches a number input. There's no error and no timeout, just 0. A fix that
+waited for mount and kept the textbox locator would have been exactly as vacuous,
+with a convincing-looking wait in front of it. mobile-chrome is the proof: the
+timing was already fine there, and the count was still 0.
+
+Mutation check: with the label changed so it no longer matched, the OLD test
+still PASSED 4/4. The rewrite locates the input by structure, then asserts
+`toHaveAccessibleName`. It FAILED 4/4 with
+`Received string: "Amount of ETH a11ymutant"`, a value rather than
+"element not found".
+
+**Do:** before trusting a role locator on an `<input>`, read its `type`: number →
+spinbutton, range → slider, search → searchbox. When a conditional reads 0,
+separate "not there yet" from "never matches": count the raw CSS selector next to
+the role locator, before and after mount.
+
+### A fix recipe derived from one gate can miss the second
+
+Its sibling test (OnboardingModal) skipped on every run. The known reason was
+real: the fixture pre-seeds the modal's seen-key. But clearing the key alone still
+rendered nothing: no dialog within 8s, 4/4 projects. That's because a second,
+unrelated condition decides whether the auto-open variant is mounted at all.
+Written straight into the test, the one-gate recipe would have turned a false
+green into a new red.
+
+**Do:** run a fix recipe as a probe (log the state it claims to produce) before
+encoding it as an assertion. A skip reason that was never measured can be wrong
+twice.
+
+---
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
