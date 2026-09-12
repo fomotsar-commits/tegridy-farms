@@ -123,6 +123,121 @@ any failure that follows it.
   874ms → 208ms, and a botLink signature test with the same shape 1033ms → 2ms.
   Both were measured in the heavier of the two runs.
 
+---
+
+## 2026-09-12 — `Page.captureScreenshot` is served by the renderer it is screenshotting
+
+**Believed:** a CDP screenshot is taken by the browser, so it can observe a page
+whose main thread is blocked.
+
+It cannot. Probing whether a compositor-driven opacity animation still advances
+during a long task, the driver slept to a wall-clock instant and called
+`Page.captureScreenshot`. Every sample came back *after* the block ended: asking
+for +2,000 / +2,600 / +2,900 / +3,500 ms returned frames at +3,261 / +3,295 /
++3,326 / +3,396 ms. The screenshot path waits on the same blocked renderer, so
+the clock it appears to offer is the clock being investigated. It read "the
+overlay was still opaque at the deadline" — agreeing with the bug, for the wrong
+reason.
+
+**`Page.startScreencast` is a different channel.** Frames are *pushed* as the
+compositor produces them, and each carries `metadata.timestamp` (epoch seconds),
+so delivery latency does not smear the measurement. Re-probed with a solid
+3,000 ms busy loop across the deadline: 20 frames arrived *during* the block, with
+the overlay's opacity ramping smoothly to 0.
+
+**Do:** to answer "what was on screen at time T" for any T where script might be
+busy, use the screencast and the frame's own timestamp. Convert the page's clock
+with `performance.timeOrigin + performance.now()` to compare against it. Treat
+`captureScreenshot`, `page.screenshot()`, and anything routed through
+`page.evaluate` as main-thread instruments — fine for a quiescent page, useless
+for this question.
+
+---
+
+## 2026-09-12 — a compositor animation's `startTime` is set at the first frame, not at creation
+
+**Believed:** `el.animate(...)` starts the animation now, so a fade given the same
+duration as a deadline finishes at the same moment.
+
+It starts at the first frame the browser produces after creation, and on a loaded
+machine that frame is not soon. Measured on a real app under a blocked main
+thread: the overlay's first painted frame came **107 ms** after a MutationObserver
+stamped the node's insertion, and the fade finished at **3,002 ms** against a
+3,000 ms budget — having spent an entire 100 ms slack allowance on nothing but
+waiting to begin. The animation was correct; its zero was late.
+
+`animation.startTime = document.timeline.currentTime` dates it from the current
+commit instead. Same build, same block: the fade completed at **2,892 ms**.
+
+**Not the same trap as "a timeout and the animation it bounds can be counting from
+different moments" above**, though it is the same theme. That one is about a clock
+*your own code* stamps in a later effect; this one is the browser assigning a clock
+you never wrote, inside an API that looks synchronous.
+
+**Do:** pin `startTime` whenever an animation's *end* is a deadline rather than a
+decoration. `document.timeline.currentTime` is `null` before the document's first
+frame, so guard it. Note this is the same error as arming a `setTimeout` *at* a
+budget instead of inside it, one layer down — a deadline that begins late can only
+end late, and the lateness is invisible because the animation's own duration is
+exactly right.
+
+---
+
+## 2026-09-12 — a compositor emits frames only when something changes, so "assert a frame in [a, b]" fails correct code
+
+**Believed:** with a screencast running at `everyNthFrame: 1`, frames arrive
+continuously, so a test can assert that some frame inside a window shows the
+expected state.
+
+Frames are produced on change. Once a fade settles at opacity 0 the compositor has
+nothing further to draw and goes quiet: in one run the last frame of the fade was
+at **+2,918 ms** and the next at **+3,598 ms**, a 680 ms hole straddling the
+3,000 ms instant under test. An assertion requiring a frame inside
+`[budget, budget + 400]` therefore failed a curtain that was demonstrably gone.
+
+The opposite shape fails too, and more dangerously. "The first frame at or after
+the budget" was satisfied on one run by a frame at **+3,568 ms** — 168 ms after
+the blocked thread came back — so the *ordinary timers* answered it and the
+assertion would have passed on the unfixed build.
+
+**Do:** what is on screen at time T is **the last frame at or before T**, because
+that frame persists until the next one. Assert on that, and separately assert it
+post-dates whatever perturbation the test introduced, so a stale pre-test frame
+cannot answer for it.
+
+---
+
+## 2026-09-12 — a timing constant can make a whole code path unreachable, and the profile will not mention it
+
+**Believed:** the expensive function you can see in the phase that is running is
+the one to optimise.
+
+An arrival overlay's suspected cost was a glitch effect doing a full-canvas
+`getImageData` → per-pixel loop → `putImageData`, twice per call. It never ran.
+The phase branches on `pieceTime >= 1400`, and the variant's own `artDuration` is
+1,200, so `pieceTime` is bounded at 1,200 and the branch is dead — for that
+variant only; the other one, at 2,600, runs it every time.
+
+Reading the arithmetic found it, but **counting** is what settled it: patching
+`CanvasRenderingContext2D.prototype.getImageData`/`putImageData` to log size and
+count over one full overlay lifetime returned **0 `putImageData` calls** and 2
+`getImageData`, both at viewport size and both belonging to a different function
+entirely. A sampling profile agreed by omission, which is the weakest possible
+form of agreement — absent entries are indistinguishable from cheap ones.
+
+The same profile named the real top consumer: a decorative background component
+animating 530 particles **behind the opaque overlay**, at 597 ms per run, more
+than anything the overlay itself spent. It was not in the file under
+investigation.
+
+**Do:** before optimising a named suspect, instrument the primitive it is accused
+of over-using and count calls over one real run. A census answers "did this run at
+all, and how much", which is two questions a flame chart answers only by
+inference. And profile the whole page, not the component you suspect: work that is
+invisible is still work.
+
+---
+
 ## 2026-09-11 — a test that lets two endings race pins only the one that wins
 
 **Believed:** the arrival curtain has a hard deadline so that it is gone within its
