@@ -135,7 +135,7 @@ function VenueDashboard() {
           Your positions
         </h1>
         <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
-          Positions live in the room they were opened in &mdash; each resident&apos;s pool is its own
+          Positions live in the room they were opened in. Each resident&apos;s pool is its own
           token, on its own chain, read by its own panel. Open a room to see what you hold there.
           The venue itself holds nothing on your behalf.
         </p>

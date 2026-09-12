@@ -455,7 +455,7 @@ export default function ContractsPage() {
             style={{ border: '1px solid rgba(245, 158, 11, 0.35)', background: 'rgba(245, 158, 11, 0.07)' }}
           >
             <p className="text-amber-300 text-[13px] font-semibold mb-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-              Relaunch closure — outstanding deploy work
+              Relaunch closure: outstanding deploy work
             </p>
             <ul className="text-white/80 text-[12px] leading-relaxed space-y-1.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.85)' }}>
               <li className="flex items-start gap-2">
@@ -498,8 +498,8 @@ export default function ContractsPage() {
               This app is a convenience, not a dependency
             </p>
             <p className="text-white/80 text-[12px] leading-relaxed" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.85)' }}>
-              Every contract below is verified on Etherscan. If this site is ever unreachable — an
-              outage, a DNS or DDoS attack, a domain takedown — your funds are unaffected and the
+              Every contract below is verified on Etherscan. If this site is ever unreachable (an
+              outage, a DNS or DDoS attack, a domain takedown), your funds are unaffected and the
               protocol keeps running on-chain. Open any address below and use Etherscan's{' '}
               <span className="text-white/90 font-medium">Read Contract</span> and{' '}
               <span className="text-white/90 font-medium">Write Contract</span> tabs to check
@@ -510,7 +510,15 @@ export default function ContractsPage() {
           </div>
         </header>
 
-        <div className="space-y-8 md:space-y-10">
+        {/* WAVE SEVEN, element I, ruling 1: THE REGISTRY IS A RECORD.
+            Everything inside `data-record` is skipped by element I's guard, by
+            structure. The header above and this label are chrome and are held
+            at zero. src/pages/recordSurfaces.test.ts pins which files may
+            declare a record. */}
+        <p className="text-white/60 text-[12px] mb-4" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.85)' }}>
+          The venue&apos;s record. Entries keep the words they were written in.
+        </p>
+        <div className="space-y-8 md:space-y-10" data-record="contracts">
           {GROUPS.map((group, groupIdx) => (
             <section key={group.title} aria-labelledby={`group-${group.title}`}>
               <div className="mb-4 flex items-baseline justify-between gap-4 flex-wrap">

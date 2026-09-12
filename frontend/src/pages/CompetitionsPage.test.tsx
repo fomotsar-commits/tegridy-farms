@@ -66,9 +66,12 @@ describe('CompetitionsPage with no feed and no indexer', () => {
     // that has never run.
     renderPage();
     await waitFor(() => expect(screen.getByText(/outage of the trade feed/i)).toBeInTheDocument());
-    expect(screen.getByText(/no source in this build is reading this season/i)).toBeInTheDocument();
+    // Wave seven, row Q: with no indexer, the season card, its read notice and
+    // its table are one line that says what opens and when, and that nothing
+    // is being counted in the meantime.
+    expect(screen.getByText(/its standings open once this deployment reads the venue's indexer/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing is being counted until then/i)).toBeInTheDocument();
     expect(screen.queryByText(/counting now/i)).toBeNull();
-    expect(screen.getByText(/the standings could not be read/i)).toBeInTheDocument();
   });
 
   it('keeps the refusals on the page even with nothing to score', async () => {
@@ -80,6 +83,31 @@ describe('CompetitionsPage with no feed and no indexer', () => {
     expect(screen.getByText(/two-wallet collusion is not detectable/i)).toBeInTheDocument();
   });
 
+  it('draws no season control without an indexer, and keeps every button at a 44px target', async () => {
+    // Wave seven, row Q: the season card (and its control) is the part a
+    // missing indexer darkens, so it collapses to one line. A control for a
+    // season nothing reads would be a knob on an empty box.
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/outage of the trade feed/i)).toBeInTheDocument());
+    expect(screen.queryByLabelText(/season/i)).toBeNull();
+    for (const b of screen.getAllByRole('button')) {
+      expect(b.className).toContain('min-h-[44px]');
+    }
+  });
+});
+
+describe('CompetitionsPage with an indexer configured, and no feed', () => {
+  beforeEach(() => {
+    // indexer/client.ts reads VITE_INDEXER_URL on every call, so the configured
+    // branch is reachable without a module mock. fetch still refuses (above), so
+    // the standings read fails and must say so.
+    vi.stubEnv('VITE_INDEXER_URL', 'https://indexer.example.com/graphql');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('labels the season control and keeps every button at a 44px target', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(/outage of the trade feed/i)).toBeInTheDocument());
@@ -87,5 +115,13 @@ describe('CompetitionsPage with no feed and no indexer', () => {
     for (const b of screen.getAllByRole('button')) {
       expect(b.className).toContain('min-h-[44px]');
     }
+  });
+
+  it('keeps the season card, its read notice and its table gate, and never the one line', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/the standings could not be read/i)).toBeInTheDocument());
+    expect(screen.getByText(/no source in this build is reading this season/i)).toBeInTheDocument();
+    expect(screen.queryByText(/its standings open once this deployment reads the venue's indexer/i)).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 });

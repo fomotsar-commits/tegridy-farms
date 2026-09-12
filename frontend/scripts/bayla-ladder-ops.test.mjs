@@ -36,6 +36,10 @@ import {
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
+  ixProposeAuthority, ixAcceptAuthority, ixProposeCapRaise, ixCancelCapRaise,
+  ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
+  authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
+  acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, intArg, parseArgs, EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
@@ -663,6 +667,7 @@ describe('the CLI against the COMMITTED IDL', () => {
       reward_vault: p.rewardVault,
       token_program: TOKEN_2022,
       system_program: SYSTEM,
+      pending: OWNER,
     };
     // Arg widths, so the data length is derived from the IDL rather than restated.
     const WIDTH = { u8: 1, u32: 4, u64: 8, i64: 8, u128: 16, pubkey: 32, bool: 1 };
@@ -725,21 +730,160 @@ describe('the CLI against the COMMITTED IDL', () => {
     it('sweep_orphaned_penalty', () => matches('sweep_orphaned_penalty', ixSweep({
       programId: PROGRAM, pool, p,
     })));
+
+    it('propose_authority', () => matches('propose_authority', ixProposeAuthority({
+      programId: PROGRAM, authority: OWNER, pool, newAuthority: MINT,
+    })));
+
+    it('accept_authority', () => matches('accept_authority', ixAcceptAuthority({
+      programId: PROGRAM, pending: OWNER, pool,
+    })));
+
+    it('propose_cap_raise', () => matches('propose_cap_raise', ixProposeCapRaise({
+      programId: PROGRAM, authority: OWNER, pool, newCapRaw: 9n,
+    })));
+
+    it('cancel_cap_raise', () => matches('cancel_cap_raise', ixCancelCapRaise({
+      programId: PROGRAM, authority: OWNER, pool,
+    })));
+
+    it('execute_cap_raise', () => matches('execute_cap_raise', ixExecuteCapRaise({
+      programId: PROGRAM, pool,
+    })));
+
+    it('declare_degraded', () => matches('declare_degraded', ixDeclareDegraded({
+      programId: PROGRAM, authority: OWNER, pool,
+    })));
   });
 
   // A NEW PROGRAM INSTRUCTION MUST NOT ARRIVE UNNOTICED.
   //
-  // The gap this names is real and deliberate: the governance calls are run from
-  // a keypair the CLI has no builder for. Listing them means an instruction added
-  // to the program lands in NEITHER set and reds here, forcing the decision
-  // "build it, or write it down" instead of it being silently uncovered.
+  // This list used to name the six governance calls, deliberately, because the CLI
+  // had no builder for them - which meant the deposit cap could never be raised
+  // without hand-writing a transaction, and raising it IS the designed launch path.
+  // They are driven now (2026-09-11), so the list is empty. It stays, so that an
+  // instruction added to the program lands in NEITHER set and reds here, forcing
+  // "build it, or write it down" instead of silent non-coverage.
   it('every instruction in the IDL is either driven by the CLI or knowingly not', () => {
     const driven = Object.keys(IX).map(snake);
-    const notDriven = [
-      'accept_authority', 'propose_authority',
-      'propose_cap_raise', 'execute_cap_raise', 'cancel_cap_raise',
-      'declare_degraded',
-    ];
+    const notDriven = [];
     expect([...driven, ...notDriven].sort()).toEqual(need().instructions.map((i) => i.name).sort());
+  });
+});
+
+// The account-list block above proves WIDTH. These prove VALUE: a shape-only check
+// passed 28 of 29 mutations on this file once, so the bytes are asserted directly.
+describe('admin instruction args carry the value, not just the width', () => {
+  const pool = poolPda(PROGRAM, MINT, 0);
+
+  it('propose_authority encodes the proposed key verbatim', () => {
+    const who = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+    const ix = ixProposeAuthority({ programId: PROGRAM, authority: OWNER, pool, newAuthority: who });
+    expect(b(ix.data.subarray(8))).toEqual(b(who.toBuffer()));
+  });
+
+  it('propose_cap_raise encodes the cap as u64 little-endian', () => {
+    const ix = ixProposeCapRaise({ programId: PROGRAM, authority: OWNER, pool, newCapRaw: 5_000_000_000_000n });
+    expect(ix.data.readBigUInt64LE(8)).toBe(5_000_000_000_000n);
+  });
+
+  it('execute_cap_raise names NO signer - anyone may run it once the timelock is over', () => {
+    const ix = ixExecuteCapRaise({ programId: PROGRAM, pool });
+    expect(ix.keys.some((k) => k.isSigner)).toBe(false);
+  });
+
+  it('accept_authority is signed by the PENDING key, not the current authority', () => {
+    const pending = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+    const ix = ixAcceptAuthority({ programId: PROGRAM, pending, pool });
+    expect(ix.keys[0].pubkey.toBase58()).toBe(pending.toBase58());
+    expect(ix.keys[0].isSigner).toBe(true);
+  });
+});
+
+// Refusing locally what the program would refuse, so an operator never pays a fee to
+// learn it. Each boundary below is the exact comparison lib.rs makes.
+describe('the admin pre-checks refuse exactly what the program refuses', () => {
+  const other = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+  const base = {
+    authority: OWNER, pendingAuthority: PublicKey.default,
+    depositCap: 1_000_000n, pendingCap: 0n, pendingCapTs: 0n, degraded: false, decimals: 6,
+  };
+
+  it('the CLI timelock is the one in math.rs, read from the source', () => {
+    const src = readFileSync(new URL('../../solana/tegridy-amm/programs/bayla-ladder/src/math.rs', import.meta.url), 'utf8');
+    const m = /pub const CAP_TIMELOCK_SECS: i64 = ([\d_]+) \* ([\d_]+);/.exec(src);
+    expect(m, 'CAP_TIMELOCK_SECS not found in math.rs - re-anchor this test').not.toBeNull();
+    const want = Number(m[1].replace(/_/g, '')) * Number(m[2].replace(/_/g, ''));
+    expect(CAP_TIMELOCK_SECS).toBe(want);
+    expect(want).toBe(172_800);
+  });
+
+  it('only the authority may govern', () => {
+    expect(authorityProblem(base, OWNER)).toBeNull();
+    expect(authorityProblem(base, other)).toMatch(/Unauthorized/);
+  });
+
+  it('the cap can only rise - equal is refused, not accepted', () => {
+    expect(capRaiseProblem(base, 1_000_001n)).toBeNull();
+    expect(capRaiseProblem(base, 1_000_000n)).toMatch(/CapCanOnlyRaise/);
+    expect(capRaiseProblem(base, 999_999n)).toMatch(/CapCanOnlyRaise/);
+  });
+
+  it('there must be something to cancel', () => {
+    expect(cancelCapRaiseProblem(base)).toMatch(/NoPendingChange/);
+    expect(cancelCapRaiseProblem({ ...base, pendingCap: 2_000_000n })).toBeNull();
+  });
+
+  it('execute: nothing pending is refused', () => {
+    expect(executeCapRaiseProblem(base, 9_999_999_999)).toMatch(/NoPendingChange/);
+  });
+
+  it('execute: one second before the timelock is refused, and exactly at it is allowed', () => {
+    // lib.rs: `now >= pending_cap_ts + CAP_TIMELOCK_SECS`. A `>` here would make the
+    // CLI refuse a raise the program would take, for exactly one second.
+    const pend = { ...base, pendingCap: 2_000_000n, pendingCapTs: 1_000n };
+    expect(executeCapRaiseProblem(pend, 1_000 + CAP_TIMELOCK_SECS - 1)).toMatch(/TimelockNotElapsed/);
+    expect(executeCapRaiseProblem(pend, 1_000 + CAP_TIMELOCK_SECS)).toBeNull();
+  });
+
+  it('execute: a pending cap that is no longer above the cap is refused', () => {
+    const stale = { ...base, pendingCap: 1_000_000n, pendingCapTs: 1n };
+    expect(executeCapRaiseProblem(stale, 9_999_999_999)).toMatch(/CapCanOnlyRaise/);
+  });
+
+  it('accept: there must be a pending transfer, and only the proposed key may take it', () => {
+    expect(acceptAuthorityProblem(base, OWNER)).toMatch(/no authority transfer is pending/);
+    const pend = { ...base, pendingAuthority: other };
+    expect(acceptAuthorityProblem(pend, other)).toBeNull();
+    expect(acceptAuthorityProblem(pend, OWNER)).toMatch(/Unauthorized/);
+  });
+
+  it('degraded is one-way', () => {
+    expect(declareDegradedProblem(base)).toBeNull();
+    expect(declareDegradedProblem({ ...base, degraded: true })).toMatch(/AlreadyDegraded/);
+  });
+});
+
+// The only irreversible command this CLI has. The guard used to live inline in main(),
+// where no test could reach it - a mutation deleting it would have left every test green.
+describe('declare-degraded needs a second word before it will broadcast', () => {
+  const argv = (...rest) => parseArgs(['declare-degraded', '--pool', 'X', ...rest]);
+
+  it('a dry run never needs it', () => {
+    expect(confirmPermanentProblem(false, argv())).toBeNull();
+  });
+
+  it('--broadcast alone is refused', () => {
+    expect(confirmPermanentProblem(true, argv('--broadcast'))).toMatch(/--confirm-permanent/);
+  });
+
+  it('--broadcast with --confirm-permanent is allowed, in either order', () => {
+    expect(confirmPermanentProblem(true, argv('--confirm-permanent', '--broadcast'))).toBeNull();
+    expect(confirmPermanentProblem(true, parseArgs(['declare-degraded', '--broadcast', '--confirm-permanent', '--pool', 'X']))).toBeNull();
+  });
+
+  it('a truthy-but-not-true value does NOT count', () => {
+    // `--confirm-permanent yes` parses "yes" as the flag's value. Only a bare flag is true.
+    expect(confirmPermanentProblem(true, argv('--confirm-permanent', 'yes', '--broadcast'))).toMatch(/--confirm-permanent/);
   });
 });

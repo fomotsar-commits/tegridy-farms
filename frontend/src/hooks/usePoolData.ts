@@ -1,4 +1,4 @@
-import { useReadContracts, useChainId } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
@@ -6,11 +6,12 @@ import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkD
 export function usePoolData() {
   const addr = TEGRIDY_STAKING_ADDRESS;
   const isDeployed = checkDeployed(addr);
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
 
-  // R043 H-062-02: chainId pin on every entry, gate on onMainnet — a wrong-chain
-  // wallet must not read another chain's storage and render fabricated figures.
+  // R043 H-062-02: chainId pin on every entry — a wrong-chain wallet must not
+  // read another chain's storage and render fabricated figures. The pin is the
+  // whole fix. NOT gated on useChainId() === CHAIN_ID: since the multichain
+  // config that gate disabled these reads off mainnet and handed FarmStatsRow a
+  // "0%" APR (see useLPFarming.ts).
   const { data, isLoading } = useReadContracts({
     contracts: [
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
@@ -21,7 +22,7 @@ export function usePoolData() {
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalUnsettledRewards', chainId: CHAIN_ID },
       { address: TOWELI_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [addr], chainId: CHAIN_ID },
     ],
-    query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   // Safely extract results — if contract call fails, use 0n
