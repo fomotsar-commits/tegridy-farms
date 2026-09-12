@@ -19,7 +19,8 @@ permanent, and the program's deployer is compiled into the binary.
       the command is in the devnet runbook.
 - [ ] **Both keyfiles are backed up offline** — the program keyfile and the deployer's.
       Not to OneDrive or any cloud folder in plaintext.
-- [x] **The upgrade authority is decided** (§3), 2026-09-12: a **Squads multisig**.
+- [x] **The upgrade authority is decided** (§3), 2026-09-12: the venue's **existing Squads v4
+      vault** `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`. Nothing to create.
 - [x] **The pool parameters are decided** (§6), 2026-09-12: **100 / 2,000,000 / 5,000,000**.
       Two of the three can never be changed.
 - [ ] **A keyed mainnet RPC URL.** The public endpoint throttles hard, and a program upload
@@ -35,7 +36,7 @@ permanent, and the program's deployer is compiled into the binary.
 | program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. The keyfile lives outside the repo, and is only needed until the program is deployed. |
 | deployer | `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` | **Confirmed 2026-09-12.** The owner's existing BAYLA admin wallet. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's authority. |
 | BAYLA mint | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | Token-2022, 6 decimals |
-| upgrade authority | a **Squads vault** — fill the address in once the multisig exists | the key that matters most |
+| upgrade authority | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | The venue's existing Squads v4 **vault**: index 0 of multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2. A PDA with no private key, so the transfer needs `--skip-new-upgrade-authority-signer-check`. |
 
 **Why a plain wallet is acceptable as the POOL authority, and not as the UPGRADE
 authority.** The pool authority's instructions were read account by account:
@@ -69,16 +70,36 @@ Both authorities must be empty, decimals `6`, and the extensions exactly
 
 ---
 
-## 3. Upgrade authority — DECIDED: a Squads multisig
+## 3. Upgrade authority — DECIDED: the venue's existing Squads vault
 
-**Chosen 2026-09-12.** Create the multisig, deploy with the deployer as the upgrade
-authority, verify (§5), then transfer it to the vault straight away. Use the **vault**
-address — the one that holds assets — not the multisig account's own address; confirm
-it in the Squads app before pasting it into a command.
+**Chosen 2026-09-12, and it already exists — there is nothing to create.** Deploy with
+the deployer as the upgrade authority, verify the bytes on chain (§5), then transfer.
 
-Two things to settle inside Squads before the transfer: the **signer set and threshold**
-(more than one signer is the whole point; 2-of-3 is a common shape), and the **time
-lock**, which is what stops a stolen signer pushing an upgrade instantly.
+| | address | |
+| --- | --- | --- |
+| multisig | `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK` | Squads v4 config account. **Never the upgrade authority.** |
+| vault, index 0 | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | **This is the upgrade authority.** |
+
+Verified on mainnet 2026-09-12 rather than copied from a note:
+
+- the multisig is owned by the Squads v4 program
+  `SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf`, carries the `Multisig` Anchor
+  discriminator, and reads **threshold 2** at offset 72;
+- the vault exists, System-owned with zero data — the shape of a vault PDA; and
+- re-deriving `["multisig", <multisig>, "vault", 0]` under the Squads program reproduces
+  the vault address exactly, while indexes 1 and 2 give entirely different addresses.
+  `squadsRegistry.test.ts` pins that derivation so the two registry entries cannot drift.
+
+⚠️ **Use the VAULT, never the multisig account.** `addresses.json` records what happened
+the last time the two were confused: the cp-swap binary baked the *multisig* account as
+its admin — an account that can neither sign (v4 signs CPIs as the vault) nor be
+debited — and that is what bricked graduation. They look equally like *the Squads
+address* in a command; only the derivation tells them apart.
+
+**Still to confirm in the Squads app before the transfer:** the **member set** (who can
+actually sign) and the **time lock**, which is what stops a stolen signer pushing an
+upgrade instantly. Threshold 2 is confirmed on chain; those two are not readable from
+the registry.
 
 **Immutable (`--final`) was the alternative, and was not taken.** It is the stronger
 promise to stakers, but the program is new: an audit follow-up would otherwise need a
@@ -160,7 +181,7 @@ The two hashes must match: that is the proof that the audited bytes are what is 
 **Then hand over the upgrade authority** — option A:
 
 ```powershell
-solana program set-upgrade-authority EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --new-upgrade-authority <SQUADS-VAULT> --skip-new-upgrade-authority-signer-check
+solana program set-upgrade-authority EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --new-upgrade-authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd --skip-new-upgrade-authority-signer-check
 solana program show EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ
 ```
 

@@ -489,6 +489,11 @@ These are not tasks I can do, and none of them should be improvised on the day.
    keypair. For a program holding other people's principal that is not adequate. Choose:
    Squads multisig with a timelock, or burn the authority and make the program immutable.
    Immutable is the stronger promise and forecloses fixing anything.
+   **DECIDED 2026-09-12: the Squads route, using the venue's EXISTING v4 vault**
+   `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (index 0 of multisig
+   `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2 — all three facts read on
+   chain that day, and the derivation pinned by `squadsRegistry.test.ts`). See the
+   mainnet runbook §3, including why it must be the vault and never the multisig.
 2. 🔑 **A real mainnet program keypair**, generated and backed up before use. Two
    own-venue program keypairs are currently gitignored and **unbacked-up**; do not add a
    third to that pile.
