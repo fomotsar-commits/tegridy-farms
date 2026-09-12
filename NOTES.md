@@ -15,6 +15,43 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — a source guard that searches the whole file answers about the file, not the code it names
+
+**Believed:** a guard for "this timer is armed in a layout effect" could be written
+as: find the timer, then compare the last `useLayoutEffect(` before it against the
+last `useEffect(` before it. Whichever is nearer is the effect it sits in.
+
+**Measured:** nearness in a file is not enclosure. With the deadline moved back into
+a passive effect AND one comment above the timer naming the layout hook in passing,
+the guard stayed GREEN: the exact mutation it exists to catch walked through it. The
+fooling text was not hypothetical either, since that effect's own comments name both
+kinds of hook.
+
+**Technique:** a source guard must read the construct that ENCLOSES the code it is
+about, and must ignore comments. Walk back from the line you matched to the nearest
+line that opens the construct, skipping comment lines, and assert on that line. Then
+mutate twice: the plain break (it must red), and the plain break PLUS the text that
+could fool it (it must still red). A guard is only as good as its second mutation.
+
+## 2026-09-12 — a timeout and the animation it bounds can be counting from different moments
+
+**Believed:** one line of arithmetic settles whether a deadline cuts an animation
+short: the deadline fires at 2,500 ms, the animation needs 2,400 ms, so the animation
+always finishes first.
+
+**Measured:** the two numbers start from different moments. The deadline was armed in
+a layout effect, during the commit that puts the overlay in the DOM. The animation's
+clock is stamped later, in a passive effect that first builds a WebGL post-processing
+pass. Whatever that gap costs -- paint, chunk parse, GL context creation -- is spent
+before the animation starts counting and not before the deadline does, so the real
+margin is smaller than the arithmetic, and on a slow machine the deadline can cut an
+animation that is running on time.
+
+**Technique:** before comparing a timeout against a duration, write down which moment
+each side counts from. If they differ, either anchor both to the same stamp, or keep
+the bound and say in the test what it is: a floor, short by however long the gap runs.
+The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
+
 ## 2026-09-11 — a test that lets two endings race pins only the one that wins
 
 **Believed:** the arrival curtain has a hard deadline so that it is gone within its
