@@ -265,8 +265,8 @@ export function AppLoader({
     //
     // It used to live only in the animation tick, at the three points where the
     // curtain ends by its own frames. The deadline below made those points
-    // unreachable: skipIntro fires at BUDGET - 400, the dissolve needs its full
-    // 400, and the finalize timer at BUDGET races the very frame that would
+    // unreachable: skipIntro fires at goneBy - SKIP_DISSOLVE_MS, the dissolve
+    // needs its full 400, and the finalize timer at goneBy races the frame that
     // have marked the arrival — and wins. So nothing was written, and the
     // curtain played again on every load, warm or slow, on every machine. The
     // island measured five runs of five: `tf_loaded` null in all five. The

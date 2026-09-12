@@ -121,8 +121,8 @@ describe('the curtain is gone by its budget, whatever the machine does', () => {
   //
   // The mark used to live only in the animation tick, at the frames where the
   // curtain ends by its own choreography. Arming the deadline made those frames
-  // unreachable — skipIntro at BUDGET - 400, a dissolve that needs 400, and the
-  // finalize timer at BUDGET winning the race — so `tf_loaded` was never
+  // unreachable — skipIntro at goneBy - 400, a dissolve that needs 400, and the
+  // finalize timer at goneBy winning the race — so `tf_loaded` was never
   // written and the curtain replayed on every single load. The island measured
   // five runs of five before anyone here noticed, because the guard that
   // claimed "once per browser: yes" read the skip decision instead of loading

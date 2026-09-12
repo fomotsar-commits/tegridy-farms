@@ -213,16 +213,50 @@ describe('any input lifts it at once', () => {
 });
 
 describe('the deadline counts from the commit that shows the curtain', () => {
+  const lines = src.split(String.fromCharCode(10));
+  const opensAnEffect = (l: string) => {
+    const t = l.trim();
+    if (t.startsWith('//') || t.startsWith('*')) return false;
+    return t.includes('useEffect(') || t.includes('useLayoutEffect(');
+  };
+
   it('is armed in a LAYOUT effect, not a passive one', () => {
     // A passive effect runs after the browser paints, so a deadline armed there
     // starts its clock after the curtain is already on screen, while the e2e
     // measures from the overlay entering the DOM. curtainDeadline.test.tsx
     // cannot see the difference (render flushes both kinds inside act), so this
     // one reads the source.
-    const at = src.indexOf('window.setTimeout(finalize');
-    expect(at, 'the deadline timer is gone').toBeGreaterThan(-1);
-    const before = src.slice(0, at);
-    expect(before.lastIndexOf('useLayoutEffect('), 'the deadline is armed after paint')
-      .toBeGreaterThan(before.lastIndexOf('useEffect('));
+    //
+    // It reads the effect that ACTUALLY encloses the timer: the nearest opener
+    // above it, skipping comment lines. A whole-file "is there a layout effect
+    // before this" test would pass on a passive deadline that merely had one
+    // somewhere above, and the comments in this very effect name both kinds.
+    const timer = lines.findIndex((l) => l.includes('window.setTimeout(finalize'));
+    expect(timer, 'the deadline timer is gone').toBeGreaterThan(-1);
+    const opener = [...lines.slice(0, timer)].reverse().find(opensAnEffect);
+    expect(opener, 'nothing opens an effect above the deadline timer').toBeDefined();
+    expect(opener, 'the deadline is armed in a passive effect, so it starts counting after paint')
+      .toContain('useLayoutEffect(');
+  });
+
+  it('arms the dissolve as well, one SKIP_DISSOLVE_MS before the end', () => {
+    // NO BEHAVIOUR TEST CAN SEE THIS ONE. In jsdom the canvas has no 2D
+    // context, so the tick never runs and the dissolve draws nothing; delete
+    // the first timer and every test still passes, because the unconditional
+    // end still fires. What is lost is what a visitor sees: the curtain cuts
+    // instead of dissolving. So the two timers are pinned as a pair, with the
+    // arithmetic that keeps the dissolve inside the budget.
+    expect(src).toContain('const goneBy = CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS;');
+    expect(src, 'the dissolve is no longer armed a dissolve before the end')
+      .toContain('window.setTimeout(skipIntro, goneBy - SKIP_DISSOLVE_MS)');
+    expect(src, 'the unconditional end is no longer armed at goneBy')
+      .toContain('window.setTimeout(finalize, goneBy)');
+  });
+
+  it('keeps the budget the island ruled, as a literal', () => {
+    // Every other assertion in these files derives from the constant, so
+    // raising it would leave the whole suite green while the promise changed.
+    // 3,000 ms is the island's number; moving it is their decision to make.
+    expect(CURTAIN_BUDGET_MS).toBe(3000);
   });
 });
