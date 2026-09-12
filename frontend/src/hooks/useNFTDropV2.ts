@@ -66,6 +66,10 @@ export function useNFTDropV2(dropAddress: string) {
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
   // R043 H-062-02 + H-062-04: chainId pin on every entry, 60s poll (was 30s).
+  // NOT gated on useChainId() === CHAIN_ID: the pins already read mainnet, and
+  // that gate left a visitor whose wallet was last on Base or Robinhood with a
+  // sale nobody read ("0/0" minted, "Minting closed") - see useLPFarming.ts.
+  // `onMainnet` still guards mint() and refund(), which send from the wallet.
   const { data, refetch } = useReadContracts({
     contracts: [
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'mintPhase', chainId: CHAIN_ID },
@@ -81,7 +85,7 @@ export function useNFTDropV2(dropAddress: string) {
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'creator', chainId: CHAIN_ID },
       { address: contractAddr, abi: TEGRIDY_DROP_V2_ABI, functionName: 'contractURI', chainId: CHAIN_ID },
     ],
-    query: { enabled: enabled && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { enabled, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   const currentPhase = data?.[0]?.status === 'success' ? Number(data[0].result as number) : 0;
@@ -103,12 +107,13 @@ export function useNFTDropV2(dropAddress: string) {
   // real money. Two separately-named facts, because they gate different things:
   // only a SUCCESSFUL read may arm a signature (so pending and disabled queries
   // disarm too), while the "network did not answer" copy is scoped to a read we
-  // actually issued - off mainnet, or with a placeholder address, the batch is
-  // disabled and that is not an outage.
+  // actually issued - with a placeholder address the batch is disabled, and
+  // that is not an outage. A wallet on another chain IS asked (the batch is
+  // chain-pinned, not chain-gated), so its failures count.
   /** The `currentPrice()` call came back `status: 'success'`. A pending, disabled or failed read is `false`. */
   const priceReadOk = data?.[1]?.status === 'success';
   /** The price read was attempted and did not land. `currentPrice` is 0n here, and that 0 is not a price. */
-  const priceUnread = enabled && onMainnet && !!data && data[1]?.status !== 'success';
+  const priceUnread = enabled && !!data && data[1]?.status !== 'success';
 
   /** Only meaningful when `priceReadOk`. */
   const currentPriceFormatted = Number(formatWei(currentPrice, 18, 8));
@@ -298,7 +303,7 @@ export function useNFTDropV2(dropAddress: string) {
     currentPriceFormatted,
     priceReadOk,
     priceUnread,
-    /** The wallet is on CHAIN_ID, i.e. the reads above were actually issued. */
+    /** The wallet is on CHAIN_ID, so mint() and refund() will send. Says nothing about the reads above: they are pinned to CHAIN_ID and run from any chain. */
     onMainnet,
     // NB: total/supply alias kept so shared launchpad components that accept
     // { mintPrice, totalMinted } (see CreatorRevenueDashboard) Just Work.

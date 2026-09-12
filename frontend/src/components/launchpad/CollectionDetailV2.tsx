@@ -46,9 +46,9 @@ export function CollectionDetailV2({
   const mintLabel = useMemo(() => {
     if (!deployed) return 'Contract Not Deployed';
     if (!isConnected) return 'Connect Wallet';
-    // Every read is pinned to CHAIN_ID, so off mainnet there is no price to
-    // quote and mint() refuses anyway. Say which, rather than offering a mint
-    // at a figure nobody read.
+    // The reads are pinned to CHAIN_ID and land on any chain, but mint()
+    // refuses off mainnet and the button below is disabled there. Say which,
+    // rather than quoting a mint this wallet cannot send from here.
     if (!drop.onMainnet) return 'Switch to Ethereum Mainnet';
     if (drop.isCancelled) return 'Sale Cancelled';
     if (drop.paused) return 'Minting Paused';
@@ -70,6 +70,10 @@ export function CollectionDetailV2({
   const mintDisabled =
     !deployed ||
     !isConnected ||
+    // mint() refuses off mainnet; say so here. The reads now land on any
+    // chain, so the price check below no longer holds this button down there,
+    // which it only ever did because the batch used to be chain-gated.
+    !drop.onMainnet ||
     drop.isCancelled ||
     drop.paused ||
     drop.isPending ||
@@ -78,7 +82,7 @@ export function CollectionDetailV2({
     drop.currentPhase === 0 ||
     // OUTAGE-AS-FREE. A price the app never read cannot arm a signature. This
     // requires a POSITIVE read rather than the absence of a failure, so a
-    // still-pending batch and a disabled (wrong-network) query also disarm.
+    // still-pending batch and a disabled (placeholder-address) query also disarm.
     !drop.priceReadOk ||
     (drop.currentPhase === 1 && (!proofInput.trim() || !allowedAmountInput.trim()));
 
