@@ -56,6 +56,16 @@ one unobservable: the label checks "unknown" first, and `disabled` has the other
 gate. One of two belt-and-braces gates always survives a single-line mutation.
 Decide which one the tests pin and say so, rather than chasing it.
 
+**An animated figure asserted at t=0 proves nothing.** A score ring that eases
+from 0 over 1200ms of `requestAnimationFrame` is empty one frame after render
+whatever the score is, so "the ring is empty during an outage" passed — and a
+mutation that fills the ring from the UNDERSTATED score survived it. Driving the
+clock instead killed it: `vi.useFakeTimers({ toFake: ['requestAnimationFrame',
+'cancelAnimationFrame', 'performance'] })` then `act(() =>
+vi.advanceTimersByTime(1500))`. That also took the file from ~4s of real waiting
+(one `waitFor` was already timing out at 4000ms) to 70ms. A wall-clock wait would
+have been the threshold flake this file warns about elsewhere.
+
 **Tooling trap.** JSX *text* does not process `\u` escapes: `Minting closed —
 the creator…` rendered six literal characters with tsc and eslint clean. The Claude
 Code Edit tool normalises `—` in both strings, so it cannot target the literal
