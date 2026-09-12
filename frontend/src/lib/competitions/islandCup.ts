@@ -3,8 +3,9 @@
 //
 // ─── WHY A SECOND BOARD AT ALL ───────────────────────────────────────────────
 //
-// Season 1 scores the venue router's own swaps out of a Ponder indexer that is
-// hosted nowhere, so it has never drawn a row. Meanwhile every resident of the
+// Season 1 scores the venue router's own swaps out of a Ponder indexer that was
+// hosted nowhere when this board was built, so it had never drawn a row.
+// Meanwhile every resident of the
 // island already carries a pool address that GeckoTerminal answers for, the
 // browser already fetches those tapes on the bungalow pages, and the CSP already
 // permits the host. The board was one adapter away the whole time.

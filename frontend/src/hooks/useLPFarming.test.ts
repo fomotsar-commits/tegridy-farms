@@ -274,12 +274,14 @@ describe('useLPFarming — a failed position read is not a zero position', () =>
     expect(result.current.positionUnread).toBe(false);
   });
 
-  it('the wrong chain is not an outage', () => {
-    wagmiMock.setChainId(11155111);
+  it('a wallet on another chain is asked like any other, so its failure IS an outage', () => {
+    // The batch is chain-pinned and no longer gated on the wallet's chain, so a
+    // wallet on Base reads mainnet. An unanswered read is then the same failure it
+    // is on mainnet, and staying silent would show an LP staker on the wrong
+    // network the never-staked panel.
+    wagmiMock.setChainId(8453);
     const { result } = renderHook(() => useLPFarming());
-    // The batch is disabled off mainnet and FarmPage already shows its own
-    // wrong-chain banner; a not-attempted read must not be reported as failed.
-    expect(result.current.positionUnread).toBe(false);
+    expect(result.current.positionUnread).toBe(true);
   });
 });
 
@@ -324,13 +326,12 @@ describe('useLPFarming — an unread MIN_STAKE is not "no minimum"', () => {
     expect(result.current.minStake).toBe(10n ** 16n);
   });
 
-  it('the wrong chain is not an outage', () => {
-    // MIN_STAKE is a pool constant, not a user read, so this flag is scoped
-    // without `address` -- but a batch that was never enabled still must not
-    // report a failure it never attempted.
-    wagmiMock.setChainId(11155111);
+  it('a wallet on another chain is asked like any other, so its failure IS an outage', () => {
+    // Off mainnet the batch still runs (it is chain-pinned, not chain-gated), so
+    // an unread minimum there disarms the same client-side floor it does here.
+    wagmiMock.setChainId(8453);
     const { result } = renderHook(() => useLPFarming());
-    expect(result.current.minStakeUnread).toBe(false);
+    expect(result.current.minStakeUnread).toBe(true);
   });
 
   it('a disconnected visitor still learns the pool minimum', () => {
@@ -380,5 +381,137 @@ describe('useLPFarming — an unread pool total is not an empty pool', () => {
     const { result } = renderHook(() => useLPFarming());
     expect(result.current.poolStatsUnread).toBe(true);
     expect(result.current.positionUnread).toBe(false);
+  });
+
+  it('a logged-out visitor last on another chain still learns the totals are unread', () => {
+    // FarmPage's logged-out surface: wagmi keeps the persisted chain through a
+    // disconnect, and the batch now runs there, so its failures must say so too.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    wagmiMock.setChainId(8453);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.poolStatsUnread).toBe(true);
+  });
+});
+
+// OUTAGE-AS-ZERO, the whole farm-wide set. The two describes above each cover a
+// part of it -- minStakeUnread [10], poolStatsUnread [0][4] -- and each was wired
+// to one sentence. `statsUnread` is their union plus the four reads neither covers
+// ([1] rewardRate, [2] periodFinish, [3] rewardsDuration, [9] LP totalSupply), and
+// it is what the section's tiles, APR figure and notice gate on. Without it an
+// unread periodFinish still titled an amber "0 / day" with "The reward period has
+// ended", and a landed total beside an unread rewardRate printed a "0.00%" APR.
+// Scoped without `address`, like the two above: the batch runs logged-out too.
+describe('useLPFarming — a failed farm-wide read is not an empty farm', () => {
+  /** Every farm-wide read landing successfully at `value`. */
+  function stubFarmReads(value: bigint) {
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'totalRawSupply', result: value });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rewardRate', result: value });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'periodFinish', result: value });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'rewardsDuration', result: value });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'totalRewardsFunded', result: value });
+    wagmiMock.setReadResult({ address: TEGRIDY_LP_ADDRESS, functionName: 'totalSupply', result: value });
+    wagmiMock.setReadResult({ address: LP_FARMING_ADDRESS, functionName: 'MIN_STAKE', result: value });
+  }
+
+  beforeEach(() => {
+    wagmiMock.reset();
+    wagmiMock.setChainId(CHAIN_ID);
+    wagmiMock.setAccount({ address: USER, isConnected: true });
+  });
+
+  it('an unanswered farm-wide read is unread, and the totals still collapse to 0n', () => {
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.statsUnread).toBe(true);
+    // The collapse stays for display -- which is why the failure needs its own channel.
+    expect(result.current.totalStaked).toBe(0n);
+    expect(result.current.totalRewardsFunded).toBe(0n);
+    expect(result.current.periodFinish).toBe(0);
+  });
+
+  it('a SUCCESSFUL on-chain zero is not an outage', () => {
+    // An empty, unfunded farm on an ended schedule is a real, publishable state.
+    stubFarmReads(0n);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.statsUnread).toBe(false);
+    expect(result.current.totalStaked).toBe(0n);
+    expect(result.current.isActive).toBe(false);
+  });
+
+  it.each([
+    ['totalRawSupply', LP_FARMING_ADDRESS],
+    ['rewardRate', LP_FARMING_ADDRESS],
+    ['periodFinish', LP_FARMING_ADDRESS],
+    ['rewardsDuration', LP_FARMING_ADDRESS],
+    ['totalRewardsFunded', LP_FARMING_ADDRESS],
+    ['totalSupply', TEGRIDY_LP_ADDRESS],
+    ['MIN_STAKE', LP_FARMING_ADDRESS],
+  ])('one failed leg (%s) of the seven is enough to be unread', (fn, addr) => {
+    // Every multicall entry is submitted `allowFailure: true`, so one reverting
+    // sub-call comes back 'failure' beside 'success' siblings, and wagmi's default
+    // multicall batching can split one hook's reads across requests. A flag that
+    // only fires when EVERY read failed is the documented blind spot this must not
+    // reproduce (check-unread-signal.mjs KNOWN_BLIND_SPOTS). The failure stub is
+    // registered last and the mock is last-match-wins on (functionName, address),
+    // so exactly one leg fails.
+    stubFarmReads(1n);
+    wagmiMock.setReadResult({ address: addr, functionName: fn, result: undefined, status: 'failure' });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.statsUnread).toBe(true);
+  });
+
+  it('a DISCONNECTED visitor with a failed farm read IS an outage', () => {
+    // The whole point of dropping the `!!address` term. This batch is enabled on
+    // `isDeployed` alone -- userAddr falls back to the zero address --
+    // so the farm-wide reads ran and failed with nobody connected, on the exact
+    // surface FarmPage renders at isConnected={false}.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.statsUnread).toBe(true);
+    // ...while the position flag correctly stays quiet: nothing was asked about a
+    // wallet that isn't there.
+    expect(result.current.positionUnread).toBe(false);
+  });
+
+  it('a disconnected visitor reading a real empty farm is still not an outage', () => {
+    // The counter-test to the one above: dropping `!!address` must not turn every
+    // logged-out page view amber.
+    wagmiMock.setAccount({ address: undefined, isConnected: false });
+    stubFarmReads(0n);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.statsUnread).toBe(false);
+  });
+
+  it.each([
+    ['rewardRate', LP_FARMING_ADDRESS],
+    ['periodFinish', LP_FARMING_ADDRESS],
+    ['rewardsDuration', LP_FARMING_ADDRESS],
+    ['totalSupply', TEGRIDY_LP_ADDRESS],
+  ])('a wallet on another chain is asked like any other, so a failed %s IS an outage', (fn, addr) => {
+    // Same scoping as positionUnread: the batch is chain-pinned, not chain-gated,
+    // so off mainnet the farm-wide reads still run and can fail. 8453 rather than
+    // an unconfigured chain: wagmi only persists a chain it serves.
+    //
+    // ONE leg, and one only statsUnread's own clause covers. statsUnread is a
+    // union, and with every read failing poolStatsUnread sets it by itself -- so an
+    // all-fail fixture cannot see a chain term on the clause. That version of this
+    // test passed with the term put back.
+    wagmiMock.setChainId(8453);
+    stubFarmReads(1n);
+    wagmiMock.setReadResult({ address: addr, functionName: fn, result: undefined, status: 'failure' });
+    const { result } = renderHook(() => useLPFarming());
+    // Nothing else in the union can carry it...
+    expect(result.current.poolStatsUnread).toBe(false);
+    expect(result.current.minStakeUnread).toBe(false);
+    // ...so this is the clause itself answering, off mainnet.
+    expect(result.current.statsUnread).toBe(true);
+  });
+
+  it('a failed POSITION read alone does not turn the farm figures unknown', () => {
+    // The two flags are independent facts. Blanking the farm-wide tiles because
+    // one wallet-scoped read failed would be its own false claim.
+    stubFarmReads(1n);
+    const { result } = renderHook(() => useLPFarming());
+    expect(result.current.positionUnread).toBe(true);
+    expect(result.current.statsUnread).toBe(false);
   });
 });

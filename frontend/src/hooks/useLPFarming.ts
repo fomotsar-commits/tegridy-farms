@@ -15,7 +15,6 @@ export function useLPFarming() {
   const chainId = useChainId();
   const userAddr = address ?? ZERO_ADDR;
   const isDeployed = checkDeployed(LP_FARMING_ADDRESS);
-  const onMainnet = chainId === CHAIN_ID;
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID. Without `chainId`,
@@ -56,7 +55,17 @@ export function useLPFarming() {
 
   // Batch read: global stats + user data
   // R043 H-062-02 + H-062-04: chainId pin on every contract entry, 60s poll
-  // (was 30s — TVL/rewards don't move per-block), gate on onMainnet.
+  // (was 30s — TVL/rewards don't move per-block).
+  //
+  // NOT gated on the wallet's chain, and it must not be. R043 also gated
+  // `enabled` on `useChainId() === CHAIN_ID`, written when wagmi served mainnet
+  // alone and that could not be false. Since the multichain config useChainId()
+  // follows the wallet, and wagmi persists it through a disconnect, so a
+  // logged-out visitor last on Base had this batch DISABLED: a disabled query is
+  // neither loading nor failed, every value below collapsed to 0, and
+  // LPFarmingSection printed an empty, ended farm as fact. The pins already send
+  // every read to mainnet (F198); the writes keep their own `chainId !==
+  // CHAIN_ID` guards. Pinned by farmReadsWalletChain.test.ts.
   const { data, refetch, isLoading: isReadLoading } = useReadContracts({
     contracts: [
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply', chainId: CHAIN_ID },
@@ -72,7 +81,7 @@ export function useLPFarming() {
       { address: TEGRIDY_LP_ADDRESS, abi: ERC20_ABI, functionName: 'totalSupply', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'MIN_STAKE', chainId: CHAIN_ID },
     ],
-    query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   const totalStaked = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;
@@ -94,9 +103,10 @@ export function useLPFarming() {
   // loss panel when it is 0n, so a single unanswered RPC call told an LP staker
   // that their position does not exist and left them no control to reach it.
   // Keep the collapse for display; carry the failure next to it. Scoped to a
-  // connected wallet with the batch actually enabled: an undeployed farm or a
-  // wrong network never asked, which is a different fact with its own banner -
-  // a not-attempted read must not render as a failed one.
+  // connected wallet on a deployed farm: an undeployed farm never asked, which
+  // is a different fact with its own panel - a not-attempted read must not
+  // render as a failed one. A wallet on another chain IS asked (the batch is
+  // chain-pinned, not chain-gated), so its failures count.
   // THE SAME SHAPE, FIVE ENTRIES ALONG, and the one nothing caught: MIN_STAKE
   // collapsing to 0n reads as "this pool has no minimum". LPFarmingSection.tsx
   // gates its client-side floor on `minStake > 0n` (:272) and the notice that
@@ -112,7 +122,7 @@ export function useLPFarming() {
   // scripts/check-unread-signal.mjs.
   //
   // No `address` in the scope: MIN_STAKE is a pool constant, not a user read.
-  const minStakeUnread = isDeployed && onMainnet && !isReadLoading
+  const minStakeUnread = isDeployed && !isReadLoading
     && data?.[10]?.status !== 'success';
 
   // Entry [0], the POOL-WIDE total. Neither flag above speaks for it:
@@ -130,13 +140,57 @@ export function useLPFarming() {
   // reward period genuinely ended 2026-06-15 and the farm is unfunded, so the
   // collapse and the truth render identically today. Fold it in HERE the day
   // someone refunds the farm — until then a flag would fire on a true state.
-  const poolStatsUnread = isDeployed && onMainnet && !isReadLoading
+  const poolStatsUnread = isDeployed && !isReadLoading
     && (data?.[0]?.status !== 'success' || data?.[4]?.status !== 'success');
 
-  const positionUnread = isDeployed && onMainnet && !!address && !isReadLoading
+  const positionUnread = isDeployed && !!address && !isReadLoading
     && (data?.[5]?.status !== 'success'
       || data?.[6]?.status !== 'success'
       || data?.[7]?.status !== 'success');
+
+  // The section's figures are read as a SET - four stat tiles and the APR hero - so
+  // they gate on one flag over every farm-wide read: the pool totals and the minimum
+  // above, plus the four neither covers ([1] rewardRate, [2] periodFinish,
+  // [3] rewardsDuration, [9] LP totalSupply). Deliberately WITHOUT positionUnread's
+  // `!!address` term: this batch is enabled on `isDeployed` alone - `userAddr`
+  // falls back to the zero address - so these were asked, and could fail, with
+  // nobody connected and whatever chain wagmi last saw. FarmPage renders the
+  // section at isConnected={false} for the logged-out public surface.
+  //
+  // [2] is in here although poolStatsUnread leaves it out. "Reward Rate (ended)" and
+  // "Period Ended" printed off an unread periodFinish publish a read that never
+  // landed as a claim about the schedule; that it happens to match the truth today
+  // (the period did end 2026-06-15) is luck, not a read. [1] is the worst of the
+  // set: a landed total beside an unread rewardRate gives the APR hero a finite
+  // denominator over a zero numerator - a confident "0.00%".
+  //
+  // How a failure actually arrives (wagmi 3 / viem 2, as installed): the query does
+  // NOT reject and `data` does NOT go undefined. Every multicall entry is submitted
+  // `allowFailure: true`, so a whole-transport outage resolves as eleven
+  // `status: 'failure'` entries, and one reverting sub-call as one 'failure' beside
+  // ten 'success' siblings. Partial failure has a second route: wagmi's
+  // createConfig defaults `batch: { multicall: true }`, so each entry is queued into
+  // a scheduler shared with every other read on the client and cut into aggregate3
+  // requests at 1024 bytes of calldata - a rejected request fails only its own
+  // entries. Only per-index status checks see any of this; `!data` and `isError`
+  // see none of it.
+  //
+  // `lpTotalSupply` (9) has no consumer today and is in here so a per-index
+  // carve-out cannot silently stop covering it the moment someone renders it;
+  // over-blanking is the safe direction, publishing an unread zero is not.
+  const statsUnread = poolStatsUnread || minStakeUnread
+    || (isDeployed && !isReadLoading
+      && (data?.[1]?.status !== 'success'      // rewardRate
+        || data?.[2]?.status !== 'success'     // periodFinish
+        || data?.[3]?.status !== 'success'     // rewardsDuration
+        || data?.[9]?.status !== 'success'));  // LP totalSupply
+
+  // Entry [8] (`allowance`) is the one read none of these flags covers. Its zero
+  // fails CLOSED: an unread allowance reads as "not approved", so the section offers
+  // Approve and `stake()` refuses early - no stake is ever armed on an allowance
+  // nobody read. It is not free: each Approve while the read keeps failing is a
+  // redundant approval's gas, and Stake stays out of reach until the read lands.
+  // If that ever needs signalling it needs its own flag, not one that blanks figures.
 
   const isActive = periodFinish > Math.floor(Date.now() / 1000);
 
@@ -363,6 +417,18 @@ export function useLPFarming() {
      * without checking this first.
      */
     positionUnread,
+    /**
+     * Some farm-wide read (total staked, reward rate, period, rewards duration,
+     * funding, LP supply, MIN_STAKE) was asked and did not land - the union of
+     * `poolStatsUnread`, `minStakeUnread` and the four reads neither covers. Every
+     * one of them collapses to 0n/0, and each zero is also a legitimate on-chain
+     * value - an empty farm, an unfunded or ended schedule - so this flag is what
+     * separates them. Unlike `positionUnread` it does NOT require a connected
+     * wallet: the batch runs for logged-out visitors too, on any wallet chain.
+     * Gate the stat tiles and the APR hero on this before printing a figure or an
+     * invitation derived from one.
+     */
+    statsUnread,
     pendingReward,
     pendingRewardFormatted: formatEther(pendingReward),
     walletLPBalance,
