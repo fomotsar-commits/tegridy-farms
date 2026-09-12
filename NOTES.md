@@ -15,6 +15,52 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
+
+**Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
+`accounted_amount` passes `u64::MAX`. This was not reasoned from an IDL — it was established by
+simulating the real `claim_rewards` against all eight live entries of a mainnet pool, with every
+entry above the value reverting 6000 and every entry below it succeeding. Eight for eight.
+
+**Measured, six days later:** wrong twice over. Scanning the whole program with
+`getProgramAccounts` plus a `dataSlice` over just the counter field, **5,868 of 9,797** entries
+with a non-zero counter are already past that value, and the largest is **22,000,000x past it** —
+each written by a successful claim, since only a successful claim writes that field. And on the
+pool itself the verdicts split perfectly on something else entirely: the pool's reward RATE was
+changed at a known instant, and the 2 entries created before it revert while all 16 created after
+it pay.
+
+**Why eight-for-eight was not enough.** The sample had a hole in exactly the wrong place — its
+successes topped out at 78% of the candidate threshold and its reverts started at 265%. Nothing
+measured the band between, so a LOWER BOUND was indistinguishable from an exact line. And the two
+reverting entries were also the two oldest, so a second variable ("predates a rate change") fit
+the same eight points just as well. The first hypothesis named won by default.
+
+**Technique, whenever a boundary is inferred from live samples:**
+
+- **Check the sample BRACKETS the boundary.** Points either side of a gap do not locate a line,
+  they bound a region. If nothing was measured between the highest pass and the lowest fail, the
+  honest output is an interval — and code must not act as though it is a point.
+- **Ask what else explains the same split.** Sort the failures by every field you have, not only
+  the one you suspect. Here, sorting by `created_ts` against the pool's `last_amount_update_ts`
+  gave a perfect 2/16 split that the counter could not improve on.
+- **Widen the population before trusting the mechanism.** One pool's 8 entries said one thing and
+  the program's 9,797 said the opposite. A program-wide scan over a single sliced field is cheap:
+  `dataSize` + `dataSlice` returns thousands of rows in one call.
+- **Measure the PAYOUT, not the exit code.** Simulate with
+  `{sigVerify:false, replaceRecentBlockhash:true, accounts:{encoding:'base64', addresses:[ata]}}`
+  and diff the returned post-state against the current balance. A claim that "succeeds" while
+  transferring zero is not evidence a position is alive. (That config-object overload needs a
+  `VersionedTransaction`; a legacy `Transaction` fails with "Invalid arguments".)
+
+**The design rule this produced, which is the durable part:** a threshold may WARN; only the
+program may VETO. The cost asymmetry is enormous and one-directional — a claim that reverts costs
+a network fee, a claim never offered costs the whole balance. The code now attempts every claim
+that has a pending balance and takes its verdict from the chain's own error, even where a
+predicate is right 18 times out of 18.
+
+---
+
 ## 2026-09-12 — a source guard that searches the whole file answers about the file, not the code it names
 
 **Believed:** a guard for "this timer is armed in a layout effect" could be written
