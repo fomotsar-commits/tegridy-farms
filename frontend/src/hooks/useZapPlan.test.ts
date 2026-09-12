@@ -178,6 +178,66 @@ describe('the fee this hook discloses', () => {
   });
 });
 
+// Which chain the hook plans FOR.
+//
+// The planner takes the venue's chain as its `expectedChainId` and compares it with the
+// chain the descriptor was composed on. This hook used to pass the wallet's chain for
+// both, which compares it with itself: the refusal was unreachable for every wallet on
+// every chain. It stayed invisible because `useSwapQuote` gates its reads on the wallet
+// chain, so an off-chain wallet produced empty legs and the panel blamed the route
+// ("no floor to submit") instead of the network.
+//
+// These tests deliberately hand the hook USABLE routes on the wrong chain — the mocked
+// quote above ignores the chain entirely. That is what makes them fail against the old
+// call: with routes in hand and no reachable chain check, the old code composed a plan.
+describe('the chain this hook plans for', () => {
+  const ARGS = {
+    venueId: 'staking-lock' as const,
+    inputToken: USDC,
+    amountIn: 1_000_000n,
+    slippagePct: 0.5,
+    lockDurationSeconds: 7776000n,
+  };
+
+  beforeEach(() => {
+    state.address = WALLET;
+    state.chainId = CHAIN_ID;
+    state.quoteCalls = [];
+    state.routerFeeBps = 25n;
+    state.routerFeeError = false;
+    state.minimumReceived = 10n ** 20n;
+  });
+
+  // Positive control. These exact inputs DO compose on the venue's chain, so a refusal
+  // below is the chain and nothing else about them.
+  it('composes a plan when the wallet is on the venue chain', () => {
+    const { result } = renderHook(() => useZapPlan(ARGS));
+    expect(result.current.result?.ok).toBe(true);
+  });
+
+  it.each([
+    ['Base', 8453],
+    ['Robinhood', 4663],
+  ])('refuses on %s, naming the chain rather than the route', (_name, walletChain) => {
+    state.chainId = walletChain;
+    const { result } = renderHook(() => useZapPlan(ARGS));
+    expect(result.current.result).toMatchObject({ ok: false, code: 'chain-mismatch' });
+    // The panel renders `detail` verbatim, so the wallet's chain has to be in it.
+    const detail = (result.current.result as { detail: string }).detail;
+    expect(detail).toContain(String(walletChain));
+    expect(detail).toContain(`chain ${CHAIN_ID}`);
+  });
+
+  // A plan that reached the run machinery on the wrong chain would be persisted under a
+  // key `useZapRun` will not load back (it reads with the wallet's chain), so the refusal
+  // is also what keeps the resume path honest.
+  it('exposes no plan at all on the wrong chain', () => {
+    state.chainId = 8453;
+    const { result } = renderHook(() => useZapPlan(ARGS));
+    expect(result.current.result?.ok).toBe(false);
+  });
+});
+
 // The executor a quote resolves to must be one this app already routes through — never an
 // address a quote response could name.
 describe('the executor a leg resolves to', () => {

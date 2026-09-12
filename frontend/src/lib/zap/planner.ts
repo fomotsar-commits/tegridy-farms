@@ -39,6 +39,7 @@ import { venueAvailability, type ZapVenue, type ZapVenueId } from './venues';
 export interface ZapDescriptor {
   venueId: ZapVenueId;
   account: Address;
+  /** The chain the request was composed on — the wallet's, at compose time. */
   chainId: number;
   /** Input token address; the native sentinel is expressed by `inputIsNative`, not here. */
   inputToken: Address;
@@ -244,11 +245,17 @@ function routeSizeMismatch(route: ZapSwapRoute, expected: bigint, leg: string): 
  * render, instead of a plan carrying a zero floor that the wallet would happily sign.
  */
 export function planZap(descriptor: ZapDescriptor, routes: ZapRoutes, expectedChainId: number): ZapPlanResult {
+  // `expectedChainId` is the chain the VENUE is deployed on; `descriptor.chainId` is the
+  // chain the request was composed on. A caller that passes the wallet's chain for both
+  // is comparing it with itself, and this refusal can never fire — so the detail names
+  // both numbers rather than assuming which of the two is the wallet's.
   if (descriptor.chainId !== expectedChainId) {
     return {
       ok: false,
       code: 'chain-mismatch',
-      detail: `This zap was composed for chain ${descriptor.chainId}; the wallet is on ${expectedChainId}.`,
+      detail:
+        `This zap was composed on chain ${descriptor.chainId}, but every contract it touches is on ` +
+        `chain ${expectedChainId}. Switch the wallet to chain ${expectedChainId}.`,
     };
   }
 

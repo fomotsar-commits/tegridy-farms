@@ -87,11 +87,16 @@ describe('planZap — refusals', () => {
     });
   });
 
-  it('refuses when the wallet is on another chain', () => {
-    expect(planZap(descriptor(), { toTowelie: route(ONE_ETH / 2n) }, 8453)).toMatchObject({
-      ok: false,
-      code: 'chain-mismatch',
-    });
+  // Oriented the way production calls it: the descriptor carries the chain the request
+  // was composed on (the wallet's, 4663 here) and the expected chain is the venue's.
+  it('refuses when the composing wallet was on a chain the venue is not on', () => {
+    const result = planZap(descriptor({ chainId: 4663 }), { toTowelie: route(ONE_ETH / 2n) }, 1);
+    expect(result).toMatchObject({ ok: false, code: 'chain-mismatch' });
+    // Both numbers have to survive into the detail. "Wrong network" with neither chain
+    // named leaves someone on an L2 guessing which one to switch to.
+    const detail = (result as { detail: string }).detail;
+    expect(detail).toContain('4663');
+    expect(detail).toContain('chain 1.');
   });
 
   it('refuses a route quoted for a different size, instead of rescaling its floor', () => {
