@@ -622,7 +622,35 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       ? listingsSource
       : null;
 
-  const listedPct = stats?.supply ? ((listedNfts.length / stats.supply) * 100).toFixed(1) : null;
+  // `source: "native"` means NO OpenSea listing is in this set. mergeListings
+  // (api.js:833-843) labels by what actually landed, and fetchListings .catch()es
+  // a failed OpenSea page to an empty array — so an OpenSea outage lands here
+  // holding one venue's book. Those listings are real and stay put (that is the
+  // point of the partial-failure fallback, listingsOutageHonesty.test.js); what
+  // may not stand is a headline speaking for the whole market.
+  //
+  // Deliberately NOT phrased as "OpenSea is down": a genuinely empty OpenSea book
+  // produces this same label, and asserting an outage nobody read would be the
+  // same fabrication pointing the other way. Naming what the count COVERS is true
+  // under both readings.
+  const isNativeOnly = listingsSource === "native";
+
+  // A supply-wide percentage needs a market-wide numerator. Over one venue it
+  // reads as a collapsed market — ~1000 OpenSea listings missing renders "(0.0%)"
+  // on a 20,000 supply — so it is withheld, not restated against a denominator
+  // this set never had.
+  const listedPct = !isNativeOnly && stats?.supply
+    ? ((listedNfts.length / stats.supply) * 100).toFixed(1)
+    : null;
+
+  // Marks each tile computed FROM the partial set. `stats.floor`, OWNERS and
+  // SUPPLY come from the collection stats endpoint rather than from `listings`,
+  // so they are unaffected and carry no marker.
+  const partialScopeNote = isNativeOnly && hasRealListings ? (
+    <span style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 400, marginLeft: 6 }}>
+      native book only
+    </span>
+  ) : null;
 
   // Grid source (full, for counts) and the capped slice that actually mounts
   const gridItems = hasRealListings ? displayNfts : hasRecentSales ? displaySales : tokens.slice(0, 24);
@@ -633,7 +661,9 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
       <div className="listings-title">FLOOR & LISTINGS</div>
       <div className="listings-subtitle">
         {hasRealListings
-          ? `${listedNfts.length} ${collection.name} currently listed for sale across marketplaces.`
+          ? isNativeOnly
+            ? `${listedNfts.length} ${collection.name} listed on the native orderbook. OpenSea listings are not included in this count.`
+            : `${listedNfts.length} ${collection.name} currently listed for sale across marketplaces.`
           : `Live floor price and recent market activity for ${collection.name}.`}
       </div>
 
@@ -654,6 +684,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
                 ({listedPct}%)
               </span>
             )}
+            {partialScopeNote}
           </div>
         </div>
         {priceStats && (
@@ -666,6 +697,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
               <span style={{ fontSize: 11, color: "var(--text-dim)", fontWeight: 400, marginLeft: 4 }}>
                 / {priceStats.avg.toFixed(4)}
               </span>
+              {partialScopeNote}
             </div>
           </div>
         )}
@@ -1056,7 +1088,7 @@ export default function Listings({ tokens, stats, listings, listingsLoading, lis
         {/* Sweep Calculator Sidebar — only shown when there are active listings; hidden in Lite mode */}
         {!isLite && hasRealListings && (
           <div>
-            <SweepCalculator stats={stats} listings={listedNfts} wallet={wallet} onConnect={onConnect} addToast={addToast} />
+            <SweepCalculator stats={stats} listings={listedNfts} listingsSource={listingsSource} wallet={wallet} onConnect={onConnect} addToast={addToast} />
           </div>
         )}
       </div>
