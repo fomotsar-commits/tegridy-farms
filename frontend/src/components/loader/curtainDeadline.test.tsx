@@ -191,6 +191,13 @@ describe('the curtain is gone by its budget, whatever the machine does', () => {
     // Small enough that a choreography running on time still reaches its own
     // dissolve before the deadline asks for one: the deadline is for a curtain
     // that is late, not a shorter curtain for everyone.
+    //
+    // TWO CLOCKS, AND THIS COMPARES THEM AS ONE. The left side counts from the
+    // commit that arms the timers; the right side from `s.t0`, stamped later in
+    // the canvas effect, after the post-processing pass is built. That gap is
+    // spent before the choreography starts counting and not before the deadline
+    // does, so the real margin is smaller than this arithmetic. Read it as a
+    // floor, not as a promise that the deadline never cuts an on-time curtain.
     const onTime = CURTAIN_TIMING.voidEnd
       + CURTAIN_TIMING.artCount * CURTAIN_TIMING.artDuration
       + CURTAIN_TIMING.textForm;
