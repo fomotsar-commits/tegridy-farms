@@ -15,6 +15,115 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — a green that ran nothing, a green that covers a different workflow, and a red that only timed out
+
+**Believed:** a vitest run that exits 0 ran the suite, a context called
+`all-checks-pass` covers the PR's checks, and a pre-fix test that goes red has
+done its job whichever way it went red.
+
+### `--reporter=<name-that-does-not-exist>` is a silent no-op
+
+`npx vitest run --reporter=basic` in `frontend/` printed a stack ending in
+
+```
+code: 'ERR_LOAD_URL'
+...
+[exited with code 0]
+```
+
+`basic` is not a reporter in this vitest, so vitest tried to resolve it as a
+**custom reporter module**, failed to import it, and exited **0** with **zero test
+files collected**. Nothing in the output says "0 tests" — the summary lines a real
+run prints (`Test Files`, `Tests`) are simply absent, which reads like truncation.
+`--reporter=dot` on the same tree reported `Test Files 603 passed (603)`.
+
+Same shape as the cancellation trap in
+`reference_trunk_ci_starved_by_cancellation`: the exit code is not the question.
+**Gate on the summary line, not the status** — `grep -E "Tests  " out` is the
+check, `$?` is not. This bites twice, because piping vitest into anything
+(`| tail`, `; echo $?`) also reports the *last* command's status: a run that
+printed `VITEST EXIT: 1` was reported by the surrounding shell as exit 0.
+
+### Await a sentinel that exists in BOTH worlds, then assert synchronously
+
+Writing a render-level test for a read-honesty fix, the natural shape is
+
+```js
+expect(await screen.findByText(/floor depth not measured/i)).toBeInTheDocument();
+```
+
+Against the **pre-fix** component that copy does not exist, so `findByText` burns
+the whole `waitFor` budget and fails with a timeout — measured at **1022ms**, next
+to 38–627ms for the legs that failed on a value. A timeout is a weak result: it is
+also what you get from a component that never finished loading, a mock that never
+resolved, or a typo in the matcher. It cannot separate "the copy is absent" from
+"nothing rendered at all".
+
+Rewritten to await a heading that renders in both the pre- and post-fix worlds,
+then assert synchronously:
+
+```js
+expect(await screen.findByRole("heading", { name: /Floor Depth/i })).toBeInTheDocument();
+expect(screen.getByText(/floor depth not measured/i)).toBeInTheDocument();
+```
+
+the same pre-fix run fails in **241ms** with `TestingLibraryElementError: Unable to
+find an element with the text: …` — an immediate, specific statement that the
+component rendered and the copy is not in it.
+
+**Do:** in a mutation check, `await` something both versions render. Only the
+assertion should target what changed.
+
+### `all-checks-pass` is not the PR's checks
+
+Measured on a docs-only PR (#552). `gh pr checks --json name,bucket,workflow`:
+
+| context | workflow |
+| --- | --- |
+| `all-checks-pass` | **solana-ci** |
+| `all-tests-pass` | **Contracts CI** |
+| `Lint, Type Check & Test` | **CI** |
+| `CodeQL (javascript-typescript)` | **CodeQL** |
+
+Neither aggregate spans the PR. They are the terminal jobs of the solana and
+contracts workflows, so on a docs or frontend change those workflows skip every
+job, their aggregate passes **in seconds**, and the frontend's real gate is still
+running in a different workflow. Watching the list settle, `all-checks-pass` and
+`all-tests-pass` both read `pass` while `Lint, Type Check & Test` and `CodeQL`
+were still `pending`.
+
+It looks like a race and is not one — it is a **scope** error. The name claims the
+PR; the job covers one workflow. This is the mechanism behind the existing rule
+that a check-COUNT floor is unsound: which workflows contribute at all is
+path-dependent, so both the count and any "all-*" name mean something different
+per PR.
+
+**Do:** assert the NAMED contexts that matter for the paths you touched — for a
+frontend change that is `Lint, Type Check & Test`, not `all-checks-pass`. Add
+`workflow` to the `gh pr checks --json` field list; without it a context's real
+scope is invisible.
+
+### Incidental
+
+- `getByText` with a **regex** matches every node whose text contains it, so adding
+  the same phrase to a summary line and to a detail line breaks a query that was
+  unique the day before (`Found multiple elements`). Matching the exact full string
+  separates them without scoping to a container.
+- A render-level outage test does not automatically need fake timers. Retry sleeps
+  only exist on paths that retry: in `frontend/src/nakamigos`, a proxy rejection
+  carrying a plain `Error` is non-retryable to `api.js`'s `withRetry` (it retries
+  `TypeError` and `ApiError.isRetryable` only), and the orderbook's `degraded: true`
+  answer is deliberately not retried. Picking those legs let 11 render tests run on
+  real timers in 3.81s of test time.
+- Two full-suite runs of the same tree, ~4 hours apart, went 196.65s and 450.16s,
+  with jsdom `environment` at 1787s and 3638s — across *untouched* files. The slow
+  one failed 4 tests in 2 files, each a 5000ms body timeout plus one follow-on
+  failure from the timed-out test's un-cleaned DOM (`Found multiple elements`,
+  `expected length 0 got 1`). Both files passed in isolation and neither imported
+  the change under test. **A timeout cascade under load is not a defect in the code
+  you just wrote** — re-run before believing it, and compare per-phase durations,
+  not the verdict.
+
 ## 2026-09-11 — a test that lets two endings race pins only the one that wins
 
 **Believed:** the arrival curtain has a hard deadline so that it is gone within its
