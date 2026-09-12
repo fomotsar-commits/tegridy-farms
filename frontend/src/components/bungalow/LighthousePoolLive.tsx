@@ -15,10 +15,9 @@ import {
   stake,
   unstakeAndClaim,
   unstakeAndCloseForfeitingRewards,
-  claimCeilingReached,
-  anyClaimCeilingReached,
-  splitAccruedByClaimability,
-  maxSafeStakeAcrossPools,
+  claimBrokenByRateChange,
+  anyClaimBrokenByRateChange,
+  splitAccruedByRisk,
   offeredMaxLockDays,
   lockCeilingApplies,
   OFFERED_LOCK_CEILING_DAYS,
@@ -258,8 +257,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // reward pool imposes one (dynamic pool, zero rate, unreadable config) — and
   // an absent cap must never read as a cap of zero, so the gate below requires
   // a non-null value before it blocks anything.
-  const safeCapRaw = pool ? maxSafeStakeAcrossPools(pool, chosenSecs) : null;
-  const overSafeCap = amountRaw !== null && safeCapRaw !== null && amountRaw > safeCapRaw;
+  // NO SIZE CAP. There used to be a `safeCapRaw` here that refused any stake big
+  // enough for its reward counter to pass 2**64-1 before the lock opened (~16,712
+  // BAYLA at the 365-day rung). That danger is not real: on this pool the
+  // 1,000,000 / 535,000 / 369,369 positions all claim normally, and the only two
+  // that cannot be paid are the two SMALLEST. See `claimBrokenByRateChange`.
   const invoker = wallet?.adapter as SignerWalletAdapter | undefined;
   const openEntries = entries.filter((e) => e.closedTs === 0);
 
@@ -340,8 +342,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // only because the per-entry rescue sits a few hundred pixels below it — the
   // same lie, in smaller type. Split, so the header states the claimable figure
   // and the stranded amount is named separately rather than folded in.
-  const { claimableRaw: pendingTotal, strandedRaw: pendingStranded, deadCount: pendingDeadCount } =
-    splitAccruedByClaimability(openEntries, pool?.rewardPools ?? []);
+  const { claimableRaw: pendingTotal, atRiskRaw: pendingAtRisk, atRiskCount: pendingAtRiskCount } =
+    splitAccruedByRisk(openEntries, pool?.rewardPools ?? []);
 
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
 
@@ -750,7 +752,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   <>
                   <button
                     type="button"
-                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked || overSafeCap}
+                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked}
                     onClick={() => invoker && amountRaw && void run('Stake', () => stake({
                       invoker, pool, amountRaw, durationSecs: chosenSecs, entries,
                     }))}
@@ -762,26 +764,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       : funded === null ? 'Vault unreadable — staking paused'
                       : !amountRaw || amountRaw === 0n ? 'Enter an amount'
                       : overBalance ? `Not enough ${bungalow.symbol}`
-                      : overSafeCap ? `Too large for a ${labelForDays(chosenDays)} lock`
                       : `Stake & lock for ${labelForDays(chosenDays)}`}
                   </button>
-                  {/* THE SIZE x DURATION CEILING. Above `safeCapRaw` the reward
-                      entry's cumulative counter passes u64::MAX before this lock
-                      lets the holder leave, and the position stops being able to
-                      claim for the rest of its term. Refusing the stake is the
-                      only honest option: the ladder's whole promise is that a
-                      longer lock earns more, and past this line a longer lock
-                      earns nothing for most of its life. */}
-                  {overSafeCap && safeCapRaw !== null && (
-                    <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
-                      A {labelForDays(chosenDays)} lock can hold at most{' '}
-                      <strong>{fmt(safeCapRaw, decimals)} {bungalow.symbol}</strong> in one position.
-                      Past that, the reward program&rsquo;s accounting for this position runs out before the
-                      lock opens and it stops paying — the stake would still be returned in full, but it would
-                      spend most of its term earning nothing claimable. Stake less here, or choose a shorter
-                      lock, or split it across several positions.
-                    </p>
-                  )}
                   {!entriesKnown && entriesForWallet?.reason && (
                     <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
                       {entriesForWallet.reason} Staking waits until your existing stakes are
@@ -806,13 +790,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                     <span className="stat-value text-white text-[14px]">{fmt(stakedTotal, decimals)}</span> {bungalow.symbol} staked
                     {' · '}
                     <span className="stat-value text-white text-[14px]">{fmt(pendingTotal, decimals)}</span> accrued
-                    {pendingDeadCount > 0 && (
+                    {pendingAtRiskCount > 0 && (
                       <>
                         {' · '}
                         <span className="stat-value text-[14px]" style={{ color: '#e3b341' }}>
-                          {fmt(pendingStranded, decimals)}
+                          {fmt(pendingAtRisk, decimals)}
                         </span>{' '}
-                        <span style={{ color: '#e3b341' }}>stranded</span>
+                        <span style={{ color: '#e3b341' }}>at risk — try claiming</span>
                       </>
                     )}
                   </p>
@@ -849,47 +833,50 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                           const exceedsVault =
                             entryPending !== null && funded !== null && entryPending > funded;
                           const nothingPending = entryPending === 0n;
-                          // 6000-precise gating. The classic reward entry's
-                          // cumulative `accountedAmount` has passed u64::MAX, so
-                          // claim_rewards can no longer do its arithmetic and
-                          // reverts ArithmeticError — PERMANENTLY, because the
-                          // counter never decreases. Proven on mainnet
-                          // 2026-09-06 by simulating the real instruction.
+                          // 6000 RISK — A WARNING, NOT A GATE. This block used
+                          // to disable the claim whenever the entry's cumulative
+                          // `accountedAmount` passed u64::MAX, on the belief that
+                          // the program could no longer pay it. Measured against
+                          // mainnet on 2026-09-12 that belief is false: the
+                          // 1,000,000-BAYLA position sits at 107.67% of that
+                          // number and pays 13,603 BAYLA, while the entries that
+                          // genuinely revert sit at 265% and 274%. The disabled
+                          // button was therefore hiding a five-figure balance
+                          // from the person it belonged to.
                           //
-                          // This is a SEPARATE state from exceedsVault and must
-                          // not be folded into it: a drained vault is temporary
-                          // and clears on a top-up, this never clears. Offering
-                          // "Claim rewards" here spends the user's fee on a
-                          // transaction that cannot succeed.
-                          const ceilingHit = anyClaimCeilingReached(e, pool.rewardPools);
+                          // Nothing here knows where the real line is, so the
+                          // button stays live and the chain answers. A claim that
+                          // reverts costs a transaction fee; a claim never
+                          // offered costs the whole balance.
+                          const atRisk = anyClaimBrokenByRateChange(e, pool.rewardPools);
                           return (
                         <div className="flex flex-wrap items-center gap-2">
                           {pool.rewardPools.map((rp) => {
-                            const rpCeiling = claimCeilingReached(e, rp);
+                            const rpAtRisk = claimBrokenByRateChange(e, rp);
                             return (
                             <button
                               key={rp.address || rp.nonce}
                               type="button"
-                              disabled={!invoker || !!action?.busy || nothingPending || exceedsVault || rpCeiling}
-                              title={rpCeiling
-                                ? 'This position has passed a hard limit in the reward program, so it can no longer pay out. It will not clear by retrying. Your staked BAYLA is unaffected and returns in full when the lock ends.'
+                              disabled={!invoker || !!action?.busy || nothingPending || exceedsVault}
+                              title={rpAtRisk
+                                ? 'This position is deep enough into the reward program’s accounting that the claim MAY revert. It may also pay in full — only the chain knows, and trying is how you ask. A revert costs the network fee and nothing else; your staked BAYLA is untouched either way.'
                                 : exceedsVault ? 'The vault cannot cover this claim — it reverts until a top-up; nothing is lost.' : nothingPending ? 'Nothing accrued yet.' : undefined}
                               onClick={() => invoker && void run('Claim', () => claimRewards({ invoker, pool, rewardPool: rp, entryNonce: e.nonce }))}
                               className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-50"
                             >
-                              {rpCeiling ? 'Rewards closed on this position'
-                                : exceedsVault ? 'Nothing claimable yet'
+                              {exceedsVault ? 'Nothing claimable yet'
+                                : rpAtRisk ? 'Claim rewards (may revert)'
                                 : 'Claim rewards'}
                             </button>
                             );
                           })}
                           <button
                             type="button"
-                            disabled={!invoker || !!action?.busy || locked || exceedsVault || ceilingHit}
+                            disabled={!invoker || !!action?.busy || locked || exceedsVault}
                             title={locked
                               ? 'The program refuses an unstake before the lock opens'
-                              : ceilingHit
-                                ? 'This exit claims rewards in the same transaction, and this position can no longer pay them out — so it would revert. Take the principal below instead; the chain lets it out, only the rewards are gone.'
+                              : atRisk
+                                ? 'This exit claims rewards in the same transaction, and this position is deep into the reward accounting — so the exit MAY revert. If it does, nothing moves and the principal rescue below is still there. Try this first: it is the only path that keeps the rewards.'
                                 : exceedsVault
                                   ? 'The exit pays rewards in the same transaction — it reverts until the vault covers them (nothing is lost).'
                                   : undefined}
@@ -897,8 +884,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                             className="btn-secondary px-3 py-1.5 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             {locked ? `Locked · ${humanDuration(opensAt - nowSec)}`
-                              : ceilingHit ? 'Use “take principal” below'
                               : exceedsVault ? 'Exit blocked — vault unfunded'
+                              : atRisk ? 'Unstake & claim (may revert)'
                               : 'Unstake & claim'}
                           </button>
 
@@ -914,21 +901,23 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               (a) exceedsVault — the 6012 funding gap. Temporary:
                                   clears on a top-up.
 
-                              (b) ceilingHit — the 6000 overflow. PERMANENT.
+                              (b) atRisk — deep into the 6000 accounting band.
                                   ADDED 2026-09-06, and this is the one that
                                   would have trapped people. The original gate
                                   was `exceedsVault` alone, on the assumption
                                   that a funded vault means a working exit. It
-                                  does not: an entry past the u64 ceiling reverts
-                                  on the claim leg while the vault is fully
-                                  funded, so `exceedsVault` is FALSE, this button
-                                  never rendered, and the only control on screen
-                                  was the one call that cannot succeed. On the
-                                  live BAYLA pool that state arrives for the
-                                  1,000,000 entry on 2026-09-07 and for two more
-                                  by November, against a vault holding 884,896
-                                  BAYLA — i.e. exactly the case the old gate
-                                  reads as healthy.
+                                  does not: an entry whose claim leg reverts does
+                                  so while the vault is fully funded, so
+                                  `exceedsVault` is FALSE, this button never
+                                  rendered, and the only control on screen was
+                                  the one call that cannot succeed.
+
+                                  It is offered here as a FALLBACK, not a verdict.
+                                  Being in the band does not mean the claim fails
+                                  — measured 2026-09-12, the 1,000,000 entry is
+                                  in it and pays 13,603 BAYLA. So the normal exit
+                                  above stays enabled and is the one to try
+                                  first; this is what is left if it reverts.
 
                               The chain itself never traps the principal: the
                               stake program's `unstake` does not take the reward
@@ -937,7 +926,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                               2eLftTr3…, 2026-09-04) with no reward-program
                               instruction in the transaction. Only the UI could
                               trap it, and this is where. */}
-                          {!locked && (exceedsVault || ceilingHit) && (
+                          {!locked && (exceedsVault || atRisk) && (
                             rescueFor === e.nonce ? (
                               <span className="inline-flex items-center gap-1.5">
                                 <button
