@@ -70,6 +70,51 @@ build, not after — see runbook §9.
 
 ---
 
+## 🔴 2026-09-12 — CORRECTION: THE CEILING DOES NOT EXIST. DO NOT ACT ON THE SECTION BELOW.
+
+Everything below this line that treats a cumulative `accounted_amount` as a kill switch is
+**refuted**, and the incident response it asks for across BOBO / BRAINLET / RIZZ / SOY is a sweep
+for a problem that is not there. Nothing below is deleted — it is the record of what was
+believed — but do not execute it.
+
+**What was measured on 2026-09-12** (mainnet, simulating the real `claim_rewards` and reading the
+destination token account's post-state, so the PAYOUT is measured rather than the call's exit
+code):
+
+* **Program-wide, the counter stops nothing.** Of 9,797 classic reward entries carrying a
+  non-zero counter, **5,868 are past `u64::MAX`** — and the largest sits **22,000,000x past it**
+  with a successful claim on record. `accounted_amount` is written ONLY by a successful claim, so
+  the maximum found anywhere is a proven working level. The 42.4% figure below is real; reading it
+  as "42.4% are bricked" is not.
+* **What actually breaks an entry is a reward-RATE change after it opened.** On pool
+  `EFWpSpH9…` the rate changed (600,000/86400s → 7/1s) at **2026-09-01T05:40:01Z**
+  (`last_amount_update_ts` = 1788241201). All 18 open positions split PERFECTLY on that instant:
+  the **2** created before it revert 6000, all **16** created after it pay — no exceptions either
+  way. The two that revert are the two SMALLEST positions (3,000 each) while the 1,000,000 pays
+  ~13,700 and rises ~3,037/day, so it was never size either.
+* **It cannot recur on this pool.** `update_pool` is one-shot on this program and is spent.
+
+**What it cost while believed.** The card disabled Claim and captioned **"Rewards closed on this
+position"** on a position holding ~13,700 claimable BAYLA, printed `0 accrued · 13,700.79
+stranded`, and capped a 365-day stake at ~16,712 tokens against a danger that does not exist.
+Fixed in **PR #556**: `claimCeilingReached` → `claimBrokenByRateChange`, new
+`RewardPoolView.rateChangedAtTs`, and `CLASSIC_ACCOUNTED_CEILING` / `maxSafeStakeRaw` /
+`maxSafeStakeAcrossPools` deleted outright rather than re-tuned.
+
+**The operator action that IS owed:** none, on any of the other four pools. If a holder there
+reports a claim reverting 6000, read that pool's `last_amount_update_ts` and compare it with the
+entry's `created_ts` — that comparison is the whole diagnosis.
+
+> **Why a careful sweep got this wrong, because it will happen again.** The 2026-09-06 sample had
+> a GAP in exactly the wrong place: its successes topped out at 78% of `u64::MAX` and its reverts
+> started at 265%, so nothing measured the band between and a LOWER BOUND was indistinguishable
+> from an exact line. Worse, the two reverting entries were ALSO the two oldest, so "counter" and
+> "predates a rate change" fit the same eight points equally well and the first one named won.
+> **Check that the sample brackets the boundary, and check whether a second variable explains it
+> just as well.**
+
+---
+
 ## 🟢 2026-09-06 (LATE) — POST-SHIP SWEEP: what the ceiling fix did not reach
 
 The ceiling fix is on trunk and the section below this one records it. This is the sweep that came
