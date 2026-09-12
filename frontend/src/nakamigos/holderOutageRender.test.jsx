@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeAll } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { CollectionProvider } from "./contexts/CollectionContext";
+// Static, not `await import()` inside the tests: the first load of these pulls
+// api.js's module graph in cold, and inside a test body that runs on the 5000ms
+// testTimeout clock — at collection nothing bounds it. vi.mock below is hoisted
+// above every import, so both components still get the proxy mock. If this file
+// ever needs vi.resetModules(), the imports must move back after the reset.
+import HolderAnalytics from "./components/HolderAnalytics.jsx";
+import CollectionHealth from "./components/CollectionHealth.jsx";
 
 // jsdom has no 2D canvas without the optional `canvas` package, and
 // CollectionHealth's Sparkline calls ctx.scale() unconditionally. Stub the
@@ -31,7 +38,6 @@ const NAKA_SUPPLY = 20000;
 
 describe("holder outage renders no fabricated statistics", () => {
   it("HolderAnalytics names the outage and shows no derived numbers", async () => {
-    const { default: HolderAnalytics } = await import("./components/HolderAnalytics.jsx");
     render(
       <CollectionProvider slug="nakamigos">
         <HolderAnalytics supply={NAKA_SUPPLY} />
@@ -50,7 +56,6 @@ describe("holder outage renders no fabricated statistics", () => {
   });
 
   it("CollectionHealth whale concentration self-gates to its honest branch", async () => {
-    const { default: CollectionHealth } = await import("./components/CollectionHealth.jsx");
     render(
       <CollectionProvider slug="nakamigos">
         <CollectionHealth
@@ -60,8 +65,10 @@ describe("holder outage renders no fabricated statistics", () => {
       </CollectionProvider>,
     );
 
-    // CollectionHealth also awaits the listings feed, which walks its own
-    // fallback chain before resolving — allow for that before asserting.
+    // CollectionHealth also awaits the listings feed. Under jsdom the native
+    // orderbook's fetch of the relative "/api/orderbook" rejects, and its retry
+    // sleeps 1s + 2s before giving up: ~3s of fixed wall-clock inside this wait,
+    // which is what these budgets cover (not module loading).
     expect(await screen.findByText(/no holder data available/i, undefined, { timeout: 15000 })).toBeInTheDocument();
     // The fabricated-and-flattering pair: a green "1.7% of supply held by top 10"
     // and "Top 10 hold 338 of 20,000 total".
