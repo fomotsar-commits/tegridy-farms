@@ -43,7 +43,7 @@ async function fakeUpstream(script) {
     const step = script[Math.min(seen.length - 1, script.length - 1)];
     if (step === 'drop') return req.socket.destroy();
     if (step === 'hang') return;
-    res.writeHead(step.status, { 'content-type': 'application/json' });
+    res.writeHead(step.status, { 'content-type': 'application/json', ...(step.headers ?? {}) });
     res.end(step.body);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -171,6 +171,20 @@ describe('startForkRelay', () => {
     await post(relay.url, CALL, { 'user-agent': 'foundry/1.7.1', 'x-api-key': 'k' });
     expect(up.seen[0].headers['user-agent']).toBe('foundry/1.7.1');
     expect(up.seen[0].headers['x-api-key']).toBe('k');
+  });
+
+  it("passes the upstream's diagnostic headers back, so anvil's error still names the edge", async () => {
+    // anvil prints an "HTTP diagnostics" block built from the response headers. Reproduced on
+    // anvil 1.7.1: a fork read that fails ends in `HTTP diagnostics: cf-ray: … server: …`,
+    // which is what you quote to the provider. Dropping them would cost that on the one
+    // answer that matters — the one the relay gives up on.
+    const up = await fakeUpstream([{ status: 408, body: DRPC_408, headers: { 'cf-ray': 'a393ef9c5badc79e-SJC', server: 'cloudflare' } }]);
+    const relay = await relayTo(up.url, { deadlineMs: 200, backoffMs: [50] });
+    const res = await fetch(relay.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: CALL });
+    expect(res.status).toBe(408);
+    expect(await res.text()).toBe(DRPC_408);
+    expect(res.headers.get('cf-ray')).toBe('a393ef9c5badc79e-SJC');
+    expect(res.headers.get('server')).toBe('cloudflare');
   });
 
   it('leaves a non-HTTP upstream alone', async () => {

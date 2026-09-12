@@ -43,6 +43,14 @@ const HOP_BY_HOP = new Set([
   'host', 'connection', 'keep-alive', 'proxy-connection', 'content-length',
   'transfer-encoding', 'te', 'trailer', 'upgrade', 'expect', 'accept-encoding',
 ]);
+// Response headers NOT passed back to anvil: framing and encoding belong to this hop (fetch
+// has already decoded the body), and a cookie has no business in a JSON-RPC answer.
+// Everything else IS passed back, because anvil prints an "HTTP diagnostics" block built
+// from these headers — on a real 408 that is the provider's `cf-ray` and `server`, the ids
+// you quote when you ask them why. Measured on anvil 1.7.1.
+const SKIP_RESPONSE_HEADERS = new Set([
+  'content-encoding', 'content-length', 'transfer-encoding', 'connection', 'keep-alive', 'set-cookie',
+]);
 
 /** Inside anvil's default `--timeout` (45_000 ms), so anvil hears the upstream, not its own clock. */
 export const DEADLINE_MS = 40_000;
@@ -71,9 +79,12 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
         signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
       });
       const buf = Buffer.from(await res.arrayBuffer());
+      const answerHeaders = {};
+      for (const [name, value] of res.headers) if (!SKIP_RESPONSE_HEADERS.has(name)) answerHeaders[name] = value;
+      answerHeaders['content-type'] ??= 'application/json';
       return {
         status: res.status,
-        contentType: res.headers.get('content-type') ?? 'application/json',
+        headers: answerHeaders,
         body: buf,
         retry: RETRY_STATUSES.has(res.status),
         why: `HTTP ${res.status}`,
@@ -82,7 +93,7 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
       if (err?.name === 'TimeoutError') {
         return {
           status: 504,
-          contentType: 'application/json',
+          headers: { 'content-type': 'application/json' },
           body: rpcError(`fork relay: ${host} did not answer within ${deadlineMs / 1000}s`),
           retry: false,
           why: 'deadline',
@@ -91,7 +102,7 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
       const code = err?.cause?.code ?? err?.code ?? 'fetch failed';
       return {
         status: 502,
-        contentType: 'application/json',
+        headers: { 'content-type': 'application/json' },
         body: rpcError(`fork relay: could not reach ${host} (${code}): ${err?.cause?.message ?? err?.message}`),
         retry: RETRY_SOCKET_CODES.has(code),
         why: code,
@@ -134,7 +145,7 @@ export async function startForkRelay({ upstream, deadlineMs = DEADLINE_MS, backo
     if (answer.retry) stats.exhausted++;
     else if (attempts > 1) stats.recovered++;
 
-    res.writeHead(answer.status, { 'content-type': answer.contentType });
+    res.writeHead(answer.status, answer.headers);
     res.end(answer.body);
   }
 
