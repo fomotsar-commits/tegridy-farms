@@ -52,6 +52,50 @@ each side counts from. If they differ, either anchor both to the same stamp, or 
 the bound and say in the test what it is: a floor, short by however long the gap runs.
 The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
 
+## 2026-09-11 — a gate's comment and a hook's wrong-chain notice are claims, not evidence
+
+**Believed:** when sweeping read gates, a gate whose comment explains it, or a hook
+that already tells the user it is on the wrong chain, can be left as it is.
+
+**Measured** (PR #537: eight hooks gated on `useChainId() === CHAIN_ID`, every
+read in them pinned `chainId: CHAIN_ID`):
+
+- Three comments justified the gate with a wrong-chain read that would "silently
+  return garbage" (useSwapQuote), "returns 0 garbage" (useSwapAllowance) or would
+  "price another chain's assets" (`lib/portfolio/sources.ts`). All three were
+  false: the per-call pin sends each of those reads to mainnet. Two of the gates
+  were still right to keep, for reasons nobody had written down. A quote is the
+  swap's arguments, and its aggregator leg is scoped to the wallet's chain on
+  purpose. An allowance is displayed nowhere and only decides writes. The third
+  gate was wrong to keep: the portfolio refused to total legs that the Dashboard
+  showed beside it, read from the same contracts.
+- `useWalletExposure` did signal the wrong chain. Its page said "Switch to Ethereum
+  mainnet to read your holdings." Directly beneath, the same page said "No tracked
+  ERC-20 balances in this wallet": the gated read left `holdings` empty, and the
+  empty-state branch never looked at the flag.
+
+**Technique:** decide a gate by what its value reaches. A displayed figure loses
+the gate. A write's argument, or the only thing disarming a control, keeps it.
+Re-derive the reason from the code rather than inheriting the comment, and write
+the real one down. Judge "already honest" by every branch the collapsed value
+reaches, not by whether a notice exists somewhere on the page.
+
+## 2026-09-11 — a line-ending check that fires on every file is counting lines
+
+**Believed:** `git show <rev>:<path> | grep -c $'\r'` counts a blob's CRLF lines.
+
+**Measured:** inside a `$( … )` substitution, in the Git Bash this repo's agents
+run on, it returned each file's total line count: 272 of 272, 609 of 609, and
+"CRLF" for all 40 of 40 sampled hooks. It nearly got #526's replayed files
+re-committed to "fix" endings that were already LF. The same substitution over a
+known-LF string (`printf 'a\nb\n'`) returned 2. `tr -dc '\r' | wc -c` read 0 CR
+bytes in every blob, and the replayed blobs had the same OIDs as the originals.
+
+**Technique:** before acting on a check that reports "all N", run it on a known
+negative. Count the byte (`tr -dc '\r' | wc -c`), not lines matching a pattern.
+Prove a replay exact with blob OIDs (`git rev-parse <rev>:<path>`), not
+`git patch-id`, which ignores whitespace.
+
 ## 2026-09-11 — a per-test timeout is a third clock, and a slow body can be a sleep
 
 **Believed** (the candidate list in the 2026-09-10 entry "a flake-candidate list
