@@ -5,6 +5,19 @@ name: Synthetic Monitor
 # This catches "prod is down/stale/broken" within 30 minutes instead of at
 # the next product review. On failure it opens (or comments on) a single
 # deduplicated issue labeled `prod-incident`.
+#
+# 2026-09-09 — these probes cover the Vercel functions and both apex domains,
+# and they DID catch the 4 Sep outage: this workflow went red at 20:55 and
+# opened #385. What they do not reach is the venue's own plumbing. The Alchemy
+# probe exercises the NFT floor-price endpoint, not the JSON-RPC path the app
+# reads chain state through; /api/solrpc is not probed; and the Railway indexer
+# has never been probed by anything, which is why the second half of the 4 Sep
+# incident (nginx caching a stale upstream IP) went unseen. Step 6 closes those
+# gaps by calling venueHealth.mjs, which validates the BODY — a block number, a
+# slot, rows — because those surfaces fail by answering 200 with a JSON-RPC
+# `error` object, which any grep-for-a-string probe would call healthy.
+# Its checks live in a script, not in this file, so they can be self-tested —
+# see the step above the probe.
 
 on:
   schedule:
@@ -22,11 +35,40 @@ concurrency:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 8, not 5: step 6 adds four requests with a 20s per-request ceiling, so a
+    # total upstream stall costs ~80s on top of checkout and setup-node.
+    timeout-minutes: 8
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+
+      # PROVE THE CHECKS CAN FAIL before trusting them to say the venue is fine.
+      # Every case here feeds a check a recorded broken response and asserts it
+      # reports DOWN — including the exact 4 Sep shape, a 200 whose body carries
+      # a JSON-RPC error. A check that cannot fail is a check that reports
+      # healthy forever, which is worse than no check at all.
+      #
+      # This step FAILS THE JOB and opens no incident, on purpose: a broken
+      # probe is an engineering bug, not a production outage, and filing it as
+      # `prod-incident` would send the operator to look at a healthy venue.
+      # Because `if:` on the later steps implies success(), a red self-test
+      # stops the run here rather than reporting a green venue it never checked.
+      - name: Self-test the venue checks
+        shell: bash
+        run: node scripts/monitoring/venueHealth.mjs --self-test
+
       - name: Probe production
         id: probe
         shell: bash
+        env:
+          # Optional. The script already defaults to the live venue and the
+          # current indexer host; these exist only so a host move is a repo-var
+          # edit rather than a code change. Unset resolves to "" — falsy, so the
+          # default still wins.
+          VENUE_SITE_URL: ${{ vars.VENUE_SITE_URL }}
+          VENUE_INDEXER_URL: ${{ vars.VENUE_INDEXER_URL }}
         run: |
           set -u
           BASE="https://tegridyfarms.vercel.app"
@@ -71,6 +113,28 @@ jobs:
               *) FAILS="$FAILS\n- www.$host: expected a 3xx redirect to the apex, got $code" ;;
             esac
           done
+
+          # 6. THE VENUE ITSELF — body validation, not status-line validation.
+          #
+          # The surfaces below are not reachable by the probes above, and they
+          # fail in a shape a grep-for-a-string probe would pass anyway: on
+          # 2026-09-04 an Alchemy key rotation had the JSON-RPC path answering
+          # HTTP 200 with a JSON-RPC `error` object, and the Railway indexer —
+          # never probed by anything until now — went dark behind an nginx that
+          # had cached its old upstream IP, while the site around it stayed
+          # green. venueHealth.mjs reads the body: a real block number, a real
+          # slot, indexer readiness, and rows actually coming back.
+          #
+          # --fails-only prints ONE LINE PER FAILURE and nothing when healthy,
+          # so its output drops straight into $FAILS and both sets of findings
+          # read as a single list in a single incident. It exits 0 either way,
+          # including when it crashes (a crash prints itself as a failed check),
+          # so `bash -e` cannot turn a venue outage into a skipped step.
+          VENUE="$(node scripts/monitoring/venueHealth.mjs --fails-only 2>&1)" \
+            || VENUE="- venue probe: exited non-zero, which it is written never to do"
+          if [ -n "$VENUE" ]; then
+            FAILS="$FAILS"$'\n'"$VENUE"
+          fi
 
           if [ -n "$FAILS" ]; then
             printf 'failed=true\n' >> "$GITHUB_OUTPUT"
@@ -139,7 +203,7 @@ jobs:
 
           Verified by synthetic monitor run: $RUN_URL
 
-          Every probe in this workflow succeeded: the app shell on the Vercel alias and on both production domains, the Alchemy proxy, the native orderbook, and the trades endpoint." 2>/dev/null \
+          Every probe in this workflow succeeded: the app shell on the Vercel alias and on both production domains, the Alchemy proxy, the native orderbook, the trades endpoint, and the venue checks — the EVM and Solana RPC proxies returning a real block number and slot, and the Railway indexer both ready and serving rows." 2>/dev/null \
               || echo "WARNING: could not comment on #$N — prod is healthy; this is bookkeeping only"
             gh issue close "$N" --repo "$GITHUB_REPOSITORY" 2>/dev/null \
               || echo "WARNING: could not close #$N — prod is healthy; this is bookkeeping only"
