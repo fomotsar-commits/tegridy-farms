@@ -76,6 +76,71 @@ all with the retry sitting below anvil.
   Encoding and framing headers still stop at the proxy, because `fetch` has already decoded
   the body.
 
+## 2026-09-11 — a test that lets two endings race pins only the one that wins
+
+**Believed:** the arrival curtain has a hard deadline so that it is gone within its
+3,000 ms budget, and `arrival.spec.ts` asserted exactly that budget with no input, so the
+deadline was taken to be under test.
+
+**Measured:** the curtain ends on whichever comes first, its own animation or the
+deadline, and on an unloaded box the animation won at about 2,880 ms. So the test never
+ran the deadline: deleting the deadline timer left it green. The deadline's own bug
+(armed at the budget, so always a few ms late) surfaced only when a slow CI runner let
+the animation lose, at 3,002 to 3,010 ms in three tries of three (PR #524). Throttling the
+CPU makes that path likely, never certain. Taking the curtain's 2D context away stops the
+animation outright, and then only the deadline can end the curtain. That test failed 10
+of 10 on the pre-fix build (3,011 to 3,021 ms), passed 20 of 20 on #530's fix (2,903 to
+2,916 ms), and failed 4 of 4 with the deadline timer deleted.
+
+**Technique:** when two mechanisms race to end something, test each one with the other
+disabled. A test that lets them race pins only the winner on the machine running it, so
+a mutation of the loser cannot fail it. Disable the rival at a boundary the test can
+reach (here, an init script that makes `getContext` return null for the curtain's canvas
+only), assert that the disabling happened, and assert something only the loser's path
+produces (the curtain was still up when the deadline's dissolve began), so that a third
+way of ending cannot pass for it.
+
+## 2026-09-11 — a deadline armed at the budget can only be met late
+
+**Believed:** `setTimeout(finish, BUDGET)` enforces "gone within BUDGET". The arrival
+curtain's timer was armed at exactly 3,000 ms, and its e2e asserted `lifetime <= 3000`.
+
+**Measured:** CI read the curtain at 3,002 to 3,010 ms in five tries on one PR, and the
+same commit passed at 2,935 ms on a retry. A timer fires at or after its delay, the
+removal it triggers still costs a render, and this timer was armed in a passive effect,
+which runs after paint, so its clock started after the one the test reads. With the CPU
+throttled locally, trunk's curtain lived 3,105 to 3,288 ms (x4) and 3,421 to 3,542 ms
+(x6). Arming it in a layout effect and ending it 100 ms early brought those to 2,982 to
+3,021 ms and 3,030 to 3,090 ms. That holds the budget at CI's load, and at x4 in five
+runs of six. At x6 it still misses: the timer cannot fire until the frame in progress
+ends, and on a saturated main thread nothing fires on time.
+
+**Technique:** a timer can keep an "at most N ms" promise only by firing early. Keep a
+measured slack back from the budget, bound it in a test from both sides (larger than the
+lateness measured, smaller than the time the on-time path needs), and start the timer's
+clock where the test's clock starts. To reproduce a few-ms timing flake locally, throttle
+the CPU with CDP (`Emulation.setCPUThrottlingRate`) until the slow path is the one that
+runs. Then measure the old build and the new build interleaved at the same rate, because
+back-to-back batches measure the box's load as much as the change.
+
+## 2026-09-11 — a callback prop in a useCallback's deps restarts every effect that lists it
+
+**Believed:** listing `finalize` in a long-lived effect's dependencies was harmless,
+because nothing about the component changes while it plays.
+
+**Measured:** `finalize` was `useCallback(..., [onComplete])`, and the parent passed
+`onComplete={() => setSplashDone(true)}`, a new function on every render (this build has
+no React Compiler). So every render of the parent cleared the curtain's deadline and
+armed a fresh one, and re-ran the canvas effect, which starts the animation again from
+its first phase. A unit test showed it on trunk code: after a re-render at 2,000 ms the
+deadline had not fired by 3,000 ms, and the canvas effect had run 3 times for one mount.
+
+**Technique:** keep a callback prop out of long-lived effects' dependency chains. Hold it
+in a ref updated in a layout effect, and call `ref.current` from a stable callback. Test
+it by re-rendering with a NEW function and asserting two things: the effect did not
+re-run (count something it does once per run, here `getContext`), and the new function
+is the one that gets called.
+
 ## 2026-09-11 — a local fallback that accepts a bad argument hides it until production
 
 **Believed:** a green unit suite plus a working dev server means a rate-limited
@@ -323,6 +388,59 @@ need — `page.route(pattern, () => {})` never answers — so a regression fails
 not only the slow one (pre-fix: 4/4 device projects failed; post-fix: 4/4 passed). Pair
 it with a control that the pattern still matches a request somewhere, or a chunk rename
 silently turns the hold into a no-op.
+
+---
+
+## 2026-09-10 — a waited `count()` can still be vacuous: the role was wrong
+
+**Believed:** a `count()`-gated assertion that reads 0 right after `page.goto` is
+a timing bug. Wait for the page to mount and the count becomes honest.
+
+**Measured** (#519: `e2e/a11y-smoke.spec.ts`, "TradePage swap amount input has a
+contextual aria-label", instrumented; all four device projects at `--workers=1`,
+production build under `vite preview`). The old test ran `goto('/swap')`, then
+`if ((await getByRole('textbox', { name: /amount of .* to pay/i }).count()) > 0)`
+assert visible. `count()` read 0 on every project:
+
+| project | count() ran at | route mounted then? | count() |
+|---|---|---|---|
+| chromium | +153ms after load | no (skeleton `aria-busy`) | 0 |
+| iphone-safari | +739ms | no | 0 |
+| ipad-safari | +152ms | no | 0 |
+| mobile-chrome | +902ms | **yes**, input in the DOM | **0** |
+
+After mount, on every project: textbox **0**, spinbutton **1**.
+
+`<input type="number">` has the implicit role **spinbutton**, not textbox, and
+Playwright's role engine follows that mapping. So `getByRole('textbox')` never
+matches a number input. There's no error and no timeout, just 0. A fix that
+waited for mount and kept the textbox locator would have been exactly as vacuous,
+with a convincing-looking wait in front of it. mobile-chrome is the proof: the
+timing was already fine there, and the count was still 0.
+
+Mutation check: with the label changed so it no longer matched, the OLD test
+still PASSED 4/4. The rewrite locates the input by structure, then asserts
+`toHaveAccessibleName`. It FAILED 4/4 with
+`Received string: "Amount of ETH a11ymutant"`, a value rather than
+"element not found".
+
+**Do:** before trusting a role locator on an `<input>`, read its `type`: number →
+spinbutton, range → slider, search → searchbox. When a conditional reads 0,
+separate "not there yet" from "never matches": count the raw CSS selector next to
+the role locator, before and after mount.
+
+### A fix recipe derived from one gate can miss the second
+
+Its sibling test (OnboardingModal) skipped on every run. The known reason was
+real: the fixture pre-seeds the modal's seen-key. But clearing the key alone still
+rendered nothing: no dialog within 8s, 4/4 projects. That's because a second,
+unrelated condition decides whether the auto-open variant is mounted at all.
+Written straight into the test, the one-gate recipe would have turned a false
+green into a new red.
+
+**Do:** run a fix recipe as a probe (log the state it claims to produce) before
+encoding it as an assertion. A skip reason that was never measured can be wrong
+twice.
 
 ---
 

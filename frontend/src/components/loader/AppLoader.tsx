@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import type { LoaderState, Particle } from './types';
 import {
   LOADER_GALLERY, LOADER_WORDS, GOLD,
   T_CRACK_DURATION, T_EXIT_FINALIZE,
-  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS, SKIP_DISSOLVE_MS,
+  CURTAIN_TIMING, FILM_TIMING, CURTAIN_BUDGET_MS, DEADLINE_SLACK_MS, SKIP_DISSOLVE_MS,
 } from './constants';
 import { preloadImages } from './preload';
 import { markArrivalSeen, shouldSkipAtMount } from './skip';
@@ -86,6 +86,21 @@ export function AppLoader({
     audioInitialized: false,
   });
 
+  // A PARENT RE-RENDER IS NOT A NEW ARRIVAL.
+  //
+  // AppLayout passes onComplete as an inline arrow, a new function on every
+  // layout render, and the eager shell (./index.tsx) forwards it untouched. The
+  // layout subscribes to the wallet, the theme and the route, so it can render
+  // while the curtain is up. finalize used to be keyed on onComplete, and the
+  // deadline and the canvas effect are both keyed on finalize: each such render
+  // cleared the deadline and armed a fresh one, and started the choreography
+  // again from the void. finalize is stable for the life of a mount now, and
+  // calls whichever onComplete is current when it runs.
+  const onCompleteRef = useRef(onComplete);
+  useLayoutEffect(() => {
+    onCompleteRef.current = onComplete;
+  });
+
   const finalize = useCallback(() => {
     setVisible(false);
     audioRef.current?.fadeOutAmbient(0.3);
@@ -93,8 +108,8 @@ export function AppLoader({
       audioRef.current?.dispose();
       postfxRef.current?.dispose();
     }, 500);
-    onComplete?.();
-  }, [onComplete]);
+    onCompleteRef.current?.();
+  }, []);
 
   /* Skip for repeat visits or reduced-motion preference. R007: the
    * decision happens during `useState` lazy init (`shouldSkipAtMount`),
@@ -222,9 +237,20 @@ export function AppLoader({
    * it is that a promise held by arithmetic is only as good as the terms
    * somebody remembered.
    *
-   * So this enforces it directly. One timer, armed at mount, cleared on unmount.
-   * Whatever the image, the frame rate or the machine does, the curtain starts
-   * dissolving at BUDGET − dissolve and is gone at BUDGET.
+   * So this enforces it directly: two timers, armed at the commit that shows
+   * the curtain and cleared on unmount. Whatever the image, the frame rate or
+   * the machine does, the curtain starts dissolving at goneBy - dissolve and is
+   * gone at goneBy, which is the budget less DEADLINE_SLACK_MS.
+   *
+   * GONE BY THE BUDGET, NOT AT IT. Armed AT the budget, the deadline could only
+   * land after it: setTimeout fires at or after its delay, and removing the
+   * overlay still costs a render. CI measured that path 2 to 10 ms over. The
+   * slack is the machine's share, kept back from the budget, never added to it.
+   *
+   * A LAYOUT EFFECT, deliberately. The promise is judged from the moment the
+   * overlay enters the DOM (the e2e stamps it with a MutationObserver), and a
+   * passive effect runs after the browser paints: armed there, the deadline's
+   * clock started late, and latest on the loaded machines it exists for.
    *
    * IN ITS OWN EFFECT, deliberately. The canvas effect below returns early when
    * there is no 2D context, so a deadline living inside it would never arm on
@@ -232,7 +258,7 @@ export function AppLoader({
    *
    * Film only ever ends by choice: it is a deliberate viewing, so no deadline.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!visible || full) return;
 
     // SEEN MEANS SHOWN, AND THE MARK BELONGS HERE — AT MOUNT.
@@ -266,8 +292,9 @@ export function AppLoader({
     // deadline is for. The first timer asks nicely and gets the dissolve; the
     // second one ends it whatever happened. finalize() is idempotent for our
     // purposes: it flips `visible` false, and the shell fires onComplete once.
-    const dissolveAt = window.setTimeout(skipIntro, CURTAIN_BUDGET_MS - SKIP_DISSOLVE_MS);
-    const goneAt = window.setTimeout(finalize, CURTAIN_BUDGET_MS);
+    const goneBy = CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS;
+    const dissolveAt = window.setTimeout(skipIntro, goneBy - SKIP_DISSOLVE_MS);
+    const goneAt = window.setTimeout(finalize, goneBy);
     return () => {
       window.clearTimeout(dissolveAt);
       window.clearTimeout(goneAt);
@@ -823,7 +850,10 @@ export function AppLoader({
     // `full` and `timing` are stable for the life of a mount: the prop never
     // changes on a given loader, and `timing` is one of two module constants
     // rather than a fresh object. Listing them satisfies the exhaustive-deps
-    // rule without ever re-running the choreography mid-flight.
+    // rule without ever re-running the choreography mid-flight. `finalize` is
+    // stable too, and has to be: while it was keyed on the parent's inline
+    // onComplete, every layout render under the curtain restarted this effect,
+    // and the curtain with it, from the void.
   }, [visible, finalize, initAudio, full, timing]);
 
   const toggleMute = useCallback(() => {

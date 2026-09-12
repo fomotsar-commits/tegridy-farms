@@ -144,6 +144,13 @@ Budget **~5.5 SOL** for the default, or **~2.8 SOL** with `--max-len`. On devnet
 the faucet is the constraint, `--max-len` is the sensible choice: it only forecloses
 upgrading to a *larger* binary, and a devnet program can simply be redeployed.
 
+> ⚠️ **2026-09-11 - the 2× row above describes older CLIs.** The operator box now runs
+> Solana CLI **4.1.1**, whose own `solana program deploy --help` says `--max-len` defaults to
+> *"the length of the original deployed program"* (1×) and that upgrades **auto-extend**
+> the program data account unless `--no-auto-extend` is passed. So with 4.1.1 a plain
+> deploy costs **~2.60 SOL** and stays upgradeable: a later, larger binary pays its extra
+> rent at upgrade time instead of up front. Check `solana --version` before relying on it.
+
 ⚠️ **The public faucet rate-limits hard by IP**, and `solana airdrop` then fails with
 "airdrop request failed. This can happen when the rate limit is reached." That is not a
 config error — the RPC is fine, the faucet is refusing. Use <https://faucet.solana.com>
@@ -485,11 +492,27 @@ These are not tasks I can do, and none of them should be improvised on the day.
 2. 🔑 **A real mainnet program keypair**, generated and backed up before use. Two
    own-venue program keypairs are currently gitignored and **unbacked-up**; do not add a
    third to that pile.
+   **2026-09-11: generated.** Mainnet program id
+   `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` (public key only - the keyfile lives
+   outside the repo). ⚠️ **Not yet backed up.** Back it up before it deploys anything.
 3. 💰 **`min_stake`, `deposit_cap`, `max_wallet_principal`.** `min_stake` is permanent.
+   **So is `max_wallet_principal`** (found 2026-09-11): it is written only in
+   `initialize_pool` (lib.rs:383) and no instruction ever changes it. Only `deposit_cap`
+   moves - upward only, 48 hours after `propose_cap_raise`, via the permissionless
+   `execute_cap_raise`. Three consequences: `max_wallet_principal` must be **at least the
+   largest single wallet that will migrate** (the largest live Streamflow position is
+   1,000,000 BAYLA); it must be **at most the INITIAL `deposit_cap`** (init refuses
+   otherwise, and later cap raises do not lift it); and `min_stake` cannot go below
+   **100 whole tokens** (`initialize_pool` enforces that floor).
 4. 📋 **External audit engagement.** 2–4 week scheduling lead is normal. Book it before
    the code is "ready", not after.
+   **2026-09-11:** the owner reports an external audit is underway.
 5. 🔁 **Migration of the 8 existing Streamflow stakers** — including claiming the 1M
    position before it crosses the u64 ceiling.
+   ⚠️ That position's status is **unverified**: `docs/TODO_OPERATOR.md` records it as having
+   crossed on 2026-09-07 from a commit message, with no chain read, while the 2026-09-06
+   simulation table (`bungalowStakingCeiling.test.ts`) has its claim succeeding. Settle it
+   with a live `claim_rewards` simulation before acting on either reading.
 
 ---
 

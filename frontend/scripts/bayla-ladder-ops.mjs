@@ -113,7 +113,16 @@ const IX = {
   claimCarried: disc('global', 'claim_carried'),
   notifyReward: disc('global', 'notify_reward'),
   sweepOrphanedPenalty: disc('global', 'sweep_orphaned_penalty'),
+  proposeAuthority: disc('global', 'propose_authority'),
+  acceptAuthority: disc('global', 'accept_authority'),
+  proposeCapRaise: disc('global', 'propose_cap_raise'),
+  cancelCapRaise: disc('global', 'cancel_cap_raise'),
+  executeCapRaise: disc('global', 'execute_cap_raise'),
+  declareDegraded: disc('global', 'declare_degraded'),
 };
+// math.rs:102 - the delay between propose_cap_raise and execute_cap_raise.
+const CAP_TIMELOCK_SECS = 48 * 3_600;
+
 const ACCT = {
   Pool: disc('account', 'Pool'),
   Position: disc('account', 'Position'),
@@ -404,6 +413,111 @@ function ixNotifyReward({ programId, authority, pool, p, amountRaw, fromBudgetRa
   });
 }
 
+/* -- governance: the six calls the pool authority (and one stranger) can make --
+ *
+ * NONE OF THESE MOVES A TOKEN. Read the account lists: AuthorityOnly names the
+ * authority and the pool and nothing else; AcceptAuthority names the pending key and
+ * the pool; ExecuteCapRaise names only the pool. There is no vault in any of them, so
+ * no signature on this page can take principal or rewards out - which is why a plain
+ * wallet is an acceptable POOL authority. The UPGRADE authority is a different key.
+ */
+function ixAuthorityOnly(programId, authority, pool, data) {
+  return new TransactionInstruction({
+    programId,
+    keys: [meta(authority, true, false), meta(pool, false, true)],
+    data,
+  });
+}
+
+function ixProposeAuthority({ programId, authority, pool, newAuthority }) {
+  return ixAuthorityOnly(programId, authority, pool,
+    Buffer.concat([IX.proposeAuthority, newAuthority.toBuffer()]));
+}
+
+/** Signed by the PROPOSED key, not the current one. */
+function ixAcceptAuthority({ programId, pending, pool }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [meta(pending, true, false), meta(pool, false, true)],
+    data: Buffer.from(IX.acceptAuthority),
+  });
+}
+
+function ixProposeCapRaise({ programId, authority, pool, newCapRaw }) {
+  return ixAuthorityOnly(programId, authority, pool,
+    Buffer.concat([IX.proposeCapRaise, u64le(newCapRaw)]));
+}
+
+function ixCancelCapRaise({ programId, authority, pool }) {
+  return ixAuthorityOnly(programId, authority, pool, Buffer.from(IX.cancelCapRaise));
+}
+
+/** PERMISSIONLESS once the timelock has run: `ExecuteCapRaise` declares no Signer. */
+function ixExecuteCapRaise({ programId, pool }) {
+  return new TransactionInstruction({
+    programId,
+    keys: [meta(pool, false, true)],
+    data: Buffer.from(IX.executeCapRaise),
+  });
+}
+
+/** ONE-WAY. There is no instruction that clears it. */
+function ixDeclareDegraded({ programId, authority, pool }) {
+  return ixAuthorityOnly(programId, authority, pool, Buffer.from(IX.declareDegraded));
+}
+
+/* What the program would refuse, said BEFORE a fee is paid.
+ *
+ * Each returns null when lib.rs would accept, or a sentence naming the error it would
+ * raise. They mirror propose_cap_raise .. declare_degraded line for line; the program
+ * stays the authority, these only stop an operator paying for a revert. Exported so
+ * the test can pin every boundary - `>=` against `>` above all. */
+function authorityProblem(p, signerKey) {
+  return signerKey.equals(p.authority)
+    ? null
+    : `this pool's authority is ${p.authority.toBase58()}, not ${signerKey.toBase58()} (Unauthorized)`;
+}
+
+function capRaiseProblem(p, newCapRaw) {
+  return newCapRaw > p.depositCap
+    ? null
+    : `the cap can only rise: ${fmt(newCapRaw, p.decimals)} is not above the current ${fmt(p.depositCap, p.decimals)} (CapCanOnlyRaise)`;
+}
+
+function cancelCapRaiseProblem(p) {
+  return p.pendingCap > 0n ? null : 'there is no pending cap raise to cancel (NoPendingChange)';
+}
+
+function executeCapRaiseProblem(p, nowSecs) {
+  if (p.pendingCap === 0n) return 'there is no pending cap raise to execute (NoPendingChange)';
+  const readyAt = p.pendingCapTs + BigInt(CAP_TIMELOCK_SECS);
+  // `>=`, exactly as lib.rs: executable AT readyAt, not one second after it.
+  if (BigInt(nowSecs) < readyAt) {
+    return `the 48-hour timelock has not run: executable at ${new Date(Number(readyAt) * 1000).toISOString()} (TimelockNotElapsed)`;
+  }
+  return p.pendingCap > p.depositCap ? null : 'the pending cap is not above the current cap (CapCanOnlyRaise)';
+}
+
+function acceptAuthorityProblem(p, signerKey) {
+  if (p.pendingAuthority.equals(PublicKey.default)) return 'no authority transfer is pending (run propose-authority first)';
+  return signerKey.equals(p.pendingAuthority)
+    ? null
+    : `only the PROPOSED key ${p.pendingAuthority.toBase58()} can accept; this is ${signerKey.toBase58()} (Unauthorized)`;
+}
+
+function declareDegradedProblem(p) {
+  return p.degraded ? 'the pool is already degraded, and the flag is one-way (AlreadyDegraded)' : null;
+}
+
+/** Broadcasting a ONE-WAY flag needs a second, explicit word. A dry run never does.
+ *  STRICTLY `=== true`: `--confirm-permanent yes` parses "yes" as the flag's VALUE,
+ *  and a truthy check would let it through. Same rule as the broadcast gate. */
+function confirmPermanentProblem(broadcast, args) {
+  return broadcast && args.confirmPermanent !== true
+    ? 'declare-degraded is permanent: pass --confirm-permanent together with --broadcast'
+    : null;
+}
+
 // ── plumbing ─────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
@@ -564,6 +678,12 @@ const USAGE = `bayla-ladder ops
   hatch      --pool <addr> --nonce <n>       # principal; 25% penalty WHILE LOCKED
   claim-carried --pool <addr>
   sweep      --pool <addr>                   # permissionless, no signer
+  propose-cap-raise --pool <addr> --cap <t>     # authority; raise-only, runs after 48h
+  cancel-cap-raise  --pool <addr>               # authority
+  execute-cap-raise --pool <addr>               # PERMISSIONLESS once 48h have run
+  propose-authority --pool <addr> --new-authority <addr>   # authority; step 1 of 2
+  accept-authority  --pool <addr>               # signed by the PROPOSED key; step 2
+  declare-degraded  --pool <addr> --confirm-permanent      # authority; ONE-WAY
 
   common: --program <id> --rpc <url> --keypair <path> --broadcast
           amounts are WHOLE TOKENS; dry run unless --broadcast`;
@@ -671,7 +791,7 @@ async function main() {
       console.log(`  pool (PDA)    ${pool.toBase58()}`);
       console.log(`  min stake     ${fmt(minStake, decimals)}   ⚠ PERMANENT — no setter exists`);
       console.log(`  deposit cap   ${fmt(depositCap, decimals)}  (raise-only, 48h timelock)`);
-      console.log(`  max / wallet  ${fmt(maxWallet, decimals)}`);
+      console.log(`  max / wallet  ${fmt(maxWallet, decimals)}   ⚠ PERMANENT — no setter exists; later cap raises do not lift it`);
       // The signer becomes pool.authority: the only key that can fund rewards, raise
       // the cap or declare the pool degraded. Transfer is a two-step propose/accept,
       // and there is no recovery if it is lost.
@@ -846,6 +966,108 @@ async function main() {
       return;
     }
 
+    case 'propose-cap-raise': {
+      const authority = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const newCap = toRaw(need(args, 'cap'), p.decimals);
+      const bad = authorityProblem(p, authority.publicKey) ?? capRaiseProblem(p, newCap);
+      if (bad) throw new Error(bad);
+      console.log(`\npropose-cap-raise`);
+      console.log(`  current cap    ${fmt(p.depositCap, p.decimals)}`);
+      console.log(`  proposed cap   ${fmt(newCap, p.decimals)}`);
+      console.log(`  takes effect   48 hours after this lands, via 'execute-cap-raise' (anyone may run it)`);
+      console.log(`  max / wallet   ${fmt(p.maxWalletPrincipal, p.decimals)} - unchanged; it has NO setter`);
+      if (p.pendingCap > 0n) {
+        console.log(`  WARNING: this REPLACES the pending ${fmt(p.pendingCap, p.decimals)} proposal and restarts the 48h clock`);
+      }
+      await submit(conn, [ixProposeCapRaise({
+        programId, authority: authority.publicKey, pool: poolKey, newCapRaw: newCap,
+      })], authority, { broadcast, label: 'propose-cap-raise' });
+      return;
+    }
+
+    case 'cancel-cap-raise': {
+      const authority = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const bad = authorityProblem(p, authority.publicKey) ?? cancelCapRaiseProblem(p);
+      if (bad) throw new Error(bad);
+      console.log(`\ncancel-cap-raise`);
+      console.log(`  abandoning     ${fmt(p.pendingCap, p.decimals)}  (the cap stays ${fmt(p.depositCap, p.decimals)})`);
+      await submit(conn, [ixCancelCapRaise({ programId, authority: authority.publicKey, pool: poolKey })],
+        authority, { broadcast, label: 'cancel-cap-raise' });
+      return;
+    }
+
+    case 'execute-cap-raise': {
+      // PERMISSIONLESS once the timelock has run. The signer only pays the fee.
+      const payer = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const bad = executeCapRaiseProblem(p, Math.floor(Date.now() / 1000));
+      if (bad) throw new Error(bad);
+      console.log(`\nexecute-cap-raise (permissionless)`);
+      console.log(`  cap            ${fmt(p.depositCap, p.decimals)}  ->  ${fmt(p.pendingCap, p.decimals)}`);
+      await submit(conn, [ixExecuteCapRaise({ programId, pool: poolKey })],
+        payer, { broadcast, label: 'execute-cap-raise' });
+      return;
+    }
+
+    case 'propose-authority': {
+      const authority = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const next = new PublicKey(need(args, 'newAuthority'));
+      const bad = authorityProblem(p, authority.publicKey);
+      if (bad) throw new Error(bad);
+      if (next.equals(p.authority)) throw new Error(`${next.toBase58()} is already the authority`);
+      console.log(`\npropose-authority (step 1 of 2)`);
+      console.log(`  current        ${p.authority.toBase58()}`);
+      console.log(`  proposed       ${next.toBase58()}`);
+      console.log(`  Nothing changes until the PROPOSED key runs 'accept-authority'; until then the`);
+      console.log(`  current key keeps full control. To abandon, propose ${PublicKey.default.toBase58()}.`);
+      if (!PublicKey.isOnCurve(next.toBytes())) {
+        console.log(`  WARNING: ${next.toBase58()} is OFF-CURVE (a PDA, e.g. a Squads vault). It cannot`);
+        console.log(`  sign this CLI's accept-authority - the accept must be executed from inside that multisig.`);
+      }
+      await submit(conn, [ixProposeAuthority({
+        programId, authority: authority.publicKey, pool: poolKey, newAuthority: next,
+      })], authority, { broadcast, label: 'propose-authority' });
+      return;
+    }
+
+    case 'accept-authority': {
+      const pending = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const bad = acceptAuthorityProblem(p, pending.publicKey);
+      if (bad) throw new Error(bad);
+      console.log(`\naccept-authority (step 2 of 2)`);
+      console.log(`  authority      ${p.authority.toBase58()}  ->  ${pending.publicKey.toBase58()}`);
+      await submit(conn, [ixAcceptAuthority({ programId, pending: pending.publicKey, pool: poolKey })],
+        pending, { broadcast, label: 'accept-authority' });
+      return;
+    }
+
+    case 'declare-degraded': {
+      const authority = signer();
+      const poolKey = new PublicKey(need(args, 'pool'));
+      const p = await loadPool(conn, programId, poolKey);
+      const bad = authorityProblem(p, authority.publicKey) ?? declareDegradedProblem(p);
+      if (bad) throw new Error(bad);
+      console.log(`\ndeclare-degraded  -- ONE-WAY: there is no instruction that clears it`);
+      console.log(`  After this the pool takes NO new stakes, and the emergency hatch charges`);
+      console.log(`  no penalty while locked. Every existing position can still exit.`);
+      // A dry run is always safe. Broadcasting an irreversible flag needs a second,
+      // explicit word, so a --broadcast typed on the wrong line cannot set it.
+      const unconfirmed = confirmPermanentProblem(broadcast, args);
+      if (unconfirmed) throw new Error(unconfirmed);
+      await submit(conn, [ixDeclareDegraded({ programId, authority: authority.publicKey, pool: poolKey })],
+        authority, { broadcast, label: 'declare-degraded' });
+      return;
+    }
+
     default:
       console.log(USAGE);
       process.exitCode = 1;
@@ -873,6 +1095,10 @@ export {
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
+  ixProposeAuthority, ixAcceptAuthority, ixProposeCapRaise, ixCancelCapRaise,
+  ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
+  authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
+  acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
   toRaw, fmt, parseArgs, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
