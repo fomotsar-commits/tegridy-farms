@@ -146,9 +146,10 @@ export const SKIP_DISSOLVE_MS = 400;
  * the island MEASURED the curtain alive at 4,250 ms warm and 6,100 ms behind a
  * slow image. A sum can only ever be as honest as the terms somebody remembered.
  *
- * So a timer now enforces it directly (AppLoader arms one at mount, curtain
- * only). Whatever the image, the frame rate or the machine does, the curtain is
- * dissolving at BUDGET − SKIP_DISSOLVE_MS and gone at BUDGET. That is one line
+ * So a timer now enforces it directly (AppLoader arms it at the commit that
+ * shows the curtain, curtain only). Whatever the image, the frame rate or the
+ * machine does, the curtain is gone BY the budget: DEADLINE_SLACK_MS early,
+ * because a timer armed AT the budget can only land after it. That is one line
  * that cannot be summed wrong.
  *
  * The island owns its half of the original error: the master said "about 2,500
@@ -158,3 +159,19 @@ export const SKIP_DISSOLVE_MS = 400;
  * constants file.
  */
 export const CURTAIN_BUDGET_MS = 3000;
+
+/**
+ * What the deadline keeps back from CURTAIN_BUDGET_MS for the machine.
+ *
+ * The budget promises when the curtain is GONE, and a timer can only keep that
+ * kind of promise early. setTimeout fires at or after its delay, and removing
+ * the overlay still costs a render, so a deadline armed at the budget ends past
+ * it by construction. CI measured that path at 3,002 to 3,010 ms in five tries,
+ * and the same commit passed at 2,935 ms on a retry. So the curtain starts its
+ * dissolve at BUDGET - SLACK - SKIP_DISSOLVE_MS and is gone by BUDGET - SLACK.
+ *
+ * Bounded both ways in curtainDeadline.test.tsx: larger than the lateness CI
+ * measured, and small enough that a curtain running on time still reaches its
+ * own dissolve before the deadline asks for one.
+ */
+export const DEADLINE_SLACK_MS = 100;

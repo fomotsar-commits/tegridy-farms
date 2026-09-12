@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render } from '@testing-library/react';
-import { CURTAIN_BUDGET_MS, SKIP_DISSOLVE_MS } from './constants';
+import { CURTAIN_BUDGET_MS, CURTAIN_TIMING, DEADLINE_SLACK_MS, SKIP_DISSOLVE_MS } from './constants';
 import { ARRIVAL_SEEN_KEY } from './skip';
 
 // The preload NEVER resolves. A curtain that waits for the network is the
@@ -166,5 +166,72 @@ describe('the curtain is gone by its budget, whatever the machine does', () => {
 
     vi.advanceTimersByTime(CURTAIN_BUDGET_MS * 2);
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  // THE MACHINE'S SHARE, KEPT BACK FROM THE BUDGET.
+  //
+  // A timer armed AT the budget can only be met late: setTimeout fires at or
+  // after its delay, and the removal still has a render to commit after that.
+  // CI measured this path at 3,002 to 3,010 ms in five tries against the
+  // 3,000 ms promise, and the same commit passed at 2,935 ms on a retry. So the
+  // deadline ends the curtain DEADLINE_SLACK_MS early, and the budget holds.
+  it('is gone by the budget less the slack it keeps for the machine', () => {
+    const onComplete = vi.fn();
+    render(<AppLoader onComplete={onComplete} />);
+
+    vi.advanceTimersByTime(CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS - 1);
+    expect(onComplete).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a slack larger than the lateness measured, and small enough not to cut the name short', () => {
+    // Larger than the 10 ms CI measured past the budget, or it buys nothing.
+    expect(DEADLINE_SLACK_MS).toBeGreaterThan(10);
+    // Small enough that a choreography running on time still reaches its own
+    // dissolve before the deadline asks for one: the deadline is for a curtain
+    // that is late, not a shorter curtain for everyone.
+    const onTime = CURTAIN_TIMING.voidEnd
+      + CURTAIN_TIMING.artCount * CURTAIN_TIMING.artDuration
+      + CURTAIN_TIMING.textForm;
+    expect(CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS - SKIP_DISSOLVE_MS).toBeGreaterThanOrEqual(onTime);
+  });
+
+  // A PARENT RE-RENDER IS NOT A NEW ARRIVAL.
+  //
+  // AppLayout mounts the loader as onComplete={() => setSplashDone(true)}: a
+  // fresh function on every render, and the eager shell forwards it untouched.
+  // So anything keyed on onComplete's identity re-runs whenever the layout
+  // renders under the curtain, and it subscribes to the wallet, the theme and
+  // the route.
+  // finalize WAS keyed on it, and both the deadline and the choreography were
+  // keyed on finalize: every re-render cleared the deadline and armed a fresh
+  // one, and started the curtain again from the void.
+  it('does not restart the deadline when the parent re-renders mid-arrival', () => {
+    const first = vi.fn();
+    const { rerender } = render(<AppLoader onComplete={first} />);
+    vi.advanceTimersByTime(2000);
+
+    const latest = vi.fn();
+    rerender(<AppLoader onComplete={latest} />);
+
+    vi.advanceTimersByTime(CURTAIN_BUDGET_MS - 2000);
+    // Gone on the ORIGINAL schedule, and it is the CURRENT callback that hears.
+    expect(latest).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  it('does not restart the choreography when the parent re-renders', () => {
+    // The canvas effect asks for its 2D context once per run, so the count of
+    // asks IS the count of runs. The spy answers null, which also keeps the
+    // tick from starting: a run is observable here without drawing a frame.
+    const getContext = vi.mocked(HTMLCanvasElement.prototype.getContext);
+    const { rerender } = render(<AppLoader onComplete={() => {}} />);
+    const runs = getContext.mock.calls.length;
+    expect(runs, 'the canvas effect never ran, so this proves nothing').toBeGreaterThan(0);
+
+    rerender(<AppLoader onComplete={() => {}} />);
+    rerender(<AppLoader onComplete={() => {}} />);
+    expect(getContext.mock.calls.length).toBe(runs);
   });
 });
