@@ -295,4 +295,64 @@ describe('usePoolData — an unread reserve is not an empty one', () => {
     const { result } = renderHook(() => usePoolData());
     expect(result.current.aprUnread).toBe(true);
   });
+
+  // OFF MAINNET A FAILED LEG IS STILL A FAILED LEG.
+  //
+  // `batchRan` was `isDeployed && onMainnet && !isLoading`, copied from the
+  // `enabled` gate this batch carried at the time. #514 (f7452f99) deleted that
+  // gate -- useChainId() follows the wallet under the multichain config and wagmi
+  // persists it through a disconnect, so a visitor last on Base had every read
+  // DISABLED and /farm printed a "0%" APR as fact -- and dropped the same term
+  // from useLPFarming's unread flags for the same reason. This flag is the one
+  // that was left behind. With the reads running off mainnet and `batchRan`
+  // still false there, `entryUnread` answered "read fine" for every entry
+  // nobody had read: the exact partial failure the block above exists to catch,
+  // reachable again by switching network.
+  //
+  // MUTATION CHECK: put `&& onMainnet` back on `batchRan` and the two failure
+  // cases below go false and fail. Each pins a flag through its OWN clause --
+  // `reserveUnread` off entry [0], `aprUnread` off entry [2] -- because
+  // `runwayUnread` is their union and would be carried by either one.
+  describe.each([['Base', 8453], ['Robinhood Chain', 4663]] as const)(
+    'a wallet on %s',
+    (_label, chainId) => {
+      it('reports an unread reserve leg as unread, not as a read reserve', () => {
+        stubHealthyReserve();
+        wagmiMock.setReadResult({ functionName: 'totalStaked', result: 0n, status: 'failure' });
+        wagmiMock.setChainId(chainId);
+        const { result } = renderHook(() => usePoolData());
+        expect(result.current.reserveUnread).toBe(true);
+        // The figure the silence published: balance - 0 - 0, every staker's
+        // principal offered as reward reserve, 16x the real 400k.
+        expect(result.current.rewardsRemaining).not.toBe(formatEther(parseEther('6400000')));
+        expect(result.current.rewardsRemaining).toBe('0');
+        expect(result.current.runwayUnread).toBe(true);
+      });
+
+      it('reports an unread rate as an unread APR, not "period ended"', () => {
+        stubHealthyReserve();
+        wagmiMock.setReadResult({ functionName: 'rewardRate', result: 0n, status: 'failure' });
+        wagmiMock.setChainId(chainId);
+        const { result } = renderHook(() => usePoolData());
+        expect(result.current.aprUnread).toBe(true);
+        // Its own clause, not the reserve's: those three legs landed.
+        expect(result.current.reserveUnread).toBe(false);
+        expect(result.current.runwayUnread).toBe(true);
+      });
+
+      it('still reports a fully-read pool as read — the fix does not blank the chain', () => {
+        // The other direction. Dropping the term must not turn every off-mainnet
+        // visitor into an outage: the reads are pinned to CHAIN_ID, they land,
+        // and the report matches what mainnet reports.
+        stubHealthyReserve();
+        wagmiMock.setChainId(chainId);
+        const { result } = renderHook(() => usePoolData());
+        expect(result.current.reserveUnread).toBe(false);
+        expect(result.current.aprUnread).toBe(false);
+        expect(result.current.runwayUnread).toBe(false);
+        expect(result.current.rewardsRemaining).toBe(formatEther(parseEther('400000')));
+        expect(result.current.secondsRemaining).toBeGreaterThan(0);
+      });
+    },
+  );
 });

@@ -55,7 +55,23 @@ export function usePoolData() {
   // TokenomicsPage:231 and :240 correctly print '–' for an UNREAD zero, but a
   // large plausible WRONG figure sails through `rewardsRemaining > 0`. The
   // guards were built for a total outage; this is a partial one.
-  const batchRan = isDeployed && onMainnet && !isLoading;
+  //
+  // NOT gated on the wallet's chain, and it must not be. #514 (f7452f99) dropped
+  // `useChainId() === CHAIN_ID` from this batch's `enabled`: since the multichain
+  // config useChainId() follows the wallet and wagmi persists it through a
+  // disconnect, so a visitor last on Base or Robinhood Chain had every read here
+  // DISABLED and FarmStatsRow took a "0%" APR off it. The reads now RUN off
+  // mainnet -- every entry above is pinned `chainId: CHAIN_ID` (F198) -- so a
+  // failure there is a real outage, and this flag drops the same term the
+  // `enabled` gate did. Carrying it would re-create the silence one layer down:
+  // the batch runs, a leg fails, and `reserveUnread` reports the 6.4M of staker
+  // principal above as a read reserve.
+  //
+  // Pinned by the off-mainnet block in usePoolData.test.ts, NOT by
+  // farmReadsWalletChain.test.ts: that suite compares two all-success reports, so
+  // these flags are false on both sides of its equality and it passes 10/10 with
+  // the term put back. A failure flag is only exercised by a failed read.
+  const batchRan = isDeployed && !isLoading;
   const entryUnread = (i: number) => batchRan && data?.[i]?.status !== 'success';
 
   /** The reserve arithmetic subtracts three separate reads. Any one missing
