@@ -331,15 +331,17 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n, rewardPools: pools,
   });
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
-  // The classic pool (nonce 0) is past the ceiling and can never pay again; the
-  // dynamic pool (nonce 1) is healthy and holds a real balance. This is exactly
-  // the shape the venue will have once the dynamic rail is attached.
+  // The classic pool (nonce 0) is over `CLASSIC_ACCOUNTED_CEILING` — which, as of
+  // 2026-09-12, means "might not pay" and NOT "cannot pay": the live 1,000,000
+  // BAYLA entry sits at 107.67% of that constant and pays in full. The dynamic
+  // pool (nonce 1) is healthy. This is the shape the venue has once the dynamic
+  // rail is attached.
   const DEAD_CLASSIC_LIVE_DYNAMIC = {
     accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n, 1: 5n },
     pendingRaw: { 0: 4_000n, 1: 9_000n },
   };
 
-  it('claims the still-payable pool FIRST, then closes', async () => {
+  it('attempts EVERY pool holding a balance before it closes — including the one over the constant', async () => {
     claimRewards.mockResolvedValue({ txId: 'CLAIM_SIG' });
     unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
     const r = await unstakeAndCloseForfeitingRewards({
@@ -349,10 +351,12 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       entry: DEAD_CLASSIC_LIVE_DYNAMIC,
     });
     expect(r.ok).toBe(true);
-    // The DYNAMIC pool is claimed. The dead classic one is not — claiming it
-    // would revert 6000, which is the whole reason this door exists.
-    expect(claimRewards).toHaveBeenCalledTimes(1);
-    expect(claimRewards.mock.calls[0]![0].rewardPoolNonce).toBe(1);
+    // BOTH pools are claimed. This assertion read `1` on trunk — the classic
+    // pool was dropped unclaimed because its counter was over the constant, and
+    // that predicate matches a live position holding five figures of claimable
+    // BAYLA. Nothing here may decide a pool cannot pay; the program decides.
+    expect(claimRewards).toHaveBeenCalledTimes(2);
+    expect(claimRewards.mock.calls.map((c) => c[0].rewardPoolNonce)).toEqual([0, 1]);
     expect(claimRewards.mock.calls[0]![0].depositNonce).toBe(7);
     // ORDER IS THE POINT. Closing first destroys the balance the claim saves.
     expect(claimRewards.mock.invocationCallOrder[0]!)
@@ -376,7 +380,9 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     if (!r.ok) expect(r.reason).toMatch(/could not be claimed first/);
   });
 
-  it('claims nothing when the only pool is the dead one — todays behaviour, unchanged', async () => {
+  it('when the chain itself says 6000, the rescue accepts that and frees the principal', async () => {
+    // The ONLY evidence that closes a door. Not the counter — the program.
+    claimRewards.mockRejectedValue(new Error('Error Code: ArithmeticError. Error Number: 6000.'));
     unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
     const r = await unstakeAndCloseForfeitingRewards({
       invoker,
@@ -384,8 +390,23 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       entryNonce: 7,
       entry: { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n }, pendingRaw: { 0: 4_000n } },
     });
+    // Attempted, refused by the program, then closed — the principal is not
+    // held hostage to rewards that provably cannot be collected.
+    expect(claimRewards).toHaveBeenCalledTimes(1);
     expect(r.ok).toBe(true);
-    expect(claimRewards).not.toHaveBeenCalled();
     expect(unstakeAndClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a NON-permanent failure still aborts — a dry vault is not a death certificate', async () => {
+    claimRewards.mockRejectedValue(new Error('Error Code: RewardPoolDrained. Error Number: 6013.'));
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n }, pendingRaw: { 0: 4_000n } },
+    });
+    expect(r.ok).toBe(false);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
   });
 });

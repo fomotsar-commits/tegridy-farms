@@ -113,10 +113,10 @@ describe('the offered-ceiling headline', () => {
  * button sits a few hundred pixels below it — the same lie, in smaller type.
  */
 describe('the "accrued" header on the pool page', () => {
-  it('excludes a position past the ceiling and names the stranded amount', async () => {
+  it('separates a position over the constant and names it AT RISK, not lost', async () => {
     walletState.publicKey = { toBase58: () => 'StakerPk1111111111111111111111111111111111' };
     entriesState.list = [
-      entry(0, DEAD_ACCOUNTED, 4_000_000n), // dead: 4 BAYLA stranded
+      entry(0, DEAD_ACCOUNTED, 4_000_000n), // over the constant: 4 BAYLA at risk
       entry(1, 10n, 900_000n),              // live: 0.9 BAYLA claimable
     ];
     render(<LighthousePoolLive bungalow={BUNGALOW} />);
@@ -125,8 +125,11 @@ describe('the "accrued" header on the pool page', () => {
     // 0.9 accrued — NOT 4.9, which is what summing the dead position gives.
     expect(line).toMatch(/0\.9\s*accrued/);
     expect(line).not.toMatch(/4\.9\s*accrued/);
-    // And the stranded 4 is named rather than silently dropped.
-    expect(line).toMatch(/4\s*stranded/);
+    // The 4 is named, and named as a RISK. "stranded" was the old copy, and it
+    // told a live holder their claimable balance was gone: on the real card that
+    // read "0 accrued · 13,700.79 stranded" while 13,603 of it was claimable.
+    expect(line).toMatch(/4\s*at risk/);
+    expect(line).not.toMatch(/stranded/);
   });
 
   it('says nothing about stranding when every position is live', async () => {
@@ -135,6 +138,6 @@ describe('the "accrued" header on the pool page', () => {
     render(<LighthousePoolLive bungalow={BUNGALOW} />);
     const header = await screen.findByText(/accrued/);
     expect(header.textContent).toMatch(/1\s*accrued/);
-    expect(header.textContent).not.toMatch(/stranded/);
+    expect(header.textContent).not.toMatch(/at risk/);
   });
 });
