@@ -44,10 +44,11 @@ import { isIndexerConfigured } from '../lib/indexer/client';
 // key, no proxy and no env var, so this page does something on a cold visit.
 //
 // The other half is the venue router (SwapFeeRouter), which only the Ponder
-// indexer can see and which is hosted nowhere. With VITE_INDEXER_URL unset those
-// three panels park dark and each says what it could not read — kept visible,
-// and kept last, because hiding them would hide the fact that router fills are
-// not on the tape at all. None of them draws an empty table, because an empty
+// indexer can see. Production has it configured, and there the three router
+// panels render, each behind its own read state and kept last, because hiding
+// them would hide the fact that router fills are not on the tape at all. With
+// VITE_INDEXER_URL unset (CI, local builds, previews) that half is one line
+// saying so. None of the panels draws an empty table, because an empty
 // copy-trading board is a claim about every wallet at once.
 
 export default function CopyTradingPage() {
@@ -194,7 +195,8 @@ export default function CopyTradingPage() {
         </div>
 
         {/* WAVE SEVEN, row Q: THE SOON STATE IS ONE LINE. The router half needs
-            the venue's indexer, which is hosted nowhere yet. Without one, its
+            the venue's indexer. Production has one (VITE_INDEXER_URL); CI, local
+            builds and previews do not, and without one its
             three unread panels collapse to the sentence that keeps their point:
             router fills are missing from the tape above. With one, the panels
             render exactly as before, each behind its own read state. */}
@@ -203,7 +205,7 @@ export default function CopyTradingPage() {
           {!isIndexerConfigured() ? (
             <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-white/70">
               Swaps routed through this venue&apos;s own router are not on the island tape above. They
-              appear here once the venue&apos;s indexer is hosted.
+              appear here once this deployment reads the venue&apos;s indexer.
             </p>
           ) : (
           <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">

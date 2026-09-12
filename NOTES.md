@@ -17,10 +17,11 @@ Rules for entries, so this stays worth reading:
 
 ## 2026-09-11 — a per-test timeout is a third clock, and a slow body can be a sleep
 
-**Believed** (the candidate list in the entry below): `holderOutageRender` was the
-one thin test — 3528ms, "about 1.4x headroom" against the 5000ms body bound —
-because of its in-body `await import()`, and `--testTimeout=2000` would reproduce
-it on demand, as it had for the previous instance of this class.
+**Believed** (the candidate list in the 2026-09-10 entry "a flake-candidate list
+ranked by duration mixes two clocks"): `holderOutageRender` was the one thin test
+— 3528ms, "about 1.4x headroom" against the 5000ms body bound — because of its
+in-body `await import()`, and `--testTimeout=2000` would reproduce it on demand,
+as it had for the previous instance of this class.
 
 **Measured** (vitest 4.1.11, trunk `dd7885ba`, each body split with
 `performance.now()`, 3 runs of the file alone):
@@ -35,8 +36,8 @@ All three beliefs were wrong.
 1. **The third argument to `it()` is its own clock**, and the CLI does not
    override it. Under `--testTimeout=200` the 20000ms test passed at ~3170ms
    while its 5000ms neighbour timed out, 3 runs of 3. So read the closing
-   `}, N)` before calling a test near-timeout. The table in the entry below is
-   wrong for `holderOutageRender` :53 and for every in-body import in
+   `}, N)` before calling a test near-timeout. That entry's table is wrong for
+   `holderOutageRender` :53 and for every in-body import in
    `offerBookOutageHonesty` — each of those tests passes 20000 or 30000.
 2. **The slow part was a sleep, not a load.** Three seconds of that body is a
    retry backoff: `lib/orderbook.js`'s `withRetry` sleeps 1s, then 2s. It runs
@@ -85,7 +86,284 @@ any failure that follows it.
   874ms → 208ms, and a botLink signature test with the same shape 1033ms → 2ms.
   Both were measured in the heavier of the two runs.
 
+## 2026-09-11 — a test that lets two endings race pins only the one that wins
+
+**Believed:** the arrival curtain has a hard deadline so that it is gone within its
+3,000 ms budget, and `arrival.spec.ts` asserted exactly that budget with no input, so the
+deadline was taken to be under test.
+
+**Measured:** the curtain ends on whichever comes first, its own animation or the
+deadline, and on an unloaded box the animation won at about 2,880 ms. So the test never
+ran the deadline: deleting the deadline timer left it green. The deadline's own bug
+(armed at the budget, so always a few ms late) surfaced only when a slow CI runner let
+the animation lose, at 3,002 to 3,010 ms in three tries of three (PR #524). Throttling the
+CPU makes that path likely, never certain. Taking the curtain's 2D context away stops the
+animation outright, and then only the deadline can end the curtain. That test failed 10
+of 10 on the pre-fix build (3,011 to 3,021 ms), passed 20 of 20 on #530's fix (2,903 to
+2,916 ms), and failed 4 of 4 with the deadline timer deleted.
+
+**Technique:** when two mechanisms race to end something, test each one with the other
+disabled. A test that lets them race pins only the winner on the machine running it, so
+a mutation of the loser cannot fail it. Disable the rival at a boundary the test can
+reach (here, an init script that makes `getContext` return null for the curtain's canvas
+only), assert that the disabling happened, and assert something only the loser's path
+produces (the curtain was still up when the deadline's dissolve began), so that a third
+way of ending cannot pass for it.
+
+## 2026-09-11 — a deadline armed at the budget can only be met late
+
+**Believed:** `setTimeout(finish, BUDGET)` enforces "gone within BUDGET". The arrival
+curtain's timer was armed at exactly 3,000 ms, and its e2e asserted `lifetime <= 3000`.
+
+**Measured:** CI read the curtain at 3,002 to 3,010 ms in five tries on one PR, and the
+same commit passed at 2,935 ms on a retry. A timer fires at or after its delay, the
+removal it triggers still costs a render, and this timer was armed in a passive effect,
+which runs after paint, so its clock started after the one the test reads. With the CPU
+throttled locally, trunk's curtain lived 3,105 to 3,288 ms (x4) and 3,421 to 3,542 ms
+(x6). Arming it in a layout effect and ending it 100 ms early brought those to 2,982 to
+3,021 ms and 3,030 to 3,090 ms. That holds the budget at CI's load, and at x4 in five
+runs of six. At x6 it still misses: the timer cannot fire until the frame in progress
+ends, and on a saturated main thread nothing fires on time.
+
+**Technique:** a timer can keep an "at most N ms" promise only by firing early. Keep a
+measured slack back from the budget, bound it in a test from both sides (larger than the
+lateness measured, smaller than the time the on-time path needs), and start the timer's
+clock where the test's clock starts. To reproduce a few-ms timing flake locally, throttle
+the CPU with CDP (`Emulation.setCPUThrottlingRate`) until the slow path is the one that
+runs. Then measure the old build and the new build interleaved at the same rate, because
+back-to-back batches measure the box's load as much as the change.
+
+## 2026-09-11 — a callback prop in a useCallback's deps restarts every effect that lists it
+
+**Believed:** listing `finalize` in a long-lived effect's dependencies was harmless,
+because nothing about the component changes while it plays.
+
+**Measured:** `finalize` was `useCallback(..., [onComplete])`, and the parent passed
+`onComplete={() => setSplashDone(true)}`, a new function on every render (this build has
+no React Compiler). So every render of the parent cleared the curtain's deadline and
+armed a fresh one, and re-ran the canvas effect, which starts the animation again from
+its first phase. A unit test showed it on trunk code: after a re-render at 2,000 ms the
+deadline had not fired by 3,000 ms, and the canvas effect had run 3 times for one mount.
+
+**Technique:** keep a callback prop out of long-lived effects' dependency chains. Hold it
+in a ref updated in a layout effect, and call `ref.current` from a stable callback. Test
+it by re-rendering with a NEW function and asserting two things: the effect did not
+re-run (count something it does once per run, here `getContext`), and the new function
+is the one that gets called.
+
+## 2026-09-11 — a local fallback that accepts a bad argument hides it until production
+
+**Believed:** a green unit suite plus a working dev server means a rate-limited
+API handler works, because every call to the limiter goes through the same module
+in both places.
+
+**Measured:** `/api/aggregator?resource=tape` answered `500
+FUNCTION_INVOCATION_FAILED` on every production request (both domains, reproduced
+with curl) while its unit suite and every local run were green. The handler called
+the global limiter without `windowSec`. The shared limiter builds Upstash's sliding
+window as `` `${windowSec} s` ``, so production built `"undefined s"` and Upstash
+threw ("Unable to parse window size"). Off Vercel the same module falls back to an
+in-memory limiter, which took `undefined` without complaint: the window became
+`NaN` and never reset, and nothing threw. The handler's own suite mocked the limiter
+module entirely. Three layers each looked fine: the mock, the fallback, and an
+untyped options object.
+
+**Technique:** when a library has a lenient local fallback and a strict production
+backend, test the ARGUMENTS a caller passes, not the fallback's behaviour. Here:
+assert the mocked limiter was called with `windowSec`, and add a source check that
+every call site passes one (45 of them; one was missing it). No runtime test can see
+this class, because every path the tests reach is the lenient one.
+
+## 2026-09-11 — a guard calibrated in CI measures CI's environment, not production's
+
+**Believed:** an exact-count e2e guard that is green in CI means the deployed page
+reads the same, because the bundle is byte-identical.
+
+**Measured:** the same per-route spec (a count of prose em dashes, asserted exactly),
+run against production after a deploy, read five routes differently: `/chart` 36
+against CI's 0, `/developers` 11 (10), `/copy-trading` 12 (11), `/alerts` 14 (17),
+`/launch` 30 (31). The bundle was identical; the environment was not. Production had
+an indexer URL configured and answering, serverless functions running, and push
+keys set. CI's `vite preview` build had none of the three, so no branch gated on them
+ever rendered there. `/chart`'s 36 were tooltips and table rows on the indexed chart,
+a branch CI can never reach.
+
+**Technique:** write down where a guard's numbers hold, and for branches CI cannot
+render, pin the copy at the source instead (here, a scan of the chart's components,
+its lib and the hooks that feed it). Then run the same guard against production
+after each deploy: every difference is an environment-gated branch the CI run never
+saw.
+
+## 2026-09-11 — a test for one clause of an OR is vacuous under an all-fail fixture
+
+**Believed:** "every read fails" is the strongest fixture for an unread flag. If the
+flag fires when everything fails, it fires.
+
+**Measured** (PR #514, `useLPFarming`'s
+`statsUnread = poolStatsUnread || minStakeUnread || <clause over four more reads>`):
+with a chain term put back on the clause alone, both new tests, one hook-level and
+one rendered, still PASSED, 60/60, under an all-fail fixture. `poolStatsUnread` had
+set the union by itself, so the clause under test never decided anything. Failing
+ONE leg that only the clause covers, while the totals and the minimum land, the same
+mutation failed exactly 6 of 63.
+
+**Do:** to test one member of an OR, make every other member false, and assert that
+they are false in the test itself. Then the member under test is the only thing
+that can answer. "Everything failed" tests the union, not the clause.
+
+## 2026-09-10 — a guard that cannot fire is armed, not inert
+
+**Believed:** a condition that is always true under the current config is dead
+weight at worst. `enabled: isDeployed && chainId === CHAIN_ID` on a read that is
+already pinned `chainId: CHAIN_ID` looks like harmless belt-and-braces.
+
+**Measured** (`@wagmi/core` 3.6.5 source as installed, git history, and a real
+browser):
+
+- Under a ONE-chain wagmi config, `useChainId()` cannot leave that chain.
+  `createConfig` ignores a connector's move to an unconfigured chain ("If chain
+  is not configured, then don't switch over to it"), and `validatePersistedChainId`
+  rejects an unconfigured persisted one. The gate was added (R043, 2026-04-26)
+  under `chains: [mainnet]`, so it was always true and never observed doing
+  anything.
+- Adding Base and Robinhood (2026-08-21) made `useChainId()` follow the wallet.
+  That commit pinned 135 reads so they would come from mainnet "exactly as
+  before", and left the gates next to those pins alone. From that day the gates
+  fired, and nothing had ever tested what happens when they do.
+- `useChainId()` is a PERSISTED store value, not "the wallet's chain":
+  `partialize` writes `chainId` to localStorage and `actions/disconnect.js` never
+  resets it. In Playwright Chromium, logged out, with `wagmi.store` seeded
+  `{ chainId: 8453, current: null }` (what a disconnect leaves behind), the store
+  still read 8453 after the app loaded.
+- A disabled TanStack query is neither loading nor failed. `isLoading` is
+  `isPending && isFetching` (query-core `queryObserver.js`), fetchStatus is
+  `idle`, and `data` is undefined. So there is no skeleton, every per-index
+  `status` check reads as not-success, and any unread flag scoped by the same
+  gate stays silent. In that browser run the LP farm printed "Total LP Staked
+  0.0000", "Total Funded 0 TOWELI" and "be the first to stake LP" on 8453, while
+  the same run on chain 1 printed 528.1998 and 2,000 TOWELI. With the gate
+  removed, both chains printed the chain-1 text.
+
+**Why no test saw it:** the shared wagmi mock answered reads whatever
+`query.enabled` said, so every gate was invisible to every test that used it.
+Making it honour `enabled` broke exactly one suite of 38 (`useBribes.test.ts`,
+5 tests). Those tests stubbed reads of a contract whose address is zeroed, which
+are reads production never issues.
+
+**Do:**
+- When a config widens (one chain to many, a flag to a list), grep for guards
+  that compare against the OLD single value. They change meaning with no diff.
+- Treat `useChainId()` as "last known chain", including for disconnected
+  visitors. Gate WRITES on it; pin READS with `chainId` instead of gating them.
+- A test double must refuse what the real thing refuses. A mock that serves
+  disabled queries turns every `enabled:` condition into untested code.
+
+## 2026-09-10 — a partial-coverage gap gets fixed one leg at a time, by whoever trips on which leg
+
+**Believed:** a green `node frontend/scripts/check-unread-signal.mjs` means no file
+outside its baseline publishes an unread contract read as a zero.
+
+**Measured:** the guard's verdict is one `SIGNAL_RE.test(src)` per **file**, so one
+`…Unread` flag anywhere passes a file that collapses eleven reads and signals three.
+At `f8bda8b9`, `useLPFarming.ts` was exactly that: `positionUnread` over indices 5–7,
+nothing over the other eight, beside a green guard. It then took **three separate
+changes** to cover the farm-wide reads of that one file, each fixing the leg it had
+tripped over: `3610c147` (MIN_STAKE, [10]), `7d6fdab6` (the pool totals, [0][4]) and
+#499 (the rest of the set, [1][2][3][9]). `032af111` has since put this shape on the
+guard's printed blind-spot list and added a census, which on trunk `1325f685` reads
+**16 files, 69 collapse sites** exempted by a file-scoped signal. By its own comment
+the census measures exposure and does not go down as legs are fixed — so it cannot
+say *which* reads are unguarded.
+
+**Do:** turn the census into findings with a per-index diff, per `data`-ish variable:
+
+- collapsed = `X?.[i]?.status === 'success' ? … : 0n | 0 | [] | false | ''`
+- covered = `X?.[i]?.status !== 'success'` — **and** the bare `X[i]?.status` form
+  written after a `!!data` guard, **and** `=== 'success'` inside a positive-polarity
+  `const …ReadOk = …;` flag. Without the last two the scan reported covered reads as
+  gaps (two false alarms on trunk) and missed a real signal (`useNFTDropV2.ts:111`).
+- Match the ternary's middle with `[^;]{0,200}?`, **not** `[\s\S]{0,200}?`. The
+  permissive form lets a lazy match run into the next statement, pairing an index
+  whose fallback is *not* a zero with the next line's `: ''` — it reported the wrong
+  index and hid the real one until tightened.
+
+The output is a candidate list, not a verdict. On trunk `1325f685` it finds eight
+guard-passing files with uncovered collapses. Adjudicated: `useLPFarming` [1][2][3][9]
+(#499; [8] is left out on purpose, see below); `useUserPosition` [3], where `paused`
+collapses to `false`; and `useNFTDropV2`, which signals index 1 of its eleven
+collapses, so an unread `maxSupply` makes `isSoldOut = maxSupply > 0 && …` read "not
+sold out". Not yet adjudicated: `AMMSection`, `useAddLiquidity`, `useFarmStats`,
+`usePoints`, `usePoolTVL`.
+
+**A gap is not automatically a bug — ask which way the zero fails, then what it
+costs.** In the same batch, `allowance → 0n` reads "not approved": no stake is ever
+armed on it, but Approve re-arms after every approval while the read keeps failing,
+so "fails closed" is not a bound on cost. `MIN_STAKE → 0n` fails the other way —
+`minStake > 0n && …` *disarms* the minimum guard — and is still deliberately not
+blocked: the contract enforces the minimum regardless, so the section says the
+minimum is unread and leaves Stake armed, because refusing a legitimate stake over one
+unanswered read of a constant costs more than a revert. Same collapse, same batch,
+three different right answers.
+
+### How a read failure actually arrives on this stack
+
+**Believed:** a whole-batch failure leaves `data` undefined; and one hook's eleven
+calls cannot be split across requests, because `lib/wagmi.ts` configures no `batch`.
+Both wrong — and #499 was first written, reviewed and committed against them.
+
+**Measured** (installed wagmi 3.7.7, @wagmi/core 3.6.5, viem 2.56.1 — read from source):
+
+- The query does **not** reject. `allowFailure` defaults to `true` (viem
+  `actions/public/multicall.js:54`; @wagmi/core `actions/readContracts.js:5`). A
+  rejected aggregate3 request becomes one `status: 'failure'` entry per call
+  (`multicall.js:164-174`), and any other throw falls back to per-call `allSettled`
+  failure entries (`readContracts.js:33-42`; only `ContractFunctionExecutionError` is
+  rethrown). A total outage is eleven `'failure'` entries with `data` **defined** and
+  `isError` **false**. `data` is undefined only before the first fetch or while the
+  query is disabled.
+- Absent config is not "off": @wagmi/core `createConfig.js:132` defaults
+  `batch: { multicall: true }`. Every call is then queued into one scheduler shared by
+  the whole client and cut into aggregate3 requests at 1024 bytes of calldata, so one
+  hook's reads can land in different requests and fail independently.
+
+So on this stack `!data` and `isError` catch **no** RPC failure, whole or partial —
+only per-index `status` checks do. Partial failure exists by construction; how often
+it happens in production has not been measured.
+
+**Do:** before reasoning from what a config file leaves out, read the library's
+default for it. Before writing "the query failed", check whether the library can make
+the query fail at all.
+
 ---
+
+## 2026-09-10 — an accordion that unmounts closed answers is invisible to every DOM audit
+
+**Believed:** mounting an accordion's answer only while it is open
+(`{isOpen && <div id={panelId}>…</div>}`, framer-motion's `AnimatePresence`
+pattern) is the accessible shape, as long as the button carries `aria-expanded`
+and `aria-controls`.
+
+**Measured** on `/faq` with the repo's axe sweep (`e2e/a11y-routes.spec.ts`,
+Chromium, production build under `vite preview`, `--workers=1`). The route carried
+`aria-valid-attr-value` as a known violation: every closed button's
+`aria-controls` named an id that was not in the document. With every panel always
+rendered and given the `hidden` attribute while closed, the finding is gone. The
+route's exact known-violation list went from `['aria-valid-attr-value']` to `[]`
+and the sweep stayed green.
+
+**The second cost is silent.** Anything that reads the page's text (a
+banned-string guard, a copy census, an em-dash count) has nothing to read in an
+answer that is not mounted, so on an unmount-on-close page it checks the
+questions and nothing else. Seen directly with the panels mounted: one forbidden
+answer added under a harmless question ("How does staking work?") turned the
+voice census red, although that answer was closed and nothing on screen showed
+it.
+
+**Technique:** keep the panel mounted and toggle `hidden`. That takes it out of
+view and out of the accessibility tree, so a screen reader still meets only the
+open answer, while its text stays in the DOM. A walker that judges a page's copy
+must then NOT skip `hidden` subtrees. Skipping `aria-hidden` is still right,
+because that marks decoration rather than content.
 
 ## 2026-09-10 — `toHaveURL(/x$/)` anchors on the query string, and a redirect inside a lazy page waits for that page
 
@@ -123,6 +401,59 @@ silently turns the hold into a no-op.
 
 ---
 
+## 2026-09-10 — a waited `count()` can still be vacuous: the role was wrong
+
+**Believed:** a `count()`-gated assertion that reads 0 right after `page.goto` is
+a timing bug. Wait for the page to mount and the count becomes honest.
+
+**Measured** (#519: `e2e/a11y-smoke.spec.ts`, "TradePage swap amount input has a
+contextual aria-label", instrumented; all four device projects at `--workers=1`,
+production build under `vite preview`). The old test ran `goto('/swap')`, then
+`if ((await getByRole('textbox', { name: /amount of .* to pay/i }).count()) > 0)`
+assert visible. `count()` read 0 on every project:
+
+| project | count() ran at | route mounted then? | count() |
+|---|---|---|---|
+| chromium | +153ms after load | no (skeleton `aria-busy`) | 0 |
+| iphone-safari | +739ms | no | 0 |
+| ipad-safari | +152ms | no | 0 |
+| mobile-chrome | +902ms | **yes**, input in the DOM | **0** |
+
+After mount, on every project: textbox **0**, spinbutton **1**.
+
+`<input type="number">` has the implicit role **spinbutton**, not textbox, and
+Playwright's role engine follows that mapping. So `getByRole('textbox')` never
+matches a number input. There's no error and no timeout, just 0. A fix that
+waited for mount and kept the textbox locator would have been exactly as vacuous,
+with a convincing-looking wait in front of it. mobile-chrome is the proof: the
+timing was already fine there, and the count was still 0.
+
+Mutation check: with the label changed so it no longer matched, the OLD test
+still PASSED 4/4. The rewrite locates the input by structure, then asserts
+`toHaveAccessibleName`. It FAILED 4/4 with
+`Received string: "Amount of ETH a11ymutant"`, a value rather than
+"element not found".
+
+**Do:** before trusting a role locator on an `<input>`, read its `type`: number →
+spinbutton, range → slider, search → searchbox. When a conditional reads 0,
+separate "not there yet" from "never matches": count the raw CSS selector next to
+the role locator, before and after mount.
+
+### A fix recipe derived from one gate can miss the second
+
+Its sibling test (OnboardingModal) skipped on every run. The known reason was
+real: the fixture pre-seeds the modal's seen-key. But clearing the key alone still
+rendered nothing: no dialog within 8s, 4/4 projects. That's because a second,
+unrelated condition decides whether the auto-open variant is mounted at all.
+Written straight into the test, the one-gate recipe would have turned a false
+green into a new red.
+
+**Do:** run a fix recipe as a probe (log the state it claims to produce) before
+encoding it as an assertion. A skip reason that was never measured can be wrong
+twice.
+
+---
+
 ## 2026-09-10 — a flake-candidate list ranked by duration mixes two clocks
 
 **Believed:** a list of slow tests with "headroom vs 5000ms" is a fix queue, and
@@ -138,9 +469,10 @@ import at the top of the file.
 | `offerErrorHonesty.test.jsx` :85 | top-level `beforeEach` | **10000ms** |
 | `cancelAllWalletGuard.test.jsx` :124-125 | top-level `beforeEach` | **10000ms** |
 
-*Corrected 2026-09-11 (see the entry above): `holderOutageRender` :53 and every
-in-body import in `offerBookOutageHonesty` sit in tests that pass an explicit
-`20000` or `30000`, so neither is on the 5000ms clock.*
+*Corrected 2026-09-11 (see "a per-test timeout is a third clock, and a slow body
+can be a sleep"): `holderOutageRender` :53 and every in-body import in
+`offerBookOutageHonesty` sit in tests that pass an explicit `20000` or `30000`,
+so neither is on the 5000ms clock.*
 
 Half the list was on the other clock. And `cancelAllWalletGuard` calls
 `vi.resetModules()` before that import **on purpose**: its comment says a static

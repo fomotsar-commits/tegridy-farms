@@ -9,7 +9,7 @@ import { __resetGeckoCandlesCacheForTests } from '../../hooks/useGeckoCandles';
 import ChartPage from './ChartPage';
 
 // /chart used to be two "could not read" banners under a heading, because both
-// halves read an indexer that is hosted nowhere. It now reads GeckoTerminal —
+// halves read an indexer that was hosted nowhere then. It now reads GeckoTerminal —
 // the rail the bungalow pages already draw in production — over the island's own
 // registry of pools.
 //
@@ -241,7 +241,7 @@ describe('ChartPage when GeckoTerminal answers', () => {
     // The plot is a shape; the table is the same slots in words, gaps included.
     expect(screen.getByText('Read these candles as a table')).toBeInTheDocument();
     expect(
-      screen.getByText(/Not returned by the source — no price is claimed/),
+      screen.getByText(/Not returned by the source\. No price is claimed/),
     ).toBeInTheDocument();
   });
 

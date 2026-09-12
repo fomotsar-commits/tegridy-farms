@@ -286,3 +286,21 @@ describe("the named tape — the gates", () => {
     );
   });
 });
+
+describe("the named tape — both limiters carry a window", () => {
+  it("passes a 60 s window to the per-IP AND the global limiter", async () => {
+    // Wave seven's post-deploy walk: the global limiter was called without
+    // windowSec, ratelimit.js built Upstash's window as "undefined s", and every
+    // production read answered 500. The in-memory limiter used in dev accepts an
+    // undefined window silently and this suite mocks ratelimit.js, so only the
+    // call's own arguments can catch it.
+    const { checkRateLimit, checkGlobalLimit } = await import("../ratelimit.js");
+    vi.mocked(checkRateLimit).mockClear();
+    vi.mocked(checkGlobalLimit).mockClear();
+    stubUpstream(envelope());
+    const { res } = makeRes();
+    await handleTape(makeReq({ query: { addresses: A1 } }), res);
+    expect(vi.mocked(checkRateLimit).mock.calls.at(-1)?.[2]).toMatchObject({ windowSec: 60, identifier: "tape" });
+    expect(vi.mocked(checkGlobalLimit).mock.calls.at(-1)?.[1]).toMatchObject({ windowSec: 60, identifier: "tape" });
+  });
+});

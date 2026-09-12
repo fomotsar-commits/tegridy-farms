@@ -211,3 +211,18 @@ describe('any input lifts it at once', () => {
     expect(skipIntro).not.toMatch(/^\s+initAudio\(\);$/m);
   });
 });
+
+describe('the deadline counts from the commit that shows the curtain', () => {
+  it('is armed in a LAYOUT effect, not a passive one', () => {
+    // A passive effect runs after the browser paints, so a deadline armed there
+    // starts its clock after the curtain is already on screen, while the e2e
+    // measures from the overlay entering the DOM. curtainDeadline.test.tsx
+    // cannot see the difference (render flushes both kinds inside act), so this
+    // one reads the source.
+    const at = src.indexOf('window.setTimeout(finalize');
+    expect(at, 'the deadline timer is gone').toBeGreaterThan(-1);
+    const before = src.slice(0, at);
+    expect(before.lastIndexOf('useLayoutEffect('), 'the deadline is armed after paint')
+      .toBeGreaterThan(before.lastIndexOf('useEffect('));
+  });
+});

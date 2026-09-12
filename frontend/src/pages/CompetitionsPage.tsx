@@ -27,8 +27,9 @@ const utcDay = (unix: number) =>
 // fills' own block timestamps, and every pool that failed or filled its page is
 // named above the table.
 //
-// SEASON 1 is the venue router's own swaps out of a Ponder indexer that is
-// hosted nowhere. Its card says so rather than printing a clock-derived
+// SEASON 1 is the venue router's own swaps out of a Ponder indexer. Production
+// has one configured; where a build does not (CI, local builds, previews), its
+// card says so rather than printing a clock-derived
 // "counting now" about a process that is not running.
 //
 // The page makes four refusals, all of them enforced in lib/competitions rather
@@ -105,14 +106,15 @@ export default function CompetitionsPage() {
           <ScoringRules />
 
           {/* WAVE SEVEN, row Q: THE SOON STATE IS ONE LINE. The router season is
-              declared, but nothing reads it until the venue's indexer is hosted.
+              declared, and only the venue's indexer reads it. Production has one
+              (VITE_INDEXER_URL); CI, local builds and previews do not.
               Without one, the season card, its read notice and its table
               collapse to the sentence that says what opens and when. With one,
               all three render exactly as before, behind the same gates. */}
           {!isIndexerConfigured() && season ? (
             <p className="rounded-xl border border-white/15 bg-white/[0.02] p-4 text-xs leading-relaxed text-white/75">
-              {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: its standings open once the
-              venue&apos;s indexer is hosted. Nothing is being counted until then.
+              {season.name}, {utcDay(season.startsAt)} to {utcDay(season.endsAt)}: its standings open once
+              this deployment reads the venue&apos;s indexer. Nothing is being counted until then.
             </p>
           ) : (
             <>
