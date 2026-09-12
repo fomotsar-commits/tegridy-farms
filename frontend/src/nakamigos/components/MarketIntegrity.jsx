@@ -312,7 +312,13 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
-  const [meta, setMeta] = useState({ truncated: false, salesUnavailable: false, ownersUnavailable: false, salesCapped: false });
+  const [meta, setMeta] = useState({
+    truncated: false,
+    salesUnavailable: false,
+    ownersUnavailable: false,
+    listingsUnavailable: false,
+    salesCapped: false,
+  });
   const [nonce, setNonce] = useState(0);
 
   const totalSupply = stats?.supply ?? collection.supply;
@@ -326,11 +332,15 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
         .then((res) => (res && res.fallback ? { activities: [], fallback: true } : res))
         .catch(() => ({ activities: [], _err: true }));
 
+      // Resolved to the same `error` shape fetchListings returns for an unread
+      // source, so one field answers "was this read?" whichever way it failed.
+      // Without it an outage reached computeMarketIntegrity as an empty book and
+      // came back "No active listings to measure." — a measurement claim.
       const listingsP = fetchListings(collection.slug, {
         openseaSlug: collection.openseaSlug,
         contract: collection.contract,
         signal,
-      }).catch(() => ({ listings: [] }));
+      }).catch(() => ({ listings: [], error: "Listing data temporarily unavailable." }));
 
       const ownersP = fetchCollectionOwners({ contract: collection.contract, signal })
         .then((res) => ({ ...res, _ok: true }))
@@ -341,6 +351,7 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
           if (signal?.aborted) return;
           const sales = (salesRes.activities || []).filter((a) => a.type === "sale");
           const listings = listingsRes.listings || [];
+          const listingsUnavailable = Boolean(listingsRes.error);
           const owners = ownersRes.owners || [];
           const result = computeMarketIntegrity({
             sales,
@@ -348,12 +359,14 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
             owners,
             totalSupply,
             floorDepth: FLOOR_DEPTH,
+            listingsUnavailable,
           });
           setData(result);
           setMeta({
             truncated: !!ownersRes.truncated,
             salesUnavailable: !!(salesRes.fallback || salesRes._err),
             ownersUnavailable: ownersRes._ok === false,
+            listingsUnavailable,
             // A full page means the daysBack window was silently clipped by
             // the cap — the wash-panel label must stop claiming full coverage.
             salesCapped: (salesRes.activities || []).length >= ACTIVITY_LIMIT,
@@ -431,10 +444,11 @@ export default function MarketIntegrity({ stats, addToast, onViewProfile }) {
           Coverage gaps: {data.dataConfidence.gaps.join(" · ")}
         </div>
       )}
-      {data && (meta.salesUnavailable || meta.ownersUnavailable) && (
+      {data && (meta.salesUnavailable || meta.ownersUnavailable || meta.listingsUnavailable) && (
         <div style={{ marginTop: 6, fontFamily: "var(--mono)", fontSize: 9, color: "var(--yellow)" }}>
           {meta.salesUnavailable && "Live sales feed was unavailable (no synthetic data substituted). "}
-          {meta.ownersUnavailable && "Owner set could not be read this cycle."}
+          {meta.ownersUnavailable && "Owner set could not be read this cycle. "}
+          {meta.listingsUnavailable && "Active listings could not be read this cycle \u2014 floor concentration is not measured."}
         </div>
       )}
 
