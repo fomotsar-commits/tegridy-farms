@@ -290,8 +290,12 @@ export function AppLoader({
     // the tick never starts (the canvas effect returns early), so a lone
     // skipIntro would leave the overlay up forever — on precisely the machines a
     // deadline is for. The first timer asks nicely and gets the dissolve; the
-    // second one ends it whatever happened. finalize() is idempotent for our
-    // purposes: it flips `visible` false, and the shell fires onComplete once.
+    // second one ends it whatever happened. finalize() runs at most once for our
+    // purposes: it flips `visible` false, and this effect's cleanup clears both
+    // timers on the render that follows. NOT because the shell guards it -- the
+    // `fired` ref in loader/index.tsx sits behind `if (!skipped ...) return`, so
+    // it covers the SKIPPED path only, which is the path where no overlay ever
+    // mounts to call this.
     const goneBy = CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS;
     const dissolveAt = window.setTimeout(skipIntro, goneBy - SKIP_DISSOLVE_MS);
     const goneAt = window.setTimeout(finalize, goneBy);
