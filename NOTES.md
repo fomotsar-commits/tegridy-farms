@@ -15,6 +15,49 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — a guard whose two operands come from one source, hidden by a correct refusal from the wrong cause
+
+**Believed:** the zap had a chain guard. `planZap(descriptor, routes, expectedChainId)`
+refuses on `descriptor.chainId !== expectedChainId` with a dedicated refusal code
+(`chain-mismatch`), a message naming both chains, and a passing test. The hook that calls
+it reads `useChainId()`. Every part a reviewer looks for was present.
+
+**Measured:** the caller built `descriptor.chainId` from `useChainId()` and then passed
+that same `chainId` as `expectedChainId`. Two different expressions, two sensible names,
+one variable — so the comparison was `x !== x`. Unreachable on every chain, for every
+wallet, under every config. Not weakened: absent.
+
+Rendering the hook with the wallet on 8453 and on 4663, with usable routes in hand,
+returned `{ ok: true }` — a composed plan for contracts that exist on neither chain.
+`planner.test.ts` was green throughout, because it calls `planZap` directly and supplies
+both numbers itself: it pinned the FUNCTION, and the defect was in the CALL. Restoring
+the old argument after the fix failed exactly the three new caller-level tests and
+nothing else — including a positive control on the right chain, which passed both before
+and after.
+
+**What made it read as working:** a wallet on the wrong chain *was* refused — by
+something else. `useSwapQuote` gates its reads on the wallet's chain, so off mainnet
+every leg came back without a floor and the zap refused with `route-unavailable`:
+"no floor to submit". The user saw a refusal, so nobody went looking. But it blamed the
+route for a network problem, and the real guard sat dead behind two unrelated gates,
+either of which could move without anyone knowing it was load-bearing.
+
+**Do:**
+
+- Read a guard's operands back to their **source**, not their names. A parameter named
+  for what it *should* be is not evidence that it is that. The question is not "does this
+  compare the right things" but "can these two expressions ever differ".
+- A unit test that supplies **both** sides of a comparison cannot see this class, however
+  thorough it is. The test has to be written at the caller, where only one side is free.
+  This is the same shape as a mock that answers a query the real thing would refuse
+  (2026-09-10, below): the double removes the very degree of freedom under test.
+- When a bad state *is* refused, check **which** refusal. A misattributed refusal is the
+  strongest camouflage available: the visible behaviour is correct, so the wrong
+  component gets the credit and the right one rots. Grep the refusal a user actually
+  sees back to the branch that emits it before concluding a guard works.
+- A guard standing behind other gates is not redundancy — it is untested code with a
+  test-shaped comment on it. Either something must reach it, or it should not be there.
+
 ## 2026-09-11 — a test that lets two endings race pins only the one that wins
 
 **Believed:** the arrival curtain has a hard deadline so that it is gone within its
