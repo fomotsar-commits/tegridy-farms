@@ -15,6 +15,75 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — an equality-based invariance test is blind to every field that is equal for the wrong reason
+
+**Believed:** the strongest way to pin "X must not change what this reports" is to
+assert the whole report is equal with X set and unset. Nothing can hide in an
+object comparison.
+
+**Measured** (PR #514's `farmReadsWalletChain.test.ts`, whose stated subject is
+"the wallet's chain does not decide what the farm reports"; the subject under test
+was `usePoolData`'s `batchRan`, carrying a `chainId === CHAIN_ID` term the
+`enabled` gate beside it had already lost):
+
+- The suite builds one all-success fixture and asserts
+  `figures(reportOn(hook, 8453))` equals `figures(reportOn(hook, CHAIN_ID))`, with
+  one scalar checked non-zero first so two unread reports cannot pass as equal.
+- Put the chain term back on `batchRan` and that suite still passes **10/10**, run
+  alone, while the hook's own suite fails 4 of 31 on the same tree. The three
+  unread flags are `false` on both sides of the equality, because under an
+  all-success fixture there is nothing to be unread about. The equality held, and
+  held for the wrong reason.
+- The 4 that fail are the ones that break **one** read off mainnet. Breaking a read
+  is what makes a failure flag take a value worth comparing.
+
+The guard against "two unread reports are equal too" was already there and was not
+enough: it proves the READS landed, not that any FLAG was exercised.
+
+**Do:** for each boolean in a report, ask what fixture makes it `true`. If no case
+in the invariance suite produces that fixture, the equality assertion is not
+covering that field, however wide the object comparison looks. An invariance test
+needs one fixture per interesting value, not one fixture and a wide `toEqual`.
+
+## 2026-09-12 — a stacked branch can hold a reference that exists in neither parent
+
+**Believed:** a semantic conflict between a branch and trunk shows up as a merge
+conflict, a type error in the branch, or a red check. A clean `merge-tree` and a
+green branch mean the merge is sound.
+
+**Measured** (PR #490 `fix/pool-reserve-unread`, stacked four deep under
+`mvp-launch`; trunk's #514 had deleted the `onMainnet` declaration from
+`usePoolData.ts` while #490 added a new line using it):
+
+- Both parents are internally consistent. On #490's branch `onMainnet` is declared
+  and `npx tsc -b --force` is clean; on trunk the name does not appear at all. The
+  dangling reference exists **only in the merge**, so neither branch's own build
+  can see it, and there is nothing for `merge-tree` to report: all nine commits
+  cherry-pick onto trunk with zero conflicts.
+- In the merged tree `npx tsc -b --force` gives
+  `src/hooks/usePoolData.ts(59,34): error TS2304: Cannot find name 'onMainnet'`.
+- That undersells it. An undeclared free variable is a **runtime**
+  `ReferenceError`, not a type complaint: vitest on the cherry-picked stack gives
+  27 failures, all `ReferenceError: onMainnet is not defined`, across every test
+  that renders the hook. So the hook throws on every render rather than returning
+  a wrong number — a different and louder class of consequence for the pages
+  that call it, which a type error alone does not suggest.
+- The branch's own CI cannot catch it, and says so in green. Of 15 workflows, the 7
+  with a `pull_request` trigger and a branch filter all read `branches: [main,
+  mvp-launch]`; the only unfiltered one is `solana-ci.yml`. On a PR opened with
+  base `fix/pool-reserve-unread`, `gh pr checks` reported **`all-checks-pass:
+  SUCCESS`** with only `scope` and `all-checks-pass` actually run: the other 7
+  Actions jobs, `build` and `diff-guard` among them, were `SKIPPED`, so the
+  frontend was never built. A stacked PR's green tick is an assertion
+  about which jobs were eligible, not about the code — and a job that did run
+  would be testing the parent that compiles.
+
+**Do:** for a branch whose base is not trunk, `git merge-tree --write-tree trunk
+<head>` and then typecheck **and run the tests of** the resulting tree; a clean
+merge-tree exit only means git found no textual conflict. When trunk has DELETED a
+declaration a stacked branch still reads, expect a free variable rather than a type
+mismatch, and expect it to throw rather than to compute wrongly.
+
 ## 2026-09-11 — a test that lets two endings race pins only the one that wins
 
 **Believed:** the arrival curtain has a hard deadline so that it is gone within its
