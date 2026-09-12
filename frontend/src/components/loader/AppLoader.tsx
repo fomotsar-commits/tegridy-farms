@@ -7,6 +7,7 @@ import {
 } from './constants';
 import { preloadImages } from './preload';
 import { markArrivalSeen, shouldSkipAtMount } from './skip';
+import { setCurtainUp } from '../../lib/arrival';
 import {
   shuffle, easeInOutCubic, coverFit, getTextPixels,
   buildCrackPaths, MAX_PARTICLES,
@@ -299,9 +300,80 @@ export function AppLoader({
     const goneBy = CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS;
     const dissolveAt = window.setTimeout(skipIntro, goneBy - SKIP_DISSOLVE_MS);
     const goneAt = window.setTimeout(finalize, goneBy);
+
+    // THE VISUAL DEADLINE -- because A TIMER CANNOT FIRE DURING A LONG TASK.
+    //
+    // Both timers above are main-thread work, and so is the render that removes
+    // the overlay. A saturated main thread delays all three by however long the
+    // task in front of them runs, so the budget above is a promise the curtain
+    // makes and the machine keeps. Measured on this build at 6x CPU throttle
+    // with the tick disabled -- so the deadline is the ONLY ending, and its
+    // lateness is the whole number -- the curtain lived 3,177 / 3,180 / 3,321 /
+    // 3,361 ms against a 2,900 ms deadline. Four runs of four, every one over.
+    // At 4x with the curtain drawing normally: 2,988 / 3,156 / 3,302 / 3,530.
+    //
+    // So the promise is also made somewhere a long task cannot reach. An
+    // opacity animation on a composited element runs on the COMPOSITOR thread:
+    // it keeps advancing while script is blocked, because nothing about it
+    // needs script. Probed before it was written, with the main thread held in
+    // a busy loop from +900 to +4,025 ms at 4x: the compositor still delivered
+    // 20 frames and the overlay's opacity ramped all the way to 0, landing
+    // 2,900 ms after the node appeared. The timers in that same window ran not
+    // at all.
+    //
+    // WHAT THIS DOES NOT DO is remove the node -- that needs the main thread,
+    // and no amount of cleverness changes it. Hence two promises, named apart
+    // in constants.ts: CURTAIN_BUDGET_MS is when the curtain is GONE TO LOOK AT,
+    // which this keeps; CURTAIN_DETACH_BUDGET_MS is when the dead node leaves
+    // the DOM, which the timers keep as soon as the thread frees.
+    //
+    // A NO-OP ON THE HEALTHY PATH, deliberately. The hold runs to exactly the
+    // instant skipIntro fires, so a curtain keeping its own time dissolves on
+    // its own canvas and unmounts before this animation leaves opacity 1.
+    //
+    // Feature-detected because jsdom has no Element.animate, and the unit
+    // guards for this effect (curtainDeadline.test.tsx) run there.
+    const overlay = overlayRef.current;
+    const fade =
+      overlay && typeof overlay.animate === 'function'
+        ? overlay.animate(
+            [
+              { opacity: 1, offset: 0 },
+              { opacity: 1, offset: (goneBy - SKIP_DISSOLVE_MS) / goneBy },
+              { opacity: 0, offset: 1 },
+            ],
+            { duration: goneBy, fill: 'forwards', easing: 'linear' },
+          )
+        : null;
+
+    // ANCHOR IT TO THE MOUNT, NOT TO THE NEXT FRAME.
+    //
+    // An animation with no startTime takes one at the first frame the browser
+    // produces after it is created, and on a loaded machine that frame is not
+    // close. Measured on this build with the thread blocked: the overlay's
+    // first painted frame was 107 ms after the observer stamped the mount, so
+    // the fade finished 107 ms late -- at 3,002 ms against a 3,000 ms budget,
+    // having spent the entire DEADLINE_SLACK_MS on nothing but waiting to
+    // start. That is the same error the slack exists to prevent, one layer
+    // down: a deadline that begins late can only end late.
+    //
+    // document.timeline.currentTime is the frame clock's own reading now, so
+    // the fade is dated from this commit and keeps the full slack. It is null
+    // before the first frame of the document, hence the guard.
+    if (fade && document.timeline.currentTime !== null) {
+      fade.startTime = document.timeline.currentTime;
+    }
+
+    // The page stands down while the curtain is up: everything animating
+    // underneath is drawing frames behind black pixels and taking the thread
+    // off the deadline above. See lib/arrival.ts.
+    setCurtainUp(true);
+
     return () => {
       window.clearTimeout(dissolveAt);
       window.clearTimeout(goneAt);
+      fade?.cancel();
+      setCurtainUp(false);
     };
   }, [visible, full, skipIntro, finalize]);
 
