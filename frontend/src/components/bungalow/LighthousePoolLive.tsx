@@ -15,10 +15,9 @@ import {
   stake,
   unstakeAndClaim,
   unstakeAndCloseForfeitingRewards,
-  claimAccountingAtRisk,
-  anyClaimAccountingAtRisk,
+  claimBrokenByRateChange,
+  anyClaimBrokenByRateChange,
   splitAccruedByRisk,
-  maxSafeStakeAcrossPools,
   offeredMaxLockDays,
   lockCeilingApplies,
   OFFERED_LOCK_CEILING_DAYS,
@@ -258,8 +257,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
   // reward pool imposes one (dynamic pool, zero rate, unreadable config) — and
   // an absent cap must never read as a cap of zero, so the gate below requires
   // a non-null value before it blocks anything.
-  const safeCapRaw = pool ? maxSafeStakeAcrossPools(pool, chosenSecs) : null;
-  const overSafeCap = amountRaw !== null && safeCapRaw !== null && amountRaw > safeCapRaw;
+  // NO SIZE CAP. There used to be a `safeCapRaw` here that refused any stake big
+  // enough for its reward counter to pass 2**64-1 before the lock opened (~16,712
+  // BAYLA at the 365-day rung). That danger is not real: on this pool the
+  // 1,000,000 / 535,000 / 369,369 positions all claim normally, and the only two
+  // that cannot be paid are the two SMALLEST. See `claimBrokenByRateChange`.
   const invoker = wallet?.adapter as SignerWalletAdapter | undefined;
   const openEntries = entries.filter((e) => e.closedTs === 0);
 
@@ -750,7 +752,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   <>
                   <button
                     type="button"
-                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked || overSafeCap}
+                    disabled={!amountRaw || amountRaw === 0n || overBalance || !invoker || !!action?.busy || stakeBlocked}
                     onClick={() => invoker && amountRaw && void run('Stake', () => stake({
                       invoker, pool, amountRaw, durationSecs: chosenSecs, entries,
                     }))}
@@ -762,34 +764,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                       : funded === null ? 'Vault unreadable — staking paused'
                       : !amountRaw || amountRaw === 0n ? 'Enter an amount'
                       : overBalance ? `Not enough ${bungalow.symbol}`
-                      : overSafeCap ? `Too large for a ${labelForDays(chosenDays)} lock`
                       : `Stake & lock for ${labelForDays(chosenDays)}`}
                   </button>
-                  {/* THE SIZE x DURATION CEILING. Above `safeCapRaw` the reward
-                      entry's cumulative counter passes `CLASSIC_ACCOUNTED_CEILING`
-                      before this lock lets the holder leave.
-
-                      DELIBERATELY CONSERVATIVE, AND KNOWN TO BE. Crossing that
-                      counter does not by itself stop a claim — measured on
-                      mainnet 2026-09-12, the live 1,000,000 position sits at
-                      107.67% of it and pays. The real line is somewhere above
-                      that and at or below 265%, and nothing here knows where.
-                      Refusing early is the safe direction for a stake that has
-                      not been made yet: the cost is a stake not taken, whereas
-                      the same guess applied to an EXISTING position hid a
-                      five-figure balance from its owner. That is why this still
-                      gates, and the claim path no longer does. */}
-                  {overSafeCap && safeCapRaw !== null && (
-                    <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
-                      A {labelForDays(chosenDays)} lock can hold at most{' '}
-                      <strong>{fmt(safeCapRaw, decimals)} {bungalow.symbol}</strong> in one position.
-                      Past that, the reward program&rsquo;s accounting for this position runs out before the
-                      lock opens, and it may stop paying for the rest of the term — the stake itself would
-                      still be returned in full. This is a cautious limit rather than a proven one, and we
-                      would rather refuse the stake than sell a lock we cannot promise. Stake less here,
-                      choose a shorter lock, or split it across several positions.
-                    </p>
-                  )}
                   {!entriesKnown && entriesForWallet?.reason && (
                     <p className="text-[11px] mt-2" style={{ color: '#f0b26b' }}>
                       {entriesForWallet.reason} Staking waits until your existing stakes are
@@ -872,11 +848,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                           // button stays live and the chain answers. A claim that
                           // reverts costs a transaction fee; a claim never
                           // offered costs the whole balance.
-                          const atRisk = anyClaimAccountingAtRisk(e, pool.rewardPools);
+                          const atRisk = anyClaimBrokenByRateChange(e, pool.rewardPools);
                           return (
                         <div className="flex flex-wrap items-center gap-2">
                           {pool.rewardPools.map((rp) => {
-                            const rpAtRisk = claimAccountingAtRisk(e, rp);
+                            const rpAtRisk = claimBrokenByRateChange(e, rp);
                             return (
                             <button
                               key={rp.address || rp.nonce}

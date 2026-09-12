@@ -58,7 +58,6 @@ import {
   nextVacantNonce,
   stake,
   unstakeAndCloseForfeitingRewards,
-  CLASSIC_ACCOUNTED_CEILING,
   WEIGHT_SCALE,
   type PoolView,
   type RewardPoolView,
@@ -171,7 +170,7 @@ describe('stake', () => {
     minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
     minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n,
-    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0 }],
+    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0 }],
   };
 
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
@@ -286,7 +285,7 @@ describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRu
     address: 'Rp', mint: 'M', kind: 'fixed' as const, nonce: 0, vault: 'V', decimals: 6,
     permissionless: true,
     fundedRaw, rewardAmountRaw: '3000000', rewardPeriodSecs: 86400,
-    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0,
   });
 
   it('dust cannot clear the empty banner, and <1 day of burn is still empty', async () => {
@@ -323,6 +322,12 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     address: `Rp${nonce}`, mint: 'MintAddr', kind, nonce, vault: `V${nonce}`, decimals: 6,
     fundedRaw: 1_000n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400,
     fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    // LOAD-BEARING. The classic pool's rate moved at ts 2000 and the entry
+    // fixtures below open at ts 1000, so those entries really are ones the
+    // change broke. With this at 0 the predicate never fires and these tests
+    // cannot tell whether a payability filter has crept back in — which is
+    // exactly what mutation testing caught them failing to notice.
+    rateChangedAtTs: kind === 'fixed' ? 2_000 : null,
   });
   const poolWith = (pools: RewardPoolView[]): PoolView => ({
     address: POOL, mint: 'MintAddr', decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
@@ -331,13 +336,13 @@ describe('unstakeAndCloseForfeitingRewards', () => {
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n, rewardPools: pools,
   });
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
-  // The classic pool (nonce 0) is over `CLASSIC_ACCOUNTED_CEILING` — which, as of
-  // 2026-09-12, means "might not pay" and NOT "cannot pay": the live 1,000,000
-  // BAYLA entry sits at 107.67% of that constant and pays in full. The dynamic
-  // pool (nonce 1) is healthy. This is the shape the venue has once the dynamic
-  // rail is attached.
-  const DEAD_CLASSIC_LIVE_DYNAMIC = {
-    accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n, 1: 5n },
+
+  // The classic pool's rate was changed AFTER this entry opened, so its claim is
+  // expected to revert - and it is STILL attempted. A predicate that is right on
+  // every position measured does not get to skip the attempt; the fee is the
+  // cheap failure and the silent forfeit is not.
+  const BROKEN_CLASSIC_LIVE_DYNAMIC = {
+    createdTs: 1_000,
     pendingRaw: { 0: 4_000n, 1: 9_000n },
   };
 
@@ -348,7 +353,7 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       invoker,
       pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
       entryNonce: 7,
-      entry: DEAD_CLASSIC_LIVE_DYNAMIC,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
     });
     expect(r.ok).toBe(true);
     // BOTH pools are claimed. This assertion read `1` on trunk — the classic
@@ -371,7 +376,7 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       invoker,
       pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
       entryNonce: 7,
-      entry: DEAD_CLASSIC_LIVE_DYNAMIC,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
     });
     expect(r.ok).toBe(false);
     // The close must NOT have happened: burning a claimable balance to save a
@@ -388,7 +393,7 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       invoker,
       pool: poolWith([rp(0, 'fixed')]),
       entryNonce: 7,
-      entry: { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n }, pendingRaw: { 0: 4_000n } },
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
     });
     // Attempted, refused by the program, then closed — the principal is not
     // held hostage to rewards that provably cannot be collected.
@@ -404,7 +409,7 @@ describe('unstakeAndCloseForfeitingRewards', () => {
       invoker,
       pool: poolWith([rp(0, 'fixed')]),
       entryNonce: 7,
-      entry: { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n }, pendingRaw: { 0: 4_000n } },
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
     });
     expect(r.ok).toBe(false);
     expect(unstakeAndClose).not.toHaveBeenCalled();

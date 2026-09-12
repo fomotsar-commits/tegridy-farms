@@ -347,10 +347,10 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                   {atRiskCount > 0 && (
                     <p className="text-[11px] mb-3" style={{ color: '#e3b341' }}>
                       {atRiskCount === 1 ? 'One position is' : `${atRiskCount} positions are`}{' '}
-                      deep into the reward program&rsquo;s counter, far enough that a claim
-                      &lsquo;&lsquo;may&rsquo;&rsquo; revert. It may also pay in full &mdash; only the chain
-                      knows, and claiming is how you ask. A revert costs the network fee and
-                      nothing more. Your principal is safe either way.
+                      older than the last change to this pool&rsquo;s reward rate, and positions
+                      opened before that change have not been able to claim since. Try the claim
+                      anyway &mdash; a revert costs the network fee and nothing more, and the chain
+                      is the only thing that knows for certain. Your principal is safe either way.
                     </p>
                   )}
                   {vaultRaw === 0n && (

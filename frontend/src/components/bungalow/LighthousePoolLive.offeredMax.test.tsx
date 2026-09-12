@@ -14,6 +14,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 
+// When the pool's reward rate was changed. A position opened before this cannot
+// be paid, however small its counter; one opened after it pays, however large.
+const RATE_CHANGED_AT = 1_788_241_201;
+
 const DAY = 86_400;
 const WEIGHT_SCALE = 1_000_000_000n;
 
@@ -37,6 +41,10 @@ const POOL = {
     decimals: 6, fundedRaw: 1_000_000_000n, permissionless: true,
     rewardAmountRaw: '1000', rewardPeriodSecs: 86_400,
     fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    // The pool's reward rate was changed at this instant. Entries opened before
+    // it cannot be paid; entries opened after it are fine. That, and not any
+    // counter, is what the header must separate on.
+    rateChangedAtTs: RATE_CHANGED_AT,
   }],
 };
 
@@ -52,13 +60,10 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 vi.mock('../solana/useSolanaConnect', () => ({
   useSolanaConnect: () => ({ connect: () => {}, connecting: false }),
 }));
-// u64::MAX + 1 — past the classic reward program's ceiling, so this position
-// can never be paid again and its pending must not be counted as accruing.
-const DEAD_ACCOUNTED = 18_446_744_073_709_551_616n;
-const entry = (nonce: number, accounted: bigint, pending: bigint) => ({
+const entry = (nonce: number, createdTs: number, pending: bigint) => ({
   address: `Entry${nonce}`, nonce, amountRaw: 1_000_000n, durationSecs: 30 * DAY,
-  createdTs: 1, closedTs: 0, effectiveAmountRaw: 1_000_000n,
-  pendingRaw: { 0: pending }, accountedRaw: { 0: accounted },
+  createdTs, closedTs: 0, effectiveAmountRaw: 1_000_000n,
+  pendingRaw: { 0: pending }, accountedRaw: { 0: 0n },
 });
 const entriesState = vi.hoisted(() => ({ list: [] as unknown[] }));
 
@@ -113,28 +118,28 @@ describe('the offered-ceiling headline', () => {
  * button sits a few hundred pixels below it — the same lie, in smaller type.
  */
 describe('the "accrued" header on the pool page', () => {
-  it('separates a position over the constant and names it AT RISK, not lost', async () => {
+  it('separates a position the rate change broke, and names it AT RISK', async () => {
     walletState.publicKey = { toBase58: () => 'StakerPk1111111111111111111111111111111111' };
     entriesState.list = [
-      entry(0, DEAD_ACCOUNTED, 4_000_000n), // over the constant: 4 BAYLA at risk
-      entry(1, 10n, 900_000n),              // live: 0.9 BAYLA claimable
+      entry(0, RATE_CHANGED_AT - 1, 4_000_000n), // opened before the change: 4 BAYLA at risk
+      entry(1, RATE_CHANGED_AT + 1, 900_000n),   // opened after it: 0.9 BAYLA claimable
     ];
     render(<LighthousePoolLive bungalow={BUNGALOW} />);
     const header = await screen.findByText(/accrued/);
     const line = header.textContent ?? '';
-    // 0.9 accrued — NOT 4.9, which is what summing the dead position gives.
+    // 0.9 accrued — NOT 4.9, which is what summing the broken position gives.
     expect(line).toMatch(/0\.9\s*accrued/);
     expect(line).not.toMatch(/4\.9\s*accrued/);
-    // The 4 is named, and named as a RISK. "stranded" was the old copy, and it
-    // told a live holder their claimable balance was gone: on the real card that
-    // read "0 accrued · 13,700.79 stranded" while 13,603 of it was claimable.
+    // The 4 is named, and named as a RISK. "stranded" was the old copy, and on
+    // the real card it read "0 accrued · 13,700.79 stranded" on a wallet where
+    // 13,712 of that was claimable — a risk stated as a loss.
     expect(line).toMatch(/4\s*at risk/);
     expect(line).not.toMatch(/stranded/);
   });
 
   it('says nothing about stranding when every position is live', async () => {
     walletState.publicKey = { toBase58: () => 'StakerPk1111111111111111111111111111111111' };
-    entriesState.list = [entry(0, 10n, 900_000n), entry(1, 20n, 100_000n)];
+    entriesState.list = [entry(0, RATE_CHANGED_AT + 1, 900_000n), entry(1, RATE_CHANGED_AT + 2, 100_000n)];
     render(<LighthousePoolLive bungalow={BUNGALOW} />);
     const header = await screen.findByText(/accrued/);
     expect(header.textContent).toMatch(/1\s*accrued/);

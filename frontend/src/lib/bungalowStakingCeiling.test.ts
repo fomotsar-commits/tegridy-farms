@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CLASSIC_ACCOUNTED_CEILING,
-  claimAccountingAtRisk,
-  anyClaimAccountingAtRisk,
-  maxSafeStakeRaw,
-  maxSafeStakeAcrossPools,
+  claimBrokenByRateChange,
+  anyClaimBrokenByRateChange,
   OFFERED_LOCK_CEILING_DAYS,
   offeredMaxLockDays,
   lockCeilingApplies,
@@ -14,199 +11,85 @@ import {
 } from './bungalowStaking';
 
 /**
- * Every number below was READ FROM MAINNET on 2026-09-06 (stake pool
- * EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f, classic reward pool
- * 3ysyH5py46Q4XUXkumGy3DhWjPbNVhLMfQZmpQMdDruf) and the pass/fail verdicts were
- * established by SIMULATING the real `claim_rewards` instruction against live
- * state — not by reasoning about the IDL.
+ * WHAT ACTUALLY DECIDES WHETHER A CLASSIC POSITION CAN BE PAID.
+ *
+ * Not its cumulative counter. That model held from 2026-09-06 to 2026-09-12 and
+ * was refuted twice over on 09-12, by measurement against live mainnet:
+ *
+ *   - PROGRAM-WIDE: 5,868 of 9,797 classic reward entries with a non-zero
+ *     counter are already past 2**64-1, and the largest sits 22,000,000x past
+ *     it with a successful claim on record. The counter does not stop claims.
+ *   - ON THIS POOL: the pool's reward rate was changed from 600,000/86400s to
+ *     7/1s at 2026-09-01T05:40:01Z (unix 1788241201). Simulating the real
+ *     `claim_rewards` for all 18 open positions splits PERFECTLY on that
+ *     instant — the 2 created before it revert 6000, all 16 created after it
+ *     pay. No exceptions in either direction.
+ *
+ * The two that revert are the two SMALLEST positions in the pool (3,000 each),
+ * while the 1,000,000 pays 13,712 — so it was never about size either.
  */
-const POOL = { minDurationSecs: 86_400, maxDurationSecs: 31_536_000, maxWeightScaled: 5_000_000_000n };
-const FIXED = { nonce: 0, kind: 'fixed' as const, rewardAmountRaw: '7', rewardPeriodSecs: 1 };
-const DYNAMIC = { nonce: 1, kind: 'dynamic' as const, rewardAmountRaw: '0', rewardPeriodSecs: 0 };
+const RATE_CHANGED_AT = 1788241201;      // 2026-09-01T05:40:01Z, read from the pool
+const FIXED = { nonce: 0, kind: 'fixed' as const, rateChangedAtTs: RATE_CHANGED_AT };
+const DYNAMIC = { nonce: 1, kind: 'dynamic' as const, rateChangedAtTs: null };
+const UNCHANGED = { nonce: 0, kind: 'fixed' as const, rateChangedAtTs: 0 };
 
-describe('the classic reward-entry u64 ceiling', () => {
-  it('is exactly u64::MAX — the value, not the verdict', () => {
-    expect(CLASSIC_ACCOUNTED_CEILING).toBe(18_446_744_073_709_551_615n);
-  });
-
-  // These eight are the real live entries as of 2026-09-06. The third column is
-  // whether each sits ABOVE the constant — which, on that day's sample, happened
-  // to coincide exactly with what the chain did. It no longer does: see the
-  // 2026-09-12 row below, which is the whole reason this predicate was renamed.
-  // Note the gap in this sample — the successes top out at 78% of the constant
-  // and the reverts start at 265%. Nothing here measured the band between, so a
-  // lower bound looked like an exact line.
-  const LIVE: Array<[string, bigint, boolean]> = [
-    ['3,000 BAYLA (nonce 0) — simulated claim REVERTED 6000', 50_686_629_810_000_000_000n, true],
-    ['3,000 BAYLA (other staker) — simulated claim REVERTED 6000', 49_021_629_810_000_000_000n, true],
-    ['1,000,000 BAYLA — simulated claim SUCCEEDED', 14_396_165_000_000_000_000n, false],
-    ['369,369 BAYLA — simulated claim SUCCEEDED', 1_466_854_084_063_701_621n, false],
-    ['557,727 BAYLA — simulated claim SUCCEEDED', 1_162_037_330_739_315_060n, false],
-    ['79,461 BAYLA — simulated claim SUCCEEDED', 1_141_261_808_975_549_380n, false],
-    ['10,000 BAYLA — simulated claim SUCCEEDED', 144_278_050_000_000_000n, false],
-    ['124.7 BAYLA — simulated claim SUCCEEDED', 1_595_715_901_674_440n, false],
+describe('what decides payability: the rate change, not the counter', () => {
+  // Every row is a real open position, with the verdict its SIMULATED claim
+  // returned on 2026-09-12. createdTs is read from the stake entry.
+  const LIVE: Array<[string, number, boolean]> = [
+    ['3,000 BAYLA opened 04:06:14 — claim REVERTS 6000', 1788235574, true],
+    ['3,000 BAYLA opened 04:09:19 — claim REVERTS 6000', 1788235759, true],
+    ['10,000 BAYLA opened 06:39:28 — claim PAYS', 1788241168 + 800, false],
+    ['1,000,000 BAYLA opened 06:52:41 — claim PAYS 13,712', 1788245561, false],
+    ['79,461 BAYLA opened 07:08:47 — claim PAYS', 1788246527, false],
+    ['369,369 BAYLA opened 2026-09-02 — claim PAYS', 1788370179, false],
+    ['535,000 BAYLA opened 2026-09-10 — claim PAYS', 1789083200, false],
   ];
 
-  it.each(LIVE)('%s', (_label, accounted, blocked) => {
-    expect(claimAccountingAtRisk({ accountedRaw: { 0: accounted } }, FIXED)).toBe(blocked);
+  it.each(LIVE)('%s', (_label, createdTs, broken) => {
+    expect(claimBrokenByRateChange({ createdTs }, FIXED)).toBe(broken);
   });
 
-  /**
-   * THE ROW THAT BROKE THE MODEL.
-   *
-   * Measured 2026-09-12 the same way as the table above — simulate the real
-   * `claim_rewards`, then read the destination token account's POST-STATE so the
-   * PAYOUT is measured and not merely the call's exit code. This entry is the
-   * live 1,000,000-BAYLA position. It is ABOVE the constant and it PAYS, three
-   * simulations running, the figure rising between them because it is still
-   * accruing. Its on-chain history shows four successful claims on 2026-09-06
-   * and 2026-09-07 — it was claiming normally on the day it was called dead.
-   */
-  const PAYS_ABOVE_THE_LINE = 19_863_235_000_000_000_000n;
-  const PAYS_ABOVE_THE_LINE_AMOUNT = 13_603_940_000n; // 13,603.94 BAYLA, measured
-
-  it('a real entry ABOVE the constant still pays — so the constant is a threshold, never a verdict', () => {
-    expect(PAYS_ABOVE_THE_LINE).toBeGreaterThan(CLASSIC_ACCOUNTED_CEILING);
-    // The predicate is allowed to say "at risk". That is all it may say.
-    expect(claimAccountingAtRisk({ accountedRaw: { 0: PAYS_ABOVE_THE_LINE } }, FIXED)).toBe(true);
+  it('splits on the rate change to the SECOND, in both directions', () => {
+    expect(claimBrokenByRateChange({ createdTs: RATE_CHANGED_AT - 1 }, FIXED)).toBe(true);
+    // Equal is NOT before. An entry created in the same second as the update is
+    // not evidence of anything, and the predicate must not invent a verdict.
+    expect(claimBrokenByRateChange({ createdTs: RATE_CHANGED_AT }, FIXED)).toBe(false);
+    expect(claimBrokenByRateChange({ createdTs: RATE_CHANGED_AT + 1 }, FIXED)).toBe(false);
   });
 
-  it('the real 1,000,000 position survives the pre-close sweep with its balance intact', () => {
-    // The end-to-end pin, in the live numbers: this exact entry, this exact
-    // balance. Trunk dropped it here and closed the reward account, which is how
-    // 13,603.94 BAYLA would have gone to nobody.
-    const entry = {
-      accountedRaw: { 0: PAYS_ABOVE_THE_LINE },
-      pendingRaw: { 0: PAYS_ABOVE_THE_LINE_AMOUNT },
-    };
-    const kept = claimablePoolsBefore(entry, [FIXED as never]);
-    expect(kept.map((p) => p.nonce)).toEqual([0]);
+  it('says nothing when the pool NEVER had its rate changed', () => {
+    // The healthy case, and the one every other pool is in. A pool that was
+    // never updated cannot have broken anybody, however old the position.
+    expect(claimBrokenByRateChange({ createdTs: 1 }, UNCHANGED)).toBe(false);
   });
 
-  it('the two entries that DO revert sit far above it, not just over the line', () => {
-    // 265.51% and 274.53%. The real cut-off is above 107.67% and at or below
-    // 265.51%; nothing in this repo knows where, which is exactly why nothing in
-    // this repo may gate a claim on it.
-    const REVERTS = [49_021_629_810_000_000_000n, 50_686_629_810_000_000_000n];
-    for (const r of REVERTS) expect(r).toBeGreaterThan(PAYS_ABOVE_THE_LINE * 2n);
+  it('treats an UNREADABLE timestamp as "no verdict", never as broken', () => {
+    expect(claimBrokenByRateChange({ createdTs: 1 }, { ...FIXED, rateChangedAtTs: null })).toBe(false);
+    expect(claimBrokenByRateChange({ createdTs: 0 }, FIXED)).toBe(false);
+    expect(claimBrokenByRateChange({ createdTs: NaN }, FIXED)).toBe(false);
   });
 
-  it('never blocks a DYNAMIC pool — it accumulates rewards-per-share, not per-position-times-time', () => {
-    // Verified against live dynamic pool HBLhyss5mamJ8UFUQ5zUVgDDJ318hHg1cEB3sbHdeEts:
-    // four months old, 25.7M units funded and claimed, rewards_state = 3.7e11.
-    const huge = CLASSIC_ACCOUNTED_CEILING * 1000n;
-    expect(claimAccountingAtRisk({ accountedRaw: { 1: huge } }, DYNAMIC)).toBe(false);
+  it('never applies to a DYNAMIC pool, which has no rate to change', () => {
+    expect(claimBrokenByRateChange({ createdTs: 1 }, DYNAMIC)).toBe(false);
+    // and not because its timestamp happens to be null — on KIND, so a future
+    // dynamic pool that did carry one is still exempt.
+    expect(claimBrokenByRateChange({ createdTs: 1 }, { ...DYNAMIC, rateChangedAtTs: RATE_CHANGED_AT })).toBe(false);
   });
 
-  it('treats an UNREADABLE or ABSENT counter as "not blocked", never as a verdict', () => {
-    // An entry that could not be read must not silently disable a user's claim.
-    expect(claimAccountingAtRisk({ accountedRaw: { 0: null } }, FIXED)).toBe(false);
-    expect(claimAccountingAtRisk({ accountedRaw: {} }, FIXED)).toBe(false);
+  it('anyClaimBrokenByRateChange fires only on the pool that changed', () => {
+    const e = { createdTs: RATE_CHANGED_AT - 1 };
+    expect(anyClaimBrokenByRateChange(e, [DYNAMIC])).toBe(false);
+    expect(anyClaimBrokenByRateChange(e, [UNCHANGED])).toBe(false);
+    expect(anyClaimBrokenByRateChange(e, [DYNAMIC, FIXED])).toBe(true);
   });
 
-  it('is a STRICT boundary — exactly at u64::MAX still claims', () => {
-    expect(claimAccountingAtRisk({ accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING } }, FIXED)).toBe(false);
-    expect(claimAccountingAtRisk({ accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n } }, FIXED)).toBe(true);
-  });
-
-  it('anyClaimAccountingAtRisk fires when ANY attached pool is past it', () => {
-    const e = { accountedRaw: { 0: CLASSIC_ACCOUNTED_CEILING + 1n, 1: 0n } };
-    expect(anyClaimAccountingAtRisk(e, [DYNAMIC])).toBe(false);
-    expect(anyClaimAccountingAtRisk(e, [DYNAMIC, FIXED])).toBe(true);
-  });
-});
-
-describe('maxSafeStakeRaw — the size a lock can actually carry', () => {
-  it('reproduces the observed 365-day cap of 16,712 BAYLA', () => {
-    // Derived independently: u64::MAX * period * 1e9 / (weight * rewardAmount * secs).
-    // The live 1,000,000 BAYLA position at this tier broke 6.1 days into a
-    // 365-day lock, which is what this cap exists to prevent.
-    const cap = maxSafeStakeRaw(POOL, FIXED, 31_536_000);
-    expect(cap).not.toBeNull();
-    expect(Number(cap! / 1_000_000n)).toBe(16_712);
-  });
-
-  it('lets the live 1,000,000 BAYLA / 365d position FAIL the cap it was sold under', () => {
-    const cap = maxSafeStakeRaw(POOL, FIXED, 31_536_000)!;
-    expect(1_000_000_000_000n > cap).toBe(true);
-  });
-
-  it('is more permissive for shorter locks, because weight AND term both shrink', () => {
-    const y = maxSafeStakeRaw(POOL, FIXED, 31_536_000)!;
-    const q = maxSafeStakeRaw(POOL, FIXED, 90 * 86_400)!;
-    const w = maxSafeStakeRaw(POOL, FIXED, 7 * 86_400)!;
-    expect(q).toBeGreaterThan(y);
-    expect(w).toBeGreaterThan(q);
-    // The 557,727 BAYLA / 7-day position on mainnet is safe, and the cap agrees.
-    expect(557_727_226_129n < w).toBe(true);
-    // The 369,369 BAYLA / 90-day position is NOT safe (breaks ~2026-10-14).
-    expect(369_369_000_000n > q).toBe(true);
-  });
-
-  it('returns null rather than a bogus cap when the rate is unreadable or the pool is dynamic', () => {
-    expect(maxSafeStakeRaw(POOL, DYNAMIC, 31_536_000)).toBeNull();
-    expect(maxSafeStakeRaw(POOL, { ...FIXED, rewardAmountRaw: '0' }, 31_536_000)).toBeNull();
-    expect(maxSafeStakeRaw(POOL, { ...FIXED, rewardPeriodSecs: 0 }, 31_536_000)).toBeNull();
-  });
-
-  it('takes the TIGHTEST cap across pools, and null when none applies', () => {
-    const both = maxSafeStakeAcrossPools({ ...POOL, rewardPools: [DYNAMIC, FIXED] as never }, 31_536_000);
-    expect(both).toBe(maxSafeStakeRaw(POOL, FIXED, 31_536_000));
-    expect(maxSafeStakeAcrossPools({ ...POOL, rewardPools: [DYNAMIC] as never }, 31_536_000)).toBeNull();
-  });
-
-  // The five below came out of mutation-checking the cases above: each pins a
-  // guard that stayed green while the implementation was deliberately broken.
-
-  it('refuses a DYNAMIC pool on KIND alone, not because its rate happens to read zero', () => {
-    // A real dynamic pool reports rewardAmountRaw '0' / rewardPeriodSecs 0, so
-    // the rate guards catch it and the `kind` check never has to fire. Hand it a
-    // rate it cannot really have: `kind` must be what refuses, or the guard is
-    // decorative and a future dynamic program that does carry a rate gets a cap
-    // invented for it.
-    const impossible = { ...DYNAMIC, rewardAmountRaw: '7', rewardPeriodSecs: 1 };
-    expect(maxSafeStakeRaw(POOL, impossible, 31_536_000)).toBeNull();
-  });
-
-  it('prices the cap off the LOCK WEIGHT, not off the pool maximum', () => {
-    // 90 days carries 1.978x, not the ladder's 5.00x. Derived independently of
-    // the implementation, from 30,500,570 / (weight x days):
-    //   30,500,570 / (1.978022 x 90) = 171,330 BAYLA.
-    // Reading pool.maxWeightScaled here instead quotes 67,779 — 2.5x too tight.
-    // The "more permissive for shorter locks" case above cannot catch that: the
-    // term alone already makes every one of its orderings hold.
-    const cap = maxSafeStakeRaw(POOL, FIXED, 90 * 86_400);
-    expect(cap).not.toBeNull();
-    expect(Number(cap! / 1_000_000n)).toBe(171_330);
-  });
-
-  it('takes the TIGHTEST of two REAL caps, not the roomiest', () => {
-    // [DYNAMIC, FIXED] cannot show this — only one member yields a cap at all,
-    // so min and max agree and the comparison is never exercised. Two fixed
-    // pools disagree: the faster rate overflows sooner, and that is the one the
-    // position has to survive.
-    const slower = { ...FIXED, nonce: 2, rewardAmountRaw: '3' };
-    const tightest = maxSafeStakeAcrossPools(
-      { ...POOL, rewardPools: [slower, FIXED] as never },
-      31_536_000,
-    );
-    expect(tightest).toBe(maxSafeStakeRaw(POOL, FIXED, 31_536_000));
-    expect(Number(tightest! / 1_000_000n)).toBe(16_712);
-  });
-
-  it('DEGRADES to null on an unparseable rate — it must not throw at a render path', () => {
-    // BigInt('not-a-number') throws SyntaxError. This runs while the amount
-    // field renders, so a throw takes the panel down instead of dropping one
-    // number.
-    expect(() => maxSafeStakeRaw(POOL, { ...FIXED, rewardAmountRaw: 'not-a-number' }, 31_536_000)).not.toThrow();
-    expect(maxSafeStakeRaw(POOL, { ...FIXED, rewardAmountRaw: 'not-a-number' }, 31_536_000)).toBeNull();
-  });
-
-  it('DEGRADES to null on a non-finite duration, for the same reason', () => {
-    // BigInt(Math.trunc(NaN)) throws RangeError.
-    expect(() => maxSafeStakeRaw(POOL, FIXED, Number.NaN)).not.toThrow();
-    expect(maxSafeStakeRaw(POOL, FIXED, Number.NaN)).toBeNull();
-    expect(maxSafeStakeRaw(POOL, FIXED, Number.POSITIVE_INFINITY)).toBeNull();
+  it('the counter plays NO part — a huge one is not a verdict', () => {
+    // 22,000,000x past the old supposed ceiling, as seen on real entries that
+    // claim successfully. If this predicate ever consults a counter again, this
+    // fails.
+    const huge = { createdTs: RATE_CHANGED_AT + 1, accountedRaw: { 0: (1n << 64n) * 22_000_000n } };
+    expect(claimBrokenByRateChange(huge, FIXED)).toBe(false);
   });
 });
 
@@ -249,47 +132,51 @@ describe('the offered lock ceiling', () => {
 });
 
 describe('two reward pools — what the rescue exit must not throw away', () => {
-  const DEAD = { nonce: 0, kind: 'fixed' as const, rewardAmountRaw: '7', rewardPeriodSecs: 1 } as never;
-  const LIVE = { nonce: 1, kind: 'dynamic' as const, rewardAmountRaw: '0', rewardPeriodSecs: 0 } as never;
-  const over = CLASSIC_ACCOUNTED_CEILING + 1n;
+  // rateChangedAtTs is LOAD-BEARING in this fixture: without it the predicate
+  // never fires and these tests cannot tell whether the filter came back.
+  const DEAD = { nonce: 0, kind: 'fixed' as const, rewardAmountRaw: '7', rewardPeriodSecs: 1, rateChangedAtTs: RATE_CHANGED_AT } as never;
+  const LIVE = { nonce: 1, kind: 'dynamic' as const, rewardAmountRaw: '0', rewardPeriodSecs: 0, rateChangedAtTs: null } as never;
+  const BEFORE = RATE_CHANGED_AT - 1;   // a position the rate change broke
+  const AFTER = RATE_CHANGED_AT + 1;    // one it did not
 
-  it('KEEPS a classic pool that is over the constant — the band is not a verdict', () => {
+  it('KEEPS a classic pool even when the rate change broke this entry', () => {
     // THIS TEST USED TO ASSERT THE OPPOSITE, and asserting the opposite is what
     // made it a defect. It expected [1]: drop the classic pool as unpayable and
-    // close its entry. On the live BAYLA pool the classic entry that predicate
-    // matches is the 1,000,000 position, which pays 13,603 BAYLA — so the old
-    // expectation is an instruction to destroy a five-figure balance, written
-    // inside the very function whose stated purpose is to stop that.
+    // close its entry unclaimed. The predicate it trusted matched the 1,000,000
+    // position, which pays 13,712 — so the old expectation was an instruction to
+    // destroy a five-figure balance, written inside the very function whose
+    // stated purpose is to stop that.
     //
-    // The sweep now attempts both. The one that truly cannot pay reverts, costs
-    // a fee, and says so; the one that can pay, pays.
-    const e = { accountedRaw: { 0: over, 1: null }, pendingRaw: { 0: 43_555_365n, 1: 900_000n } };
+    // Note this entry really IS broken by the rate change, and it is STILL kept.
+    // Even a predicate that is right 18 times out of 18 does not get to skip the
+    // attempt: the fee is the cheap failure, the silent forfeit is not.
+    const e = { createdTs: BEFORE, pendingRaw: { 0: 43_555_365n, 1: 900_000n } };
     const keep = claimablePoolsBefore(e, [DEAD, LIVE]);
     expect(keep.map((p) => p.nonce)).toEqual([0, 1]);
   });
 
   it('drops a pool with genuinely nothing pending — a claim there is a wasted fee', () => {
-    const e = { accountedRaw: { 0: 0n, 1: null }, pendingRaw: { 0: 0n, 1: 0n } };
+    const e = { createdTs: AFTER, pendingRaw: { 0: 0n, 1: 0n } };
     expect(claimablePoolsBefore(e, [DEAD, LIVE])).toEqual([]);
   });
 
   it('KEEPS a pool whose accrual could not be read — an unknown is never written off silently', () => {
-    const e = { accountedRaw: { 0: 0n, 1: null }, pendingRaw: { 0: null, 1: null } };
+    const e = { createdTs: AFTER, pendingRaw: { 0: null, 1: null } };
     expect(claimablePoolsBefore(e, [DEAD, LIVE]).map((p) => p.nonce)).toEqual([0, 1]);
   });
 
-  it('with only the classic pool attached and over the constant, it STILL tries', () => {
+  it('with only the broken classic pool attached, it STILL tries', () => {
     // Also inverted from its original expectation of []. A pending balance on a
     // pool nobody has proven dead is money, and the only way to find out is to
     // ask the chain. Skipping the attempt forfeits it silently; making the
     // attempt costs a network fee in the worst case.
-    const e = { accountedRaw: { 0: over }, pendingRaw: { 0: 43_555_365n } };
+    const e = { createdTs: BEFORE, pendingRaw: { 0: 43_555_365n } };
     expect(claimablePoolsBefore(e, [DEAD]).map((p) => p.nonce)).toEqual([0]);
   });
 
-  it('still drops a pool with nothing pending, over the constant or not', () => {
+  it('still drops a pool with nothing pending, broken or not', () => {
     // The one filter that survives: zero pending is a wasted fee either way.
-    const e = { accountedRaw: { 0: over }, pendingRaw: { 0: 0n } };
+    const e = { createdTs: BEFORE, pendingRaw: { 0: 0n } };
     expect(claimablePoolsBefore(e, [DEAD])).toEqual([]);
   });
 });
@@ -320,15 +207,16 @@ describe('writeFailure distinguishes the two 6013s', () => {
  * that uncertainty.
  */
 describe('splitAccruedByRisk', () => {
-  const DEAD = CLASSIC_ACCOUNTED_CEILING + 1n;
-  const entry = (accounted: bigint | null, pending: Record<number, bigint | null>) => ({
-    accountedRaw: { 0: accounted },
+  const BROKEN = RATE_CHANGED_AT - 1;
+  const OK = RATE_CHANGED_AT + 1;
+  const entry = (createdTs: number, pending: Record<number, bigint | null>) => ({
+    createdTs,
     pendingRaw: pending,
   });
 
   it('keeps stranded rewards OUT of the claimable total', () => {
     const r = splitAccruedByRisk(
-      [entry(DEAD, { 0: 4_000n }), entry(10n, { 0: 900n })],
+      [entry(BROKEN, { 0: 4_000n }), entry(OK, { 0: 900n })],
       [FIXED],
     );
     expect(r.claimableRaw).toBe(900n);
@@ -336,30 +224,30 @@ describe('splitAccruedByRisk', () => {
     expect(r.atRiskCount).toBe(1);
   });
 
-  it('reports nothing dead when every position is live', () => {
-    const r = splitAccruedByRisk([entry(10n, { 0: 900n }), entry(20n, { 0: 100n })], [FIXED]);
+  it('reports nothing at risk when every position postdates the change', () => {
+    const r = splitAccruedByRisk([entry(OK, { 0: 900n }), entry(OK, { 0: 100n })], [FIXED]);
     expect(r.claimableRaw).toBe(1_000n);
     expect(r.atRiskRaw).toBe(0n);
     expect(r.atRiskCount).toBe(0);
   });
 
   it('an UNREADABLE pending poisons its own total and never reads as zero', () => {
-    const r = splitAccruedByRisk([entry(10n, { 0: null }), entry(20n, { 0: 100n })], [FIXED]);
+    const r = splitAccruedByRisk([entry(OK, { 0: null }), entry(OK, { 0: 100n })], [FIXED]);
     expect(r.claimableRaw).toBeNull();
     // The stranded side is unaffected — one outage must not blank both figures.
     expect(r.atRiskRaw).toBe(0n);
   });
 
-  it('classifies nothing as dead before the pool has been read', () => {
+  it('classifies nothing at risk before the pool has been read', () => {
     // Fails toward "not dead", exactly as the pool page does, so the two
     // surfaces cannot contradict each other while a read is in flight.
-    const r = splitAccruedByRisk([entry(DEAD, { 0: 4_000n })], []);
+    const r = splitAccruedByRisk([entry(BROKEN, { 0: 4_000n })], []);
     expect(r.atRiskCount).toBe(0);
     expect(r.claimableRaw).toBe(4_000n);
   });
 
-  it('never blocks on a DYNAMIC pool — it cannot hit the ceiling', () => {
-    const r = splitAccruedByRisk([entry(DEAD, { 1: 7_000n })], [DYNAMIC]);
+  it('never flags a DYNAMIC pool — it has no rate to change', () => {
+    const r = splitAccruedByRisk([entry(BROKEN, { 1: 7_000n })], [DYNAMIC]);
     expect(r.atRiskCount).toBe(0);
     expect(r.claimableRaw).toBe(7_000n);
   });
