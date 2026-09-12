@@ -502,6 +502,37 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
               </p>
             )}
 
+            {/* ── Closed to new deposits ──────────────────────── */}
+            {/* Replaces the stake form and NOTHING else. Claim, unstake and the
+                principal rescue below are untouched by design: a closed door is
+                for people arriving, never for people leaving. See
+                `depositsClosed` in lib/bungalows.ts for why this pool is being
+                retired while it keeps running. */}
+            {bungalow.depositsClosed && (
+              <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(227,179,65,0.4)' }}>
+                <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: '#e3b341' }}>
+                  Closed to new deposits
+                </p>
+                <p className="text-white/70 text-[12px] leading-relaxed">
+                  This pool is no longer taking new stakes. It keeps running for everyone already in
+                  it &mdash; rewards keep accruing, claims work, and every position comes back in full
+                  when its lock opens.
+                </p>
+                <p className="text-white/50 text-[11px] leading-relaxed mt-2">
+                  Staking is moving to our own program. Existing locks cannot be carried across
+                  &mdash; Streamflow has no migration between pools &mdash; so this one stays open until
+                  the last lock matures rather than stranding anybody.
+                </p>
+                <p className="text-white/40 text-[11px] leading-relaxed mt-2">
+                  To be exact about what changed: the pool still exists on-chain and its terms are
+                  immutable. It is this venue that has stopped offering it, not the program that has
+                  stopped accepting it.
+                </p>
+              </div>
+            )}
+
+            {!bungalow.depositsClosed && (
+            <>
             {/* ── Stake ──────────────────────────────────────────────────── */}
             <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-3" style={{ color: 'var(--color-kyle)' }}>Stake {bungalow.symbol}</p>
@@ -780,6 +811,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   </>
                   )}
             </div>
+            </>
+            )}
 
             {/* ── Your position ──────────────────────────────────────────── */}
             {publicKey && openEntries.length > 0 && (

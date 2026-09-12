@@ -136,6 +136,33 @@ export interface Bungalow {
    * VITE_BAYLA_LADDER_PROGRAM, or the card never mounts.
    */
   ladderPool?: string;
+
+  /**
+   * CLOSED TO NEW DEPOSITS. The venue stops offering this pool to newcomers
+   * while everyone already in it keeps every control they had.
+   *
+   * WHY IT EXISTS (2026-09-12). BAYLA's Streamflow pool is being retired in
+   * favour of our own `bayla-ladder` program, but its stakers are locked for up
+   * to a year and Streamflow has no migration between pools — `migrate_entry`
+   * only moves between two STREAM pools. So the old pool has to keep running
+   * until the last lock opens, while no new person is added to something we are
+   * walking away from. Closing deposits is what makes those two facts coexist.
+   *
+   * THIS IS A UI GATE, NOT AN ON-CHAIN ONE, and the copy has to say so. The
+   * stake program has no `update_pool` at all — `min_duration`, `max_duration`
+   * and `max_weight` are create-only — so the pool will still accept a stake
+   * from anyone who builds the instruction themselves. The venue simply stops
+   * offering it; nothing claims the chain changed.
+   *
+   * WHAT IT MUST NOT TOUCH: claim, unstake, and the principal rescue. A closed
+   * door is for people arriving, never for people leaving — gating an exit on
+   * this flag would trap the very cohort it exists to protect.
+   *
+   * Absent by default, the same shape as `ladderPool` above: a pool is open
+   * unless this repo says otherwise, so no other resident is affected by a
+   * decision made about BAYLA.
+   */
+  depositsClosed?: true;
   /**
    * Token decimals as a PRE-READ fallback for staking/balance surfaces —
    * the live pool read still wins (it reads the mint on-chain); this field
@@ -323,6 +350,9 @@ export const BUNGALOWS: Bungalow[] = [
     artPool: BAYLA_ART,
     stakePool: BAYLA_STAKE_POOL,
     ladderPool: BAYLA_LADDER_POOL || undefined,
+    // Retiring in favour of `bayla-ladder`. Existing positions keep claiming,
+    // unstaking and rescuing exactly as before; only the stake form goes.
+    depositsClosed: true,
     // 6 per the mint itself — verified 2026-08-28 against mainnet
     // (getAccountInfo jsonParsed): owner Token-2022, decimals 6, extensions
     // [metadataPointer, tokenMetadata] only — NO transfer-fee extension, so
