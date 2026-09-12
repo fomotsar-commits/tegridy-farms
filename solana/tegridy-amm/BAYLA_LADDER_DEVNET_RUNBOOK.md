@@ -500,8 +500,10 @@ These are not tasks I can do, and none of them should be improvised on the day.
    `initialize_pool` (lib.rs:383) and no instruction ever changes it. Only `deposit_cap`
    moves - upward only, 48 hours after `propose_cap_raise`, via the permissionless
    `execute_cap_raise`. Three consequences: `max_wallet_principal` must be **at least the
-   largest single wallet that will migrate** (the largest live Streamflow position is
-   1,000,000 BAYLA); it must be **at most the INITIAL `deposit_cap`** (init refuses
+   largest single wallet that will migrate** (measured 2026-09-12: the largest Streamflow
+   WALLET holds **1,004,000 BAYLA across 6 positions** — the limit is on the wallet
+   TOTAL, not per position, and the older snapshot of a 1,000,000 single position
+   understated it); it must be **at most the INITIAL `deposit_cap`** (init refuses
    otherwise, and later cap raises do not lift it); and `min_stake` cannot go below
    **100 whole tokens** (`initialize_pool` enforces that floor).
 4. 📋 **External audit engagement.** 2–4 week scheduling lead is normal. Book it before
@@ -513,6 +515,8 @@ These are not tasks I can do, and none of them should be improvised on the day.
    crossed on 2026-09-07 from a commit message, with no chain read, while the 2026-09-06
    simulation table (`bungalowStakingCeiling.test.ts`) has its claim succeeding. Settle it
    with a live `claim_rewards` simulation before acting on either reading.
+   ⚠️ Also 2026-09-12: the pool now holds **9 wallets / 18 open positions /
+   3,235,286 BAYLA**, not 8 stakers. Re-read it before planning the migration.
 
 ---
 

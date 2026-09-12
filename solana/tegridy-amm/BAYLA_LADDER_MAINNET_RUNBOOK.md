@@ -19,8 +19,9 @@ permanent, and the program's deployer is compiled into the binary.
       the command is in the devnet runbook.
 - [ ] **Both keyfiles are backed up offline** — the program keyfile and the deployer's.
       Not to OneDrive or any cloud folder in plaintext.
-- [ ] **The upgrade authority is decided** (§3).
-- [ ] **The pool parameters are decided** (§6). Two of the three can never be changed.
+- [x] **The upgrade authority is decided** (§3), 2026-09-12: a **Squads multisig**.
+- [x] **The pool parameters are decided** (§6), 2026-09-12: **100 / 2,000,000 / 5,000,000**.
+      Two of the three can never be changed.
 - [ ] **A keyed mainnet RPC URL.** The public endpoint throttles hard, and a program upload
       is several hundred write transactions. Never paste the URL into the repo.
 - [ ] **~3 SOL in the deployer wallet** (§5 for the breakdown).
@@ -32,9 +33,9 @@ permanent, and the program's deployer is compiled into the binary.
 | what | value | notes |
 | --- | --- | --- |
 | program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. The keyfile lives outside the repo, and is only needed until the program is deployed. |
-| deployer | `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` | *Proposed.* The owner's existing BAYLA admin wallet. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's authority. |
+| deployer | `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` | **Confirmed 2026-09-12.** The owner's existing BAYLA admin wallet. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's authority. |
 | BAYLA mint | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | Token-2022, 6 decimals |
-| upgrade authority | decided in §3 | the key that matters most |
+| upgrade authority | a **Squads vault** — fill the address in once the multisig exists | the key that matters most |
 
 **Why a plain wallet is acceptable as the POOL authority, and not as the UPGRADE
 authority.** The pool authority's instructions were read account by account:
@@ -68,16 +69,20 @@ Both authorities must be empty, decimals `6`, and the extensions exactly
 
 ---
 
-## 3. Upgrade authority — decide before deploying
+## 3. Upgrade authority — DECIDED: a Squads multisig
 
-**A. A Squads multisig vault with a time lock (recommended while the program is young).**
-Deploy with the deployer as the upgrade authority, verify (§5), then transfer it to the
-vault straight away. Use the **vault** address — the one that holds assets — not the
-multisig account's own address; confirm it in the Squads app.
+**Chosen 2026-09-12.** Create the multisig, deploy with the deployer as the upgrade
+authority, verify (§5), then transfer it to the vault straight away. Use the **vault**
+address — the one that holds assets — not the multisig account's own address; confirm
+it in the Squads app before pasting it into a command.
 
-**B. Immutable.** Pass `--final` at deploy, or burn the authority afterwards. It is the
-strongest promise to stakers, and it means any later fix needs a new program id, a new
-pool, and a migration.
+Two things to settle inside Squads before the transfer: the **signer set and threshold**
+(more than one signer is the whole point; 2-of-3 is a common shape), and the **time
+lock**, which is what stops a stolen signer pushing an upgrade instantly.
+
+**Immutable (`--final`) was the alternative, and was not taken.** It is the stronger
+promise to stakers, but the program is new: an audit follow-up would otherwise need a
+new program id, a new pool, and a migration of every staker.
 
 **Not acceptable:** leaving the upgrade authority on a single hot wallet.
 
@@ -171,22 +176,41 @@ must now show the vault as the authority. For option B instead:
 (`lib.rs:381-383`), and **no instruction ever changes them**. Only `deposit_cap` moves:
 upward only, 48 hours after it is proposed.
 
-| parameter | what the program enforces | changeable later? | suggested |
+| parameter | what the program enforces | changeable later? | **decided 2026-09-12** |
 | --- | --- | --- | --- |
-| `min_stake` | at least **100 whole tokens** | **no** | 100 BAYLA |
-| `max_wallet_principal` | between `min_stake` and the **initial** `deposit_cap` | **no** — later cap raises do not lift it | 2,000,000 BAYLA |
-| `deposit_cap` | at least `min_stake` | up only, 48h after `propose-cap-raise` | 5,000,000 BAYLA |
+| `min_stake` | at least **100 whole tokens** | **no** | **100 BAYLA** |
+| `max_wallet_principal` | between `min_stake` and the **initial** `deposit_cap` | **no** — later cap raises do not lift it | **2,000,000 BAYLA** |
+| `deposit_cap` | at least `min_stake` | up only, 48h after `propose-cap-raise` | **5,000,000 BAYLA** |
 
-The suggestions are the operator's to overrule. What they rest on:
+Measured on mainnet 2026-09-12 by reading **every** stake entry in the lighthouse pool:
+**18 open positions across 9 wallets, 3,235,286 BAYLA.**
 
-- **`max_wallet_principal` must fit the largest wallet that will migrate.** The largest
-  live Streamflow position is **1,000,000 BAYLA** (`bungalowStakingCeiling.test.ts`). At
-  1,000,000 exactly, that holder could never add to it. 2,000,000 leaves room.
-- **`deposit_cap` must hold the migration.** The lighthouse pool held **3,278,013 BAYLA**
-  on 2026-09-10 (read off the live card). 5,000,000 covers it, and matches the ramp in the
-  original plan.
-- **`min_stake` at the floor** keeps the pool open to small holders. Raising it later is
-  impossible by design: it would lift the I-11 burn threshold above live positions.
+| wallet | positions | total BAYLA |
+| --- | --- | --- |
+| `6JMP6s..Wgkc` | 6 | 1,004,000 |
+| `Upmhw8..CdEd` | 2 | 1,003,000 |
+| `2rg2q9..HM85` | 1 | 535,000 |
+| `GFzq6H..UQwZ` | 1 | 369,369 |
+| `FdS6on..XR2o` | 1 | 171,330 |
+| `C16P97..LduK` | 2 | 79,587 |
+| `3ptKrP..vqeH` | 3 | 60,000 |
+| `GdAYNN..oR2r` | 1 | 10,000 |
+| `6VHowW..u2tY` | 1 | 3,000 |
+
+What the three numbers rest on:
+
+- ⚠️ **The per-wallet limit is on a wallet's TOTAL, and the largest wallet holds
+  1,004,000 across six positions** — not the 1,000,000 single position an older snapshot
+  showed. Anything at or below ~1.0M would lock that holder out of migrating in full,
+  with no setter to undo it. 2,000,000 fits them with room to add, and caps any one
+  wallet at 40% of the opening pool, falling to 20% if the cap is later doubled.
+- **`deposit_cap` must hold the migration.** 3,235,286 BAYLA sits in the lighthouse pool
+  today; 5,000,000 covers it with ~1.7M of headroom, and rises 48 hours at a time.
+- **`min_stake` at the program floor** keeps the pool open to the small holders already
+  here — the smallest open position is 3,000 BAYLA. It cannot be raised later by design:
+  that would lift the I-11 burn threshold above positions already open.
+- **If these ever prove wrong**, the escape hatch is a second pool at `--nonce 1` with
+  different parameters. The first pool keeps running; nothing is stranded.
 
 ---
 
@@ -277,11 +301,15 @@ Squads. A new proposal replaces a pending one and restarts its 48-hour clock.
 
 ## 12. Moving the lighthouse stakers — after the audit
 
+- **18 open positions across 9 wallets, 3,235,286 BAYLA** (read 2026-09-12). An older
+  snapshot said 8 entries; more stakers have arrived since, so re-read the pool before
+  announcing anything to anyone.
 - A Streamflow position cannot leave before its lock ends, so each staker moves when
   their own lock opens. Nobody's tokens are moved for them.
-- The largest position is 1,000,000 BAYLA; `max_wallet_principal` must fit it (§6).
-- Whether that position has crossed the Streamflow reward ceiling is **unverified** — see
-  the devnet runbook §9 before telling its holder anything about their rewards.
+- The largest wallet holds 1,004,000 across six positions, and `max_wallet_principal`
+  fits it with room (§6).
+- Whether the big position has crossed the Streamflow reward ceiling is **unverified** —
+  see the devnet runbook §9 before telling its holder anything about their rewards.
 
 ---
 
