@@ -489,6 +489,11 @@ These are not tasks I can do, and none of them should be improvised on the day.
    keypair. For a program holding other people's principal that is not adequate. Choose:
    Squads multisig with a timelock, or burn the authority and make the program immutable.
    Immutable is the stronger promise and forecloses fixing anything.
+   **DECIDED 2026-09-12: the Squads route, using the venue's EXISTING v4 vault**
+   `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (index 0 of multisig
+   `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2 — all three facts read on
+   chain that day, and the derivation pinned by `squadsRegistry.test.ts`). See the
+   mainnet runbook §3, including why it must be the vault and never the multisig.
 2. 🔑 **A real mainnet program keypair**, generated and backed up before use. Two
    own-venue program keypairs are currently gitignored and **unbacked-up**; do not add a
    third to that pile.
@@ -500,8 +505,10 @@ These are not tasks I can do, and none of them should be improvised on the day.
    `initialize_pool` (lib.rs:383) and no instruction ever changes it. Only `deposit_cap`
    moves - upward only, 48 hours after `propose_cap_raise`, via the permissionless
    `execute_cap_raise`. Three consequences: `max_wallet_principal` must be **at least the
-   largest single wallet that will migrate** (the largest live Streamflow position is
-   1,000,000 BAYLA); it must be **at most the INITIAL `deposit_cap`** (init refuses
+   largest single wallet that will migrate** (measured 2026-09-12: the largest Streamflow
+   WALLET holds **1,004,000 BAYLA across 6 positions** — the limit is on the wallet
+   TOTAL, not per position, and the older snapshot of a 1,000,000 single position
+   understated it); it must be **at most the INITIAL `deposit_cap`** (init refuses
    otherwise, and later cap raises do not lift it); and `min_stake` cannot go below
    **100 whole tokens** (`initialize_pool` enforces that floor).
 4. 📋 **External audit engagement.** 2–4 week scheduling lead is normal. Book it before
@@ -513,6 +520,8 @@ These are not tasks I can do, and none of them should be improvised on the day.
    crossed on 2026-09-07 from a commit message, with no chain read, while the 2026-09-06
    simulation table (`bungalowStakingCeiling.test.ts`) has its claim succeeding. Settle it
    with a live `claim_rewards` simulation before acting on either reading.
+   ⚠️ Also 2026-09-12: the pool now holds **9 wallets / 18 open positions /
+   3,235,286 BAYLA**, not 8 stakers. Re-read it before planning the migration.
 
 ---
 
