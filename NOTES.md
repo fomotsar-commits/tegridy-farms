@@ -15,10 +15,11 @@ Rules for entries, so this stays worth reading:
 
 ---
 
-## 2026-09-12 — an unknown `--reporter` name exits 0 having run nothing, and a mutation check that ends in a timeout proves less than one that ends in an assertion
+## 2026-09-12 — a green that ran nothing, a green that covers a different workflow, and a red that only timed out
 
-**Believed:** a vitest run that exits 0 ran the suite, and a pre-fix test that goes
-red has done its job whichever way it went red.
+**Believed:** a vitest run that exits 0 ran the suite, a context called
+`all-checks-pass` covers the PR's checks, and a pre-fix test that goes red has
+done its job whichever way it went red.
 
 ### `--reporter=<name-that-does-not-exist>` is a silent no-op
 
@@ -72,6 +73,35 @@ component rendered and the copy is not in it.
 
 **Do:** in a mutation check, `await` something both versions render. Only the
 assertion should target what changed.
+
+### `all-checks-pass` is not the PR's checks
+
+Measured on a docs-only PR (#552). `gh pr checks --json name,bucket,workflow`:
+
+| context | workflow |
+| --- | --- |
+| `all-checks-pass` | **solana-ci** |
+| `all-tests-pass` | **Contracts CI** |
+| `Lint, Type Check & Test` | **CI** |
+| `CodeQL (javascript-typescript)` | **CodeQL** |
+
+Neither aggregate spans the PR. They are the terminal jobs of the solana and
+contracts workflows, so on a docs or frontend change those workflows skip every
+job, their aggregate passes **in seconds**, and the frontend's real gate is still
+running in a different workflow. Watching the list settle, `all-checks-pass` and
+`all-tests-pass` both read `pass` while `Lint, Type Check & Test` and `CodeQL`
+were still `pending`.
+
+It looks like a race and is not one — it is a **scope** error. The name claims the
+PR; the job covers one workflow. This is the mechanism behind the existing rule
+that a check-COUNT floor is unsound: which workflows contribute at all is
+path-dependent, so both the count and any "all-*" name mean something different
+per PR.
+
+**Do:** assert the NAMED contexts that matter for the paths you touched — for a
+frontend change that is `Lint, Type Check & Test`, not `all-checks-pass`. Add
+`workflow` to the `gh pr checks --json` field list; without it a context's real
+scope is invisible.
 
 ### Incidental
 
