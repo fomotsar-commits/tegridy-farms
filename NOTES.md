@@ -45,12 +45,15 @@ account's reads:
 The control is what makes "once" mean something: the counter sees a retry when anvil
 makes one.
 
-**Worse on 1.7.1.** A failed fork read inside block building hits
+**Worse on 1.7.1 — and reproduced there.** A failed fork read inside block building hits
 `apply_pre_execution_changes().expect(…)`, a panic. CI's anvil died with SIGABRT on the
 EIP-2935 history-contract read (`GetStorage(0x0000f908…2935, …, HTTP error 408`) and
 every later test failed in ~150ms. anvil 1.5.1 does not read that contract when mining
-(checked, also under `--hardfork prague`), so the crash does not reproduce on the older
-binary.
+(checked, also under `--hardfork prague`), so this one needs the pinned binary: unzip the
+release into a scratch dir and point the harness at it with an env var, leaving the
+machine's `~/.foundry/bin` alone. Done that way, the panic reproduces byte-for-byte, down
+to `mem/mod.rs:1324`, under every flag combination in the table — and does not happen at
+all with the retry sitting below anvil.
 
 **Do:**
 
@@ -66,6 +69,12 @@ binary.
   backoff landed the next attempt just before the deadline (a 504 at 431ms against a 400ms
   deadline, in the unit test that caught it). That swaps the upstream's words for the
   retrier's.
+- **A proxy owes the client the upstream's response HEADERS, not just its body.** anvil
+  builds the `HTTP diagnostics:` block in its error out of them — on a real failure that is
+  `cf-ray` and `server`, the ids the provider asks you to quote. A relay answering with
+  `content-type` alone loses them on the one answer that matters, the one it gave up on.
+  Encoding and framing headers still stop at the proxy, because `fetch` has already decoded
+  the body.
 
 ## 2026-09-11 — a local fallback that accepts a bad argument hides it until production
 
