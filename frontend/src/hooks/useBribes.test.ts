@@ -18,6 +18,11 @@ const USER = '0xdddddddddddddddddddddddddddddddddddddddd' as `0x${string}`;
 describe('useBribes', () => {
   beforeEach(() => {
     wagmiMock.reset();
+    // Every read in useBribes is gated on `isDeployed`, and VOTE_INCENTIVES_ADDRESS
+    // is zeroed (the first test pins that), so production issues NONE of the reads
+    // stubbed below. These tests pin the hook's derivation from those reads, which
+    // only a mock that answers disabled queries can reach until the address is set.
+    wagmiMock.setAnswerDisabledReads(true);
     wagmiMock.setAccount({ address: USER, isConnected: true });
   });
 

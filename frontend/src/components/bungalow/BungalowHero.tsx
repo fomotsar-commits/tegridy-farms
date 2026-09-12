@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Bungalow, BungalowIdentity } from '../../lib/bungalows';
-import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute } from '../../lib/bungalows';
+import { bungalowExplorerUrl, bungalowScanRoute, bungalowTradeRoute, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
 import { isSolanaSwapLive } from '../../lib/solana';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -8,8 +8,9 @@ import { shortenAddress } from '../../lib/formatting';
 /**
  * Token-first hero cluster for a bungalow that speaks for itself (Bayla).
  * Rendered by HomePage IN PLACE OF the TOWELI H1/copy/CTA/quote cluster when
- * `getBungalowIdentity()` is non-null; the chain pills and security badge
- * around it stay shared (they are venue facts, not token copy).
+ * `getBungalowIdentity()` is non-null; the chain pills around it stay shared
+ * (they are venue facts, not token copy). The security badge used to stay too;
+ * wave seven, element C moved it off the hero entirely, to /trust.
  *
  * Honesty rules carried over from the surface it replaces: no yield claims,
  * no numbers that drift — the copy speaks lore and links to checkable
@@ -97,6 +98,19 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
           <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; {id.museBy}</span>
         </span>
       </div>
+
+      {/* WAVE SEVEN, element E: the room's three-step welcome used to open
+          ITSELF over the page on a first visit. It waits here instead. The copy
+          is unchanged and undeleted; it simply arrives when somebody asks, which
+          is the whole rule — a modal exists only behind a tap. */}
+      <button
+        type="button"
+        onClick={() => window.dispatchEvent(new Event(OPEN_BUNGALOW_ABOUT_EVENT))}
+        className="mt-3 text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
+        style={{ color: 'rgba(255,255,255,0.75)' }}
+      >
+        About this bungalow
+      </button>
 
       {/* Contract chip — copyable mint + explorer link, mirroring the footer card. */}
       {bungalow.address && (

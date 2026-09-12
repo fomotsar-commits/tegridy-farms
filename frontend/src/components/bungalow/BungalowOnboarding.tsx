@@ -14,16 +14,38 @@ import { pageArt } from '../../lib/artConfig';
  * nothing "coming soon" with a date. Three steps: who she is, what is live
  * today, what the lighthouse pool will be when it exists.
  */
-export function BungalowOnboarding({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity } }) {
+export function BungalowOnboarding({
+  bungalow,
+  invitedOpen = false,
+  onInvitedClose,
+}: {
+  bungalow: Bungalow & { identity: BungalowIdentity };
+  /**
+   * WAVE SEVEN, element E: this welcome no longer opens itself.
+   *
+   * It used to greet every first visit to every room, which is precisely the
+   * "nothing opens over the page unasked" the wave removes — and the lore card
+   * already says most of what it says. The copy is NOT deleted: the room's
+   * "About this bungalow" link raises OPEN_BUNGALOW_ABOUT_EVENT, AppLayout
+   * holds the flag, and it arrives here. Same shape as the venue welcome's
+   * invited mode, so there is one mechanism for "a modal exists only behind a
+   * tap" rather than two.
+   */
+  invitedOpen?: boolean;
+  onInvitedClose?: () => void;
+}) {
   const storageKey = `tegridy-onboarding-${bungalow.id}-seen`;
-  const [open, setOpen] = useState(() => {
-    try { return localStorage.getItem(storageKey) !== '1'; } catch { return true; }
-  });
   const [step, setStep] = useState(0);
 
+  const open = invitedOpen;
+
   const close = () => {
+    // Still recorded, so nothing about the old first-visit bookkeeping changes
+    // for anyone who reads that key; it simply no longer decides whether the
+    // modal appears.
     try { localStorage.setItem(storageKey, '1'); } catch { /* private mode */ }
-    setOpen(false);
+    setStep(0);
+    onInvitedClose?.();
   };
 
   const steps = [
