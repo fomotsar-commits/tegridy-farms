@@ -596,7 +596,10 @@ export function LiquidityTab() {
           </>
         )}
 
-        {liq.isSuccess && liq.hash && (
+        {/* `isLiquidityReceipt` bars an APPROVAL from rendering this — see the note in
+            useAddLiquidity. "Confirmed!" under a form that still has an unsent add is
+            the "looks finished but it's only an approval" read FarmPage already closed. */}
+        {liq.isSuccess && liq.hash && liq.isLiquidityReceipt && (
           <div className="mt-3 text-center text-emerald-400 text-[12px]">
             Confirmed! <a href={getTxUrl(chainId, liq.hash)} target="_blank" rel="noopener noreferrer" className="underline">View on Explorer</a>
           </div>
