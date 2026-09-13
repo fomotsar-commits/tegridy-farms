@@ -1,6 +1,6 @@
 # NOTICE — Third-Party Attributions & Fair Use
 
-Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), **except `solana/tegridy-amm/`, which is Apache-2.0 (see [`solana/tegridy-amm/LICENSE`](solana/tegridy-amm/LICENSE)) because it derives from Apache-2.0 upstream.** This file documents third-party code, design patterns, intellectual property considerations, and fair-use rationale for the project.
+Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), with **two carve-outs**: `solana/tegridy-amm/` is Apache-2.0 (see [`solana/tegridy-amm/LICENSE`](solana/tegridy-amm/LICENSE)) because it derives from Apache-2.0 upstream, and the **airdrop module is GPL-3.0-or-later** because it derives from Uniswap's `merkle-distributor` — see the row below and the per-file SPDX list under [SPDX coverage](#spdx-coverage). This file documents third-party code, design patterns, intellectual property considerations, and fair-use rationale for the project.
 
 ## Smart contract code & patterns
 
@@ -8,8 +8,9 @@ Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), **exce
 |---|---|---|---|
 | **Raydium CP-Swap (CPMM)** | [raydium-io/raydium-cp-swap](https://github.com/raydium-io/raydium-cp-swap) @ `78f254e` | **Apache-2.0** | [`solana/tegridy-amm/programs/cp-swap/`](solana/tegridy-amm/programs/cp-swap/) is a fork. **Changes made (Apache-2.0 §4(b)):** four authority/identity constants only — the program id in `lib.rs` and the admin / fee-receiver / support-mint-owner constants; all swap, curve and fee math is unmodified. The delta is enforced by the `diff-guard` job in `.github/workflows/solana-ci.yml`. Apache-2.0 text retained at [`solana/tegridy-amm/LICENSE`](solana/tegridy-amm/LICENSE). **Upstream's MadShield audit and Raydium's Immunefi bounty do NOT cover this fork.** |
 | **Raydium CLMM concentrated-liquidity math** | [raydium-io/raydium-clmm](https://github.com/raydium-io/raydium-clmm) @ `bf7c241` | **Apache-2.0** | ⚠️ **NO LONGER VENDORED — removed 2026-08-23.** Seven library files (`big_num`, `fixed_point_64`, `full_math`, `liquidity_math`, `sqrt_price_math`, `tick_math`, `unsafe_math`) lived at `solana/tegridy-amm/programs/tegridy-launch/src/vendor/` to price the segmented bonding curve. Segmented mode was deleted before the redeploy (it carried two HIGH audit findings), and the vendored maths went with it — ~1,495 lines that upstream's audits did not cover. The `clmm-vendor-guard` CI job that enforced the delta was removed in the same change, since it guarded a directory that no longer exists. **Nothing in this repo now derives from raydium-clmm.** Kept in this table as the record of code that WAS shipped, not as a live dependency. |
+| **Uniswap `merkle-distributor`** | [Uniswap/merkle-distributor](https://github.com/Uniswap/merkle-distributor) @ `25a79e8e` (2022-11-21, “specify gpl license”) | **GPL-3.0-or-later** | ⚠️ **This is a copyleft carve-out from the repo's MIT default — read before shipping the airdrop rail.** [`contracts/src/vendor/uniswap-merkle-distributor/`](contracts/src/vendor/uniswap-merkle-distributor/) is a verbatim vendor of `MerkleDistributor.sol` and `interfaces/IMerkleDistributor.sol`. **Changes made:** exactly one — `pragma solidity =0.8.17` widened to `^0.8.17` so it compiles under the repo's pinned `solc = 0.8.26`; the interface file is byte-identical. Verification recipe and expected diff: [`contracts/src/vendor/uniswap-merkle-distributor/VENDOR.md`](contracts/src/vendor/uniswap-merkle-distributor/VENDOR.md) — note this vendor is **not** covered by the `v2-provenance` job (`scripts/check-v2-provenance.mjs` pins only the v2 and StakingRewards vendors), so its recipe is run by hand. Everything that inherits from or instantiates it inherits the licence — see the SPDX list below. An earlier build note called this upstream MIT; that note predates the relicense commit named here. |
 | **OpenZeppelin Contracts** | [OpenZeppelin/openzeppelin-contracts](https://github.com/OpenZeppelin/openzeppelin-contracts) | MIT | Imported via npm/Foundry. Used for ERC20, ERC721, ReentrancyGuard, Pausable, SafeERC20, etc. Licence inherited. |
-| **Synthetix StakingRewards** | [Synthetixio/synthetix](https://github.com/Synthetixio/synthetix) | MIT | [`TegridyLPFarming.sol`](contracts/src/TegridyLPFarming.sol) adapts the StakingRewards reward-math pattern. Attribution in source comment. |
+| **Synthetix StakingRewards** | Synthetix, vendored via [Uniswap/liquidity-staker](https://github.com/Uniswap/liquidity-staker) @ `3edce550` | MIT | Two uses. (a) *Pattern:* [`TegridyLPFarming.sol`](contracts/src/TegridyLPFarming.sol) adapts the StakingRewards reward-math pattern; attribution in source comment. (b) *Verbatim vendor:* [`contracts/src/vendor/synthetix-staking-rewards/`](contracts/src/vendor/synthetix-staking-rewards/) carries `StakingRewards.sol`, `RewardsDistributionRecipient.sol` and `interfaces/IStakingRewards.sol` copied from the pin above, with a 0.8-compiler bridge as the only divergence — mechanically pinned by `contracts/provenance/expected/*.expected.diff` and the `v2-provenance` job in `.github/workflows/contracts-ci.yml` (`scripts/check-v2-provenance.mjs:143-178`), so any further edit goes red. Provenance and the exact delta: [`contracts/src/vendor/synthetix-staking-rewards/VENDOR.md`](contracts/src/vendor/synthetix-staking-rewards/VENDOR.md). The pin is Uniswap's copy because `Synthetixio/synthetix` v2 returned 404 on GitHub when it was taken (2026-08-30); the underlying work is MIT (verified against the `synthetix` npm package's `license` field). |
 | **Curve GaugeController** | [curvefi/curve-dao-contracts](https://github.com/curvefi/curve-dao-contracts) | MIT | [`GaugeController.sol`](contracts/src/GaugeController.sol) adapts Curve's gauge-voting + emission-direction pattern. Attribution in source comment. |
 | **Meteora Dynamic Bonding Curve** *(design only — no code)* | Meteora's **public documentation** | Meteora's program source is under a **non-commercial** licence | ⚠️ **PROVENANCE RECORD — read before assuming a clean-room claim.** The retired segmented curve mode implemented a 16-point `(sqrt_price, liquidity)` shape described in Meteora's public docs. **Nothing was derived from Meteora's program source**, deliberately: that source is non-commercially licensed ([`docs/CURVE_FORK_EVALUATION.md`](docs/CURVE_FORK_EVALUATION.md)), so paraphrasing it would risk a derivative-work claim. Concepts are not protectable; their expression is — and the expression shipped was Raydium's Apache-2.0 maths plus our own segment loop. This paragraph was the header of `programs/tegridy-launch/src/segmented.rs`, deleted 2026-08-23; it is preserved here because deleting the legal defence alongside the code is how a derivative-work claim becomes hard to answer. The Meteora DBC *rail* was separately retired the same day. |
 | **Uniswap V2 core + periphery** | [Uniswap/v2-core](https://github.com/Uniswap/v2-core), [Uniswap/v2-periphery](https://github.com/Uniswap/v2-periphery) | BUSL-1.1 (core), GPL-3.0-or-later (periphery) | [`TegridyFactory.sol`](contracts/src/TegridyFactory.sol), [`TegridyPair.sol`](contracts/src/TegridyPair.sol), [`TegridyRouter.sol`](contracts/src/TegridyRouter.sol) adapt the V2 AMM architecture. The BUSL-1.1 licence change date (2023-04-01) has passed; V2 code is now effectively GPL-2.0 under the conversion clause. Tegridy Farms fork integrates this code under GPL-compatible MIT fallback. Attribution in source comments. |
@@ -17,7 +18,30 @@ Tegridy Farms is licensed under the MIT License (see [LICENSE](LICENSE)), **exce
 
 ### SPDX coverage
 
-All Solidity files in `contracts/src/` and `contracts/src/base/` declare `// SPDX-License-Identifier: MIT`. No files are missing SPDX headers.
+Every Solidity file under `contracts/src/` (which includes `contracts/src/base/`) declares an SPDX header — 77 files, 77 headers, re-counted 2026-09-09.
+
+**But MIT is the default, not the rule.** The previous wording of this section said every one of them declares MIT; that was wrong. Ten files across `contracts/` declare `GPL-3.0-or-later`, and a counterparty who reads MIT across the tree will be wrong about the airdrop rail and the TWAP oracle library. The complete list, as declared in the files themselves:
+
+| File | Why it is GPL-3.0-or-later |
+|---|---|
+| `contracts/src/vendor/uniswap-merkle-distributor/MerkleDistributor.sol` | Verbatim vendor of GPL-3.0-or-later upstream |
+| `contracts/src/vendor/uniswap-merkle-distributor/interfaces/IMerkleDistributor.sol` | Verbatim vendor of GPL-3.0-or-later upstream |
+| `contracts/src/TegridyAirdropDistributor.sol` | Derives from `MerkleDistributor` |
+| `contracts/src/AirdropFactory.sol` | Deploys/derives from the above |
+| `contracts/script/DeployAirdropFactory.s.sol` | Deploy script for the above |
+| `contracts/test/AirdropFactory.t.sol` | Test of the above |
+| `contracts/test/AirdropMerkleVector.t.sol` | Test of the above |
+| `contracts/test/invariants/AirdropDistributorInvariants.t.sol` | Test of the above |
+| `contracts/test/TegridyNativeBuyRouter.t.sol` | ⚠️ Unexplained — the contract it tests (`contracts/src/TegridyNativeBuyRouter.sol:1`) declares MIT, and this test imports nothing GPL. Recorded as declared, not endorsed; likely a copied header, and a candidate to correct to MIT |
+| `contracts/src/lib/UniswapV2OracleLibrary.sol` | Verbatim 0.8 port of Uniswap **v2-periphery** (GPL-3.0-or-later), commit `ed249913` |
+
+Regenerate this list rather than trusting it:
+
+```
+grep -rl 'SPDX-License-Identifier: GPL' contracts --include='*.sol' | grep -v '^contracts/lib/'
+```
+
+**Operator decision, still open.** [`contracts/src/vendor/uniswap-merkle-distributor/VENDOR.md`](contracts/src/vendor/uniswap-merkle-distributor/VENDOR.md) states the choice: either accept GPL-3.0-or-later on the airdrop module — which this file now records — or replace the base with an MIT-licensed merkle-claim implementation before deploy. Recording it here is not the same as choosing it; the deploy decision is the operator's.
 
 ### Verification
 
@@ -80,4 +104,4 @@ Contributors agree to licence their contributions under MIT (see [CONTRIBUTING.m
 
 ---
 
-*Last updated: 2026-08-01.*
+*Last updated: 2026-09-09.*
