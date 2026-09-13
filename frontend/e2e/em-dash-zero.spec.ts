@@ -1,5 +1,12 @@
 import { test, expect, type Page } from '@playwright/test';
-import { gotoRoute, waitForQuiescence, gotoNakamigos, ROUTES, navigablePath } from './fixtures/routes';
+import {
+  gotoRoute,
+  waitForQuiescence,
+  gotoNakamigos,
+  ROUTES,
+  navigablePath,
+  GECKO_EDGE_GLOB,
+} from './fixtures/routes';
 
 // ELEMENT I — ZERO EM DASHES IN VENUE-VOICE PROSE, AND THE DEBT ON THE WAY THERE.
 //
@@ -125,7 +132,17 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 14,
   '/eth-curve': 15,
   '/alerts': 17,
-  '/competitions': 17,
+  // 17 UNTIL THE LEDGER LEFT BY STRUCTURE, 2026-09-12. Thirteen of that
+  // seventeen were the Island Cup's coverage notice reporting a failed read:
+  // twelve `not read — <why>` chips, one per resident pool, plus one sentence
+  // for the distinct failure reason. None of it is copy anybody wrote for this
+  // page, and all of it moves when a third party answers differently — which is
+  // how it landed here, reading 16 against a table that said 17 with no edit to
+  // any competitions file. `data-unread-ledger` takes it out of the walk
+  // (CupCoverageNotice.tsx); the 4 that remain are ScoringRules' four written
+  // paragraphs, and they no longer depend on the feed at all: measured 4 with
+  // the read aborted, 4 with it failing at the parse, and 4 unstubbed.
+  '/competitions': 4,
   '/yield': 21,
   // 32 until element F cut the header to one sentence; that sentence carried a
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
@@ -144,8 +161,19 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
  * set survives that difference, a CHARACTER COUNT plainly might not.
  *
  * So the feed is aborted here and the degraded branch is what is pinned. The
- * abort really intercepts because playwright.config sets serviceWorkers:
- * 'block'; without it public/sw.js answers first and the stub is a no-op.
+ * abort needs TWO things to be true, and only one of them was written down:
+ * playwright.config must set serviceWorkers: 'block' (without it public/sw.js
+ * answers first), AND the glob must match the URL the browser actually asks
+ * for. It stopped doing so on 2026-09-10, when every GeckoTerminal read moved
+ * to the same-origin edge, and `'**api.geckoterminal.com/**'` quietly became a
+ * stub that intercepts nothing. Import GECKO_EDGE_GLOB; do not write a literal.
+ *
+ * A DEAD STUB DOES NOT FAIL, it measures the unstubbed page — and here that is
+ * not even the live branch, because `vite preview` serves no /api function and
+ * the SPA fallback answers the edge with 200 text/html. The read then dies at
+ * the JSON parse rather than at the socket, which is a DIFFERENT failure reason
+ * with different words. That is what reddened trunk: /competitions read 16
+ * against a table saying 17, with no competitions file touched.
  *
  * MEASURED, NOT ASSUMED: aborted, these four read 3 / 2 / 12 / 18, which is
  * what the unstubbed sweep read too. OWED, and not claimed: I cannot make a
@@ -190,6 +218,19 @@ async function proseDashes(page: Page): Promise<ProseHit[]> {
       // TOWELI's voice, not the venue's. Skipped by structure; the same source
       // guard pins which files may declare a TOWELI section.
       if (el.closest('[data-voice="toweli"]') || el.closest('[data-room="toweli"]')) continue;
+      // A REPORT OF A FAILED READ IS NOT COPY EITHER, and its LENGTH is not a
+      // property of this repo. `data-unread-ledger` marks a subtree whose words
+      // are assembled from what the network answered: /competitions' coverage
+      // notice prints one `not read — <why>` per resident pool that failed and
+      // one sentence per distinct failure reason. An exact count over that is a
+      // count of a third party's behaviour, and it fails the moment a pool joins
+      // the registry or a read fails for a different reason.
+      //
+      // This is the bare-`—` discriminator's own argument at sentence length: the
+      // placeholder is exempt BY CONSTRUCTION because an unreadable read is not
+      // the venue speaking, and neither is the paragraph explaining it.
+      // src/pages/recordSurfaces.test.ts pins who may declare one.
+      if (el.closest('[data-unread-ledger]')) continue;
       // THE DISCRIMINATOR. Exactly U+2014 is the unreadable placeholder.
       if (data.trim() === '—') continue;
       hits.push({ text: data.trim().slice(0, 90), owner: el.tagName });
@@ -250,7 +291,7 @@ test.describe('element I: em dashes in venue-voice prose', () => {
         } catch { /* private mode */ }
       });
       if (FEED_ROUTES.has(path)) {
-        await page.route('**api.geckoterminal.com/**', (r) => r.abort());
+        await page.route(GECKO_EDGE_GLOB, (r) => r.abort());
       }
 
       await settle(page, path);
