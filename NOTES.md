@@ -15,6 +15,75 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — a route stub whose pattern stops matching does not fail, it silently measures the unstubbed page
+
+**Believed:** if a Playwright `page.route(glob, r => r.abort())` is in the spec, the
+branch under it is the aborted one. A stub is either applied or the test errors.
+
+**Measured:** neither. When the app moved its GeckoTerminal reads from
+`api.geckoterminal.com` to a same-origin edge, the spec's
+`'**api.geckoterminal.com/**'` matched nothing and Playwright reported *nothing at
+all* — no warning, no unmatched-route error. The spec kept passing for two days
+against a branch it was not pinning, then reddened trunk when that branch's copy
+happened to differ by one character class.
+
+Proof it was inert, three runs on the same build, same route, identical source:
+
+| stub | prose em dashes on `/competitions` |
+|---|---|
+| `'**api.geckoterminal.com/**'` (dead) | 16 |
+| `'**resource=gecko-read**'` (live) | 17 |
+| no `page.route` at all | 16 |
+
+The dead stub and *no stub* agreeing exactly is the signature. If a stub is
+load-bearing, assert that: count `requestfailed` under it, or fail the test when
+the handler was never invoked. A stub you cannot prove fired is a comment.
+
+### Under `vite preview`, a missing `/api/*` is not a 404 — it is 200 text/html
+
+This is what turned an inert stub into a *wrong* measurement rather than merely a
+live one. `vite preview` runs no serverless function, and the SPA fallback answers
+any unmatched path with the index document, 200. So a client that checks
+`res.ok` before parsing sails through the status check and dies at
+`res.json()`. The failure is classified at a different layer:
+
+- aborted at the socket → `network` → *"The trades feed could not be reached — that
+  is an outage, not an empty tape."*
+- 200 text/html → `schema` → *"The trades feed returned something unreadable."*
+
+Same outage to the user, different sentence, and here a different em-dash count.
+Any assertion over the WORDS of a failure — not just its presence — is really an
+assertion about which layer the read died at, and `vite preview` moves that layer
+relative to production. Fail-closed code paths are not interchangeable just
+because they both render "could not read".
+
+### Writing down the correct pattern is not the same as applying it
+
+The fixture had already been updated, in prose, to say the old glob
+"intercepts nothing now; the equivalent is `'**resource=gecko-read**'`". Two specs
+still holding the old literal were not changed in that commit, so the note
+documented the breakage instead of preventing it. A note describing the right
+value, next to callers still using the wrong one, reads as done and is not.
+
+**Do:** when a URL a test depends on moves, export the pattern as one constant and
+import it. `grep` for the old literal in the same commit that writes the note —
+the note is the weakest possible fix.
+
+### An exact count over text built from a failed read cannot hold
+
+The guard budgeted `/competitions` at 17 prose em dashes. Thirteen were the read
+ledger: one `not read — <why>` chip per resident pool, plus one sentence per
+distinct failure reason. That number is a function of how many pools are
+registered, how many answered, and which reason each failure got — a third
+party's behaviour, not reviewable copy. It was fated to drift and it did.
+
+**Do:** exclude such a subtree by structure (a marker attribute the walker skips,
+plus a source guard pinning who may declare it), rather than budgeting it. The
+test of a good exclusion is that the remaining number stops moving: after the
+change the route read 4 aborted, 4 on the fallback, and 4 unstubbed.
+
+---
+
 ## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
 
 **Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
