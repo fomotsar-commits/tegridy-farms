@@ -1,7 +1,7 @@
 // Polyfill MUST load before any @solana/* import (jupiter.ts / providers pull
 // in web3.js) — keep this the very first import in this lazy chunk's entry.
 import '../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
@@ -283,6 +283,14 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
   // Escape to close + focus management: focus the search box on open, trap Tab
   // within the dialog, and restore focus to the trigger on close (mirrors the
   // TopNav drawer's a11y pattern).
+  // The parent mounts this with an INLINE arrow, so a bare `[onClose]` dep tore
+  // this setup down and re-ran it on EVERY parent render: the cleanup restored
+  // focus to the opener and the setup re-focused the panel, yanking the caret
+  // away from whoever was typing (and churning the scroll-lock save/restore).
+  // Hold the latest callback in a ref so the setup below is mount-scoped.
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => { onCloseRef.current = onClose; });
+
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
@@ -293,7 +301,7 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'Escape') { onCloseRef.current(); return; }
       if (e.key !== 'Tab' || !panelRef.current) return;
       const focusables = panelRef.current.querySelectorAll<HTMLElement>(
         'input, button:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -314,7 +322,8 @@ function TokenPicker({ title, featured, onSelect, onClose }: TokenPickerProps) {
       document.body.style.overflow = prevOverflow;
       prevFocus?.focus();
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-scoped on purpose; onClose is read through onCloseRef
+  }, []);
 
   // Debounced token search — matches symbol, name, OR a pasted mint address.
   // All setState runs inside the deferred timeout/promise callbacks (never the
