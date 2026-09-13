@@ -820,3 +820,33 @@ Mutation-check both sides of a change that alters *when* a module is evaluated.
   2169s → 2823s across *untouched* files. Compare per-test durations, not totals.
 - `no-unused-vars` does not flag a bare side-effect `import "x";` — it declares no
   binding. Lint will not remove the warming import; a human might.
+
+### A callback prop in an effect's deps is only a bug if the SETUP has side effects
+
+A sweep flagged five components that list an `onClose` prop in an effect's deps
+while the parent passes an inline arrow, so the effect tears down and re-runs on
+every parent render. Only **two** were worth changing.
+
+The separator is what the effect's *setup* does:
+
+- **Real:** setup focuses an element or locks body scroll. Every parent render
+  runs cleanup (restore focus to the opener) then setup (focus the panel), so the
+  caret is yanked away from whoever is typing and the scroll-lock save/restore
+  churns. `SolanaSwapPage` re-renders about once a second while a quote is live.
+- **Benign:** setup only does `addEventListener`. Removing and re-adding the same
+  document listener in the same tick is invisible. Three of the five were this,
+  and their focus / scroll-lock effects already carried correct deps.
+
+**Do:** classify by what the setup *does* before fixing all N. "Prop in deps" is a
+smell, not a defect; fixing the benign ones is churn in files you then owe a
+re-verify.
+
+**The measurement that settles it**, and it is cheap: spy on
+`HTMLElement.prototype.focus`, render the component under a parent that re-renders,
+and count. Pre-fix, one re-render moved the count 1 -> 3 -- +2 per render, one from
+the cleanup and one from the setup. That +2 *is* the caret theft, and it makes the
+invariant ("a parent re-render adds no focus calls") pinnable without asserting any
+literal about dep arrays.
+
+Fix shape is the latest-ref: hold the prop in a ref updated in a layout effect, read
+`ref.current` from the handler, and let the setup effect be mount-scoped.
