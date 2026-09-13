@@ -98,6 +98,57 @@ each side counts from. If they differ, either anchor both to the same stamp, or 
 the bound and say in the test what it is: a floor, short by however long the gap runs.
 The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
 
+## 2026-09-11 — a callee that never rejects has failure shapes a `.catch` cannot see
+
+**Believed:** a flag set in the `.catch` around a fetcher tells an outage from an empty
+result. `fetchListings` relied on one to choose between "temporarily unavailable" and
+"No active listings", and the first fix proposed was to read the fetcher's returned
+`error` instead.
+
+**Measured** (PR #535, vitest 4.1.11, trunk `ce4fac5e`): the native-orderbook fetcher
+fails in three shapes, and the `.catch` saw only the rarest.
+
+- A network failure **resolves** as `{ orders: [], error }`, because the fetcher's own
+  `try` wraps its retry loop. With the proxy down, the real function resolved in
+  3015ms, and `fetchListings` returned the healthy `source: "opensea"` with no error,
+  3 runs of 3.
+- The server's soft-fail for an unreachable database is a **200** with
+  `degraded: true` and no `error` field at all. Reading `error` still misses it. Only
+  the server's handler shows the shape exists.
+- Only a chunk-load failure of the lazily imported module **rejects**.
+
+The rule on top was too narrow as well. It called an outage only when *every* source
+failed, so OpenSea down beside an empty native book still read as an empty market. A
+one-line mutation back to that rule, with the flag already fixed, left 4 of 6
+unread-source tests reading as healthy.
+
+**Do:** before choosing a failure detector, list every shape the callee can produce: a
+rejection, a resolved error field, and a success status carrying a soft-fail flag. For
+the third, read the server. Then fold them into one shape at the callee, so no caller
+has to know there were three.
+
+### A turn-capped fake-timer drain passes alone and times out in the file
+
+**Believed:** `for (let i = 0; i < 120 && !settled; i++) await
+vi.advanceTimersByTimeAsync(500)` is a bounded way to skip a retry's sleeps.
+
+**Measured:** in the full file two tests hit `Test timed out in 5000ms`, while alone
+each ran correctly in 8–9ms. Instrumented, the trigger was an
+`afterEach(() => vi.doUnmock(...))`. After it, 6 of 11 tests spent all 120 turns with
+the request under test still unsent: 0 `fetch` calls when the loop exited. Four of
+those settled on their own afterwards, because they had no timers left to run. The two
+whose request fails needed the retry's fake timers advanced, and nothing advanced them
+any more. Without that `afterEach`, the request went out at turn 0–1 in every test
+that sent one. Across five variants, moving a `vi.resetModules()` test to the start or
+the end changed nothing; removing the `afterEach`, or draining until settled, fixed it.
+
+That first pre-fix run went red on the two timeouts, one of them a counter-test that
+should have passed: a red for the wrong reason, like the missing export in #520.
+
+**Do:** drain until the promise settles (`while (!settled) await
+vi.advanceTimersByTimeAsync(n)`) and let the test's timeout be the bound. A turn cap
+bounds turns, not the work they wait on.
+
 ## 2026-09-11 — a gate's comment and a hook's wrong-chain notice are claims, not evidence
 
 **Believed:** when sweeping read gates, a gate whose comment explains it, or a hook
