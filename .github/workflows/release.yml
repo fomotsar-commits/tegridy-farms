@@ -103,12 +103,21 @@ jobs:
       # specific closed hole in plain language. On a public repo a release body
       # is syndicated to watchers and feeds; that one was a curated index of
       # this repo's previously-exploitable surface.
+      #
+      # AUDIT: the output file is `release-body.md`, NOT `NOTES.md`. The repo
+      # root holds a TRACKED `NOTES.md` -- the engineering log added in
+      # 6d7519f1 -- and this step used to redirect straight over it. Nothing
+      # commits the workspace back, so the tracked log was never actually at
+      # risk in git; the cost was the shared name, which invites the reading
+      # that the tracked log IS the release body. It is not. This file is
+      # generated per run, consumed by `body_path` below, and thrown away.
+      # Keep it untracked, and keep the two names apart.
       - name: Generate release notes
         id: notes
         env:
           TAG: ${{ steps.tag.outputs.value }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: node .github/scripts/release-notes.mjs > NOTES.md
+        run: node .github/scripts/release-notes.mjs > release-body.md
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
@@ -137,7 +146,7 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.value }}
           name: ${{ steps.tag.outputs.value }}
-          body_path: NOTES.md
+          body_path: release-body.md
           # AUDIT T26: was `draft: false`. This workflow has never run and no
           # v*.*.* tag has ever existed, so its first run was also its only
           # rehearsal -- and it went straight to a public release with a body
