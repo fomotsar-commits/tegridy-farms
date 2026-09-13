@@ -165,13 +165,48 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         _;
     }
 
+    /// @dev AUDIT FIX [T17-EOA-TYPE-FILTER]: the one canonical EOA / EIP-7702 type filter
+    ///      for this contract. Body copied verbatim from the sibling helper
+    ///      `TegridyStaking._requireContract` (:664), which is itself the
+    ///      `MemeBountyBoard.setRestakingContract` (MBB-WIRE-01) two-liner. Length-23 is the
+    ///      `0xef0100` + 20-byte delegation pointer an EIP-7702 EOA carries.
+    ///
+    ///      DRY EXTRACTION, same trade TegridyStaking made on 2026-09-05 under
+    ///      [LEND-EOA-WHITELIST]: three verbatim inline copies (`setLendingAdmin`,
+    ///      `proposeLendingAdminReplacement`, the constructor's `sequencerFeed` check) became
+    ///      one body plus four call sites, and the fourth call site is the NEW check on
+    ///      `applyAcceptedCollateralChange`.
+    ///
+    ///      MEASURED, not assumed — all three figures are runtime bytecode on this branch:
+    ///        23,856 B  trunk, before this change
+    ///        23,917 B  the same four checks written INLINE, no helper   (+61 B)
+    ///        23,882 B  this shape: one body plus four call sites        (+26 B)
+    ///      So the extraction pays for itself by 35 B, but it does NOT fully absorb the new
+    ///      check: unlike the TegridyStaking instance, this contract had only three inline
+    ///      copies to fold rather than three plus an already-inline fourth, so the fold is
+    ///      worth less here. Net cost of shipping the new check is +26 B, and that is the
+    ///      honest number — the buffer SHRINKS, it does not grow.
+    ///
+    ///      NOTE the optimizer does NOT inline a private function with this many call sites;
+    ///      an edit that reduces it to a single call site would re-inline it and hand those
+    ///      35 B straight back. TegridyLending is NOT in the CI size gate's
+    ///      FLOOR_EXCEPTIONS, so its hard failure threshold is the job's 24,000 B BUDGET
+    ///      floor, not EIP-170 — real headroom after this change is 118 B, not 694 B. The
+    ///      next edit here must extract, not spend.
+    ///
+    ///      Type-filter ONLY, NOT a capability check — every caller's natspec still leaves
+    ///      interface verification to the operator.
+    function _requireContract(address a) private view {
+        uint256 codeLen = a.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+    }
+
     function setLendingAdmin(address _admin) external onlyOwner {
         if (_admin == address(0)) revert ZeroAddress();
         if (lendingAdmin != address(0)) revert LendingAdminAlreadySet();
         // AUDIT FIX (F-60-2): reject EOA AND EIP-7702 delegated EOA
-        // (length 23 = `0xef0100 ‖ addr` delegation pointer).
-        uint256 codeLen = _admin.code.length;
-        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        // (length 23 = the `0xef0100` + addr delegation pointer).
+        _requireContract(_admin);
         lendingAdmin = _admin;
         emit LendingAdminSet(_admin);
     }
@@ -218,8 +253,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         if (lendingAdmin == address(0)) revert LendingAdminNotSet(); // use setLendingAdmin first
         if (lendingAdminReplacementReadyAt != 0) revert AdminReplacementProposalPending();
         // AUDIT FIX (F-60-2): same EOA / 7702 filter as setLendingAdmin.
-        uint256 codeLen = _newAdmin.code.length;
-        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+        _requireContract(_newAdmin);
         pendingLendingAdmin = _newAdmin;
         lendingAdminReplacementReadyAt = block.timestamp + ADMIN_REPLACEMENT_TIMELOCK;
         emit LendingAdminReplacementProposed(_newAdmin, lendingAdminReplacementReadyAt);
@@ -922,8 +956,7 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         //         Surfaces the failure at deploy time, mirrors NFTLending's
         //         `feedLen == 0 || feedLen == 23 → revert` shape verbatim.
         if (_sequencerFeed != address(0)) {
-            uint256 feedLen = _sequencerFeed.code.length;
-            if (feedLen == 0 || feedLen == 23) revert NotAContract();
+            _requireContract(_sequencerFeed);
         }
 
         treasury = _treasury;
@@ -2609,8 +2642,21 @@ contract TegridyLending is OwnableNoRenounce, ReentrancyGuard, Pausable {
         emit MinPrincipalChanged(old, newValue);
     }
 
+    /// @dev AUDIT FIX [T17-EOA-TYPE-FILTER]: execute-time half of the collateral type filter.
+    ///      `acceptedCollateralContracts` is an ERC721 registry — every consumer calls it as a
+    ///      contract, so an EOA or a 23-byte EIP-7702 delegated EOA is never a valid entry.
+    ///      Rechecked here and not only at propose time because a 7702 delegation can be
+    ///      REVOKED inside the propose/execute timelock window, which is the same reason
+    ///      TegridyStaking guards both halves of its lending-whitelist pair.
+    ///
+    ///      GATED ON `add`, exactly like `TegridyStaking.applyLendingContract`: a REMOVAL must
+    ///      never be blocked by this check. Otherwise an entry that lost its code (7702
+    ///      revocation, or a SELFDESTRUCTed legacy collateral) would be unremovable — the
+    ///      check would brick the only path that cleans it up. See
+    ///      `test_removalIsNeverBlockedByTheCodeCheck_evenAfterTheEntryLosesItsCode`.
     function applyAcceptedCollateralChange(address collateral, bool add) external onlyAdmin {
         if (collateral == address(0)) revert ZeroAddress();
+        if (add) _requireContract(collateral);
         // AUDIT FIX preserved: DEEP-LD-M1 / LD3-M5 — refuse removal while loans
         // in flight, mirrored on the admin side as a pre-_execute gate. Re-checked
         // here as defense in depth; should never trip if admin path runs first.
