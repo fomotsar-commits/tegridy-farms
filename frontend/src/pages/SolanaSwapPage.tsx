@@ -1377,7 +1377,7 @@ function SolanaSwapInner() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
-      <ChainSwitch active="solana" />
+      <ChainSwitch />
       <m.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
