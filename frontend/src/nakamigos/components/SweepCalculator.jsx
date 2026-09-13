@@ -119,7 +119,7 @@ function FloorDepthChart({ tiers, sweepUpToPrice, maxPriceGuard }) {
   );
 }
 
-export default function SweepCalculator({ stats, listings, wallet, onConnect, addToast }) {
+export default function SweepCalculator({ stats, listings, listingsSource, wallet, onConnect, addToast }) {
   const collection = useActiveCollection();
   const { isWrongNetwork } = useWallet();
   const [count, setCount] = useState(5);
@@ -579,7 +579,16 @@ export default function SweepCalculator({ stats, listings, wallet, onConnect, ad
       {/* === FLOOR IMPACT PREVIEW === */}
       {floorImpact && effectiveCount > 0 && (
         <div className="sweep-floor-impact">
-          <div className="sweep-section-label">FLOOR IMPACT</div>
+          {/* Every other number here describes orders this panel can actually
+              buy, and each listing carries its own OS/OB badge. This one does
+              not: it names a FLOOR moving, and reads `listings[0]` as that
+              floor. When the set holds one venue (see isNativeOnly in
+              Listings.jsx) the cheapest listings of the other are simply
+              absent, so the figure is a native-book floor. Scoped rather than
+              hidden — it is true of the book it is computed from. */}
+          <div className="sweep-section-label">
+            {listingsSource === "native" ? "FLOOR IMPACT (NATIVE BOOK)" : "FLOOR IMPACT"}
+          </div>
           <div style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--text)", marginTop: 4 }}>
             <Eth size={11} /> {floorImpact.currentFloor.toFixed(4)}
             <span style={{ color: "var(--text-dim)", margin: "0 6px" }}>{"\u2192"}</span>
