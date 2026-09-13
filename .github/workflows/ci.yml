@@ -481,10 +481,21 @@ jobs:
       - name: Money-path E2E against an Anvil mainnet fork
         env:
           E2E_REQUIRE_ANVIL: "1"
+          # SECRET FIRST, FREE ENDPOINT AS THE DOCUMENTED FALLBACK.
+          #
           # publicnode gated archive requests behind a token on 2026-09-09 and a
-          # fork IS an archive request. See scripts/run-e2e-with-anvil.mjs for the
-          # reproduction and for what to do when this one dies too.
-          ANVIL_FORK_URL: https://eth.drpc.org
+          # fork IS an archive request, so the hardcoded default that used to sit
+          # here took trunk red and every PR with it. Two free defaults have now
+          # died this way, which makes the endpoint a consumable and a bare
+          # literal the wrong shape for it.
+          #
+          # Set the ANVIL_FORK_URL repo secret to a keyed archive RPC and this job
+          # picks it up with no code change; leave it unset and the job runs on
+          # drpc, which forks today. No key is ever committed. (Secrets are empty
+          # on fork-PR runs, which fall back to drpc — the same as today.)
+          # See frontend/scripts/run-e2e-with-anvil.mjs for the reproduction and
+          # for how to verify a replacement endpoint.
+          ANVIL_FORK_URL: ${{ secrets.ANVIL_FORK_URL || 'https://eth.drpc.org' }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: anvil-report.json
         run: |
           npm run e2e -- --project=chromium --reporter=list,json \
