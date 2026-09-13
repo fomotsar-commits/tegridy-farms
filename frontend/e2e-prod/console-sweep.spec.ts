@@ -156,8 +156,16 @@ function classify(
   return { known: false };
 }
 
-/** Our own origin, so a failing response can be told from a third party's. */
-const baseOrigin = new URL(process.env.PROD_URL || 'https://memetic.fun').origin;
+/**
+ * Our own origin, so a failing response can be told from a third party's.
+ *
+ * The fallback MUST stay identical to playwright.prod.config.ts's `baseURL`
+ * fallback. They are two reads of the same default, and when they disagreed the
+ * sweep navigated one host while classifying responses against another — so our
+ * own requests looked third-party and every real failure was filed as somebody
+ * else's noise. Both are the canonical host (src/lib/constants.ts SITE_URL).
+ */
+const baseOrigin = new URL(process.env.PROD_URL || 'https://memetics.finance').origin;
 
 for (const route of AUDITABLE_ROUTES) {
   const path = navigablePath(route);

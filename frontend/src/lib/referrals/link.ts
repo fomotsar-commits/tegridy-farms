@@ -16,11 +16,11 @@
 // outcome in attribution.ts and not a quiet no-op.
 
 import { isAddress } from 'viem';
-import { SITE_URL } from '../constants';
+import { SITE_URL, SITE_HOST } from '../constants';
 import { REF_PARAM, REF_CODE_PARAM, REF_CODE_RE } from './attribution';
 
-/** Host without scheme, for truncated display. Derived once. */
-export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
+/** Host without scheme, for truncated display. Now derived once in constants.ts. */
+export { SITE_HOST };
 
 /**
  * The always-works link for a referrer address.
@@ -45,7 +45,7 @@ export function referralLinkForCode(code: string): string {
   return `${SITE_URL}/?${REF_CODE_PARAM}=${normalised}`;
 }
 
-/** `memetic.fun/?ref=0xabcd…1234` — for display in a fixed-width field. */
+/** `memetics.finance/?ref=0xabcd…1234` — for display in a fixed-width field. */
 export function truncatedLinkLabel(address: string): string {
   return `${SITE_HOST}/?${REF_PARAM}=${address.slice(0, 6)}…${address.slice(-4)}`;
 }

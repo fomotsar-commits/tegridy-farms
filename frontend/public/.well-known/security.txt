@@ -4,19 +4,23 @@
 Contact: mailto:fomotsar@gmail.com
 Expires: 2027-07-12T00:00:00.000Z
 Preferred-Languages: en
-# BOTH served origins are declared. RFC 9116 §3 says a Canonical URI that does not
-# match where the file was actually fetched from is grounds to distrust the whole
-# file, and this listed only memetic.fun while the app's own SITE_URL
-# (frontend/src/lib/constants.ts) is memetics.finance — so a strict parser fetching
-# the canonical origin could reject the policy it came from.
+# RFC 9116 §3: a Canonical URI that does not match where the file was actually
+# fetched from is grounds to distrust the whole file. This once listed only
+# memetic.fun while the app's own SITE_URL (frontend/src/lib/constants.ts) was
+# memetics.finance, so both were declared to stop a strict parser fetching the
+# canonical origin from rejecting the policy it came from.
+#
+# 2026-09-09: back to ONE, because memetic.fun now 301s to the canonical host
+# (frontend/vercel.json). A Canonical URI must be a place this file is SERVED, and
+# a redirect is not — the second line had become the very mismatch it was added to
+# prevent. A researcher who starts at memetic.fun still lands here, via the 301.
 Canonical: https://memetics.finance/.well-known/security.txt
-Canonical: https://memetic.fun/.well-known/security.txt
 
 # ── In scope ──────────────────────────────────────────────────────────────
 #   - TOWELI token: 0x420698CFdEDdEa6bc78D59bC17798113ad278F9D (Ethereum mainnet)
 #   - memetics.finance smart contracts (the verified/GitHub source is authoritative)
-#   - The dapp at https://memetics.finance and its serverless API, also served at
-#     https://memetic.fun
+#   - The dapp at https://memetics.finance and its serverless API. The memetic.fun
+#     and www.memetic.fun aliases 301 onto it and are in scope through it.
 # Nothing else is in scope. The tegridyfarms.vercel.app deploy alias was listed here
 # and is not: this document cannot promise safe harbour on a hostname under a domain
 # the project does not own, and a researcher following it could have tested someone
