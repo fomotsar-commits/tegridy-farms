@@ -125,7 +125,14 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 14,
   '/eth-curve': 15,
   '/alerts': 17,
-  '/competitions': 17,
+  // 17 -> 16 on 2026-09-13. The ratchet fired on trunk run 34734760759 at
+  // 249e4964: "/competitions is DOWN to 16 from 17". Nobody set out to remove an
+  // em dash here — it fell out of the canonical-host and GeckoTerminal-caching
+  // change-sets, which rewrote copy on this route's data notice. Recording it is
+  // the whole point of the ratchet: an unrecorded improvement reds trunk, and a
+  // red trunk that everyone knows is "just the em-dash test" is how a real one
+  // gets waved through.
+  '/competitions': 16,
   '/yield': 21,
   // 32 until element F cut the header to one sentence; that sentence carried a
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
