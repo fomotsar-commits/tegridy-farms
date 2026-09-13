@@ -134,18 +134,41 @@ describe('the four outcomes never collapse into each other', () => {
   });
 });
 
-describe('browser-direct, never the same-origin proxy', () => {
-  it('asks GeckoTerminal for ETH new pools by URL', async () => {
-    // The proxy at /api/aggregator?resource=launch-radar turns a 429 into an
-    // HTTP 200 empty list and CDN-caches it. If this assertion ever flips to a
-    // same-origin path, every test above becomes unreachable in production.
+// ── REWRITTEN 2026-09-10. This block used to be called "browser-direct, never
+// the same-origin proxy" and pinned the third-party host. Read why it flipped
+// before flipping it back.
+//
+// The objection it encoded was specific and it is still correct: the proxy at
+// `?resource=launch-radar` serves a FIXED two-page `new_pools` window on ONE
+// network, and it once turned a 429 into an HTTP 200 empty list and CDN-cached
+// that — a confident, cached, empty table asserting nothing is launching,
+// produced by a rate limit. Nothing here routes to that resource, and this test
+// still asserts so.
+//
+// What changed is that the objection was never against CACHING; it was against
+// that particular proxy's fixed window and its dishonest failure mode.
+// `?resource=gecko-read` has neither: it forwards the exact path the caller
+// asks for, so every network and every view still works, and it forwards 429
+// verbatim so `readGeckoPools` still reports "rate-limited" in its own banner
+// (pinned below and in api/_lib/__tests__/gecko-read.test.js).
+//
+// And the direct read was measured, not theorised, to be the worse option: 46
+// of 64 prod routes logged a failed GeckoTerminal read because every visitor
+// spent their own keyless per-IP budget. Browser-direct did not preserve
+// honesty here — it produced the outage the honesty then had to describe.
+describe('same-origin edge, never the fixed-window launch-radar proxy', () => {
+  it('asks our own edge for ETH new pools, naming the upstream path', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ data: [] }));
     renderHook(() => useMarketFeed({ view: 'list', network: 'eth', list: 'new' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).toBe('https://api.geckoterminal.com/api/v2/networks/eth/new_pools');
-    expect(url).not.toContain('/api/aggregator');
+    expect(url.startsWith('/')).toBe(true);
+    expect(url).not.toContain('api.geckoterminal.com');
+    expect(url).toContain('resource=gecko-read');
+    expect(url).toContain('path=/networks/eth/new_pools');
+    // The original objection, still enforced: this must never be answered by
+    // the fixed-window radar resource.
     expect(url).not.toContain('launch-radar');
   });
 
@@ -154,9 +177,11 @@ describe('browser-direct, never the same-origin proxy', () => {
     renderHook(() => useMarketFeed({ view: 'list', network: 'base', list: 'trending' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-      'https://api.geckoterminal.com/api/v2/networks/base/trending_pools',
-    );
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    // The per-network, per-view freedom the fixed-window proxy could not give:
+    // the network and the view both survive the round trip.
+    expect(url).toContain('path=/networks/base/trending_pools');
+    expect(url).not.toContain('launch-radar');
   });
 
   it('a multi request joins validated addresses into the path', async () => {
@@ -168,7 +193,7 @@ describe('browser-direct, never the same-origin proxy', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const url = String(fetchMock.mock.calls[0]?.[0]);
-    expect(url).toBe(`https://api.geckoterminal.com/api/v2/networks/eth/pools/multi/${a}`);
+    expect(url).toContain(`path=/networks/eth/pools/multi/${a}`);
     expect(url).not.toContain('not-an-address');
   });
 

@@ -1,16 +1,26 @@
 // Compact price-history feed for the /solana swap page's buy token, from
-// GeckoTerminal's keyless API. https://api.geckoterminal.com is ALREADY in the
-// site's CSP connect-src (vercel.json) — this module fetches client-direct and
-// must never grow a call to any other host.
+// GeckoTerminal's keyless API — read through OUR OWN ORIGIN, never the
+// third-party host directly, and never any other host. See
+// src/lib/geckoTerminal/edge.ts.
 //
-// Rate budget: GT keyless is ~30 req/min and other surfaces in the app share
-// the host (useToweliPrice / usePriceHistory / the bungalow market strip), so
-// every network read here sits behind a module-scope TTL cache.
+// CHANGED 2026-09-10. The paragraph here used to say "this module fetches
+// client-direct" and treat that as the safe default. It was not. GT keyless is
+// ~30 req/min PER IP and every surface in the tab shares it (useToweliPrice /
+// usePriceHistory / the bungalow strip / the chart / the tape), so a visitor
+// spent their own budget on themselves and got a 429 whose missing CORS header
+// made the browser report a policy block. 46 of 64 prod routes logged it.
+//
+// The module-scope TTL caches below still matter — they stop THIS tab asking
+// twice — but they could never help the tab next door. The `s-maxage` on
+// api/_lib/gecko-read.js does: the CDN answers, so upstream sees ~1 request per
+// distinct URL per 45s across every visitor at once.
 //
 // HARD RULE — no market cap / FDV. GeckoTerminal payloads carry fdv_usd /
 // market_cap_usd on both the pools and ohlcv envelopes. This module must NEVER
 // expose them: the Solana surfaces deliberately render no market-cap/FDV
 // numbers (house "no-FDV" rule). Only price/close data leaves this module.
+
+import { geckoEdgeUrl } from './geckoTerminal/edge';
 
 export type ChartTimeframe = '1H' | '1D' | '1W';
 
@@ -21,7 +31,6 @@ export interface OhlcvPoint {
   close: number;
 }
 
-const GT_BASE = 'https://api.geckoterminal.com/api/v2';
 // GT's versioned Accept header — pins the response shape we parse.
 const GT_ACCEPT = 'application/json;version=20230302';
 
@@ -163,7 +172,7 @@ async function gtJson(url: string, signal?: AbortSignal): Promise<unknown> {
 async function resolveTopPool(mint: string, signal?: AbortSignal): Promise<string> {
   const cached = poolCache.get(mint);
   if (cached && Date.now() - cached.at < POOL_TTL_MS) return cached.pool;
-  const body = await gtJson(`${GT_BASE}/networks/solana/tokens/${mint}/pools?page=1`, signal);
+  const body = await gtJson(geckoEdgeUrl(`/networks/solana/tokens/${mint}/pools`, { page: 1 }), signal);
   const pool = topPoolAddress(body);
   if (pool === null) throw new Error('No indexed pool for this token');
   poolCache.set(mint, { at: Date.now(), pool });
@@ -183,7 +192,11 @@ export async function fetchTokenOhlcv(mint: string, tf: ChartTimeframe, signal?:
   const pool = await resolveTopPool(mint, signal);
   const q = TF_QUERY[tf];
   const body = await gtJson(
-    `${GT_BASE}/networks/solana/pools/${pool}/ohlcv/${q.path}?aggregate=${q.aggregate}&limit=${q.limit}&currency=usd`,
+    geckoEdgeUrl(`/networks/solana/pools/${pool}/ohlcv/${q.path}`, {
+      aggregate: q.aggregate,
+      limit: q.limit,
+      currency: 'usd',
+    }),
     signal,
   );
   // Only the ohlcv_list leaves this envelope — never fdv/mcap (see HARD RULE).
