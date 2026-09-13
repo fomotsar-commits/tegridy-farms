@@ -145,10 +145,10 @@ export function LiquidityTab() {
 
   // Native ETH balance (useAddLiquidity reads the WETH ERC20 balance for native tokens,
   // which is wrong — user might hold ETH but no WETH). Fetch real native balance here.
-  const { data: nativeBalanceA } = useBalance({
+  const { data: nativeBalanceA, isError: nativeBalanceAError } = useBalance({
     address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && tokenA.isNative },
   });
-  const { data: nativeBalanceB } = useBalance({
+  const { data: nativeBalanceB, isError: nativeBalanceBError } = useBalance({
     address, chainId: venue?.chainId ?? 0, query: { enabled: !!address && !!venue && tokenB.isNative },
   });
 
@@ -158,6 +158,17 @@ export function LiquidityTab() {
   const balanceBDisplay = tokenB.isNative
     ? (nativeBalanceB ? parseFloat(formatUnits(nativeBalanceB.value, nativeBalanceB.decimals)) : 0)
     : parseFloat(liq.tokenBBalanceFormatted || '0');
+
+  // OUTAGE-AS-EMPTY-WALLET. Both displays above collapse an unread balance to 0,
+  // and here a 0 is a claim: "Balance: 0.0000", then "Not enough TOWELI" on the
+  // CTA, about a wallet nobody read. A balance becomes a claim only once it was
+  // READ; until then the figure is a dash and the CTA names the missing balance.
+  // The CTA was already disabled in that state (0 is short of any amount), so no
+  // control changes here - only what it asserts.
+  const balanceAKnown = tokenA.isNative ? nativeBalanceA !== undefined : liq.tokenABalanceReadOk;
+  const balanceBKnown = tokenB.isNative ? nativeBalanceB !== undefined : liq.tokenBBalanceReadOk;
+  const balanceAUnread = tokenA.isNative ? nativeBalanceAError : liq.tokenABalanceUnread;
+  const balanceBUnread = tokenB.isNative ? nativeBalanceBError : liq.tokenBBalanceUnread;
 
   // Auto-pair inputs
   const handleAmountAChange = (v: string) => {
@@ -230,8 +241,9 @@ export function LiquidityTab() {
 
   const poolShare = amountA ? liq.getPoolShare(amountA) : 0;
 
-  const insufficientA = !!amountA && parseFloat(amountA) > balanceADisplay;
-  const insufficientB = !!amountB && parseFloat(amountB) > balanceBDisplay;
+  const insufficientA = balanceAKnown && !!amountA && parseFloat(amountA) > balanceADisplay;
+  const insufficientB = balanceBKnown && !!amountB && parseFloat(amountB) > balanceBDisplay;
+  const balanceUnknown = (!!amountA && !balanceAKnown) || (!!amountB && !balanceBKnown);
 
   const handleTokenPick = (tok: TokenInfo) => {
     if (showPicker === 'A') {
@@ -352,7 +364,7 @@ export function LiquidityTab() {
             <div className="mb-2">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-white/70 text-[11px]">Token A</span>
-                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceADisplay.toFixed(4)}</span>
+                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceAKnown ? balanceADisplay.toFixed(4) : '–'}</span>
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('A')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
@@ -376,7 +388,7 @@ export function LiquidityTab() {
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-white/70 text-[11px]">Token B</span>
-                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceBDisplay.toFixed(4)}</span>
+                <span className="text-white/70 text-[10px] font-mono">Balance: {balanceBKnown ? balanceBDisplay.toFixed(4) : '–'}</span>
               </div>
               <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.10)' }}>
                 <button onClick={() => setShowPicker('B')} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg min-h-[36px] hover:bg-white/5 transition-colors">
@@ -414,6 +426,14 @@ export function LiquidityTab() {
               <div className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
                 This pair exists but its reserves could not be read, so the price and your
                 share cannot be shown. Reload before adding — do not treat this as an empty pool.
+              </div>
+            )}
+
+            {(balanceAUnread || balanceBUnread) && (
+              <div data-testid="liquidity-balance-unread" className="mb-3 px-3 py-2 rounded-lg text-[11px] text-amber-300" style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.35)' }}>
+                Your {[balanceAUnread && tokenA.symbol, balanceBUnread && tokenB.symbol].filter(Boolean).join(' and ')} balance
+                could not be read — the network did not answer. This is not a statement that you
+                hold none; reload before adding.
               </div>
             )}
 
@@ -486,11 +506,13 @@ export function LiquidityTab() {
               </button>
             ) : (
               <button data-testid="liquidity-submit" onClick={() => liq.addLiquidity(amountA, amountB, slippageBps)}
-                disabled={liq.isPending || liq.isConfirming || !amountA || !amountB || parseFloat(amountA) <= 0 || parseFloat(amountB) <= 0 || insufficientA || insufficientB}
+                disabled={liq.isPending || liq.isConfirming || !amountA || !amountB || parseFloat(amountA) <= 0 || parseFloat(amountB) <= 0 || balanceUnknown || insufficientA || insufficientB}
                 className="w-full btn-primary py-3 min-h-[48px] text-[14px] font-semibold rounded-xl disabled:opacity-40">
                 {liq.isPending ? 'Confirm in wallet…'
                   : liq.isConfirming ? 'Growing the crop…'
                   : !amountA || !amountB ? 'Enter amounts'
+                  : !balanceAKnown ? (balanceAUnread ? `${tokenA.symbol} balance unavailable — reload` : `Reading ${tokenA.symbol} balance…`)
+                  : !balanceBKnown ? (balanceBUnread ? `${tokenB.symbol} balance unavailable — reload` : `Reading ${tokenB.symbol} balance…`)
                   : insufficientA ? `Not enough ${tokenA.symbol}`
                   : insufficientB ? `Not enough ${tokenB.symbol}`
                   : 'Grow the Crop'}
