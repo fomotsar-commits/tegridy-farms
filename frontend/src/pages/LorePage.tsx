@@ -41,7 +41,11 @@ const TIMELINE = [
 ];
 
 export default function LorePage() {
-  usePageTitle('Lore', 'The origin story of memetics.finance and the TOWELI token.');
+  // VOICE 2026-09-09: this said "the origin story of memetics.finance and the
+  // TOWELI token", which welds the venue to one resident in the one line search
+  // engines quote. The page IS the TOWELI bungalow's origin story — that is not
+  // changed here, only whose story it is said to be.
+  usePageTitle('Lore', 'The origin story of the TOWELI bungalow on Jungle Bay Island.');
   return (
     <div className="-mt-14 relative min-h-screen">
       {/* Fixed background covering entire page */}

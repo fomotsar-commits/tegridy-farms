@@ -28,6 +28,12 @@ import { PositionHealth } from '../components/PositionHealth';
 import { usePriceHistory } from '../hooks/usePriceHistory';
 import { FlashValue } from '../components/FlashValue';
 import { PriceChart } from '../components/chart/PriceChart';
+// Both PriceChart mounts below sit in the TOWELI branch of this page (the
+// wrapper returns <VenueDashboard /> for every other arrival voice), and they
+// used to rely on PriceChart defaulting to this market. The default is gone —
+// a chart that picks a resident by omission is how the venue ended up speaking
+// as one — so the branch that means it says so.
+import { TOWELI_MARKET } from '../lib/chart/market';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ConnectPrompt } from '../components/ui/ConnectPrompt';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -340,7 +346,7 @@ function ToweliDashboard() {
           {/* TOWELI price chart — wallet-independent. */}
           <div className="rounded-xl glass-card-animated p-4 mb-2" style={{ border: '1px solid var(--color-purple-75)', background: 'rgba(6,12,26,0.72)' }}>
             <div className="h-[260px]">
-              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+              <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
             </div>
           </div>
         </div>
@@ -562,7 +568,7 @@ function ToweliDashboard() {
             <m.div initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
               <h3 className="heading-luxury text-[16px] text-white mb-3">Price Chart</h3>
               <div className="relative rounded-xl overflow-hidden glass-card-animated h-[280px] md:h-[400px]" style={{ background: '#000', border: '1px solid var(--color-purple-75)' }}>
-                <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart /></ErrorBoundary>
+                <ErrorBoundary fallback={<div className="flex items-center justify-center h-full text-white text-[13px]">Chart unavailable</div>}><PriceChart market={TOWELI_MARKET} /></ErrorBoundary>
               </div>
             </m.div>
           </m.div>
