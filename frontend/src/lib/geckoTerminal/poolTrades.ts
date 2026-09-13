@@ -19,6 +19,7 @@
 // price API would red the suite. Every throw is caught here and named.
 
 import { geckoTerminalTradesSchema, parseOrNull } from '../schemas/geckoTerminal';
+import { geckoEdgeUrl } from './edge';
 
 /** One fill on one pool, as the app renders it. */
 export interface PoolTrade {
@@ -108,7 +109,7 @@ export function num(v: string | number | null | undefined): number | null {
  * (failing) lookup.
  */
 export function poolTradesUrl(network: string, pool: string): string {
-  return `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(network)}/pools/${encodeURIComponent(pool)}/trades`;
+  return geckoEdgeUrl(`/networks/${encodeURIComponent(network)}/pools/${encodeURIComponent(pool)}/trades`);
 }
 
 function unread(reason: PoolTradesUnreadReason, detail: string): PoolTradesRead {

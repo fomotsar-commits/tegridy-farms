@@ -8,21 +8,36 @@ import {
 } from '../lib/geckoTerminal/pools';
 import type { MarketFeedState } from '../lib/terminal/feedBanner';
 
-// The terminal's market feed: one (network, view) at a time, read BROWSER-DIRECT.
+// The terminal's market feed: one (network, view) at a time, read through THIS
+// APP'S OWN EDGE (`?resource=gecko-read`) — changed 2026-09-10.
 //
-// WHY NOT THE SAME-ORIGIN PROXY. This app already has a GeckoTerminal proxy at
-// /api/aggregator?resource=launch-radar, and using it here would be the obvious
-// move. It USED to be the wrong one outright: that proxy collapsed a 429, a 5xx and
-// an unparseable body into HTTP 200 with an empty list and let the CDN cache that
-// empty list for a minute — on a discovery feed, the single worst output this page
-// can produce: a confident, cached, empty table asserting that nothing is launching,
-// produced by a rate limit. api/_lib/launch-radar.js now answers an unread window
-// with a 502 and no Cache-Control, so that hazard is gone.
+// THE ARGUMENT THIS PARAGRAPH USED TO MAKE, and why it no longer holds. It said
+// "read BROWSER-DIRECT — not the same-origin proxy", for two stated reasons:
 //
-// This still reads direct, for the remaining reason: the proxy serves a FIXED
-// two-page `new_pools` window on one network, and this page needs new/trending and
-// specific-pool views per network — with a refusal that arrives AS a refusal and
-// gets its own banner.
+//   1. `?resource=launch-radar` collapsed a 429, a 5xx and an unparseable body
+//      into HTTP 200 with an empty list and let the CDN cache it for a minute —
+//      on a discovery feed the single worst output this page can produce: a
+//      confident, cached, empty table asserting nothing is launching, produced
+//      by a rate limit. That was fixed in api/_lib/launch-radar.js, which now
+//      answers an unread window with a 502 and no Cache-Control.
+//   2. That proxy serves a FIXED two-page `new_pools` window on one network,
+//      and this page needs new/trending AND specific-pool views per network,
+//      with a refusal that arrives AS a refusal and gets its own banner.
+//
+// Reason 2 is still correct and this hook still does not use launch-radar. What
+// it was never an argument against is CACHING — and `?resource=gecko-read` is
+// not launch-radar. It forwards the exact path the caller asks for, so every
+// network and every view survives the round trip, and it forwards 429 and 404
+// VERBATIM, so `readGeckoPools` still reports 'rate-limited' in its own banner.
+// Both halves are pinned: useMarketFeed.test.ts and gecko-read.test.js.
+//
+// And browser-direct turned out to be the thing PRODUCING the dishonesty it was
+// meant to preserve. Measured 2026-09-05: 46 of 64 prod routes logged a failed
+// GeckoTerminal read, because every visitor spent their own keyless per-IP
+// budget and a 429 drops the CORS header, so the browser reported a policy
+// block. The edge cache is what removes the 429 in the first place — upstream
+// now sees ~1 request per distinct URL per 45s across all visitors, instead of
+// one per visitor per view.
 //
 // NOTHING POLLS. One read per (network, view), plus a caller-driven re-read.
 // Same rule as usePoolMarket and usePoolTrades. An auto-refreshing table would

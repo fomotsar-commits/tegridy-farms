@@ -15,6 +15,89 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
+
+**Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
+`accounted_amount` passes `u64::MAX`. This was not reasoned from an IDL — it was established by
+simulating the real `claim_rewards` against all eight live entries of a mainnet pool, with every
+entry above the value reverting 6000 and every entry below it succeeding. Eight for eight.
+
+**Measured, six days later:** wrong twice over. Scanning the whole program with
+`getProgramAccounts` plus a `dataSlice` over just the counter field, **5,868 of 9,797** entries
+with a non-zero counter are already past that value, and the largest is **22,000,000x past it** —
+each written by a successful claim, since only a successful claim writes that field. And on the
+pool itself the verdicts split perfectly on something else entirely: the pool's reward RATE was
+changed at a known instant, and the 2 entries created before it revert while all 16 created after
+it pay.
+
+**Why eight-for-eight was not enough.** The sample had a hole in exactly the wrong place — its
+successes topped out at 78% of the candidate threshold and its reverts started at 265%. Nothing
+measured the band between, so a LOWER BOUND was indistinguishable from an exact line. And the two
+reverting entries were also the two oldest, so a second variable ("predates a rate change") fit
+the same eight points just as well. The first hypothesis named won by default.
+
+**Technique, whenever a boundary is inferred from live samples:**
+
+- **Check the sample BRACKETS the boundary.** Points either side of a gap do not locate a line,
+  they bound a region. If nothing was measured between the highest pass and the lowest fail, the
+  honest output is an interval — and code must not act as though it is a point.
+- **Ask what else explains the same split.** Sort the failures by every field you have, not only
+  the one you suspect. Here, sorting by `created_ts` against the pool's `last_amount_update_ts`
+  gave a perfect 2/16 split that the counter could not improve on.
+- **Widen the population before trusting the mechanism.** One pool's 8 entries said one thing and
+  the program's 9,797 said the opposite. A program-wide scan over a single sliced field is cheap:
+  `dataSize` + `dataSlice` returns thousands of rows in one call.
+- **Measure the PAYOUT, not the exit code.** Simulate with
+  `{sigVerify:false, replaceRecentBlockhash:true, accounts:{encoding:'base64', addresses:[ata]}}`
+  and diff the returned post-state against the current balance. A claim that "succeeds" while
+  transferring zero is not evidence a position is alive. (That config-object overload needs a
+  `VersionedTransaction`; a legacy `Transaction` fails with "Invalid arguments".)
+
+**The design rule this produced, which is the durable part:** a threshold may WARN; only the
+program may VETO. The cost asymmetry is enormous and one-directional — a claim that reverts costs
+a network fee, a claim never offered costs the whole balance. The code now attempts every claim
+that has a pending balance and takes its verdict from the chain's own error, even where a
+predicate is right 18 times out of 18.
+
+---
+
+## 2026-09-12 — a source guard that searches the whole file answers about the file, not the code it names
+
+**Believed:** a guard for "this timer is armed in a layout effect" could be written
+as: find the timer, then compare the last `useLayoutEffect(` before it against the
+last `useEffect(` before it. Whichever is nearer is the effect it sits in.
+
+**Measured:** nearness in a file is not enclosure. With the deadline moved back into
+a passive effect AND one comment above the timer naming the layout hook in passing,
+the guard stayed GREEN: the exact mutation it exists to catch walked through it. The
+fooling text was not hypothetical either, since that effect's own comments name both
+kinds of hook.
+
+**Technique:** a source guard must read the construct that ENCLOSES the code it is
+about, and must ignore comments. Walk back from the line you matched to the nearest
+line that opens the construct, skipping comment lines, and assert on that line. Then
+mutate twice: the plain break (it must red), and the plain break PLUS the text that
+could fool it (it must still red). A guard is only as good as its second mutation.
+
+## 2026-09-12 — a timeout and the animation it bounds can be counting from different moments
+
+**Believed:** one line of arithmetic settles whether a deadline cuts an animation
+short: the deadline fires at 2,500 ms, the animation needs 2,400 ms, so the animation
+always finishes first.
+
+**Measured:** the two numbers start from different moments. The deadline was armed in
+a layout effect, during the commit that puts the overlay in the DOM. The animation's
+clock is stamped later, in a passive effect that first builds a WebGL post-processing
+pass. Whatever that gap costs -- paint, chunk parse, GL context creation -- is spent
+before the animation starts counting and not before the deadline does, so the real
+margin is smaller than the arithmetic, and on a slow machine the deadline can cut an
+animation that is running on time.
+
+**Technique:** before comparing a timeout against a duration, write down which moment
+each side counts from. If they differ, either anchor both to the same stamp, or keep
+the bound and say in the test what it is: a floor, short by however long the gap runs.
+The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
+
 ## 2026-09-11 — anvil's `--retries` never retries a 408, and `--compute-units-per-second` never throttles
 
 **Believed:** anvil's fork flags let it ride out a flaky upstream. Raise `--retries`,
@@ -76,42 +159,120 @@ all with the retry sitting below anvil.
   Encoding and framing headers still stop at the proxy, because `fetch` has already decoded
   the body.
 
-## 2026-09-12 — a source guard that searches the whole file answers about the file, not the code it names
+## 2026-09-11 — a gate's comment and a hook's wrong-chain notice are claims, not evidence
 
-**Believed:** a guard for "this timer is armed in a layout effect" could be written
-as: find the timer, then compare the last `useLayoutEffect(` before it against the
-last `useEffect(` before it. Whichever is nearer is the effect it sits in.
+**Believed:** when sweeping read gates, a gate whose comment explains it, or a hook
+that already tells the user it is on the wrong chain, can be left as it is.
 
-**Measured:** nearness in a file is not enclosure. With the deadline moved back into
-a passive effect AND one comment above the timer naming the layout hook in passing,
-the guard stayed GREEN: the exact mutation it exists to catch walked through it. The
-fooling text was not hypothetical either, since that effect's own comments name both
-kinds of hook.
+**Measured** (PR #537: eight hooks gated on `useChainId() === CHAIN_ID`, every
+read in them pinned `chainId: CHAIN_ID`):
 
-**Technique:** a source guard must read the construct that ENCLOSES the code it is
-about, and must ignore comments. Walk back from the line you matched to the nearest
-line that opens the construct, skipping comment lines, and assert on that line. Then
-mutate twice: the plain break (it must red), and the plain break PLUS the text that
-could fool it (it must still red). A guard is only as good as its second mutation.
+- Three comments justified the gate with a wrong-chain read that would "silently
+  return garbage" (useSwapQuote), "returns 0 garbage" (useSwapAllowance) or would
+  "price another chain's assets" (`lib/portfolio/sources.ts`). All three were
+  false: the per-call pin sends each of those reads to mainnet. Two of the gates
+  were still right to keep, for reasons nobody had written down. A quote is the
+  swap's arguments, and its aggregator leg is scoped to the wallet's chain on
+  purpose. An allowance is displayed nowhere and only decides writes. The third
+  gate was wrong to keep: the portfolio refused to total legs that the Dashboard
+  showed beside it, read from the same contracts.
+- `useWalletExposure` did signal the wrong chain. Its page said "Switch to Ethereum
+  mainnet to read your holdings." Directly beneath, the same page said "No tracked
+  ERC-20 balances in this wallet": the gated read left `holdings` empty, and the
+  empty-state branch never looked at the flag.
 
-## 2026-09-12 — a timeout and the animation it bounds can be counting from different moments
+**Technique:** decide a gate by what its value reaches. A displayed figure loses
+the gate. A write's argument, or the only thing disarming a control, keeps it.
+Re-derive the reason from the code rather than inheriting the comment, and write
+the real one down. Judge "already honest" by every branch the collapsed value
+reaches, not by whether a notice exists somewhere on the page.
 
-**Believed:** one line of arithmetic settles whether a deadline cuts an animation
-short: the deadline fires at 2,500 ms, the animation needs 2,400 ms, so the animation
-always finishes first.
+## 2026-09-11 — a line-ending check that fires on every file is counting lines
 
-**Measured:** the two numbers start from different moments. The deadline was armed in
-a layout effect, during the commit that puts the overlay in the DOM. The animation's
-clock is stamped later, in a passive effect that first builds a WebGL post-processing
-pass. Whatever that gap costs -- paint, chunk parse, GL context creation -- is spent
-before the animation starts counting and not before the deadline does, so the real
-margin is smaller than the arithmetic, and on a slow machine the deadline can cut an
-animation that is running on time.
+**Believed:** `git show <rev>:<path> | grep -c $'\r'` counts a blob's CRLF lines.
 
-**Technique:** before comparing a timeout against a duration, write down which moment
-each side counts from. If they differ, either anchor both to the same stamp, or keep
-the bound and say in the test what it is: a floor, short by however long the gap runs.
-The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
+**Measured:** inside a `$( … )` substitution, in the Git Bash this repo's agents
+run on, it returned each file's total line count: 272 of 272, 609 of 609, and
+"CRLF" for all 40 of 40 sampled hooks. It nearly got #526's replayed files
+re-committed to "fix" endings that were already LF. The same substitution over a
+known-LF string (`printf 'a\nb\n'`) returned 2. `tr -dc '\r' | wc -c` read 0 CR
+bytes in every blob, and the replayed blobs had the same OIDs as the originals.
+
+**Technique:** before acting on a check that reports "all N", run it on a known
+negative. Count the byte (`tr -dc '\r' | wc -c`), not lines matching a pattern.
+Prove a replay exact with blob OIDs (`git rev-parse <rev>:<path>`), not
+`git patch-id`, which ignores whitespace.
+
+## 2026-09-11 — a per-test timeout is a third clock, and a slow body can be a sleep
+
+**Believed** (the candidate list in the 2026-09-10 entry "a flake-candidate list
+ranked by duration mixes two clocks"): `holderOutageRender` was the one thin test
+— 3528ms, "about 1.4x headroom" against the 5000ms body bound — because of its
+in-body `await import()`, and `--testTimeout=2000` would reproduce it on demand,
+as it had for the previous instance of this class.
+
+**Measured** (vitest 4.1.11, trunk `dd7885ba`, each body split with
+`performance.now()`, 3 runs of the file alone):
+
+| test | bound | in-body import | the rest of the body |
+|---|---|---|---|
+| CollectionHealth (the "thin" one) | **20000ms**: `it(name, fn, 20000)` | 36–41ms | `findByText` **3160–3198ms** |
+| HolderAnalytics | 5000ms | **276–315ms** | ~70ms |
+
+All three beliefs were wrong.
+
+1. **The third argument to `it()` is its own clock**, and the CLI does not
+   override it. Under `--testTimeout=200` the 20000ms test passed at ~3170ms
+   while its 5000ms neighbour timed out, 3 runs of 3. So read the closing
+   `}, N)` before calling a test near-timeout. That entry's table is wrong for
+   `holderOutageRender` :53 and for every in-body import in
+   `offerBookOutageHonesty` — each of those tests passes 20000 or 30000.
+2. **The slow part was a sleep, not a load.** Three seconds of that body is a
+   retry backoff: `lib/orderbook.js`'s `withRetry` sleeps 1s, then 2s. It runs
+   because Node's `fetch` cannot parse the relative URL `/api/orderbook` under
+   jsdom (`Failed to parse URL from /api/orderbook?...`), and the code treats
+   that as transient. It measured 3012–3027ms every run. A cold import grows
+   with CPU load and a timer barely does, so a split that shows one near-constant
+   segment of whole seconds is a timer. No import hoist moves it.
+3. **A repro gate has to be sized from the split, not the reported duration.**
+   `--testTimeout=2000` **passed** on the unfixed file, because the real in-body
+   cost was ~300ms. A 200ms gate then failed one post-fix run of three at 235ms
+   during a load spike. What separated the two cleanly: a threshold between the
+   quiet pre-fix (≥292ms) and post-fix (≤98ms) durations, 165ms, with pristine
+   and fixed runs **interleaved** so load drift lands on both. The unfixed file
+   timed out 6 of 6 and the fixed one passed 6 of 6 (45–147ms, CPU load 3–100%).
+
+**Do:** split a slow test with `performance.now()` before choosing a fix; read the
+`it()` call's third argument before naming its bound; size any timeout gate from
+the split, interleave it, and record the load next to every number.
+
+### A timeout's second failure is a ghost
+
+The full-suite run after the fix was the heavier of the two (415s vs 314s). In
+it, `volumeFallbackHonesty`'s Hero test — 4921ms in the run before — hit `Test
+timed out in 5000ms.`, and the test after it failed as well, with
+`expected [ <span …(2)></span> ] to have a length of +0 but got 1`. That second
+failure is not a second defect. Forcing the first test to time out
+(`-t Hero --testTimeout=400`) produced the identical assertion 3 runs of 3;
+letting it finish (`--testTimeout=1500`) passed 6 of 6. A timeout does not cancel
+the body. Vitest stops waiting, runs cleanup and moves on, and the body resumes
+when its import resolves — rendering into the next test's document.
+
+**Do:** in a red run, fix the first timeout in a file and re-run before reading
+any failure that follows it.
+
+### Incidental
+
+- A relative-URL `fetch` under jsdom is an instant `TypeError`. Any component
+  that calls its own `/api/...` therefore runs its error path, and its retry
+  schedule, in every test that renders it — whatever the test thinks it covers.
+- A "mutation applied" check can be defeated by the fix's own comment. `grep -c
+  'await import('` counted the new comment explaining why the import was hoisted,
+  and the script correctly refused to run. Anchor the check on the code's shape
+  (`= await import(`), not on a phrase a comment can repeat.
+- The fix itself, full suite on the same base, before → after: HolderAnalytics
+  874ms → 208ms, and a botLink signature test with the same shape 1033ms → 2ms.
+  Both were measured in the heavier of the two runs.
 
 ## 2026-09-11 — a test that lets two endings race pins only the one that wins
 
@@ -237,6 +398,41 @@ mutation failed exactly 6 of 63.
 **Do:** to test one member of an OR, make every other member false, and assert that
 they are false in the test itself. Then the member under test is the only thing
 that can answer. "Everything failed" tests the union, not the clause.
+
+## 2026-09-10 — the retry's error is not the failure's error
+
+**Believed:** when an E2E test fails all three attempts, the last attempt's error
+is the failure — and a money-path spec that goes red on the first trunk commit
+containing a PR that touched that page is that PR's regression.
+
+**Observed** (`E2E Tests (Anvil fork — money paths)`, trunk `1325f685`, run
+`34558450845`, `e2e/stake.spec.ts` stake → claim → unstake):
+
+| attempt | error |
+|---|---|
+| 1 | `anvil_setBalance: failed to get account … HTTP error 408 … "Request timeout on the free plan, please upgrade to paid plan"` |
+| retry #1 | `stake: no explorer link to a transaction hash appeared` (30s) |
+| retry #2 | the same, 30s |
+
+Only attempt 1 named the cause: the fork's upstream RPC refused during test
+setup. Both retries reported a downstream symptom that reads exactly like an app
+defect — on a commit that had just merged a change to `/farm`.
+
+**Re-running the same job on the same SHA: 22/22 clean, 0 flaky.** Same code,
+different outcome — the upstream, not the merge.
+
+**Do**, when a fork-backed E2E goes red:
+
+1. Read attempt 1's error, not the last retry's. Here only attempt 1 named the
+   cause.
+2. Grep the log for the upstream's own words — `free plan`, `HTTP error 4`,
+   `failed to get account` — before reading any assertion.
+3. Re-run the job on the same SHA. It is the one test that separates "the code
+   changed" from "the world changed", and it costs a single job.
+
+The fork upstream is `eth.drpc.org`'s keyless tier (`.github/workflows/ci.yml`).
+Until a funded key goes in `secrets.ANVIL_FORK_URL`, expect this to recur — and
+to land on whichever PR merged last.
 
 ## 2026-09-10 — a guard that cannot fire is armed, not inert
 
@@ -495,6 +691,11 @@ import at the top of the file.
 | `offerBookOutageHonesty.test.jsx` :48 (and 9 more at the same depth) | `it()` body | 5000ms |
 | `offerErrorHonesty.test.jsx` :85 | top-level `beforeEach` | **10000ms** |
 | `cancelAllWalletGuard.test.jsx` :124-125 | top-level `beforeEach` | **10000ms** |
+
+*Corrected 2026-09-11 (see "a per-test timeout is a third clock, and a slow body
+can be a sleep"): `holderOutageRender` :53 and every in-body import in
+`offerBookOutageHonesty` sit in tests that pass an explicit `20000` or `30000`,
+so neither is on the 5000ms clock.*
 
 Half the list was on the other clock. And `cancelAllWalletGuard` calls
 `vi.resetModules()` before that import **on purpose**: its comment says a static

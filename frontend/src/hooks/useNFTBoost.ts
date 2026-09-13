@@ -1,4 +1,4 @@
-import { useReadContracts, useAccount, useChainId } from 'wagmi';
+import { useReadContracts, useAccount } from 'wagmi';
 import { CHAIN_ID } from '../lib/constants';
 
 // Jungle Bay Ape Club NFT contract
@@ -21,17 +21,19 @@ const BALANCE_OF_ABI = [
  * R034 H3 + R043 H-062-01: tri-state NFT boost.
  *
  * `holdsJBAC` / `holdsGoldCard` are `boolean | null`. `null` = unknown
- * (disconnected / wrong-chain / pending read). The boost only credits
+ * (disconnected / pending / failed read). The boost only credits
  * +0.5x on a confirmed `true`; `null` falls back to baseline so we never
  * promise a boost we can't confirm on-chain.
  *
  * Every read pins `chainId: CHAIN_ID` so wagmi's queryKey carries chain
- * identity and doesn't return cached L2 data after a wallet switch.
+ * identity and doesn't return cached L2 data after a wallet switch. The pin
+ * also sends the reads to mainnet from any wallet chain, so they are NOT
+ * gated on useChainId() === CHAIN_ID: that gate called a JBAC holder on Base
+ * "unknown" (see useLPFarming.ts). useAutoRefreshBoost, the one consumer
+ * that turns `true` into a transaction, keeps its own chain gate.
  */
 export function useNFTBoost() {
   const { address } = useAccount();
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
   const userAddr = (address ?? ZERO_ADDR) as `0x${string}`;
 
   const { data, isLoading } = useReadContracts({
@@ -39,7 +41,7 @@ export function useNFTBoost() {
       { address: JBAC_ADDRESS, abi: BALANCE_OF_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
       { address: JBAY_GOLD_ADDRESS, abi: BALANCE_OF_ABI, functionName: 'balanceOf', args: [userAddr], chainId: CHAIN_ID },
     ],
-    query: { enabled: !!address && onMainnet },
+    query: { enabled: !!address },
   });
 
   const jbacResult = data?.[0];
@@ -47,13 +49,13 @@ export function useNFTBoost() {
   const jbacBalance = jbacResult?.status === 'success' ? (jbacResult.result as bigint) : undefined;
   const goldCardBalance = goldResult?.status === 'success' ? (goldResult.result as bigint) : undefined;
 
-  // Tri-state: null when disconnected / wrong-chain / loading / read failed.
+  // Tri-state: null when disconnected / loading / read failed.
   const holdsJBAC: boolean | null =
-    !address || !onMainnet || isLoading || jbacBalance === undefined
+    !address || isLoading || jbacBalance === undefined
       ? null
       : jbacBalance > 0n;
   const holdsGoldCard: boolean | null =
-    !address || !onMainnet || isLoading || goldCardBalance === undefined
+    !address || isLoading || goldCardBalance === undefined
       ? null
       : goldCardBalance > 0n;
 

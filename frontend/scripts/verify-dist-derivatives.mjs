@@ -27,19 +27,20 @@
  */
 import { statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { derivedUrl, widthsForEntry } from './derivative-url.mjs';
 
 const DIST = 'dist';
 const MANIFEST = join('src', 'lib', 'artDerivatives.generated.json');
-const WIDTHS = [128, 480, 960];
 
-function derivedUrl(url, width) {
-  // Mirrors derivedUrl in the generator and in lib/artSrcSet.ts -- the extension
-  // stays in the name so two sources differing only by extension cannot collide.
-  const dot = url.lastIndexOf('.');
-  const stem = dot === -1 ? url : url.slice(0, dot);
-  const tag = dot === -1 ? '' : `-${url.slice(dot + 1).toLowerCase()}`;
-  return `/_derived${stem}${tag}-${width}.webp`;
-}
+// derivedUrl and the width selection USED to be a private copy in this file, and
+// a matching private copy lived in lib/artSrcSet.ts. Both guards then validated
+// dist/ against their own idea of the URL set, so drift in the runtime copy alone
+// was invisible here -- every file this script looked for would be present, this
+// gate would go green, and the browser would ask for different URLs and render
+// broken images. Exactly the outage in the header above, by another route.
+//
+// The shared module is now the single build-side answer, and artSrcSet.test.ts
+// imports it to hold the runtime to the same one. See derivative-url.mjs.
 
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
 const entries = Object.entries(manifest);
@@ -51,9 +52,7 @@ if (entries.length === 0) {
 const missing = [];
 let checked = 0;
 for (const [url, entry] of entries) {
-  const natural = Array.isArray(entry) ? entry[0] : entry;
-  const widths = Array.isArray(entry) ? entry.slice(1) : WIDTHS.filter((w) => natural > w);
-  for (const w of widths) {
+  for (const w of widthsForEntry(entry)) {
     const p = join(DIST, derivedUrl(url, w).slice(1));
     try {
       const { size } = statSync(p);

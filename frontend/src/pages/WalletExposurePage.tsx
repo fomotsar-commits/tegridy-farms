@@ -227,7 +227,7 @@ export default function WalletExposurePage() {
   // scoring never rendered — even though /scan already had the wired holder
   // source. Each held token now runs through the same scanTokenLive path the
   // Scanner page uses; a failed scan falls back to null (still `unmeasured`).
-  const { isWrongNetwork, isLoading, error, holdings, unreadableBalances, exposures, scanning } = useWalletExposure({
+  const { isLoading, error, holdings, unreadableBalances, exposures, scanning } = useWalletExposure({
     extraTokens,
     scanToken: (t, signal) =>
       scanTokenLive(t.address, { signal, chainOverride: t.chain })
@@ -343,13 +343,6 @@ export default function WalletExposurePage() {
         />
       ) : (
         <>
-          {isWrongNetwork && (
-            <div className="rounded-xl px-4 py-3 mb-5 text-[13px] text-amber-200"
-              style={{ background: 'rgba(200,150,40,0.12)', border: '1px solid rgba(245,212,136,0.3)' }}>
-              Switch to Ethereum mainnet to read your holdings.
-            </div>
-          )}
-
           {/* THE RULER, on a connected-wallet surface. This page already reads what you
               hold; Heat reads how LONG you have held it, which is the one dimension
               concentration metrics cannot see. Same card, same tier words, same

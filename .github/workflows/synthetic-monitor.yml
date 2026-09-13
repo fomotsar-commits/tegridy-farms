@@ -59,16 +59,34 @@ jobs:
           # TLS, a DNS edit, a lapsed registration — and the alias would stay green
           # through all of it. memetics.finance was registered 2026-08-02 for one
           # year, so its expiry lands inside the plan window.
-          for host in "memetic.fun" "memetics.finance"; do
-            probe "$host app shell" "https://$host/" "/assets/"
+          #
+          # ONE CANONICAL HOST (frontend/src/lib/constants.ts SITE_URL). Only it may
+          # answer 200; memetic.fun is a redirect alias and this loop used to demand
+          # 200 from it too — the moment vercel.json started 301ing it, that probe
+          # would have paged every 15 minutes about a host behaving exactly as
+          # designed. The alias is still monitored, just against the right contract:
+          # it must REDIRECT, and it must land on the canonical host. That is the
+          # stronger check anyway — a 200 on the alias is now itself the outage,
+          # because it means the redirect silently stopped shipping.
+          CANONICAL="memetics.finance"
+          ALIASES="memetic.fun www.memetic.fun www.memetics.finance"
 
-            # www -> apex must be a redirect, not a 200 and not a dead host. This
-            # rule lived ONLY in prod for a while, in no commit on any branch, so
-            # it is exactly the kind of thing that vanishes on the next deploy.
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://www.$host/" 2>/dev/null)" || code="curl-failed"
-            case "$code" in
-              30[0-9]) : ;;
-              *) FAILS="$FAILS\n- www.$host: expected a 3xx redirect to the apex, got $code" ;;
+          probe "$CANONICAL app shell" "https://$CANONICAL/" "/assets/"
+
+          # Each alias must answer 3xx AND point at the canonical host. Checking only
+          # for "a 3xx" would pass a redirect loop or a redirect to anywhere at all —
+          # which is how a misrouted domain reads as healthy.
+          for host in $ALIASES; do
+            read -r code location <<<"$(curl -sS -o /dev/null --max-time 20 \
+              -w '%{http_code} %{redirect_url}' "https://$host/" 2>/dev/null)" \
+              || { FAILS="$FAILS\n- $host: curl failed"; continue; }
+            if [ "$code" != "301" ]; then
+              FAILS="$FAILS\n- $host: expected a 301 to https://$CANONICAL/, got $code"
+              continue
+            fi
+            case "$location" in
+              "https://$CANONICAL"|"https://$CANONICAL"/*) : ;;
+              *) FAILS="$FAILS\n- $host: 301s to '$location', not the canonical host https://$CANONICAL/" ;;
             esac
           done
 

@@ -133,8 +133,10 @@ export interface EscrowCapacity {
 }
 
 export function usePositionMarketCapacity(): EscrowCapacity {
-  const chainId = useChainId();
-  const enabled = isDeployed(POSITION_MARKET_ADDRESS) && chainId === CHAIN_ID;
+  // Not gated on the wallet's chain: both reads are pinned to mainnet, nothing
+  // arms a write on them, and off mainnet the gate made CapacityLine say the book
+  // size "could not be read" about a read that was never made.
+  const enabled = isDeployed(POSITION_MARKET_ADDRESS);
 
   const { data, isSuccess } = useReadContracts({
     contracts: [
@@ -164,6 +166,8 @@ export function usePositionMarketOrder(orderId: bigint | undefined): {
 } {
   const chainId = useChainId();
   const deployed = isDeployed(POSITION_MARKET_ADDRESS);
+  // Gated on the wallet's chain, and fine as it is: off mainnet the reason below
+  // says so in words, rather than an absent listing reading as a missing one.
   const enabled = deployed && chainId === CHAIN_ID && orderId !== undefined;
 
   const { data, isError, isLoading } = useReadContract({
@@ -222,6 +226,9 @@ export function usePositionMarketEscrowRewards(): { owed: bigint | null; unavail
   const { address } = useAccount();
   const chainId = useChainId();
   const deployed = isDeployed(POSITION_MARKET_ADDRESS);
+  // Gated on the wallet's chain, deliberately: `owed` is what renders the Claim
+  // button, and claimEscrowRewards() below has no chain guard of its own. Off
+  // mainnet the reason names the fix instead of claiming a read failed.
   const enabled = deployed && chainId === CHAIN_ID && !!address;
 
   const { data, isError } = useReadContract({

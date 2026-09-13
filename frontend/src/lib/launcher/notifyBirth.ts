@@ -45,7 +45,11 @@ export interface NotifyBirthInput {
 export function recordOrigin(explicit?: string): string {
   if (explicit) return explicit;
   const configured = (import.meta.env.VITE_CANONICAL_ORIGIN as string | undefined)?.trim();
-  return configured || 'https://memetic.fun';
+  // The fallback is the CANONICAL host (SITE_URL), not the redirect alias. It was
+  // memetic.fun, which the island stored verbatim and permanently — so every record
+  // published without VITE_CANONICAL_ORIGIN set minted an immutable URL that now
+  // costs a 301 on every fetch, on a host the venue no longer claims as its own.
+  return configured || 'https://memetics.finance';
 }
 
 /** Read the block a transaction landed in. Null when it cannot be read — never guessed. */

@@ -20,8 +20,11 @@ export function loadConfig(env = process.env) {
   return {
     botToken: str(env.TELEGRAM_BOT_TOKEN),
     linkSecret: str(env.BOT_LINK_SECRET),
-    venueOrigin: origin(env.VENUE_ORIGIN) ?? "https://memetic.fun",
-    appOrigin: origin(env.APP_ORIGIN) ?? "https://memetic.fun",
+    // Defaults are the CANONICAL host (frontend/src/lib/constants.ts SITE_URL),
+    // not the redirect alias: every deep link this bot mints is a share link, and
+    // a share link on memetic.fun now costs the reader a 301 to reach the venue.
+    venueOrigin: origin(env.VENUE_ORIGIN) ?? "https://memetics.finance",
+    appOrigin: origin(env.APP_ORIGIN) ?? "https://memetics.finance",
     // Same variable name and same meaning as the frontend's VITE_INDEXER_URL: the
     // PUBLIC PROXY origin of the Ponder service, no path. Its absence IS the gate
     // — see indexer/DEPLOY.md §5 and src/lib/indexer/client.ts.

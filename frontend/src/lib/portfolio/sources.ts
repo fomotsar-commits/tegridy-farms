@@ -51,8 +51,6 @@ export interface BatchLiveness {
  */
 export interface PortfolioSnapshot {
   connected: boolean;
-  /** False when the wallet is on a chain whose balances are not this portfolio's subject. */
-  onExpectedChain: boolean;
   price: PriceGate;
   /** Batch A — wallet balances, LP, farm, claimables, NFT counts. */
   base: BatchLiveness;
@@ -81,17 +79,14 @@ const NO_TOWELI_MARK = 'no TOWELI price is available, so this cannot be valued r
 /** Batch state → the report state every leg on that batch must take, or null to proceed. */
 function batchBlock(
   connected: boolean,
-  onExpectedChain: boolean,
   batch: BatchLiveness,
 ): Pick<PortfolioSourceReport, 'state' | 'usd' | 'detail' | 'asOf'> | null {
   if (!connected) {
     return { state: 'unavailable', usd: null, detail: 'no wallet connected', asOf: null };
   }
-  if (!onExpectedChain) {
-    // A wrong-chain wallet has balances, just not the ones this portfolio is about.
-    // Reporting them would price another chain's assets as if they were these.
-    return { state: 'unavailable', usd: null, detail: 'wallet is on a different network', asOf: null };
-  }
+  // No wallet-chain branch. Every leg is read from mainnet whatever chain the
+  // wallet is on (usePortfolioSources.ts), so a failed batch on Base is a failed
+  // read, and says so, rather than "wallet is on a different network".
   if (batch.failed) {
     return { state: 'unavailable', usd: null, detail: 'the network read failed', asOf: null };
   }
@@ -112,7 +107,7 @@ function callFailed(asOf: number | null): Pick<PortfolioSourceReport, 'state' | 
  */
 export function buildPortfolioSources(snap: PortfolioSnapshot): PortfolioSourceReport[] {
   const { price, base, position } = snap;
-  const baseBlock = batchBlock(snap.connected, snap.onExpectedChain, base);
+  const baseBlock = batchBlock(snap.connected, base);
 
   // ── Wallet · ETH ──────────────────────────────────────────────────────────────────
   const walletEth: PortfolioSourceReport = {
@@ -153,7 +148,7 @@ export function buildPortfolioSources(snap: PortfolioSnapshot): PortfolioSourceR
   // ride batch B (read by token id). When the wallet owns no staking NFT there is no
   // batch B to wait for and the leg settles on batch A alone.
   const stakingBlock = baseBlock ?? (snap.staking.hasPosition
-    ? batchBlock(snap.connected, snap.onExpectedChain, position)
+    ? batchBlock(snap.connected, position)
     : null);
   const stakingAsOf = snap.staking.hasPosition ? position.asOf : base.asOf;
   const stakingLegs = snap.staking.hasPosition

@@ -3,7 +3,7 @@ import { m } from 'framer-motion';
 import { isAddress } from 'viem';
 import { usePublicClient } from 'wagmi';
 import { ArtImg } from './ArtImg';
-import { SITE_URL, CHAIN_ID } from '../lib/constants';
+import { SITE_URL, SITE_HOST, CHAIN_ID } from '../lib/constants';
 import { safeGetItem } from '../lib/storage';
 
 // F92: same sessionStorage-free key HomePage stashes a captured ?ref= under, so
@@ -14,7 +14,8 @@ const REF_STORAGE_KEY = 'tegridy_ref';
 // F46: tegridy.farm is unregistered (DNS-level fail), so every shared referral
 // link/tweet dead-ended. Point at the canonical live origin. SITE_URL has no
 // scheme-less host for the truncated display, so derive it once here.
-const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
+// SITE_HOST now lives in constants.ts, derived from SITE_URL — this file used to
+// re-declare the same expression, which is one more place to miss on a host move.
 
 interface ReferralWidgetProps {
   address: string;

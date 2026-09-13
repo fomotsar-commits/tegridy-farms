@@ -74,6 +74,21 @@ export interface RewardPoolView {
   /** Whether ANYONE may top this vault up, or only the pool authority. */
   permissionless: boolean;
   /**
+   * When this pool's reward RATE was last changed, or null/0 if it never was.
+   *
+   * This is the field that decides whether a position can still be paid, and it
+   * is nothing like what we believed before. A classic entry created BEFORE the
+   * pool's rate was updated reverts ArithmeticError (6000) on every claim,
+   * forever; an entry created after it pays normally. Measured on mainnet
+   * 2026-09-12 against pool EFWpSpH9…, whose rate changed from 600,000/86400s to
+   * 7/1s at 2026-09-01T05:40:01Z: ALL 18 open positions split on that instant,
+   * 2 before it reverting and 16 after it paying, with no exceptions.
+   *
+   * Read from `last_amount_update_ts` / `last_period_update_ts`, whichever is
+   * later. Zero means the rate was never changed, which is the healthy case.
+   */
+  rateChangedAtTs: number | null;
+  /**
    * On-chain configured rate parts (raw, 1e9-scaled amount per effective token
    * per period). FIXED pools only — a dynamic pool has no rate and reports
    * '0' / 0 here. Check `kind` before quoting these as a rate anywhere.
@@ -155,49 +170,55 @@ export interface StakeEntryView {
    * fixtures, which the root tsconfig does not; a required field here failed
    * the #444 gate on every fixture that predates it.)
    *
-   * This is the field the u64 ceiling below is measured against — see
-   * `claimCeilingReached`. It is deliberately separate from `pendingRaw`:
-   * pending is what you are owed, `accountedRaw` is the cumulative counter that
-   * decides whether the program can still do the arithmetic to pay it.
+   * KEPT FOR DIAGNOSIS ONLY — nothing may gate on it. It once backed a predicate
+   * that declared a position dead once this passed 2**64-1. That model is refuted
+   * (see `claimBrokenByRateChange`), and reading a verdict out of this number is
+   * precisely the mistake that hid a five-figure balance from its owner.
    */
   accountedRaw?: Record<number, bigint | null>;
 }
 
 /**
- * The hard ceiling on a CLASSIC reward entry's `accountedAmount`.
+ * True when this entry cannot be paid because the pool's reward rate was changed
+ * out from under it.
  *
- * WHY IT MATTERS. `accountedAmount` is cumulative and monotonic — a claim pays
- * out but never resets it — and the classic program's claim path narrows it to
- * a u64. Once it passes this value, `claim_rewards` reverts with Anchor error
- * 6000 (`ArithmeticError`) and CAN NEVER SUCCEED AGAIN for that entry, because
- * the number only ever grows.
+ * WHAT THIS REPLACED, AND WHY IT MATTERS. There used to be a
+ * `CLASSIC_ACCOUNTED_CEILING = 2**64 - 1` here, and a predicate that called an
+ * entry dead once its cumulative `accountedAmount` passed it. That model is
+ * REFUTED, twice over:
  *
- * PROVEN ON MAINNET 2026-09-06 against pool EFWpSpH9… / reward pool 3ysyH5py…:
- * simulating the real `claim_rewards` for all eight live entries, every entry
- * above this value reverted 6000 and every entry below it succeeded. A repo-wide
- * scan of the classic program found 5,859 of 13,808 reward entries (42.4%)
- * already past it, so this is a property of the program, not of one pool.
+ *   - Program-wide, 5,868 of 9,797 classic reward entries with a non-zero
+ *     counter are already past that value, and the largest sits at 22 MILLION
+ *     times past it with a successful claim on record. The counter does not
+ *     stop claims.
+ *   - On this pool the verdicts split perfectly on a completely different line.
+ *     The rate changed at 2026-09-01T05:40:01Z. The 2 entries created before it
+ *     revert 6000; all 16 created after it pay. 18 for 18, no exceptions.
  *
- * It applies ONLY to `kind: 'fixed'` pools. The dynamic program tracks
- * rewards-per-share rather than per-position-times-time and does not accumulate
- * this way (verified against live pool HBLhyss5…, four months old, at 0.0000%).
+ * The cost of the old model was not academic: it disabled the Claim button and
+ * captioned a position holding 13,712 claimable BAYLA "Rewards closed on this
+ * position", and it capped how much anyone could stake on a danger that does
+ * not exist.
+ *
+ * This predicate still only WARNS. `update_pool` is one-shot on this program and
+ * has been spent, so no further entry can be caught this way — but a warning
+ * that turns out to be wrong must cost a network fee, never a hidden balance.
+ * The chain is the verdict; see `Failure.permanent`.
  */
-export const CLASSIC_ACCOUNTED_CEILING = (1n << 64n) - 1n;
-
-/**
- * True when this entry's classic reward accounting has passed the ceiling, so a
- * claim from `rp` is permanently impossible. `false` when the counter is
- * unreadable — an unknown must never render as a verdict, and the honest
- * failure here is to let the claim be attempted and report what the chain says.
- */
-export function claimCeilingReached(
-  entry: Pick<StakeEntryView, 'accountedRaw'>,
-  rp: Pick<RewardPoolView, 'nonce' | 'kind'>,
+export function claimBrokenByRateChange(
+  entry: Pick<StakeEntryView, 'createdTs'>,
+  rp: Pick<RewardPoolView, 'kind' | 'rateChangedAtTs'>,
 ): boolean {
   if (rp.kind !== 'fixed') return false;
-  const accounted = entry.accountedRaw?.[rp.nonce];
-  if (accounted === null || accounted === undefined) return false;
-  return accounted > CLASSIC_ACCOUNTED_CEILING;
+  const changed = rp.rateChangedAtTs;
+  // Never changed, or unreadable: not a verdict either way.
+  if (changed === null || changed === undefined) return false;
+  // An unreadable creation time is likewise not evidence. This also covers a
+  // zero/absent `changed`, since a true verdict needs 0 < createdTs < changed —
+  // an explicit `changed <= 0` test was removed after mutation testing showed it
+  // could not change any outcome.
+  if (!Number.isFinite(entry.createdTs) || entry.createdTs <= 0) return false;
+  return entry.createdTs < changed;
 }
 
 /**
@@ -215,46 +236,50 @@ export function claimCeilingReached(
  * tells the truth, which is the better failure of the two.
  */
 export function claimablePoolsBefore(
-  entry: Pick<StakeEntryView, 'accountedRaw' | 'pendingRaw'>,
+  entry: Pick<StakeEntryView, 'createdTs' | 'pendingRaw'>,
   rewardPools: RewardPoolView[],
 ): RewardPoolView[] {
   return rewardPools.filter((rp) => {
-    if (claimCeilingReached(entry, rp)) return false;      // cannot be paid — nothing to save
+    // NO PAYABILITY FILTER HERE, DELIBERATELY — and not replaced with a better
+    // one either. The predicate that used to sit here was true of a position
+    // holding 13,712 CLAIMABLE BAYLA, so the filter did exactly what this
+    // function exists to prevent: close an entry and destroy a working balance.
+    // The caller attempts the claim and reads the chain's answer, which is the
+    // only thing that actually knows.
     const pending = entry.pendingRaw?.[rp.nonce];
     if (pending === null || pending === undefined) return true;  // unreadable: assume it matters
     return pending > 0n;
   });
 }
 
-/** True when ANY reward pool on this entry is past the ceiling. */
-export function anyClaimCeilingReached(
-  entry: Pick<StakeEntryView, 'accountedRaw'>,
-  rewardPools: Pick<RewardPoolView, 'nonce' | 'kind'>[],
+/** True when ANY attached pool had its rate changed after this entry opened. */
+export function anyClaimBrokenByRateChange(
+  entry: Pick<StakeEntryView, 'createdTs'>,
+  rewardPools: Pick<RewardPoolView, 'kind' | 'rateChangedAtTs'>[],
 ): boolean {
-  return rewardPools.some((rp) => claimCeilingReached(entry, rp));
+  return rewardPools.some((rp) => claimBrokenByRateChange(entry, rp));
 }
 
 /**
- * Split a wallet's accrued rewards into what it can still be paid and what is
- * stranded behind the ceiling.
+ * Split a wallet's accrued rewards into what is comfortably claimable and what
+ * sits in the DANGER BAND — not into "claimable" and "stranded".
  *
- * A position past the u64 ceiling still REPORTS a pending figure and can never
- * be paid it — `claim` reverts 6000 for the rest of that position's life. Any
- * surface that sums `pendingRaw` across positions and calls the total "accrued
- * rewards" therefore tells a holder with a dead position that rewards are
- * accruing. The dashboard did exactly that.
+ * The predecessor called the second bucket `strandedRaw`, and the card rendered
+ * it as "13,700.79 stranded" beside "0 accrued". Of that figure 13,603 was
+ * claimable that very minute; only ~97 was genuinely unreachable. Naming a risk
+ * as a loss is the same error as disabling the button, in smaller type.
  *
  * `null` means UNREADABLE, never zero: one unreadable pending poisons the total
  * it belongs to, so an outage shows as "—" and never as a confident number.
  *
- * With an empty `rewardPools` (no pool read yet) nothing is classified as dead,
- * which matches how the pool page fails — toward "not dead" — so the two
- * surfaces cannot contradict each other while a read is in flight.
+ * With an empty `rewardPools` (no pool read yet) nothing is classified at risk,
+ * which matches how the pool page fails — toward "fine" — so the two surfaces
+ * cannot contradict each other while a read is in flight.
  */
-export function splitAccruedByClaimability(
-  entries: Pick<StakeEntryView, 'accountedRaw' | 'pendingRaw'>[],
-  rewardPools: Pick<RewardPoolView, 'nonce' | 'kind'>[],
-): { claimableRaw: bigint | null; strandedRaw: bigint | null; deadCount: number } {
+export function splitAccruedByRisk(
+  entries: Pick<StakeEntryView, 'createdTs' | 'pendingRaw'>[],
+  rewardPools: Pick<RewardPoolView, 'kind' | 'rateChangedAtTs'>[],
+): { claimableRaw: bigint | null; atRiskRaw: bigint | null; atRiskCount: number } {
   const sum = (list: Pick<StakeEntryView, 'pendingRaw'>[]): bigint | null =>
     list.reduce<bigint | null>((acc, e) => {
       if (acc === null) return null;
@@ -263,15 +288,26 @@ export function splitAccruedByClaimability(
       if (vals.some((v) => v === null)) return null;
       return acc + vals.reduce<bigint>((s, v) => s + (v as bigint), 0n);
     }, 0n);
-  const dead = rewardPools.length
-    ? entries.filter((e) => anyClaimCeilingReached(e, rewardPools))
+  const atRisk = rewardPools.length
+    ? entries.filter((e) => anyClaimBrokenByRateChange(e, rewardPools))
     : [];
-  const live = entries.filter((e) => !dead.includes(e));
-  return { claimableRaw: sum(live), strandedRaw: sum(dead), deadCount: dead.length };
+  const safe = entries.filter((e) => !atRisk.includes(e));
+  return { claimableRaw: sum(safe), atRiskRaw: sum(atRisk), atRiskCount: atRisk.length };
 }
 
 export type Result<T> = { ok: true } & T;
-export type Failure = { ok: false; reason: string };
+export type Failure = {
+  ok: false;
+  reason: string;
+  /**
+   * Set only when the CHAIN said this can never succeed — currently the classic
+   * reward program's 6000 on a claim. A caller may safely stop trying. Absent
+   * means "unknown or transient", which must be treated as retryable: the whole
+   * point of this flag is that a permanent verdict has to be EARNED from the
+   * program, never inferred from a counter.
+   */
+  permanent?: true;
+};
 
 const READ_FAIL = 'The pool could not be read right now — that is an outage, not a zero.';
 
@@ -384,75 +420,23 @@ export function stakeWeightScaled(
   return w > WEIGHT_SCALE ? w : WEIGHT_SCALE;
 }
 
-/**
- * The largest stake that can survive its OWN lock on a classic reward pool
- * before `accountedAmount` passes `CLASSIC_ACCOUNTED_CEILING`, in raw stake
- * units. `null` when the question does not apply — a dynamic pool, a zero
- * rate, or an unreadable configuration (never guess a cap from a number we
- * could not read).
+/*
+ * `maxSafeStakeRaw` and `maxSafeStakeAcrossPools` USED TO LIVE HERE. They are
+ * DELETED rather than re-tuned.
  *
- * THE ARITHMETIC, transcribed from the program's own logs (mainnet, pool
- * 3ysyH5py…, tx 2VD1bTMR…):
+ * They capped how much a wallet could stake at a given lock, so the entry's
+ * cumulative counter would not pass `CLASSIC_ACCOUNTED_CEILING` before the lock
+ * opened. At the 365-day rung that computed to ~16,712 tokens. On the live BAYLA
+ * pool, positions of 1,000,000 / 535,000 / 369,369 all claim normally, and the
+ * only two that cannot be paid are the two SMALLEST, at 3,000 each. The cap was
+ * refusing real stakes to prevent a failure mode that does not exist, and
+ * explaining itself in copy that was not true.
  *
- *     accountable = effective_amount x reward_amount x periods / 1e9
- *     effective_amount = amountRaw x weightScaled          (weightScaled = weight x 1e9)
- *
- * so `accountedAmount` after `durationSecs` at one accrual period is
- *
- *     amountRaw x weightScaled x rewardAmount x durationSecs / (rewardPeriod x 1e9)
- *
- * and requiring that to stay under the ceiling rearranges to the return value
- * below. Checked against the live pool: at 365 days and 5.00x with
- * rewardAmount=7 / rewardPeriod=1 it yields 16,712 BAYLA, which matches the
- * observed break times of all eight live entries.
- *
- * WHY A CAP AND NOT A WARNING. Above this size the position is guaranteed to
- * stop being able to claim BEFORE its lock lets the holder leave — the ladder
- * pays more for locking longer, and locking longer is exactly what guarantees
- * the counter runs out first. Selling that lock is selling something that
- * cannot be delivered.
+ * What actually breaks a position is a reward-rate change after it was opened
+ * (see `claimBrokenByRateChange`). That is not a function of size, so there is no
+ * size to cap — and `update_pool` is one-shot on this program and already spent,
+ * so it cannot recur on this pool.
  */
-export function maxSafeStakeRaw(
-  pool: Pick<PoolView, 'minDurationSecs' | 'maxDurationSecs' | 'maxWeightScaled'>,
-  rp: Pick<RewardPoolView, 'kind' | 'rewardAmountRaw' | 'rewardPeriodSecs'>,
-  durationSecs: number,
-): bigint | null {
-  if (rp.kind !== 'fixed') return null;
-  // Everything below has to DEGRADE to null, never throw. This runs on the
-  // render path for the amount field, so a throw here takes the panel down
-  // rather than dropping one number — and the whole point of the null return is
-  // "no cap can be stated". `BigInt('abc')` throws SyntaxError and
-  // `BigInt(Math.trunc(NaN))` throws RangeError, so neither input can go
-  // straight into a BigInt.
-  const rewardAmount = bnToBigint(rp.rewardAmountRaw);
-  if (rewardAmount === null) return null;
-  if (!Number.isFinite(rp.rewardPeriodSecs) || !Number.isFinite(durationSecs)) return null;
-  const period = BigInt(Math.trunc(rp.rewardPeriodSecs));
-  const secs = BigInt(Math.trunc(durationSecs));
-  if (rewardAmount <= 0n || period <= 0n || secs <= 0n) return null;
-  const weightScaled = stakeWeightScaled(pool, durationSecs);
-  if (weightScaled <= 0n) return null;
-  const denom = weightScaled * rewardAmount * secs;
-  if (denom <= 0n) return null;
-  return (CLASSIC_ACCOUNTED_CEILING * period * WEIGHT_SCALE) / denom;
-}
-
-/**
- * The tightest cap across every reward pool on this stake pool, or `null` when
- * no pool imposes one.
- */
-export function maxSafeStakeAcrossPools(
-  pool: Pick<PoolView, 'minDurationSecs' | 'maxDurationSecs' | 'maxWeightScaled'> & { rewardPools: RewardPoolView[] },
-  durationSecs: number,
-): bigint | null {
-  let cap: bigint | null = null;
-  for (const rp of pool.rewardPools) {
-    const c = maxSafeStakeRaw(pool, rp, durationSecs);
-    if (c === null) continue;
-    if (cap === null || c < cap) cap = c;
-  }
-  return cap;
-}
 
 /** The same weight as a human multiplier (1.00 = no bonus). */
 export function stakeWeight(
@@ -569,20 +553,25 @@ const DAY = 86_400;
 /**
  * The longest lock the VENUE will offer, regardless of what the pool allows.
  *
- * WHY THIS EXISTS (2026-09-06). Two independent reasons, both about the same
- * cohort — people who cannot leave:
+ * WHY THIS EXISTS. Reworked 2026-09-12, because the reason it was created for
+ * turned out not to be real and the reason it should exist is measurable.
  *
- *  1. THE CEILING. On a classic reward pool a position's cumulative counter
- *     overflows u64 after `30,501,000 / (weight x days)` days (see
- *     `maxSafeStakeRaw`). At the 365d/5.00x rung that is ~16,700 BAYLA — so the
- *     longest, best-paid rung is the one that breaks soonest, and it breaks
- *     while the holder is still locked in. `maxSafeStakeRaw` already refuses an
- *     oversized position; this refuses the tail of the ladder outright.
- *  2. THE TRAPPED COHORT. The reward rail is moving to the dynamic program, and
- *     Streamflow has no migration between pools — `migrate_entry` only moves
- *     between two Streamflow STREAM pools, and the receipt mint is frozen. So
- *     anyone who locks for a year today cannot follow the venue anywhere until
- *     2027. Every long lock sold now is a person who has to be carried.
+ *  THE ORIGINAL REASON IS REFUTED. It was "a position's cumulative counter
+ *  overflows u64 and the longest rung breaks soonest". It does not: 5,868
+ *  entries across the classic program are past that value and the largest is
+ *  22,000,000x past it, claiming fine. See `claimBrokenByRateChange`.
+ *
+ *  THE REAL REASON IS THE VAULT RUNWAY. Measured 2026-09-12 on pool
+ *  EFWpSpH9…: the reward vault holds 874,929 tokens and the 16 payable
+ *  positions accrue 5,453/day between them, so it runs dry around 2027-02-19.
+ *  A 365-day lock sold today opens 2027-09-12 — roughly six months AFTER the
+ *  rewards stop. That is selling a lock the rail cannot honour, which is the
+ *  one thing this gate exists to refuse. A 90-day lock opens comfortably
+ *  inside the funded window.
+ *
+ *  RECHECK THIS NUMBER WHEN THE VAULT IS TOPPED UP. It is derived from a
+ *  balance and a burn rate, both of which move; it is not a constant of
+ *  nature. Derive it, never quote a remembered date.
  *
  * THIS IS A UI GATE, NOT AN ON-CHAIN ONE. The stake program has no
  * `update_pool` at all — `min_duration` and `max_duration` are create-only and
@@ -591,8 +580,9 @@ const DAY = 86_400;
  * the copy has to say exactly that rather than implying the pool changed.
  *
  * It costs the top of the ladder: at 90 days the weight is ~1.98x against the
- * 5.00x a year would earn. That is the price of not selling a lock the rail
- * cannot honour, and it is worth paying until `bayla-ladder` exists.
+ * 5.00x a year would earn. That is the price of not selling a lock that outlives
+ * its own funding, and it is worth paying until either the vault is extended or
+ * `bayla-ladder` takes over.
  */
 export const OFFERED_LOCK_CEILING_DAYS = 90;
 
@@ -725,6 +715,11 @@ export async function readPool(stakePool: string): Promise<Result<{ pool: PoolVi
           : await readMintDecimals(client, rewardMint, stakeDecimals),
         fundedRaw,
         permissionless: Boolean(rp?.permissionless),
+        // The instant a classic pool's rate moved, if it ever did. Entries older
+        // than this cannot be paid; see `claimBrokenByRateChange`.
+        rateChangedAtTs: kind === 'fixed'
+          ? Math.max(bnToNumber(rp?.lastAmountUpdateTs) || 0, bnToNumber(rp?.lastPeriodUpdateTs) || 0)
+          : null,
         // A dynamic pool has NO rate fields — these read 0 there, and callers
         // must branch on `kind` rather than quoting a zero rate as a fact.
         rewardAmountRaw: String(bnToBigint(rp?.rewardAmount) ?? '0'),
@@ -921,8 +916,12 @@ function writeFailure(err: unknown, fallback: string): Failure {
   // entry's cumulative `accountedAmount` has passed u64::MAX, so the program
   // can no longer compute the payout. PROVEN ON MAINNET (2026-09-06): the real
   // `claim_rewards` instruction was simulated for all eight live entries on
-  // pool EFWpSpH9…; every entry above the ceiling returned exactly this error
-  // and every entry below it succeeded.
+  // pool EFWpSpH9… and this error came back for two of them. NOTE the scope of
+  // that proof: this ERROR is permanent when the program returns it. It does NOT
+  // predict WHICH entries receive it. A 2026-09-12 sweep found the split is
+  // "created before the pool rate was changed", not any counter — and entries
+  // elsewhere sit 22,000,000x past the supposed ceiling and claim fine. Trust
+  // the error; never predict it.
   //
   // It is PERMANENT — the counter is cumulative and a claim does not reset it,
   // so it can never come back under the ceiling. Say so, because "try again
@@ -936,6 +935,7 @@ function writeFailure(err: unknown, fallback: string): Failure {
       reason:
         'This position has passed a hard limit inside the reward program, so it can no longer pay out — nothing moved, and this will not clear by retrying. ' +
         'Your staked BAYLA is safe and still returns in full when the lock ends; it is the unclaimed rewards on this position that can no longer be collected.',
+      permanent: true,
     };
   }
   // A DRAINED pool reports a DIFFERENT NUMBER on each reward program, and one
@@ -1127,7 +1127,7 @@ export async function unstakeAndCloseForfeitingRewards(args: {
    * it what it is about to destroy. Used only to decide which reward pools are
    * still payable.
    */
-  entry: Pick<StakeEntryView, 'accountedRaw' | 'pendingRaw'>;
+  entry: Pick<StakeEntryView, 'createdTs' | 'pendingRaw'>;
 }): Promise<Result<{ txId: string }> | Failure> {
   try {
     // CLAIM WHAT CAN STILL BE PAID, THEN CLOSE.
@@ -1144,19 +1144,29 @@ export async function unstakeAndCloseForfeitingRewards(args: {
         entryNonce: args.entryNonce,
       });
       if (!claimed.ok) {
-        // ABORT RATHER THAN FORFEIT. A pool in `savable` is one that can still
-        // pay, so a failure here is transient — a dry vault, a dropped tx — and
-        // retrying is cheap. Closing anyway would burn that balance permanently
-        // to save a retry, which is the trade this whole change exists to stop.
-        // The principal is not trapped by this: the pools that CAN pay are the
-        // ones that work, so the normal exit remains open.
-        return {
-          ok: false,
-          reason:
-            `Rewards from pool #${rp.nonce} could not be claimed first, so the rescue ` +
-            `stopped before closing — closing now would destroy them permanently. ` +
-            `Your stake is untouched. ${claimed.reason}`,
-        };
+        // THE CHAIN DECIDES WHETHER TO STOP, NOT A COUNTER.
+        //
+        // `savable` no longer pre-filters on payability at all — the predicate
+        // that used to sit there matched a position holding 13,712 claimable
+        // BAYLA, so trusting it meant closing the entry and destroying it.
+        // Instead every pool with something pending is ATTEMPTED, and the
+        // program's own answer decides what happens next:
+        //
+        //   permanent (6000)  → proven unpayable. There is nothing to save, so
+        //                       carry on and let the rescue free the principal.
+        //                       Stopping here would trap the stake behind rewards
+        //                       that genuinely cannot be collected.
+        //   anything else     → unknown or transient (a dry vault, a dropped tx).
+        //                       Abort. Retrying is cheap; closing is forever.
+        if (!claimed.permanent) {
+          return {
+            ok: false,
+            reason:
+              `Rewards from pool #${rp.nonce} could not be claimed first, so the rescue ` +
+              `stopped before closing — closing now would destroy them permanently. ` +
+              `Your stake is untouched. ${claimed.reason}`,
+          };
+        }
       }
     }
     const client = await makeClient();

@@ -83,9 +83,12 @@ describe('ChartPage when GeckoTerminal cannot be reached', () => {
     // Pre-change this page issued NO request at all: the indexer hook parked in
     // `unavailable` before building one.
     expect(fetchMock).toHaveBeenCalled();
+    // Through our own edge now (src/lib/geckoTerminal/edge.ts). The upstream
+    // path is still asserted in full — what moved is the host, not the question.
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      `api.geckoterminal.com/api/v2/networks/eth/pools/${TOWELI_MARKET.pool}/ohlcv/hour`,
+      `path=/networks/eth/pools/${TOWELI_MARKET.pool}/ohlcv/hour`,
     );
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('api.geckoterminal.com');
   });
 
   it('still offers every registry pool, because that list is not something a source has to answer for', async () => {
@@ -294,7 +297,11 @@ describe('ChartPage when GeckoTerminal answers', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button', { name: '4H' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/ohlcv/hour?aggregate=4');
+    // The frame reaches the edge as its own query parameter now, so the
+    // aggregate is asserted where it actually rides rather than glued to the path.
+    const picked = String(fetchMock.mock.calls[1]?.[0]);
+    expect(picked).toContain('/ohlcv/hour');
+    expect(picked).toContain('aggregate=4');
   });
 
   it('says the window was empty at the SOURCE when no bucket comes back, and draws nothing', async () => {

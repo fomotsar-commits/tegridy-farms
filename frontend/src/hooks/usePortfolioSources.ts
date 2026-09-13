@@ -29,7 +29,7 @@
 // is possible, and is what this hook exists not to do.
 
 import { useMemo } from 'react';
-import { useAccount, useBalance, useChainId, useReadContracts } from 'wagmi';
+import { useAccount, useBalance, useReadContracts } from 'wagmi';
 import { formatEther, formatUnits } from 'viem';
 import {
   CHAIN_ID,
@@ -82,10 +82,12 @@ export interface UsePortfolioSourcesResult {
 
 export function usePortfolioSources(): UsePortfolioSourcesResult {
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const onExpectedChain = chainId === CHAIN_ID;
   const user = (address ?? ZERO_ADDR) as `0x${string}`;
-  const enabled = !!address && onExpectedChain;
+  // Every read below is pinned to mainnet, so it is this portfolio's subject from
+  // any wallet chain. NOT gated on useChainId() as well: that gate made every leg
+  // "unavailable" for a wallet on Base or Robinhood while the Dashboard around it
+  // showed the same positions, read from the same contracts.
+  const enabled = !!address;
   const price = useTOWELIPrice();
 
   // Native ETH. Same {address, chainId} as the dashboard's own useBalance, so this
@@ -184,7 +186,6 @@ export function usePortfolioSources(): UsePortfolioSourcesResult {
       : base;
     const snapshot: PortfolioSnapshot = {
       connected: isConnected && !!address,
-      onExpectedChain,
       price: {
         toweliUsd: price.priceInUsd,
         ethUsd: price.ethUsd,
@@ -214,7 +215,7 @@ export function usePortfolioSources(): UsePortfolioSourcesResult {
     };
     return buildPortfolioSources(snapshot);
   }, [
-    isConnected, address, onExpectedChain,
+    isConnected, address,
     price.priceInUsd, price.ethUsd, price.isLoaded, price.priceUnavailable, price.displayPriceStale, price.oracleStale,
     baseAsOf, baseLoading, baseFailed,
     posAsOf, posLoading, posFailed,

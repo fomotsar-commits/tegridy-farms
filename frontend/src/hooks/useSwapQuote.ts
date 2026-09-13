@@ -95,10 +95,13 @@ export function useSwapQuote(
     [fromToken, toToken],
   );
 
-  // All configured contract addresses are for CHAIN_ID (Ethereum mainnet). On any other
-  // chain, the wagmi read calls silently return garbage (either an empty 0x response from
-  // a nonexistent contract or — worse — data from a different contract at the same address
-  // on another chain). Gate every read with a chain match.
+  // Every read below is pinned to CHAIN_ID AND gated on the wallet being there.
+  // The gate stays, unlike the display reads un-gated in useLPFarming.ts:
+  //   - a quote is not a display figure. Its path, route and minimumReceived are
+  //     what useSwap signs, and the floors a zap plan submits (useZapPlan.ts);
+  //   - the aggregator leg follows the wallet's chain on purpose (R045 H1), so
+  //     un-gating only these legs would quote mainnet liquidity to an L2 wallet;
+  //   - off mainnet the empty form is explained by ChainSwapAvailability.
   const chainId = useChainId();
   const onRightChain = chainId === CHAIN_ID;
 
