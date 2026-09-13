@@ -15,6 +15,51 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-12 — the same string at a second site is not automatically the same bug: read the GATE before the copy
+
+**Believed:** a known-bad string still live at a second site, present at the fixing
+PR's merge base, is a site the sweep did not reach — the same defect, closed by
+applying the same rewrite.
+
+**Measured** (PR #561 against #474, the string `'Trade ETH ↔ TOWELI via Uniswap V2
+with custom slippage controls.'`, byte-identical at `TradePage.tsx:92` and
+`HomePage.tsx:832`): the two sites render under different gates, so the rule that
+condemned the first does not reach the second. TradePage has no arrival-voice gate
+at all. The HomePage grid is inside `IS_TOWELI_ARRIVAL && !bungalowIdentity` — one
+resident's own page, where naming that resident is correct and deliberate. The
+cheapest evidence was two lines down in the SAME array literal: the neighbouring
+card names the same ticker on purpose (`farmCardDesc` → "Stake TOWELI to earn now"),
+hoisted to a lib and already pinned by a different test. Applying #474's rule here
+would have turned a reviewed line red, and the ruling's own test header warns
+against exactly that — "banning the word would have forced the venue to hide one
+resident to prove it favours none".
+
+There WAS a real defect at the second site, but a different one that the string
+match happened to sit on: the copy named one of the NINE sources `useSwapQuote`
+races, so it understated the surface rather than mis-voicing it. The correct fix
+and the assumed fix pointed opposite ways on the ticker — keep it, not delete it.
+
+**Do:** when a known-bad string turns up at a second site, read the gate that site
+renders under before reusing the first site's fix. Two occurrences of one string
+can be one bug, two unrelated bugs, or one bug and one correct usage. Check the
+siblings in the same literal first: a neighbour that keeps the "bad" pattern
+deliberately is the cheapest available proof that the rule does not apply there.
+
+### Incidental — `\b` inside a template literal is a BACKSPACE, and a negated matcher then passes vacuously
+
+A regex assembled as ``new RegExp(`\b(?:W?ETH)\b\s*…`)`` is not the regex you
+wrote. In a template literal `\b` is U+0008 and `\s` is a literal `s`, so the
+compiled source came out as `\b(?:W?ETH)\bs*[…]+s*TOWELI\b` — measured in node
+against the pre-fix string: the intended pattern matches, that one does not. Because
+the assertion was `.not.toMatch()`, the broken pattern would have PASSED, silently,
+against the very string it existed to ban. The mutation check is what surfaces this;
+a guard written this way and never watched fail reads green forever.
+
+Generating the file through a script adds a second, independent backslash level to
+lose (heredoc → script → disk ate one here, turning the intended `\\b` into `\b`).
+`String.raw` removes both problems at once and is the right default for any regex
+source built from a template.
+
 ## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
 
 **Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
