@@ -409,12 +409,20 @@ export default function TreasuryPage() {
   const treasuryEthFormatted = treasuryBal ? formatEth(treasuryBal.value) : '–';
   const treasuryUsd = treasuryBal ? parseFloat(formatEther(treasuryBal.value)) * (price.ethUsd || 0) : undefined;
 
-  // POL LP value estimate: share of pool TVL owned by accumulator
+  // POL LP value estimate: share of pool TVL owned by accumulator.
+  //
+  // OUTAGE-AS-ZERO. The old guard turned three different unknowns into a 0
+  // share: an unread POL balance, an unread LP supply (usePoolTVL collapses it
+  // to 0n), and, through `share * pool.tvl`, an unloaded TVL (0 until the
+  // reserves AND a display price land). The tile then said "$0.00" and "0.00% of
+  // LP supply" - the protocol owns no liquidity - about numbers nobody read.
+  // Each figure now needs its own inputs read; a READ zero still renders as 0.
   const polShare = useMemo(() => {
-    if (!polLpBal || !pool.lpSupply || pool.lpSupply === 0n) return 0;
+    if (polLpBal === undefined || !pool.lpSupplyReadOk) return undefined;
+    if (pool.lpSupply === 0n) return 0;
     return Number(polLpBal as bigint) / Number(pool.lpSupply);
-  }, [polLpBal, pool.lpSupply]);
-  const polUsd = polLpBal !== undefined ? polShare * pool.tvl : undefined;
+  }, [polLpBal, pool.lpSupply, pool.lpSupplyReadOk]);
+  const polUsd = polShare !== undefined && pool.isLoaded ? polShare * pool.tvl : undefined;
 
   const stats: { label: string; value: string; sub: string; idx: number }[] = [
     { label: 'Total Value Locked', value: pool.tvlFormatted, sub: 'TOWELI/WETH pool', idx: 1 },
@@ -423,7 +431,7 @@ export default function TreasuryPage() {
     // formatEthFine steps down to gwei/wei so the sub-line can never do that.
     { label: 'Lifetime Fees', value: formatUsd(lifetimeFeesUsd), sub: `${formatEthFine(totalFeesWei as bigint | undefined)} routed`, idx: 2 },
     { label: 'Treasury Balance', value: treasuryEthFormatted, sub: formatUsd(treasuryUsd), idx: 3 },
-    { label: 'POL Holdings', value: formatUsd(polUsd), sub: `${(polShare * 100).toFixed(2)}% of LP supply`, idx: 4 },
+    { label: 'POL Holdings', value: formatUsd(polUsd), sub: polShare === undefined ? '– of LP supply' : `${(polShare * 100).toFixed(2)}% of LP supply`, idx: 4 },
   ];
 
   return (
