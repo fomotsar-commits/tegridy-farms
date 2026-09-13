@@ -16,20 +16,44 @@ deploy process nobody else can execute is an outage waiting for a holiday.
 The second path is the dangerous one and no script can close it, because no local
 step is involved. It is a dashboard setting.
 
-> ### 🔴 Verified 2026-08-02: the Production Branch is `main`, and `main` is stale
+> ### ✅ The Production Branch is `mvp-launch`. It used to be `main`; that was repointed.
 >
-> The three most recent `environment=Production` deployments are `e74417aa`,
-> `64e454c0`, `6b89b60a` — all dated 2026-07-24. `git merge-base --is-ancestor`
-> confirms **all three are on `origin/main` and none is on `origin/mvp-launch`**.
-> Trunk has only ever received `environment=Preview`.
+> **Current, as of 2026-09-10.** The nearest thing this repo has to a written record of
+> the setting is [`TODO_OPERATOR.md` §3](TODO_OPERATOR.md), landed 2026-09-06 in
+> [#435](https://github.com/fomotsar-commits/tegridy-farms/pull/435):
 >
-> `origin/main` is **hundreds of commits behind** `origin/mvp-launch` (646 at the time
-> of writing, and it grows with every merge to trunk).
+> > Now that `mvp-launch` is the Production Branch, **a push to trunk auto-deploys with
+> > no local step**, so `scripts/predeploy-check.mjs` never runs on that path
 >
-> **So a single `git push origin main`, or one PR merged with the wrong base, ships a
-> months-old tree to production with no human step.** Fix by repointing the Production
-> Branch to `mvp-launch` in the Vercel dashboard, or by disconnecting the Git
-> integration and deploying only by CLI. Until then, do not push to `main`.
+> Note what that costs and what it buys. It buys: production now ships trunk, so a merge
+> to `mvp-launch` deploys the tree everyone is actually working on. It costs: the
+> predeploy guard sits in front of the CLI path only, and the CLI path is no longer the
+> common one — **trunk pushes are ungated**. If they should be gated, the guard has to
+> move into CI; nothing local can close a dashboard-triggered deploy.
+>
+> ⚠️ **The dashboard is the authority, not this file.** No committed file sets the
+> Production Branch — `frontend/vercel.json` has no `productionBranch` key and there is
+> no Vercel deploy workflow under `.github/workflows/`. Anyone with a reason to be sure
+> (a rollback, an incident, a custody change) reads the setting in the Vercel dashboard.
+> Treat every claim here, this one included, as a report of what was true when written.
+>
+> #### What the 2026-08-02 note said, and why it is kept
+>
+> It read: *"the Production Branch is `main`, and `main` is stale"*. That was true and
+> load-bearing at the time — the three most recent `environment=Production` deployments
+> were `e74417aa`, `64e454c0`, `6b89b60a`, all dated 2026-07-24, all on `origin/main`
+> and none on `origin/mvp-launch`; trunk had only ever received `environment=Preview`.
+> A single `git push origin main` would have shipped a months-old tree with no human
+> step. The repoint is what closed that.
+>
+> **`main` is still a live branch and is still stale**, so the second half of the old
+> warning survives the repoint: measured 2026-09-10, `git rev-list --left-right --count
+> origin/main...origin/mvp-launch` reports `10  1345`, and `main`'s tip
+> (`e74417aa`) is dated 2026-07-23. It no longer deploys, so the failure mode is quieter
+> now but not gone: a PR based on `main` still runs the full gate set (the workflows
+> trigger on `branches: [main, mvp-launch]`), so it goes **green against a 2026-07-23
+> tree** and then merges somewhere nothing deploys from and nothing else merges into.
+> **Do not push to `main`, and do not base a PR on it — base on `mvp-launch`.**
 
 ---
 

@@ -153,4 +153,8 @@ would call it healthy.
   last slot exactly. It no longer leaves headroom behind it, which is another reason that PR needs a
   rebuild rather than a blind merge.
 - **Dependabot preview deploys** occasionally show Vercel `Error` from build-cache replaying an
-  older (larger) function set — transient, does not affect production `main`.
+  older (larger) function set — transient, does not affect production. (This line said
+  "production `main`" until 2026-09-10; the Vercel Production Branch was repointed to
+  `mvp-launch` — see [`docs/DEPLOY_RUNBOOK.md`](../../docs/DEPLOY_RUNBOOK.md). A preview
+  build's cache still cannot reach whatever branch production is on, so the conclusion is
+  unchanged.)
