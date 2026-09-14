@@ -230,10 +230,19 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
       return;
     }
     try {
+      // SCOPED SAVE — send only THIS bungalow's keys and let the endpoint keep
+      // every other resident's from the file on disk. Posting the whole map (as
+      // this did until 2026-09-13) meant the last tab to save overwrote the file
+      // with a snapshot taken when it mounted, erasing anything another tab had
+      // saved since. Three tabs wiped each other in 3.3 seconds when it was
+      // measured. Now a tab can only ever affect the resident it is editing.
+      const mineOnly = Object.fromEntries(
+        Object.entries(data).filter(([k]) => k.startsWith(`${bungalowId}|`)),
+      );
       const res = await fetch('/__bungalow-studio/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ scope: bungalowId, overrides: mineOnly }),
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json() as { ok: boolean; count: number };
@@ -247,7 +256,11 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
     } finally {
       if (!silent) setSaving(false);
     }
-  }, []);
+    // bungalowId is what scopes the POST. Omitting it would let a stale id ride
+    // in the closure and write this tab's picks under ANOTHER resident's scope —
+    // deleting that resident's art and losing this one's, which is worse than
+    // the whole-file clobber the scoping was added to prevent.
+  }, [bungalowId]);
 
   // Debounced auto-save, same contract as /art-studio: any pick or slider drag
   // lands on disk 350ms after activity stops. Skips the initial mount.

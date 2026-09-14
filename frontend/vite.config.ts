@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { visualizer } from 'rollup-plugin-visualizer';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
 
 // R002: only same-origin localhost dev servers may POST to the save handler.
 // Defends against DNS-rebind, LAN-side CSRF, and arbitrary sites the dev
@@ -63,6 +64,11 @@ type OverrideSaveOptions = {
    * `bungalowId|pageId:idx` shape so a malformed key can never reach the file.
    */
   keyPattern?: RegExp;
+  /**
+   * Name of the exported const in `outFile`. Required to accept SCOPED saves,
+   * which have to read the file back before rewriting it.
+   */
+  exportName?: string;
   /** Render the whole module source from the sorted, validated payload. */
   render: (entries: string) => string;
 };
@@ -115,21 +121,61 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
             res.end(`Bad JSON: ${(err as Error).message}`);
             return;
           }
-          if (!isValidOverridePayload(parsed)) {
+          // SCOPED SAVE. `{ scope, overrides }` means "replace only the keys
+          // beginning `${scope}|` and keep everything else that is on disk".
+          //
+          // Without it every studio tab POSTs the WHOLE map, seeded once when it
+          // mounted, and the last tab to save silently erases whatever the others
+          // saved after that — measured 2026-08-31, three tabs wiping each other
+          // in 3.3 seconds. A bare map (no `scope`) still means whole-file
+          // replace, which is what /art-studio has always sent.
+          let scope: string | null = null;
+          let payload: unknown = parsed;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'overrides' in (parsed as object)) {
+            const env = parsed as { scope?: unknown; overrides?: unknown };
+            if (typeof env.scope !== 'string' || !/^[a-z0-9-]{1,64}$/.test(env.scope)) {
+              res.statusCode = 400;
+              res.end('Bad request: scope must be a short slug');
+              return;
+            }
+            scope = env.scope;
+            payload = env.overrides;
+          }
+
+          if (!isValidOverridePayload(payload)) {
             res.statusCode = 400;
             res.end('Bad request: schema validation failed');
             return;
           }
-          if (opts.keyPattern && !Object.keys(parsed).every((k) => opts.keyPattern!.test(k))) {
+          if (opts.keyPattern && !Object.keys(payload).every((k) => opts.keyPattern!.test(k))) {
             res.statusCode = 400;
             res.end('Bad request: key shape validation failed');
             return;
           }
+          // A scoped save may only carry its own keys. Enforced rather than
+          // filtered: a tab sending another bungalow's key is confused about
+          // what it owns, and quietly dropping the key would hide that.
+          if (scope !== null && !Object.keys(payload).every((k) => k.startsWith(`${scope}|`))) {
+            res.statusCode = 400;
+            res.end(`Bad request: scoped save carried keys outside "${scope}|"`);
+            return;
+          }
           try {
+            let merged: Record<string, OverrideEntry> = payload;
+            if (scope !== null) {
+              if (!opts.exportName) throw new Error('scoped save requires exportName');
+              const target = resolve(process.cwd(), opts.outFile);
+              let onDisk = '';
+              try {
+                onDisk = readFileSync(target, 'utf8');
+              } catch { /* first write — nothing to preserve */ }
+              const existing = onDisk ? parseOverrideModule(onDisk, opts.exportName) : {};
+              merged = mergeScoped(existing, scope, payload);
+            }
             // Stable key order so diffs are clean.
-            const keys = Object.keys(parsed).sort();
+            const keys = Object.keys(merged).sort();
             const entries = keys.map((k) => {
-              const v = parsed[k]!;
+              const v = merged[k]!;
               const pos = v.objectPosition ? `, objectPosition: ${JSON.stringify(v.objectPosition)}` : '';
               const scale = v.scale && v.scale !== 1 ? `, scale: ${v.scale}` : '';
               return `  ${JSON.stringify(k)}: { artId: ${JSON.stringify(v.artId)}${pos}${scale} },`;
@@ -166,6 +212,7 @@ function artStudioPlugin(): Plugin {
     name: 'art-studio-save',
     route: '/__art-studio/save',
     outFile: 'src/lib/artOverrides.ts',
+    exportName: 'ART_OVERRIDES',
     render: (entries) => `/**
  * Per-surface art overrides — written by /art-studio.
  *
@@ -195,6 +242,7 @@ function bungalowStudioPlugin(): Plugin {
     name: 'bungalow-studio-save',
     route: '/__bungalow-studio/save',
     outFile: 'src/lib/bungalowArtOverrides.ts',
+    exportName: 'BUNGALOW_ART_OVERRIDES',
     // `bungalowId|pageId:idx` — lowercase slugs, non-negative index.
     keyPattern: /^[a-z0-9-]+\|[a-z0-9-]+:\d+$/,
     render: (entries) => `/**
