@@ -74,12 +74,17 @@ describe('ohlcvUrlFor', () => {
   });
 
   it('builds the documented path and aggregate for each frame', () => {
-    expect(ohlcvUrlFor(market, '4h')).toContain('/ohlcv/hour?aggregate=4');
-    expect(ohlcvUrlFor(market, '15m')).toContain('/ohlcv/minute?aggregate=15');
-    expect(ohlcvUrlFor(market, '1d')).toContain('/ohlcv/day?aggregate=1');
-    expect(ohlcvUrlFor(market, '1h')).toContain(
-      'https://api.geckoterminal.com/api/v2/networks/eth/pools/0xabc/ohlcv/hour',
-    );
+    // The read goes through our own edge now, so the frame rides as a query
+    // parameter beside the upstream path rather than glued onto the end of it.
+    // Both halves are still asserted; what moved is the host, not the question.
+    expect(ohlcvUrlFor(market, '4h')).toContain('/ohlcv/hour');
+    expect(ohlcvUrlFor(market, '4h')).toContain('aggregate=4');
+    expect(ohlcvUrlFor(market, '15m')).toContain('/ohlcv/minute');
+    expect(ohlcvUrlFor(market, '15m')).toContain('aggregate=15');
+    expect(ohlcvUrlFor(market, '1d')).toContain('/ohlcv/day');
+    expect(ohlcvUrlFor(market, '1d')).toContain('aggregate=1');
+    expect(ohlcvUrlFor(market, '1h')).toContain('path=/networks/eth/pools/0xabc/ohlcv/hour');
+    expect(ohlcvUrlFor(market, '1h')).not.toContain('api.geckoterminal.com');
   });
 
   it('percent-encodes both path segments, so a traversal-shaped pool cannot climb out', () => {
@@ -96,7 +101,8 @@ describe('ohlcvUrlFor', () => {
 
   it('never asks for more buckets than the endpoint allows', () => {
     for (const id of GECKO_TIMEFRAME_IDS) {
-      const limit = Number(new URL(ohlcvUrlFor(market, id)).searchParams.get('limit'));
+      // Same-origin now, so the URL needs a base before it can be parsed.
+      const limit = Number(new URL(ohlcvUrlFor(market, id), 'https://x.test').searchParams.get('limit'));
       expect(limit).toBeGreaterThanOrEqual(1);
       expect(limit).toBeLessThanOrEqual(1000);
     }

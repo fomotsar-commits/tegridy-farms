@@ -1,0 +1,1988 @@
+{
+  "address": "HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK",
+  "metadata": {
+    "name": "bayla_ladder",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Lock-ladder staking with a flat 25% early exit — the Solana port of LighthouseLadder.sol"
+  },
+  "instructions": [
+    {
+      "name": "accept_authority",
+      "discriminator": [
+        107,
+        86,
+        198,
+        91,
+        33,
+        12,
+        107,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "pending",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_cap_raise",
+      "docs": [
+        "AUDIT L-7. `propose_cap_raise` requires `new_cap > deposit_cap`, so a pending",
+        "proposal could be shrunk to +1 but never returned to zero — and",
+        "`execute_cap_raise` is permissionless with no staleness check, so a proposal made",
+        "a year ago stays executable on demand. This is the missing half: the authority",
+        "can abandon its own proposal. Adds no Pool fields, so every pinned size holds."
+      ],
+      "discriminator": [
+        134,
+        221,
+        163,
+        50,
+        95,
+        11,
+        247,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim",
+      "docs": [
+        "Claim rewards without closing anything. Pays what the reward vault can cover;",
+        "the rest stays owed (I-2)."
+      ],
+      "discriminator": [
+        62,
+        198,
+        214,
+        193,
+        213,
+        159,
+        108,
+        210
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "relations": [
+            "position"
+          ]
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "position.nonce",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_carried",
+      "docs": [
+        "Pay out rewards a position carried into `UserStats` when it left through the",
+        "emergency hatch. Same I-2 rule: pays what the vault holds, defers the rest."
+      ],
+      "discriminator": [
+        173,
+        173,
+        45,
+        126,
+        170,
+        32,
+        215,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "user_stats"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "relations": [
+            "user_stats"
+          ]
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "user_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "declare_degraded",
+      "docs": [
+        "ONE-WAY. After this, the emergency hatch charges no penalty while locked."
+      ],
+      "discriminator": [
+        107,
+        93,
+        153,
+        242,
+        34,
+        92,
+        81,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "early_exit",
+      "docs": [
+        "Leave BEFORE the lock ends: principal minus 25%, rewards paid. The penalty",
+        "stays in the pool as reward budget."
+      ],
+      "discriminator": [
+        57,
+        50,
+        147,
+        224,
+        231,
+        173,
+        36,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "user_stats",
+            "position"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "relations": [
+            "user_stats",
+            "position"
+          ]
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "user_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "position.nonce",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "emergency_withdraw",
+      "docs": [
+        "THE LAST RESORT. Principal only, at ANY time — including while locked (paying",
+        "the 25% unless the pool is degraded) and including when the reward vault is",
+        "empty, closed, or wedged. This instruction declares NO reward vault (I-12).",
+        "",
+        "AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and",
+        "cannot fail on a vault — and skipping it would shrink the accumulator's divisor",
+        "without banking the window, repricing every other staker retroactively. The",
+        "caller's own accrual is preserved in `UserStats.rewards_carried`, claimable",
+        "later via `claim_carried`, rather than deleted with the position."
+      ],
+      "discriminator": [
+        239,
+        45,
+        203,
+        64,
+        150,
+        73,
+        218,
+        92
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "user_stats",
+            "position"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "relations": [
+            "user_stats",
+            "position"
+          ]
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "user_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "position.nonce",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_cap_raise",
+      "docs": [
+        "Permissionless once the timelock has elapsed."
+      ],
+      "discriminator": [
+        227,
+        125,
+        94,
+        55,
+        162,
+        171,
+        168,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_pool",
+      "docs": [
+        "Create a pool for `mint`. Deployer-gated (see [`deployer`]). Runs the mint gate",
+        "once, pins the token program to the mint's actual owner, and creates both vaults."
+      ],
+      "discriminator": [
+        95,
+        180,
+        10,
+        172,
+        84,
+        174,
+        232,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true,
+          "address": "Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u8"
+        },
+        {
+          "name": "min_stake",
+          "type": "u64"
+        },
+        {
+          "name": "deposit_cap",
+          "type": "u64"
+        },
+        {
+          "name": "max_wallet_principal",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "notify_reward",
+      "docs": [
+        "Open a 90-day window. Owner decision 2026-09-06: reload every 90 days, distribute",
+        "per second.",
+        "",
+        "TWO SOURCES, deliberately separated (AUDIT H-1):",
+        "`amount`      fresh tokens transferred in by the authority in THIS instruction.",
+        "Counted into `reward_funded_cumulative`, which is why the transfer",
+        "lives here rather than being inferred from a balance.",
+        "`from_budget` tokens ALREADY in the reward vault and not yet pledged — retained",
+        "early-exit penalties, swept emergency-hatch penalties, the",
+        "un-emitted tail of a lapsed window, a stranger's donation.",
+        "",
+        "Before the split, the rate was a pure function of `amount`, so every token in the",
+        "second category was permanently unspendable: lifetime emission could not exceed",
+        "the sum of the `amount`s, and there is no `recover_tokens` and no `close_pool`.",
+        "The pool promised leavers' penalties to whoever stayed (`exit_with_penalty`) and",
+        "could not deliver them. `sweep_orphaned_penalty` moved tokens into a vault they",
+        "could never leave.",
+        "",
+        "Solvency is unchanged and is still what bounds this: the resulting rate is checked",
+        "against `fundable()`, the real vault balance minus everything already owed. Naming",
+        "`from_budget` cannot conjure a token — it can only point the schedule at one that",
+        "is physically present and unpledged."
+      ],
+      "discriminator": [
+        252,
+        51,
+        75,
+        132,
+        223,
+        48,
+        177,
+        213
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "funder_ata",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "from_budget",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "propose_authority",
+      "discriminator": [
+        20,
+        148,
+        236,
+        198,
+        76,
+        119,
+        99,
+        142
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "propose_cap_raise",
+      "docs": [
+        "I-13. Raise-only. Takes effect after `CAP_TIMELOCK_SECS` via `execute_cap_raise`."
+      ],
+      "discriminator": [
+        18,
+        202,
+        122,
+        182,
+        48,
+        146,
+        29,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "new_cap",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "stake",
+      "docs": [
+        "Open a position. Every stake is its OWN position: no top-up, so no boost",
+        "blending and no way to buy a high multiplier for a short commitment."
+      ],
+      "discriminator": [
+        206,
+        176,
+        202,
+        18,
+        200,
+        209,
+        179,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "user_stats",
+          "docs": [
+            "Declared BEFORE `position`: its `next_nonce` seeds the position, and Anchor",
+            "evaluates constraints in declaration order."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "user_stats.next_nonce",
+                "account": "UserStats"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "lock_secs",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "sweep_orphaned_penalty",
+      "docs": [
+        "Permissionless. Carries penalties the emergency hatch left in the stake vault",
+        "across to the reward vault. Fixed destination — no discretion, nothing to steer."
+      ],
+      "discriminator": [
+        93,
+        30,
+        77,
+        161,
+        228,
+        212,
+        84,
+        0
+      ],
+      "accounts": [
+        {
+          "name": "pool",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "withdraw_matured",
+      "docs": [
+        "Close a MATURED position: principal in full, rewards paid."
+      ],
+      "discriminator": [
+        250,
+        148,
+        159,
+        141,
+        164,
+        95,
+        1,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "user_stats",
+            "position"
+          ]
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "relations": [
+            "user_stats",
+            "position"
+          ]
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "user_stats",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "pool"
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "account",
+                "path": "position.nonce",
+                "account": "Position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_ata",
+          "writable": true
+        },
+        {
+          "name": "stake_vault",
+          "writable": true
+        },
+        {
+          "name": "reward_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Pool",
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
+      ]
+    },
+    {
+      "name": "Position",
+      "discriminator": [
+        170,
+        188,
+        143,
+        228,
+        122,
+        64,
+        247,
+        208
+      ]
+    },
+    {
+      "name": "UserStats",
+      "discriminator": [
+        176,
+        223,
+        136,
+        27,
+        122,
+        79,
+        32,
+        227
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AuthorityAccepted",
+      "discriminator": [
+        166,
+        192,
+        219,
+        188,
+        41,
+        209,
+        195,
+        26
+      ]
+    },
+    {
+      "name": "AuthorityProposed",
+      "discriminator": [
+        244,
+        117,
+        94,
+        112,
+        53,
+        151,
+        35,
+        89
+      ]
+    },
+    {
+      "name": "CapRaiseCancelled",
+      "discriminator": [
+        110,
+        196,
+        68,
+        184,
+        171,
+        196,
+        212,
+        243
+      ]
+    },
+    {
+      "name": "CapRaiseProposed",
+      "discriminator": [
+        29,
+        15,
+        133,
+        237,
+        57,
+        59,
+        118,
+        213
+      ]
+    },
+    {
+      "name": "CapRaised",
+      "discriminator": [
+        93,
+        45,
+        81,
+        46,
+        69,
+        177,
+        23,
+        67
+      ]
+    },
+    {
+      "name": "Degraded",
+      "discriminator": [
+        20,
+        199,
+        167,
+        15,
+        71,
+        39,
+        168,
+        85
+      ]
+    },
+    {
+      "name": "PenaltySwept",
+      "discriminator": [
+        215,
+        77,
+        131,
+        200,
+        242,
+        215,
+        198,
+        245
+      ]
+    },
+    {
+      "name": "RewardAdded",
+      "discriminator": [
+        240,
+        91,
+        63,
+        228,
+        74,
+        179,
+        75,
+        246
+      ]
+    },
+    {
+      "name": "RewardPaid",
+      "discriminator": [
+        132,
+        160,
+        190,
+        117,
+        215,
+        177,
+        19,
+        95
+      ]
+    },
+    {
+      "name": "Staked",
+      "discriminator": [
+        11,
+        146,
+        45,
+        205,
+        230,
+        58,
+        213,
+        240
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6001,
+      "name": "ZeroAmount",
+      "msg": "Amount resolves to zero"
+    },
+    {
+      "code": 6002,
+      "name": "LockTooShort",
+      "msg": "Lock is shorter than the seven-day floor"
+    },
+    {
+      "code": 6003,
+      "name": "LockTooLong",
+      "msg": "Lock is longer than the four-year ceiling"
+    },
+    {
+      "code": 6004,
+      "name": "BelowMinStake",
+      "msg": "Stake is below the pool minimum — measured on what arrived, not what was sent"
+    },
+    {
+      "code": 6005,
+      "name": "TooManyPositions",
+      "msg": "This wallet already holds the maximum number of open positions on this pool"
+    },
+    {
+      "code": 6006,
+      "name": "DepositCapExceeded",
+      "msg": "Deposit would exceed the pool's cap"
+    },
+    {
+      "code": 6007,
+      "name": "StillLocked",
+      "msg": "Position is still locked — use early_exit or emergency_withdraw (25% penalty)"
+    },
+    {
+      "code": 6008,
+      "name": "UseWithdrawMatured",
+      "msg": "Position has matured — use withdraw_matured; it must not eat a penalty by accident"
+    },
+    {
+      "code": 6009,
+      "name": "Unauthorized",
+      "msg": "Only the configured authority may do this"
+    },
+    {
+      "code": 6010,
+      "name": "NotDeployAuthority",
+      "msg": "Program not initialized by the designated deployer"
+    },
+    {
+      "code": 6011,
+      "name": "MintHasFreezeAuthority",
+      "msg": "Mint carries a freeze authority — it could freeze the vault and trap every staker's principal"
+    },
+    {
+      "code": 6012,
+      "name": "UnsupportedMintExtension",
+      "msg": "Mint carries an extension this pool does not accept (transfer fee, hook, permanent delegate, ...)"
+    },
+    {
+      "code": 6013,
+      "name": "WrongTokenProgram",
+      "msg": "Token program does not match the mint's owner"
+    },
+    {
+      "code": 6014,
+      "name": "RewardTooHigh",
+      "msg": "Reward rate exceeds what the vault can fund after reserving what is already owed"
+    },
+    {
+      "code": 6015,
+      "name": "CapCanOnlyRaise",
+      "msg": "The deposit cap can only be raised, never lowered"
+    },
+    {
+      "code": 6016,
+      "name": "TimelockNotElapsed",
+      "msg": "The timelock on this change has not elapsed"
+    },
+    {
+      "code": 6017,
+      "name": "NoPendingChange",
+      "msg": "There is no pending change to execute"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidParameter",
+      "msg": "Configured value is outside its permitted range"
+    },
+    {
+      "code": 6019,
+      "name": "AlreadyDegraded",
+      "msg": "Pool is already degraded — the flag is one-way"
+    },
+    {
+      "code": 6020,
+      "name": "EmissionExceedsFunding",
+      "msg": "Emission exceeds funding plus collected penalties — refusing to pay rewards out of principal"
+    },
+    {
+      "code": 6021,
+      "name": "PrincipalInvariant",
+      "msg": "Stake vault holds less than tracked principal — refusing to proceed"
+    },
+    {
+      "code": 6022,
+      "name": "WeightInvariant",
+      "msg": "Position weight exceeds pool total — ledger is desynchronised"
+    },
+    {
+      "code": 6023,
+      "name": "NothingToSweep",
+      "msg": "Nothing to sweep"
+    },
+    {
+      "code": 6024,
+      "name": "RewardRateTooSmall",
+      "msg": "Reward amount is too small to express as a per-second rate over the window — it would emit nothing"
+    },
+    {
+      "code": 6025,
+      "name": "MintHasMintAuthority",
+      "msg": "Mint carries a live mint authority — it could conjure the asset this pool prices"
+    },
+    {
+      "code": 6026,
+      "name": "PoolDegraded",
+      "msg": "This pool has been declared degraded — it accepts no new stakes; existing positions exit penalty-free"
+    },
+    {
+      "code": 6027,
+      "name": "WalletCapExceeded",
+      "msg": "This wallet already holds its maximum share of the pool"
+    }
+  ],
+  "types": [
+    {
+      "name": "AuthorityAccepted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous",
+            "type": "pubkey"
+          },
+          {
+            "name": "current",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuthorityProposed",
+      "docs": [
+        "AUDIT L-11. The admin surface emitted nothing typed. Anchor injects",
+        "`msg!(\"Instruction: <Name>\")` into every handler so nothing was silent, but the log",
+        "carries the NAME and not the VALUES — an indexer had to make a second",
+        "`getTransaction` hop to learn what changed. `sweep_orphaned_penalty` was also the",
+        "only token-moving instruction with no `emit!` at all. IDL-additive; no pinned size",
+        "moves, because events are not accounts."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "current",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposed",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CapRaiseCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "abandoned_cap",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CapRaiseProposed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "current_cap",
+            "type": "u64"
+          },
+          {
+            "name": "proposed_cap",
+            "type": "u64"
+          },
+          {
+            "name": "executable_at",
+            "docs": [
+              "When `execute_cap_raise` becomes callable."
+            ],
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CapRaised",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "previous_cap",
+            "type": "u64"
+          },
+          {
+            "name": "new_cap",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Degraded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PenaltySwept",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Moved stake vault -> reward vault, and now schedulable via `notify_reward`'s",
+              "`from_budget` (audit H-1). Before that fix this event would have described a",
+              "no-op."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pool",
+      "docs": [
+        "One pool per (mint, nonce). PDA at [`POOL_SEED`, mint, nonce].",
+        "",
+        "Every cumulative quantity is u128 — see `math.rs` for the Streamflow lesson.",
+        "`total_principal` is a TRACKED SCALAR and authoritative: it is never derived from",
+        "the vault balance, because any stranger can transfer into the vault, so only",
+        "`vault >= total_principal` is a safe statement (invariant I-1)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "type": "u8"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "docs": [
+              "Pinned at init to whatever program actually owns the mint. Every transfer is",
+              "checked against it."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Admin. Two-step transfer (`propose_authority` / `accept_authority`)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pending_authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "reward_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "min_stake",
+            "docs": [
+              "Smallest stake this pool admits, in raw base units, measured on what ARRIVED.",
+              "`>= math::HARD_MIN_STAKE_RAW`; it derives the I-11 divisor floor."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "deposit_cap",
+            "docs": [
+              "Invariant I-13. Raise-only, on a 48 h timelock. The one lever that genuinely",
+              "buys back safety for a program with no deployment record: ship it low and",
+              "ratchet as the program ages."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_cap",
+            "type": "u64"
+          },
+          {
+            "name": "pending_cap_ts",
+            "type": "i64"
+          },
+          {
+            "name": "max_wallet_principal",
+            "docs": [
+              "AUDIT M-4. The pool-wide cap alone let ONE wallet occupy a whole low-cap pool",
+              "and refuse every other depositor indefinitely — `MAX_POSITIONS` bounds client",
+              "enumeration, not capital, and a single position may be the entire cap. There is",
+              "no forced maturity, decay or kick, so the position simply sits there.",
+              "",
+              "Deliberately NOT a sentinel: there is no \"0 means unlimited\". A pool that wants",
+              "no per-wallet limit sets this equal to `deposit_cap`, which is explicit and",
+              "cannot be reached by forgetting to configure it. Carved from `_reserved`, so",
+              "`8 + Pool::INIT_SPACE` stays 508."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_principal",
+            "docs": [
+              "REAL principal, exactly as Synthetix means `_totalSupply`. Authoritative."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_weighted",
+            "docs": [
+              "Sum of every open position's weight. The accumulator's divisor."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "reward_rate",
+            "docs": [
+              "Synthetix state, unchanged in meaning."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "period_finish",
+            "type": "i64"
+          },
+          {
+            "name": "last_update_time",
+            "type": "i64"
+          },
+          {
+            "name": "reward_per_weight_stored",
+            "type": "u128"
+          },
+          {
+            "name": "rewards_emitted",
+            "docs": [
+              "AUDIT C2 (LighthouseLadder.sol): total the accumulator has ever emitted, and",
+              "the part already transferred out. Their difference is the outstanding",
+              "liability, reserved before any new period may be funded (I-3)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "rewards_paid",
+            "type": "u128"
+          },
+          {
+            "name": "reward_funded_cumulative",
+            "docs": [
+              "TELEMETRY, not an enforced bound (audit L-3 — both are write-only on-chain,",
+              "and the docstrings that claimed otherwise were wrong). The enforced solvency",
+              "check is in `notify_reward`: outstanding liability must be physically present",
+              "in the reward vault.",
+              "",
+              "`reward_funded_cumulative` counts only tokens moved IN by `notify_reward`, so",
+              "a stranger's direct transfer is usable budget but is not counted here.",
+              "`penalty_collected_cumulative` counts retained early-exit penalties and swept",
+              "emergency-hatch penalties. Since H-1, both categories are genuinely",
+              "schedulable via `notify_reward`'s `from_budget`, so the split between them is",
+              "now meaningful rather than decorative: it is how an operator answers \"how much",
+              "of what this pool paid came from leavers rather than from me\"."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "penalty_collected_cumulative",
+            "type": "u128"
+          },
+          {
+            "name": "orphaned_penalty",
+            "docs": [
+              "A penalty charged by `emergency_withdraw`, which declares NO reward vault",
+              "(I-12), is left in the stake vault and tracked here until the permissionless",
+              "`sweep_orphaned_penalty` moves it to the reward vault. It is never principal:",
+              "`total_principal` already excludes it."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "degraded",
+            "docs": [
+              "ONE-WAY. When set, `emergency_withdraw` charges no penalty while locked. This",
+              "is the answer to \"what if the operator is the failure\": a flag that can only",
+              "ever move in the direction that frees stakers gives a stolen key nothing it",
+              "wants. Its cost is honest — it stops future penalty inflow."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "rpw_residue",
+            "docs": [
+              "Truncation remainders (audit M-2 / L-4). Carved OUT of `_reserved` rather than",
+              "appended, so `8 + Pool::INIT_SPACE` stays at its pinned 508 and no already-",
+              "deployed pool would need migrating. `rpw_residue` carries",
+              "`num % total_weighted` from the accumulator step; `emitted_residue` carries",
+              "`num % PRECISION` from the pool-side bank. Both are dropped, never banked,",
+              "across an I-11-burned or empty-pool interval."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "emitted_residue",
+            "type": "u128"
+          },
+          {
+            "name": "_reserved",
+            "type": {
+              "array": [
+                "u8",
+                88
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Position",
+      "docs": [
+        "One position. PDA at [`POSITION_SEED`, pool, owner, nonce_le]. Every stake is its",
+        "OWN position — there is no top-up, so there is no boost blending and no way to buy",
+        "a high multiplier for a short commitment.",
+        "",
+        "A closed position is DELETED (`close = owner`), never zeroed and left behind.",
+        "All three criticals in the EVM design review began with a record that outlived",
+        "its close (invariant I-7)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Principal, in raw base units — what ARRIVED."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "weight",
+            "docs": [
+              "`amount x boost / BPS`, frozen at stake time."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "lock_end",
+            "type": "i64"
+          },
+          {
+            "name": "reward_per_weight_paid",
+            "docs": [
+              "Synthetix `userRewardPerTokenPaid`."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "rewards_owed",
+            "docs": [
+              "Synthetix `rewards[]` — accrued and not yet paid. Deferred, never forfeited,",
+              "when the vault is short (I-2)."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "AUDIT L-8, and it is FREE NOW AND IMPOSSIBLE LATER. `Pool` reserved padding and",
+              "these two did not. An upgrade that grows this struct fails Borsh (3003) on every",
+              "pre-existing account across all four exit paths, and `stake` fails one step",
+              "earlier on `ConstraintSpace` (2019). Recoverable by redeploying the prior",
+              "binary — but only because nothing is live yet.",
+              "",
+              "Padding only helps ADDITIVE growth. Reordering or widening an existing field",
+              "still breaks every account, reserve or no reserve."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardAdded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Fresh tokens transferred in by this call."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "from_budget",
+            "docs": [
+              "Tokens already in the vault that this call scheduled (AUDIT H-1). An indexer",
+              "must add the two to get what the window will actually pay."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reward_rate",
+            "type": "u128"
+          },
+          {
+            "name": "period_finish",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "deferred",
+            "docs": [
+              "What is STILL owed after this payment — non-zero means the vault was short and",
+              "the balance is deferred, not lost."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Staked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "lock_secs",
+            "type": "i64"
+          },
+          {
+            "name": "weight",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserStats",
+      "docs": [
+        "Per-(pool, wallet) bookkeeping. PDA at [`USER_SEED`, pool, owner].",
+        "",
+        "The nonce is PROGRAM-ASSIGNED and monotone, so a client can never collide with",
+        "itself, and no `Vec<Pubkey>` of position ids lives on-chain — the client",
+        "enumerates with `getProgramAccounts` + memcmp on `owner`, exactly as",
+        "`bungalowStaking.ts` already does against Streamflow."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "next_nonce",
+            "type": "u32"
+          },
+          {
+            "name": "open_positions",
+            "type": "u8"
+          },
+          {
+            "name": "rewards_carried",
+            "docs": [
+              "Rewards a position was owed when it closed through a path that could not (or",
+              "did not fully) pay them — the emergency hatch, which has no reward vault, or an",
+              "exit against a short vault. AUDIT C3 in the Solidity keeps these in a per-",
+              "account `rewards[]` that survives the position; this is that ledger. Paid by",
+              "`claim_carried` under the same I-2 rule: what the vault holds now, the rest",
+              "deferred. Deferred, never forfeited."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "principal",
+            "docs": [
+              "This wallet's live principal in this pool, against `Pool::max_wallet_principal`",
+              "(audit M-4). MUST be decremented on every close — `debit_closed` does it — or a",
+              "wallet self-locks out of the pool after its first exit, which would turn a",
+              "fairness guard into a denial of service against honest users."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "See `Position::_reserved` — same reasoning, smaller struct (audit L-8)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                24
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Withdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "What the staker RECEIVED."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "penalty",
+            "docs": [
+              "What the pool kept. Zero on a matured withdrawal."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "emergency",
+            "docs": [
+              "true = the reward-vault-free hatch; false = a normal exit."
+            ],
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -2,6 +2,19 @@
 // builder, RPC failure → 503 in production).
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+// Warms the module graph at collection time. NOT dead code: every describe below
+// re-imports this module under `vi.resetModules()`, and the first of those pays a
+// cold viem fetch+transform — ~700ms standalone, 2.4s under full-suite load, all of
+// it inside a `beforeEach` that vitest bounds at 10s. `resetModules` clears the
+// module registry, not the transform cache, so paying it here — collection is
+// bounded by nothing — leaves every later re-import at ~1ms.
+//
+// The resets themselves stay. seaport-verify reads SEAPORT_CHAIN_ID and NODE_ENV at
+// MODULE scope, so re-evaluating it is the only way a test can see a changed env,
+// and two tests below assert the throw that module scope raises on a bad chain id —
+// which a static import cannot express at all. Delete a reset and 4 tests below go
+// red; that is the guard working.
+import "../_lib/seaport-verify.js";
 
 const OFFERER = "0x" + "a".repeat(40);
 

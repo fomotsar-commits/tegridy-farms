@@ -25,7 +25,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   // Pop-up / modal surfaces — route where each card appears (the modal itself
   // pops up on interaction, so the live-preview iframe shows the host page).
   onboarding: '/',
-  'consent-banner': '/',
   'tx-receipt': '/dashboard',
   'connect-prompt': '/farm',
   'token-select': '/trade',
@@ -335,7 +334,6 @@ export const SURFACES: Surface[] = [
   // First Move) against the Toweli voice's four, so slide 5 only ever paints
   // off the venue copy — and went unregistered when that voice was added.
   { group: 'Pop-ups / Modals', pageId: 'onboarding',     idx: 4, label: 'PU4b — Onboarding slide 5 (venue voice only)' },
-  { group: 'Pop-ups / Modals', pageId: 'consent-banner', idx: 0, label: 'PU5 — Privacy & telemetry banner' },
   { group: 'Pop-ups / Modals', pageId: 'tx-receipt',     idx: 0, label: 'PU6 — Transaction receipt' },
   { group: 'Pop-ups / Modals', pageId: 'connect-prompt', idx: 0, label: 'PU7 — Connect-wallet gate' },
   { group: 'Pop-ups / Modals', pageId: 'token-select',   idx: 0, label: 'PU8 — Token-select modal' },

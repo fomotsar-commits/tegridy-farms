@@ -9,6 +9,21 @@ import { pageArt } from '../../lib/artConfig';
 import { DEFAULT_TOKENS, isValidAddress, validateAddress, type TokenInfo } from '../../lib/tokenList';
 import { getTokenUrl } from '../../lib/explorer';
 
+/**
+ * THE FRONT ROW. Chain-neutral majors only.
+ *
+ * Exported so `pages/venueVoice.test.tsx` can hold it to the venue's own rule:
+ * the venue does not have a token, so no resident gets a permanent chip here
+ * while the other eleven have to be searched for. Every symbol below is a
+ * chain asset or a stablecoin — nothing whose value depends on this venue.
+ *
+ * A symbol with no matching entry in DEFAULT_TOKENS renders nothing, so this
+ * list is safe to shorten. It is NOT the token list itself: DEFAULT_TOKENS is
+ * a separate array with non-null callers (DCATab.tsx and friends) and is
+ * deliberately untouched by this rule.
+ */
+export const POPULAR_TOKEN_SYMBOLS = ['ETH', 'USDC', 'USDT', 'WBTC', 'WETH'] as const;
+
 function FallbackIcon({ symbol, size, bg }: { symbol: string; size: string; bg: string }) {
   return (
     <span className={`${size} rounded-full flex items-center justify-center text-[8px] font-bold text-white`} style={{ background: bg }}>
@@ -316,7 +331,7 @@ export function TokenSelectModal({ open, onClose, onSelect, disabledAddress, cus
 
           {/* Popular quick-select chips */}
           <div className="px-4 pb-2 flex flex-wrap gap-1.5">
-            {['ETH', 'TOWELI', 'USDC', 'USDT', 'WBTC', 'WETH'].map(sym => {
+            {POPULAR_TOKEN_SYMBOLS.map(sym => {
               const token = tokens.find(t => t.symbol === sym);
               if (!token) return null;
               const isDisabled = token.address.toLowerCase() === disabledAddress?.toLowerCase();

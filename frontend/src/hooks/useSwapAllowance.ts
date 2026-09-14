@@ -70,8 +70,10 @@ export function useSwapAllowance(
         chainId: CHAIN_ID,
       },
     ],
-    // R042 MED-3: gate reads on chain match — wrong-chain returns 0 garbage
-    // and would trigger an approve targeting mainnet addresses on L2.
+    // R042 MED-3: gated on the wallet's chain, and kept. The reads are pinned to
+    // CHAIN_ID too; the gate is here because nothing displays these allowances.
+    // They decide writes only (needsApproval, and approve()'s USDT zero-first
+    // step), and neither write may be sent off mainnet.
     query: { enabled: onRightChain && !!address && !!fromToken && !fromToken.isNative },
   });
 

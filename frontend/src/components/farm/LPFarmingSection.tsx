@@ -54,13 +54,34 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
   // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
   // still undefined at first render, leaving the section blank for the critical first
   // frame. See audit blocker: LPFarmingSection double-return null.
+  //
+  // ⚠ THE HEADING IS NOT PART OF THE SKELETON, and shimmering it was a real defect.
+  // "LP Farming" and its subtitle are compile-time constants — they depend on no read,
+  // so there is nothing to wait for before printing them. Standing two grey bars where
+  // the section's NAME goes meant that for as long as the batch was in flight, /farm
+  // showed a nameless pulsing box: a screen reader got nothing to announce, and a
+  // sighted user could not tell which section was loading. This is the section's
+  // identity disappearing while it loads — the same class of bug as rendering an
+  // unreadable value as a confident zero, one step earlier.
+  //
+  // It is not a hypothetical window either. The batch below retries twice (App.tsx
+  // sets retry: 2) with viem's 10s per-transport timeout behind a 2-endpoint fallback,
+  // so a degraded RPC can hold this state for tens of seconds. Measured on the CI
+  // Anvil fork it runs 2.5-6.7s on a COLD fork — see the named budget in
+  // e2e/claim-rewards.spec.ts, which this shape is what lets that spec separate
+  // "the section mounted" from "its reads landed".
+  //
+  // Shimmer only what the read actually decides: the stat tiles and the CTA. The
+  // house pattern elsewhere is the same — BountiesSection keeps its <h3> and
+  // skeletons the rows beneath it; this section was the only one that early-returned
+  // its own heading away.
   if (lpFarm.isReadLoading) {
     return (
-      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+      <m.div className="mb-10" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} aria-busy="true">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <div className="h-6 w-40 rounded bg-white/10 animate-pulse" />
-            <div className="h-4 w-64 rounded bg-white/10 animate-pulse mt-1.5" />
+            <h2 className="heading-luxury text-white text-[22px] tracking-tight">LP Farming</h2>
+            <p className="text-white text-[13px] mt-0.5">Stake LP tokens &middot; earn TOWELI rewards</p>
           </div>
         </div>
         <div className="rounded-xl p-6" style={{ background: 'rgba(0,0,0,0.35)', border: '1px solid var(--color-purple-15)' }}>
@@ -122,11 +143,40 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
           <ArtImg pageId="lp-farming" idx={1} fallbackPosition="center 30%" alt="" loading="lazy" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 p-6">
+          {/* Farm-wide reads — same three-branch shape as the position notice below,
+              but ABOVE the isConnected fork, because these seven reads run for
+              logged-out visitors too (FarmPage.tsx:429 mounts this section at
+              isConnected={false}) and every one of them collapses to 0n. */}
+          {lpFarm.statsUnread && (
+            <div
+              className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 mb-5 text-[13px] text-amber-100"
+              data-testid="lp-farming-stats-unread"
+            >
+              <p>
+                The farm&rsquo;s figures could not be read just now &mdash; the network did
+                not answer. The farm figures below are unknown, not zero: this is not a
+                statement that nothing is staked or that rewards have ended. Retry before
+                acting on them.
+              </p>
+              <button
+                type="button"
+                className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
+                onClick={() => { void lpFarm.refetch(); }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
           {/* APR hero — the headline number a farmer wants, derived live from on-chain
-              emissions + staked TVL (not a hardcoded figure). */}
+              emissions + staked TVL (not a hardcoded figure).
+
+              `statsUnread` has to suppress the figure itself, not just the caption:
+              a landed `totalRawSupply` beside a FAILED `rewardRate` gives
+              rewardRatePerYear = 0 and a finite denominator, so this printed a
+              confident "0.00%" for an emission rate nobody read. */}
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-5">
             <span className="text-white/85 text-[11px] uppercase tracking-wider label-pill">Est. APR</span>
-            {lpApr !== null ? (
+            {lpApr !== null && !lpFarm.statsUnread ? (
               <>
                 <span className="stat-value text-[26px] font-bold" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{formatPercent(lpApr)}</span>
                 <span className="text-white/55 text-[10px]">estimated from staked TVL &middot; falls as more LP is staked</span>
@@ -135,11 +185,17 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               <>
                 <span className="stat-value text-[26px] font-bold text-white/70">&ndash;</span>
                 <span className="text-white/55 text-[10px]">
-                  {lpFarm.totalStaked === 0n
-                    ? 'be the first to stake LP to activate the live APR'
-                    : !lpFarm.isActive
-                      ? 'between LP reward epochs — staked LP is safe'
-                      : 'calculating…'}
+                  {/* An unread pool total must not invite you to be first on a
+                      farm that may be fully subscribed. `statsUnread` includes the
+                      pool totals (poolStatsUnread) and every other farm-wide read,
+                      and the notice above carries the Retry this points at. */}
+                  {lpFarm.statsUnread
+                    ? 'the farm figures could not be read — retry above'
+                    : lpFarm.totalStaked === 0n
+                      ? 'be the first to stake LP to activate the live APR'
+                      : !lpFarm.isActive
+                        ? 'between LP reward epochs — staked LP is safe'
+                        : 'calculating…'}
                 </span>
               </>
             )}
@@ -148,7 +204,9 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total LP Staked</p>
-              <p className="stat-value text-[14px] text-white font-mono">{formatTokenAmount(lpFarm.totalStakedFormatted)}</p>
+              <p className="stat-value text-[14px] text-white font-mono">
+                {lpFarm.statsUnread ? '–' : formatTokenAmount(lpFarm.totalStakedFormatted)}
+              </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               {/* The NUMBER here was already correct: useLPFarming zeroes rewardRatePerDay
@@ -156,9 +214,19 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                   than a live figure. What it did not do is say WHY. "0.00 / day" beside a
                   past "Period Ends" date reads like a lull between epochs; the reward
                   period actually ended 2026-06-15 and is unfunded. This is a legibility
-                  change on an already-honest number, not a correction. */}
-              <p className="text-white text-[10px] mb-0.5">{lpFarm.isActive ? 'Reward Rate' : 'Reward Rate (ended)'}</p>
-              {lpFarm.isActive ? (
+                  change on an already-honest number, not a correction.
+
+                  What it ALSO did not do is separate that ended-schedule zero from an
+                  unread one. `isActive` is derived from `periodFinish`, which collapses
+                  to 0 on a failed read, so an outage printed the amber "0 / day" and the
+                  tooltip "The reward period has ended" — a claim about the schedule
+                  sourced from a read that never landed. Three branches now, not two. */}
+              <p className="text-white text-[10px] mb-0.5">
+                {lpFarm.statsUnread || lpFarm.isActive ? 'Reward Rate' : 'Reward Rate (ended)'}
+              </p>
+              {lpFarm.statsUnread ? (
+                <p className="stat-value text-[14px] text-white font-mono">–</p>
+              ) : lpFarm.isActive ? (
                 <p className="stat-value text-[14px] text-white font-mono">{formatNumber(lpFarm.rewardRatePerDay, 2)} / day</p>
               ) : (
                 <p className="stat-value text-[14px] text-amber-300 font-mono" title="The reward period has ended — staking LP here accrues nothing until it is refunded.">
@@ -168,12 +236,19 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
               <p className="text-white text-[10px] mb-0.5">Total Funded</p>
-              <p className="stat-value text-[14px] text-white font-mono">{formatNumber(parseFloat(lpFarm.totalRewardsFundedFormatted), 0)} TOWELI</p>
+              <p className="stat-value text-[14px] text-white font-mono">
+                {lpFarm.statsUnread ? '–' : `${formatNumber(parseFloat(lpFarm.totalRewardsFundedFormatted), 0)} TOWELI`}
+              </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-              <p className="text-white text-[10px] mb-0.5">{lpFarm.isActive ? 'Period Ends' : 'Period Ended'}</p>
-              <p className={`stat-value text-[14px] font-mono ${lpFarm.isActive ? 'text-white' : 'text-amber-300'}`}>
-                {lpFarm.periodFinish > 0 ? new Date(lpFarm.periodFinish * 1000).toLocaleDateString() : '–'}
+              {/* The date already rendered an en-dash for a zero `periodFinish`, but the
+                  LABEL and the amber both asserted "Period Ended" over it — the one half
+                  a failed read could not honestly say. */}
+              <p className="text-white text-[10px] mb-0.5">
+                {lpFarm.statsUnread || lpFarm.isActive ? 'Period Ends' : 'Period Ended'}
+              </p>
+              <p className={`stat-value text-[14px] font-mono ${lpFarm.statsUnread || lpFarm.isActive ? 'text-white' : 'text-amber-300'}`}>
+                {!lpFarm.statsUnread && lpFarm.periodFinish > 0 ? new Date(lpFarm.periodFinish * 1000).toLocaleDateString() : '–'}
               </p>
             </div>
           </div>
@@ -296,7 +371,19 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
                       </button>
                     );
                   })()}
-                  {lpFarm.minStake > 0n && (
+                  {/* An unread MIN_STAKE collapses to 0n, which fails BOTH tests below
+                      and used to render nothing at all — so the screen quietly claimed
+                      this pool has no minimum, and `belowMin` above stopped blocking.
+                      Say we could not read it instead. Staking stays enabled: the
+                      contract enforces MIN_STAKE regardless, so the cost here is a
+                      revert, and refusing a legitimate stake over one unanswered read
+                      of a constant would be the worse trade. */}
+                  {lpFarm.minStakeUnread ? (
+                    <p className="text-white/50 text-[10px] mt-2">
+                      Minimum stake <span className="font-mono">unread</span> &mdash; if this pool has one,
+                      a stake below it will revert. Retry in a moment to check.
+                    </p>
+                  ) : lpFarm.minStake > 0n && (
                     <p className="text-white/50 text-[10px] mt-2">
                       Min stake <span className="font-mono">{formatTokenAmount(lpFarm.minStakeFormatted, 0)}</span> LP
                       {!lpFarm.positionUnread && parseFloat(lpFarm.walletLPBalanceFormatted) < parseFloat(lpFarm.minStakeFormatted) && (

@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { BUNGALOWS, type Bungalow } from '../bungalows';
 import { TOWELI_WETH_LP_ADDRESS } from '../constants';
 import { GECKO_NETWORKS } from '../geckoTerminal/pools';
-import { VENUE_POOL, islandPools, islandPoolsOn } from './islandPools';
+import { TOWELI_POOL, islandPools, islandPoolsOn } from './islandPools';
 
 // The island view reads the SAME `market` field the bungalow charts read. These
 // tests are mostly about what it refuses to invent: a resident with no recorded
-// pool is skipped rather than guessed at, and the venue's own pool gets no
+// pool is skipped rather than guessed at, and the hand-added TOWELI row gets no
 // special treatment at all.
 
 function bungalow(over: Partial<Bungalow>): Bungalow {
@@ -16,7 +16,7 @@ function bungalow(over: Partial<Bungalow>): Bungalow {
 describe('it reads the registry rather than a second hand-kept list', () => {
   it('returns every resident that has a recorded market, and only those', () => {
     const withMarket = BUNGALOWS.filter((b) => b.market).length;
-    // +1 for the venue's own pool, which is not a bungalow.
+    // +1 for the TOWELI row, whose market is not on its bungalow entry.
     expect(islandPools()).toHaveLength(withMarket + 1);
   });
 
@@ -43,22 +43,29 @@ describe('it reads the registry rather than a second hand-kept list', () => {
   });
 });
 
-describe('the venue’s own pool gets no special treatment', () => {
-  it('is included, on eth, at the venue’s recorded LP address', () => {
-    expect(VENUE_POOL).toEqual({
-      network: 'eth',
-      pool: TOWELI_WETH_LP_ADDRESS,
-      label: 'TOWELI (the venue’s own pool)',
-    });
+describe('the hand-added TOWELI row gets no special treatment', () => {
+  it('is included, on eth, at the recorded TOWELI/WETH LP address', () => {
+    // ⚠️ THE LABEL IS NO LONGER PINNED AS A LITERAL. It used to be, and that
+    // pinned the DEFECT: the string was "TOWELI (the venue’s own pool)", which
+    // is a claim pages/venueVoice.test.tsx already rules out — the venue has no
+    // token, so it has no pool of its own — and it is prose, read back to the
+    // user by useIslandTape's ledger line. The shape and the address are what
+    // this test is for; what the row may CLAIM is pinned below and in
+    // venueVoice.test.tsx, where a rewording moves one assertion, not two.
+    expect(TOWELI_POOL.network).toBe('eth');
+    expect(TOWELI_POOL.pool).toBe(TOWELI_WETH_LP_ADDRESS);
+    expect(TOWELI_POOL.label).toContain('TOWELI');
     expect(islandPoolsOn('eth')).toContain(TOWELI_WETH_LP_ADDRESS);
   });
 
-  it('makes no static market claim — the label is a name, not a depth figure', () => {
-    // A venue that exempted its own pool from its own honesty rules would have
-    // written those rules for other people. It goes through the same parser,
-    // the same null rules and the same safety read as any stranger's pool.
-    expect(VENUE_POOL.label).not.toMatch(/deepest|best|largest|\$|liquidity/i);
-    expect(Object.keys(VENUE_POOL).sort()).toEqual(['label', 'network', 'pool']);
+  it('makes no static market claim, and claims no ownership by the venue', () => {
+    // A venue that exempted one resident's pool from its own honesty rules would
+    // have written those rules for other people. It goes through the same parser,
+    // the same null rules and the same safety read as any stranger's pool — and
+    // it is one resident's pool, not the house's.
+    expect(TOWELI_POOL.label).not.toMatch(/deepest|best|largest|\$|liquidity/i);
+    expect(TOWELI_POOL.label, 'the row claims the venue owns it').not.toMatch(/\b(venue|our|its)\b[^.]*\bown\b/i);
+    expect(Object.keys(TOWELI_POOL).sort()).toEqual(['label', 'network', 'pool']);
   });
 
   it('is not listed twice if a resident records the same pool', () => {
@@ -71,7 +78,7 @@ describe('the venue’s own pool gets no special treatment', () => {
     });
     const pools = islandPools([dupe]);
     expect(pools).toHaveLength(1);
-    expect(pools[0]).toEqual(VENUE_POOL);
+    expect(pools[0]).toEqual(TOWELI_POOL);
   });
 
   it('does NOT dedupe two Solana pools differing only in case — base58 is case-sensitive', () => {

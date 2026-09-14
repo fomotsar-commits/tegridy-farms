@@ -11,7 +11,8 @@ import { useIndexedQuery, type IndexedStatus } from './useIndexedQuery';
 
 // The terminal's discovery feed, over the F1 indexer.
 //
-// THE INDEXER IS NOT HOSTED. With VITE_INDEXER_URL unset this hook parks in
+// WITHOUT AN INDEXER. Production has one configured; with VITE_INDEXER_URL
+// unset (CI, local builds, previews) this hook parks in
 // `unavailable` with the client's own wording and never emits a request — which
 // is the correct resting state and the reason the page must say "the feed is not
 // available" rather than draw an empty trench. An empty trench on a discovery

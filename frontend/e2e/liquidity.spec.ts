@@ -18,8 +18,13 @@
  * gate lives INSIDE the test that needs it rather than in describe scope.
  */
 import { test, expect, expectTxReceipt, advancePastApproval } from './fixtures/wallet';
+import { ROUTE_MOUNT_TIMEOUT } from './fixtures/routes';
 
 const onAnvil = !!process.env.ANVIL_RPC_URL;
+
+// The swap page's two lazy chunks — the Swap section host and TradePage itself.
+// Vite names a lazy chunk after its module: `assets/TradePage-<hash>.js`.
+const SWAP_PAGE_CHUNKS = /\/assets\/Trade(?:Host)?Page-[\w-]+\.js$/;
 
 test.describe('Liquidity surface', () => {
   test('disconnected /liquidity renders the page with title and gate', async ({ page, walletMock: _w }) => {
@@ -50,9 +55,40 @@ test.describe('Liquidity surface', () => {
     // Links shared while the tab lived on /swap still exist. An unknown tab
     // resolves to 'swap', so without this they would silently land on the wrong
     // surface — which looks like the feature was deleted rather than moved.
+    //
+    // ⚠ AND WITHOUT THE SWAP PAGE. The redirect used to run in an effect inside
+    // TradePage, so following the link meant fetching the swap host, then
+    // TradePage's own chunk, rendering the whole swap page, and only then
+    // fetching this one — four serial chunk loads inside the heading's 5s where a
+    // direct /liquidity visit has two. That is what flaked under load
+    // (2026-09-10). App.tsx answers the link now, and holding the swap chunks
+    // open is what pins it: if the redirect ever needs them again it cannot
+    // happen at all, so this fails on every run rather than on a slow one.
+    const swapChunks: string[] = [];
+    await page.route(SWAP_PAGE_CHUNKS, (route) => {
+      swapChunks.push(route.request().url()); // …and never answered
+    });
+
     await page.goto('/swap?tab=liquidity');
-    await expect(page).toHaveURL(/liquidity$/);
+    // The PATH. This was `toHaveURL(/liquidity$/)`, which the starting url
+    // `…/swap?tab=liquidity` satisfies too: it passed before any redirect ran in
+    // 48 of 50 measured runs, so the line asserted nothing.
+    await expect(page, 'the old link never left /swap — the redirect is waiting on the swap page').toHaveURL(
+      (url) => url.pathname === '/liquidity',
+    );
     await expect(page.locator('h1')).toContainText(/liquidity/i);
+    expect(swapChunks, 'the old link fetched the swap page on its way to /liquidity').toEqual([]);
+
+    // CONTROL: the pattern really does name the swap page. Were a rename or a
+    // chunk-naming change to stop it matching, the hold above would be a no-op
+    // and this test would pass whether or not the redirect waits.
+    await page.goto('/swap', { waitUntil: 'commit' });
+    await expect
+      .poll(() => swapChunks.length, {
+        message: `${SWAP_PAGE_CHUNKS} matched no request on /swap — it no longer names the swap page's chunks`,
+        timeout: ROUTE_MOUNT_TIMEOUT,
+      })
+      .toBeGreaterThan(0);
   });
 
   test('connected wallet renders the LiquidityTab without page errors', async ({ page, walletMock }) => {

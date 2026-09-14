@@ -161,6 +161,21 @@ export interface HeatCardProps {
   variant?: 'panel' | 'embedded';
   /** Hide the launch-floor line, for surfaces where launching is not the subject. */
   showEligibility?: boolean;
+  /**
+   * READ THE SAME WALLET, BUT ANSWER ONE TOKEN'S QUESTION (wave seven, element D).
+   *
+   * A bungalow room asks something narrower than the venue does: not "what is
+   * this wallet's whole flame", but "what is this visitor's held time HERE".
+   * The reading is identical — same address, same fetch, same freshness, same
+   * failure sentences — so this is a presentation of it, not a second source.
+   * The directive's own words are "the instrument, element B, scoped".
+   *
+   * Everything that decides anything is untouched: the form, the loading arm,
+   * and the error arm all render exactly as they do on the venue, because an
+   * unreadable instrument in a room must fail the same way it fails anywhere
+   * else and must never read as a zero.
+   */
+  scopeTo?: { address: string; symbol: string };
 }
 
 export function HeatCard({
@@ -168,6 +183,7 @@ export function HeatCard({
   initialAddress = null,
   variant = 'panel',
   showEligibility = true,
+  scopeTo,
 }: HeatCardProps = {}) {
   const { address: connected } = useAccount();
   const embedded = variant === 'embedded';
@@ -240,6 +256,24 @@ export function HeatCard({
             }
       }
     >
+      {/* THE ROOM'S HEADING, and it has to sit OUTSIDE the ready state.
+          `embedded` deliberately drops the card's own title, which is right in
+          the gate (the gate introduces itself). In a room it left a cold
+          visitor looking at a bare address field and a Read button with
+          nothing saying what it reads — the question only appeared once the
+          answer did. */}
+      {scopeTo && (
+        <div className="mb-3">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-white/55">
+            Your held time in {scopeTo.symbol}
+          </p>
+          <p className="text-white/55 text-[12px] mt-0.5">
+            Read any wallet. Held time is the island's, not this room's — the
+            same number the venue reads, answered for {scopeTo.symbol}.
+          </p>
+        </div>
+      )}
+
       {!embedded && (
         <>
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
@@ -317,13 +351,17 @@ export function HeatCard({
 
         {state.kind === 'ready' && (
           <m.div key={state.reading.address} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-            <Reading
-              reading={state.reading}
-              now={now}
-              showMath={showMath}
-              onToggleMath={() => setShowMath((v) => !v)}
-              showEligibility={showEligibility}
-            />
+            {scopeTo ? (
+              <ScopedReading reading={state.reading} scopeTo={scopeTo} />
+            ) : (
+              <Reading
+                reading={state.reading}
+                now={now}
+                showMath={showMath}
+                onToggleMath={() => setShowMath((v) => !v)}
+                showEligibility={showEligibility}
+              />
+            )}
           </m.div>
         )}
       </AnimatePresence>
@@ -412,16 +450,41 @@ function Reading({
     };
   }, [reading.address, reading.degrees, reading.isCold, reading.xHandle]);
 
+  // WAVE SEVEN, row R: A RETIRED ROW IS LABELED, NOT COUNTED, NOT SUMMED.
+  // The island sets `retired: true` on a mint it no longer scans (a migrated or
+  // scrapped token's history). Those rows sort after the live ones, render
+  // greyed with the word, and stay out of both the token count and the sum line
+  // below. Their own degrees are still printed: that number is the island's,
+  // painted as served.
   const rows = useMemo(
-    () => [...reading.breakdown].sort((a, b) => b.degrees - a.degrees),
+    () =>
+      [...reading.breakdown].sort(
+        (a, b) => Number(a.retired) - Number(b.retired) || b.degrees - a.degrees,
+      ),
     [reading.breakdown],
   );
-  const max = rows[0]?.degrees || 1;
-  // The island states island_heat as the SUM of the rows. Recomputing it here is a
-  // display-side CHECK, not a second source of truth — if they disagree we show
-  // theirs and flag it, because the oracle is the ruler.
-  const summed = rows.reduce((a, r) => a + r.degrees, 0);
-  const mismatch = rows.length > 0 && Math.abs(summed - reading.degrees) > 0.05;
+  const liveRows = rows.filter((r) => !r.retired);
+  const retiredCount = rows.length - liveRows.length;
+  const max = liveRows[0]?.degrees || 1;
+  // The island states island_heat as the SUM of its rows, and its number is the
+  // ruler: it is painted as served and never replaced. The sum line prints the
+  // LIVE rows only, and what follows only decides which true sentence to print
+  // under it.
+  const summed = liveRows.reduce((a, r) => a + r.degrees, 0);
+  const matchesLive = Math.abs(summed - reading.degrees) <= 0.05;
+  // Until the island drops retired rows from its own sum (it is doing so, on the
+  // owner's ruling), its total still includes them. That is not a mismatch and
+  // must not be flagged as one, or every holder of a retired token is told the
+  // island disagrees with itself. So the envelope is added up once, here, only
+  // to tell those two cases apart. That figure is never printed.
+  const matchesEnvelope =
+    Math.abs(rows.reduce((a, r) => a + r.degrees, 0) - reading.degrees) <= 0.05;
+  const includesRetired = retiredCount > 0 && !matchesLive && matchesEnvelope;
+  const mismatch = rows.length > 0 && !matchesLive && !includesRetired;
+  // The count under the number. token_count equalled the row count on the live
+  // 18-row read, retired rows included, so the retired rows come off it. Once
+  // the island stops sending them, retiredCount is 0 and this is token_count.
+  const countedTokens = Math.max(0, reading.tokenCount - retiredCount);
 
   return (
     <div>
@@ -464,7 +527,7 @@ function Reading({
           <div>
             {reading.isCold
               ? 'No measured tokens held'
-              : `${reading.tokenCount} token${reading.tokenCount === 1 ? '' : 's'} counted`}
+              : `${countedTokens} token${countedTokens === 1 ? '' : 's'} counted`}
           </div>
           <div className="font-mono text-white/40 mt-1">{shortenAddress(reading.address, 6)}</div>
         </div>
@@ -582,30 +645,48 @@ function Reading({
           </div>
           <ul className="space-y-1.5 mb-2">
             {rows.map((r) => (
-              <li key={`${r.chain}:${r.tokenAddress}`} className="flex items-center gap-2 text-[12.5px]">
-                <span className="w-[86px] shrink-0 text-white/85 font-medium truncate" title={r.name}>
+              <li
+                key={`${r.chain}:${r.tokenAddress}`}
+                className="flex items-center gap-2 text-[12.5px]"
+                data-retired={r.retired ? 'true' : undefined}
+              >
+                <span
+                  className={`w-[86px] shrink-0 font-medium truncate ${r.retired ? 'text-white/40' : 'text-white/85'}`}
+                  title={r.name}
+                >
                   {r.symbol}
                 </span>
                 <span className="w-[62px] shrink-0 text-white/40 text-[10.5px] uppercase tracking-wider">
                   {r.chain}
                 </span>
-                <span className="flex-1 min-w-[40px] h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                  <span className="block h-full rounded-full" style={{ width: `${(r.degrees / max) * 100}%`, background: color, opacity: 0.75 }} />
-                </span>
-                <span className="w-[58px] shrink-0 text-right stat-value text-white/85">
+                {r.retired ? (
+                  <span className="flex-1 min-w-[40px] text-white/40 text-[11px]" title="The island no longer scans this token.">
+                    retired
+                  </span>
+                ) : (
+                  <span className="flex-1 min-w-[40px] h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                    <span className="block h-full rounded-full" style={{ width: `${(r.degrees / max) * 100}%`, background: color, opacity: 0.75 }} />
+                  </span>
+                )}
+                <span className={`w-[58px] shrink-0 text-right stat-value ${r.retired ? 'text-white/40' : 'text-white/85'}`}>
                   {r.degrees.toFixed(2)}°
                 </span>
               </li>
             ))}
           </ul>
           <div className="flex justify-between text-[12px] pt-2 mb-4" style={{ borderTop: '1px solid var(--color-purple-25)' }}>
-            <span className="text-white/50">Sum across {rows.length} token{rows.length === 1 ? '' : 's'}</span>
+            <span className="text-white/50">Sum across {liveRows.length} token{liveRows.length === 1 ? '' : 's'}</span>
             <span className="stat-value" style={{ color }}>{summed.toFixed(2)}°</span>
           </div>
           {mismatch && (
             <p className="text-[11px] mb-4" style={{ color: '#fbbf24' }}>
               These rows sum to {summed.toFixed(2)}°, but the island reports {reading.degrees.toFixed(2)}°.
               The island&apos;s number is the one that counts.
+            </p>
+          )}
+          {includesRetired && (
+            <p className="text-[11px] text-white/50 mb-4">
+              The island&apos;s {reading.degrees.toFixed(2)}&deg; still includes the retired {retiredCount === 1 ? 'row' : 'rows'}.
             </p>
           )}
         </>
@@ -672,6 +753,73 @@ function Reading({
  * what a wallet is told here and what happens at submit cannot drift. It reads DEGREES,
  * not tenure: held time is already priced inside the number (see LAUNCH_FLOOR).
  */
+/**
+ * THE ROOM'S OWN READ — wave seven, element D.
+ *
+ * Two lines, in the order the directive sets: the row for THIS room's contract
+ * first, the whole flame second. The scoped number leads because it is the
+ * question the room asks; the flame follows so the visitor is never shown a
+ * small number without being told it is one token's share of a bigger one.
+ *
+ * MATCHED BY CONTRACT, CASE-INSENSITIVELY, and that is not a nicety: the
+ * registry stores EVM addresses lowercase and Solana mints in base58 with real
+ * capitals, while the island echoes back whatever it holds. A case-sensitive
+ * compare would silently find no row for every Solana room and print "holds no
+ * measured BAYLA yet" to somebody holding plenty.
+ *
+ * A RETIRED ROW IS GREYED AND LABELED (row R). The island answered what the
+ * word means: a mint it no longer scans, a migrated or scrapped token's
+ * history. The row's own degrees stay on screen because they are the island's
+ * number, painted as served; the whole-flame line under it is the island's
+ * total, never a venue sum.
+ */
+function ScopedReading({
+  reading,
+  scopeTo,
+}: {
+  reading: HeatReading;
+  scopeTo: { address: string; symbol: string };
+}) {
+  const want = scopeTo.address.trim().toLowerCase();
+  const row = reading.breakdown.find((r) => r.tokenAddress.trim().toLowerCase() === want) ?? null;
+  const days = row?.firstSeenAtUnix != null ? daysHeld(row.firstSeenAtUnix, reading.asOfUnix) : null;
+  const rowColor = row?.retired ? 'rgba(255,255,255,0.45)' : TIER_COLOR[reading.tier];
+
+  return (
+    <div>
+      {row ? (
+        <div className="mb-3">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="stat-value text-[26px] leading-none" style={{ color: rowColor }}>
+              {row.degrees.toFixed(2)}
+            </span>
+            <span className="text-[15px]" style={{ color: rowColor }}>&deg;</span>
+            {row.retired && (
+              <span className="text-[12px] text-white/45" title="The island no longer scans this token.">
+                retired
+              </span>
+            )}
+          </div>
+          {days !== null && (
+            <p className="text-white/80 text-[13px] mt-1">
+              {days.toLocaleString('en-US')} {days === 1 ? 'day' : 'days'} held
+              {row.firstSeenAtUnix != null && <> &middot; since {sinceLabel(row.firstSeenAtUnix)}</>}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-white/80 text-[13px] mb-3">
+          This wallet holds no measured {scopeTo.symbol} yet.
+        </p>
+      )}
+
+      <p className="text-white/60 text-[12px]">
+        your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
+      </p>
+    </div>
+  );
+}
+
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
   const floor = heatLaunchFloor();
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());

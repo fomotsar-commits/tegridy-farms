@@ -54,7 +54,7 @@ export interface IndexedQueryState<Row> {
 }
 
 const BACKFILL_DETAIL =
-  'The indexer is still replaying history, so this list is incomplete — an empty result here does not mean there is nothing.';
+  'The indexer is still replaying history, so this list is incomplete. An empty result here does not mean there is nothing.';
 
 const UNKNOWN_FRESHNESS_DETAIL =
   'The indexer did not report its sync position, so how complete this list is cannot be established.';

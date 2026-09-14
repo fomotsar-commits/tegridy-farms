@@ -10,6 +10,7 @@ const getStakePool = vi.fn();
 const searchRewardPools = vi.fn();
 const searchStakeEntries = vi.fn();
 const unstakeAndClaim = vi.fn();
+const unstakeAndClose = vi.fn();
 const claimRewards = vi.fn();
 const getTokenAccountBalance = vi.fn();
 const getAccountInfo = vi.fn();
@@ -29,6 +30,7 @@ vi.mock('@streamflow/staking', () => ({
     searchStakeEntries = searchStakeEntries;
     searchRewardEntries = searchRewardEntries;
     unstakeAndClaim = unstakeAndClaim;
+    unstakeAndClose = unstakeAndClose;
     claimRewards = claimRewards;
     prepareStakeInstructions = prepareStakeInstructions;
     prepareCreateRewardEntryInstructions = prepareCreateRewardEntryInstructions;
@@ -55,8 +57,10 @@ import {
   readEntries,
   nextVacantNonce,
   stake,
+  unstakeAndCloseForfeitingRewards,
   WEIGHT_SCALE,
   type PoolView,
+  type RewardPoolView,
   type StakeEntryView,
 } from './bungalowStaking';
 
@@ -166,7 +170,7 @@ describe('stake', () => {
     minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
     minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
     totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n,
-    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0 }],
+    rewardPools: [{ address: 'Rp1', mint: 'MintAddr', kind: 'fixed' as const, nonce: 3, vault: 'V1', decimals: 6, fundedRaw: 0n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400, fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0 }],
   };
 
   const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
@@ -281,7 +285,7 @@ describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRu
     address: 'Rp', mint: 'M', kind: 'fixed' as const, nonce: 0, vault: 'V', decimals: 6,
     permissionless: true,
     fundedRaw, rewardAmountRaw: '3000000', rewardPeriodSecs: 86400,
-    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0, rateChangedAtTs: 0,
   });
 
   it('dust cannot clear the empty banner, and <1 day of burn is still empty', async () => {
@@ -300,5 +304,114 @@ describe('vaultIsMateriallyEmpty — the exit-safety predicate (built on vaultRu
     expect(vaultIsMateriallyEmpty(staked, mkRp(4_000_000n))).toBe(false);
     // Unreadable vault is an OUTAGE, not a verdict.
     expect(vaultIsMateriallyEmpty(staked, mkRp(null))).toBe(false);
+  });
+});
+
+/**
+ * THE RESCUE MUST CLAIM WHAT IT CAN BEFORE IT CLOSES.
+ *
+ * `unstakeAndClose` closes the reward entry on EVERY pool it is handed, not just
+ * the one past the u64 ceiling. With a single broken classic pool that costs
+ * nothing. The day a working dynamic pool is attached — the stated plan — closing
+ * blind would forfeit a live, claimable balance with no compensation and no
+ * warning. `claimablePoolsBefore` shipped as the fix with NO CALL SITE; this
+ * pins the wiring, not the helper.
+ */
+describe('unstakeAndCloseForfeitingRewards', () => {
+  const rp = (nonce: number, kind: 'fixed' | 'dynamic'): RewardPoolView => ({
+    address: `Rp${nonce}`, mint: 'MintAddr', kind, nonce, vault: `V${nonce}`, decimals: 6,
+    fundedRaw: 1_000n, permissionless: true, rewardAmountRaw: '1', rewardPeriodSecs: 86400,
+    fundedAmountRaw: null, claimedAmountRaw: null, claimPeriodSecs: 0,
+    // LOAD-BEARING. The classic pool's rate moved at ts 2000 and the entry
+    // fixtures below open at ts 1000, so those entries really are ones the
+    // change broke. With this at 0 the predicate never fires and these tests
+    // cannot tell whether a payability filter has crept back in — which is
+    // exactly what mutation testing caught them failing to notice.
+    rateChangedAtTs: kind === 'fixed' ? 2_000 : null,
+  });
+  const poolWith = (pools: RewardPoolView[]): PoolView => ({
+    address: POOL, mint: 'MintAddr', decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+    minDurationSecs: 86400, maxDurationSecs: 86400 * 30,
+    minWeightScaled: WEIGHT_SCALE, maxWeightScaled: WEIGHT_SCALE, unstakePeriodSecs: 0,
+    totalStakeRaw: 0n, totalEffectiveStakeRaw: 0n, rewardPools: pools,
+  });
+  const invoker = { publicKey: { toBase58: () => 'StakerPk' } } as never;
+
+  // The classic pool's rate was changed AFTER this entry opened, so its claim is
+  // expected to revert - and it is STILL attempted. A predicate that is right on
+  // every position measured does not get to skip the attempt; the fee is the
+  // cheap failure and the silent forfeit is not.
+  const BROKEN_CLASSIC_LIVE_DYNAMIC = {
+    createdTs: 1_000,
+    pendingRaw: { 0: 4_000n, 1: 9_000n },
+  };
+
+  it('attempts EVERY pool holding a balance before it closes — including the one over the constant', async () => {
+    claimRewards.mockResolvedValue({ txId: 'CLAIM_SIG' });
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
+      entryNonce: 7,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
+    });
+    expect(r.ok).toBe(true);
+    // BOTH pools are claimed. This assertion read `1` on trunk — the classic
+    // pool was dropped unclaimed because its counter was over the constant, and
+    // that predicate matches a live position holding five figures of claimable
+    // BAYLA. Nothing here may decide a pool cannot pay; the program decides.
+    expect(claimRewards).toHaveBeenCalledTimes(2);
+    expect(claimRewards.mock.calls.map((c) => c[0].rewardPoolNonce)).toEqual([0, 1]);
+    expect(claimRewards.mock.calls[0]![0].depositNonce).toBe(7);
+    // ORDER IS THE POINT. Closing first destroys the balance the claim saves.
+    expect(claimRewards.mock.invocationCallOrder[0]!)
+      .toBeLessThan(unstakeAndClose.mock.invocationCallOrder[0]!);
+    expect(unstakeAndClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('ABORTS rather than forfeiting when the claim fails', async () => {
+    claimRewards.mockRejectedValue(new Error('vault dry'));
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed'), rp(1, 'dynamic')]),
+      entryNonce: 7,
+      entry: BROKEN_CLASSIC_LIVE_DYNAMIC,
+    });
+    expect(r.ok).toBe(false);
+    // The close must NOT have happened: burning a claimable balance to save a
+    // retry is the trade this change exists to refuse.
+    expect(unstakeAndClose).not.toHaveBeenCalled();
+    if (!r.ok) expect(r.reason).toMatch(/could not be claimed first/);
+  });
+
+  it('when the chain itself says 6000, the rescue accepts that and frees the principal', async () => {
+    // The ONLY evidence that closes a door. Not the counter — the program.
+    claimRewards.mockRejectedValue(new Error('Error Code: ArithmeticError. Error Number: 6000.'));
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
+    // Attempted, refused by the program, then closed — the principal is not
+    // held hostage to rewards that provably cannot be collected.
+    expect(claimRewards).toHaveBeenCalledTimes(1);
+    expect(r.ok).toBe(true);
+    expect(unstakeAndClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a NON-permanent failure still aborts — a dry vault is not a death certificate', async () => {
+    claimRewards.mockRejectedValue(new Error('Error Code: RewardPoolDrained. Error Number: 6013.'));
+    unstakeAndClose.mockResolvedValue({ txId: 'CLOSE_SIG' });
+    const r = await unstakeAndCloseForfeitingRewards({
+      invoker,
+      pool: poolWith([rp(0, 'fixed')]),
+      entryNonce: 7,
+      entry: { createdTs: 1_000, pendingRaw: { 0: 4_000n } },
+    });
+    expect(r.ok).toBe(false);
+    expect(unstakeAndClose).not.toHaveBeenCalled();
   });
 });

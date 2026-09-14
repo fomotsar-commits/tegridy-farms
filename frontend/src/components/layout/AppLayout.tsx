@@ -1,4 +1,6 @@
 import { Outlet, useLocation } from 'react-router-dom';
+import { ToweliRoomStrip } from './ToweliRoomStrip';
+import { isToweliRoomPage } from '../../lib/routeVoice';
 import { useAccount, useSwitchChain } from 'wagmi';
 import { trackWalletConnect } from '../../lib/analytics';
 import { mainnet } from 'wagmi/chains';
@@ -43,7 +45,6 @@ import { OnboardingModal } from '../ui/OnboardingModal';
 import { BungalowPicker } from '../BungalowPicker';
 import { BungalowOnboarding } from '../bungalow/BungalowOnboarding';
 import { BUNGALOWS, hasChosenBungalow, getBungalowIdentity, OPEN_BUNGALOWS_EVENT, OPEN_BUNGALOW_ABOUT_EVENT } from '../../lib/bungalows';
-import { ConsentBanner } from '../ui/ConsentBanner';
 import { WalletConnectWatchdog } from '../ui/WalletConnectWatchdog';
 import { SeasonalEventBanner } from '../SeasonalEvent';
 import { isToweliVoice, OPEN_VENUE_WELCOME_EVENT } from '../../lib/arrival';
@@ -259,6 +260,9 @@ export function AppLayout() {
             without it some browsers scroll but leave focus in the nav, sending
             the next Tab back to the header instead of into the content. */}
         <main id="main-content" tabIndex={-1}>
+          {/* WAVE SEVEN, row Q: TOWELI's protocol pages carry the room's band,
+              in flow and first in main (ToweliRoomStrip says why). */}
+          {isToweliRoomPage(location.pathname) && <ToweliRoomStrip />}
           <PageTransition pathname={location.pathname}>
             <ErrorBoundary resetKeys={[location.pathname]}>
               <Outlet />
@@ -320,10 +324,8 @@ export function AppLayout() {
             ? <OnboardingModal />
             : <OnboardingModal invited invitedOpen={welcomeRequested} onInvitedClose={() => setWelcomeRequested(false)} />
       )}
-      {/* R046 / H-1: GDPR/ePrivacy consent gate. Renders only on first visit
-          (consent === 'pending'); analytics + error reporting are blocked
-          until the user clicks Accept or Decline. */}
-      <ConsentBanner />
+      {/* R046 / H-1: the consent ask is a footer row now (ConsentRow, wave
+          seven row S). Telemetry stays blocked until it is answered. */}
       {/* WALLET-02: advisory notice when a wallet connection stalls. Not a
           <Toaster> toast on purpose — RainbowKit pins its modal at
           z-index 2147483646, so anything lower renders behind the very

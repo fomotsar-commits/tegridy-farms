@@ -105,12 +105,14 @@ export function useZapPlan({
   const ethQuote = useSwapQuote(inputToken, ETH_TOKEN, ethLegAmount, slippagePct, address);
 
   // The venue's live fee. `null` on a failed or pending read — never coerced to zero.
+  // NOT gated on the wallet's chain: it decides only the fee row, never the plan
+  // or its floors, and the pin already reads mainnet from any chain (see
+  // useLPFarming.ts). The wallet's chain still decides the plan, below.
   const { data: routerFee, isError: routerFeeError } = useReadContract({
     address: SWAP_FEE_ROUTER_ADDRESS,
     abi: SWAP_FEE_ROUTER_ABI,
     functionName: 'feeBps',
     chainId: CHAIN_ID,
-    query: { enabled: chainId === CHAIN_ID },
   });
   const routerFeeBps =
     !routerFeeError && typeof routerFee === 'bigint' && routerFee <= 10_000n ? Number(routerFee) : null;

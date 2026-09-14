@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { CURTAIN_BUDGET_MS } from '../src/components/loader/constants';
+import { CURTAIN_BUDGET_MS, DEADLINE_SLACK_MS, SKIP_DISSOLVE_MS } from '../src/components/loader/constants';
 
 // THE ARRIVAL, WALKED — wave seven, element A (and element E's overlay sweep).
 //
@@ -48,6 +48,7 @@ interface ArrivalClock {
 declare global {
   interface Window {
     __arrival?: ArrivalClock;
+    __curtainContextDenied?: number;
   }
 }
 
@@ -258,6 +259,55 @@ test.describe('the curtain, not the wall', () => {
     expect(lifetime).toBeLessThanOrEqual(CURTAIN_BUDGET_MS);
   });
 
+  test('the deadline alone ends it inside its budget, when the curtain draws nothing', async ({ page, browserName }) => {
+    chromiumOnly(browserName);
+    // THE PATH THAT WENT RED, TAKEN ON PURPOSE.
+    //
+    // The budget test above ends on whichever comes first, and on an unloaded
+    // box that is the curtain's own choreography, ~2,880 ms. So it says nothing
+    // about the deadline: delete the deadline timer and it stays green. The
+    // deadline only ends the curtain when the choreography runs late, which is
+    // when CI runs slow, and that is how the deadline's own lateness was found:
+    // run 34581371972 read 3,002, 3,010 and 3,002 ms, three tries of three.
+    //
+    // So this one takes the deadline path every time. The curtain's canvas gets
+    // no 2D context, the canvas effect returns early and the tick never starts,
+    // so the curtain's own frames can end nothing; and no input is sent. The
+    // deadline is all that is left, which is also the machine its comment in
+    // AppLoader is written for.
+    await page.addInitScript(() => {
+      const real = HTMLCanvasElement.prototype.getContext;
+      window.__curtainContextDenied = 0;
+      HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, ...args: unknown[]) {
+        if (this.closest('[data-arrival="curtain"]')) {
+          window.__curtainContextDenied = (window.__curtainContextDenied ?? 0) + 1;
+          return null;
+        }
+        return Reflect.apply(real, this, args);
+      } as typeof real;
+    });
+    await armArrivalClock(page);
+    await page.goto('/');
+    await expect(curtain(page)).toBeAttached({ timeout: 10_000 });
+    await expect(curtain(page), 'nothing ended the curtain, so no deadline is armed')
+      .toHaveCount(0, { timeout: CURTAIN_BUDGET_MS + 4_000 });
+
+    expect(
+      await page.evaluate(() => window.__curtainContextDenied ?? 0),
+      'the curtain got a real 2D context, so its own frames could have ended it',
+    ).toBeGreaterThan(0);
+
+    const clock = await readClock(page);
+    expect(clock.variant).toBe('curtain');
+    const lifetime = clock.removed! - clock.added!;
+    console.log(`[arrival] deadline-only curtain lifetime: ${Math.round(lifetime)} ms`);
+    // Still up when the deadline began its dissolve, so nothing earlier ended
+    // it and the number below is the deadline's.
+    expect(lifetime, 'something ended the curtain before the deadline could, so this measured something else')
+      .toBeGreaterThan(CURTAIN_BUDGET_MS - DEADLINE_SLACK_MS - SKIP_DISSOLVE_MS);
+    expect(lifetime, 'the deadline ended the curtain past its own budget').toBeLessThanOrEqual(CURTAIN_BUDGET_MS);
+  });
+
   test('it plays once per browser, after ending on the DEADLINE path', async ({ page, context }) => {
     // THE ONE THAT WAS GREEN WHILE THE VENUE WAS BROKEN.
     //
@@ -413,13 +463,35 @@ test.describe('zero unasked overlays', () => {
       await page.waitForTimeout(CURTAIN_BUDGET_MS);
 
       // No dialog opened itself. The room's welcome is invited now, and the
-      // install offer is a footer row.
+      // install offer and the consent ask are footer rows.
       await expect(page.locator('[role="dialog"]')).toHaveCount(0);
 
       // And every hero control answers for itself.
       const covered = await page.evaluate(heroHitTest, false);
 
       expect(covered, `something is sitting on a control at ${path}`).toEqual([]);
+
+      // ROW S. A cold load, so consent is unanswered and the ask IS on the page,
+      // as a row in the footer's flow. That is why the sweep above is green with
+      // it present rather than because it was absent.
+      await expect(
+        page.getByRole('group', { name: 'Analytics are anonymous and off until you say yes.' }),
+      ).toHaveCount(1);
+      // And the storage key it writes to is in no rendered text node.
+      const keyNodes = await page.evaluate(() => {
+        const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const found: string[] = [];
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const el = node.parentElement;
+          if (el && SKIP.has(el.tagName)) continue;
+          const text = node.textContent ?? '';
+          if (text.includes('telemetry_consent')) found.push(text.trim().slice(0, 80));
+        }
+        return found;
+      });
+      expect(keyNodes, `the consent storage key is printed at ${path}`).toEqual([]);
     });
   }
 
