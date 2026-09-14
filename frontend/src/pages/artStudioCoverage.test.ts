@@ -256,7 +256,7 @@ describe('art-studio surface inventory matches what the app renders', () => {
       missing,
       `surfaces the app renders that SURFACES does not list — neither studio can see or place ` +
         `these cards:\n${
-          missing.map((k) => `  ${k.replace('|', ' idx ')}  (${rendered.get(k)})`).join('\n') || '  (none)'
+          missing.map((k) => `  ${k.replaceAll('|', ' idx ')}  (${rendered.get(k)})`).join('\n') || '  (none)'
         }`,
     ).toEqual([]);
   });
