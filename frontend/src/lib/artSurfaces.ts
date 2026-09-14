@@ -21,6 +21,7 @@ export type Surface = { group: string; pageId: string; idx: number; label: strin
 // embeds it.
 export const PAGE_ROUTES: Record<string, string> = {
   home: '/',
+  'venue-home': '/',
   // Pop-up / modal surfaces — route where each card appears (the modal itself
   // pops up on interaction, so the live-preview iframe shows the host page).
   onboarding: '/',
@@ -43,8 +44,8 @@ export const PAGE_ROUTES: Record<string, string> = {
   'launch-simulator': '/launch-simulator',
   airdrop: '/airdrop',
   vesting: '/vesting',
-  'solana-launch': '/solana-launch',
   'curve-launch': '/curve-launch',
+  'eth-curve': '/eth-curve',
   swap: '/solana',
   treasury: '/treasury',
   'nav-logo': '/',
@@ -65,7 +66,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'lp-farming': '/farm',
   'live-pool': '/farm',
   'staking-card': '/farm',
-  'upcoming-pools': '/farm',
   trade: '/swap',
   'liquidity-tab': '/liquidity',
   yield: '/yield',
@@ -94,9 +94,6 @@ export const PAGE_ROUTES: Record<string, string> = {
   'admin-dashboard': '/admin',
   'tegridy-score': '/dashboard',
   'referral-widget': '/dashboard',
-  exposure: '/exposure',
-  scan: '/scan',
-  gallery: '/gallery',
   checkout: '/checkout',
   tax: '/tax',
   // pageId 'swap' is the Solana swap page; the EVM one is pageId 'trade'.
@@ -130,6 +127,12 @@ export const SURFACES: Surface[] = [
   // unused), so they were missed by earlier passes that read the page top-down.
   { group: 'Home', pageId: 'home', idx: 15, label: 'H16 — Protocol: Solana Swap (gated)' },
   { group: 'Home', pageId: 'home', idx: 17, label: 'H17 — Ecosystem: Memetics Curve (gated)' },
+  // The venue's own hero. HomePage picks between 'home' and 'venue-home' at
+  // render time (`pageId={IS_TOWELI_ARRIVAL || bungalowIdentity ? 'home' : 'venue-home'}`),
+  // and a computed pageId is invisible to BOTH coverage guards — so the most-seen
+  // surface on the site was unregistered and unplaceable in either studio until
+  // 2026-09-13, even though artOverrides.ts has carried a pick for it all along.
+  { group: 'Home', pageId: 'venue-home', idx: 0, label: 'H0 — Venue hero bg (non-bungalow)' },
 
   // Dashboard (14)
   { group: 'Dashboard', pageId: 'dashboard', idx: 0, label: 'D1 — BG disconnected' },
@@ -173,10 +176,6 @@ export const SURFACES: Surface[] = [
   { group: 'Farm', pageId: 'lp-farming', idx: 1, label: 'FL2 — LP active' },
   { group: 'Farm', pageId: 'live-pool', idx: 0, label: 'FLP1 — Live pool card' },
   { group: 'Farm', pageId: 'staking-card', idx: 0, label: 'FSC1 — Staking form' },
-  { group: 'Farm', pageId: 'upcoming-pools', idx: 0, label: 'UP1 — USDT/USDC' },
-  { group: 'Farm', pageId: 'upcoming-pools', idx: 1, label: 'UP2 — ETH/WBTC' },
-  { group: 'Farm', pageId: 'upcoming-pools', idx: 2, label: 'UP3 — DOT/ETH' },
-  { group: 'Farm', pageId: 'upcoming-pools', idx: 3, label: 'UP4 — MANA/ETH' },
 
   // Trade (4)
   { group: 'Trade', pageId: 'trade', idx: 0, label: 'TR1 — Page bg' },
@@ -184,7 +183,6 @@ export const SURFACES: Surface[] = [
   { group: 'Trade', pageId: 'trade', idx: 2, label: 'TR3 — DCA tab' },
   { group: 'Trade', pageId: 'trade', idx: 3, label: 'TR4 — Limit Order tab' },
   { group: 'Trade', pageId: 'liquidity-tab', idx: 0, label: 'TRL1 — Liquidity header' },
-  { group: 'Trade', pageId: 'liquidity-tab', idx: 1, label: 'TRL2 — Liquidity pool card' },
   { group: 'Trade', pageId: 'yield', idx: 0, label: 'YR1 — Yield routing backdrop' },
   { group: 'Trade', pageId: 'yield', idx: 1, label: 'YR2 — What this page does card' },
   { group: 'Trade', pageId: 'yield', idx: 2, label: 'YR3 — Buying over time card' },
@@ -200,10 +198,13 @@ export const SURFACES: Surface[] = [
   { group: 'NFT Finance', pageId: 'nft-lending', idx: 2, label: 'NL3 — Protocol Fee stat' },
   { group: 'NFT Finance', pageId: 'nft-lending', idx: 3, label: 'NL4 — Collections stat' },
   { group: 'NFT Finance', pageId: 'nft-lending', idx: 4, label: 'NL5 — Empty borrow tab' },
-  ...Array.from({ length: 15 }, (_, i): Surface => ({
+  // LendingSection calls pageArt('lending-section', N) for N = 1..14 — it has no
+  // idx 0, so the range starts at 1. (It listed 0..14 until 2026-09-13; the
+  // extra card was placeable in the studio and rendered nowhere.)
+  ...Array.from({ length: 14 }, (_, i): Surface => ({
     group: 'NFT Finance',
     pageId: 'lending-section',
-    idx: i,
+    idx: i + 1,
     label: `LS${i + 1} — Lending panel ${i + 1}`,
   })),
   { group: 'NFT Finance', pageId: 'launchpad-section', idx: 0, label: 'LP1 — Launchpad overview' },
@@ -274,7 +275,6 @@ export const SURFACES: Surface[] = [
 
   // Premium (3)
   { group: 'Premium', pageId: 'premium', idx: 0, label: 'PR1 — Page bg' },
-  { group: 'Premium', pageId: 'premium', idx: 1, label: 'PR2 — Gold Card icon' },
   { group: 'Premium', pageId: 'premium', idx: 2, label: 'PR3 — JBAC NFT thumb' },
 
   // History (3)
@@ -320,8 +320,6 @@ export const SURFACES: Surface[] = [
   // Pages that rendered NO art surface at all until 2026-09-01 — both studios
   // were blind to them, so no skin could reach either page.
   { group: 'Misc pages', pageId: 'terminal', idx: 0, label: 'TM1 — Pro Terminal page bg' },
-  { group: 'Misc pages', pageId: 'terminal', idx: 1, label: 'TM2 — Safety read card' },
-  { group: 'Misc pages', pageId: 'terminal', idx: 2, label: 'TM3 — Quick buy card' },
   { group: 'Misc pages', pageId: 'developer', idx: 0, label: 'DV1 — Developer API page bg' },
 
   { group: 'Misc widgets', pageId: 'tegridy-score', idx: 0, label: 'TS1 — TegridyScore widget' },
@@ -366,20 +364,17 @@ export const SURFACES: Surface[] = [
   { group: 'Trust tools',   pageId: 'chart',            idx: 2, label: 'TT5c — Pro Charting sources card' },
   { group: 'Engage',        pageId: 'referrals',        idx: 0, label: 'EN1 — Referrals backdrop' },
   { group: 'Engage',        pageId: 'copy-trading',     idx: 0, label: 'EN2 — Copy Trading backdrop' },
-  { group: 'Engage',        pageId: 'copy-trading',     idx: 1, label: 'EN2b — Island tape board card' },
   { group: 'Engage',        pageId: 'competitions',     idx: 0, label: 'EN3 — Competitions backdrop' },
-  { group: 'Engage',        pageId: 'competitions',     idx: 1, label: 'EN3a — Island Cup board card' },
-  { group: 'Engage',        pageId: 'competitions',     idx: 2, label: 'EN3b — Season card' },
-  { group: 'Engage',        pageId: 'competitions',     idx: 3, label: 'EN3c — Your rank / share card' },
   { group: 'Engage',        pageId: 'checkout',         idx: 0, label: 'EN4 — Checkout backdrop' },
   // idx 1 is the merchant's minted payment link; idx 2 is the buyer's
   // merchant-signature strip. Both are the cards a person stares at while
   // deciding whether to trust a stranger's invoice, so both get real art.
-  { group: 'Engage',        pageId: 'checkout',         idx: 1, label: 'EN4a — Checkout: signed payment-link card' },
-  { group: 'Engage',        pageId: 'checkout',         idx: 2, label: 'EN4b — Checkout: merchant-signature card' },
   { group: 'Stats',         pageId: 'tax',              idx: 0, label: 'ST1 — Tax Reports backdrop' },
-  { group: 'Stats',         pageId: 'tax',              idx: 1, label: 'ST2 — Tax ledger status card' },
   { group: 'Launch & Solana', pageId: 'launch',           idx: 0, label: 'LS1 — Launch rail backdrop' },
+  // Also reached only through a computed pageId (`const PAGE_ID = 'eth-curve'`
+  // in EthCurvePage and CurveTokenPage), so it was never registered. One surface
+  // covers all three call sites — both backdrops and the SOON card use idx 0.
+  { group: 'Launch & Solana', pageId: 'eth-curve',        idx: 0, label: 'LS1b — Memetics curve (ETH) backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-simulator', idx: 0, label: 'LS2 — Launch Simulator backdrop' },
   { group: 'Launch & Solana', pageId: 'airdrop',           idx: 0, label: 'LS2d — Airdrop campaigns backdrop' },
   // idx 1 is the SOON placeholder art on the vesting rails, which is the only state
@@ -388,7 +383,6 @@ export const SURFACES: Surface[] = [
   { group: 'Launch & Solana', pageId: 'vesting',           idx: 1, label: 'LS2f — Vesting rail SOON placeholder' },
   { group: 'Launch & Solana', pageId: 'launch-token',     idx: 0, label: 'LS2b — Token record backdrop' },
   { group: 'Launch & Solana', pageId: 'launch-token',     idx: 1, label: 'LS2c — Token record Fact Sheet strip' },
-  { group: 'Launch & Solana', pageId: 'solana-launch',    idx: 0, label: 'LS3 — Solana Launch backdrop' },
   { group: 'Launch & Solana', pageId: 'curve-launch',     idx: 0, label: 'LS3b — Memetics Curve backdrop' },
   { group: 'Launch & Solana', pageId: 'curve-launch',     idx: 1, label: 'LS3c — Memetics Curve status banner' },
   { group: 'Launch & Solana', pageId: 'swap',             idx: 2, label: 'LS4 — Solana Swap surface' },
@@ -400,23 +394,6 @@ export const SURFACES: Surface[] = [
   // the staking rail, the trending grid and every margin sat on the bare app
   // gradient, so no skin could reach the page. idx 1 is the page backdrop, 3-6
   // the four liquid-staking cards, 7-18 the trending grid (index wraps at 12).
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 1, label: 'LS4c — Solana Swap page bg' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 3, label: 'LS4d — Staking card: JitoSOL' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 4, label: 'LS4e — Staking card: mSOL' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 5, label: 'LS4f — Staking card: bSOL' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 6, label: 'LS4g — Staking card: INF' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 7, label: 'LS4h — Trending card 1' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 8, label: 'LS4i — Trending card 2' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 9, label: 'LS4j — Trending card 3' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 10, label: 'LS4k — Trending card 4' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 11, label: 'LS4l — Trending card 5' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 12, label: 'LS4m — Trending card 6' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 13, label: 'LS4n — Trending card 7' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 14, label: 'LS4o — Trending card 8' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 15, label: 'LS4p — Trending card 9' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 16, label: 'LS4q — Trending card 10' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 17, label: 'LS4r — Trending card 11' },
-  { group: 'Launch & Solana', pageId: 'swap',             idx: 18, label: 'LS4s — Trending card 12' },
   { group: 'Contracts',     pageId: 'contracts',        idx: 0, label: 'CO1 — Contracts page bg' },
   // One card per contract GROUP (idx = groupIdx + 1), so the seven groups on
   // the page each get their own wall instead of sharing the page backdrop.
@@ -455,8 +432,6 @@ export const SURFACES: Surface[] = [
   { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 13, label: 'AMM art 14' },
   { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 14, label: 'AMM art 15' },
   { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 15, label: 'AMM art 16' },
-  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 16, label: 'AMM art 17' },
-  { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 17, label: 'AMM art 18' },
   { group: 'ArtCard: NFT-Finance/AMM', pageId: 'amm', idx: 18, label: 'AMM art 19 (pool owner-view)' },
   { group: 'ArtCard: Launchpad', pageId: 'launchpad-collection', idx: 0, label: 'Collection detail 1' },
   { group: 'ArtCard: Launchpad', pageId: 'launchpad-collection', idx: 1, label: 'Collection detail 2' },
@@ -557,31 +532,14 @@ export const SURFACES: Surface[] = [
   { group: 'NFT Finance', pageId: 'nft-finance', idx: 4, label: 'NF5 — Feature: Launchpad' },
 
   // Deployer page (/deployer)
-  { group: 'Deployer', pageId: 'deployer', idx: 4, label: 'DP1 — Search / address input' },
-  { group: 'Deployer', pageId: 'deployer', idx: 5, label: "DP2 — What this can and can't tell you" },
-  { group: 'Deployer', pageId: 'deployer', idx: 3, label: 'DP4 — Empty: no direct deploys' },
-  { group: 'Deployer', pageId: 'deployer', idx: 1, label: 'DP5 — Deployed contracts list' },
-  { group: 'Deployer', pageId: 'deployer', idx: 2, label: 'DP6 — Related wallets' },
 
   // Launch simulator (/launch-simulator)
-  { group: 'Launch sim', pageId: 'launch-simulator', idx: 4, label: 'LX1 — Projected fact sheet' },
-  { group: 'Launch sim', pageId: 'launch-simulator', idx: 1, label: 'LX3 — Contract template' },
-  { group: 'Launch sim', pageId: 'launch-simulator', idx: 2, label: 'LX4 — Empty: nothing to measure' },
-  { group: 'Launch sim', pageId: 'launch-simulator', idx: 3, label: 'LX5 — Distribution report' },
-  { group: 'Launch sim', pageId: 'launch-simulator', idx: 5, label: 'LX6 — How the score is built' },
 
   // Scanner (/scan)
-  { group: 'Scanner', pageId: 'scan', idx: 0, label: 'SC1 — Token address input' },
-  { group: 'Scanner', pageId: 'scan', idx: 3, label: 'SC2 — Gated: not enabled yet' },
-  { group: 'Scanner', pageId: 'scan', idx: 1, label: "SC3 — What you'll get" },
-  { group: 'Scanner', pageId: 'scan', idx: 2, label: 'SC4 — Scan result card' },
 
   // Treasury (/treasury)
 
   // Wallet exposure (/exposure)
-  { group: 'Exposure', pageId: 'exposure', idx: 0, label: 'EX1 — Custom token check' },
-  { group: 'Exposure', pageId: 'exposure', idx: 1, label: 'EX2 — Balances panel' },
-  { group: 'Exposure', pageId: 'exposure', idx: 2, label: 'EX3 — Empty: no balances' },
 
   // Solana surfaces
 
@@ -611,7 +569,6 @@ export const SURFACES: Surface[] = [
 
   // Stragglers on pages already covered above
   { group: 'Dashboard', pageId: 'dashboard', idx: 14, label: 'D15 — Your Liquidity' },
-  { group: 'Misc pages', pageId: 'gallery', idx: 0, label: 'GA1 — Gallery empty state' },
 ];
 
 export const surfaceKey = (s: Pick<Surface, 'pageId' | 'idx'>) => `${s.pageId}:${s.idx}`;
