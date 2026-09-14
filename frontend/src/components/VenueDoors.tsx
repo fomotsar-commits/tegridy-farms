@@ -3,6 +3,7 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
+import { doorArt } from '../lib/doorArt';
 import DOOR_THUMB_LUMA from '../lib/doorThumbLuma.generated.json';
 
 const LUMA = DOOR_THUMB_LUMA as Record<string, number>;
@@ -98,6 +99,10 @@ const CHIP: Record<DoorState, { label: string; style: CSSProperties }> = {
 function DoorTile({ bungalow }: { bungalow: Bungalow }) {
   const state = doorState(bungalow);
   const chip = CHIP[state];
+  // The door's picture and framing, after any /door-studio pick. Resolved once
+  // so the src, the srcSet and the dim filter cannot disagree about which
+  // image this card is showing.
+  const door = doorArt(bungalow);
 
   const face = (
     <>
@@ -112,9 +117,9 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
             srcSet is undefined for any source with no derivative, in which
             case this renders exactly as it did before. */}
         <img
-          src={bungalow.thumb}
-          {...(artSrcSet(bungalow.thumb)
-            ? { srcSet: artSrcSet(bungalow.thumb), sizes: '(max-width: 640px) 50vw, 300px' }
+          src={door.src}
+          {...(artSrcSet(door.src)
+            ? { srcSet: artSrcSet(door.src), sizes: '(max-width: 640px) 50vw, 300px' }
             : {})}
           alt=""
           loading="lazy"
@@ -125,13 +130,13 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
             state === 'open' ? 'group-hover:scale-[1.06]' : ''
           }`}
           style={{
-            ...(bungalow.thumbPosition ? { objectPosition: bungalow.thumbPosition } : {}),
+            ...(door.objectPosition ? { objectPosition: door.objectPosition } : {}),
             // The `grayscale` utility class moved in here so the desaturation and
             // the per-image brightness are ONE declaration. Tailwind's filter
             // utilities and an inline `filter` overwrite each other rather than
             // composing, so keeping the class as well would have silently dropped
             // whichever lost.
-            ...(state === 'open' ? {} : { filter: dimmedFilter(bungalow.thumb) }),
+            ...(state === 'open' ? {} : { filter: dimmedFilter(door.src) }),
           }}
         />
       </div>

@@ -67,15 +67,13 @@ describe('bungalow registry', () => {
     for (const b of BUNGALOWS.filter((x) => x.live && x.id !== 'toweli' && x.id !== 'bayla')) {
       expect(b.identity, `${b.id} placeholder skin needs a voice`).toBeTruthy();
       expect(b.identity?.heroTitle).toBe(`${b.symbol}.`);
-      // Its own drop, resolved from the real directory. QR has no folder yet,
-      // so it honestly keeps the classic fallback until one arrives.
-      if (b.id === 'qr') {
-        expect(b.artPool, 'qr has no folder yet — classic fallback is the honest state').toBeUndefined();
-      } else {
-        expect(b.artPool?.length, `${b.id} paints from its own drop`).toBeGreaterThan(0);
-        for (const piece of b.artPool!) {
-          expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
-        }
+      // Its own drop, resolved from the real directory. QR was the one live
+      // resident without a folder and kept the classic fallback honestly until
+      // its drop landed on 2026-09-13 — it now meets the same bar as the rest,
+      // so the exception that used to sit here is gone rather than inverted.
+      expect(b.artPool?.length, `${b.id} paints from its own drop`).toBeGreaterThan(0);
+      for (const piece of b.artPool!) {
+        expect(piece.src.startsWith(`/art/${b.id}/`), `${b.id} draws only from its own folder`).toBe(true);
       }
       expect(b.identity?.museVoice, `${b.id} canon voice is the island, never another resident`).toBe('the island');
     }

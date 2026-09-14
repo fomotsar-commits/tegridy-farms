@@ -49,6 +49,7 @@ const ArtStudioPage = import.meta.env.DEV
 // module the middleware would have written. Its own lazy chunk, so a
 // visitor who never opens the studio pays nothing for it.
 const BungalowArtStudioPage = lazy(() => import('./pages/BungalowArtStudioPage'));
+const DoorArtStudioPage = lazy(() => import('./pages/DoorArtStudioPage'));
 // ⌫ LendingPage's lazy import lived here. /nft-finance renders EarnPage now
 //   (it is a tab of that section), and EarnPage lazy-loads LendingPage itself.
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
@@ -305,6 +306,16 @@ function AnimatedRoutes() {
       <Route
         path="bungalow-studio/:bungalowId"
         element={<BungalowStudioDoor />}
+      />
+      {/* Door studio (2026-09-13) — the island's FRONT PAGE rather than any one
+          bungalow: the thirteen door tiles in VenueDoors and the rows in
+          BungalowPicker. It draws from every resident's pool at once because a
+          door is a shop window, not a surface owned by the resident behind it.
+          Ships alongside the other studios: unlisted, export-only in prod.
+          '/door-studio' is not an island slug, so door routing is untouched. */}
+      <Route
+        path="door-studio"
+        element={<Suspense fallback={<PageSkeleton />}><DoorArtStudioPage /></Suspense>}
       />
       <Route element={<AppLayout />}>
         {/* THE VENUE'S OWN DOOR (2026-09-04). `/` is wrapped in the same

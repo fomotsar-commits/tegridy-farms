@@ -279,6 +279,45 @@ export function bungalowOverrideKey(bungalowId: string, pageId: string, idx: num
   });
 }
 
+// The DOOR studio writes one pick per bungalow — key is the bungalow id alone.
+// Scoped saves are pointless here (a door studio edits every door at once, from
+// a single tab), so this stays a whole-file replace like /art-studio.
+function doorStudioPlugin(): Plugin {
+  return overrideSavePlugin({
+    name: 'door-studio-save',
+    route: '/__door-studio/save',
+    outFile: 'src/lib/bungalowDoorArt.ts',
+    exportName: 'DOOR_ART_OVERRIDES',
+    // A bare bungalow id. The `|` shape of the surface studios would be wrong
+    // here and would let a surface key land in the door file.
+    keyPattern: /^[a-z0-9-]{1,64}$/,
+    render: (entries) => `/**
+ * Per-bungalow DOOR art overrides — written by /door-studio.
+ *
+ * Key format: the bungalow id alone (e.g. "qr"). One door per resident.
+ *
+ * \`artId\` resolves against EVERY bungalow's pool and then the classic ART map,
+ * because a door is the island's own shop window: the right picture for the QR
+ * card may well come from another resident's drop, or from classic art. See
+ * doorArt.ts for the resolver and the id-uniqueness guarantee it relies on.
+ *
+ * Surfaces NOT listed here fall back to the \`thumb\` / \`thumbPosition\` written on
+ * the registry entry in bungalows.ts, which is where every door started.
+ *
+ * Do not hand-edit during a studio session — the studio overwrites this file on save.
+ */
+export type DoorArtOverride = {
+  artId: string;
+  objectPosition?: string;
+};
+
+export const DOOR_ART_OVERRIDES: Record<string, DoorArtOverride> = {
+${entries}
+};
+`,
+  });
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
@@ -287,6 +326,7 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       artStudioPlugin(),
       bungalowStudioPlugin(),
+      doorStudioPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {
