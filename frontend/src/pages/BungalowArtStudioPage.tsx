@@ -94,6 +94,19 @@ const SHARED_PAGE_IDS = new Set(['nav-logo', 'loader']);
 const CLASSIC_LIST: ArtPiece[] = Object.values(ART);
 
 /**
+ * Last resort when there is no art to rotate through at all. Never expected to
+ * render — CLASSIC_LIST is a static map and cannot be empty — but the whole
+ * crash this replaces came from asserting a lookup could not miss, so this
+ * returns a real ArtPiece rather than repeating that assertion.
+ */
+const EMPTY_ART: ArtPiece = {
+  id: '',
+  src: '',
+  title: 'No art available',
+  description: 'This resident has no art pool and the classic pool is empty.',
+};
+
+/**
  * pageArt()'s bungalow branch, reimplemented against an explicit overrides map
  * and an explicit bungalow. The real one reads localStorage to find the active
  * skin; the studio must render a skin it is not itself wearing, so it resolves
@@ -121,11 +134,21 @@ function bungalowArtWith(
       return picked;
     }
   }
+  // An empty pool must not reach the modulo below: `hash % 0` is NaN,
+  // `pool[NaN]` is undefined, and the non-null assertion that used to sit on
+  // this line handed that undefined to the caller, which read `.objectPosition`
+  // off it and threw. That killed the studio of every pool-less resident
+  // (toweli, qr, nb1) before first paint — and it did so DURING RENDER, several
+  // lines above the `pool.length === 0` guard further down this component that
+  // was written to catch exactly this case. The guard was correct and simply
+  // unreachable. Returning a real piece here is what lets render get to it.
+  const source = pool.length ? pool : CLASSIC_LIST;
+  if (source.length === 0) return EMPTY_ART;
   let hash = 5381;
   for (let i = 0; i < pageId.length; i++) {
     hash = ((hash * 33) ^ pageId.charCodeAt(i)) >>> 0;
   }
-  return pool[((hash % pool.length) + idx) % pool.length]!;
+  return source[((hash % source.length) + idx) % source.length]!;
 }
 
 export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungalowId?: string }) {
@@ -326,8 +349,19 @@ export default function BungalowArtStudioPage({ bungalowId = 'bayla' }: { bungal
       <div className="min-h-screen bg-[#060c1a] text-white p-8">
         <h1 className="text-lg font-bold mb-2">Bungalow Art Studio</h1>
         <p className="text-sm text-white/60">
-          No bungalow with an art pool matches id <code className="px-1 bg-white/10 rounded">{bungalowId}</code>.
-          Give it an <code className="px-1 bg-white/10 rounded">artPool</code> in <code className="px-1 bg-white/10 rounded">lib/bungalows.ts</code> first.
+          {bungalow ? (
+            <>
+              <strong>{bungalow.name}</strong> has no art pool of its own, so there is nothing here to
+              place. Give it an <code className="px-1 bg-white/10 rounded">artPool</code> in{' '}
+              <code className="px-1 bg-white/10 rounded">lib/bungalows.ts</code> first — its surfaces
+              paint from the classic rotation until then, which is edited in{' '}
+              <code className="px-1 bg-white/10 rounded">/art-studio</code>.
+            </>
+          ) : (
+            <>
+              No bungalow matches id <code className="px-1 bg-white/10 rounded">{bungalowId}</code>.
+            </>
+          )}
         </p>
       </div>
     );
