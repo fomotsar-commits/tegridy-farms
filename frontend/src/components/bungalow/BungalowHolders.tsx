@@ -116,7 +116,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
         </p>
       ) : (
         <p className="text-[12px]" style={{ color: '#f0b26b' }}>
-          {errorMessage ?? 'Holders could not be read right now — that is an outage, not a distribution.'}
+          {errorMessage ?? 'Holders could not be read right now. That is an outage, not a distribution.'}
         </p>
       )}
     </section>

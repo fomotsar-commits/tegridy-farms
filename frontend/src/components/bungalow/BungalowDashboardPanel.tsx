@@ -266,7 +266,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                     </p>
                   )}
                   {!balanceLoading && raw === null && (
-                    <p className="text-[12px]" style={{ color: '#f0b26b' }}>Balance could not be read — that is an outage, not a zero.</p>
+                    <p className="text-[12px]" style={{ color: '#f0b26b' }}>Balance could not be read. That is an outage, not a zero.</p>
                   )}
                 </>
               )}

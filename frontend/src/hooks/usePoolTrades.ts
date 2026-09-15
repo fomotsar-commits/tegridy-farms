@@ -64,7 +64,7 @@ export function usePoolTrades(
         // A cancelled read is not a failure and gets no banner: it means this
         // effect was superseded or the view went away.
         if (read.reason === 'aborted') return;
-        setError('Trades could not be read — that is an outage, not an empty tape.');
+        setError('Trades could not be read. That is an outage, not an empty tape.');
       } finally {
         if (!cancelled) setIsLoading(false);
       }
