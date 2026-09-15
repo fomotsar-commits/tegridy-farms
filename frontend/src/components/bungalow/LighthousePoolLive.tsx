@@ -531,6 +531,30 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
               </div>
             )}
 
+            {/* THE WAY BACK IN, for a closed pool.
+                The block below deliberately removes the stake form — and the
+                only Connect button on this card used to live INSIDE it, so
+                closing the door also took away the one control a returning
+                staker needs to reach their claim, their unstake and their
+                rescue. Every exit survived the flag; the way to REACH them did
+                not. autoConnect hid it: anyone who had connected here before
+                was reconnected on load and never saw the gap, while a first
+                connection on this page — a new device, a cleared browser, or
+                any wallet that was not selectable until now — was impossible.
+                Keep this OUTSIDE the `!depositsClosed` block. */}
+            {bungalow.depositsClosed && !publicKey && (
+              <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-purple-25)' }}>
+                <p className="text-white/80 text-[13px] mb-3 max-w-md leading-relaxed">
+                  Already staked here? Connect your Solana wallet to claim rewards, or to unstake a
+                  position whose lock has opened. This pool takes no new stakes, but nothing about
+                  leaving it has changed.
+                </p>
+                <button type="button" onClick={openConnect} className="btn-primary px-6 py-2.5 text-[13px]">
+                  Connect Solana Wallet
+                </button>
+              </div>
+            )}
+
             {!bungalow.depositsClosed && (
             <>
             {/* ── Stake ──────────────────────────────────────────────────── */}
