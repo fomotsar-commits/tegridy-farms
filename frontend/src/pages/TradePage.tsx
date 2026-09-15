@@ -3,6 +3,7 @@ import { m } from 'framer-motion';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ClockLine } from '../components/ClockLine';
 import { getTxUrl } from '../lib/explorer';
 import { RealYieldProof } from '../components/RealYieldProof';
 import { usePageTitle } from '../hooks/usePageTitle';
@@ -690,6 +691,11 @@ export default function TradePage() {
                     {swap.isPending ? 'Confirm in wallet...' : swap.isConfirming ? 'Confirming...' : swap.insufficientBalance ? 'Insufficient balance' : 'Swap'}
                   </button>
                 )}
+
+                {/* WAVE SEVEN, element O: the commitment line. Driven by the
+                    latch, never by swap.isSuccess - that block below clears
+                    itself after four seconds, and the island ruled no timer. */}
+                <ClockLine />
 
                 {swap.isSuccess && swap.txHash && (
                   <div className="mt-3 text-center text-emerald-400 text-[12px]">

@@ -668,6 +668,37 @@ export function residentLabelForPool(network: GeckoNetwork, pool: string): strin
   return null;
 }
 
+/**
+ * THE ROOM A TOKEN BELONGS TO (answer eight, ruling 10).
+ *
+ * The island specified `bungalowByAddress(chainId, address)`. This registry
+ * carries a chain WORD, not a chain id, and Solana has no numeric id anywhere
+ * in this app (lib/chains/registry.ts holds 1, 8453 and 4663), so a chainId
+ * could not be supplied on the Solana rail at all. The word is the honest
+ * signature: callers pass 'ethereum' on the EVM rail and 'solana' on Solana.
+ *
+ * Addresses compare the way they do everywhere else here, and the rule is
+ * copied from residentLabelForPool above rather than invented twice:
+ * case-insensitively for EVM, EXACTLY for Solana, because base58 is
+ * case-significant and a lowercased key is a different, valid-looking, wrong
+ * address. A bungalow with no address cannot match. Neither can the native
+ * pseudo-address, and it needs no line here to refuse it: no room is ETH, so no
+ * row carries it. That is the thing worth pinning, and bungalows.test.ts pins it
+ * on the registry itself. A refusal written into this function instead looked
+ * careful and could never fire, which a mutation proved by surviving it.
+ */
+export function bungalowByAddress(chain: Bungalow['chain'], address: string): Bungalow | null {
+  const raw = address.trim();
+  if (!raw) return null;
+  const target = chain === 'solana' ? raw : raw.toLowerCase();
+  for (const b of BUNGALOWS) {
+    if (!b.address || b.chain !== chain) continue;
+    const known = chain === 'solana' ? b.address.trim() : b.address.trim().toLowerCase();
+    if (known === target) return b;
+  }
+  return null;
+}
+
 /** Block-explorer link for a bungalow's token, per its chain. */
 export function bungalowExplorerUrl(b: Bungalow): string | null {
   if (!b.address) return null;

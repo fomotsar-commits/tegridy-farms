@@ -67,6 +67,9 @@ import {
 } from '../lib/jupiter';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
+import { ClockLine } from '../components/ClockLine';
+import { bungalowByAddress } from '../lib/bungalows';
+import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
 
 const SLIPPAGE_PRESETS = [50, 100, 300]; // bps
@@ -1358,6 +1361,20 @@ function SolanaSwapInner() {
         description: shortSig(sig),
         action: { label: 'View', onClick: () => window.open(`https://solscan.io/tx/${sig}`, '_blank', 'noopener,noreferrer') },
       });
+      // WAVE SEVEN, element O: latch a buy that landed in a resident's token.
+      // The five Solana rooms are mints, so the finder takes the chain word;
+      // there is no numeric id for Solana anywhere in this app to pass instead.
+      const room = bungalowByAddress('solana', buyToken.mint);
+      if (room) {
+        setLastBuy({
+          hash: sig,
+          symbol: room.symbol,
+          tokenAddress: buyToken.mint,
+          chain: room.chain,
+          buyer: publicKey.toBase58(),
+          atUnix: Math.floor(Date.now() / 1000),
+        });
+      }
       recordActivity(publicKey.toBase58(), {
         sig,
         ts: Date.now(),
@@ -1675,6 +1692,13 @@ function SolanaSwapInner() {
               {swapping ? 'Swapping…' : quoteLoading ? 'Fetching quote…' : !baseAmount ? 'Enter an amount' : insufficient ? `Insufficient ${payToken.symbol}` : !quote ? 'No route' : `Buy ${buyToken.symbol}`}
             </button>
           )}
+
+          {/* WAVE SEVEN, element O: the commitment line, latched by the confirm
+              above and rendered whether or not a wallet is attached right now.
+              It stays silent until the venue holds a reading for this buyer - on
+              this rail that is usually not yet, and a sentence the venue cannot
+              support is worse than no sentence at all. */}
+          <ClockLine />
 
           <p className="mt-3 text-center text-white/60 text-[10px]">
             Swaps route through Jupiter on Solana.{' '}
