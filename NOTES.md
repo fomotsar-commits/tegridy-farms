@@ -15,6 +15,76 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-15 — the knob that makes one file input strict does not make the action strict
+
+**Believed:** hand a GitHub Action a path to a file that is not there and the step fails.
+`softprops/action-gh-release` even advertises an input called `fail_on_unmatched_files`,
+which reads like the action's policy for missing files.
+
+**Read** (not run — see the caveat at the end) from the action's own source at the SHA this
+repo pins, `efb35369`:
+
+- `body_path` is **soft, with no opt-out**. `releaseBody()` in `src/util.ts:57-69` wraps the
+  read in a try/catch that only `console.warn`s, then returns `config.input_body`:
+
+      if (config.input_body_path) {
+        try { return readFileSync(config.input_body_path, 'utf8'); }
+        catch (err) { console.warn(`⚠️ Failed to read body_path ... Falling back to 'body' input.`); }
+      }
+      return config.input_body;
+
+  If `body` is not also set, that returns `undefined`, and the consumer coerces it:
+  `src/github.ts:688` reads `releaseBody(config) || ''`. So an unresolvable `body_path`
+  publishes an **empty release body on a green run**. Nothing in the action's 19 declared
+  inputs can harden this.
+- `fail_on_unmatched_files` governs a **different** input. Its only two consumers are
+  `src/run.ts:16` and `:46`, both on `config.input_files` — the release *assets*. It never
+  reaches `releaseBody`. It also defaults to soft: `parseConfig` reads
+  `env.INPUT_FAIL_ON_UNMATCHED_FILES == 'true'`, so unset is `false`, so an asset glob that
+  matches nothing warns and publishes a release with no assets.
+
+So one action carries two file inputs with two different policies, and the strictness knob
+that exists names the one you were not worried about. **Seeing a hardening option in an
+action's input list is not evidence that the action is strict; check which input it is
+wired to.**
+
+The same shape has a third policy elsewhere in this repo's workflows. `actions/upload-artifact`
+takes `if-no-files-found`, which is configurable *and* defaults to `warn`. Surveyed across
+`.github/workflows/` by walking the parsed YAML: 11 upload steps, 8 set the flag (5 `error`,
+3 `warn`), and 3 sit on the default — so **6** sites treat "produced nothing" as a warning and
+a green job. Three policies for one idea (no opt-out / opt-in-and-defaults-soft /
+configurable-and-defaults-soft) across two actions is why this has to be checked per input
+rather than remembered per action.
+
+That survey had to be structural, and the first pass of this entry got it wrong by not being.
+`grep -c if-no-files-found` over the same files returns **9**, not 8, because one of the matches
+is inside a *comment* explaining the setting rather than setting it (`solana-ci.yml:439`). The
+grep-derived numbers were in this entry's first draft and were corrected before it left the
+worktree. A
+comment naming a setting is a claim about configuration, not configuration — the same trap the
+2026-09-11 entry records for gate comments and wrong-chain notices, arriving here through a
+counting tool instead of a reader.
+
+**How to check it**, without trusting a README that may describe a different version than the
+one pinned:
+
+    gh api repos/<owner>/<repo>/contents/src/util.ts?ref=<pinned SHA> --jq '.content' | base64 -d
+
+Reading the pinned SHA is the point. A floating tag's docs and the bytes that actually run in
+CI are different artifacts.
+
+**Caveat, stated because this file's rule requires it:** the empty-body consequence is derived
+from reading that source plus the fact that the caller leaves `body` unset. It was **not**
+observed in a release run — the workflow it was found in has never executed even once. The
+line numbers and the input survey are reads; the consequence is an inference from them.
+
+**Why it is worth knowing beyond the warning:** it changes what counts as a safe edit. Renaming
+the generated file this repo feeds to `body_path` looked like a free string swap. Because the
+failure mode is a silent green, "move it to `${{ runner.temp }}`" — a change to how the path
+*resolves*, not just what it says — would have had no rehearsal that could catch it going
+wrong. When an input is soft, the cost of being wrong about it is paid silently and later, so
+the change that touches the fewest mechanisms wins.
+
 ## 2026-09-14 — a wallet adapter's declared capability is the SHIM's opinion, not the wallet's
 
 **Believed:** `supportedTransactionVersions` on an official `@solana/wallet-adapter-*`
