@@ -26,7 +26,7 @@
 // cannot decode that has no failure to fall back from, and keeps whatever it already had.
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -157,16 +157,24 @@ describe('site icons — the URLs move when the bytes move', () => {
     expect(declaredInHtml().length).toBeGreaterThan(0);
   });
 
-  it.each(declarations)('%s carries the current icon version token on every icon', (where, urls) => {
+  it.each(declarations)('%s carries the current icon token in every icon PATH', (where, urls) => {
     expect(urls.length, `${where} declares no icons`).toBeGreaterThan(0);
     for (const url of urls) {
+      // THE PATH, NOT THE QUERY — and this assertion is the only thing keeping it there.
+      // 2026-09-13 put the token in a `?v=` query, which is a strictly weaker move: a
+      // store that normalises or strips the query sees `/favicon.png?v=new` as the URL it
+      // already holds, and we cannot know from in here which stores do that. A new PATH
+      // is a superset — every store that would notice a new query notices a new path, and
+      // the ones that ignore queries notice only this. Asserting the pathname is what
+      // stops a future author quietly reverting to the weaker form.
+      const path = new URL(url, 'https://memetics.finance').pathname;
       expect(
-        url,
-        `${where} declares "${url}" without the current icon version token. The icon bytes ` +
-          `hash to "${token}" — every icon URL must end in "?v=${token}" so a client that ` +
-          `cached this origin's icon under the old URL is forced to fetch the new one. ` +
-          `Bump the token in index.html and both manifests together.`,
-      ).toContain(`?v=${token}`);
+        path,
+        `${where} declares "${url}" whose PATH does not carry the current icon token. The ` +
+          `icon bytes hash to "${token}" — copy public/{favicon.ico,favicon.png,` +
+          `apple-touch-icon.png,splash/icon-512.png} into public/icons/${token}/, DELETE ` +
+          `the old token directory, and repoint index.html and both manifests together.`,
+      ).toContain(token);
     }
   });
 
@@ -184,5 +192,68 @@ describe('site icons — the URLs move when the bytes move', () => {
     // they disagree, whichever one a given client reads decides the home-screen icon.
     const [a, b] = MANIFESTS.map(declaredInManifest);
     expect(a).toEqual(b);
+  });
+});
+
+/**
+ * The hashed directory the declarations now point at.
+ *
+ * This half is load-bearing and had no equivalent while the token lived in a query. The
+ * token is derived from the CANONICAL bytes (ICON_PATHS), but what ships to a browser is
+ * now the COPY under /icons/<token>/. Without pinning the copies to their sources, someone
+ * could change a file in there and the declared URL would serve art this file never
+ * hashed — the original bug with one more level of indirection in front of it.
+ *
+ * It also inherits the retired-Nakamigos check for free: the copies equal the canonicals,
+ * and the canonicals are already proven not to be the retired bytes.
+ */
+const HASHED_ROOT = join(PUBLIC, 'icons');
+
+/** Each hashed copy, and every canonical file it must equal byte-for-byte. */
+const HASHED_COPIES: Record<string, string[]> = {
+  'favicon.ico': ['/favicon.ico'],
+  'favicon.png': ['/favicon.png'],
+  // apple-touch-icon.png and splash/icon-192.png are the same bytes today, and one hashed
+  // copy serves both declarations. Listing both is what keeps that true.
+  'icon-192.png': ['/apple-touch-icon.png', '/splash/icon-192.png'],
+  'icon-512.png': ['/splash/icon-512.png'],
+};
+
+describe('the hashed icon directory', () => {
+  // Recomputed from the same canonical bytes the declarations are checked against — the
+  // two describes must never be able to disagree about what the current token is.
+  const token = expectedVersionToken();
+
+  it('holds exactly one token directory, named for the current token', () => {
+    const dirs = readdirSync(HASHED_ROOT, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    // Exactly one. Two means someone added a token directory without deleting what it
+    // replaced — dead bytes served forever under `immutable`, and a second answer to
+    // "what is this venue's icon".
+    expect(dirs).toEqual([token]);
+  });
+
+  it.each(
+    Object.entries(HASHED_COPIES).flatMap(([name, srcs]) => srcs.map((s) => [name, s] as const)),
+  )('icons/<token>/%s is byte-identical to %s', (name, canonical) => {
+    const copy = join(HASHED_ROOT, token, name);
+    expect(existsSync(copy), `${copy} is missing — the declarations point at nothing`).toBe(true);
+    expect(
+      sha256(readFileSync(copy)),
+      `icons/${token}/${name} does not match ${canonical}. The token is derived from the ` +
+        `canonical bytes, so a copy that drifts serves art no test has ever hashed.`,
+    ).toBe(sha256(readFileSync(publicFile(canonical))));
+  });
+
+  it('never ships the canonical paths as anything but real icons', () => {
+    // The copies exist so the canonical paths can KEEP serving correct bytes. Deleting
+    // one would drop it into vercel.json's SPA rewrite and answer `200 text/html`, which
+    // a fetcher cannot decode and cannot fall back from — it keeps the icon it has.
+    for (const p of REQUIRED_ICONS) {
+      expect(existsSync(publicFile(p)), `${p} must remain on disk, not only its hashed copy`).toBe(
+        true,
+      );
+    }
   });
 });

@@ -2,22 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- ICON CACHE 2026-09-13: the venue wore the Nakamigos marketplace icon until
-         340b5050 swapped in the island mark. The bytes were right from that moment on
-         and the retired pixel icon kept showing anyway — in Phantom's in-app browser,
-         on home screens, anywhere a client keeps its own per-origin icon store. Those
-         stores are keyed by URL and never revalidate, so `must-revalidate` on the PNG
-         reaches none of them; a new icon at an old filename does not exist as far as
-         they are concerned. The `?v=` token is what reaches them, and it is derived
-         from the icon bytes by src/lib/siteIcons.test.ts — change the art and that test
-         fails with the new token to paste in here AND in both manifests.
-         /favicon.ico is listed first and is a real ICO: vercel.json rewrites
-         `/((?!api/).*)` to index.html, so before this file existed the root probe that
-         in-app browsers make BEFORE parsing any <link> returned `200 text/html`. A
-         fetcher cannot decode that and has no failure to fall back from, so it keeps
-         whatever icon it already had — the retired one. -->
-    <link rel="icon" href="/favicon.ico?v=a5bed999" sizes="16x16 32x32 48x48" />
-    <link rel="icon" type="image/png" href="/favicon.png?v=a5bed999" sizes="64x64" />
+    <!-- ICON CACHE 2026-09-13, revised 2026-09-15: the venue wore the Nakamigos
+         marketplace icon until 340b5050 swapped in the island mark. The bytes were right
+         from that moment on and the retired pixel icon kept showing anyway — in Phantom's
+         in-app browser, on home screens, anywhere a client keeps its own per-origin icon
+         store. Those stores are keyed by URL and never revalidate, so `must-revalidate`
+         reaches none of them; a new icon at an old filename does not exist as far as they
+         are concerned.
+         09-13 moved the URL with a `?v=` QUERY. That was the right idea at the wrong
+         layer: a store that normalises or strips the query sees the URL it already holds,
+         and we cannot know from here which ones do. So the token now lives in the PATH —
+         /icons/<token>/… — which is a strict superset: every store that would notice a
+         new query notices a new path, and the ones that ignore queries notice only this.
+         The token is still derived from the icon bytes by src/lib/siteIcons.test.ts, which
+         now asserts it appears in the PATH; change the art and that test fails with the
+         new token, and the hashed directory must be recreated and the old one deleted.
+         The canonical /favicon.ico, /favicon.png and /apple-touch-icon.png are COPIED,
+         never moved — deleting one would send it into vercel.json's SPA rewrite
+         `/((?!api/).*)` and return `200 text/html`, which is the poison-preserving
+         behaviour this whole block exists to prevent.
+         /favicon.ico is listed first and is a real ICO, because the root probe that in-app
+         browsers make BEFORE parsing any <link> synthesizes that exact URL and never sees
+         a token of any kind. A fetcher that gets HTML cannot decode it and has no failure
+         to fall back from, so it keeps whatever icon it already had — the retired one. -->
+    <link rel="icon" href="/icons/a5bed999/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" href="/icons/a5bed999/favicon.png" sizes="64x64" />
     <!-- R077: point at the W3C-spec manifest filename. `manifest.webmanifest`
          is the canonical extension for Web App Manifests; `manifest.json`
          can confuse some PWA tooling. -->
@@ -58,7 +67,7 @@
     <!-- R077: serve a purpose-built 192px PNG, not a JPG of the logo. iOS
          home-screen icons render best when the image is a square PNG with
          the correct sizes attribute; JPG works but lacks transparency. -->
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=a5bed999" sizes="192x192">
+    <link rel="apple-touch-icon" href="/icons/a5bed999/icon-192.png" sizes="192x192">
     <!-- CSP enforced via Vercel headers in vercel.json (not meta tag — avoids mobile Safari issues) -->
     <link rel="canonical" href="https://memetics.finance/" />
     <title>MEMETICS.FINANCE | Memetic Finance on Jungle Bay Island</title>
