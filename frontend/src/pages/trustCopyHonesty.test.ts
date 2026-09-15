@@ -131,8 +131,11 @@ describe('the $JBM ecosystem card', () => {
 describe('social links', () => {
   it('are declared once and imported, not re-listed per page', () => {
     for (const [where, ...parts] of [
+      // HomePage left this list 2026-09-15 (answer eight, ruling 7): the
+      // trust strip and the social pills moved off the arrival, so the
+      // Footer is the shared list's only consumer and the only page to
+      // police for re-declaring it.
       ['Footer', 'src', 'components', 'layout', 'Footer.tsx'],
-      ['HomePage', 'src', 'pages', 'HomePage.tsx'],
     ] as const) {
       const src = read(...(parts as unknown as string[]));
       expect(src, `${where} re-declares the social list`).not.toMatch(/const (SOCIAL_LINKS|COMMUNITY_LINKS)\s*(:|=)/);

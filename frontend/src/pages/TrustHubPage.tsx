@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
+import { GITHUB_REPO_URL } from '../lib/constants';
 
 // TRUST HUB — the one screen that frames the three detection surfaces as a single
 // anti-rug suite instead of three unrelated links buried in a "Stats" submenu.
@@ -142,6 +143,37 @@ export default function TrustHubPage() {
           </svg>
           Internal audit waves · Slither CI · 1,500+ tests
         </Link>
+        {/* WAVE SEVEN, answer eight, ruling 7: THE TRUST STRIP LIVES HERE NOW.
+            These four claims used to render ungated inside HomePage, which is
+            both the arrival AND all fourteen bungalow doors: a sixth thing on a
+            line the island ruled is five things and nothing else, and TOWELI's
+            protocol facts standing inside every other resident's room.
+            They are checks, and this is the page a visitor is already on to
+            make them, so they sit beside the record above. Labels and
+            destinations are unchanged byte for byte, so the e2e reads the same
+            four strings here that it refuses on the arrival and in the doors. */}
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          {[
+            { label: 'Contracts Verified', to: '/contracts' },
+            { label: 'Timelocked Admin', to: '/security' },
+            { label: 'Responsible Disclosure', to: '/security' },
+            { label: 'Open Source', href: GITHUB_REPO_URL },
+          ].map((b) => (
+            'href' in b ? (
+              <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] transition-all hover:opacity-90"
+                style={{ background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(245, 228, 184, 0.25)', color: '#f5e4b8' }}>
+                <span className="text-emerald-400">&#10003;</span> {b.label}
+              </a>
+            ) : (
+              <Link key={b.label} to={b.to}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] transition-all hover:opacity-90"
+                style={{ background: 'rgba(139, 92, 246, 0.12)', border: '1px solid rgba(245, 228, 184, 0.25)', color: '#f5e4b8' }}>
+                <span className="text-emerald-400">&#10003;</span> {b.label}
+              </Link>
+            )
+          ))}
+        </div>
         <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
           For how this protocol itself is secured — including what has and has not been audited — see{' '}
           <Link to="/security" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">

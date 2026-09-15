@@ -175,4 +175,79 @@ test.describe('row Q: the route census', () => {
       await expect(band.getByRole('link', { name: 'Back to memetics.finance' })).toHaveAttribute('href', '/');
     });
   }
+
+  // ANSWER EIGHT, ruling 1: THE BAND IS FIRST IN FLOW AND NEVER COVERED.
+  //
+  // The island read "You are in the TOWE" on /tokenomics, with the section
+  // tabs painting over the rest. Nothing here could see that: the band is
+  // covered, not hidden, so toBeVisible() passes and toContainText() resolves
+  // textContent without asking what a visitor can actually read or click.
+  //
+  // So ask the browser the only honest question, the one this repo already
+  // learned to ask of controls: at the band's own centre, what does
+  // elementFromPoint return? Both widths, because the band is flex-wrap, one
+  // line at 1280 and two at 390 - a fix that hard-codes one height passes on
+  // the desktop and re-covers the band on a phone.
+  for (const route of ROOM) {
+    const path = navigablePath(route);
+    if (path === '/toweli' || path === '/towelie') continue;
+    for (const width of [1280, 390]) {
+      test(`${path} shows its band uncovered at ${width}px`, async ({ page }) => {
+        test.skip(test.info().project.name !== 'chromium', 'geometry is engine-independent; one desktop project is the honest amount of work');
+        test.slow();
+        await page.setViewportSize({ width, height: 800 });
+        await seedVenueVisitor(page, true);
+        await settle(page, path);
+        const band = page.locator('[data-room="toweli"]');
+        await expect(band).toHaveCount(1);
+        // AT THE TOP OF THE PAGE, which is the state the ruling is about:
+        // the first line a visitor reads. The band is in flow and scrolls
+        // away by design (element E), and a settled route can arrive
+        // already scrolled - measured there, the band's centre is above the
+        // viewport and elementFromPoint answers null, which is not the
+        // defect this guard is for.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+        const covered = await page.evaluate(() => {
+          const el = document.querySelector('[data-room="toweli"]');
+          if (!el) return 'no band';
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return 'the band has no box';
+          const hit = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+          if (!hit) return `nothing answers at the band centre (top ${Math.round(r.top)}, scrollY ${Math.round(window.scrollY)})`;
+          if (hit.closest('[data-room="toweli"]')) return null;
+          return `${hit.tagName}.${String((hit as HTMLElement).className || '').slice(0, 48)}`;
+        });
+        expect(covered, 'something is painted over the room band').toBeNull();
+      });
+    }
+  }
+
+  // ANSWER EIGHT, ruling 1: ONE ROOM AT A TIME.
+  //
+  // The chrome read ambient storage, never the route, so a visitor who walked
+  // through /bayla and then opened a TOWELI protocol page saw the band say
+  // TOWELI while the nav chip said Bayla and the footer carried a BAYLA
+  // contract card with a Solana explorer link, all in one viewport.
+  test('a TOWELI room wears no other resident chrome', async ({ page }) => {
+    test.skip(test.info().project.name !== 'chromium', 'rendered chrome is engine-independent');
+    test.slow();
+    await page.addInitScript(() => {
+      try {
+        sessionStorage.setItem('tf_loaded', '1');
+        localStorage.setItem('tegridy-onboarding-seen', '1');
+        localStorage.setItem('tegridy_telemetry_consent', 'denied');
+        // The visitor arrives carrying the last door they walked through.
+        localStorage.setItem('tegridy-bungalow', 'bayla');
+      } catch { /* private mode */ }
+    });
+    await settle(page, '/tokenomics');
+    const body = await page.evaluate(() => document.body.innerText);
+    expect(body, 'the room is labelled').toContain('TOWELI room');
+    expect(body, 'the footer speaks for another resident').not.toContain('Bayla bungalow');
+    expect(body, 'the footer pins another resident contract').not.toContain('BAYLA contract');
+    const chip = page.locator('button[aria-label="Choose your bungalow"]');
+    await expect(chip).toHaveCount(1);
+    expect(await chip.innerText(), 'the nav chip names another resident').not.toContain('Bayla');
+  });
 });

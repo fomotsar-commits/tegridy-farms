@@ -32,7 +32,7 @@ import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
 import { ProofOfClaims } from '../components/ProofOfClaims';
 import { CopyButton } from '../components/ui/CopyButton';
-import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, GITHUB_REPO_URL, SOCIAL_LINKS, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
@@ -1015,55 +1015,6 @@ export default function HomePage() {
           </div>
         </div>
         )}
-
-        {/* Trust Badges */}
-        <div className="pb-16">
-          <div className="flex flex-wrap justify-center gap-3">
-            {/* HONESTY PASS 2026-06-11: "Bug Bounty Active" → "Responsible
-                Disclosure" (the bounty has no funded pool yet).
-                UPDATED 2026-07-19: "Contracts Verified" is RESTORED — all 8 core
-                contracts are now Etherscan source-verified, and /contracts proves
-                it with a live per-address badge. It replaces "82 Findings
-                Resolved", which was an aggregate count backed by nothing in the
-                repo and which the Security page deliberately refuses to publish
-                ("We do not publish aggregate 'resolved' counts here"). Every
-                badge here must be checkable in one click. */}
-            {[
-              { label: 'Contracts Verified', to: '/contracts' },
-              { label: 'Timelocked Admin', to: '/security' },
-              { label: 'Responsible Disclosure', to: '/security' },
-              { label: 'Open Source', href: GITHUB_REPO_URL },
-            ].map((b) => (
-              'href' in b ? (
-                <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
-                  className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
-                  style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
-                  <span className="text-emerald-400">&#10003;</span> {b.label}
-                </a>
-              ) : (
-                <Link key={b.label} to={b.to}
-                  className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
-                  style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
-                  <span className="text-emerald-400">&#10003;</span> {b.label}
-                </Link>
-              )
-            ))}
-          </div>
-
-          {/* F91: community/social proof — the same links the Footer carries,
-              surfaced near the trust row so first-time visitors see an active
-              community without scrolling to the footer. */}
-          <div className="flex flex-wrap justify-center gap-3 mt-4">
-            {SOCIAL_LINKS.map((s) => (
-              <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer"
-                aria-label={`${s.label} (opens in new tab)`}
-                className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
-                style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
-                {s.label} <span className="text-white/40">↗</span>
-              </a>
-            ))}
-          </div>
-        </div>
 
         {/* Ecosystem — ARRIVAL FLOW 2026-08-31: the subline places the island
             ABOVE the venue (the island is the world; the venue lives on it). */}

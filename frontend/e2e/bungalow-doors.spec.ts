@@ -193,6 +193,12 @@ test.describe('bungalow doors', () => {
       for (const section of ['Launch & Verify', 'Ecosystem', 'The Collection']) {
         expect(text, `/${id} still renders the venue's "${section}"`).not.toContain(section);
       }
+      // ANSWER EIGHT, ruling 7: the trust strip was ungated inside HomePage,
+      // so TOWELI's four protocol claims stood in every other resident's
+      // room. They live on the Check overview now.
+      for (const label of ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source']) {
+        expect(text, `/${id} still renders the trust strip's "${label}"`).not.toContain(label);
+      }
     });
   }
 
@@ -215,6 +221,10 @@ test.describe('bungalow doors', () => {
     const text = await readWholePage(page);
     expect(text).toContain('Protocol Overview');
     expect(text).toContain('TOWELI');
+    // ...and the trust strip is gone from the thirteenth door too.
+    for (const label of ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source']) {
+      expect(text, `/toweli still renders the trust strip's "${label}"`).not.toContain(label);
+    }
   });
 
   test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {

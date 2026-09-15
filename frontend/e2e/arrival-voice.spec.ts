@@ -91,6 +91,16 @@ test.describe('arrival voice', () => {
 
 const CUT_FROM_THE_VENUE = ['Launch & Verify', 'Ecosystem', 'The Collection'];
 
+// ANSWER EIGHT, ruling 7: THE TRUST STRIP LEFT THE ARRIVAL AND THE ROOMS.
+//
+// Deliberately NOT folded into CUT_FROM_THE_VENUE: those three are cut from
+// the venue and RESTORED on /toweli, which the pair of loops below is built
+// to say. These four are gone from both. They were inline JSX with no
+// heading, no section and no data hook, which is how two island probes that
+// read headings and sections walked past them for two answers running, and
+// why they are literals here: what a visitor reads is the whole point.
+const TRUST_STRIP_LABELS = ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source'];
+
 // THE FAQ TEASER IS THE FIFTH GATE, AND IT NEEDS ITS OWN PAIR OF STRINGS.
 //
 // The other four are cut and restored under one name each, so a single list
@@ -134,6 +144,9 @@ test.describe('the home, cut to the line', () => {
     for (const section of CUT_FROM_THE_VENUE) {
       expect(text, `"${section}" is still on the venue arrival`).not.toContain(section);
     }
+    for (const label of TRUST_STRIP_LABELS) {
+      expect(text, `the trust strip's "${label}" is still on the venue arrival`).not.toContain(label);
+    }
     // THE LOAD-BEARING ONE IS FAQ_INTRO, NOT THE RETIRED VENUE LINE.
     //
     // The island's break-the-fix was "widen the gate and watch the venue
@@ -173,6 +186,10 @@ test.describe('the home, cut to the line', () => {
     const text = await readWholePage(page);
     for (const section of CUT_FROM_THE_VENUE) {
       expect(text, `"${section}" was DELETED, not gated`).toContain(section);
+    }
+    // The strip is the other way round: gone from the room as well.
+    for (const label of TRUST_STRIP_LABELS) {
+      expect(text, `the trust strip's "${label}" is still in the room`).not.toContain(label);
     }
     // The teaser under its own headline, which is where it went rather than
     // where it stopped existing.

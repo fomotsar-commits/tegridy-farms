@@ -33,6 +33,23 @@ import { gotoRoute } from './fixtures/routes';
  */
 
 test.describe('Trust pages', () => {
+  // ANSWER EIGHT, ruling 7: THE POSITIVE HALF OF THE MOVE.
+  //
+  // These four claims used to render on the venue arrival and inside all
+  // fourteen bungalow doors, ungated. arrival-voice.spec and
+  // bungalow-doors.spec assert they are gone from both; without this test,
+  // deleting them outright would satisfy the pair and the island would lose
+  // four checkable facts. This is where they went.
+  test('the Check overview carries the four trust claims', async ({ page }) => {
+    await gotoRoute(page, '/trust');
+    for (const label of ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source']) {
+      await expect(page.getByRole('link', { name: new RegExp(label) }).first())
+        .toBeVisible({ timeout: 15_000 });
+    }
+    // Beside the record they were moved next to, not floating on their own.
+    await expect(page.getByText('Internal audit waves').first()).toBeVisible();
+  });
+
   test('security page renders core trust signals', async ({ page }) => {
     await gotoRoute(page, '/security');
     await expect(page.locator('h1')).toBeVisible();
