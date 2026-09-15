@@ -15,6 +15,63 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-15 — a monitor that pins a vendor's status code fails the day the vendor is right
+
+**Believed:** a permanent redirect is a 301, so a synthetic probe can assert
+`[ "$code" = "301" ]` and thereby be asserting "this alias redirects permanently".
+
+**Measured:** Vercel's `redirects` array never emits 301. `"permanent": true` emits
+**308**; `"permanent": false` emits **307**. Measured with `curl -sI` against three
+live aliases — all three 308, one hop, path and query preserved. There is no setting
+on a `redirects` entry that yields 301; you have to abandon `permanent` for a raw
+`statusCode` to get one.
+
+The failure mode this produced is the transferable part. **One commit** both created
+the redirect with `permanent: true` *and* rewrote the monitor to demand a literal
+`301`. It went red on the first scheduled run after merging and stayed red for **14
+consecutive runs** across three trunk commits, while production behaved exactly as
+designed. The check asserted a status code the config it shipped alongside could not
+emit — and because both halves rode in one commit, there was no "it used to pass"
+signal to bisect toward.
+
+**Why a literal is the wrong pin.** The invariant the probe exists to defend is
+*permanent, and onto the canonical host*. `301` is one vendor's spelling of half of
+that. Pinning the spelling fails on a correct implementation-detail change and, worse,
+stays silent if the platform later emits a permanent code you never enumerated. Assert
+the property:
+
+```bash
+case "$code" in 301|308) : ;; *) fail ;; esac
+```
+
+That is *stricter* than the `30[0-9]` it replaced, because 302/303/307 now fail: a
+temporary here means someone flipped `permanent` to false and the canonicalisation
+signal quietly stopped consolidating.
+
+**308 is not a downgrade.** It is the method-preserving twin of 301 (RFC 7538) and
+search engines consolidate on it identically. There was nothing to fix in production
+— "make the monitor green" and "fix the site" were different tasks and only one of
+them was real. A red monitor is a claim about production that itself needs checking.
+
+**Do:** when probing a managed platform, enumerate every code that satisfies the
+property you actually care about, and find out what the platform emits — one
+`curl -sI` — rather than inferring it from what the config field is *named*.
+`permanent: true` does not mean 301.
+
+### The corollary that cost the two days: an alarm must say what tripped it
+
+The probe wrote its failure text to `$GITHUB_OUTPUT` only, for use as an issue body.
+**`gh run view <id> --log-failed` does not render `$GITHUB_OUTPUT`** — it showed the
+`run:` script source and a bare `exit 1`. The one fact needed to act (WHICH host, and
+what it actually returned) was recoverable only by re-running the probe by hand.
+
+An alarm whose own log cannot name what tripped it gets ignored, and this one was, for
+two days, by everyone who looked at it. If a step composes a human-readable failure
+report, print it to stdout **as well as** to wherever the automation consumes it. The
+duplication costs one line and is the difference between a triaged alarm and wallpaper.
+
+---
+
 ## 2026-09-14 — a wallet adapter's declared capability is the SHIM's opinion, not the wallet's
 
 **Believed:** `supportedTransactionVersions` on an official `@solana/wallet-adapter-*`
