@@ -24,6 +24,8 @@ export interface TapeName {
 /** Address (as sent) → its name. Absent means "no name to show". */
 export type TapeNames = Record<string, TapeName>;
 
+import { daysHeld } from './daysHeld';
+
 const ENDPOINT = '/api/aggregator?resource=tape';
 
 // The proxy caps at twelve and the tape asks for twelve. Sending more would be
@@ -34,19 +36,6 @@ const MAX = 12;
 // that has not answered by now is not going to change the page usefully.
 const TIMEOUT_MS = 9000;
 
-/**
- * Days between two island timestamps.
- *
- * Deliberately NOT `Date.now()`. The island reckons held time from `held_since`
- * to the `as_of` of its own reading; dating it against the viewer's clock would
- * give two people looking at the same row different numbers, and would keep
- * ticking while the island's reading stood still.
- */
-export function daysBetween(heldSinceUnix: number | null, asOfUnix: number | null): number | null {
-  if (typeof heldSinceUnix !== 'number' || typeof asOfUnix !== 'number') return null;
-  if (asOfUnix < heldSinceUnix) return null;
-  return Math.floor((asOfUnix - heldSinceUnix) / 86_400);
-}
 
 /**
  * Name as many of these wallets as the island knows.
@@ -89,7 +78,7 @@ export async function fetchTapeNames(
       out[address] = {
         xHandle: handle,
         tier: typeof v?.tier === 'string' ? v.tier : '',
-        days: daysBetween(
+        days: daysHeld(
           typeof v?.held_since_unix === 'number' ? v.held_since_unix : null,
           typeof v?.as_of_unix === 'number' ? v.as_of_unix : null,
         ),

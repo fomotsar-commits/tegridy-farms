@@ -11,6 +11,7 @@
 //  4. "The instrument is unreachable" and "this wallet is cold" are DIFFERENT states
 //     with different copy. An outage must never render as a zero score.
 
+import { daysHeld } from '../lib/heat/daysHeld';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
@@ -49,22 +50,6 @@ function agoLabel(unix: number, now: number): string {
   return mo < 24 ? `${mo}mo ago` : `${Math.floor(d / 365)}y ago`;
 }
 
-/**
- * The days the ISLAND has measured: held_since_unix to as_of_unix.
- *
- * NOT to our clock. The span between the island's last reckoning and this moment is
- * time the island has not counted yet, and quietly adding it would make the venue
- * state a number the oracle never served — the one thing §5 forbids. It also keeps
- * the figure stable: two people reading the same wallet an hour apart see the same
- * day count, because both are reading the same reckoning.
- *
- * Days are the unit a stranger can compare without being taught anything; degrees are
- * the island's grammar. Both render, and this is the one that leads.
- */
-function daysHeld(heldSinceUnix: number | null, asOfUnix: number | null): number | null {
-  if (heldSinceUnix === null || asOfUnix === null) return null;
-  return Math.max(0, Math.floor((asOfUnix - heldSinceUnix) / DAY));
-}
 
 /** "on the island since <month year>". UTC so the month cannot shift by viewer. */
 function sinceLabel(unix: number): string {

@@ -8,7 +8,8 @@
 // The presentational pieces (CurveLaunchesGridView / CurveGridCardView) are
 // pure and prop-driven so they test without a wallet; containers wire the reads.
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchTapeNames, type TapeNames } from '../../lib/heat/tapeNames';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
@@ -60,6 +61,18 @@ export interface CurveGridCardData {
   marketCapWei: bigint;
   progressBps: number;
   graduated: boolean;
+  /**
+   * WAVE SEVEN, element P: THE PLANTER'S FLAME, as the tape can answer it.
+   *
+   * The island ruled five states. The venue's door to a planter's standing is
+   * the named tape, and through it three of those five are ONE observation:
+   * the proxy allowlists x_handle, tier and held_since, drops any row with no
+   * handle, and never sends is_cold. So an unnamed-but-warm planter, a cold
+   * one and an unreachable instrument all arrive here as the same absence,
+   * and null is the only honest thing to render for it: the line is simply
+   * not there. Never a zero, never "unnamed", which is the ruling's own law.
+   */
+  planter: { xHandle: string; tier: string; days: number | null } | null;
 }
 
 export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; chainId: number }) {
@@ -98,6 +111,19 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
         <p className="text-white/50 text-[11px] font-mono">
           {card.marketCapWei > 0n ? `${fmtEth(card.marketCapWei)} ETH cap` : 'pool-priced'}
         </p>
+        {/* Element P. The middle dot is the separator element N already uses
+            for the same three facts, and it keeps this line out of element
+            I's em-dash budgets entirely. A tier with no day count prints the
+            tier alone: the island named that state, and the tape can answer
+            it, because held_since can be missing from a row that has a
+            handle. */}
+        {card.planter && (
+          <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+            Planted by @{card.planter.xHandle}
+            {card.planter.tier ? ` · ${card.planter.tier}` : ''}
+            {card.planter.days !== null ? ` · ${card.planter.days} days held` : ''}
+          </p>
+        )}
         {card.graduated ? (
           <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-300/90">GRADUATED 🎓</span>
         ) : (
@@ -206,7 +232,20 @@ function toCurveLaunch(raw: unknown): CurveLaunch | null {
   };
 }
 
-function CurveGridCard({ launcher, chainId, token }: { launcher: Address; chainId: number; token: Address }) {
+function CurveGridCard({
+  launcher,
+  chainId,
+  token,
+  onCreator,
+  planterFor,
+}: {
+  launcher: Address;
+  chainId: number;
+  token: Address;
+  /** WAVE SEVEN, element P: the creator is read HERE and named ONCE, above. */
+  onCreator: (token: Address, creator: Address) => void;
+  planterFor: (creator: Address) => CurveGridCardData['planter'];
+}) {
   const { data: launchRaw } = useReadContract({
     address: launcher,
     abi: CURVE_LAUNCHER_ABI,
@@ -217,6 +256,15 @@ function CurveGridCard({ launcher, chainId, token }: { launcher: Address; chainI
   });
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   const identity = useCurveIdentity(token, chainId, launch?.creator);
+
+  // Hand the creator up as soon as the chain answers. The naming read is the
+  // grid's, not this card's: twelve cards asking separately would spend the
+  // island's quota twelve times for one page, which is the whole reason the
+  // tape exists as one bounded fan-out.
+  const creator = launch?.creator;
+  useEffect(() => {
+    if (creator) onCreator(token, creator);
+  }, [creator, onCreator, token]);
 
   if (!launch) {
     return (
@@ -235,6 +283,7 @@ function CurveGridCard({ launcher, chainId, token }: { launcher: Address; chainI
     marketCapWei: curveMarketCapWei(launch),
     progressBps: graduationProgressBps(launch.ethReserve, launch.graduationEth),
     graduated: launch.graduated,
+    planter: planterFor(launch.creator),
   };
   return <CurveGridCardView card={card} chainId={chainId} />;
 }
@@ -282,6 +331,32 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
   // Distinguish "the page has not arrived" from "the page came back empty".
   const pageUnread = pageRaw ? pageRaw[0]?.status !== 'success' : false;
 
+  // WAVE SEVEN, element P: ONE NAMING READ FOR THE PAGE.
+  //
+  // Element N's shape, including the joined key: the effect depends on the SET
+  // of creators, so a card re-rendering (every 30s, on its own refetch) does
+  // not re-spend the island's quota. fetchTapeNames de-dupes and caps at 12,
+  // and it never throws: a naming outage leaves the cards exactly as they were.
+  const [creators, setCreators] = useState<Record<string, string>>({});
+  const [names, setNames] = useState<TapeNames>({});
+  const noteCreator = useCallback((tok: Address, creator: Address) => {
+    setCreators((prev) => (prev[tok] === creator ? prev : { ...prev, [tok]: creator }));
+  }, []);
+  const creatorKey = useMemo(
+    () => [...new Set(Object.values(creators))].sort().join(','),
+    [creators],
+  );
+  useEffect(() => {
+    if (!creatorKey) return;
+    const ac = new AbortController();
+    void fetchTapeNames(creatorKey.split(','), { signal: ac.signal }).then(setNames);
+    return () => ac.abort();
+  }, [creatorKey]);
+  const planterFor = useCallback(
+    (creator: Address): CurveGridCardData['planter'] => names[creator] ?? null,
+    [names],
+  );
+
   // Identity/launch reads live in per-card components so each card carries its
   // own hooks; the grid only fans out the token list.
   return (
@@ -290,7 +365,15 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
       launchCount={launchCount}
       tokens={tokens}
       tokensUnread={pageUnread}
-      renderCard={(t) => <CurveGridCard launcher={launcher} chainId={chainId} token={t} />}
+      renderCard={(t) => (
+        <CurveGridCard
+          launcher={launcher}
+          chainId={chainId}
+          token={t}
+          onCreator={noteCreator}
+          planterFor={planterFor}
+        />
+      )}
     />
   );
 }

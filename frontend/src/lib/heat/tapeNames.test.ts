@@ -7,7 +7,10 @@
 // renders the address the row always had — never a blank, never "unnamed".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { fetchTapeNames, daysBetween } from './tapeNames';
+import { fetchTapeNames } from './tapeNames';
+// The day counter moved to its one home (answer eight, ruling 11). Element N
+// still spends it, so its cases stay pinned here, beside the rows they shape.
+import { daysHeld as daysBetween } from './daysHeld';
 
 const A1 = '0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca';
 const A2 = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';

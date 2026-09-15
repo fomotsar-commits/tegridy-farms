@@ -38,6 +38,7 @@ function card(overrides: Partial<CurveGridCardData> = {}): CurveGridCardData {
     marketCapWei: 210526315789473684n,
     progressBps: 2500,
     graduated: false,
+    planter: null,
     ...overrides,
   };
 }
@@ -91,5 +92,76 @@ describe('CurveGridCardView', () => {
     expect(screen.queryByRole('progressbar')).toBeNull();
     // Post-graduation the curve has no honest mcap — say so, never fabricate.
     expect(screen.getByText(/pool-priced/i)).toBeInTheDocument();
+  });
+});
+
+// ── Element P: the planter's flame on the card (answer eight, ruling 11) ──
+//
+// The island ruled five states. Through the tape - the door the venue actually
+// has - three of them are one observation, because the proxy drops any row
+// without a handle and never sends is_cold. So the states that can be told
+// apart are named, named-without-days, and absent, and the absent one renders
+// NOTHING: never a zero, never "unnamed", which is the ruling's own hard law.
+describe('element P: the planter on a launch card', () => {
+  const planted = { xHandle: 'greencifer', tier: 'Builder', days: 214 };
+
+  function line() {
+    return document.querySelector('[data-element="p-planter"]');
+  }
+
+  it('names the planter, the tier and the days, separated by middle dots', () => {
+    render(
+      <MemoryRouter>
+        <CurveGridCardView card={card({ planter: planted })} chainId={8453} />
+      </MemoryRouter>,
+    );
+    // The middle dot is element N's separator for these same three facts, and
+    // it keeps this line outside element I's em-dash budgets entirely.
+    expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder \u00b7 214 days held');
+    expect(line()?.textContent).not.toContain('\u2014');
+  });
+
+  it('prints the tier alone when the island sent no held-since', () => {
+    render(
+      <MemoryRouter>
+        <CurveGridCardView card={card({ planter: { ...planted, days: null } })} chainId={8453} />
+      </MemoryRouter>,
+    );
+    expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder');
+    // A zero here would read as "planted today", which is a claim.
+    expect(line()?.textContent).not.toContain('0 days');
+  });
+
+  it('prints the handle alone when the row carries no tier', () => {
+    render(
+      <MemoryRouter>
+        <CurveGridCardView card={card({ planter: { xHandle: 'greencifer', tier: '', days: null } })} chainId={8453} />
+      </MemoryRouter>,
+    );
+    expect(line()?.textContent).toBe('Planted by @greencifer');
+  });
+
+  it('renders NO line at all when the tape cannot name the planter', () => {
+    // Unnamed-but-warm, cold, and an unreachable instrument arrive identically:
+    // as no row. The card says nothing about the planter rather than guessing
+    // which of the three it is.
+    render(
+      <MemoryRouter>
+        <CurveGridCardView card={card({ planter: null })} chainId={8453} />
+      </MemoryRouter>,
+    );
+    expect(line()).toBeNull();
+    expect(screen.queryByText(/Planted by/)).toBeNull();
+  });
+
+  it('is dark until the first launch, because no card is built at zero', () => {
+    // P ships behind data. The grid constructs no card at a zero count, so the
+    // line cannot render before the venue has a launch to show it on.
+    render(
+      <MemoryRouter>
+        <CurveLaunchesGridView chainName="Base" launchCount={0n} tokens={[]} renderCard={() => null} />
+      </MemoryRouter>,
+    );
+    expect(document.querySelector('[data-element="p-planter"]')).toBeNull();
   });
 });
