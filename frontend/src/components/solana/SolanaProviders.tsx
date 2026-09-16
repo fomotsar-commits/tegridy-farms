@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { TrustWalletAdapter } from '../../lib/solanaWallets';
 // VENDORED, not the package css: the upstream file opens with a Google-Fonts
 // @import that the CSP blocks, and Vite 8 turned that block into a fatal
 // CSS-preload failure — every Solana-stack page crashed in prod (2026-08-26).
@@ -25,10 +26,18 @@ import { SolanaWalletModalA11y } from './SolanaWalletModalA11y';
  * Phantom's in-app browser via phantom.app/ul/browse). When the extension IS
  * present, useStandardWalletAdapters drops this adapter by name ("Phantom"),
  * so the modal never shows a duplicate entry.
+ *
+ * Trust is here for exactly the same reasons, plus one of its own: it is the
+ * wallet a Solana staker on this island most often arrives with, and until
+ * 2026-09-14 the modal offered them nothing but a Phantom install link. It is
+ * VENDORED rather than taken from @solana/wallet-adapter-trust, whose declared
+ * transaction-version support is stale and wrong — the full evidence, and the
+ * reversal of the 2026-09-02 decision, is in lib/solanaWallets.ts. It dedupes
+ * against Trust's own Wallet Standard registration by the name "Trust".
  */
 export function SolanaProviders({ children }: { children: ReactNode }) {
   const endpoint = useMemo(() => solanaRpcEndpoint(), []);
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const wallets = useMemo(() => [new PhantomWalletAdapter(), new TrustWalletAdapter()], []);
   return (
     <ConnectionProvider endpoint={endpoint} config={{ commitment: 'confirmed' }}>
       <WalletProvider wallets={wallets} autoConnect>

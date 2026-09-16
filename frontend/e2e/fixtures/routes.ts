@@ -902,6 +902,22 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/door-studio',
+    // Authoring tool, not a room the island speaks in — same as the other
+    // studios, which all declare a null voice.
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'unlisted',
+    why:
+      'The island’s FRONT-PAGE authoring tool (2026-09-13): the thirteen door tiles in ' +
+      'VenueDoors and the rows in BungalowPicker, which no studio could reach while `thumb` ' +
+      'was hand-written on the registry entry. Draws from every resident’s pool at once, ' +
+      'because a door is a shop window rather than a surface owned by the resident behind it. ' +
+      'Unlisted in production on the same export-only footing as the surface studios; it takes ' +
+      'no params, so there is no unknown-id leg to redirect.',
+    knownViolations: [],
+  },
+  {
     path: '/*',
     voice: 'venue',
     owner: 'App.tsx · NotFoundPage',

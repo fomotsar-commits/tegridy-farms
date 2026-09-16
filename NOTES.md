@@ -15,6 +15,121 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-14 — a wallet adapter's declared capability is the SHIM's opinion, not the wallet's
+
+**Believed:** `supportedTransactionVersions` on an official `@solana/wallet-adapter-*`
+package tells you what that wallet can sign. On 2026-09-02 this repo read
+`@solana/wallet-adapter-trust`'s `supportedTransactionVersions = null`, correctly
+decoded it (null narrows to legacy-only; it does **not** mean "all versions"), and
+excluded Trust from every Solana surface on the grounds that the wallet could not
+sign the v0 transactions this venue sends. A guard test was written to keep it out.
+
+**Measured, twelve days later:** the package was right about itself and wrong about
+Trust. Read from Trust's own sources, not the shim:
+
+- `trustwallet/trust-web3-provider`, `adapter/src/wallet.ts` — Trust's **own** Wallet
+  Standard implementation — declares `supportedTransactionVersions: ['legacy', 0]` on
+  both `solana:signTransaction` and `solana:signAndSendTransaction`.
+- Its injected provider, `src/solana_provider.js`, reads `tx.version` and serializes
+  with `requireAllSignatures: false, verifySignatures: false` — the versioned path.
+- `wallet-core` has shipped `VersionedTx` / `V0Message` since PR #2935, merged
+  **2023-02-20**, which closed "[Solana] Support versioned transactions".
+
+`@solana/wallet-adapter-trust@0.1.18`, published **2026-09-10**, still says `null`.
+So the metadata had been wrong for roughly three and a half years and was republished
+wrong four days before it was read.
+
+**Why this generalises past Solana.** These adapter packages are third-party shims
+around someone else's product. The wallet ships on its own cadence; the shim is
+updated when a volunteer gets to it. A capability *claim* in the shim is evidence
+about the shim. A capability *denial* is not evidence about the wallet at all.
+
+**Do:** when a wallet shim says a wallet cannot do something, and that denial is the
+reason you are about to exclude the wallet, go read the wallet's own provider or
+Wallet Standard source before believing it. It is a ten-minute read and it is the
+difference between "this wallet is broken" and "this package is stale". Vendor an
+adapter with the honest declaration rather than adopting the package — a wallet's own
+`registerWallet` implementation is the authority, and it is public.
+
+### The declared capability gates only SOME paths — find out which one your SDK takes
+
+The version check does **not** live in the adapter. In `@solana/wallet-adapter-base`
+(`esm/signer.js`) it lives in exactly two methods on `BaseSignerWalletAdapter`:
+`sendTransaction` and `signAllTransactions`. **`signTransaction` has no gate at all.**
+
+That matters because SDKs disagree about which one they call. Measured here:
+
+| Path | Route | Hits the declared-version gate? |
+| --- | --- | --- |
+| swap / limit / DCA | `adapter.sendTransaction` | yes |
+| Streamflow staking | `client.execute()` → `signAndExecuteTransaction` → `invoker.signTransaction(tx)` | **no** |
+
+Both send a v0 `VersionedTransaction` (`@streamflow/common` compiles one via
+`compileToV0Message`). So a legacy-only adapter throws the adapter's clean
+`Sending versioned transactions isn't supported by this wallet` on one path, and on
+the other sails past the check and fails inside the wallet with whatever that wallet
+says. Same defect, two symptoms, and a guard asserting the declared value catches
+neither on the second path.
+
+**Do:** before reasoning about what a declared capability protects, `grep` the SDK for
+which method it actually calls. `isSignerWallet(invoker) → invoker.signTransaction` is
+the common bypass shape and it appears in more than one SDK.
+
+### A dist grep is evidence only after you prove the code path is REACHABLE in that build
+
+Checking that a wallet refactor had not dropped Trust from the EVM connect modal,
+`grep -rl "com.trustwallet.app" dist/assets/*.js` returned **nothing**. Read naively
+that says the refactor deleted the wallet. It did not: `wagmi.ts` builds its wallet
+list inside an `if (projectId)` branch, no `.env` exists in a fresh worktree, so
+`VITE_WALLETCONNECT_PROJECT_ID` was undefined and rolldown eliminated the **entire**
+list — Phantom, Trust, WalletConnect, Rainbow, Base and Rabby together. The tell was
+cheap and should have been the first check: grep for a *sibling* that the change did
+not touch (`phantom.ethereum`). It was also absent, so the absence was about the
+build, not the diff.
+
+Rebuilt with `VITE_WALLETCONNECT_PROJECT_ID=<any 32 hex chars>`: `com.trustwallet.app`
+present in the wagmi chunk, and the shared icon module resolved into its own chunk
+imported by both sides rather than pulling one stack into the other.
+
+**Do:** a zero from a dist grep is a *reading*, and an unreachable code path returns
+the same zero as a deleted one. Before believing it, grep for an untouched sibling
+symbol from the same branch. If the sibling is missing too, you measured your env.
+
+### `autoConnect` + a `Loadable` deep-link branch = a page that navigates itself away
+
+Wallet adapters model "app not installed, but we can hand off to it" as
+`WalletReadyState.Loadable`, and `connect()` in that state is not a connection — it
+assigns `window.location.href` to a universal link. `WalletProvider` is commonly
+mounted with `autoConnect`, and the default `autoConnect()` just calls `connect()`.
+Composed, that is: every returning visitor whose stored wallet selection is the
+deep-linkable one gets navigated off the site on page load, having clicked nothing.
+
+Upstream's Phantom adapter guards it (`autoConnect` runs only from `Installed`) with a
+two-line comment and no test. Any hand-rolled or vendored adapter has to re-derive the
+guard, and nothing fails loudly if it does not — on desktop, where adapters get
+written, `Loadable` never occurs.
+
+**Do:** if an adapter has a `Loadable`/redirect branch, override `autoConnect` to run
+only from `Installed`, and pin it with a test that asserts `location.href` is
+**unchanged** after `autoConnect()`. Also make an injected provider always win over
+the redirect, or the wallet's own in-app browser can bounce itself in a loop.
+
+### Incidental
+
+- `useStandardWalletAdapters` dedupes a legacy adapter against a registered Wallet
+  Standard wallet by **exact `name` string match** (it drops yours and logs a
+  `console.warn`). A vendored adapter's `name` is therefore a load-bearing contract,
+  not a label: Trust registers as `"Trust"`, so an adapter calling itself
+  `"Trust Wallet"` — which is what the EVM modal calls it — would render a second,
+  dead row beside the real one.
+- `scopePollingDetectionStrategy` runs its detector **synchronously** as its last step
+  ("Strategy #4"), so an adapter's `readyState` is already settled when the constructor
+  returns. Tests can assert it without waiting; the 1s interval only covers late
+  injection.
+- SLIP-44 for Solana is **501**; Trust's dApp-browser handoff is
+  `https://link.trustwallet.com/open_url?coin_id=<slip44>&url=<encoded>`. A wrong
+  `coin_id` still opens the browser, so this fails silently on the wrong chain.
+
 ## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
 
 **Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
