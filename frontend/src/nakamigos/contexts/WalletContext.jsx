@@ -6,23 +6,13 @@
 import { createContext, useContext, useMemo, useCallback, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from "wagmi";
 import { mainnet } from "wagmi/chains";
-import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { useSafeConnectModal } from "../../hooks/useSafeConnectModal";
 import { getActiveWalletProvider } from "../api";
 
 // ═══ Wallet Contexts (same shape as the original) ═══
 const WalletStateContext = createContext(undefined);
 const WalletActionsContext = createContext(undefined);
 const WalletUIContext = createContext(undefined);
-
-// Safe wrapper for useConnectModal — can throw on some mobile browsers
-function useSafeConnectModal() {
-  try {
-    const result = useConnectModal();
-    return result?.openConnectModal || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * WalletProvider — no longer creates its own WagmiProvider/QueryClientProvider.
