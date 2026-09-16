@@ -131,7 +131,7 @@ export function useNFTDropV2(dropAddress: string) {
     data?.[5]?.status === 'success' && // maxPerWallet
     data?.[8]?.status === 'success'; // paused
   /** A sale-state read was attempted and did not land. Phase, supply, cap and pause above are then display defaults, not the contract's state. */
-  const saleStateUnread = enabled && onMainnet && !!data && !saleStateReadOk;
+  const saleStateUnread = enabled && !!data && !saleStateReadOk;
   // The remaining collapses are left unsignalled ON PURPOSE (adjudicated
   // 2026-09-10), so a per-index scan still lists them:
   //   [4] owner -> '' hides the owner panels: fails closed, claims nothing to a buyer.

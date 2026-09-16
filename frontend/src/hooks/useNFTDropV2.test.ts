@@ -172,14 +172,23 @@ describe('useNFTDropV2 — an unread sale is never confused with an open one', (
     expect(result.current.phaseLabel).toBe('Closed');
   });
 
-  it('a sale that was never read is not an outage — off mainnet, or a placeholder address', () => {
+  it('a wallet on another chain is asked like any other, so its unread sale IS an outage', () => {
+    // Same rule as the price (#526): the batch is chain-pinned, not
+    // chain-gated, so off mainnet a failed read still happened. Gating this on
+    // onMainnet left the outage notice blaming only the price, and the phase
+    // and supply panels blank with no reason given.
     wagmiMock.setChainId(11155111);
     const off = renderHook(() => useNFTDropV2(DROP)).result.current;
+    expect(off.onMainnet).toBe(false);
     expect(off.saleStateReadOk).toBe(false);
-    expect(off.saleStateUnread).toBe(false);
+    expect(off.saleStateUnread).toBe(true);
+    // ...and it agrees with its sibling signal on the same failed batch.
+    expect(off.priceUnread).toBe(true);
+  });
 
-    wagmiMock.setChainId(CHAIN_ID);
+  it('a placeholder drop address was never read, so it is not an outage', () => {
     const placeholder = renderHook(() => useNFTDropV2(ZERO)).result.current;
+    expect(placeholder.saleStateReadOk).toBe(false);
     expect(placeholder.saleStateUnread).toBe(false);
   });
 });
