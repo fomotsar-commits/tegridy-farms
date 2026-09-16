@@ -58,8 +58,13 @@ vi.mock('@solana/wallet-adapter-react', () => ({
     connected: !!walletState.publicKey,
   }),
 }));
+// useSolanaConnect returns the click HANDLER itself, not a {connect} object —
+// the old shape here was never exercised, because until the disconnected cases
+// below existed every test in this file ran with a wallet already attached, and
+// the one button that consumes it never rendered. A mock that cannot be used as
+// an onClick is how a missing Connect button stays invisible to its own suite.
 vi.mock('../solana/useSolanaConnect', () => ({
-  useSolanaConnect: () => ({ connect: () => {}, connecting: false }),
+  useSolanaConnect: () => () => {},
 }));
 
 // An OPEN, MATURED position: the lock has expired, so every exit control the
@@ -148,5 +153,51 @@ describe('a pool closed to new deposits', () => {
     expect(screen.getByText(/lock duration/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /stake & lock|enter an amount/i })).toBeTruthy();
     expect(screen.queryByText(/closed to new deposits/i)).toBeNull();
+  });
+});
+
+// THE COHORT THE TESTS ABOVE COULD NOT SEE.
+//
+// Every case above runs with a wallet already attached, because `beforeEach`
+// supplies one. That is the state `autoConnect` puts a returning staker in, and
+// it is exactly why this shipped: the only Connect button on the card lived
+// inside the block `depositsClosed` removes, so the exits all survived the flag
+// while the way to REACH them did not. Anyone arriving disconnected — a new
+// device, a cleared browser, or a wallet that only became selectable later —
+// found a pool that promises "claims work" and offered no way to claim.
+describe('a closed pool, arrived at with no wallet connected', () => {
+  beforeEach(() => {
+    walletState.publicKey = null;
+  });
+
+  it('still offers a way to CONNECT', async () => {
+    render(<LighthousePoolLive bungalow={CLOSED_POOL} />);
+    expect(await screen.findByText(/closed to new deposits/i)).toBeTruthy();
+    const connect = screen.getByRole('button', { name: /connect solana wallet/i });
+    expect(connect).toBeTruthy();
+    expect((connect as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('says what connecting is FOR here — leaving, not staking', async () => {
+    render(<LighthousePoolLive bungalow={CLOSED_POOL} />);
+    await screen.findByRole('button', { name: /connect solana wallet/i });
+    // A closed pool must not invite a deposit it cannot accept.
+    const text = document.body.textContent ?? '';
+    expect(text).toMatch(/claim rewards|unstake/i);
+    expect(screen.queryByRole('button', { name: /stake & lock|enter an amount/i })).toBeNull();
+  });
+
+  it('an OPEN pool still offers connect too (the flag is not the only path)', async () => {
+    render(<LighthousePoolLive bungalow={OPEN_POOL} />);
+    expect(await screen.findByRole('button', { name: /connect solana wallet/i })).toBeTruthy();
+  });
+
+  it('renders exactly ONE connect button, never two', async () => {
+    // The closed-pool CTA sits outside the `!depositsClosed` block and the open
+    // one inside it. If that guard is ever loosened, a disconnected visitor to
+    // an open pool would see the control twice.
+    render(<LighthousePoolLive bungalow={OPEN_POOL} />);
+    await screen.findByRole('button', { name: /connect solana wallet/i });
+    expect(screen.getAllByRole('button', { name: /connect solana wallet/i })).toHaveLength(1);
   });
 });

@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { pageArt } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
@@ -27,6 +28,11 @@ export function CollectionDetailV2({
   deployed: boolean;
 }) {
   const { isConnected } = useAccount();
+  // A control labelled "Connect Wallet" while `disabled` on the same !isConnected that
+  // produced that label is dead: a native disabled button dispatches no click, and
+  // handleMint only calls drop.mint — it never opened a modal. So the button now OPENS
+  // the connect modal when disconnected instead of greying out under the word.
+  const { openConnectModal } = useConnectModal();
   const drop = useNFTDropV2(dropAddress);
   const explorerUrl = useExplorerAddressUrl(dropAddress);
   const [mintQty, setMintQty] = useState(1);
@@ -494,8 +500,8 @@ export function CollectionDetailV2({
                       ? 'bg-black/60 text-white cursor-not-allowed'
                       : `${BTN_EMERALD} shadow-[0_0_20px_-6px_rgba(16,185,129,0.3)]`
                   }`}
-                  disabled={mintDisabled}
-                  onClick={handleMint}
+                  disabled={isConnected && mintDisabled}
+                  onClick={isConnected ? handleMint : openConnectModal}
                   title={drop.priceUnread
                     ? 'The mint price could not be read from the contract. Reload before minting — do not sign a price you cannot see.'
                     : undefined}

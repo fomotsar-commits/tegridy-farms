@@ -11,6 +11,7 @@ import {
   type Bungalow,
 } from '../lib/bungalows';
 import { ART } from '../lib/artConfig';
+import { doorArt } from '../lib/doorArt';
 
 const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
   ethereum: 'Ethereum',
@@ -103,6 +104,9 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
         {BUNGALOWS.map((b) => {
           const isCurrent = b.id === currentId;
           const locked = b.chain === 'tbd'; // only the quiet slot stays locked
+          // Same resolver VenueDoors uses, so the card behind this modal and the
+          // row inside it can never show different pictures for one door.
+          const door = doorArt(b);
           return (
             <button
               key={b.id}
@@ -124,16 +128,16 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
                 {/* RESPONSIVE, 2026-09-04 — same rails as VenueDoors, which
                     renders the same thumbnails on the page behind this modal. */}
                 <img
-                  src={b.thumb}
-                  {...(artSrcSet(b.thumb)
-                    ? { srcSet: artSrcSet(b.thumb), sizes: '(max-width: 640px) 50vw, 300px' }
+                  src={door.src}
+                  {...(artSrcSet(door.src)
+                    ? { srcSet: artSrcSet(door.src), sizes: '(max-width: 640px) 50vw, 300px' }
                     : {})}
                   alt=""
                   loading="lazy"
                   width={300}
                   height={64}
                   className={`w-full h-full object-cover ${locked || !OPEN_DOOR_IDS.has(b.id) ? 'grayscale' : ''}`}
-                  style={b.thumbPosition ? { objectPosition: b.thumbPosition } : undefined}
+                  style={door.objectPosition ? { objectPosition: door.objectPosition } : undefined}
                 />
               </div>
               <div className="p-2.5">

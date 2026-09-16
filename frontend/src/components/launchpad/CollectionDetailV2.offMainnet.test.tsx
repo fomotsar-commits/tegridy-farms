@@ -109,6 +109,39 @@ describe('CollectionDetailV2 — logged out, wallet chain persisted from another
   });
 });
 
+describe('CollectionDetailV2 — the connect control a disconnected visitor is offered', () => {
+  beforeEach(() => wagmiMock.setAccount({ address: undefined, isConnected: false }));
+
+  // A button that READS "Connect Wallet" and is `disabled` on the same !isConnected that
+  // produced the label is a dead control: a native disabled button dispatches no click, and
+  // handleMint only calls drop.mint — it never opened a modal. So every disconnected
+  // visitor to a live drop met a greyed-out control named for the exact thing they needed.
+  // The two tests above prove such a visitor reaches this page on ANY chain, which is what
+  // makes the state reachable rather than theoretical.
+  it.each([CHAIN_ID, ...OFF_MAINNET.map(([, id]) => id)])(
+    'on chain %s the Connect control is real, not a greyed-out label',
+    (chainId) => {
+      renderAt(chainId);
+      const connect = screen.getByRole('button', { name: /connect wallet/i });
+      expect(connect).toBeEnabled();
+    },
+  );
+
+  it('offers exactly one connect control, and no disabled one wearing the word', () => {
+    renderAt(CHAIN_ID);
+    const connects = screen.getAllByRole('button', { name: /connect wallet/i });
+    expect(connects).toHaveLength(1);
+    // The load-bearing half: whatever else this page renders, nothing labelled for
+    // connecting may be inert. This is the assertion that fails on the pre-fix component.
+    for (const b of connects) expect(b).toBeEnabled();
+  });
+
+  it('does not offer the mint action to someone who cannot send it', () => {
+    renderAt(CHAIN_ID);
+    expect(screen.queryByRole('button', { name: /^Mint \d/ })).toBeNull();
+  });
+});
+
 describe('CollectionDetailV2 — a wallet connected off mainnet', () => {
   beforeEach(() => wagmiMock.setAccount({ address: USER, isConnected: true }));
 
