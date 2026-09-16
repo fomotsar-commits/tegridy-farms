@@ -492,18 +492,23 @@ function Reading({
   // under it.
   const summed = liveRows.reduce((a, r) => a + r.degrees, 0);
   const matchesLive = Math.abs(summed - reading.degrees) <= 0.05;
-  // Until the island drops retired rows from its own sum (it is doing so, on the
-  // owner's ruling), its total still includes them. That is not a mismatch and
-  // must not be flagged as one, or every holder of a retired token is told the
-  // island disagrees with itself. So the envelope is added up once, here, only
-  // to tell those two cases apart. That figure is never printed.
+  // THE ISLAND'S DROP LANDED 2026-09-16, and this stays anyway, as the guard for
+  // the next retirement. Measured through our own proxy that day: the envelope
+  // serves 10 rows, none retired, degrees 1341.7, and the rows sum to 1341.7 -
+  // so matchesLive is true and nothing below it renders.
+  //
+  // While a retired row DOES arrive inside the total (as it did for months), its
+  // sum is not a mismatch and must not be flagged as one, or every holder of a
+  // retired token is told the island disagrees with itself. So the envelope is
+  // added up once, here, only to tell those two cases apart, and never printed.
   const matchesEnvelope =
     Math.abs(rows.reduce((a, r) => a + r.degrees, 0) - reading.degrees) <= 0.05;
   const includesRetired = retiredCount > 0 && !matchesLive && matchesEnvelope;
   const mismatch = rows.length > 0 && !matchesLive && !includesRetired;
   // The count under the number. token_count equalled the row count on the live
-  // 18-row read, retired rows included, so the retired rows come off it. Once
-  // the island stops sending them, retiredCount is 0 and this is token_count.
+  // 18-row read, retired rows included, so the retired rows come off it. With
+  // the drop landed retiredCount is 0 and this IS token_count, which the same
+  // proxy read confirms: 10 rows, token_count 10.
   const countedTokens = Math.max(0, reading.tokenCount - retiredCount);
 
   return (
