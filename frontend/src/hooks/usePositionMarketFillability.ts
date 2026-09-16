@@ -145,6 +145,10 @@ export function usePositionMarketFillability(
   const chainId = useChainId();
   const deployed = isDeployed(POSITION_MARKET_ADDRESS);
   const onExpectedChain = chainId === CHAIN_ID;
+  // Gated on the wallet's chain, deliberately, and twice (here and in
+  // toFillVerdict). Unlike the display reads un-gated in useLPFarming.ts, this
+  // verdict is the only thing that disarms Buy: fill() checks nothing but
+  // `deployed` before sending the price as value. Off mainnet it says why.
   const enabled = deployed && onExpectedChain && orderId !== undefined && recipient !== undefined;
 
   const { data, isError, isLoading } = useReadContract({

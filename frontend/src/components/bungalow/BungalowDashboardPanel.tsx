@@ -16,7 +16,7 @@ import {
   unlockTs,
   configuredAnnualRate,
   rateIsPercent,
-  splitAccruedByClaimability,
+  splitAccruedByRisk,
   type PoolView,
   type StakeEntryView,
 } from '../../lib/bungalowStaking';
@@ -167,14 +167,15 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
     ? stakeRead.list.filter((e) => e.closedTs === 0)
     : [];
   const stakedRaw = openEntries.reduce((a, e) => a + e.amountRaw, 0n);
-  // A position past the u64 ceiling still REPORTS a pending figure it can never
-  // be paid. Summing those into one "Accrued rewards" line told a holder with a
-  // dead position that rewards were accruing — see splitAccruedByClaimability.
+  // A position deep into the u64 accounting band MAY not be payable, so its
+  // pending figure is reported separately rather than folded into one confident
+  // "Accrued rewards" line — see splitAccruedByRisk. It is separated as a RISK,
+  // not written off as a loss: the band contains positions that pay in full.
   const {
     claimableRaw: accruedRaw,
-    strandedRaw,
-    deadCount,
-  } = splitAccruedByClaimability(openEntries, poolRead?.rewardPools ?? []);
+    atRiskRaw,
+    atRiskCount,
+  } = splitAccruedByRisk(openEntries, poolRead?.rewardPools ?? []);
   const nextUnlock = openEntries.length
     ? Math.min(...openEntries.map((e) => unlockTs(e)))
     : null;
@@ -324,11 +325,11 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                       <dt className="text-white/60">Accrued rewards</dt>
                       <dd className="text-white font-mono">{fmtRaw(accruedRaw, decimals)} {bungalow.symbol}</dd>
                     </div>
-                    {deadCount > 0 && (
+                    {atRiskCount > 0 && (
                       <div className="flex justify-between gap-3">
-                        <dt style={{ color: '#e3b341' }}>Stranded (cannot claim)</dt>
+                        <dt style={{ color: '#e3b341' }}>At risk (claim may revert)</dt>
                         <dd className="font-mono" style={{ color: '#e3b341' }}>
-                          {fmtRaw(strandedRaw, decimals)} {bungalow.symbol}
+                          {fmtRaw(atRiskRaw, decimals)} {bungalow.symbol}
                         </dd>
                       </div>
                     )}
@@ -343,12 +344,13 @@ function Inner({ bungalow }: { bungalow: Bungalow & { identity: BungalowIdentity
                       </div>
                     )}
                   </dl>
-                  {deadCount > 0 && (
+                  {atRiskCount > 0 && (
                     <p className="text-[11px] mb-3" style={{ color: '#e3b341' }}>
-                      {deadCount === 1 ? 'One position has' : `${deadCount} positions have`}{' '}
-                      passed the reward program&rsquo;s counter limit, so those rewards can no
-                      longer be claimed &mdash; the claim reverts every time. Your principal is
-                      safe and still comes back. Open the position to get it out.
+                      {atRiskCount === 1 ? 'One position is' : `${atRiskCount} positions are`}{' '}
+                      older than the last change to this pool&rsquo;s reward rate, and positions
+                      opened before that change have not been able to claim since. Try the claim
+                      anyway &mdash; a revert costs the network fee and nothing more, and the chain
+                      is the only thing that knows for certain. Your principal is safe either way.
                     </p>
                   )}
                   {vaultRaw === 0n && (

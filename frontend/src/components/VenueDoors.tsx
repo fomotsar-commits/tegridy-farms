@@ -3,6 +3,7 @@ import { artSrcSet } from '../lib/artSrcSet';
 import { Link } from 'react-router-dom';
 import { m } from 'framer-motion';
 import { BUNGALOWS, type Bungalow } from '../lib/bungalows';
+import { doorArt } from '../lib/doorArt';
 /**
  * THE HALL OF DOORS — the venue arrival's island map.
  *
@@ -74,6 +75,10 @@ const CHIP: Record<DoorState, { label: string; style: CSSProperties }> = {
 function DoorTile({ bungalow }: { bungalow: Bungalow }) {
   const state = doorState(bungalow);
   const chip = CHIP[state];
+  // The door's picture and framing, after any /door-studio pick. Resolved once
+  // so the src, the srcSet and the dim filter cannot disagree about which
+  // image this card is showing.
+  const door = doorArt(bungalow);
 
   const face = (
     <>
@@ -88,9 +93,9 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
             srcSet is undefined for any source with no derivative, in which
             case this renders exactly as it did before. */}
         <img
-          src={bungalow.thumb}
-          {...(artSrcSet(bungalow.thumb)
-            ? { srcSet: artSrcSet(bungalow.thumb), sizes: '(max-width: 640px) 50vw, 300px' }
+          src={door.src}
+          {...(artSrcSet(door.src)
+            ? { srcSet: artSrcSet(door.src), sizes: '(max-width: 640px) 50vw, 300px' }
             : {})}
           alt=""
           loading="lazy"
@@ -101,7 +106,7 @@ function DoorTile({ bungalow }: { bungalow: Bungalow }) {
             state === 'open' ? 'group-hover:scale-[1.06]' : ''
           }`}
           style={{
-            ...(bungalow.thumbPosition ? { objectPosition: bungalow.thumbPosition } : {}),
+            ...(door.objectPosition ? { objectPosition: door.objectPosition } : {}),
             // WAVE SEVEN, element H: NO GRAYSCALE FILTER. A settled door wore
             // `grayscale(1)` plus a per-image brightness multiplier, and the
             // whole apparatus existed to make the greying land evenly across

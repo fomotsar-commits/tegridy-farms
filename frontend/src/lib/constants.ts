@@ -259,6 +259,18 @@ export const CURRENT_SEASON = {
 // in Vercel; share links and og URLs mint on the canonical.
 export const SITE_URL = 'https://memetics.finance';
 
+/**
+ * The canonical host without a scheme, for copy and truncated display.
+ *
+ * DERIVED, never typed out. Three places used to carry their own bare host
+ * string — a referral widget, an Island Cup share line and the tax-export CSV
+ * header — and when SITE_URL moved on 2026-08-27 those three kept minting the
+ * old host into text users copy, paste and share. Two of them had also
+ * re-declared this exact expression locally, which is the same drift one layer
+ * down. One definition, downstream of SITE_URL, so the next move carries them.
+ */
+export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
+
 // External links
 export const ETHERSCAN_TOKEN = `https://etherscan.io/token/${TOWELI_ADDRESS}`;
 export const UNISWAP_BUY_URL = `https://app.uniswap.org/swap?outputCurrency=${TOWELI_ADDRESS}&chain=ethereum`;

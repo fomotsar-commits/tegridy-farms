@@ -76,6 +76,7 @@ into the 404.
 | `launcher-outcomes` | `_lib/launcher-outcomes.js` | LaunchExplorer market + chain stats |
 | `launch-radar` | `_lib/launch-radar.js` | Market-wide GeckoTerminal `new_pools` |
 | `pool-market` | `_lib/pool-market.js` | ONE pool's market facts for the bungalow strip. Exists for its `s-maxage`, not for the proxying — the browser read the same keyless host directly before, and a proxy without the cache header would be WORSE (one origin IP instead of each visitor's own budget). Do not remove the header |
+| `gecko-read` | `_lib/gecko-read.js` | `pool-market`'s sibling for the SEVEN read shapes the browser still issued to api.geckoterminal.com directly — trades, candles, `pools/multi`, the two list views, a token's pools, the display price. Exists for the same `s-maxage`: 46 of 64 prod routes logged a failed GeckoTerminal read, and it was the keyless per-IP RATE LIMIT, not CORS. A bare proxy would be WORSE (one egress IP instead of each visitor's own budget) — do not remove the header. Unlike `pool-market` it forwards 404 and 429 VERBATIM, because three readers branch on those exact codes |
 | `launch-cohort` | `_lib/launch-cohort.js` | Airlock `Create` enumeration |
 | `heat` | `_lib/heat.js` | Jungle Bay Island held-time oracle (CORS-forced, not an optimisation) |
 | `births` | `_lib/births.js` | HMAC-signed birth notify to the island's enrollment socket |
@@ -153,4 +154,8 @@ would call it healthy.
   last slot exactly. It no longer leaves headroom behind it, which is another reason that PR needs a
   rebuild rather than a blind merge.
 - **Dependabot preview deploys** occasionally show Vercel `Error` from build-cache replaying an
-  older (larger) function set — transient, does not affect production `main`.
+  older (larger) function set — transient, does not affect production. (This line said
+  "production `main`" until 2026-09-10; the Vercel Production Branch was repointed to
+  `mvp-launch` — see [`docs/DEPLOY_RUNBOOK.md`](../../docs/DEPLOY_RUNBOOK.md). A preview
+  build's cache still cannot reach whatever branch production is on, so the conclusion is
+  unchanged.)

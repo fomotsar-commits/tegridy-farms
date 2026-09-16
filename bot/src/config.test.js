@@ -35,8 +35,11 @@ describe("origins are parsed, not trusted", () => {
 
   it("defaults the venue and app origins rather than producing an undefined URL", () => {
     const cfg = loadConfig(base);
-    expect(cfg.venueOrigin).toBe("https://memetic.fun");
-    expect(cfg.appOrigin).toBe("https://memetic.fun");
+    // The canonical venue host — see frontend/src/lib/constants.ts SITE_URL. The
+    // bot cannot import it (separate package), so the invariant that keeps this
+    // honest lives on the other side: frontend/src/lib/__tests__/canonicalHost.test.ts.
+    expect(cfg.venueOrigin).toBe("https://memetics.finance");
+    expect(cfg.appOrigin).toBe("https://memetics.finance");
   });
 });
 

@@ -32,6 +32,7 @@
  *   E2E_REQUIRE_ANVIL=1 npm run e2e              # CI: no silent mock fallback
  */
 import { spawn } from 'node:child_process';
+import { startForkRelay } from './fork-relay.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:net';
 
@@ -130,10 +131,19 @@ async function main() {
     process.exit(1);
   }
 
+  // anvil reads its fork THROUGH A RETRYING RELAY, never straight from FORK_URL. The free
+  // endpoint times reads out with HTTP 408, anvil cannot be told to retry a 408 (no flag
+  // reaches it), and one unretried 408 either fails a fixture cheatcode or panics anvil
+  // mid-suite. The relay retries only "no answer in time" and passes every refusal through
+  // untouched, so a dead endpoint still fails below exactly as loudly. What is and is never
+  // retried, and the measurement behind it: scripts/fork-relay.mjs. It reports on every exit.
+  const relay = await startForkRelay({ upstream: FORK_URL });
+  process.on('exit', () => relay.report());
+
   const anvilArgs = [
     '--host', '127.0.0.1',
     '--port', String(ANVIL_PORT),
-    '--fork-url', FORK_URL,
+    '--fork-url', relay.url,
     // Anvil's default mnemonic is "test test test test test test test test
     // test test test junk" — public, deterministic, and matches the address
     // baked into e2e/fixtures/wallet.ts. We pass it explicitly so a future
@@ -145,7 +155,10 @@ async function main() {
   ];
   if (FORK_BLOCK) anvilArgs.push('--fork-block-number', String(FORK_BLOCK));
 
-  console.log(`[e2e] spawning anvil --fork-url ${FORK_URL}${FORK_BLOCK ? ' @' + FORK_BLOCK : ''} on :${ANVIL_PORT}`);
+  console.log(
+    `[e2e] spawning anvil --fork-url ${FORK_URL}${FORK_BLOCK ? ' @' + FORK_BLOCK : ''} on :${ANVIL_PORT}` +
+      (relay.bypassed ? '' : ` (reads relayed via ${relay.url})`),
+  );
   const anvil = spawn('anvil', anvilArgs, { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   anvil.on('error', (e) => {
     console.error('[e2e] anvil failed to start:', e.message);

@@ -76,6 +76,12 @@
       ]
     },
     {
+      "source": "/icons/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
       "source": "/collections/(.*)",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=604800" }
@@ -116,8 +122,14 @@
     },
     {
       "source": "/(.*)",
+      "has": [{ "type": "host", "value": "memetic.fun" }],
+      "destination": "https://memetics.finance/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
       "has": [{ "type": "host", "value": "www.memetic.fun" }],
-      "destination": "https://memetic.fun/$1",
+      "destination": "https://memetics.finance/$1",
       "permanent": true
     },
     {

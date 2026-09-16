@@ -7,6 +7,16 @@
      <link rel="canonical"> and src/lib/constants.ts SITE_URL). A sitemap on a
      non-canonical origin asks search engines to index the alias.
 
+     RE-POINTED 2026-09-09 to https://memetics.finance. The 2026-08-27 ARRIVAL
+     IDENTITY decision (src/lib/constants.ts SITE_URL) moved the canonical host to
+     the venue's own name and left memetic.fun as a redirect alias — but this file
+     was not moved with it, so for six weeks index.html named one host as canonical
+     while the sitemap handed the crawler the whole URL set on the other. That is
+     the exact duplicate-content collision item 1 was written about, recreated on a
+     different pair of hosts. THE HOST HERE IS NOT EDITED BY HAND: it must equal
+     SITE_URL, and src/lib/__tests__/canonicalHost.test.ts fails every <loc> that
+     drifts off it.
+
   2. COVERAGE. Not one Solana route was listed — no /solana, no /solana-launch, no
      /curve-launch. So the crawler-facing product was not merely "framed as"
      Ethereum-only: the Solana pages were never declared to exist. Also missing were
@@ -18,63 +28,63 @@
   routes that render a "not deployed" placeholder today.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://memetic.fun/</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://memetics.finance/</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
 
   <!-- Ethereum rail -->
-  <url><loc>https://memetic.fun/farm</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
-  <url><loc>https://memetic.fun/swap</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
-  <url><loc>https://memetic.fun/launch</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
-  <url><loc>https://memetic.fun/dashboard</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
-  <url><loc>https://memetic.fun/liquidity</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
-  <url><loc>https://memetic.fun/nft-finance</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetics.finance/farm</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://memetics.finance/swap</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://memetics.finance/launch</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://memetics.finance/dashboard</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetics.finance/liquidity</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://memetics.finance/nft-finance</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
 
-  <url><loc>https://memetic.fun/solana</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://memetics.finance/solana</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
   <!-- /solana-launch was REMOVED 2026-08-23 (route deliberately 404s, no redirect) — never re-add it here. -->
-  <url><loc>https://memetic.fun/eth-curve</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetics.finance/eth-curve</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
 
   <!-- Jungle Bay bungalow doors — only doors with their own rendered head
        (dist/<door>/index.html) are listed; a door serving the stock venue
        shell would read as a duplicate of / to the index. All settled doors
        qualify since 2026-08-28: each has its own unfurl head AND a real
        landing (plaque/contract/trade/heat), not the stock home. -->
-  <url><loc>https://memetic.fun/bayla</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://memetic.fun/pepe</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/qr</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/mfer</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/bnkr</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/drb</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/bobo</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/jbm</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/soy</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/brainlet</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/rizz</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/bayla</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetics.finance/pepe</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/qr</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/mfer</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/bnkr</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/drb</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/bobo</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/jbm</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/soy</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/brainlet</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/rizz</loc><lastmod>2026-08-28</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
 
   <!-- Detection / trust suite — works on any token, needs no wallet -->
-  <url><loc>https://memetic.fun/scan</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
-  <url><loc>https://memetic.fun/trust</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://memetic.fun/deployer</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://memetic.fun/exposure</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/launch-simulator</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/developers</loc><lastmod>2026-08-19</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/scan</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetics.finance/trust</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://memetics.finance/deployer</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://memetics.finance/exposure</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/launch-simulator</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/developers</loc><lastmod>2026-08-19</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
 
   <!-- Community / content -->
-  <url><loc>https://memetic.fun/nakamigos</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
-  <url><loc>https://memetic.fun/community</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://memetic.fun/gallery</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://memetic.fun/leaderboard</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.5</priority></url>
-  <url><loc>https://memetic.fun/lore</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://memetic.fun/learn</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://memetics.finance/nakamigos</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://memetics.finance/community</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://memetics.finance/gallery</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://memetics.finance/leaderboard</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.5</priority></url>
+  <url><loc>https://memetics.finance/lore</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://memetics.finance/learn</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
 
   <!-- Reference / disclosure -->
-  <url><loc>https://memetic.fun/tokenomics</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
-  <url><loc>https://memetic.fun/premium</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://memetic.fun/security</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://memetic.fun/contracts</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://memetic.fun/treasury</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://memetic.fun/faq</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://memetic.fun/changelog</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.4</priority></url>
-  <url><loc>https://memetic.fun/history</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.4</priority></url>
-  <url><loc>https://memetic.fun/risks</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.3</priority></url>
-  <url><loc>https://memetic.fun/terms</loc><lastmod>2026-08-07</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
-  <url><loc>https://memetic.fun/privacy</loc><lastmod>2026-08-07</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://memetics.finance/tokenomics</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://memetics.finance/premium</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://memetics.finance/security</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://memetics.finance/contracts</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://memetics.finance/treasury</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://memetics.finance/faq</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url><loc>https://memetics.finance/changelog</loc><lastmod>2026-08-07</lastmod><changefreq>weekly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://memetics.finance/history</loc><lastmod>2026-08-07</lastmod><changefreq>daily</changefreq><priority>0.4</priority></url>
+  <url><loc>https://memetics.finance/risks</loc><lastmod>2026-08-07</lastmod><changefreq>monthly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://memetics.finance/terms</loc><lastmod>2026-08-07</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://memetics.finance/privacy</loc><lastmod>2026-08-07</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
 </urlset>

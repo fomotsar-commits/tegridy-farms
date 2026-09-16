@@ -15,6 +15,167 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-14 — a wallet adapter's declared capability is the SHIM's opinion, not the wallet's
+
+**Believed:** `supportedTransactionVersions` on an official `@solana/wallet-adapter-*`
+package tells you what that wallet can sign. On 2026-09-02 this repo read
+`@solana/wallet-adapter-trust`'s `supportedTransactionVersions = null`, correctly
+decoded it (null narrows to legacy-only; it does **not** mean "all versions"), and
+excluded Trust from every Solana surface on the grounds that the wallet could not
+sign the v0 transactions this venue sends. A guard test was written to keep it out.
+
+**Measured, twelve days later:** the package was right about itself and wrong about
+Trust. Read from Trust's own sources, not the shim:
+
+- `trustwallet/trust-web3-provider`, `adapter/src/wallet.ts` — Trust's **own** Wallet
+  Standard implementation — declares `supportedTransactionVersions: ['legacy', 0]` on
+  both `solana:signTransaction` and `solana:signAndSendTransaction`.
+- Its injected provider, `src/solana_provider.js`, reads `tx.version` and serializes
+  with `requireAllSignatures: false, verifySignatures: false` — the versioned path.
+- `wallet-core` has shipped `VersionedTx` / `V0Message` since PR #2935, merged
+  **2023-02-20**, which closed "[Solana] Support versioned transactions".
+
+`@solana/wallet-adapter-trust@0.1.18`, published **2026-09-10**, still says `null`.
+So the metadata had been wrong for roughly three and a half years and was republished
+wrong four days before it was read.
+
+**Why this generalises past Solana.** These adapter packages are third-party shims
+around someone else's product. The wallet ships on its own cadence; the shim is
+updated when a volunteer gets to it. A capability *claim* in the shim is evidence
+about the shim. A capability *denial* is not evidence about the wallet at all.
+
+**Do:** when a wallet shim says a wallet cannot do something, and that denial is the
+reason you are about to exclude the wallet, go read the wallet's own provider or
+Wallet Standard source before believing it. It is a ten-minute read and it is the
+difference between "this wallet is broken" and "this package is stale". Vendor an
+adapter with the honest declaration rather than adopting the package — a wallet's own
+`registerWallet` implementation is the authority, and it is public.
+
+### The declared capability gates only SOME paths — find out which one your SDK takes
+
+The version check does **not** live in the adapter. In `@solana/wallet-adapter-base`
+(`esm/signer.js`) it lives in exactly two methods on `BaseSignerWalletAdapter`:
+`sendTransaction` and `signAllTransactions`. **`signTransaction` has no gate at all.**
+
+That matters because SDKs disagree about which one they call. Measured here:
+
+| Path | Route | Hits the declared-version gate? |
+| --- | --- | --- |
+| swap / limit / DCA | `adapter.sendTransaction` | yes |
+| Streamflow staking | `client.execute()` → `signAndExecuteTransaction` → `invoker.signTransaction(tx)` | **no** |
+
+Both send a v0 `VersionedTransaction` (`@streamflow/common` compiles one via
+`compileToV0Message`). So a legacy-only adapter throws the adapter's clean
+`Sending versioned transactions isn't supported by this wallet` on one path, and on
+the other sails past the check and fails inside the wallet with whatever that wallet
+says. Same defect, two symptoms, and a guard asserting the declared value catches
+neither on the second path.
+
+**Do:** before reasoning about what a declared capability protects, `grep` the SDK for
+which method it actually calls. `isSignerWallet(invoker) → invoker.signTransaction` is
+the common bypass shape and it appears in more than one SDK.
+
+### A dist grep is evidence only after you prove the code path is REACHABLE in that build
+
+Checking that a wallet refactor had not dropped Trust from the EVM connect modal,
+`grep -rl "com.trustwallet.app" dist/assets/*.js` returned **nothing**. Read naively
+that says the refactor deleted the wallet. It did not: `wagmi.ts` builds its wallet
+list inside an `if (projectId)` branch, no `.env` exists in a fresh worktree, so
+`VITE_WALLETCONNECT_PROJECT_ID` was undefined and rolldown eliminated the **entire**
+list — Phantom, Trust, WalletConnect, Rainbow, Base and Rabby together. The tell was
+cheap and should have been the first check: grep for a *sibling* that the change did
+not touch (`phantom.ethereum`). It was also absent, so the absence was about the
+build, not the diff.
+
+Rebuilt with `VITE_WALLETCONNECT_PROJECT_ID=<any 32 hex chars>`: `com.trustwallet.app`
+present in the wagmi chunk, and the shared icon module resolved into its own chunk
+imported by both sides rather than pulling one stack into the other.
+
+**Do:** a zero from a dist grep is a *reading*, and an unreachable code path returns
+the same zero as a deleted one. Before believing it, grep for an untouched sibling
+symbol from the same branch. If the sibling is missing too, you measured your env.
+
+### `autoConnect` + a `Loadable` deep-link branch = a page that navigates itself away
+
+Wallet adapters model "app not installed, but we can hand off to it" as
+`WalletReadyState.Loadable`, and `connect()` in that state is not a connection — it
+assigns `window.location.href` to a universal link. `WalletProvider` is commonly
+mounted with `autoConnect`, and the default `autoConnect()` just calls `connect()`.
+Composed, that is: every returning visitor whose stored wallet selection is the
+deep-linkable one gets navigated off the site on page load, having clicked nothing.
+
+Upstream's Phantom adapter guards it (`autoConnect` runs only from `Installed`) with a
+two-line comment and no test. Any hand-rolled or vendored adapter has to re-derive the
+guard, and nothing fails loudly if it does not — on desktop, where adapters get
+written, `Loadable` never occurs.
+
+**Do:** if an adapter has a `Loadable`/redirect branch, override `autoConnect` to run
+only from `Installed`, and pin it with a test that asserts `location.href` is
+**unchanged** after `autoConnect()`. Also make an injected provider always win over
+the redirect, or the wallet's own in-app browser can bounce itself in a loop.
+
+### Incidental
+
+- `useStandardWalletAdapters` dedupes a legacy adapter against a registered Wallet
+  Standard wallet by **exact `name` string match** (it drops yours and logs a
+  `console.warn`). A vendored adapter's `name` is therefore a load-bearing contract,
+  not a label: Trust registers as `"Trust"`, so an adapter calling itself
+  `"Trust Wallet"` — which is what the EVM modal calls it — would render a second,
+  dead row beside the real one.
+- `scopePollingDetectionStrategy` runs its detector **synchronously** as its last step
+  ("Strategy #4"), so an adapter's `readyState` is already settled when the constructor
+  returns. Tests can assert it without waiting; the 1s interval only covers late
+  injection.
+- SLIP-44 for Solana is **501**; Trust's dApp-browser handoff is
+  `https://link.trustwallet.com/open_url?coin_id=<slip44>&url=<encoded>`. A wrong
+  `coin_id` still opens the browser, so this fails silently on the wrong chain.
+
+## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
+
+**Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
+`accounted_amount` passes `u64::MAX`. This was not reasoned from an IDL — it was established by
+simulating the real `claim_rewards` against all eight live entries of a mainnet pool, with every
+entry above the value reverting 6000 and every entry below it succeeding. Eight for eight.
+
+**Measured, six days later:** wrong twice over. Scanning the whole program with
+`getProgramAccounts` plus a `dataSlice` over just the counter field, **5,868 of 9,797** entries
+with a non-zero counter are already past that value, and the largest is **22,000,000x past it** —
+each written by a successful claim, since only a successful claim writes that field. And on the
+pool itself the verdicts split perfectly on something else entirely: the pool's reward RATE was
+changed at a known instant, and the 2 entries created before it revert while all 16 created after
+it pay.
+
+**Why eight-for-eight was not enough.** The sample had a hole in exactly the wrong place — its
+successes topped out at 78% of the candidate threshold and its reverts started at 265%. Nothing
+measured the band between, so a LOWER BOUND was indistinguishable from an exact line. And the two
+reverting entries were also the two oldest, so a second variable ("predates a rate change") fit
+the same eight points just as well. The first hypothesis named won by default.
+
+**Technique, whenever a boundary is inferred from live samples:**
+
+- **Check the sample BRACKETS the boundary.** Points either side of a gap do not locate a line,
+  they bound a region. If nothing was measured between the highest pass and the lowest fail, the
+  honest output is an interval — and code must not act as though it is a point.
+- **Ask what else explains the same split.** Sort the failures by every field you have, not only
+  the one you suspect. Here, sorting by `created_ts` against the pool's `last_amount_update_ts`
+  gave a perfect 2/16 split that the counter could not improve on.
+- **Widen the population before trusting the mechanism.** One pool's 8 entries said one thing and
+  the program's 9,797 said the opposite. A program-wide scan over a single sliced field is cheap:
+  `dataSize` + `dataSlice` returns thousands of rows in one call.
+- **Measure the PAYOUT, not the exit code.** Simulate with
+  `{sigVerify:false, replaceRecentBlockhash:true, accounts:{encoding:'base64', addresses:[ata]}}`
+  and diff the returned post-state against the current balance. A claim that "succeeds" while
+  transferring zero is not evidence a position is alive. (That config-object overload needs a
+  `VersionedTransaction`; a legacy `Transaction` fails with "Invalid arguments".)
+
+**The design rule this produced, which is the durable part:** a threshold may WARN; only the
+program may VETO. The cost asymmetry is enormous and one-directional — a claim that reverts costs
+a network fee, a claim never offered costs the whole balance. The code now attempts every claim
+that has a pending balance and takes its verdict from the chain's own error, even where a
+predicate is right 18 times out of 18.
+
+---
+
 ## 2026-09-12 — a source guard that searches the whole file answers about the file, not the code it names
 
 **Believed:** a guard for "this timer is armed in a layout effect" could be written
@@ -51,6 +212,111 @@ animation that is running on time.
 each side counts from. If they differ, either anchor both to the same stamp, or keep
 the bound and say in the test what it is: a floor, short by however long the gap runs.
 The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
+
+## 2026-09-11 — anvil's `--retries` never retries a 408, and `--compute-units-per-second` never throttles
+
+**Believed:** anvil's fork flags let it ride out a flaky upstream. Raise `--retries`,
+lengthen `--fork-retry-backoff`, lower `--compute-units-per-second`, and a free RPC
+plan's intermittent timeout gets absorbed.
+
+**Checked** in the source of anvil 1.7.1 (tag `v1.7.1`, the version CI pins) and the
+alloy-transport 2.0.1 it locks. The fork provider retries through alloy's
+`RetryBackoffLayer`, whose `should_retry` is `TransportErrorKind::is_retry_err`: HTTP
+**429 and 503** and no other status (plus a few rate-limit JSON-RPC bodies, a null
+response, a missing batch item). A 408 returns on the first answer. `--retries` caps that
+layer and `--fork-retry-backoff` is its sleep, so neither ever engages on a 408.
+`compute_units_per_second` is read only *inside* the retry branch, to lengthen a backoff.
+It is not a rate limiter and never delays a first attempt; `--no-rate-limit` just sets it
+to `u64::MAX`.
+
+**Measured** on anvil 1.5.1 (alloy-transport 1.1.1, the same predicate), with a logging
+shim between anvil and drpc that answered drpc's own 408 body to the first ask of a fresh
+account's reads:
+
+| arm | `anvil_setBalance` | upstream asked |
+|---|---|---|
+| 408, no flags | `failed to get account … HTTP error 408` | once |
+| 408, `--retries 10 --fork-retry-backoff 100` | same error | once |
+| 408, `--no-rate-limit --compute-units-per-second 50 --timeout 90000` | same error | once |
+| **429**, no flags (control) | ok | twice (`429,200`) |
+
+The control is what makes "once" mean something: the counter sees a retry when anvil
+makes one.
+
+**Worse on 1.7.1 — and reproduced there.** A failed fork read inside block building hits
+`apply_pre_execution_changes().expect(…)`, a panic. CI's anvil died with SIGABRT on the
+EIP-2935 history-contract read (`GetStorage(0x0000f908…2935, …, HTTP error 408`) and
+every later test failed in ~150ms. anvil 1.5.1 does not read that contract when mining
+(checked, also under `--hardfork prague`), so this one needs the pinned binary: unzip the
+release into a scratch dir and point the harness at it with an env var, leaving the
+machine's `~/.foundry/bin` alone. Done that way, the panic reproduces byte-for-byte, down
+to `mem/mod.rs:1324`, under every flag combination in the table — and does not happen at
+all with the retry sitting below anvil.
+
+**Do:**
+
+- Retry *below* anvil, in front of `--fork-url`, and pass refusals (401/403/404/410)
+  through on the first answer so a dead endpoint still fails in its own words.
+- To learn whether a client retries status X, put a counting shim in front of it and
+  inject X, **with a control status the client is known to retry**. A soak against the real
+  endpoint cannot stand in for this. On 2026-09-11, 40 drpc forks at ~180 reads each saw
+  zero 408s, though the same endpoint had cost 2 of 30 CI jobs. The rate moves with the
+  provider's load and cannot be summoned.
+- A deadline-bounded retry loop must hand back the last *real* answer when the deadline
+  cuts a retry short. A first draft turned drpc's 408 into a relay-made 504 whenever a
+  backoff landed the next attempt just before the deadline (a 504 at 431ms against a 400ms
+  deadline, in the unit test that caught it). That swaps the upstream's words for the
+  retrier's.
+- **A proxy owes the client the upstream's response HEADERS, not just its body.** anvil
+  builds the `HTTP diagnostics:` block in its error out of them — on a real failure that is
+  `cf-ray` and `server`, the ids the provider asks you to quote. A relay answering with
+  `content-type` alone loses them on the one answer that matters, the one it gave up on.
+  Encoding and framing headers still stop at the proxy, because `fetch` has already decoded
+  the body.
+
+## 2026-09-11 — a gate's comment and a hook's wrong-chain notice are claims, not evidence
+
+**Believed:** when sweeping read gates, a gate whose comment explains it, or a hook
+that already tells the user it is on the wrong chain, can be left as it is.
+
+**Measured** (PR #537: eight hooks gated on `useChainId() === CHAIN_ID`, every
+read in them pinned `chainId: CHAIN_ID`):
+
+- Three comments justified the gate with a wrong-chain read that would "silently
+  return garbage" (useSwapQuote), "returns 0 garbage" (useSwapAllowance) or would
+  "price another chain's assets" (`lib/portfolio/sources.ts`). All three were
+  false: the per-call pin sends each of those reads to mainnet. Two of the gates
+  were still right to keep, for reasons nobody had written down. A quote is the
+  swap's arguments, and its aggregator leg is scoped to the wallet's chain on
+  purpose. An allowance is displayed nowhere and only decides writes. The third
+  gate was wrong to keep: the portfolio refused to total legs that the Dashboard
+  showed beside it, read from the same contracts.
+- `useWalletExposure` did signal the wrong chain. Its page said "Switch to Ethereum
+  mainnet to read your holdings." Directly beneath, the same page said "No tracked
+  ERC-20 balances in this wallet": the gated read left `holdings` empty, and the
+  empty-state branch never looked at the flag.
+
+**Technique:** decide a gate by what its value reaches. A displayed figure loses
+the gate. A write's argument, or the only thing disarming a control, keeps it.
+Re-derive the reason from the code rather than inheriting the comment, and write
+the real one down. Judge "already honest" by every branch the collapsed value
+reaches, not by whether a notice exists somewhere on the page.
+
+## 2026-09-11 — a line-ending check that fires on every file is counting lines
+
+**Believed:** `git show <rev>:<path> | grep -c $'\r'` counts a blob's CRLF lines.
+
+**Measured:** inside a `$( … )` substitution, in the Git Bash this repo's agents
+run on, it returned each file's total line count: 272 of 272, 609 of 609, and
+"CRLF" for all 40 of 40 sampled hooks. It nearly got #526's replayed files
+re-committed to "fix" endings that were already LF. The same substitution over a
+known-LF string (`printf 'a\nb\n'`) returned 2. `tr -dc '\r' | wc -c` read 0 CR
+bytes in every blob, and the replayed blobs had the same OIDs as the originals.
+
+**Technique:** before acting on a check that reports "all N", run it on a known
+negative. Count the byte (`tr -dc '\r' | wc -c`), not lines matching a pattern.
+Prove a replay exact with blob OIDs (`git rev-parse <rev>:<path>`), not
+`git patch-id`, which ignores whitespace.
 
 ## 2026-09-11 — a per-test timeout is a third clock, and a slow body can be a sleep
 
