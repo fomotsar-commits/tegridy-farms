@@ -63,23 +63,52 @@ jobs:
             echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
+      # AUDIT T26: the dispatch input has always DESCRIBED itself as "must
+      # already exist on origin". Nothing enforced it. Combined with the old
+      # `draft: false` below, a single `gh workflow run release.yml -f tag=vX`
+      # would CREATE the tag on the default branch and PUBLISH a real public
+      # release -- there was no way to rehearse this workflow at all.
+      #
+      # `fetch-depth: 0` on the checkout above fetches every origin tag, so a
+      # local ref lookup IS the origin check. This is fail-closed: an
+      # unresolvable tag stops the run before anything is built or published.
+      - name: Require the tag to already exist on origin
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          if ! git show-ref --verify --quiet "refs/tags/${TAG}"; then
+            echo "::error::Tag ${TAG} does not exist on origin, so there is nothing to release."
+            echo "::error::Create and push it first, then re-run:"
+            echo "::error::  git tag -a ${TAG} <sha> -m ${TAG} && git push origin ${TAG}"
+            exit 1
+          fi
+
+      # AUDIT T26: notes generation moved OUT of this file and into
+      # .github/scripts/release-notes.mjs, where it is unit-tested by
+      # frontend/src/test/releaseNotes.test.ts.
+      #
+      # The inline version it replaces used an UNMATCHED `git describe --tags`,
+      # which happily matched this repo's bookkeeping tags (audit-*, rescue/*,
+      # wip-*, wave7-*). Measured on trunk 972b7230 with only origin's tags
+      # present, exactly as a CI checkout sees them, it resolved to
+      # `audit-pass-6` and produced a body of 1,322 commit subjects:
+      #
+      #   BEFORE  1328 lines / 121241 bytes
+      #   AFTER      6 lines /    262 bytes
+      #
+      # GitHub's release-body limit is 125,000 characters, so the old body
+      # would have FIT -- it would have published rather than erroring. 187 of
+      # those 1,322 subjects match a security vocabulary and dozens name a
+      # specific closed hole in plain language. On a public repo a release body
+      # is syndicated to watchers and feeds; that one was a curated index of
+      # this repo's previously-exploitable surface.
       - name: Generate release notes
         id: notes
         env:
           TAG: ${{ steps.tag.outputs.value }}
-        run: |
-          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
-          echo "## What's changed in ${TAG}" > NOTES.md
-          echo "" >> NOTES.md
-          if [ -n "$PREV" ]; then
-            echo "Commits since \`${PREV}\`:" >> NOTES.md
-            echo "" >> NOTES.md
-            git log --no-merges --pretty='- %s (%h)' "${PREV}..${TAG}" >> NOTES.md
-          else
-            echo "Initial release." >> NOTES.md
-          fi
-          echo "" >> NOTES.md
-          echo "Full changelog: [CHANGELOG.md](../blob/${TAG}/CHANGELOG.md)" >> NOTES.md
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: node .github/scripts/release-notes.mjs > NOTES.md
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
@@ -109,7 +138,16 @@ jobs:
           tag_name: ${{ steps.tag.outputs.value }}
           name: ${{ steps.tag.outputs.value }}
           body_path: NOTES.md
-          draft: false
+          # AUDIT T26: was `draft: false`. This workflow has never run and no
+          # v*.*.* tag has ever existed, so its first run was also its only
+          # rehearsal -- and it went straight to a public release with a body
+          # nobody had read. A draft is visible only to users with push access,
+          # and GitHub does not create a tag for a draft, so the first run is
+          # now inspectable and reversible.
+          #
+          # Flipping this back to `false` re-arms both of those. Do it only as
+          # a deliberate decision, never to "unblock" a release.
+          draft: true
           prerelease: ${{ contains(steps.tag.outputs.value, 'rc') || contains(steps.tag.outputs.value, 'beta') || contains(steps.tag.outputs.value, 'alpha') || contains(steps.tag.outputs.value, 'pre') }}
           files: dist/*
         env:

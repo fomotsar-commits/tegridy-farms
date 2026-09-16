@@ -13,6 +13,13 @@
 // commit 193a2064). Not derived from the source by eye, and not from memory:
 // the IDL was downloaded and compared field by field, 0 mismatches.
 //
+// THAT WAS A SNAPSHOT, AND IT NO LONGER HAS TO BE. The IDL it was checked
+// against lived only inside a CI artifact GitHub deletes after 30 days, so
+// nothing could ever re-check these literals and a program change would have
+// moved the IDL while they stayed put. `solana/tegridy-amm/idl/bayla_ladder.json`
+// is committed now, and the last block in this file READS it — see `idl/README.md`
+// for how that file was tied to the binary actually deployed on devnet.
+//
 // This file exists because none of these can fail LOCALLY. A wrong
 // discriminator, a reordered account list or a shifted struct offset produces a
 // confusing on-chain constraint failure against a deployed program — after a
@@ -21,14 +28,19 @@
 // caught on this side of a transaction.
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { PublicKey } from '@solana/web3.js';
 import {
   IX, ACCT, POOL_L, POSITION_L, USER_L,
-  poolPda, vaultPda, userPda, positionPda,
+  poolPda, vaultPda, userPda, positionPda, ataFor,
   decodePool, decodePosition, decodeUserStats,
   ixInitializePool, ixStake, ixClaim, ixExit, ixEmergencyWithdraw, ixNotifyReward,
   ixClaimCarried, ixSweep,
-  toRaw, fmt, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
+  ixProposeAuthority, ixAcceptAuthority, ixProposeCapRaise, ixCancelCapRaise,
+  ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
+  authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
+  acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
+  toRaw, fmt, intArg, parseArgs, EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
 } from './bayla-ladder-ops.mjs';
@@ -481,5 +493,397 @@ describe('intArg refuses what silently became position #0', () => {
   it('accepts real nonces', () => {
     expect(intArg({ nonce: '0' }, 'nonce')).toBe(0);
     expect(intArg({ nonce: '4294967295' }, 'nonce')).toBe(4294967295);
+  });
+});
+
+describe('the broadcast gate — the one behaviour that must never fail open', () => {
+  // Nothing sends unless `args.broadcast === true`, STRICTLY. That single
+  // comparison is the whole safety model of this tool and it had no test at all.
+  // The danger is a value that is truthy-but-not-true: `--broadcast false` parses
+  // the word "false" as the flag's VALUE, and a `==`/truthy check would send.
+  const gate = (argv) => parseArgs(argv).broadcast === true;
+
+  it('a bare --broadcast opens it', () => {
+    expect(gate(['read', '--pool', 'X', '--broadcast'])).toBe(true);
+    expect(gate(['read', '--broadcast', '--pool', 'X'])).toBe(true);
+  });
+
+  it('NOTHING else opens it', () => {
+    for (const argv of [
+      ['read', '--pool', 'X'],                       // absent
+      ['read', '--pool', 'X', '--broadcast', 'false'],  // the string "false"
+      ['read', '--pool', 'X', '--broadcast', 'true'],   // even the string "true"
+      ['read', '--pool', 'X', '--broadcast', '0'],
+      ['read', '--pool', 'X', '--broadcast', 'yes'],
+      ['read', '--pool', 'X', '--broadcast=true'],    // = form is a DIFFERENT key
+      ['read', '--pool', 'X', '--Broadcast'],         // case differs
+      ['read', '--pool', 'X', '-broadcast'],          // single dash is not a flag
+    ]) {
+      expect(gate(argv), `must stay closed for: ${argv.join(' ')}`).toBe(false);
+    }
+  });
+
+  it('a value-taking flag before it does not swallow it', () => {
+    // `--keypair path --broadcast` must still open the gate: the parser assigns
+    // "path" to --keypair and then sees --broadcast on its own.
+    const a = parseArgs(['stake', '--keypair', 'C:/k.json', '--broadcast']);
+    expect(a.keypair).toBe('C:/k.json');
+    expect(a.broadcast).toBe(true);
+  });
+
+  it('--broadcast immediately before another flag still opens it', () => {
+    const a = parseArgs(['stake', '--broadcast', '--nonce', '3']);
+    expect(a.broadcast).toBe(true);
+    expect(a.nonce).toBe('3');
+  });
+});
+
+describe('the pool nonce is a u8 and must be refused above 255', () => {
+  // u8() masks with & 0xff, so an unvalidated 256 silently addresses pool 0 —
+  // a DIFFERENT pool, possibly one that already exists.
+  it('refuses 256 and above', () => {
+    expect(() => intArg({ nonce: '256' }, 'nonce', { min: 0, max: 255 })).toThrow(/between 0 and 255/);
+    expect(() => intArg({ nonce: '1000' }, 'nonce', { min: 0, max: 255 })).toThrow();
+  });
+  it('accepts the real range', () => {
+    expect(intArg({ nonce: '0' }, 'nonce', { min: 0, max: 255 })).toBe(0);
+    expect(intArg({ nonce: '255' }, 'nonce', { min: 0, max: 255 })).toBe(255);
+  });
+  it('and 256 really would have collided with pool 0', () => {
+    // The masking is genuine, which is why the guard matters.
+    const P = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
+    expect(poolPda(P, MINT, 256).toBase58()).toBe(poolPda(P, MINT, 0).toBase58());
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE COMMITTED IDL — READ, not transcribed.
+//
+// Every block above restates values a human copied out of an IDL once. That was
+// the only option while the IDL existed solely inside a 30-day CI artifact: a
+// transcription cannot notice the thing it was transcribed from changing.
+//
+// `solana/tegridy-amm/idl/bayla_ladder.json` is committed, and came out of the
+// same `anchor build` as the .so whose sha256 matches the deployed devnet
+// program byte for byte (idl/README.md carries the hashes). So these tests can
+// compare the CLI against the program's own compiler output instead of against a
+// memory of it — and the moment the program's interface moves without this file
+// moving, the frontend test run says so.
+//
+// This is also what stops the committed IDL rotting: `solana-ci`'s
+// `ladder-constraints` job checks it against a FRESH `anchor build`
+// (`tools/check_committed_idl.py`), and this block checks the CLI against the
+// committed copy. Neither end is left asserting only about itself.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('the CLI against the COMMITTED IDL', () => {
+  const IDL_PATH = new URL('../../solana/tegridy-amm/idl/bayla_ladder.json', import.meta.url);
+  // The read is caught, but ONLY so the failure lands as a red test in this block
+  // instead of a collection error that takes the other sixty tests in this file
+  // down with it. It is never degraded to a skip: a missing or unparseable IDL
+  // means every assertion below is checking nothing, and "checking nothing" must
+  // not present as green — that is the repo's most repeated bug class.
+  let idl = null;
+  let readError = null;
+  try {
+    idl = JSON.parse(readFileSync(IDL_PATH, 'utf8'));
+  } catch (err) {
+    readError = err;
+  }
+  const need = () => {
+    if (!idl) throw new Error('the committed IDL is unreadable — see the first test in this block');
+    return idl;
+  };
+  const snake = (s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+  const spec = (name) => need().instructions.find((i) => i.name === name);
+
+  it('the IDL is committed and readable — its absence is a FAILURE, not a skip', () => {
+    expect(readError && String(readError?.message ?? readError)).toBeNull();
+  });
+
+  it('is the bayla-ladder IDL, not some other program dropped in its place', () => {
+    expect(need().metadata?.name).toBe('bayla_ladder');
+    expect(need().instructions.length).toBeGreaterThan(0);
+    expect(need().accounts.map((a) => a.name).sort()).toEqual(['Pool', 'Position', 'UserStats']);
+  });
+
+  // The CLI DERIVES its discriminators (sha256 of `global:<snake_name>`). The IDL
+  // carries the bytes Anchor's own macro emitted. Two independent derivations of
+  // the same eight bytes; if the CLI's name string is wrong, they part company.
+  describe('instruction discriminators', () => {
+    for (const [camel, bytes] of Object.entries(IX)) {
+      it(`${camel} — the CLI's bytes are the IDL's bytes`, () => {
+        const s = spec(snake(camel));
+        expect(s, `the committed IDL has no \`${snake(camel)}\` instruction`).toBeDefined();
+        expect(b(bytes)).toEqual(s.discriminator);
+      });
+    }
+  });
+
+  describe('account discriminators', () => {
+    for (const [name, bytes] of Object.entries(ACCT)) {
+      it(`${name} — the CLI's bytes are the IDL's bytes`, () => {
+        const s = need().accounts.find((a) => a.name === name);
+        expect(s, `the committed IDL has no \`${name}\` account`).toBeDefined();
+        expect(b(bytes)).toEqual(s.discriminator);
+      });
+    }
+  });
+
+  // ACCOUNT ORDER AND FLAGS, POSITION BY POSITION, FROM THE IDL ITSELF.
+  //
+  // Anchor matches accounts by POSITION, so a reordered list is not a style
+  // question: it deserialises the wrong account into the wrong constraint and
+  // surfaces on-chain as a violation naming an account that looks unrelated.
+  // The blocks above pin those orders as hand-written literals; here the
+  // expectation is generated from the IDL, so a program-side reorder is caught
+  // even if nobody remembers to update a literal.
+  //
+  // What is actually asserted per slot: the PUBKEY the CLI put there equals the
+  // one this table resolves the IDL's name to, and the signer/writable flags
+  // equal the IDL's. The name itself is only a label on the failure message —
+  // the CLI emits no names, so comparing them would be comparing the IDL to itself.
+  describe('account lists — order, flags and identity, generated from the IDL', () => {
+    const SYSTEM = new PublicKey('11111111111111111111111111111111');
+    const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+    const pool = poolPda(PROGRAM, MINT, 0);
+    const p = {
+      mint: MINT,
+      tokenProgram: TOKEN_2022,
+      stakeVault: vaultPda(PROGRAM, STAKE_VAULT_SEED, pool),
+      rewardVault: vaultPda(PROGRAM, REWARD_VAULT_SEED, pool),
+    };
+    const NONCE = 0;
+    const slot = {
+      payer: OWNER,
+      owner: OWNER,
+      authority: OWNER,
+      pool,
+      mint: MINT,
+      user_stats: userPda(PROGRAM, pool, OWNER),
+      position: positionPda(PROGRAM, pool, OWNER, NONCE),
+      owner_ata: ataFor(MINT, OWNER, TOKEN_2022),
+      funder_ata: ataFor(MINT, OWNER, TOKEN_2022),
+      stake_vault: p.stakeVault,
+      reward_vault: p.rewardVault,
+      token_program: TOKEN_2022,
+      system_program: SYSTEM,
+      pending: OWNER,
+    };
+    // Arg widths, so the data length is derived from the IDL rather than restated.
+    const WIDTH = { u8: 1, u32: 4, u64: 8, i64: 8, u128: 16, pubkey: 32, bool: 1 };
+
+    const matches = (idlName, ix) => {
+      const s = spec(idlName);
+      expect(s, `the committed IDL has no \`${idlName}\``).toBeDefined();
+      const flags = (sg, w) => `${sg ? 'S' : ''}${w ? 'W' : ''}`;
+      const want = s.accounts.map((a) => {
+        const key = slot[a.name];
+        expect(key, `this test has no pubkey for the IDL account \`${idlName}.${a.name}\``).toBeDefined();
+        return `${a.name} ${flags(a.signer, a.writable)} ${key.toBase58()}`;
+      });
+      const got = ix.keys.map((k, i) =>
+        `${s.accounts[i]?.name ?? `EXTRA#${i}`} ${flags(k.isSigner, k.isWritable)} ${k.pubkey.toBase58()}`);
+      expect(got).toEqual(want);
+
+      expect(b(ix.data.subarray(0, 8))).toEqual(s.discriminator);
+      const argBytes = s.args.reduce((n, a) => {
+        expect(WIDTH[a.type], `unhandled IDL arg type \`${a.type}\` on ${idlName}`).toBeDefined();
+        return n + WIDTH[a.type];
+      }, 0);
+      expect(ix.data.length).toBe(8 + argBytes);
+    };
+
+    it('initialize_pool', () => matches('initialize_pool', ixInitializePool({
+      programId: PROGRAM, payer: OWNER, mint: MINT, tokenProgram: TOKEN_2022,
+      nonce: 0, minStake: 1n, depositCap: 2n, maxWallet: 2n,
+    })));
+
+    it('stake', () => matches('stake', ixStake({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE,
+      amountRaw: 1n, lockSecs: MIN_LOCK_SECS,
+    })));
+
+    it('claim', () => matches('claim', ixClaim({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE,
+    })));
+
+    it('withdraw_matured', () => matches('withdraw_matured', ixExit({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE, early: false,
+    })));
+
+    it('early_exit', () => matches('early_exit', ixExit({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE, early: true,
+    })));
+
+    it('emergency_withdraw', () => matches('emergency_withdraw', ixEmergencyWithdraw({
+      programId: PROGRAM, owner: OWNER, pool, p, positionNonce: NONCE,
+    })));
+
+    it('claim_carried', () => matches('claim_carried', ixClaimCarried({
+      programId: PROGRAM, owner: OWNER, pool, p,
+    })));
+
+    it('notify_reward', () => matches('notify_reward', ixNotifyReward({
+      programId: PROGRAM, authority: OWNER, pool, p, amountRaw: 5n, fromBudgetRaw: 7n,
+    })));
+
+    it('sweep_orphaned_penalty', () => matches('sweep_orphaned_penalty', ixSweep({
+      programId: PROGRAM, pool, p,
+    })));
+
+    it('propose_authority', () => matches('propose_authority', ixProposeAuthority({
+      programId: PROGRAM, authority: OWNER, pool, newAuthority: MINT,
+    })));
+
+    it('accept_authority', () => matches('accept_authority', ixAcceptAuthority({
+      programId: PROGRAM, pending: OWNER, pool,
+    })));
+
+    it('propose_cap_raise', () => matches('propose_cap_raise', ixProposeCapRaise({
+      programId: PROGRAM, authority: OWNER, pool, newCapRaw: 9n,
+    })));
+
+    it('cancel_cap_raise', () => matches('cancel_cap_raise', ixCancelCapRaise({
+      programId: PROGRAM, authority: OWNER, pool,
+    })));
+
+    it('execute_cap_raise', () => matches('execute_cap_raise', ixExecuteCapRaise({
+      programId: PROGRAM, pool,
+    })));
+
+    it('declare_degraded', () => matches('declare_degraded', ixDeclareDegraded({
+      programId: PROGRAM, authority: OWNER, pool,
+    })));
+  });
+
+  // A NEW PROGRAM INSTRUCTION MUST NOT ARRIVE UNNOTICED.
+  //
+  // This list used to name the six governance calls, deliberately, because the CLI
+  // had no builder for them - which meant the deposit cap could never be raised
+  // without hand-writing a transaction, and raising it IS the designed launch path.
+  // They are driven now (2026-09-11), so the list is empty. It stays, so that an
+  // instruction added to the program lands in NEITHER set and reds here, forcing
+  // "build it, or write it down" instead of silent non-coverage.
+  it('every instruction in the IDL is either driven by the CLI or knowingly not', () => {
+    const driven = Object.keys(IX).map(snake);
+    const notDriven = [];
+    expect([...driven, ...notDriven].sort()).toEqual(need().instructions.map((i) => i.name).sort());
+  });
+});
+
+// The account-list block above proves WIDTH. These prove VALUE: a shape-only check
+// passed 28 of 29 mutations on this file once, so the bytes are asserted directly.
+describe('admin instruction args carry the value, not just the width', () => {
+  const pool = poolPda(PROGRAM, MINT, 0);
+
+  it('propose_authority encodes the proposed key verbatim', () => {
+    const who = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+    const ix = ixProposeAuthority({ programId: PROGRAM, authority: OWNER, pool, newAuthority: who });
+    expect(b(ix.data.subarray(8))).toEqual(b(who.toBuffer()));
+  });
+
+  it('propose_cap_raise encodes the cap as u64 little-endian', () => {
+    const ix = ixProposeCapRaise({ programId: PROGRAM, authority: OWNER, pool, newCapRaw: 5_000_000_000_000n });
+    expect(ix.data.readBigUInt64LE(8)).toBe(5_000_000_000_000n);
+  });
+
+  it('execute_cap_raise names NO signer - anyone may run it once the timelock is over', () => {
+    const ix = ixExecuteCapRaise({ programId: PROGRAM, pool });
+    expect(ix.keys.some((k) => k.isSigner)).toBe(false);
+  });
+
+  it('accept_authority is signed by the PENDING key, not the current authority', () => {
+    const pending = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+    const ix = ixAcceptAuthority({ programId: PROGRAM, pending, pool });
+    expect(ix.keys[0].pubkey.toBase58()).toBe(pending.toBase58());
+    expect(ix.keys[0].isSigner).toBe(true);
+  });
+});
+
+// Refusing locally what the program would refuse, so an operator never pays a fee to
+// learn it. Each boundary below is the exact comparison lib.rs makes.
+describe('the admin pre-checks refuse exactly what the program refuses', () => {
+  const other = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+  const base = {
+    authority: OWNER, pendingAuthority: PublicKey.default,
+    depositCap: 1_000_000n, pendingCap: 0n, pendingCapTs: 0n, degraded: false, decimals: 6,
+  };
+
+  it('the CLI timelock is the one in math.rs, read from the source', () => {
+    const src = readFileSync(new URL('../../solana/tegridy-amm/programs/bayla-ladder/src/math.rs', import.meta.url), 'utf8');
+    const m = /pub const CAP_TIMELOCK_SECS: i64 = ([\d_]+) \* ([\d_]+);/.exec(src);
+    expect(m, 'CAP_TIMELOCK_SECS not found in math.rs - re-anchor this test').not.toBeNull();
+    const want = Number(m[1].replace(/_/g, '')) * Number(m[2].replace(/_/g, ''));
+    expect(CAP_TIMELOCK_SECS).toBe(want);
+    expect(want).toBe(172_800);
+  });
+
+  it('only the authority may govern', () => {
+    expect(authorityProblem(base, OWNER)).toBeNull();
+    expect(authorityProblem(base, other)).toMatch(/Unauthorized/);
+  });
+
+  it('the cap can only rise - equal is refused, not accepted', () => {
+    expect(capRaiseProblem(base, 1_000_001n)).toBeNull();
+    expect(capRaiseProblem(base, 1_000_000n)).toMatch(/CapCanOnlyRaise/);
+    expect(capRaiseProblem(base, 999_999n)).toMatch(/CapCanOnlyRaise/);
+  });
+
+  it('there must be something to cancel', () => {
+    expect(cancelCapRaiseProblem(base)).toMatch(/NoPendingChange/);
+    expect(cancelCapRaiseProblem({ ...base, pendingCap: 2_000_000n })).toBeNull();
+  });
+
+  it('execute: nothing pending is refused', () => {
+    expect(executeCapRaiseProblem(base, 9_999_999_999)).toMatch(/NoPendingChange/);
+  });
+
+  it('execute: one second before the timelock is refused, and exactly at it is allowed', () => {
+    // lib.rs: `now >= pending_cap_ts + CAP_TIMELOCK_SECS`. A `>` here would make the
+    // CLI refuse a raise the program would take, for exactly one second.
+    const pend = { ...base, pendingCap: 2_000_000n, pendingCapTs: 1_000n };
+    expect(executeCapRaiseProblem(pend, 1_000 + CAP_TIMELOCK_SECS - 1)).toMatch(/TimelockNotElapsed/);
+    expect(executeCapRaiseProblem(pend, 1_000 + CAP_TIMELOCK_SECS)).toBeNull();
+  });
+
+  it('execute: a pending cap that is no longer above the cap is refused', () => {
+    const stale = { ...base, pendingCap: 1_000_000n, pendingCapTs: 1n };
+    expect(executeCapRaiseProblem(stale, 9_999_999_999)).toMatch(/CapCanOnlyRaise/);
+  });
+
+  it('accept: there must be a pending transfer, and only the proposed key may take it', () => {
+    expect(acceptAuthorityProblem(base, OWNER)).toMatch(/no authority transfer is pending/);
+    const pend = { ...base, pendingAuthority: other };
+    expect(acceptAuthorityProblem(pend, other)).toBeNull();
+    expect(acceptAuthorityProblem(pend, OWNER)).toMatch(/Unauthorized/);
+  });
+
+  it('degraded is one-way', () => {
+    expect(declareDegradedProblem(base)).toBeNull();
+    expect(declareDegradedProblem({ ...base, degraded: true })).toMatch(/AlreadyDegraded/);
+  });
+});
+
+// The only irreversible command this CLI has. The guard used to live inline in main(),
+// where no test could reach it - a mutation deleting it would have left every test green.
+describe('declare-degraded needs a second word before it will broadcast', () => {
+  const argv = (...rest) => parseArgs(['declare-degraded', '--pool', 'X', ...rest]);
+
+  it('a dry run never needs it', () => {
+    expect(confirmPermanentProblem(false, argv())).toBeNull();
+  });
+
+  it('--broadcast alone is refused', () => {
+    expect(confirmPermanentProblem(true, argv('--broadcast'))).toMatch(/--confirm-permanent/);
+  });
+
+  it('--broadcast with --confirm-permanent is allowed, in either order', () => {
+    expect(confirmPermanentProblem(true, argv('--confirm-permanent', '--broadcast'))).toBeNull();
+    expect(confirmPermanentProblem(true, parseArgs(['declare-degraded', '--broadcast', '--confirm-permanent', '--pool', 'X']))).toBeNull();
+  });
+
+  it('a truthy-but-not-true value does NOT count', () => {
+    // `--confirm-permanent yes` parses "yes" as the flag's value. Only a bare flag is true.
+    expect(confirmPermanentProblem(true, argv('--confirm-permanent', 'yes', '--broadcast'))).toMatch(/--confirm-permanent/);
   });
 });

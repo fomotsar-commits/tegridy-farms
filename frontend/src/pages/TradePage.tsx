@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { m } from 'framer-motion';
-import { Link, useLocation, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAccount, useChainId } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { getTxUrl } from '../lib/explorer';
@@ -77,27 +77,24 @@ function resolveInitialTab(searchParams: URLSearchParams): Tab {
   return 'swap';
 }
 
-/**
- * `?tab=liquidity` is a REDIRECT now, not a synonym.
- *
- * The Liquidity tab moved out of this page — /liquidity routes to PoolsHostPage,
- * which renders the same LiquidityTab component this page used to. Links shared
- * while the tab lived here still exist, and `tabFromQuery` would resolve an
- * unknown tab to 'swap', silently landing someone on the wrong surface. Sending
- * them where the form actually went is the honest answer.
- */
-const MOVED_TABS: Record<string, string> = { liquidity: '/liquidity' };
+// ⌫ MOVED_TABS lived here, and an effect below redirected `?tab=liquidity` to
+//   /liquidity from inside this page. That link is answered in App.tsx (SwapRoute)
+//   now, before this chunk loads — see the note there for why this was the wrong place.
 
 export default function TradePage() {
   const { isConnected } = useAccount();
   const chainId = useChainId();
   const location = useLocation();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => resolveInitialTab(searchParams));
   // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
-    swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
+    // VOICE 2026-09-09: this read "Trade ETH ↔ TOWELI via Uniswap V2". It is the
+    // og:description and the search-result line for /swap, on a page with no
+    // arrival-voice gate at all, so the venue was introducing its swap surface
+    // as one resident's pair — and understating it: the tab quotes the native
+    // pair AND the routed aggregators, across more than one chain.
+    swap:      { title: 'Swap',      desc: 'Swap tokens on the native DEX or across the routed aggregators, with custom slippage controls.' },
     // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
     dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
     // UPDATED 2026-07-19: CoW is now the PRIMARY path in this tab — a real
@@ -129,11 +126,9 @@ export default function TradePage() {
   // Keep state in sync when the URL changes (Back/Forward, external links).
   // ?tab= is the only knob now that the path synonym is gone.
   useEffect(() => {
-    const moved = MOVED_TABS[searchParams.get('tab') ?? ''];
-    if (moved) { navigate(moved, { replace: true }); return; }
     const next = resolveInitialTab(searchParams);
     if (next !== tab) setTab(next);
-  }, [location.pathname, searchParams, tab, navigate]);
+  }, [location.pathname, searchParams, tab]);
 
   const handleTabChange = (next: Tab) => {
     setTab(next);
@@ -244,7 +239,7 @@ export default function TradePage() {
             trades on Solana. Without this the only route between the two was
             the "More" menu, which is why a Solana bungalow's "Trade" landed on
             an ETH swap that could not touch its token. */}
-        <ChainSwitch active="ethereum" />
+        <ChainSwitch />
 
         {/* Why this form is empty, when the wallet is on a chain we serve but
             cannot swap on. Renders nothing on Ethereum and nothing on an
@@ -718,7 +713,7 @@ export default function TradePage() {
                 <span className="text-text-primary font-medium">Launching something?</span>{' '}
                 The <Link to="/eth-curve" className="text-emerald-400/80 hover:text-emerald-300 underline">Memetics Curve</Link>{' '}
                 pays creators <span className="text-text-primary font-medium">0.40% of every trade</span> (40% of the 1% fee,
-                on-chain, claimable any time) and graduates into this venue with the LP burned — and every token here is{' '}
+                on-chain, claimable any time) and graduates into this venue with the LP burned. Every token here is{' '}
                 <Link to="/scan" className="text-emerald-400/80 hover:text-emerald-300 underline">scannable</Link>.
               </p>
             </div>

@@ -5,8 +5,11 @@ import type { LoaderState } from '../types';
 export function drawTextFormPhase(
   ctx: CanvasRenderingContext2D, W: number, H: number,
   elapsed: number, s: LoaderState,
+  // WAVE SEVEN, element A: a LEG of ArrivalTiming, not a literal. This was
+  // `const textDuration = 2000`, shared by the film and the curtain, and it
+  // was the longest leg missing from the curtain's stated length.
+  textDuration: number,
 ) {
-  const textDuration = 2000;
   const tp = Math.min(elapsed / textDuration, 1);
 
   // Fade in background art as text forms

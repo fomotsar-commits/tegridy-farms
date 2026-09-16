@@ -120,6 +120,18 @@ export function StakingCard({
   // that must not move is the other one.
   const stakeBlocked = maxStakeWei === null || overCap || belowMin;
 
+  // PAUSE. Every position control below except the pause exit is
+  // `whenNotPaused` on TegridyStaking - withdraw (:1519), earlyWithdraw (:1542),
+  // getReward (:1580), toggleAutoMaxLock (:1238), extendLock (:1300),
+  // revalidateBoost (:1741), claimUnsettled (:2028) - so during a pause each one
+  // can only revert and burn gas. They switch off ONLY on a pause the chain
+  // REPORTED: `isPaused` is null when the read did not land, and an unknown
+  // pause gets its own notice rather than locking a staker out of a card that
+  // may be working normally.
+  const pausedOnChain = pos.isPaused === true;
+  const pauseUnread = pos.isPaused === null;
+  const controlDisabled = actions.isPending || actions.isConfirming || pausedOnChain;
+
   return (
     <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
       <div className="relative overflow-hidden rounded-xl glass-card-animated card-hover" style={{ border: '1px solid var(--color-purple-75)' }}>
@@ -134,6 +146,42 @@ export function StakingCard({
         {pos.hasPosition ? (
           /* Existing position display */
           <div>
+            {/* PAUSE, as the chain REPORTED it. The unread case is the notice
+                below, never this banner: an unknown pause switches nothing off. */}
+            {pausedOnChain && (
+              <div
+                role="status"
+                className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 mb-4 text-[12px] text-red-100"
+                data-testid="staking-paused"
+              >
+                <p className="font-semibold mb-1">Staking is paused.</p>
+                <p>
+                  Claim, Withdraw and every other action on this card revert until it is
+                  unpaused, so they are switched off. Your stake is not stuck: the exit at the
+                  bottom of this card works during a pause.
+                </p>
+              </div>
+            )}
+            {pauseUnread && (
+              <div
+                className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 mb-4 text-[12px] text-amber-100"
+                data-testid="staking-paused-unread"
+              >
+                <p>
+                  We could not read whether staking is paused just now - the network did not
+                  answer. That is not a statement that staking is running normally: if it is
+                  paused, Claim and Withdraw revert, and the exit that works during a pause
+                  appears here only once this read lands. Retry before acting on this card.
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary mt-2 px-4 py-1.5 text-[12px]"
+                  onClick={() => { void pos.refetchAll(); }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-white text-[10px] mb-0.5">Staked</p>
@@ -150,7 +198,7 @@ export function StakingCard({
                 {pos.hasPosition && pos.isLocked && pos.boostMultiplier > 1 && (
                   <button
                     onClick={() => { lastActionRef.current = null; actions.revalidateBoost(pos.tokenId); }}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     title="Re-checks the boost's NFT custody on an active lock"
                     className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                     Revalidate Boost
@@ -220,7 +268,7 @@ export function StakingCard({
                 {pos.hasPosition && pos.isLocked && !confirms.extendLock && (
                   <button
                     onClick={() => setConfirm('extendLock', true)}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     className="btn-secondary text-[11px] mt-1.5 w-full py-1.5 rounded-lg disabled:opacity-70 disabled:cursor-not-allowed">
                     Extend Lock
                   </button>
@@ -260,7 +308,7 @@ export function StakingCard({
                       </button>
                       <button
                         onClick={() => { lastActionRef.current = null; actions.extendLock(pos.tokenId, BigInt(extendLockDuration.seconds)); setConfirm('extendLock', false); }}
-                        disabled={actions.isPending || actions.isConfirming}
+                        disabled={controlDisabled}
                         className="btn-secondary flex-1 py-1.5 min-h-[44px] rounded-lg text-[10px] disabled:opacity-70 disabled:cursor-not-allowed">
                         Extend {extendLockDuration.label}
                       </button>
@@ -272,7 +320,7 @@ export function StakingCard({
 
             <div className="flex flex-col gap-2">
               <button onClick={() => { lastActionRef.current = 'claim'; submittedAmountRef.current = pos.pendingFormatted; actions.claim(pos.tokenId); }}
-                disabled={actions.isPending || actions.isConfirming || pos.isLoading || Number(pos.pendingFormatted) < 0.01}
+                disabled={controlDisabled || pos.isLoading || Number(pos.pendingFormatted) < 0.01}
                 className="btn-primary w-full py-3 text-[14px] disabled:opacity-70 disabled:cursor-not-allowed">
                 {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Rewards'}
               </button>
@@ -281,7 +329,7 @@ export function StakingCard({
                   <p className="text-white text-[11px] mb-1.5">Unsettled: {pos.unsettledFormatted} TOWELI</p>
                   <button
                     onClick={() => { lastActionRef.current = null; actions.claimUnsettled(); }}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     className="btn-secondary w-full py-2 text-[13px] disabled:opacity-70 disabled:cursor-not-allowed">
                     {actions.isPending || actions.isConfirming ? 'Processing...' : 'Claim Unsettled'}
                   </button>
@@ -290,7 +338,7 @@ export function StakingCard({
               <div className="grid grid-cols-2 gap-2">
                 {pos.canWithdraw && !confirms.withdraw && (
                   <button onClick={() => setConfirm('withdraw', true)}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Withdraw
                   </button>
@@ -305,7 +353,7 @@ export function StakingCard({
                         Cancel
                       </button>
                       <button onClick={() => { setConfirm('withdraw', false); lastActionRef.current = 'unstake'; submittedAmountRef.current = pos.stakedFormatted; actions.withdraw(pos.tokenId); }}
-                        disabled={actions.isPending || actions.isConfirming}
+                        disabled={controlDisabled}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-warning cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(255,178,55,0.10)', border: '1px solid rgba(255,178,55,0.25)' }}>
                         Confirm Withdraw
@@ -315,7 +363,7 @@ export function StakingCard({
                 )}
                 {pos.isLocked && !confirms.earlyWithdraw && (
                   <button onClick={() => setConfirm('earlyWithdraw', true)}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     className="w-full py-2.5 text-[13px] rounded-lg disabled:opacity-70"
                     style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(239,68,68,0.8)' }}>
                     {PENALTY_COPY.earlyExitLabel} ({EARLY_WITHDRAWAL_PENALTY_PCT}%)
@@ -339,7 +387,7 @@ export function StakingCard({
                         Cancel
                       </button>
                       <button onClick={() => { setConfirm('earlyWithdraw', false); lastActionRef.current = 'unstake'; submittedAmountRef.current = pos.stakedFormatted; actions.earlyWithdraw(pos.tokenId); }}
-                        disabled={actions.isPending || actions.isConfirming}
+                        disabled={controlDisabled}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
                         Pay the {PENALTY_COPY.earlyExitLabel}
@@ -367,14 +415,14 @@ export function StakingCard({
                     exactly. What was missing is this control. */}
                 {pos.autoMaxLock && (
                   <button onClick={() => { lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Disable Auto-Lock
                   </button>
                 )}
                 {!pos.autoMaxLock && !confirms.autoMaxLock && (
                   <button onClick={() => setConfirm('autoMaxLock', true)}
-                    disabled={actions.isPending || actions.isConfirming}
+                    disabled={controlDisabled}
                     className="btn-secondary w-full py-2.5 text-[13px] disabled:opacity-70">
                     Enable Auto-Max Lock
                   </button>
@@ -401,7 +449,7 @@ export function StakingCard({
                         Cancel
                       </button>
                       <button onClick={() => { setConfirm('autoMaxLock', false); lastActionRef.current = null; actions.toggleAutoMaxLock(pos.tokenId); }}
-                        disabled={actions.isPending || actions.isConfirming}
+                        disabled={controlDisabled}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
                         Lock for four years
@@ -409,29 +457,74 @@ export function StakingCard({
                     </div>
                   </div>
                 )}
-                {pos.isPaused && pos.hasPosition && !confirms.emergencyExit && (
+                {/* PAUSE EXIT. Which door depends on the lock, and both were run
+                    against the deployed bytecode on a mainnet fork before this
+                    was wired:
+                    - LOCKED  -> emergencyWithdrawPosition (TegridyStaking.sol:2211):
+                      `whenPaused`, full principal, no penalty, and NO rewards -
+                      the unclaimed TOWELI is forfeited. The only instant door a
+                      locked stake has during a pause: emergencyExitPosition
+                      reverts LockStillActive until lockEnd.
+                    - EXPIRED -> emergencyExitPosition (:2226): pause-independent,
+                      and it PAYS the accrued rewards, so it must never be
+                      labelled as a forfeit.
+                    `canWithdraw` is the chain's own `block.timestamp >= lockEnd`
+                    (StakingMonitorView.getPosition), the condition
+                    emergencyExitPosition checks, so the chain picks the door and
+                    not this browser's clock. The card used to send
+                    emergencyExitPosition to EVERY paused staker under "Forfeit
+                    Rewards": false for an expired lock, a certain revert for a
+                    locked one. These two buttons are the doors, so the pause
+                    does not disable them - only a tx in flight does. */}
+                {pausedOnChain && pos.hasPosition && !confirms.emergencyExit && (
                   <button
                     onClick={() => setConfirm('emergencyExit', true)}
                     disabled={actions.isPending || actions.isConfirming}
                     className="col-span-2 w-full py-2.5 text-[13px] rounded-lg font-semibold disabled:opacity-70 disabled:cursor-not-allowed"
                     style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171' }}>
-                    Emergency Exit (Forfeit Rewards)
+                    {pos.canWithdraw ? 'Withdraw + Claim (Works While Paused)' : 'Emergency Withdraw (Forfeits Rewards)'}
                   </button>
                 )}
-                {pos.isPaused && pos.hasPosition && confirms.emergencyExit && (
-                  <div className="col-span-2 rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                    <p className="text-danger text-[11px] font-semibold mb-1">Emergency exit forfeits all pending rewards. This cannot be undone.</p>
+                {pausedOnChain && pos.hasPosition && confirms.emergencyExit && (
+                  <div
+                    className="col-span-2 rounded-lg p-3"
+                    style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}
+                    data-testid="staking-pause-exit-confirm">
+                    {pos.canWithdraw ? (
+                      <p className="text-white text-[11px] font-semibold mb-1">
+                        Withdraws your {pos.stakedFormatted} TOWELI and pays the rewards it has
+                        earned in the same transaction. This closes your position.
+                      </p>
+                    ) : (
+                      /* The forfeited figure is quoted only when the reads landed:
+                         on a failed `earned` read pendingFormatted is a collapsed
+                         '0', and "you give up 0" is the one claim this must not make. */
+                      <p className="text-danger text-[11px] font-semibold mb-1">
+                        Emergency withdraw returns your full {pos.stakedFormatted} TOWELI with no
+                        early-exit penalty, but forfeits your unclaimed rewards{' '}
+                        {pos.positionUnread
+                          ? '(the amount could not be read just now)'
+                          : `(currently ${formatTokenAmount(pos.pendingFormatted, 4)} TOWELI)`}
+                        {' '}for good. This cannot be undone.
+                      </p>
+                    )}
                     <div className="flex gap-2 mt-2">
                       <button onClick={() => setConfirm('emergencyExit', false)}
                         className="flex-1 py-2 rounded-lg text-[12px] text-white cursor-pointer"
                         style={{ background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(255,255,255,0.20)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => { setConfirm('emergencyExit', false); lastActionRef.current = null; actions.emergencyExit(pos.tokenId); }}
+                      <button
+                        onClick={() => {
+                          setConfirm('emergencyExit', false);
+                          lastActionRef.current = null;
+                          if (pos.canWithdraw) actions.emergencyExit(pos.tokenId);
+                          else actions.emergencyWithdraw(pos.tokenId);
+                        }}
                         disabled={actions.isPending || actions.isConfirming}
                         className="flex-1 py-2 rounded-lg text-[12px] font-semibold text-danger cursor-pointer disabled:opacity-70"
                         style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.25)' }}>
-                        Confirm Emergency Exit
+                        {pos.canWithdraw ? 'Confirm Withdraw + Claim' : 'Confirm Emergency Withdraw'}
                       </button>
                     </div>
                   </div>

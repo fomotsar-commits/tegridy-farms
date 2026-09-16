@@ -200,12 +200,19 @@ export function plannedVenueMigrator(): {
     // PoolManager with OUR TegridyV4Hook attached — not the Tegridy V2-fork DEX.
     // This string previously named the rejected Shape B ("Venue DEX
     // (TegridyFactory …)"), the loose end the decision doc flagged.
-    venue: 'a hooked canonical Uniswap V4 pool (TegridyV4Hook — Tegridy fee economics on Uniswap liquidity)',
+    // WAVE SEVEN, element F: the venue's PROSE is swept; the contract's NAME is
+    // not. `TegridyV4Hook` is what the artifact is called on chain, and renaming
+    // it in copy would misname a real thing an operator has to go and find.
+    venue: "a hooked canonical Uniswap V4 pool (TegridyV4Hook — the venue's fee economics on Uniswap liquidity)",
     preconditions: [
       'Deploy the venue graduation migrator and verify it on Etherscan.',
       'Whetstone whitelists it on the Airlock: setModuleState(migrator, 4). Airlock.create rejects a non-whitelisted module, so launches fail at CREATE time without this.',
       'Grant the standing initializer allowance the migrator needs. Airlock.migrate transfers the graduated balances in BEFORE calling the migrator, so a revert there strands them rather than merely failing.',
-      'Only then set TEGRIDY_V4_MIGRATOR_ADDRESS in frontend/src/lib/launcher/constants.ts and redeploy.',
+      // WAVE SEVEN, row Q: this step used to print the OPERATOR's instruction
+      // (a constant's name and a repo path) to every visitor of /launch; the
+      // voice census found it. It says what happens instead. The operator's
+      // own steps live in docs/GRADUATION_VENUE_DECISION.md.
+      'Only then does this launcher point at it.',
     ],
   };
 }

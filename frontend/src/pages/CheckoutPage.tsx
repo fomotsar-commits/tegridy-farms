@@ -128,7 +128,7 @@ export default function CheckoutPage() {
         </div>
 
         <p className="mt-8 text-[11px] leading-relaxed text-white/45">
-          This venue runs no keeper. Nothing on this page executes on a schedule — a subscription charge, a
+          This venue runs no keeper. Nothing on this page executes on a schedule: a subscription charge, a
           settlement notification and an invoice expiry all happen because somebody with a signer acts, or
           they do not happen.
         </p>
