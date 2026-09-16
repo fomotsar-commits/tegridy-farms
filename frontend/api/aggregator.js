@@ -291,6 +291,24 @@ export default async function handler(req, res) {
     return handlePoolMarket(req, res);
   }
 
+  // `?resource=gecko-read` is pool-market's sibling for the SEVEN read shapes the
+  // browser still issued to api.geckoterminal.com directly — trades, candles,
+  // pools/multi, the two list views, a token's pools, and the display price. The
+  // prod console sweep measured 46 of 64 routes failing one of those reads; the
+  // browser calls it a CORS block and is wrong about its own error, because the
+  // upstream answers 200 with `access-control-allow-origin: *` on all of them and
+  // drops the header only on a 429. It is the keyless RATE LIMIT.
+  //
+  // So this branch is NOT here to proxy: a bare proxy is strictly worse, funnelling
+  // the fleet onto one Vercel egress IP where each visitor previously had their own
+  // budget. It is here for the `s-maxage`, exactly as pool-market is. Unlike
+  // pool-market it forwards 404 and 429 verbatim, because three of its callers
+  // branch on those two codes to tell a reader WHICH kind of nothing they got.
+  if (req.query.resource === "gecko-read") {
+    const { handleGeckoRead } = await import("./_lib/gecko-read.js");
+    return handleGeckoRead(req, res);
+  }
+
   // `?resource=launch-cohort` enumerates the Airlock `Create` history so the cohort
   // surfaces can exist at all. Phase two — deciding which of those assets are OURS — stays
   // client-side in ourLaunches.ts, so provenance has exactly one implementation. Lazy

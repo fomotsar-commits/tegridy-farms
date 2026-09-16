@@ -29,6 +29,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
+import { BUNGALOWS } from '../lib/bungalows';
+import { ONBOARDING_SURFACES, onboardingSteps } from '../components/onboarding/onboardingSteps';
+import { islandPools } from '../lib/terminal/islandPools';
 
 
 vi.mock('wagmi', () => ({
@@ -60,6 +63,7 @@ vi.mock('../components/ArtImg', () => ({ ArtImg: () => null }));
 vi.mock('../hooks/usePageTitle', () => ({ usePageTitle: () => undefined }));
 
 import FarmPage from './FarmPage';
+import { POPULAR_TOKEN_SYMBOLS } from '../components/swap/TokenSelectModal';
 
 function renderFarm() {
   return render(
@@ -192,3 +196,100 @@ describe('the venue speaks for the island, not for one resident', () => {
  * everything above would still pass. Duplicating its mock tower here to restate
  * the same fact would be a second thing to keep in step for no extra coverage.
  */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * THE SAME RULING, ON THE SURFACES THE FarmPage GUARD CANNOT SEE.
+ *
+ * Everything above renders ONE page. The ruling in this file's header is not
+ * about a page, though — it is about who the venue is — and three other
+ * venue-voiced surfaces were still publishing the opposite claim with no guard
+ * over them at all:
+ *
+ *   1. The first-run onboarding flow, which is the venue introducing itself to
+ *      someone with no context. It told them /farm was where you "Stake and
+ *      lock TOWELI" (at venue voice /farm is the island INDEX, so that was
+ *      also just false), and its risk disclosure named TOWELI as the one token
+ *      that could go to zero — reading as though the others could not.
+ *   2. `lib/terminal/islandPools.ts`, whose row for the TOWELI/WETH pool was
+ *      LABELLED "the venue's own pool". That label is prose: it is read back to
+ *      the user by useIslandTape's ledger line when a pool does not answer.
+ *      The file's own doc comment two lines above it says the venue's pool
+ *      "carries NO static market claim" and is "one more row".
+ *   3. The token picker's popular chips, where one resident sat permanently
+ *      beside five chain-neutral majors (ETH/USDC/USDT/WBTC/WETH) and no other
+ *      resident did.
+ *
+ * ⚠️ THE TICKER LIST IS READ FROM THE REGISTRY, not written here. A test that
+ * banned the literal 'TOWELI' would pass the day a second resident got the same
+ * favour, which is the actual property at stake. Two-letter and placeholder
+ * symbols ('QR', '?') are excluded because they collide with ordinary prose and
+ * with punctuation, not because they are allowed to be favoured.
+ * ══════════════════════════════════════════════════════════════════════════ */
+const RESIDENT_TICKERS = BUNGALOWS.map((b) => b.symbol).filter((s) => /^[A-Z]{3,}$/.test(s));
+
+describe('the venue-voiced PROSE speaks for the island, not for one resident', () => {
+  it('precondition: the registry holds several residents to be even-handed between', () => {
+    expect(RESIDENT_TICKERS, 'TOWELI is not in the registry — this guard is pinning nothing')
+      .toContain('TOWELI');
+    expect(RESIDENT_TICKERS.length, 'one resident is not an island').toBeGreaterThan(3);
+  });
+
+  it('names no single resident anywhere in the first-run onboarding copy', () => {
+    // Both halves: the surface table (whose blurbs survive gate changes) and the
+    // assembled steps (whose bodies carry the risk disclosure).
+    const copy = [
+      ...ONBOARDING_SURFACES.map((s) => `${s.label} ${s.blurb}`),
+      ...onboardingSteps().flatMap((s) => [
+        s.title,
+        ...s.body,
+        ...s.actions.map((a) => `${a.label} ${a.blurb}`),
+      ]),
+    ].join('\n');
+
+    for (const ticker of RESIDENT_TICKERS) {
+      expect(
+        copy,
+        `the venue's own welcome singles out ${ticker} — see components/onboarding/onboardingSteps.ts`,
+      ).not.toContain(ticker);
+    }
+  });
+
+  it('still WARNS in the risk step after that de-naming — the fix is a reword, not a deletion', () => {
+    // The paragraph that named TOWELI is a real disclosure. Broadening who it
+    // covers must not quietly drop what it says, so the warning itself is pinned
+    // here as well as in onboardingSteps.test.ts.
+    const risks = onboardingSteps().find((s) => s.id === 'risks');
+    expect(risks, 'the risk step is gone').toBeTruthy();
+    const body = (risks?.body ?? []).join('\n').toLowerCase();
+    expect(body, 'the "can go to zero" warning was lost in the reword').toContain('zero');
+    expect(body, 'the early-exit penalty warning was lost in the reword').toContain('penalty');
+    expect(body, 'the permanence warning was lost in the reword').toContain('permanent');
+  });
+
+  it('labels no island pool as the venue\'s own', () => {
+    // The venue does not have a pool, because it does not have a token. Every
+    // row here is a resident's. Asserted over the whole list rather than over
+    // one constant, so a second favoured row fails too.
+    for (const pool of islandPools()) {
+      expect(
+        pool.label,
+        `island pool label claims venue ownership: "${pool.label}" — see lib/terminal/islandPools.ts`,
+      ).not.toMatch(/\b(venue|our|its)\b[^.]*\bown\b/i);
+      expect(pool.label, 'an island pool label makes a market claim').not.toMatch(/deepest|best|largest|\$/i);
+    }
+  });
+
+  it('gives no resident a permanent front-row chip in the token picker', () => {
+    // The chips are the picker's "everyone needs these" row. Chain-neutral
+    // majors qualify; a resident does not, and there is no even-handed version
+    // of this list that includes one resident and not the other eleven.
+    expect(POPULAR_TOKEN_SYMBOLS.length, 'the chip row was emptied rather than de-favoured')
+      .toBeGreaterThan(3);
+    for (const ticker of RESIDENT_TICKERS) {
+      expect(
+        POPULAR_TOKEN_SYMBOLS,
+        `${ticker} holds a front-row chip no other resident holds — see components/swap/TokenSelectModal.tsx`,
+      ).not.toContain(ticker);
+    }
+  });
+});

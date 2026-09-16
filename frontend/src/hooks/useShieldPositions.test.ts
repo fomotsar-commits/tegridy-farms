@@ -4,7 +4,7 @@
 // pins is the wiring, where the collapse actually happens. Four ways this hook
 // can end up with no rows, and only ONE of them means the wallet has no debt:
 //
-//   no wallet / wrong chain   nothing was asked
+//   no wallet                 nothing was asked
 //   loan discovery failed     useMyLoans could not read
 //   every deadline read failed an RPC outage
 //   the wallet genuinely has none
@@ -12,7 +12,7 @@
 // A hook that returned `[]` for all four would make an outage indistinguishable
 // from safety on the one surface where that difference is the product.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 
 const wallet = vi.hoisted(() => ({ address: '0x1111111111111111111111111111111111111111' as string | undefined }));
@@ -102,11 +102,44 @@ describe('nothing-was-asked is not nothing-at-risk', () => {
     expect(result.current.detail).toMatch(/nothing is being watched/i);
   });
 
-  it('on the wrong chain, says the loans were not read rather than showing none', async () => {
-    chain.id = 8453;
+});
+
+// The wallet's chain is not asked. The loans come from useMyLoans, which reads mainnet
+// from any chain, and every read here goes through the mainnet client, so a wallet on
+// Base or Robinhood Chain is watched exactly as on mainnet. The hook used to stop at
+// "its Ethereum Mainnet loans were not read" while the loans tab listed those loans.
+describe.each([['Base', 8453], ['Robinhood Chain', 4663]])('a borrower whose wallet is on %s', (_label, chainId) => {
+  // One clock for both renders: a snapshot stamps the second it was built in.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW * 1000);
+    loanState.loans = [loan()];
+  });
+  afterEach(() => vi.useRealTimers());
+
+  async function watchedOn(id: number) {
+    chain.id = id;
+    const { result, unmount } = renderHook(() => useShieldPositions());
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    const snapshot = result.current;
+    unmount();
+    return snapshot;
+  }
+
+  it('watches the same loans, with the same deadlines, as on mainnet', async () => {
+    const off = await watchedOn(chainId);
+    // The stubbed deadline landed: two idle snapshots would be equal too.
+    const health = off.positions[0]!.health;
+    expect(health.status === 'read' && health.deadlineUnix).toBe(NOW + 7200);
+    expect(off).toEqual(await watchedOn(1));
+  });
+
+  it('reports every deadline read failing as an outage, not as another network', async () => {
+    respond({ ...HEALTHY_READS, effectiveDeadline: () => Promise.reject(new Error('rpc down')) });
+    chain.id = chainId;
     const { result } = renderHook(() => useShieldPositions());
-    await waitFor(() => expect(result.current.status).toBe('idle'));
-    expect(result.current.detail).toMatch(/were not read/i);
+    await waitFor(() => expect(result.current.status).toBe('unreadable'));
+    expect(result.current.detail).toMatch(/failed read, not an absence of debt/i);
   });
 });
 

@@ -857,5 +857,159 @@ contract StreamingRevenueDistributorTest is Test {
         assertGt(dist.rewards(alice), 0, "restaker confiscated during a restaking outage");
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // ║  ADDITIVE POWER LEGS — the eb541c6a critical, previously unpinned ║
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // `eb541c6a` replaced `_tryEffectivePower`'s short-circuit (`if (power > 0)
+    // return (true, power);`) with a conjunctive SUM of the staking and restaking
+    // legs. It shipped with no test: restoring the exact pre-fix function leaves
+    // all 35 tests above green, so the fix was re-breakable in silence. These three
+    // pin it. Each asserts a PROPERTY (a mirror is the sum of its sources; gaining
+    // a position cannot lower it; a total is only written when every leg answered)
+    // rather than a literal, so a re-weighting of the fixtures cannot mask a
+    // regression.
+
+    /// @notice [v2-additive-legs] `stake -> restake -> stake` is a permitted flow —
+    ///         `TegridyStaking.stake` gates on `userTokenId == 0` and the custody hop
+    ///         clears that pointer — so an account can hold one veNFT and have one
+    ///         custodied at the same time. The mirror must be the SUM. The
+    ///         short-circuit wrote the staking leg alone and left the restaked weight
+    ///         outside the accrual set (measured at 99.50% of one real account's
+    ///         weight), while `isSynced` certified the truncated figure.
+    function test_LiveStakeAndRestakeAreSummedNotShortCircuited() public {
+        _enableStreaming();
+        _wireRestaking();
+
+        _stake(alice, 1000e18);
+        restaking.setRestaker(alice, 42, 4000e18);
+        dist.sync(alice);
+
+        uint256 stakingLeg = ve.votingPowerOf(alice);
+        uint256 restakedLeg = restaking.power(alice);
+        assertGt(stakingLeg, 0, "fixture: staking leg must be live");
+        assertGt(restakedLeg, 0, "fixture: restaked leg must be live");
+
+        assertEq(
+            dist.effectiveBalanceOf(alice),
+            stakingLeg + restakedLeg,
+            "mirror is not the sum of the two legs"
+        );
+        assertEq(dist.totalEffectiveSupply(), stakingLeg + restakedLeg, "supply lost a leg");
+        assertTrue(dist.isSynced(alice), "a correct total was not certified");
+    }
+
+    /// @notice [v2-additive-legs] The weaponised form. A stranger may transfer a live
+    ///         veNFT INTO a restaker without consent (`StakingRewardLib`'s
+    ///         `AlreadyHasPosition` fires only when `userTokenId[to] != 0`, and a
+    ///         restaker's is zero), then call the permissionless `sync`. Under the
+    ///         short-circuit that freshly non-zero staking leg REPLACED the victim's
+    ///         restaked weight and the stream re-priced onto the attacker.
+    /// @dev Pins two properties: acquiring power may never lower a mirror, and the
+    ///      account with the larger true weight must out-earn the smaller one over a
+    ///      window in which both were mirrored throughout.
+    function test_GiftedVeNftCannotCollapseARestakersMirror() public {
+        _enableStreaming();
+        _wireRestaking();
+
+        // Carol restaked: her staking-side power reads 0 because the NFT is custodied.
+        restaking.setRestaker(carol, 42, 4000e18);
+        _stake(bob, 1000e18);
+        dist.sync(carol);
+        dist.sync(bob);
+
+        _fund(10 ether);
+        dist.notifyRewardAmount();
+
+        uint256 mirrorBefore = dist.effectiveBalanceOf(carol);
+        assertGt(mirrorBefore, 0, "fixture: victim must be mirrored before the gift");
+
+        // The gift, followed by the attacker's permissionless sync.
+        ve.setPosition(carol, 1e18, block.timestamp + FAR_FUTURE);
+        vm.prank(bob);
+        dist.sync(carol);
+
+        assertGe(
+            dist.effectiveBalanceOf(carol),
+            mirrorBefore,
+            "a gifted position REDUCED the victim's mirrored power"
+        );
+        assertEq(
+            dist.effectiveBalanceOf(carol),
+            ve.votingPowerOf(carol) + restaking.power(carol),
+            "mirror is not the sum of the two legs after the gift"
+        );
+
+    }
+
+    /// @notice [v2-additive-legs] The same attack measured in ETH that actually left
+    ///         the contract, because a mirror is only interesting for what it pays.
+    ///         The gift costs the attacker one token of weight; under the
+    ///         short-circuit it bought him the victim's entire share of the schedule.
+    /// @dev The pinned property is ordinal, not a magnitude: the account with ~4x the
+    ///      true weight, mirrored for the whole window, must be paid more than the
+    ///      lighter one. No literal split is asserted.
+    function test_GiftedVeNftDoesNotMoveTheStreamToTheAttacker() public {
+        _enableStreaming();
+        _wireRestaking();
+
+        restaking.setRestaker(carol, 42, 4000e18);
+        _stake(bob, 1000e18);
+        dist.sync(carol);
+        dist.sync(bob);
+
+        _fund(10 ether);
+        dist.notifyRewardAmount();
+
+        ve.setPosition(carol, 1e18, block.timestamp + FAR_FUTURE);
+        vm.prank(bob);
+        dist.sync(carol);
+
+        vm.warp(block.timestamp + DURATION);
+        vm.prank(carol);
+        dist.getReward();
+        vm.prank(bob);
+        dist.getReward();
+
+        assertGt(carol.balance, 0, "victim was paid nothing across the window");
+        assertGt(
+            carol.balance,
+            bob.balance,
+            "the stream re-priced from the heavier account onto the attacker"
+        );
+    }
+
+    /// @notice [v2-additive-legs] Readability is CONJUNCTIVE. With both legs live and
+    ///         the staking read then failing, the pre-fix code returned
+    ///         `(true, restakedOnly)` — a confident total assembled from one of two
+    ///         legs — and overwrote the mirror with it, under-crediting exactly the
+    ///         dual-position accounts. An unknown total must preserve the mirror and
+    ///         must not certify.
+    function test_OneLegOutageDoesNotRewriteTheMirrorFromTheOtherLeg() public {
+        _enableStreaming();
+        _wireRestaking();
+
+        _stake(alice, 1000e18);
+        restaking.setRestaker(alice, 42, 4000e18);
+        dist.sync(alice);
+
+        uint256 mirrorBefore = dist.effectiveBalanceOf(alice);
+        uint256 supplyBefore = dist.totalEffectiveSupply();
+        assertGt(mirrorBefore, 0, "fixture: account must be mirrored before the outage");
+
+        // Staking leg down; the restaked leg still answers.
+        ve.setReverting(true);
+        vm.prank(bob);
+        dist.sync(alice);
+
+        assertEq(
+            dist.effectiveBalanceOf(alice),
+            mirrorBefore,
+            "a one-leg total overwrote the mirror during an outage"
+        );
+        assertEq(dist.totalEffectiveSupply(), supplyBefore, "supply moved on an unreadable total");
+        assertFalse(dist.isSynced(alice), "a partial total was certified as synced");
+    }
+
     receive() external payable {}
 }

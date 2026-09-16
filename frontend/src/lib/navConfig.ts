@@ -486,8 +486,9 @@ export const NAV_SECTIONS: NavSection[] = [
       // venue's own Ponder indexer was the only thing either could read. Neither is
       // any more: both now read the ISLAND TAPE — GeckoTerminal's pool-trade feed for
       // every bungalow carrying a registered `market`, plus the venue's own TOWELI/WETH
-      // pool. No env var, no key, no proxy: api.geckoterminal.com is already in
-      // connect-src and usePoolTrades already reads this exact URL in production.
+      // pool. No env var and no key: the read goes through this app's own
+      // edge-cached resource (?resource=gecko-read), which ships with every
+      // deployment, and usePoolTrades already reads that exact URL in production.
       //
       // Both pills are therefore REGISTRY-CONSTANT, the same shape as /eth-curve's
       // `!isDeployed(...)` above: each clears because a readable pool is REGISTERED,
@@ -595,7 +596,7 @@ export const NAV_SECTIONS: NavSection[] = [
       // "Venue pairs" TAB, which appears when VITE_INDEXER_URL is set.
       { to: '/terminal', label: 'Pro Terminal', tabLabel: 'Terminal' },
       // Pro Charting no longer reads the indexer for its primary source. Its data
-      // path is api.geckoterminal.com (CSP: vercel.json connect-src) over the
+      // path is GeckoTerminal by way of this app's own edge (?resource=gecko-read) over the
       // registry's `market` fields (lib/bungalows.ts) plus TOWELI's own pool, so the
       // pill reads `hasChartableMarket()` — a client-readable registry fact, the same
       // discipline as `!isDeployed(CURVE_LAUNCHER_ADDRESS)` above — and returns to

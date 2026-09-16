@@ -2,5 +2,10 @@ User-agent: *
 Allow: /
 
 # 2026-08-07: was https://tegridyfarms.vercel.app/sitemap.xml — the alias origin, not
-# the canonical one (memetic.fun, per index.html's <link rel="canonical"> and SITE_URL).
-Sitemap: https://memetic.fun/sitemap.xml
+# the canonical one.
+# 2026-09-09: and then it was memetic.fun, which the 2026-08-27 ARRIVAL IDENTITY
+# decision had already demoted to a redirect alias (src/lib/constants.ts SITE_URL).
+# This line must name the SAME host as index.html's <link rel="canonical">; when it
+# does not, the crawler is told the canonical host by one file and handed the URL set
+# on another. Pinned by src/lib/__tests__/canonicalHost.test.ts.
+Sitemap: https://memetics.finance/sitemap.xml
