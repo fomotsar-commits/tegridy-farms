@@ -1,19 +1,35 @@
 # The signing session — 11 transactions, one sitting
 
-Every number below was read LIVE on 2026-08-28 02:30 UTC; every selector was derived with
+> 🔴 **RE-DATED 2026-09-09 FROM CHAIN. The deadlines in the original table below are DEAD — do not
+> plan from them.** The Base proposal they describe expired, was cancelled and was **re-proposed on
+> 2026-09-05**, so the Base deadline moved FORWARD. Robinhood's was never re-armed and has lapsed.
+>
+> | What | Live state, read 2026-09-09 | What it needs now |
+> |---|---|---|
+> | Base rows 1–3 (TWAP, SFR, SFRAdmin) | ✅ **DONE.** `owner()` == Safe `0xBC4E…Be5B` and `pendingOwner()` == `0x0` on all three | nothing |
+> | Base row 4 — factory `acceptFeeToSetter` | 🟢 **OPEN.** `pendingFeeToSetter` == the Safe; `feeToSetterChangeTime` `1788720319` + `MAX_SETTER_PROPOSAL_VALIDITY` `604800` → **closes 2026-09-13 18:45:19 UTC** (epoch `1789325119`) | one 2-of-2 signature. Simulated from the Safe: returns `0x` |
+> | RH row 4 — factory `acceptFeeToSetter` | 🔴 **EXPIRED 2026-09-03 05:02 UTC.** Slot still occupied, so `proposeFeeToSetter` reverts `CANCEL_EXISTING_FIRST` | `cancelFeeToSetterProposal` → re-propose → **24h** → accept, from the deployer EOA |
+> | RH rows 1–3 | 🔴 **EXPIRED 2026-09-09 05:01 UTC** (14-day windows) | re-run `transferOwnership` ×3, then accept |
+>
+> ⚠️ **`FEE_TO_SETTER_DELAY` is 86400 (24h)**, read from the deployed factory. `GUARDIAN_CHANGE_DELAY`
+> is 172800 (48h) — do not mix them.
+>
+> ⚠️ **The nonce-0 warning below is now FALSE for this Safe.** `0xBC4E…Be5B` reads `nonce() = 3`,
+> `getThreshold() = 2` — it has signed and executed three times. It is still true for the mainnet
+> Safes and for the notifier Safe `0xfc5D…fbf1`.
+
+Every number in the original was read LIVE on 2026-08-28 02:30 UTC; every selector was derived with
 `cast sig`, never recalled. Two signers needed: the operator key `0x14898258122C0740106391E6e8E4F17F3b6d456E`
 and the mainnet signer `0x28d7CB2F4D73C2750Ba0055c771871fec79260f8` (both 2-of-2 Safes use this pair;
 the mainnet Treasury Safe uses `0x28d7…60f8` + `0xE9B7…f53e`).
 
-**Two deadlines. Everything else is undated but should ride the same sitting.**
+**The ORIGINAL deadline table, superseded — kept only so the dates can be recognised as dead:**
 
-| What | Deadline | Consequence of missing |
+| What | ~~Deadline~~ EXPIRED | Consequence of missing |
 |---|---|---|
-| Base `acceptFeeToSetter` | **2026-09-02 07:20 UTC** (epoch 1788333647) | Proposal expires; deployer EOA must re-propose + a fresh 24h wait. Annoying, not fatal. |
-| RH `acceptFeeToSetter` | **2026-09-03 05:02 UTC** (epoch 1788411726) | Same. |
+| Base `acceptFeeToSetter` | ~~**2026-09-02 07:20 UTC**~~ (epoch 1788333647) — expired, then re-proposed 09-05 | Proposal expires; deployer EOA must re-propose + a fresh 24h wait. Annoying, not fatal. |
+| RH `acceptFeeToSetter` | ~~**2026-09-03 05:02 UTC**~~ (epoch 1788411726) — expired, **never re-armed** | Same. |
 | Reserve repoints (Part B) | **Before the first curve launch** (`launchCount` is 0 on all three chains as of this doc) | The repoint stops reaching launches already created — in-flight launches carry the EOA recipient to graduation FOREVER (`l.reserveRecipient` is snapshotted at create; `setLaunchConfig` is future-launches-only). |
-
-Both windows are OPEN now (each 24h timelock has elapsed).
 
 ---
 
@@ -40,7 +56,7 @@ Calldata (derived): `acceptOwnership()` = `0x79ba5097` · `acceptFeeToSetter()` 
 | 1 | `0xB021651dACaD5dabf83ef587297E093DfA0c95Ec` (TegridyTWAP) | `0x79ba5097` | TWAP owner: deployer → Safe. **The smoke test.** |
 | 2 | `0xa24C7287eC56A7DEFDc70033803451240e267a52` (SwapFeeRouter) | `0x79ba5097` | SFR owner → Safe |
 | 3 | `0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2` (SwapFeeRouterAdmin) | `0x79ba5097` | Admin owner → Safe |
-| 4 | `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC` (TegridyFactory) | `0x2dd072a0` | feeToSetter → Safe. **Deadline Sept 2 07:20 UTC.** |
+| 4 | `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC` (TegridyFactory) | `0x2dd072a0` | feeToSetter → Safe. 🟢 **THE ONLY ONE LEFT ON BASE. Deadline 2026-09-13 18:45:19 UTC** (re-proposed 09-05). |
 
 ### Robinhood 4663 — in this order
 
@@ -49,7 +65,7 @@ Calldata (derived): `acceptOwnership()` = `0x79ba5097` · `acceptFeeToSetter()` 
 | 1 | `0xa24C7287eC56A7DEFDc70033803451240e267a52` (TegridyTWAP) | `0x79ba5097` | TWAP owner → Safe. **Smoke test for the 4663 instance.** |
 | 2 | `0xE9F83A07b071748E795d2489651d5310fA098Db8` (SwapFeeRouter) | `0x79ba5097` | SFR owner → Safe |
 | 3 | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` (SwapFeeRouterAdmin) | `0x79ba5097` | Admin owner → Safe |
-| 4 | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` (TegridyFactory) | `0x2dd072a0` | feeToSetter → Safe. **Deadline Sept 3 05:02 UTC.** |
+| 4 | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` (TegridyFactory) | `0x2dd072a0` | feeToSetter → Safe. 🔴 **EXPIRED 2026-09-03.** This row cannot be signed as written — the slot must be cancelled and re-proposed from the deployer EOA first, then a 24h wait. |
 
 (Note the address swap across chains: 4663's TWAP sits at Base's SwapFeeRouter address and
 vice versa — same-deployer CREATE nonce math. Copy rows exactly; never infer from the other

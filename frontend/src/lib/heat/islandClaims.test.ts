@@ -102,6 +102,63 @@ describe('the three confirmed properties survive', () => {
   });
 });
 
+// ─── WAVE SEVEN, element K: the WHOLE law, not a term of it ─────────────────
+//
+// Same defect class as the window above, arriving from the other direction. The
+// island published `heat = weight · (size + loyalty)`, and the venue was teaching
+// the SIZE TERM as though it were the entire formula: a per-token cap of 100, a
+// what-the-curve-pays table computed from it, a single-token share needed for
+// Observer, and "the period the average is taken over has not been published"
+// after the island had published its grammar for exactly that.
+//
+// The cap is the load-bearing one. Under the published law, loyalty adds on top
+// of the share curve and weight multiplies the pair, so "each token scores 0 to
+// 100" is not a simplification, it is false — and it was rendered on the venue
+// arrival, not just in a dev comment.
+
+describe('the venue teaches the whole published law, not one term of it', () => {
+  const userFacing = walk(SRC).map(prose).join('\n');
+
+  it('states no per-token cap of 100 anywhere a user can read it', () => {
+    expect(userFacing).not.toMatch(/0 to 100 degrees/i);
+    expect(userFacing).not.toMatch(/caps? at 100/i);
+    expect(userFacing).not.toMatch(/never exceed 100/i);
+  });
+
+  it('does not claim the upper tiers are unreachable from one position', () => {
+    expect(userFacing).not.toMatch(/unreachable on a single position/i);
+  });
+
+  it('no longer says the averaging period is unpublished, because it is published', () => {
+    expect(userFacing).not.toMatch(/has not been published/i);
+  });
+
+  it('DEFINES all three published terms, not merely names them', () => {
+    // Asserting the words exist is not enough and this test learned that the
+    // hard way: the formula line `heat = weight × (size + loyalty)` contains all
+    // three, so deleting an entire explanatory bullet still passed a
+    // word-presence check. A mutation caught it. Each term is pinned to the
+    // island's own definition of it, which the formula line cannot satisfy.
+    const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
+    expect(heatCard, 'size is not defined as the share curve').toMatch(/share curve/i);
+    expect(heatCard, 'loyalty is not defined as held days').toMatch(/held days and nothing else/i);
+    expect(heatCard, 'weight is not defined as the published multiplier').toMatch(/published\s*\{?'?\s*\}?\s*multiplier/i);
+  });
+
+  it('quotes the island’s whole-held-time grammar for the average', () => {
+    const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
+    expect(heatCard).toMatch(/whole held time/i);
+  });
+
+  it('retires the arithmetic it can no longer do honestly', () => {
+    // A table of what the size curve pays, and a single-token share for
+    // Observer, are not anybody's number once weight and loyalty are in the law.
+    const heatCard = prose(join(SRC, 'components', 'HeatCard.tsx'));
+    expect(heatCard).not.toMatch(/What the curve pays/i);
+    expect(heatCard).not.toMatch(/of its whole supply/i);
+  });
+});
+
 describe('the launch floor is the island word, unchanged', () => {
   it('is 80 — Resident', () => {
     // Confirmed in writing by the island in Wave 3. Recorded so a future "tidy-up"

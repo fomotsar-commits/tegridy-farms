@@ -101,13 +101,13 @@ export default function GalleryPage() {
             {/* F75: count DISTINCT works — GALLERY_ORDER double-counts the
                 .avif+.jpg format pairs; UNIQUE_GALLERY_COUNT exists for this. */}
             {bungalowIdentity?.artPool
-              ? `${bungalowIdentity.artPool.length + UNIQUE_GALLERY_COUNT} pieces — the ${bungalowIdentity.name} wing, original hand-drawn island art and the Nakamigos drop`
-              : `${UNIQUE_GALLERY_COUNT} pieces — original hand-drawn island art and the Nakamigos drop`}
+              ? `${bungalowIdentity.artPool.length + UNIQUE_GALLERY_COUNT} pieces: the ${bungalowIdentity.name} wing, original hand-drawn island art and the Nakamigos drop`
+              : `${UNIQUE_GALLERY_COUNT} pieces: original hand-drawn island art and the Nakamigos drop`}
           </p>
         </m.div>
 
         <div className="rounded-lg px-3 py-2 mb-4 inline-block" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
-          <p className="text-white text-[11px]">Votes are for fun only — stored locally in your browser, not on-chain.</p>
+          <p className="text-white text-[11px]">Votes are for fun only, stored locally in your browser and not on-chain.</p>
         </div>
 
         {sortedPieces.length === 0 ? (
@@ -174,7 +174,7 @@ export default function GalleryPage() {
                         style={{ background: 'rgba(0,0,0,0.65)' }}>
                         ▲ {votes[piece.id] || 0}
                       </button>
-                      <span className="sr-only">Votes are for fun only — not verified on-chain.</span>
+                      <span className="sr-only">Votes are for fun only. Not verified on-chain.</span>
                     </>
                   </div>
                 </div>

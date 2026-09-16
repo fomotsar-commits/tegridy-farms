@@ -56,7 +56,12 @@ describe('what an install depends on', () => {
         expect(icons.length).toBeGreaterThan(0);
         for (const icon of icons) {
           expect(icon.src.startsWith('/'), `${icon.src} must be an absolute path`).toBe(true);
-          expect(existsSync(join(PUBLIC, icon.src.slice(1))), `${icon.src} is declared but not on disk`).toBe(true);
+          // The `?v=` token is the only thing that reaches a client holding this
+          // origin's icon in its own store — see index.html and
+          // lib/siteIcons.test.ts, which owns the token itself. It is a URL
+          // detail, not a path: strip it before asking the filesystem.
+          const path = icon.src.split('?')[0]!;
+          expect(existsSync(join(PUBLIC, path.slice(1))), `${icon.src} is declared but not on disk`).toBe(true);
         }
       });
 
