@@ -123,7 +123,7 @@ export function CowSwapPanel({ fromToken, toToken, inputAmount, slippage, onChai
         )}
       </div>
       <p className="mt-1 text-[10px] text-white/70" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
-        Signs one gasless order that CoW’s solvers settle off the public mempool — no sandwich surface,
+        Signs one gasless order that CoW’s solvers settle off the public mempool. No sandwich surface,
         and an unfilled order costs nothing.
       </p>
 

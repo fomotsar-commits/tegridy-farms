@@ -89,6 +89,18 @@ const PROTOCOL_RISKS: Array<{
   },
 ];
 
+// WAVE SEVEN, ruling 2 (row Q): VENUE FIRST. Three of these risks are the
+// venue's own and lead the page; the other seven describe the classic protocol
+// TOWELI runs and render under TOWELI's name further down. Split by title, so
+// every word above stays exactly as written and the e2e pins still find each.
+const VENUE_RISK_TITLES: ReadonlySet<string> = new Set([
+  'No paid human audit by a recognised firm',
+  'Single maintainer',
+  'Anyone can launch a token, and a launch cannot be undone',
+]);
+const VENUE_RISKS = PROTOCOL_RISKS.filter((r) => VENUE_RISK_TITLES.has(r.title));
+const TOWELI_RISKS = PROTOCOL_RISKS.filter((r) => !VENUE_RISK_TITLES.has(r.title));
+
 // Every min/max/cap in the protocol, with the rationale and live status. Surfaced
 // here as a single reference so users are never surprised by a hidden limit (the
 // live forms also show their own limits inline). Values mirror the contracts; the
@@ -211,6 +223,64 @@ const RISKS = [
 export default function RisksPage() {
   usePageTitle('Risk Disclosure', 'Important risk factors for using memetics.finance DeFi protocol.');
 
+  // One card list, two owners: the venue's risks, then TOWELI's.
+  const riskList = (list: typeof PROTOCOL_RISKS) => (
+    <ul className="space-y-4 list-none p-0 m-0">
+      {list.map((risk, i) => (
+        <m.li
+          key={risk.title}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.12 + i * 0.04 }}
+          className="rounded-2xl p-6 md:p-7 backdrop-blur-md"
+          style={{
+            background: 'rgba(48, 12, 16, 0.82)',
+            border: '1px solid rgba(248, 113, 113, 0.32)',
+          }}
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-red-400 text-lg mt-0.5 shrink-0" aria-hidden="true">&#9888;</span>
+            <div className="flex-1">
+              <div className="flex items-center flex-wrap gap-2 mb-3">
+                <h3 className="text-lg font-semibold text-white">
+                  {risk.title}
+                </h3>
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+                  style={{
+                    background:
+                      risk.status === 'Mitigated'
+                        ? 'rgba(34, 197, 94, 0.18)'
+                        : risk.status === 'In progress'
+                          ? 'rgba(234, 179, 8, 0.2)'
+                          : 'rgba(248, 113, 113, 0.22)',
+                    color:
+                      risk.status === 'Mitigated'
+                        ? '#4ade80'
+                        : risk.status === 'In progress'
+                          ? '#fde047'
+                          : '#fca5a5',
+                    border:
+                      risk.status === 'Mitigated'
+                        ? '1px solid rgba(74, 222, 128, 0.4)'
+                        : risk.status === 'In progress'
+                          ? '1px solid rgba(253, 224, 71, 0.4)'
+                          : '1px solid rgba(252, 165, 165, 0.4)',
+                  }}
+                >
+                  {risk.status}
+                </span>
+              </div>
+              <p className="text-white/75 text-sm leading-relaxed">
+                {risk.body}
+              </p>
+            </div>
+          </div>
+        </m.li>
+      ))}
+    </ul>
+  );
+
   return (
     <div className="-mt-14 relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
@@ -269,64 +339,11 @@ export default function RisksPage() {
               What can actually go wrong — as of today
             </h2>
             <p className="text-white/60 text-sm">
-              Protocol-specific risks that reflect the current state of memetics.finance. Not legalese — read them.
+              The venue&apos;s own risks, as they stand today. Not legalese: read them.
             </p>
           </div>
 
-          <ul className="space-y-4 list-none p-0 m-0">
-            {PROTOCOL_RISKS.map((risk, i) => (
-              <m.li
-                key={risk.title}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.35, delay: 0.12 + i * 0.04 }}
-                className="rounded-2xl p-6 md:p-7 backdrop-blur-md"
-                style={{
-                  background: 'rgba(48, 12, 16, 0.82)',
-                  border: '1px solid rgba(248, 113, 113, 0.32)',
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="text-red-400 text-lg mt-0.5 shrink-0" aria-hidden="true">&#9888;</span>
-                  <div className="flex-1">
-                    <div className="flex items-center flex-wrap gap-2 mb-3">
-                      <h3 className="text-lg font-semibold text-white">
-                        {risk.title}
-                      </h3>
-                      <span
-                        className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
-                        style={{
-                          background:
-                            risk.status === 'Mitigated'
-                              ? 'rgba(34, 197, 94, 0.18)'
-                              : risk.status === 'In progress'
-                                ? 'rgba(234, 179, 8, 0.2)'
-                                : 'rgba(248, 113, 113, 0.22)',
-                          color:
-                            risk.status === 'Mitigated'
-                              ? '#4ade80'
-                              : risk.status === 'In progress'
-                                ? '#fde047'
-                                : '#fca5a5',
-                          border:
-                            risk.status === 'Mitigated'
-                              ? '1px solid rgba(74, 222, 128, 0.4)'
-                              : risk.status === 'In progress'
-                                ? '1px solid rgba(253, 224, 71, 0.4)'
-                                : '1px solid rgba(252, 165, 165, 0.4)',
-                        }}
-                      >
-                        {risk.status}
-                      </span>
-                    </div>
-                    <p className="text-white/75 text-sm leading-relaxed">
-                      {risk.body}
-                    </p>
-                  </div>
-                </div>
-              </m.li>
-            ))}
-          </ul>
+          {riskList(VENUE_RISKS)}
 
           <p className="text-white/55 text-xs mt-4 leading-relaxed">
             Rolling status is tracked in{' '}
@@ -351,6 +368,23 @@ export default function RisksPage() {
           </p>
         </m.section>
 
+        {/* WAVE SEVEN, row Q: TOWELI'S PROTOCOL, UNDER ITS OWN NAME. These seven
+            risks were read as the venue's; they describe the classic protocol
+            TOWELI runs, so they render here with its limits, word for word. The
+            data-voice marker tells the voice census and element I that this
+            subtree is TOWELI's, by structure; src/pages/recordSurfaces.test.ts
+            pins which files may declare one. */}
+        <section data-voice="toweli" aria-labelledby="toweli-risks-heading" className="mb-10">
+          <div className="mb-4">
+            <h2 id="toweli-risks-heading" className="text-2xl font-semibold text-white mb-1">
+              TOWELI&apos;s protocol: risks and limits
+            </h2>
+            <p className="text-white/60 text-sm">
+              The classic protocol TOWELI runs on Ethereum: its keys, its contracts, its market, its brand and its limits.
+            </p>
+          </div>
+          <div className="mb-10">{riskList(TOWELI_RISKS)}</div>
+
         <m.section
           aria-labelledby="limits-heading"
           initial={{ opacity: 0, y: 20 }}
@@ -359,9 +393,9 @@ export default function RisksPage() {
           className="mb-10"
         >
           <div className="mb-4">
-            <h2 id="limits-heading" className="text-2xl font-semibold text-white mb-1">
+            <h3 id="limits-heading" className="text-2xl font-semibold text-white mb-1">
               Protocol limits &amp; parameters
-            </h2>
+            </h3>
             <p className="text-white/60 text-sm">
               Every minimum, maximum, and cap — what it is and why. So nothing surprises you mid-transaction.
             </p>
@@ -381,7 +415,7 @@ export default function RisksPage() {
                 }}
               >
                 <div className="flex items-center flex-wrap gap-2 mb-3">
-                  <h3 className="text-lg font-semibold text-white">{grp.feature}</h3>
+                  <h4 className="text-lg font-semibold text-white">{grp.feature}</h4>
                   <span
                     className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
                     style={{
@@ -411,6 +445,7 @@ export default function RisksPage() {
             can change via governance and are read on-chain where shown.
           </p>
         </m.section>
+        </section>
 
         <div className="mb-4">
           <h2 className="text-xl font-semibold text-white mb-1">

@@ -116,6 +116,32 @@ export default function TrustHubPage() {
         </div>
 
         {/* ── Our own posture (honest cross-link, not a claim) ───────── */}
+        {/* WAVE SEVEN, element C: the security badge, moved here from the venue
+            arrival's hero. This is the page where a visitor is already asking
+            what is checkable, so the record leads and the paragraph below
+            explains where to go with it.
+
+            The text is the record, not a grade, and every term of it is
+            checkable in one click: the waves and the suite are on /security,
+            Slither runs on every CI run. It deliberately states no aggregate
+            "findings resolved" count, which is the claim /security itself
+            refuses to publish. */}
+        <Link
+          to="/security"
+          aria-label="View security details: internal audit waves, Slither CI, and the test suite"
+          className="inline-flex items-center gap-2 mt-6 px-3 py-1.5 rounded-full text-[12px] font-medium transition-all hover:opacity-90"
+          style={{
+            background: 'rgba(139, 92, 246, 0.12)',
+            border: '1px solid rgba(245, 228, 184, 0.25)',
+            color: '#f5e4b8',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 3l8 3v6c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V6l8-3z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+          Internal audit waves · Slither CI · 1,500+ tests
+        </Link>
         <p className="text-[12px] text-text-muted mt-4 leading-relaxed">
           For how this protocol itself is secured — including what has and has not been audited — see{' '}
           <Link to="/security" className="text-emerald-400/80 hover:text-emerald-300 underline transition-colors">

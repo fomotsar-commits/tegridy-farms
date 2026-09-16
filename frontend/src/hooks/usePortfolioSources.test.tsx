@@ -39,7 +39,12 @@ function entry(fn: string): ReadEntry {
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: state.address, isConnected: state.isConnected }),
   useChainId: () => state.chainId,
-  useBalance: () => ({ ...state.balance, refetch: vi.fn() }),
+  // Honours `enabled` like the batches below, so a gate on the native balance
+  // alone is visible to the wallet-chain cases.
+  useBalance: (opts?: { query?: { enabled?: boolean } }) =>
+    opts?.query?.enabled === false
+      ? { data: undefined, isError: false, refetch: vi.fn() }
+      : { ...state.balance, refetch: vi.fn() },
   useReadContracts: (opts: { contracts?: { functionName?: string }[]; query?: { enabled?: boolean } }) => {
     const contracts = opts.contracts ?? [];
     // The dependent batch is the one asking for getPosition.
@@ -178,10 +183,29 @@ describe('the adapter refuses to report on a wallet it is not reading', () => {
     expect(total.usd).toBeNull();
     expect(total.completeness).toBe('unavailable');
   });
+});
 
-  it('publishes no total on the wrong network', () => {
-    state.chainId = 8453;
-    const total = aggregatePortfolio(renderHook(() => usePortfolioSources()).result.current.sources);
-    expect(total.usd).toBeNull();
+// ── The wallet's chain is not the portfolio's subject ─────────────────────────
+//
+// Every read here is pinned to mainnet, so these are this portfolio's legs from any
+// chain. The hook used to gate on the wallet's chain as well, and every leg then read
+// "wallet is on a different network" beside a Dashboard that showed the same
+// positions, read from the same contracts.
+describe.each([['Base', 8453], ['Robinhood Chain', 4663]])('a wallet on %s', (_label, chainId) => {
+  function sourcesOn(id: number) {
+    state.chainId = id;
+    return renderHook(() => usePortfolioSources()).result.current.sources;
+  }
+
+  it('reports the portfolio it reports on mainnet', () => {
+    const off = sourcesOn(chainId);
+    // The stub landed: two all-unavailable reports would be equal too.
+    expect(byId(off)['wallet-eth'].usd).toBe(6000);
+    expect(off).toEqual(sourcesOn(1));
+  });
+
+  it('reports a failed batch as a failed read, not as another network', () => {
+    state.baseMeta = { dataUpdatedAt: NOW_MS, isLoading: false, isError: true };
+    expect(byId(sourcesOn(chainId))['wallet-toweli'].detail).toBe('the network read failed');
   });
 });

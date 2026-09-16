@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAccount, useChainId, usePublicClient } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import type { Address } from 'viem';
 import { CHAIN_ID, TEGRIDY_NFT_LENDING_ADDRESS, isDeployed } from '../lib/constants';
 import { TEGRIDY_NFT_LENDING_ABI } from '../lib/contracts';
@@ -36,11 +36,14 @@ const REFRESH_MS = 60_000;
 
 export function useShieldPositions(): ShieldPositionsSnapshot {
   const { address } = useAccount();
-  const chainId = useChainId();
+  // Not gated on the wallet's chain. Every read goes through the mainnet client,
+  // and the loans come from useMyLoans, which reads mainnet from any chain, so a
+  // wallet on Base or Robinhood sees its real deadlines here as on the loans tab.
+  // Repaying still needs mainnet: prepareRepay refuses a wallet on another chain
+  // (ShieldPositionCard hands it the wallet's chain), and the send is pinned.
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
   const { loans, isLoading: loansLoading, isError: loansError, loansUnread } = useMyLoans();
 
-  const onExpectedChain = chainId === CHAIN_ID;
   const lendingDeployed = isDeployed(TEGRIDY_NFT_LENDING_ADDRESS);
 
   // Borrower side only. A lender's exposure is real but it is not a liquidation
@@ -68,7 +71,7 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
     // dependency change would otherwise leave the flag stuck true, and the panel
     // would report "reading" forever — a loading state that never resolves reads
     // as a system still working on it, which is its own false reassurance.
-    if (!publicClient || !address || !onExpectedChain || !lendingDeployed) {
+    if (!publicClient || !address || !lendingDeployed) {
       setReads(null);
       setReadFailed(false);
       setReading(false);
@@ -163,17 +166,12 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- borrowKey is the structural stand-in for myBorrows; nonce is the refresh tick
-  }, [publicClient, address, onExpectedChain, lendingDeployed, borrowKey, nonce]);
+  }, [publicClient, address, lendingDeployed, borrowKey, nonce]);
 
   return useMemo<ShieldPositionsSnapshot>(() => {
     const readiness = shieldVenueReadiness()['tegridy-nft-lending'];
     if (!readiness.readable) return idleSnapshot(readiness.detail ?? undefined);
     if (!address) return idleSnapshot();
-    if (!onExpectedChain) {
-      return idleSnapshot(
-        'This wallet is on another network, so its Ethereum Mainnet loans were not read. Switch networks to see them — nothing is being watched from here.',
-      );
-    }
     if (loansError) return unreadableSnapshot();
     // A PARTIAL SWEEP IS STILL UNREAD. `loans` is real but shorter than the
     // wallet's actual book when discovery loses records, and a short list on
@@ -189,5 +187,5 @@ export function useShieldPositions(): ShieldPositionsSnapshot {
     if (readFailed) return unreadableSnapshot();
     if (loansLoading || reading || reads === null) return loadingSnapshot();
     return buildSnapshot(reads, Math.floor(Date.now() / 1000));
-  }, [address, onExpectedChain, loansError, loansLoading, readFailed, reading, reads]);
+  }, [address, loansError, loansLoading, readFailed, reading, reads]);
 }

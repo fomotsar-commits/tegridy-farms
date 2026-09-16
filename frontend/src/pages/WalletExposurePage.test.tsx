@@ -52,7 +52,6 @@ vi.mock('../hooks/useWalletExposure', () => ({
     hookState.lastExtraTokens = opts.extraTokens ?? [];
     return {
       isConnected: true,
-      isWrongNetwork: false,
       isLoading: false,
       error: false,
       address: WALLET,

@@ -12,8 +12,16 @@
 // warmth; only balance held across time does).
 //
 // island_heat is the SUM of per-token degrees across every token in the island's
-// measured registry. One token caps at 100°, which is why the upper tiers are
-// unreachable on a single position — Elder is earned across the culture.
+// measured registry.
+//
+// WAVE SEVEN, element K: two sentences that stood here are RETIRED, because the
+// island published the whole law and they were true only of a part of it. They
+// said one token caps at 100° and that the upper tiers are therefore unreachable
+// on a single position. Under the published formula, heat = weight · (size +
+// loyalty), neither holds: loyalty adds on top of the share curve, and weight
+// multiplies the pair, so no cap of 100 belongs to a token and no tier is
+// arithmetically out of reach from one position. The curve BELOW is the SIZE
+// TERM only. It is kept to explain the shape and assigns nothing.
 //
 // THE BOUNDARY (spec §"THE BOUNDARY"). The island computes judgement; the venue
 // reads it. Wherever our number and the oracle disagree, THE ORACLE IS THE RULER.
@@ -113,6 +121,23 @@ export interface HeatBreakdownRow {
   degrees: number;
   firstSeenAtUnix: number | null;
   lastTransferAtUnix: number | null;
+  /**
+   * The island's own flag on this row, and it was arriving and being THROWN AWAY
+   * until 2026-09-09 — the upstream has always sent it, the parser below simply
+   * never read it, so nothing downstream could act on it.
+   *
+   * WHAT IT MEANS (the island, answer7): a mint the island no longer scans, a
+   * migrated or scrapped token's history. Measured against the live envelope for
+   * a real 18-row flame: all 18 rows sum to 1792.96 and the envelope's own
+   * `degrees` is 1792.96, so the island's total still includes the 4 retired
+   * rows (155.61 of it). The island is dropping them from its envelope and sum.
+   * Until that lands, HeatCard greys and labels them, leaves them out of the
+   * token count and out of its own sum line, and says the total includes them.
+   *
+   * Absent or non-boolean reads false: a row the island did not flag is a row
+   * that is not retired.
+   */
+  retired: boolean;
 }
 
 export interface HeatReading {
@@ -231,6 +256,7 @@ export function parseHeatReading(payload: unknown): HeatReading {
       degrees: typeof b.heat_degrees === 'number' ? b.heat_degrees : 0,
       firstSeenAtUnix: typeof b.first_seen_at_unix === 'number' ? b.first_seen_at_unix : null,
       lastTransferAtUnix: typeof b.last_transfer_at_unix === 'number' ? b.last_transfer_at_unix : null,
+      retired: b.retired === true,
     })),
   };
 }

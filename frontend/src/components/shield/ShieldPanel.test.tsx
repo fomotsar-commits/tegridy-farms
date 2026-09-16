@@ -30,6 +30,7 @@ const LENDING = '0x89BeB6cc0255B7465c01aA38a6f937efd345f14F';
 
 const state = vi.hoisted(() => ({
   snapshot: null as unknown,
+  chainId: 1,
   alerts: {
     rules: [] as unknown[],
     evaluations: [] as unknown[],
@@ -53,7 +54,7 @@ vi.mock('../../hooks/useShieldAlerts', () => ({
 }));
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: BORROWER }),
-  useChainId: () => 1,
+  useChainId: () => state.chainId,
   useSendTransaction: () => ({ sendTransaction: vi.fn(), data: undefined, isPending: false, error: null }),
   useWaitForTransactionReceipt: () => ({ isLoading: false, isSuccess: false, isError: false }),
 }));
@@ -85,6 +86,7 @@ function mount(snapshot: ShieldPositionsSnapshot) {
 }
 
 beforeEach(() => {
+  state.chainId = 1;
   state.alerts.rules = [];
   state.alerts.evaluations = [];
   state.alerts.storeProblem = null;
@@ -235,5 +237,24 @@ describe('alert gaps are shown as gaps', () => {
     state.alerts.rules = [{ id: 'r1' }];
     mount(buildSnapshot([raw()], NOW));
     expect(screen.getByText(/only while this page is open/i)).toBeTruthy();
+  });
+});
+
+// useShieldPositions no longer stops at the wallet's chain, so these rows now render for
+// a wallet on Base or Robinhood Chain. Repaying still needs mainnet, and what keeps the
+// signature off this screen there is prepareRepay's chain check, which
+// ShieldPositionCard feeds the wallet's chain.
+describe('a borrower whose wallet is on another chain', () => {
+  it.each([8453, 4663])('on chain %i sees the loan but is offered no signature', (chainId) => {
+    // Mainnet first: the same row offers the signature, so its absence below means something.
+    const { unmount } = mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByRole('button', { name: /Review and sign repayment/i })).toBeTruthy();
+    unmount();
+
+    state.chainId = chainId;
+    mount(buildSnapshot([raw()], NOW));
+    expect(screen.getByText(/Borrowed 1 ETH/)).toBeTruthy();
+    expect(screen.getByText(/a repayment built for another chain would not reach it/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Review and sign repayment/i })).toBeNull();
   });
 });

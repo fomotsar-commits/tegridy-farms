@@ -1,4 +1,4 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { getActiveBungalow } from '../../lib/bungalows';
 
 /**
@@ -15,14 +15,40 @@ import { getActiveBungalow } from '../../lib/bungalows';
  * of links (not a toggle with state) because the two surfaces are separate
  * routes with separate wallets — the URL IS the state.
  *
- * `?out=<mint>` on the Solana side is preserved when it is already there, so
- * "Trade BAYLA" → switch to Ethereum → switch back keeps the token you came
- * for.
+ * `?out=<mint>` on the Solana side is preserved when it is already there, so a
+ * reload or a share of /solana?out=<mint> keeps the token you came for. It does
+ * NOT survive the hop to Ethereum, and the header used to say it did: `?out=` is
+ * a Solana mint and /swap has no use for one, so the Ethereum half is a bare
+ * `/swap` and nothing in the app produces `/swap?out=`. The preservation is
+ * real, but it is preservation of the SELF-link, not a round trip.
+ *
+ * WHICH ONE IS LIT IS READ OFF THE URL, NOT PASSED IN (2026-09-10). It used to be
+ * an `active` prop, and a prop is a claim a caller can get wrong: /pools — the
+ * venue's own Solana AMM, a LIQUIDITY page and neither of these two swap
+ * surfaces — passed `active="solana"`, so the control sat there with the Solana
+ * half highlighted and `aria-current="page"` on it, telling a screen reader the
+ * visitor was on /solana. They were not. The URL is already the state (see
+ * above), so deriving from it makes that class of mistake unrepresentable rather
+ * than merely fixed: a page cannot mislabel itself, and a route that is neither
+ * surface simply lights neither half and offers both as what they are — two
+ * places to go.
+ *
+ * The segment-boundary match mirrors SectionHost's `matchesRoute` for the same
+ * reason it exists there: a bare `startsWith` would light Solana on any future
+ * `/solana-something`.
  */
-export function ChainSwitch({ active }: { active: 'ethereum' | 'solana' }) {
+function isOn(pathname: string, route: string): boolean {
+  return pathname === route || pathname.startsWith(`${route}/`);
+}
+
+export function ChainSwitch() {
+  const { pathname } = useLocation();
   const [params] = useSearchParams();
   const out = params.get('out');
   const solanaTo = out ? `/solana?out=${encodeURIComponent(out)}` : '/solana';
+  // Neither, on a page that is neither. `active` is deliberately allowed to be
+  // null — see the block above.
+  const active = isOn(pathname, '/swap') ? 'ethereum' : isOn(pathname, '/solana') ? 'solana' : null;
 
   // A bungalow makes the point louder: the active token lives on one of these
   // chains, so name it rather than leaving the visitor to guess.
