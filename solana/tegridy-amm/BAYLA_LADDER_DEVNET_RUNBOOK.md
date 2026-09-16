@@ -144,6 +144,13 @@ Budget **~5.5 SOL** for the default, or **~2.8 SOL** with `--max-len`. On devnet
 the faucet is the constraint, `--max-len` is the sensible choice: it only forecloses
 upgrading to a *larger* binary, and a devnet program can simply be redeployed.
 
+> ⚠️ **2026-09-11 - the 2× row above describes older CLIs.** The operator box now runs
+> Solana CLI **4.1.1**, whose own `solana program deploy --help` says `--max-len` defaults to
+> *"the length of the original deployed program"* (1×) and that upgrades **auto-extend**
+> the program data account unless `--no-auto-extend` is passed. So with 4.1.1 a plain
+> deploy costs **~2.60 SOL** and stays upgradeable: a later, larger binary pays its extra
+> rent at upgrade time instead of up front. Check `solana --version` before relying on it.
+
 ⚠️ **The public faucet rate-limits hard by IP**, and `solana airdrop` then fails with
 "airdrop request failed. This can happen when the rate limit is reached." That is not a
 config error — the RPC is fine, the faucet is refusing. Use <https://faucet.solana.com>
@@ -288,6 +295,14 @@ gh run download <run-id>          # -> deploy/bayla_ladder.so, idl/bayla_ladder.
 The run's summary page prints the sha256s, the rent estimate, and the deploy commands
 below with your addresses already filled in.
 
+> 📄 **You do not need a run to get an IDL any more.** `idl/bayla_ladder.json` is
+> committed — it is the IDL from run `34336193019`, whose `.so` sha256 matches what
+> is deployed at `HzxzfSQ…` on devnet byte for byte. GitHub deletes the artifact 30
+> days after the run, so the committed copy is the durable one; `idl/README.md`
+> carries the hashes and the two fields a mainnet build changes. `ladder-constraints`
+> re-checks it against a fresh `anchor build` on every push, so it cannot go stale
+> quietly. You still need the artifact for the **`.so`** — that is not committed.
+
 > ⚠️ **`deployer` is required for BOTH clusters.** A mainnet build with no deployer keeps
 > the System-program sentinel, which is fail-closed: `initialize_pool` becomes uncallable
 > and **no pool can ever be created** — and you would only discover that after paying for
@@ -336,7 +351,9 @@ node scripts/bayla-ladder-ops.mjs positions --pool <pool> --owner <wallet>
 Its discriminators, account ordering and struct offsets were verified field-by-field
 against the program's own IDL (0 mismatches) and are pinned by
 `scripts/bayla-ladder-ops.test.mjs`, so program drift fails in CI rather than as a
-confusing constraint error against a deployed program.
+confusing constraint error against a deployed program. That test now **reads
+`idl/bayla_ladder.json`** rather than restating a transcription of it, so the check is
+live: it was a snapshot only for as long as the IDL lived in an expiring artifact.
 
 ---
 
@@ -472,14 +489,39 @@ These are not tasks I can do, and none of them should be improvised on the day.
    keypair. For a program holding other people's principal that is not adequate. Choose:
    Squads multisig with a timelock, or burn the authority and make the program immutable.
    Immutable is the stronger promise and forecloses fixing anything.
+   **DECIDED 2026-09-12: the Squads route, using the venue's EXISTING v4 vault**
+   `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (index 0 of multisig
+   `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2 — all three facts read on
+   chain that day, and the derivation pinned by `squadsRegistry.test.ts`). See the
+   mainnet runbook §3, including why it must be the vault and never the multisig.
 2. 🔑 **A real mainnet program keypair**, generated and backed up before use. Two
    own-venue program keypairs are currently gitignored and **unbacked-up**; do not add a
    third to that pile.
+   **2026-09-11: generated.** Mainnet program id
+   `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` (public key only - the keyfile lives
+   outside the repo). ⚠️ **Not yet backed up.** Back it up before it deploys anything.
 3. 💰 **`min_stake`, `deposit_cap`, `max_wallet_principal`.** `min_stake` is permanent.
+   **So is `max_wallet_principal`** (found 2026-09-11): it is written only in
+   `initialize_pool` (lib.rs:383) and no instruction ever changes it. Only `deposit_cap`
+   moves - upward only, 48 hours after `propose_cap_raise`, via the permissionless
+   `execute_cap_raise`. Three consequences: `max_wallet_principal` must be **at least the
+   largest single wallet that will migrate** (measured 2026-09-12: the largest Streamflow
+   WALLET holds **1,004,000 BAYLA across 6 positions** — the limit is on the wallet
+   TOTAL, not per position, and the older snapshot of a 1,000,000 single position
+   understated it); it must be **at most the INITIAL `deposit_cap`** (init refuses
+   otherwise, and later cap raises do not lift it); and `min_stake` cannot go below
+   **100 whole tokens** (`initialize_pool` enforces that floor).
 4. 📋 **External audit engagement.** 2–4 week scheduling lead is normal. Book it before
    the code is "ready", not after.
+   **2026-09-11:** the owner reports an external audit is underway.
 5. 🔁 **Migration of the 8 existing Streamflow stakers** — including claiming the 1M
    position before it crosses the u64 ceiling.
+   ⚠️ That position's status is **unverified**: `docs/TODO_OPERATOR.md` records it as having
+   crossed on 2026-09-07 from a commit message, with no chain read, while the 2026-09-06
+   simulation table (`bungalowStakingCeiling.test.ts`) has its claim succeeding. Settle it
+   with a live `claim_rewards` simulation before acting on either reading.
+   ⚠️ Also 2026-09-12: the pool now holds **9 wallets / 18 open positions /
+   3,235,286 BAYLA**, not 8 stakers. Re-read it before planning the migration.
 
 ---
 

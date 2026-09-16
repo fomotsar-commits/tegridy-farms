@@ -150,7 +150,7 @@ export function ApiKeyPanel({ status }: { status: ApiStatusState }) {
       {status.phase === 'ready' && status.data.platform.keyIssuance === 'configured' && (
         <div data-testid="keys-panel">
           <p className="text-sm opacity-80 mb-3">
-            Sign in with your wallet first — issuance is authed by your SIWE session, not by an
+            Sign in with your wallet first. Issuance is authed by your SIWE session, not by an
             existing key, so a leaked key cannot mint successors that outlive its revocation. Every
             key minted here is on the <strong>Free</strong> tier; paid tiers are granted by the
             operator, and nothing on this page takes payment.

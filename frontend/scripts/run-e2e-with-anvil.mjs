@@ -32,13 +32,30 @@
  *   E2E_REQUIRE_ANVIL=1 npm run e2e              # CI: no silent mock fallback
  */
 import { spawn } from 'node:child_process';
+import { startForkRelay } from './fork-relay.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'node:net';
 
-// eth.llamarpc.com was the default and is dead for this purpose — HTTP 521,
-// no ACAO (src/lib/wagmi.ts records the same finding). publicnode is the
-// endpoint the fixture's own notes verified against a real fork read.
-const FORK_URL = process.env.ANVIL_FORK_URL ?? 'https://ethereum-rpc.publicnode.com';
+// THE FORK ENDPOINT IS A CONSUMABLE, NOT A CONSTANT. Two defaults have died
+// here now, and each death looked like a broken test suite first.
+//
+//   eth.llamarpc.com   HTTP 521, no ACAO (src/lib/wagmi.ts records the same).
+//   publicnode         HTTP 403 from 2026-09-09: "Archive requests require a
+//                      personal token". A fork IS an archive request, so this
+//                      is not a rate limit and waiting does not clear it. The
+//                      repo had already met the same gate on publicnode's
+//                      INDEXED requests (BungalowHolders.test.tsx:7); this is
+//                      that policy reaching archive.
+//
+// Reproduced locally against anvil 1.5.1, not inferred from a CI log: publicnode
+// fails with the exact 403 above, and drpc forks and serves a real state read
+// (WETH balanceOf came back non-zero). Plain `latest` reads still work on
+// publicnode, which is why every other script in this repo still points there
+// and only the FORK moved.
+//
+// If drpc starts rate-limiting under CI load, the durable answer is a funded
+// key in a repo secret rather than a fourth free endpoint.
+const FORK_URL = process.env.ANVIL_FORK_URL ?? 'https://eth.drpc.org';
 const FORK_BLOCK = process.env.ANVIL_FORK_BLOCK; // optional pin
 const ANVIL_PORT = Number(process.env.ANVIL_PORT ?? 8545);
 // CI must never take the mock-mode fallback: a runner without Foundry would
@@ -114,10 +131,19 @@ async function main() {
     process.exit(1);
   }
 
+  // anvil reads its fork THROUGH A RETRYING RELAY, never straight from FORK_URL. The free
+  // endpoint times reads out with HTTP 408, anvil cannot be told to retry a 408 (no flag
+  // reaches it), and one unretried 408 either fails a fixture cheatcode or panics anvil
+  // mid-suite. The relay retries only "no answer in time" and passes every refusal through
+  // untouched, so a dead endpoint still fails below exactly as loudly. What is and is never
+  // retried, and the measurement behind it: scripts/fork-relay.mjs. It reports on every exit.
+  const relay = await startForkRelay({ upstream: FORK_URL });
+  process.on('exit', () => relay.report());
+
   const anvilArgs = [
     '--host', '127.0.0.1',
     '--port', String(ANVIL_PORT),
-    '--fork-url', FORK_URL,
+    '--fork-url', relay.url,
     // Anvil's default mnemonic is "test test test test test test test test
     // test test test junk" — public, deterministic, and matches the address
     // baked into e2e/fixtures/wallet.ts. We pass it explicitly so a future
@@ -129,7 +155,10 @@ async function main() {
   ];
   if (FORK_BLOCK) anvilArgs.push('--fork-block-number', String(FORK_BLOCK));
 
-  console.log(`[e2e] spawning anvil --fork-url ${FORK_URL}${FORK_BLOCK ? ' @' + FORK_BLOCK : ''} on :${ANVIL_PORT}`);
+  console.log(
+    `[e2e] spawning anvil --fork-url ${FORK_URL}${FORK_BLOCK ? ' @' + FORK_BLOCK : ''} on :${ANVIL_PORT}` +
+      (relay.bypassed ? '' : ` (reads relayed via ${relay.url})`),
+  );
   const anvil = spawn('anvil', anvilArgs, { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
   anvil.on('error', (e) => {
     console.error('[e2e] anvil failed to start:', e.message);

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
-import { Routes, Route, Navigate, Link, useLocation, useNavigationType, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme, lightTheme } from '@rainbow-me/rainbowkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -49,6 +49,7 @@ const ArtStudioPage = import.meta.env.DEV
 // module the middleware would have written. Its own lazy chunk, so a
 // visitor who never opens the studio pays nothing for it.
 const BungalowArtStudioPage = lazy(() => import('./pages/BungalowArtStudioPage'));
+const DoorArtStudioPage = lazy(() => import('./pages/DoorArtStudioPage'));
 // ⌫ LendingPage's lazy import lived here. /nft-finance renders EarnPage now
 //   (it is a tab of that section), and EarnPage lazy-loads LendingPage itself.
 // Terms, Privacy, Risks, Contracts, Treasury merged into InfoPage (tabs)
@@ -269,6 +270,27 @@ function BungalowStudioDoor() {
   );
 }
 
+/**
+ * `/swap`, with an old `?tab=liquidity` link answered BEFORE the swap page loads.
+ *
+ * The Liquidity tab left the swap page for /liquidity (the Pools section's landing
+ * tab), but links shared while it lived here still exist, and TradePage resolves an
+ * unknown tab to 'swap' — so unredirected they land on the wrong surface, which reads
+ * as the feature having been deleted rather than moved.
+ *
+ * The redirect used to be an effect inside TradePage, which put the whole swap page in
+ * front of a decision the URL had already made: fetch TradeHostPage, fetch TradePage's
+ * own ~110 KB chunk, render the swap page, and only then start fetching the page the
+ * link was going to — four serial chunk loads where /liquidity has two. Measured
+ * 2026-09-10, that queue is what e2e/liquidity.spec.ts's heading assertion was waiting
+ * on. The URL is known on the first render, so it is read here, like ReadRedirect.
+ */
+function SwapRoute() {
+  const [searchParams] = useSearchParams();
+  if (searchParams.get('tab') === 'liquidity') return <Navigate to="/liquidity" replace />;
+  return <Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>;
+}
+
 function AnimatedRoutes() {
   return (
     <>
@@ -305,6 +327,16 @@ function AnimatedRoutes() {
       <Route
         path="bungalow-studio/:bungalowId"
         element={<BungalowStudioDoor />}
+      />
+      {/* Door studio (2026-09-13) — the island's FRONT PAGE rather than any one
+          bungalow: the thirteen door tiles in VenueDoors and the rows in
+          BungalowPicker. It draws from every resident's pool at once because a
+          door is a shop window, not a surface owned by the resident behind it.
+          Ships alongside the other studios: unlisted, export-only in prod.
+          '/door-studio' is not an island slug, so door routing is untouched. */}
+      <Route
+        path="door-studio"
+        element={<Suspense fallback={<PageSkeleton />}><DoorArtStudioPage /></Suspense>}
       />
       <Route element={<AppLayout />}>
         {/* THE VENUE'S OWN DOOR (2026-09-04). `/` is wrapped in the same
@@ -356,7 +388,7 @@ function AnimatedRoutes() {
         <Route path="farm" element={<Suspense fallback={<FarmSkeleton />}><EarnPage /></Suspense>} />
         {/* SWAP IS A TABBED HOST. Two routes, one strip: Ethereum / Solana.
             Every path still renders its own page standalone from a deep link. */}
-        <Route path="swap" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
+        <Route path="swap" element={<SwapRoute />} />
         <Route path="solana" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />
         {/* POOLS IS ITS OWN SECTION 2026-09-05, and /liquidity is a real page
             rather than a path alias.

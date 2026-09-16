@@ -355,4 +355,5 @@ export const ART_OVERRIDES: Record<string, ArtOverride> = {
   "wizard:0": { artId: "iph_0143", objectPosition: "50% 34%" },
   "wizard:1": { artId: "iph_0174", objectPosition: "50% 31%" },
   "wizard:2": { artId: "iph_0165", objectPosition: "50% 41%" },
+  "venue-home:0": { artId: "door-home", objectPosition: "42% 50%" },
 };

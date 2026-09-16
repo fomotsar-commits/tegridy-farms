@@ -19,7 +19,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { pageArt } from './artConfig';
-import { DEFAULT_BUNGALOW_ID } from './bungalows';
+import { VENUE_ID } from '../components/bungalow/BungalowDoor';
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const themeInit = readFileSync(join(FRONTEND, 'public', 'theme-init.js'), 'utf8');
@@ -33,14 +33,24 @@ function literal(name: string): string {
 }
 
 describe('the home hero preload', () => {
-  it('names the image the classic home page actually renders', () => {
-    // No bungalow stored in this environment, so this IS the classic resolution.
+  it('names the image the VENUE arrival actually renders', () => {
+    // The preload fires on `/`, and `/` is the venue door — so the picture it
+    // reserves is the venue's surface, not the shared `home:0` one. Those were
+    // the same image until 2026-09-09 and are deliberately not any more; pinning
+    // the wrong one of the two is exactly the silent drift this file exists for.
     expect(localStorage.getItem('tegridy-bungalow')).toBeNull();
-    expect(literal('HERO_SRC')).toBe(pageArt('home', 0).src);
+    expect(literal('HERO_SRC')).toBe(pageArt('venue-home', 0).src);
   });
 
-  it('names the same default bungalow the registry does', () => {
-    expect(literal('DEFAULT_BUNGALOW_ID')).toBe(DEFAULT_BUNGALOW_ID);
+  it('does NOT name the shared home surface, which /toweli still renders', () => {
+    // The other half, and the one that would catch a well-meaning revert: if
+    // somebody points the venue back at `home:0`, /toweli's backdrop changes with
+    // it and nothing else here would notice.
+    expect(pageArt('venue-home', 0).src).not.toBe(pageArt('home', 0).src);
+  });
+
+  it('names the same venue sentinel the door writes', () => {
+    expect(literal('VENUE_ID')).toBe(VENUE_ID);
   });
 
   it('reads the storage key the registry writes', () => {
@@ -93,7 +103,7 @@ describe('theme-init.js emits the preload only where the hero is rendered', () =
 
   it('preloads the hero at high priority for a first-time visitor on /', () => {
     const link = run('/');
-    expect(link?.getAttribute('href')).toBe(pageArt('home', 0).src);
+    expect(link?.getAttribute('href')).toBe(pageArt('venue-home', 0).src);
     expect(link?.getAttribute('fetchpriority')).toBe('high');
   });
 
@@ -111,8 +121,18 @@ describe('theme-init.js emits the preload only where the hero is rendered', () =
   });
 
   it('still preloads for a visitor who chose the venue itself', () => {
-    localStorage.setItem('tegridy-bungalow', DEFAULT_BUNGALOW_ID);
-    expect(run('/')?.getAttribute('href')).toBe(pageArt('home', 0).src);
+    // 'venue' is that visitor now. This read DEFAULT_BUNGALOW_ID ('toweli'),
+    // which WAS "the venue itself" while the default bungalow and the venue were
+    // the same thing. They are not: /toweli is a room with its own backdrop.
+    localStorage.setItem('tegridy-bungalow', VENUE_ID);
+    expect(run('/')?.getAttribute('href')).toBe(pageArt('venue-home', 0).src);
+  });
+
+  it('preloads nothing for a visitor wearing the TOWELI skin', () => {
+    // Their `/` renders the shared home:0 picture, not the venue's, so reserving
+    // the venue's would be 442 KB of an image they never see.
+    localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(run('/')).toBeNull();
   });
 
   it('preloads nothing when a deep link names another bungalow', () => {
