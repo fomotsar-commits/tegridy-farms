@@ -1,10 +1,12 @@
-// WAVE SEVEN, element O: the commitment line, and the one claim it must never make.
+// WAVE SEVEN, element O: three forms, each true on its own evidence.
 //
-// The island ruled the default "started today". A cache MISS is not a cold
-// wallet, though - it is the venue not having read the buyer - and on the five
-// Solana rooms it misses almost always, because the room's card reads the
-// connected EVM address and never the Solana pubkey. So the miss renders
-// nothing, and the test that says so is the point of this file.
+// Ruling 10 said "started today" unless a warm reading says otherwise, which
+// is a false public sentence for a holder whose reading is merely uncached -
+// and on the five Solana rooms it is almost always uncached. Session nine
+// answered with silence; the island overruled that too, because silence loses
+// the moment on most of O's reach. The third fixture below is the one that
+// matters: no cached reading renders "is running", which claims nothing about
+// when the clock started.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -61,48 +63,57 @@ describe('the commitment line', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('says NOTHING when the venue has not read the buyer', () => {
-    // The ruled default would print "started today" here. The venue does not
-    // know that: it has no reading. A holder of two years would be told their
-    // clock started today, in a sentence built to be posted.
+  it('reads "is running" when the venue has no reading for the buyer', () => {
+    // THE FIXTURE THE ISLAND NAMED. A two-year holder can never be shown
+    // "started today" on the strength of a cache miss, and the venue cannot
+    // fetch here, so the line claims nothing about when the clock began.
     setLastBuy(buy);
     peekHeat.mockReturnValue(null);
-    const { container } = render(<ClockLine />);
-    expect(container).toBeEmptyDOMElement();
+    render(<ClockLine />);
+    expect(screen.getByText('My clock on PEPE is running. Held time counts here.')).toBeTruthy();
+    expect(screen.queryByText(/started today/)).toBeNull();
     expect(peekHeat).toHaveBeenCalledWith(BUYER);
+  });
+
+  it('reads "started today" on a cached COLD reading', () => {
+    setLastBuy(buy);
+    peekHeat.mockReturnValue({ ...reading([]), isCold: true, tokenCount: 0 });
+    render(<ClockLine />);
+    expect(screen.getByText('My clock on PEPE started today. Held time counts here.')).toBeTruthy();
   });
 
   it('reads "keeps running" when the reading already holds this token', () => {
     setLastBuy(buy);
     peekHeat.mockReturnValue(reading([PEPE]));
     render(<ClockLine />);
-    expect(screen.getByText('My clock on PEPE keeps running.')).toBeTruthy();
+    expect(screen.getByText('My clock on PEPE keeps running. Held time counts here.')).toBeTruthy();
   });
 
   it('reads "started today" when the reading holds other tokens but not this one', () => {
     setLastBuy(buy);
     peekHeat.mockReturnValue(reading(['0x279e7cff2dbc93ff1f5cae6cbd072f98d75987ca']));
     render(<ClockLine />);
-    expect(screen.getByText('My clock on PEPE started today.')).toBeTruthy();
+    expect(screen.getByText('My clock on PEPE started today. Held time counts here.')).toBeTruthy();
   });
 
   it('matches the token however the address is cased', () => {
     setLastBuy({ ...buy, tokenAddress: PEPE.toUpperCase().replace('0X', '0x') });
     peekHeat.mockReturnValue(reading([PEPE]));
     render(<ClockLine />);
-    expect(screen.getByText('My clock on PEPE keeps running.')).toBeTruthy();
+    expect(screen.getByText('My clock on PEPE keeps running. Held time counts here.')).toBeTruthy();
   });
 
-  it('opens the composer with the sentence and nothing else, then says Posted.', () => {
+  it('opens the composer with the sentence and the read link, then says Posted.', () => {
     setLastBuy(buy);
     peekHeat.mockReturnValue(reading([PEPE]));
     render(<ClockLine />);
 
     const door = screen.getByRole('link', { name: 'Post' }) as HTMLAnchorElement;
     const text = decodeURIComponent(new URL(door.href).searchParams.get('text') ?? '');
-    expect(text).toBe('My clock on PEPE keeps running.');
-    // The buyer's address is theirs to hand over, and this never does it.
-    expect(door.href).not.toContain(BUYER);
+    // The sentence plus the buyer's own read link, which the island ruled
+    // carries the real number in every form. Nothing else rides along.
+    expect(text).toContain('My clock on PEPE keeps running. Held time counts here.');
+    expect(text).toContain(`/read/${BUYER}`);
     expect(door.target).toBe('_blank');
 
     fireEvent.click(door);

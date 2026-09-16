@@ -9,7 +9,8 @@
 // pure and prop-driven so they test without a wallet; containers wire the reads.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { fetchTapeNames, type TapeNames } from '../../lib/heat/tapeNames';
+import { fetchTapeNames, isNamed, type TapeNames, type TapeRow } from '../../lib/heat/tapeNames';
+import { shortenAddress } from '../../lib/formatting';
 import { m } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { useReadContract, useReadContracts } from 'wagmi';
@@ -62,21 +63,61 @@ export interface CurveGridCardData {
   progressBps: number;
   graduated: boolean;
   /**
-   * WAVE SEVEN, element P: THE PLANTER'S FLAME, as the tape can answer it.
+   * WAVE SEVEN, element P: THE PLANTER'S FLAME, FIVE STATES.
    *
-   * The island ruled five states. The venue's door to a planter's standing is
-   * the named tape, and through it three of those five are ONE observation:
-   * the proxy allowlists x_handle, tier and held_since, drops any row with no
-   * handle, and never sends is_cold. So an unnamed-but-warm planter, a cold
-   * one and an unreachable instrument all arrive here as the same absence,
-   * and null is the only honest thing to render for it: the line is simply
-   * not there. Never a zero, never "unnamed", which is the ruling's own law.
+   * Session nine shipped four, because the tape returned null for anything
+   * without a handle and an unnamed-but-warm planter, a cold one and an
+   * unreachable instrument all arrived as the same absence. Answer nine put
+   * `is_cold` on the row and made an unnamed flame answer WITH a row, so the
+   * five the island ruled are now distinguishable here:
+   *
+   *   named                -> "Planted by @handle - Tier - N days held"
+   *   named, no held_since -> the tier alone
+   *   unnamed and warm     -> "a flame with no name yet", with the door
+   *   cold                 -> "No held time on the island yet", with the address
+   *   no row at all        -> nothing, because a failed read is not a fact
    */
-  planter: { xHandle: string; tier: string; days: number | null } | null;
+  planter: { address: string; row: TapeRow } | null;
 }
 
 export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; chainId: number }) {
   const short = `${card.token.slice(0, 6)}…${card.token.slice(-4)}`;
+  // Element P. Each branch is a different thing the venue knows, and the last
+  // one is the venue knowing nothing: a failed read is not a cold planter.
+  const planterLine = (() => {
+    if (!card.planter) return null;
+    const { address, row } = card.planter;
+    if (isNamed(row)) {
+      return (
+        <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+          Planted by @{row.xHandle}
+          {row.tier ? ` · ${row.tier}` : ''}
+          {row.days !== null ? ` · ${row.days} days held` : ''}
+        </p>
+      );
+    }
+    if (row.isCold) {
+      return (
+        <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+          Planted by {shortenAddress(address)}. No held time on the island yet.
+        </p>
+      );
+    }
+    return (
+      <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
+        Planted by a flame with no name yet.{' '}
+        <a
+          href="https://memetics.wtf/register"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="underline underline-offset-2 hover:text-white/80"
+        >
+          Put yours on it
+        </a>
+      </p>
+    );
+  })();
   const monogram = (card.symbol ?? card.token.slice(2, 5)).slice(0, 3).toUpperCase();
   return (
     <Link
@@ -111,19 +152,12 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
         <p className="text-white/50 text-[11px] font-mono">
           {card.marketCapWei > 0n ? `${fmtEth(card.marketCapWei)} ETH cap` : 'pool-priced'}
         </p>
-        {/* Element P. The middle dot is the separator element N already uses
-            for the same three facts, and it keeps this line out of element
-            I's em-dash budgets entirely. A tier with no day count prints the
-            tier alone: the island named that state, and the tape can answer
-            it, because held_since can be missing from a row that has a
-            handle. */}
-        {card.planter && (
-          <p className="text-white/55 text-[11px] truncate" data-element="p-planter">
-            Planted by @{card.planter.xHandle}
-            {card.planter.tier ? ` · ${card.planter.tier}` : ''}
-            {card.planter.days !== null ? ` · ${card.planter.days} days held` : ''}
-          </p>
-        )}
+        {/* Element P, five states. The middle dot is element N's separator for
+            these same facts, which also keeps this line out of element I's
+            budgets. The cold form names the planter by the venue's own
+            shortener rather than the island's illustration, on answer nine's
+            own principle: house form wins. */}
+        {planterLine}
         {card.graduated ? (
           <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-300/90">GRADUATED 🎓</span>
         ) : (
@@ -353,7 +387,8 @@ export function CurveLaunchesGrid({ launcher, chainId, chainName }: CurveLaunche
     return () => ac.abort();
   }, [creatorKey]);
   const planterFor = useCallback(
-    (creator: Address): CurveGridCardData['planter'] => names[creator] ?? null,
+    (creator: Address): CurveGridCardData['planter'] =>
+      names[creator] ? { address: creator, row: names[creator] } : null,
     [names],
   );
 

@@ -70,7 +70,16 @@ const MAX_BYTES = 64 * 1024;
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-/** The only three fields a tape row may learn about a stranger. */
+/**
+ * The fields a tape row may learn about a stranger.
+ *
+ * STANDING NEVER RIDES WITHOUT THE HANDLE: tier and held_since are here only
+ * because a row that has a handle has opted in at the island's own door.
+ * `is_cold` is different, and the island ruled it across on 09-16 (answer
+ * nine): it is not standing, it is whether the island has ever seen this
+ * wallet hold anything, and element P cannot tell a COLD planter from an
+ * unnamed-but-warm one without it. Those two were the same absence before.
+ */
 const PUBLIC_TAPE_KEYS = ["x_handle", "tier", "held_since_unix"];
 
 function setCors(req, res) {
@@ -96,6 +105,8 @@ function toPublicName(envelope) {
   // which drifts per viewer and would make two people see different days for the
   // same buyer.
   if (typeof envelope.as_of_unix === "number") out.as_of_unix = envelope.as_of_unix;
+  // Answer nine: the cold bit rides for every row, named or not.
+  if (typeof envelope.is_cold === "boolean") out.is_cold = envelope.is_cold;
   return out;
 }
 
@@ -120,10 +131,20 @@ async function readOne(address) {
     if (truncated) return null;
     const parsed = JSON.parse(text);
     const named = toPublicName(parsed);
-    // A flame with no handle is not a name. Returning the tier alone would put a
-    // stranger's standing beside their trade without them ever having asked to
-    // be on the board — the island's naming is opt-in at its own door.
-    if (!named.x_handle) return null;
+    // A flame with no handle is not a name, and its STANDING still never
+    // travels: returning the tier alone would put a stranger's standing beside
+    // their trade without them ever having asked to be on the board, and the
+    // island's naming is opt-in at its own door.
+    //
+    // ANSWER NINE CHANGED WHAT AN UNNAMED FLAME ANSWERS WITH, and only that: a
+    // row carrying the cold bit alone, instead of null. Element P needs to tell
+    // a cold planter ("no held time on the island yet") from an unnamed warm one
+    // ("a flame with no name yet"), and until now both arrived as nothing at
+    // all. A FAILED READ IS STILL null: an outage must not read as a cold
+    // wallet, which is the same law this file was written under.
+    if (!named.x_handle) {
+      return { x_handle: null, is_cold: named.is_cold === true };
+    }
     return named;
   } catch {
     // Timeout, abort, non-JSON, oversized body: all the same answer. The row

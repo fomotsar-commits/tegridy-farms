@@ -95,26 +95,31 @@ describe('CurveGridCardView', () => {
   });
 });
 
-// ── Element P: the planter's flame on the card (answer eight, ruling 11) ──
+// ── Element P: the planter's flame, five states (answer nine) ──────────
 //
-// The island ruled five states. Through the tape - the door the venue actually
-// has - three of them are one observation, because the proxy drops any row
-// without a handle and never sends is_cold. So the states that can be told
-// apart are named, named-without-days, and absent, and the absent one renders
-// NOTHING: never a zero, never "unnamed", which is the ruling's own hard law.
+// Session nine could ship four: the tape returned null for anything without a
+// handle, so an unnamed-but-warm planter, a cold one and an unreachable
+// instrument were one observation. Answer nine put is_cold on the row and made
+// an unnamed flame answer WITH a row, so all five are distinguishable now. The
+// fifth - no row at all - still renders nothing, because a failed read is not a
+// fact about a planter.
 describe('element P: the planter on a launch card', () => {
-  const planted = { xHandle: 'greencifer', tier: 'Builder', days: 214 };
+  const PLANTER = '0x12345678901234567890123456789012345abcd0';
+  const named = { xHandle: 'greencifer', isCold: false, tier: 'Builder', days: 214 };
 
   function line() {
     return document.querySelector('[data-element="p-planter"]');
   }
-
-  it('names the planter, the tier and the days, separated by middle dots', () => {
+  function show(planter: CurveGridCardData['planter']) {
     render(
       <MemoryRouter>
-        <CurveGridCardView card={card({ planter: planted })} chainId={8453} />
+        <CurveGridCardView card={card({ planter })} chainId={8453} />
       </MemoryRouter>,
     );
+  }
+
+  it('names the planter, the tier and the days, separated by middle dots', () => {
+    show({ address: PLANTER, row: named });
     // The middle dot is element N's separator for these same three facts, and
     // it keeps this line outside element I's em-dash budgets entirely.
     expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder \u00b7 214 days held');
@@ -122,41 +127,40 @@ describe('element P: the planter on a launch card', () => {
   });
 
   it('prints the tier alone when the island sent no held-since', () => {
-    render(
-      <MemoryRouter>
-        <CurveGridCardView card={card({ planter: { ...planted, days: null } })} chainId={8453} />
-      </MemoryRouter>,
-    );
+    show({ address: PLANTER, row: { ...named, days: null } });
     expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder');
     // A zero here would read as "planted today", which is a claim.
     expect(line()?.textContent).not.toContain('0 days');
   });
 
-  it('prints the handle alone when the row carries no tier', () => {
-    render(
-      <MemoryRouter>
-        <CurveGridCardView card={card({ planter: { xHandle: 'greencifer', tier: '', days: null } })} chainId={8453} />
-      </MemoryRouter>,
-    );
-    expect(line()?.textContent).toBe('Planted by @greencifer');
+  it('offers the door when the flame is warm but unnamed', () => {
+    show({ address: PLANTER, row: { xHandle: null, isCold: false, tier: '', days: null } });
+    expect(line()?.textContent).toContain('Planted by a flame with no name yet.');
+    const door = screen.getByRole('link', { name: 'Put yours on it' });
+    expect(door).toHaveAttribute('href', 'https://memetics.wtf/register');
+    // No standing beside an unnamed flame: that is the tape's own law, and the
+    // wire does not even carry it.
+    expect(line()?.textContent).not.toContain('Builder');
+    expect(line()?.textContent).not.toContain('days held');
   });
 
-  it('renders NO line at all when the tape cannot name the planter', () => {
-    // Unnamed-but-warm, cold, and an unreachable instrument arrive identically:
-    // as no row. The card says nothing about the planter rather than guessing
-    // which of the three it is.
-    render(
-      <MemoryRouter>
-        <CurveGridCardView card={card({ planter: null })} chainId={8453} />
-      </MemoryRouter>,
-    );
+  it('names a COLD planter by address, and claims no held time', () => {
+    show({ address: PLANTER, row: { xHandle: null, isCold: true, tier: '', days: null } });
+    // shortenAddress is the venue's house form: first six, last four.
+    expect(line()?.textContent).toBe('Planted by 0x1234...bcd0. No held time on the island yet.');
+    // Cold is not unnamed: the two were the same absence until answer nine.
+    expect(line()?.textContent).not.toContain('no name yet');
+  });
+
+  it('renders NO line at all when there is no row for the planter', () => {
+    // A failed read, or an address the island refused. Not a cold planter, and
+    // the card says nothing rather than guessing which.
+    show(null);
     expect(line()).toBeNull();
     expect(screen.queryByText(/Planted by/)).toBeNull();
   });
 
   it('is dark until the first launch, because no card is built at zero', () => {
-    // P ships behind data. The grid constructs no card at a zero count, so the
-    // line cannot render before the venue has a launch to show it on.
     render(
       <MemoryRouter>
         <CurveLaunchesGridView chainName="Base" launchCount={0n} tokens={[]} renderCard={() => null} />

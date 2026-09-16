@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { peekHeat } from '../lib/heat/heatClient';
 import { readLastBuy, markLastBuyPosted } from '../lib/heat/lastBuy';
+import { SITE_URL } from '../lib/constants';
 
 /**
  * WAVE SEVEN, element O: THE COMMITMENT LINE, THE MOMENT AFTER A BUY.
@@ -14,22 +15,24 @@ import { readLastBuy, markLastBuyPosted } from '../lib/heat/lastBuy';
  * everything here: the warm branch may only speak from a reading the venue
  * ALREADY holds, so it peeks at heatClient's cache and never fetches.
  *
- * WHERE THIS DEPARTS FROM THE RULING'S DEFAULT, AND WHY. The island ruled the
- * default "My clock on <SYMBOL> started today", reading "keeps running" only on
- * a warm scoped reading. But a cache MISS is not a cold wallet: it means the
- * venue has not read this buyer. On the five Solana rooms it will almost always
- * miss, because the room's own card reads the connected EVM address and never
- * the Solana pubkey, so the ruled default would print "started today" to a
- * holder of two years' standing - a claim the venue cannot support, in a
- * sentence built to be posted. So:
+ * THREE FORMS, EACH TRUE ON ITS OWN EVIDENCE (answer nine, answer 3).
  *
- *   reading, with a row for this token   -> "keeps running"   (the venue read it)
- *   reading, with no row for this token  -> "started today"   (the venue read it)
- *   no reading at all                    -> nothing renders   (the venue has not read it)
+ * Ruling 10's default was "started today" on anything but a warm reading.
+ * That is a false public sentence for a two-year holder whose reading simply
+ * is not cached - and on the five Solana rooms it is almost never cached,
+ * because the room's card reads the connected EVM address and never the
+ * Solana pubkey. Session nine answered that with silence, which the island
+ * then overruled too: silence loses the commitment moment on most of O's
+ * reach. So the line always speaks, and what it says depends on what the
+ * venue actually knows:
  *
- * The third case is element P's own rule applied here - "instrument
- * unreachable: the line is absent; never a zero" - and the venue's standing
- * one, that an unread value must never read as a fact. Reported to the island.
+ *   cached reading, holding this token   -> "keeps running"
+ *   cached reading, not holding it       -> "started today"
+ *   no cached reading at all             -> "is running"
+ *
+ * The third makes no claim about when the clock started, which is the only
+ * thing the venue cannot know without a read it is forbidden to make here.
+ * The read link carries the real number in every case.
  */
 export function ClockLine() {
   const [postedNow, setPostedNow] = useState(false);
@@ -41,16 +44,22 @@ export function ClockLine() {
   if (!buy) return null;
 
   const reading = peekHeat(buy.buyer);
-  if (!reading) return null;
 
   // The same row rule element D uses (HeatCard's ScopedReading): fold BOTH
   // sides. Folding both is match-safe even for a Solana mint, which is why it
   // differs from the registry finder, where a folded key would be compared
   // against an unfolded canon and quietly name the wrong room.
   const want = buy.tokenAddress.trim().toLowerCase();
-  const held = reading.breakdown.some((r) => r.tokenAddress.trim().toLowerCase() === want);
+  const held = reading
+    ? reading.breakdown.some((r) => r.tokenAddress.trim().toLowerCase() === want)
+    : false;
 
-  const sentence = `My clock on ${buy.symbol} ${held ? 'keeps running' : 'started today'}.`;
+  const clock = !reading ? 'is running' : held ? 'keeps running' : 'started today';
+  const sentence = `My clock on ${buy.symbol} ${clock}. Held time counts here.`;
+  // The number itself lives behind the read link, which unfurls as this
+  // buyer's own card (element M). Posting is the buyer's own click, and the
+  // link is the only thing in the text besides the sentence.
+  const post = `${sentence} ${SITE_URL}/read/${buy.buyer}`;
   const posted = buy.posted || postedNow;
 
   return (
@@ -67,11 +76,13 @@ export function ClockLine() {
           Posted.
         </p>
       ) : (
-        /* The composer only. Nothing is published on the buyer's behalf, and
-           the text is the sentence above and nothing else: no address, no
-           balance, no link the buyer did not ask to hand over. */
+        /* The composer only: nothing is published on the buyer's behalf, and
+           this opens a window they can close. The text is the sentence above
+           plus their own read link, which the island ruled carries the real
+           number in every form - the same door element B opens, and the same
+           trade: the address is posted because the buyer chose to post it. */
         <a
-          href={`https://x.com/intent/post?text=${encodeURIComponent(sentence)}`}
+          href={`https://x.com/intent/post?text=${encodeURIComponent(post)}`}
           target="_blank"
           rel="noopener noreferrer"
           onClick={() => {

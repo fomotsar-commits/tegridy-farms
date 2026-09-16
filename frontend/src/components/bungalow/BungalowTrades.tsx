@@ -1,7 +1,7 @@
 import type { Bungalow } from '../../lib/bungalows';
 import { useEffect, useState } from 'react';
 import { usePoolTrades, type PoolTrade } from '../../hooks/usePoolTrades';
-import { fetchTapeNames, type TapeName, type TapeNames } from '../../lib/heat/tapeNames';
+import { fetchTapeNames, isNamed, type TapeName, type TapeNames } from '../../lib/heat/tapeNames';
 
 /**
  * The bungalow's trade tape — the last fills on its own pool.
@@ -82,9 +82,21 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
               </tr>
             </thead>
             <tbody>
-              {trades.map((t) => (
-                <Row key={t.txHash + t.at} trade={t} network={market.network} name={t.wallet ? names[t.wallet] : undefined} />
-              ))}
+              {trades.map((t) => {
+                // A row can arrive WITHOUT a handle since answer nine (it
+                // carries the cold bit for element P). The tape's law is
+                // unchanged: it never paints one. Bound to a const so the
+                // narrowing is the compiler's job and not a habit.
+                const row = t.wallet ? names[t.wallet] : undefined;
+                return (
+                  <Row
+                    key={t.txHash + t.at}
+                    trade={t}
+                    network={market.network}
+                    name={isNamed(row) ? row : undefined}
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>

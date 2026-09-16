@@ -7,7 +7,7 @@
 // renders the address the row always had — never a blank, never "unnamed".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { fetchTapeNames } from './tapeNames';
+import { fetchTapeNames, isNamed } from './tapeNames';
 // The day counter moved to its one home (answer eight, ruling 11). Element N
 // still spends it, so its cases stay pinned here, beside the rows they shape.
 import { daysHeld as daysBetween } from './daysHeld';
@@ -49,7 +49,7 @@ describe('fetchTapeNames — failure leaves the row', () => {
       [A1]: { x_handle: '_seacasa', tier: 'Elder', held_since_unix: 1_000_000, as_of_unix: 1_000_000 + 400 * 86_400 },
     }));
     const out = await fetchTapeNames([A1, A2]);
-    expect(out[A1]).toEqual({ xHandle: '_seacasa', tier: 'Elder', days: 400 });
+    expect(out[A1]).toEqual({ xHandle: '_seacasa', isCold: false, tier: 'Elder', days: 400 });
     expect(out[A2]).toBeUndefined();
   });
 
@@ -77,18 +77,43 @@ describe('fetchTapeNames — failure leaves the row', () => {
 });
 
 describe('fetchTapeNames — what it refuses to accept from the wire', () => {
-  it('refuses a handle that is not a handle', async () => {
+  it('refuses a handle that is not a handle, and keeps no standing with it', async () => {
     // The handle becomes an href. This is the same validation the instrument
     // applies, applied again at the boundary rather than trusted from upstream.
+    //
+    // Answer nine turned the refusal into an UNNAMED ROW rather than nothing,
+    // so element P can tell a cold planter from an unnamed warm one. The half
+    // that has not moved is the one that matters: no handle, no standing. The
+    // tier and the days on this wire are dropped on the floor.
     vi.stubGlobal('fetch', ok({
       [A1]: { x_handle: 'javascript:alert(1)', tier: 'Elder', held_since_unix: 1, as_of_unix: 2 },
     }));
-    expect(await fetchTapeNames([A1])).toEqual({});
+    const out = await fetchTapeNames([A1]);
+    expect(out[A1]).toEqual({ xHandle: null, isCold: false, tier: '', days: null });
+    expect(isNamed(out[A1])).toBe(false);
   });
 
   it('refuses a tier with no handle, rather than publishing standing nobody claimed', async () => {
     vi.stubGlobal('fetch', ok({ [A1]: { tier: 'Elder', held_since_unix: 1, as_of_unix: 2 } }));
-    expect(await fetchTapeNames([A1])).toEqual({});
+    const out = await fetchTapeNames([A1]);
+    // A row, because P needs one. Standing, never: this is the line the tape
+    // was written to hold and answer nine did not move it.
+    expect(out[A1]).toEqual({ xHandle: null, isCold: false, tier: '', days: null });
+    expect(isNamed(out[A1])).toBe(false);
+  });
+
+  it('carries the cold bit on an unnamed row, which is what it is for', async () => {
+    vi.stubGlobal('fetch', ok({ [A1]: { x_handle: null, is_cold: true } }));
+    const out = await fetchTapeNames([A1]);
+    expect(out[A1]).toEqual({ xHandle: null, isCold: true, tier: '', days: null });
+  });
+
+  it('leaves a wallet the proxy omitted absent, which is not the same as cold', async () => {
+    // A failed read is not a fact about a wallet. Element P renders nothing at
+    // all for this, and a cold row is a read that came back.
+    vi.stubGlobal('fetch', ok({}));
+    const out = await fetchTapeNames([A1]);
+    expect(out[A1]).toBeUndefined();
   });
 
   it('strips a leading @ so one form reaches the render', async () => {
