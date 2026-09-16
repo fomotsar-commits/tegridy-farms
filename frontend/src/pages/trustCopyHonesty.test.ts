@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SITE_URL, GITHUB_BRANCH, GITHUB_BLOB_BASE, SOCIAL_LINKS } from '../lib/constants';
 import { farmCardStat, farmCardDesc } from '../lib/lpEmissions';
-import { FAQ_DATA } from './FAQPage';
+import { venueFaq, TOWELI_FAQ_DATA } from '../lib/faqData';
 
 const read = (...parts: string[]) => readFileSync(join(process.cwd(), ...parts), 'utf8');
 
@@ -181,12 +181,12 @@ describe('public/.well-known/security.txt', () => {
 
 // ── The FAQ's opening answer agrees with its own network answer ─────────────
 describe('the FAQ opener', () => {
-  const all = FAQ_DATA.flatMap((s) => s.items);
+  const all = venueFaq(80).flatMap((s) => s.items);
   const opener = all[0]!;
   const network = all.find((i) => /what network/i.test(i.q))!;
 
   it('is the answer the schema.org payload leads with', () => {
-    // The first item of FAQ_DATA is the first `mainEntity` of the emitted
+    // The first item of venueFaq() is the first `mainEntity` of the emitted
     // FAQPage JSON-LD, so it is the sentence a search engine quotes.
     expect(opener.q).toMatch(/what is memetics\.finance/i);
   });
@@ -210,10 +210,14 @@ describe('the FAQ opener', () => {
     }
   });
 
-  it('keeps the TOWELI-staking detail as an Ethereum-specific claim', () => {
-    // Do not let the multi-chain framing rot into "multichain staking":
-    // TOWELI staking really is Ethereum-only.
-    expect(opener.a).toMatch(/On Ethereum you stake TOWELI/);
+  it('speaks as the venue, and the TOWELI detail lives in the TOWELI room', () => {
+    // Answer seven, ruling 2. This test used to REQUIRE "On Ethereum you stake
+    // TOWELI" in the venue's opener, the exact thing the ruling removes. The
+    // staking answer moved word for word into the room's own list, and it
+    // still says what staking takes.
+    for (const item of all) expect(`${item.q} ${item.a}`).not.toMatch(/TOWELI|Tegridy/i);
+    const room = TOWELI_FAQ_DATA.flatMap((s) => s.items).map((i) => i.a).join(' ');
+    expect(room).toMatch(/Deposit TOWELI tokens into the staking contract/);
   });
 });
 

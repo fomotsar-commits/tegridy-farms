@@ -200,46 +200,17 @@ export const TopNav = React.memo(function TopNav() {
               this row, re-run the sweep rather than a local 360px check: 360
               passed locally on the broken version too. */}
           <div className="flex items-center gap-0.5 min-[400px]:gap-1 min-[480px]:gap-2">
-            {/* F314: the replay easter egg is a distinct 28px button sitting to
-                the LEFT of the home logo link (separate targets, gap-2 apart, so
-                an off-logo click can't trigger a ~15s replay). A hover play-icon
-                overlay makes its purpose legible without altering the art. */}
-            <button
-              onClick={() => {
-                sessionStorage.removeItem('tegridy_loaded');
-                sessionStorage.removeItem('tf_loaded');
-                window.location.href = '/';
-              }}
-              className="group relative w-11 h-11 md:w-7 md:h-7 rounded-md overflow-hidden flex-shrink-0 cursor-pointer hover:scale-110 transition-transform"
-              style={{ border: '1px solid var(--color-purple-25)' }}
-              title="Replay splash screen (full reload)"
-              aria-label="Replay splash screen (full reload)"
-            >
-              {/* The nav logo is a 512x512 PNG rendered at 28px (desktop) / 44px
-                  (mobile), so it is the single clearest case for a small
-                  candidate. `sizes` is spelled out because this image is EAGER
-                  by design -- it is above the fold on every route -- and
-                  `sizes="auto"` is only valid on a lazy image. Omit it and the
-                  browser falls back to the 100vw default, picks the full-size
-                  original, and the srcset saves nothing at all.
+            {/* WAVE SEVEN, element A: the F314 replay easter egg is RETIRED, on the
+                island's ruling — "one door for the film". The arrival now has exactly
+                one way to watch it deliberately: "Watch the arrival" in the Island
+                lobby, which plays the whole four-piece film with its hold, crack and
+                shatter. Two doors to the same room is the thing this wave removes.
 
-                  This was lost once already: a nav refactor replaced this
-                  element with a bare <img> and nothing failed, because a missing
-                  optimisation is invisible. TopNav.navLogo.test.tsx now pins it. */}
-              <img
-                src={pageArt('nav-logo', 0).src}
-                {...artImgProps(pageArt('nav-logo', 0).src, 'eager', '(min-width: 768px) 28px, 44px')}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-              <span
-                aria-hidden="true"
-                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
-                style={{ background: 'rgba(0,0,0,0.45)' }}
-              >
-                <span className="text-white text-[11px] leading-none">&#9658;</span>
-              </span>
-            </button>
+                THE LOGO WAS INSIDE THAT BUTTON, and it does not leave with it. The
+                mark is re-homed here, into the way-back Link, before the button was
+                cut — deleting the button as written would have taken the venue's
+                identity off the bar, which is an art removal and never allowed
+                without a home to move to. */}
             {/* THE WAY BACK (owner, 2026-08-31), now handled at the destination
                 (2026-09-04). This used to carry a hand-rolled onClick that
                 persisted the 'venue' sentinel and hard-assigned '/', because a
@@ -257,9 +228,32 @@ export const TopNav = React.memo(function TopNav() {
                 the rule instead of two that can drift apart. */}
             <Link
               to="/"
-              className="flex items-center gap-1"
+              className="flex items-center gap-1.5 min-[480px]:gap-2"
               title="Back to memetics.finance"
             >
+              {/* The nav logo is a 512x512 PNG rendered at 28px (desktop) / 44px
+                  (mobile), so it is the single clearest case for a small
+                  candidate. `sizes` is spelled out because this image is EAGER
+                  by design -- it is above the fold on every route -- and
+                  `sizes="auto"` is only valid on a lazy image. Omit it and the
+                  browser falls back to the 100vw default, picks the full-size
+                  original, and the srcset saves nothing at all.
+
+                  This was lost once already: a nav refactor replaced this
+                  element with a bare <img> and nothing failed, because a missing
+                  optimisation is invisible. TopNav.navLogo.test.tsx pins it, and
+                  now pins it here rather than inside the retired replay button. */}
+              <span
+                className="block w-11 h-11 md:w-7 md:h-7 rounded-md overflow-hidden flex-shrink-0"
+                style={{ border: '1px solid var(--color-purple-25)' }}
+              >
+                <img
+                  src={pageArt('nav-logo', 0).src}
+                  {...artImgProps(pageArt('nav-logo', 0).src, 'eager', '(min-width: 768px) 28px, 44px')}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </span>
               {/* ARRIVAL IDENTITY 2026-08-27: the wordmark follows the arrival
                   voice. The venue speaks as itself by default; the classic
                   TEGRIDY FARMS mark lives inside the TOWELI bungalow. */}

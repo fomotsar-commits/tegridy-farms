@@ -42,9 +42,12 @@ export interface BungalowIdentity {
   /** Quote pill under the CTAs (replaces the Towelie ticker). */
   museLine: string;
   museBy: string;
-  /** MuseBubble rotation pool (canon lines). Absent -> [museLine]. */
+  /** Rotation pool of canon lines. Absent -> [museLine]. Island canon: retained
+   *  in the registry, but no venue surface paints it since wave seven element E
+   *  retired the floating muse bubble. The hero pill paints museLine/museBy. */
   museLines?: readonly string[];
-  /** MuseBubble byline persona (e.g. 'the muse'). Absent -> museBy. */
+  /** Byline persona (e.g. 'the muse'). Absent -> museBy. Island canon, kept
+   *  and pinned by bungalows.test.ts; unpainted since element E. */
   museVoice?: string;
   /**
    * The resident's story card on the home page (rendered only in its own
@@ -92,13 +95,74 @@ export interface Bungalow {
    */
   stakePool?: string;
   /**
-   * Which staking program `stakePool` is. Solana pools are always Streamflow.
-   * EVM pools come in two shapes and the card must follow the CONTRACT, never
-   * a guess: 'plain' = the vendored no-lock Synthetix staker (the first 2026
-   * -08-30 round), 'ladder' = LighthouseLadder, the locked 0d..4y / 1.00x..
-   * 4.00x build with the always-open emergency hatch. Absent = 'plain'.
+   * Which staking program `stakePool` is. EVM ONLY, and deliberately so.
+   *
+   * EVM pools come in two shapes and the card must follow the CONTRACT, never a
+   * guess: 'plain' = the vendored no-lock Synthetix staker (the first 2026-08-30
+   * round), 'ladder' = LighthouseLadder, the locked build with the always-open
+   * emergency hatch. Absent = 'plain'.
+   *
+   * ⚠️ THE LADDER'S FLOOR IS 0.40x AT SEVEN DAYS, not 1.00x at zero. This docstring
+   * said "0d..4y / 1.00x..4.00x" until 2026-09-10; LighthouseLadder.sol:98,
+   * lighthouseLadder.ts:45-48 and the card's own visible copy all say otherwise, and
+   * a 1.00x floor overstates the worst case by two and a half times.
+   *
+   * ⚠️ AND IT SAID "Solana pools are always Streamflow", WHICH IS NO LONGER TRUE.
+   * A Solana pool now names its program by which FIELD carries its address:
+   * `stakePool` is Streamflow, `ladderPool` is bayla-ladder (below). It is not
+   * `poolKind`, because `scripts/verify-ladder-builds.mjs` reads this field to decide
+   * which pools it must verify on chain and requires a 0x-40-hex address beside it —
+   * a Solana row would be dropped by that parser with no output and no failure, and a
+   * gate that silently covers nothing is worse than one that does not exist.
    */
   poolKind?: 'plain' | 'ladder';
+  /**
+   * `bayla-ladder` pool address — the venue's OWN Solana staking program, the port
+   * of LighthouseLadder.sol.
+   *
+   * ── IT SITS BESIDE `stakePool`, IT DOES NOT REPLACE IT ────────────────────
+   * The lighthouse (Streamflow) pool holds real stakers with real locks, and one of
+   * those locks does not open until 2027. Repointing `stakePool` at a ladder address
+   * would hand a 508-byte bayla-ladder account to the Streamflow SDK and render those
+   * positions as an outage — money that exists, shown as unreadable. So a bungalow
+   * may carry both, and the farm panel renders both cards while a migration is in
+   * flight.
+   *
+   * ── ABSENT BY DEFAULT, AND THAT IS THE FEATURE GATE ───────────────────────
+   * Deliberately the OPPOSITE shape to `stakePool` above, which ships a hardcoded
+   * address that WINS whenever its env var is blank. There is no mainnet bayla-ladder
+   * deployment, so a hardcoded id here would be a live-looking address on a cluster
+   * the app does not talk to. Set BOTH VITE_BAYLA_LADDER_POOL and
+   * VITE_BAYLA_LADDER_PROGRAM, or the card never mounts.
+   */
+  ladderPool?: string;
+
+  /**
+   * CLOSED TO NEW DEPOSITS. The venue stops offering this pool to newcomers
+   * while everyone already in it keeps every control they had.
+   *
+   * WHY IT EXISTS (2026-09-12). BAYLA's Streamflow pool is being retired in
+   * favour of our own `bayla-ladder` program, but its stakers are locked for up
+   * to a year and Streamflow has no migration between pools — `migrate_entry`
+   * only moves between two STREAM pools. So the old pool has to keep running
+   * until the last lock opens, while no new person is added to something we are
+   * walking away from. Closing deposits is what makes those two facts coexist.
+   *
+   * THIS IS A UI GATE, NOT AN ON-CHAIN ONE, and the copy has to say so. The
+   * stake program has no `update_pool` at all — `min_duration`, `max_duration`
+   * and `max_weight` are create-only — so the pool will still accept a stake
+   * from anyone who builds the instruction themselves. The venue simply stops
+   * offering it; nothing claims the chain changed.
+   *
+   * WHAT IT MUST NOT TOUCH: claim, unstake, and the principal rescue. A closed
+   * door is for people arriving, never for people leaving — gating an exit on
+   * this flag would trap the very cohort it exists to protect.
+   *
+   * Absent by default, the same shape as `ladderPool` above: a pool is open
+   * unless this repo says otherwise, so no other resident is affected by a
+   * decision made about BAYLA.
+   */
+  depositsClosed?: true;
   /**
    * Token decimals as a PRE-READ fallback for staking/balance surfaces —
    * the live pool read still wins (it reads the mint on-chain); this field
@@ -189,6 +253,24 @@ const BAYLA_STAKE_POOL =
   || 'EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f';
 
 /**
+ * The bayla-ladder pool, if an operator has deployed one and pointed at it.
+ *
+ * ⚠️ NO FALLBACK, ON PURPOSE. Every other address in this file ships hardcoded so no
+ * env var is load-bearing. This one must not: there is no mainnet bayla-ladder
+ * deployment yet, and the only pool that exists is on devnet — a cluster this app
+ * never talks to (the browser's sole Solana transport is /api/solrpc, whose upstream
+ * is mainnet). A hardcoded devnet address would render a live-looking card over
+ * accounts that do not exist where the app is looking.
+ *
+ * The program id comes from VITE_BAYLA_LADDER_PROGRAM, read in lib/ladder/program.ts.
+ * BOTH must be set. Note the near-miss with the operator CLI's own environment: that
+ * tool reads BAYLA_LADDER_PROGRAM (no VITE_ prefix) and defaults to devnet, so a
+ * shell that has done the devnet ceremony is NOT configured for this.
+ */
+const BAYLA_LADDER_POOL =
+  (import.meta.env?.VITE_BAYLA_LADDER_POOL as string | undefined)?.trim() || '';
+
+/**
  * Identity for a settled resident wearing the PLACEHOLDER skin (owner call,
  * 2026-08-30: "put something on so at least they are functional; we will
  * custom art them later"). Honest by construction — registry facts only, no
@@ -267,6 +349,10 @@ export const BUNGALOWS: Bungalow[] = [
     thumb: '/art/bayla/bayla-14.jpg',
     artPool: BAYLA_ART,
     stakePool: BAYLA_STAKE_POOL,
+    ladderPool: BAYLA_LADDER_POOL || undefined,
+    // Retiring in favour of `bayla-ladder`. Existing positions keep claiming,
+    // unstaking and rescuing exactly as before; only the stake form goes.
+    depositsClosed: true,
     // 6 per the mint itself — verified 2026-08-28 against mainnet
     // (getAccountInfo jsonParsed): owner Token-2022, decimals 6, extensions
     // [metadataPointer, tokenMetadata] only — NO transfer-fee extension, so
@@ -337,7 +423,7 @@ export const BUNGALOWS: Bungalow[] = [
   // in docs/ISLAND_ROSTER_DOSSIER.md — JBM and RIZZ had no indexed pairs
   // that day, so their swapUrl stays the canon fallback page regardless.
   { id: 'pepe', name: 'Pepe', symbol: 'PEPE', chain: 'ethereum', address: '0x6982508145454ce325ddbe47a25d4ec3d2311933', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#5f9e6e', swapUrl: 'https://dexscreener.com/ethereum/0x6982508145454ce325ddbe47a25d4ec3d2311933', thumbPosition: '50% 22%', thumb: '/art/mumu-bull.jpg', community: { label: 'pepe.vip', url: 'https://pepe.vip' }, market: { network: 'eth', pool: '0xa43fe16908251ee70ef74718545e4fe6c5ccec9f', label: 'PEPE / WETH · Uniswap' }, stakePool: '0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D', poolKind: 'ladder', artPool: bungalowArtFor('pepe', 'Pepe'), live: true, identity: settledIdentity('PEPE', 'PEPE', 'Ethereum') },
-  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', swapUrl: 'https://dexscreener.com/base/0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', thumbPosition: '50% 30%', thumb: '/art/gallery-collage.jpg', community: { label: 'qrcoin.fun', url: 'https://qrcoin.fun' }, market: { network: 'base', pool: '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0', label: 'QR / WETH' }, stakePool: '0x55B72f09d31f43834bf7Eba42f53a419a716F554', poolKind: 'ladder', live: true, identity: settledIdentity('QR', 'QR', 'Base', 'qrcoin.fun') },
+  { id: 'qr', name: 'QR', symbol: 'QR', chain: 'base', address: '0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#8f8f8f', swapUrl: 'https://dexscreener.com/base/0x2b5050f01d64fbb3e4ac44dc07f0732bfb5ecadf', thumbPosition: '50% 30%', thumb: '/art/gallery-collage.jpg', community: { label: 'qrcoin.fun', url: 'https://qrcoin.fun' }, market: { network: 'base', pool: '0xf02c421e15abdf2008bb6577336b0f3d7aec98f0', label: 'QR / WETH' }, stakePool: '0x55B72f09d31f43834bf7Eba42f53a419a716F554', poolKind: 'ladder', artPool: bungalowArtFor('qr', 'QR'), live: true, identity: settledIdentity('QR', 'QR', 'Base', 'qrcoin.fun') },
   { id: 'mfer', name: 'MFER', symbol: 'MFER', chain: 'base', address: '0xe3086852a4b125803c815a158249ae468a3254ca', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#b8b8b8', swapUrl: 'https://dexscreener.com/base/0xe3086852a4b125803c815a158249ae468a3254ca', thumbPosition: '50% 26%', thumb: '/art/mfers-heaven.jpg', market: { network: 'base', pool: '0xb08a99ab559e5456907278727a3b0d968c0a313b', label: '$MFER / WETH' }, stakePool: '0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6', poolKind: 'ladder', artPool: bungalowArtFor('mfer', 'MFER'), live: true, identity: settledIdentity('MFER', 'MFER', 'Base') },
   { id: 'bnkr', name: 'BNKR', symbol: 'BNKR', chain: 'base', address: '0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#4ac9a8', swapUrl: 'https://dexscreener.com/base/0x22af33fe49fd1fa80c7149773dde5890d3c76f3b', thumbPosition: '50% 18%', thumb: '/art/wrestler.jpg', community: { label: 'bankr.bot', url: 'https://bankr.bot' }, market: { network: 'base', pool: '0xaec085e5a5ce8d96a7bdd3eb3a62445d4f6ce703', label: 'BNKR / WETH' }, stakePool: '0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf', poolKind: 'ladder', artPool: bungalowArtFor('bnkr', 'BNKR'), live: true, identity: settledIdentity('BNKR', 'BNKR', 'Base') },
   { id: 'drb', name: 'DRB', symbol: 'DRB', chain: 'base', address: '0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', status: 'SETTLED', tagline: 'Built brick by brick by its people.', accent: '#d4b168', swapUrl: 'https://dexscreener.com/base/0x3ec2156d4c0a9cbdab4a016633b7bcf6a8d68ea2', thumbPosition: '50% 28%', thumb: '/art/boxing-ring.jpg', community: { label: 'drb task force', url: 'https://bio.site/drbtaskforce' }, market: { network: 'base', pool: '0x5116773e18a9c7bb03ebb961b38678e45e238923', label: 'DRB / WETH' }, stakePool: '0x0aCB93fcFD5b1950D94064998017a2601b36D7bB', poolKind: 'ladder', artPool: bungalowArtFor('drb', 'DRB'), live: true, identity: settledIdentity('DRB', 'DRB', 'Base', 'drb task force') },
@@ -368,8 +454,21 @@ export const BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
 export const OPEN_BUNGALOWS_EVENT = 'tegridy:open-bungalows';
 
 /**
+ * Ask for a bungalow's three-step welcome (wave seven, element E).
+ *
+ * The welcome used to open ITSELF on the first visit to every room. Nothing
+ * opens over the page unasked any more, so the copy is not deleted — it moves
+ * behind the room's own "About this bungalow" link and comes when invited.
+ * Same shape as the venue's OPEN_VENUE_WELCOME_EVENT, deliberately: one
+ * mechanism for "a modal exists only behind a tap", not two that can drift.
+ */
+export const OPEN_BUNGALOW_ABOUT_EVENT = 'tegridy:open-bungalow-about';
+
+/**
  * Surfaces that keep classic art in EVERY bungalow:
- *  - nav-logo: the TopNav replay button — a button, not a background.
+ *  - nav-logo: the TopNav mark on the way-back link — the venue's identity, not
+ *              a room's background. (It sat inside the splash-replay button until
+ *              wave seven element A retired that button and re-homed the mark.)
  *  - loader:   the intro splash. The island intro is shared; the bungalow
  *              choice comes AFTER it (and its slide titles are hardcoded to
  *              the classic pieces).

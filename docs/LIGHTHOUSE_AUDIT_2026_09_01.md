@@ -114,6 +114,14 @@ EVM funding script.
   `poolKind: 'ladder'` entry. Exit 1 unless all of them run the audited fixed build.
   An unreadable pool FAILS — an RPC outage must never certify a vulnerable registry.
 
+  ⚠️ **EVM ONLY, and that is load-bearing.** The parser requires a 0x-40-hex `stakePool`
+  beside the `poolKind` (`verify-ladder-builds.mjs:112-119`), so a non-EVM row would be
+  DROPPED with no output and no failure — a gate silently certifying nothing. This is
+  why the Solana bayla-ladder pool is named by its own `ladderPool` field rather than by
+  reusing `poolKind: 'ladder'`, and why that field's docstring says so. A Solana ladder
+  pool is verified on chain by `frontend/scripts/verify-addresses.mjs --onchain`
+  instead, once its address is registered.
+
 **Measured 2026-09-05:** all six still `6098` bytes, `MIN_STAKE()` reverting, and all six
 still `totalSupply/rewardRate/periodFinish == 0`. The redeploy is therefore still a
 REPLACEMENT, not a migration — that window closes the moment anyone stakes.

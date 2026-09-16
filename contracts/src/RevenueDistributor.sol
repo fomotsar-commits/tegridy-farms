@@ -322,6 +322,9 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
     // PowerExceedsTotalLocked (the absolute upper bound) so off-chain monitors
     // can flag near-cap proposals without conflating with arithmetic errors.
     error RecoveryPowerExceedsCap();
+    /// @dev AUDIT FIX [T17-EOA-TYPE-FILTER]: same selector name and shape as the sibling
+    ///      declarations on TegridyStaking / TegridyLending / MemeBountyBoard.
+    error NotAContract();
     /// @notice AUDIT REV-M-03 (CLEANUP): recovery-specific replacements for the
     ///         TimelockAdmin `ProposalNotReady(bytes32)` / `ProposalExpired(bytes32)`
     ///         errors that the recovery path used to piggyback on. Recoveries live
@@ -713,17 +716,50 @@ contract RevenueDistributor is OwnableNoRenounce, ReentrancyGuard, Pausable, Tim
         emit TreasuryChangeCancelled(cancelled);
     }
 
+    /// @dev AUDIT FIX [T17-EOA-TYPE-FILTER]: the canonical EOA / EIP-7702 type filter, body
+    ///      copied verbatim from `MemeBountyBoard.setRestakingContract` (MBB-WIRE-01) via the
+    ///      `TegridyStaking._requireContract` (:664) extraction. Length-23 is the `0xef0100`
+    ///      + 20-byte delegation pointer an EIP-7702 EOA carries.
+    ///
+    ///      `restakingContract` is read through `ITegridyRestaking` high-level calls; a
+    ///      high-level call to a CODELESS address reverts in THIS contract's frame rather
+    ///      than returning, so an EOA in this slot is a permanent brick of every path that
+    ///      touches it — the same consequence recorded for ReferralSplitter in
+    ///      test/Audit_AdminRotationEOA_2026_09_05.t.sol.
+    ///
+    ///      Type-filter ONLY, NOT a capability check.
+    function _requireContract(address a) private view {
+        uint256 codeLen = a.code.length;
+        if (codeLen == 0 || codeLen == 23) revert NotAContract();
+    }
+
     /// @notice Propose a restaking contract change (48h timelock).
+    /// @dev    AUDIT FIX [T17-EOA-TYPE-FILTER]: propose-time half — fail fast so a doomed
+    ///         proposal does not burn the 48h wait. UNCONDITIONAL: unlike the accepted-
+    ///         collateral registry there is no add/remove flag here, and clearing the slot is
+    ///         done by `cancelRestakingChange`, which this check does not touch.
     function proposeRestakingChange(address _restaking) external onlyOwner {
         require(_restaking != address(0), "ZERO_ADDRESS");
+        _requireContract(_restaking);
         pendingRestaking = _restaking;
         _propose(RESTAKING_CHANGE, RESTAKING_CHANGE_DELAY);
         emit RestakingChangeProposed(_restaking, _executeAfter[RESTAKING_CHANGE]);
     }
 
     /// @notice Execute a previously proposed restaking contract change after the timelock.
+    /// @dev    AUDIT FIX [T17-EOA-TYPE-FILTER]: execute-time recheck — an EIP-7702 delegation
+    ///         can be REVOKED inside the 48h propose/execute window, so propose-time alone is
+    ///         not sufficient.
+    ///
+    ///         ORDERING IS LOAD-BEARING: this check MUST stay BELOW `_execute(...)`. Hoisting
+    ///         it above would read `pendingRestaking` while the slot is still zero on the
+    ///         no-proposal path and revert `NotAContract()` where callers — and
+    ///         test/Audit195_Revenue.t.sol::test_restaking_cancel — require the typed
+    ///         `TimelockAdmin.NoPendingProposal(RESTAKING_CHANGE)`. Pinned by
+    ///         `test_cancelThenExecute_stillReportsNoPendingProposal_notNotAContract`.
     function executeRestakingChange() external onlyOwner {
         _execute(RESTAKING_CHANGE);
+        _requireContract(pendingRestaking);
         restakingContract = ITegridyRestaking(pendingRestaking);
         emit RestakingContractUpdated(pendingRestaking);
         pendingRestaking = address(0);
