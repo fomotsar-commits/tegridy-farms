@@ -224,8 +224,20 @@ test.describe('the audit panel', () => {
     await toggle.click();
 
     // The prior row, with ITS OWN inputs — not today's.
+    //
+    // SCOPED TO THE PRIOR ROW'S OWN FIELD LIST, and it has to be. A bare
+    // exact-text '250°' inside the door now resolves to two nodes, because
+    // element B's ladder renders in this same region and its top rung is 250°;
+    // and 'Floor at the time' appears twice, because the panel lists TODAY's
+    // decision beside the prior one - the live row's floor is 80°. Anchoring on
+    // the prior row's own degrees and walking up to its <dl> asks the only
+    // question this test is for: does history still carry the floor it was
+    // taken on, rather than today's substituted into it.
+    const priorRow = door.getByText('41.20°', { exact: true }).locator('xpath=ancestor::dl[1]');
     await expect(door.getByText('41.20°', { exact: true })).toBeVisible();
-    await expect(door.getByText('250°', { exact: true })).toBeVisible();
+    await expect(
+      priorRow.getByText('Floor at the time', { exact: true }).locator('xpath=following-sibling::dd[1]'),
+    ).toHaveText('250°');
     await expect(door.getByText(/41\.20° measured against a 250° floor — short by 208\.80°/)).toBeVisible();
     // A moved floor is disclosed as a present-tense fact, never substituted into history.
     await expect(door.getByText(/The floor is 80° today\. This decision was taken against 250°/)).toBeVisible();

@@ -28,6 +28,8 @@ import {
 import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
+import { heatExampleLine } from '../lib/arrival';
+import { hasInjectedWallet, readInjectedAddress } from '../lib/heat/walletFill';
 import { SITE_URL } from '../lib/constants';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -182,6 +184,12 @@ export function HeatCard({
   const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
+  // WALLET FILL (element B). `canFill` is read once per mount rather than on
+  // every render: an extension that injects late is caught by the next mount,
+  // and a button that appears mid-interaction under the visitor's finger is
+  // worse than one that arrives a navigation later.
+  const [canFill] = useState(() => hasInjectedWallet());
+  const [fillFailed, setFillFailed] = useState(false);
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -303,6 +311,33 @@ export function HeatCard({
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
           </button>
+          {/* THE WALLET FILL (element B). Shown only when something in the
+              browser can answer, so a visitor without a wallet is never offered
+              a button that cannot work. type="button": it must not submit the
+              form, and it never reads the chain or asks for a signature -
+              lib/heat/walletFill.ts says exactly what it does ask for. */}
+          {canFill && (
+            <button
+              type="button"
+              onClick={() => {
+                setFillFailed(false);
+                void readInjectedAddress().then((addr) => {
+                  if (addr) setDraft(addr);
+                  else setFillFailed(true);
+                });
+              }}
+              className="px-3 py-2 rounded-lg text-[12px] text-white/80 hover:text-white transition-colors"
+              style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
+            >
+              Use my wallet
+            </button>
+          )}
+          {/* One sentence, and nothing else: no error code, no retry, no reason.
+              A locked wallet, a declined prompt and an untrusted origin are the
+              same thing to the visitor - the field still takes a paste. */}
+          {fillFailed && (
+            <p className="w-full text-[12px] text-white/60">Paste the address instead.</p>
+          )}
         </form>
       )}
 
@@ -549,20 +584,12 @@ function Reading({
           what a wallet is told here and what happens at submit cannot drift. */}
       {showEligibility && <Eligibility reading={reading} now={now} />}
 
-      {next && !reading.isCold && (
-        <div className="mb-4">
-          <div className="flex justify-between text-[11px] text-white/50 mb-1">
-            <span>Toward {next.tier}</span>
-            <span>{next.remaining.toFixed(2)}° to go</span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.10)' }}>
-            <div
-              className="h-full rounded-full transition-[width] duration-700"
-              style={{ width: `${Math.min(100, (reading.degrees / next.floor) * 100)}%`, background: color }}
-            />
-          </div>
-        </div>
-      )}
+      {/* THE LADDER (element B). It replaces the single "Toward <tier>" bar that
+          stood here: the bar showed one rung and the ladder shows all five, and
+          carries the same arithmetic under the next one. Two surfaces for one
+          fact is how they drift. Suppressed on a cold read, with the delta and
+          the share, by the island's own rule: nothing to feel behind. */}
+      {!reading.isCold && <TierLadder degrees={reading.degrees} next={next} />}
 
       {/* THE NAME, OR THE DOOR. A number nobody can see is a private fact; a number
           with a name on it is a place in public. `xHandle` arrives already stripped and
@@ -801,6 +828,72 @@ function ScopedReading({
       <p className="text-white/60 text-[12px]">
         your whole flame reads {reading.degrees.toFixed(2)}&deg; {reading.tier}
       </p>
+    </div>
+  );
+}
+
+/**
+ * WAVE SEVEN, element B: THE LADDER, FIVE RUNGS, FROM THE ISLAND'S OWN DIALS.
+ *
+ * Drifter 0 - Observer 30 - Resident 80 - Builder 150 - Elder 250, read from
+ * TIER_FLOORS rather than typed, so a dial the island moves moves this. FIVE
+ * rungs, not the four the explainer fold shows: that one drops Drifter because
+ * 0 is not a threshold to aim at, but a ladder is where you are STANDING, and a
+ * warm wallet below 30 stands on Drifter. Hiding the rung under someone's feet
+ * is how a ladder starts lying about where they are.
+ *
+ * REACHED RUNGS ARE LIT, and under the next one, one line of arithmetic on two
+ * served numbers: the rung's floor minus the degrees the island served. No
+ * projection, no date, no rate - the instrument never computes a degree.
+ *
+ * THE RESIDENT RUNG CARRIES ITS OWN SENTENCE, and the number in it is READ at
+ * render time from heatLaunchFloor(), the same helper the launch gate enforces
+ * with. Typing 80 would make this line disagree with the gate the day an
+ * operator sets VITE_HEAT_LAUNCH_FLOOR.
+ *
+ * FOR THE ISLAND, ONE DRIFT NAMED: the rung's floor (TIER_FLOORS.Resident) and
+ * the launch floor (heatLaunchFloor) are TWO dials that happen to agree at 80.
+ * Set only the second and this ladder prints "Resident 80" with "At 123 degrees
+ * you reach Resident" under it. Both numbers are read, neither is invented, and
+ * the contradiction is real - which dial is canonical is the island's to say.
+ */
+function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeof nextTier> }) {
+  const launchFloor = heatLaunchFloor();
+  // TIER_FLOORS is published high-to-low; a ladder is climbed low-to-high.
+  const rungs = [...TIER_FLOORS].reverse();
+  return (
+    <div className="mb-4" data-element="b-ladder">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The ladder</div>
+      <ul className="space-y-1.5">
+        {rungs.map((rung) => {
+          const reached = degrees >= rung.floor;
+          const isNext = next !== null && next.tier === rung.tier;
+          const dim = reached ? undefined : 'rgba(255,255,255,0.35)';
+          return (
+            <li key={rung.tier}>
+              <div className="flex items-baseline gap-2 text-[12px]">
+                <span className="w-[68px] shrink-0" style={{ color: reached ? TIER_COLOR[rung.tier] : dim }}>
+                  {rung.tier}
+                </span>
+                <span className="w-[46px] shrink-0 stat-value" style={{ color: dim }}>{rung.floor}&deg;</span>
+                {reached && (
+                  <span className="text-[10px]" style={{ color: TIER_COLOR[rung.tier] }}>&#10003; reached</span>
+                )}
+              </div>
+              {isNext && (
+                <p className="text-[11.5px] text-white/65 mt-0.5 ml-[76px]">
+                  {(rung.floor - degrees).toFixed(2)}&deg; to {rung.tier}
+                </p>
+              )}
+              {rung.tier === 'Resident' && (
+                <p className="text-[11.5px] mt-0.5 ml-[76px]" style={{ color: 'var(--color-kyle)' }}>
+                  {heatExampleLine(launchFloor)}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

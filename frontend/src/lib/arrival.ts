@@ -61,6 +61,24 @@ export function isToweliVoice(): boolean {
 /* one source and a rewrite cannot fork the voice.                     */
 /* ------------------------------------------------------------------ */
 
+/**
+ * WAVE SEVEN, element B: THE WORKED EXAMPLE, WITH THE FLOOR READ AND NOT TYPED.
+ *
+ * This was a constant reading "At 80 degrees you reach Resident". 80 is the
+ * default launch floor, not a fact about the sentence: heatLaunchFloor() takes
+ * VITE_HEAT_LAUNCH_FLOOR, and the moment an operator sets it the venue was
+ * telling a stranger a threshold it does not itself apply - while the launch
+ * gate, reading the same helper, enforced another. The island named exactly
+ * this mutation: set the floor to 123 and the line must say 123.
+ *
+ * THE CALLER PASSES THE FLOOR rather than this file reading the env, so the
+ * sentence stays a pure function of a number and the one place that decides
+ * what the floor IS stays lib/heat/heatGateConfig.ts.
+ */
+export function heatExampleLine(floor: number): string {
+  return `At ${floor} degrees you reach Resident, the tier that may plant a launch here.`;
+}
+
 export const VENUE = {
   /** Brand wordmark halves (nav, footer, loader formation). */
   markMain: 'MEMETICS',
@@ -123,9 +141,6 @@ export const VENUE = {
     'of its supply rather than a dollar amount. It is read per token and added ' +
     'together across everything you hold. Price never enters it, so Heat cannot ' +
     'be bought, and a fresh bag starts cold however large it is.',
-  /** The worked example. 80° is the live launch floor, not a round number chosen for prose. */
-  heatExample:
-    'At 80 degrees you reach Resident, the tier that may plant a launch here.',
   museLine: 'An island in a sea of rugs.',
   museBy: 'Jungle Bay Island',
   /** Meta description: mirrored by index.html and usePageTitle. Names only

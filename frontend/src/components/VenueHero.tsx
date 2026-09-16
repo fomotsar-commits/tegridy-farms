@@ -1,5 +1,6 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
+import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
+import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { HeatCard } from './HeatCard';
 
 /**
@@ -102,7 +103,7 @@ export function VenueHero() {
             lib/arrival.ts, which sources them from heatOracle.ts. */}
         <p className="text-white/60 text-[12px] leading-relaxed mt-3">{VENUE.heatPlain}</p>
         <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'var(--color-kyle)' }}>
-          {VENUE.heatExample}
+          {heatExampleLine(heatLaunchFloor())}
         </p>
       </div>
 

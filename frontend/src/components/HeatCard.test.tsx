@@ -13,7 +13,7 @@
 // suite red in a week. A fixture that rots is not a fixture.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { parseHeatReading } from '../lib/heat/heatOracle';
 
@@ -125,10 +125,24 @@ afterEach(() => {
   localStorage.clear();
 });
 
+/**
+ * Wait for the reading to land.
+ *
+ * THE TIER WORD IS ON THE CARD TWICE NOW - once as the result's own headline and
+ * once as its rung on the ladder (element B's remainder) - so `findByText` on it
+ * throws "found multiple elements" and every test that used it as a barrier goes
+ * red for a reason that has nothing to do with what it asserts. The barrier is
+ * the FIRST match, which is the headline: the ladder renders after the result.
+ */
+async function awaitRead(tier = 'Elder'): Promise<HTMLElement> {
+  const all = await screen.findAllByText(tier);
+  return all[0]!;
+}
+
 describe('the read, in the island’s order', () => {
   it('paints tier, days, degrees, since and tokens IN THAT ORDER', async () => {
     const { container } = mount();
-    await screen.findByText('Elder');
+    await awaitRead();
 
     const text = container.textContent ?? '';
     const iTier = text.indexOf('Elder');
@@ -157,22 +171,26 @@ describe('the read, in the island’s order', () => {
 
   it('renders the tier word verbatim, never restyled into yield language', async () => {
     mount();
-    const tier = await screen.findByText('Elder');
-    expect(tier.textContent).toBe('Elder');
+    // EVERY place the word renders, not just the first: the ladder repeats it,
+    // and a rung that said "Elder tier" or "Elder (max)" would be exactly the
+    // restyling this pins against.
+    const all = await screen.findAllByText('Elder');
+    expect(all.length).toBeGreaterThanOrEqual(2);
+    for (const el of all) expect(el.textContent).toBe('Elder');
   });
 });
 
 describe('the delta — arithmetic on two served numbers', () => {
   it('prints nothing on the first read of an address', async () => {
     const { container } = mount();
-    await screen.findByText('Elder');
+    await awaitRead();
     expect(container.textContent).not.toContain('since Sep');
     expect(container.textContent).not.toContain('unchanged');
   });
 
   it('remembers this read, so the NEXT one can compare', async () => {
     mount();
-    await screen.findByText('Elder');
+    await awaitRead();
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem('tf_heat_last_read') ?? '{}');
       expect(stored[ADDR]).toEqual({ degrees: DEGREES, asOf: AS_OF });
@@ -209,7 +227,7 @@ describe('the delta — arithmetic on two served numbers', () => {
   it('survives unreadable storage without showing the visitor an error', async () => {
     localStorage.setItem('tf_heat_last_read', 'not json{{{');
     const { container } = mount();
-    await screen.findByText('Elder');
+    await awaitRead();
     expect(container.textContent).not.toContain('since Sep');
   });
 });
@@ -388,14 +406,14 @@ describe('a shared link arrives already reading', () => {
 
   it('reads the seeded address on mount, with no click', async () => {
     mountShared(ADDR);
-    expect(await screen.findByText('Elder')).toBeTruthy();
+    expect(await awaitRead()).toBeTruthy();
     expect(h.fetchHeat).toHaveBeenCalledWith(ADDR, expect.anything());
   });
 
   it('leaves the field editable, unlike a pinned card', async () => {
     // Someone who followed a stranger's number should be one paste from their own.
     const { container } = mountShared(ADDR);
-    await screen.findByText('Elder');
+    await awaitRead();
     const field = container.querySelector('input');
     expect(field).toBeTruthy();
     expect((field as HTMLInputElement).value).toBe(ADDR);
@@ -587,5 +605,162 @@ describe('row R: a retired row is labeled, not counted, not summed', () => {
       expect(screen.getByText(/These rows sum to 348\.21°, but the island reports 500\.00°/)).toBeTruthy(),
     );
     expect(screen.queryByText(/still includes the retired/)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ELEMENT B'S REMAINDER: THE FIVE-RUNG LADDER AND THE WALLET FILL.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The card with NO pinned address, which is the only shape that has a form. */
+function mountOpen() {
+  return render(
+    <MemoryRouter>
+      <HeatCard variant="embedded" />
+    </MemoryRouter>,
+  );
+}
+
+/** The rungs as rendered, top of the list first. */
+async function ladderRows(): Promise<string[]> {
+  return waitFor(() => {
+    const el = document.querySelector('[data-element="b-ladder"]');
+    expect(el).not.toBeNull();
+    return [...el!.querySelectorAll('li')].map((li) => li.textContent ?? '');
+  });
+}
+
+describe('the ladder', () => {
+  // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
+  const MID = { degrees: 95, tier: 'Resident' as const };
+
+  it('climbs all five rungs, lowest first', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(MID));
+    mount();
+    const rungs = await ladderRows();
+    expect(rungs).toHaveLength(5);
+    // THE ISLAND'S DIALS, CLIMBED. TIER_FLOORS is published high-to-low and a
+    // ladder is read low-to-high, so a list rendered in source order is a real
+    // defect and not a style choice. Five rungs, Drifter included: a warm wallet
+    // under 30 is standing on it, and a ladder that hides the rung under
+    // somebody's feet has started lying about where they are.
+    expect(rungs[0]).toContain('Drifter');
+    expect(rungs[0]).toContain('0°');
+    expect(rungs[1]).toContain('Observer');
+    expect(rungs[1]).toContain('30°');
+    expect(rungs[2]).toContain('Resident');
+    expect(rungs[2]).toContain('80°');
+    expect(rungs[3]).toContain('Builder');
+    expect(rungs[3]).toContain('150°');
+    expect(rungs[4]).toContain('Elder');
+    expect(rungs[4]).toContain('250°');
+  });
+
+  it('lights the rungs this wallet has reached, and only those', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(MID));
+    mount();
+    const rungs = await ladderRows();
+    const reached = rungs.filter((r) => r.includes('reached'));
+    expect(reached).toHaveLength(3);
+    expect(reached.every((r) => /Drifter|Observer|Resident/.test(r))).toBe(true);
+    expect(rungs[3]).not.toContain('reached');
+    expect(rungs[4]).not.toContain('reached');
+  });
+
+  it('prints the gap to the next rung as arithmetic on two served numbers', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading(MID));
+    mount();
+    // 150 (the rung's floor) minus 95 (the degrees the island served). Not a
+    // rate, not a date, and nothing the instrument computed for itself.
+    expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
+  });
+
+  it('reads the Resident line from the LIVE launch floor, never a typed number', async () => {
+    // The island's own mutation: set the floor to 123 and the sentence must say
+    // 123. A hardcoded 80 disagrees with the gate that actually decides whether
+    // this wallet may plant a launch, and the venue would be quoting a
+    // threshold it does not apply.
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
+    h.fetchHeat.mockResolvedValue(wireReading(MID));
+    mount();
+    expect(
+      await screen.findByText('At 123 degrees you reach Resident, the tier that may plant a launch here.'),
+    ).toBeTruthy();
+    vi.unstubAllEnvs();
+  });
+
+  it('shows no ladder at all on a cold read', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ is_cold: true, degrees: 0, tier: 'Drifter', token_count: 0 }));
+    mount();
+    await screen.findByText(/Nothing measured here yet/);
+    expect(document.querySelector('[data-element="b-ladder"]')).toBeNull();
+  });
+});
+
+describe('the wallet fill', () => {
+  const INJECTED = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).ethereum;
+    delete (window as unknown as Record<string, unknown>).solana;
+  });
+
+  function field() {
+    return screen.getByLabelText(/Wallet address to read Heat for/) as HTMLInputElement;
+  }
+
+  it('offers nothing when the browser has no wallet to offer', () => {
+    mountOpen();
+    expect(screen.queryByRole('button', { name: 'Use my wallet' })).toBeNull();
+  });
+
+  it('fills from the account the page is ALREADY allowed to see, with no prompt', async () => {
+    const request = vi.fn(async ({ method }: { method: string }) =>
+      method === 'eth_accounts' ? [INJECTED] : [],
+    );
+    (window as unknown as Record<string, unknown>).ethereum = { request };
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(INJECTED));
+    // The silent read answered, so nobody was asked anything.
+    expect(request.mock.calls.map((c) => (c[0] as { method: string }).method)).toEqual(['eth_accounts']);
+  });
+
+  it('asks for accounts only after the tap, and never for a signature', async () => {
+    const request = vi.fn(async ({ method }: { method: string }) =>
+      method === 'eth_requestAccounts' ? [INJECTED] : [],
+    );
+    (window as unknown as Record<string, unknown>).ethereum = { request };
+    mountOpen();
+    // Nothing is asked on mount: the button exists and the wallet is untouched.
+    expect(request).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe(INJECTED));
+    const methods = request.mock.calls.map((c) => (c[0] as { method: string }).method);
+    expect(methods).toEqual(['eth_accounts', 'eth_requestAccounts']);
+    expect(methods.some((m) => /sign/i.test(m))).toBe(false);
+  });
+
+  it('takes a Solana public key the wallet already trusts us with', async () => {
+    (window as unknown as Record<string, unknown>).solana = {
+      publicKey: 'BaYLaSo1anaMintAddress11111111111111111111',
+    };
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    await waitFor(() => expect(field().value).toBe('BaYLaSo1anaMintAddress11111111111111111111'));
+  });
+
+  it('says one sentence when nothing answers, and keeps the field', async () => {
+    (window as unknown as Record<string, unknown>).ethereum = {
+      request: vi.fn(async () => {
+        throw new Error('User rejected the request.');
+      }),
+    };
+    mountOpen();
+    fireEvent.click(screen.getByRole('button', { name: 'Use my wallet' }));
+    expect(await screen.findByText('Paste the address instead.')).toBeTruthy();
+    // No error code, no reason, no retry - and the field is still there to paste into.
+    expect(screen.queryByText(/User rejected/)).toBeNull();
+    expect(field()).toBeTruthy();
   });
 });
