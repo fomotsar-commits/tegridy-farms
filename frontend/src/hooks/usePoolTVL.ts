@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useReadContracts, useChainId } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { UNISWAP_V2_PAIR_ABI, ERC20_ABI, SWAP_FEE_ROUTER_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { TEGRIDY_LP_ADDRESS, TOWELI_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID, TEGRIDY_LP_CREATED_AT, isDeployed as checkDeployed } from '../lib/constants';
@@ -35,11 +35,12 @@ export function usePoolTVL() {
   const ethUsd = price.ethUsdForDisplay;
   const hasFeeRouter = checkDeployed(SWAP_FEE_ROUTER_ADDRESS);
   const hasReferralSplitter = checkDeployed(REFERRAL_SPLITTER_ADDRESS);
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
 
   // R043 H-062-02 + H-062-04: chainId pin on every entry; 60s poll
-  // (was 30s — TVL doesn't move per-block).
+  // (was 30s — TVL doesn't move per-block). NOT gated on useChainId() ===
+  // CHAIN_ID: the pins already read mainnet, and off mainnet that gate left the
+  // pool card and LPFarmingSection's APR unread for any visitor whose wallet was
+  // last on Base or Robinhood — see useLPFarming.ts.
   const { data } = useReadContracts({
     contracts: [
       { address: TEGRIDY_LP_ADDRESS, abi: UNISWAP_V2_PAIR_ABI, functionName: 'getReserves', chainId: CHAIN_ID } as const,
@@ -64,7 +65,7 @@ export function usePoolTVL() {
     // explicit unknown[] cast so TS doesn't try to narrow each tuple slot.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ] as any,
-    query: { enabled: onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   return useMemo(() => {

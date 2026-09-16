@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { pageArt } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
@@ -27,6 +28,11 @@ export function CollectionDetailV2({
   deployed: boolean;
 }) {
   const { isConnected } = useAccount();
+  // A control labelled "Connect Wallet" while `disabled` on the same !isConnected that
+  // produced that label is dead: a native disabled button dispatches no click, and
+  // handleMint only calls drop.mint — it never opened a modal. So the button now OPENS
+  // the connect modal when disconnected instead of greying out under the word.
+  const { openConnectModal } = useConnectModal();
   const drop = useNFTDropV2(dropAddress);
   const explorerUrl = useExplorerAddressUrl(dropAddress);
   const [mintQty, setMintQty] = useState(1);
@@ -46,9 +52,9 @@ export function CollectionDetailV2({
   const mintLabel = useMemo(() => {
     if (!deployed) return 'Contract Not Deployed';
     if (!isConnected) return 'Connect Wallet';
-    // Every read is pinned to CHAIN_ID, so off mainnet there is no price to
-    // quote and mint() refuses anyway. Say which, rather than offering a mint
-    // at a figure nobody read.
+    // The reads are pinned to CHAIN_ID and land on any chain, but mint()
+    // refuses off mainnet and the button below is disabled there. Say which,
+    // rather than quoting a mint this wallet cannot send from here.
     if (!drop.onMainnet) return 'Switch to Ethereum Mainnet';
     if (drop.isCancelled) return 'Sale Cancelled';
     if (drop.paused) return 'Minting Paused';
@@ -70,6 +76,10 @@ export function CollectionDetailV2({
   const mintDisabled =
     !deployed ||
     !isConnected ||
+    // mint() refuses off mainnet; say so here. The reads now land on any
+    // chain, so the price check below no longer holds this button down there,
+    // which it only ever did because the batch used to be chain-gated.
+    !drop.onMainnet ||
     drop.isCancelled ||
     drop.paused ||
     drop.isPending ||
@@ -78,7 +88,7 @@ export function CollectionDetailV2({
     drop.currentPhase === 0 ||
     // OUTAGE-AS-FREE. A price the app never read cannot arm a signature. This
     // requires a POSITIVE read rather than the absence of a failure, so a
-    // still-pending batch and a disabled (wrong-network) query also disarm.
+    // still-pending batch and a disabled (placeholder-address) query also disarm.
     !drop.priceReadOk ||
     (drop.currentPhase === 1 && (!proofInput.trim() || !allowedAmountInput.trim()));
 
@@ -490,8 +500,8 @@ export function CollectionDetailV2({
                       ? 'bg-black/60 text-white cursor-not-allowed'
                       : `${BTN_EMERALD} shadow-[0_0_20px_-6px_rgba(16,185,129,0.3)]`
                   }`}
-                  disabled={mintDisabled}
-                  onClick={handleMint}
+                  disabled={isConnected && mintDisabled}
+                  onClick={isConnected ? handleMint : openConnectModal}
                   title={drop.priceUnread
                     ? 'The mint price could not be read from the contract. Reload before minting — do not sign a price you cannot see.'
                     : undefined}

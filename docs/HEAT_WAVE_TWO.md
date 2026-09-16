@@ -152,7 +152,7 @@ the zero point of every degree the token will ever earn.
 | `VITE_HEAT_LAUNCH_FLOOR` | `80` | Degrees floor. Non-numeric/≤0 overrides are **ignored**, not obeyed |
 | `VITE_HEAT_MAX_AGE_DAYS` | `7` | Freshness window |
 | `VITE_ISLAND_CERTIFICATION_URL` | unset | Garden lane stays dark while unset |
-| `VITE_CANONICAL_ORIGIN` | `https://memetic.fun` | Origin used to build `record_url` |
+| `VITE_CANONICAL_ORIGIN` | `https://memetics.finance` | Origin used to build `record_url`. Must be the CANONICAL host (`SITE_URL`) — the island stores `record_url` verbatim and forever, so an alias minted here is a permanent 301 |
 | `MEMETICS_BIRTH_SECRET` | **unset** | Server-side HMAC secret. **Arrives separately from seacasa** |
 | `BIRTHS_GLOBAL_RPM` | `40` | Our cap, set under the island's shared 100/min |
 

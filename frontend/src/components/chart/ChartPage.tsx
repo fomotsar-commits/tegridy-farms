@@ -23,7 +23,7 @@ import { IndexedVenueChart } from './IndexedVenueChart';
 // PRO CHARTING — candles for the island's pools, read from GeckoTerminal.
 //
 // WHAT CHANGED AND WHY. This page used to read the F1 indexer for BOTH halves —
-// the pool list and the candles — and that indexer is hosted nowhere, so the
+// the pool list and the candles — and that indexer was hosted nowhere then, so the
 // whole surface was two "could not read" banners under a heading. Meanwhile the
 // same app has been drawing GeckoTerminal candles in production on every
 // bungalow page for weeks (components/bungalow/BungalowMarket.tsx). The fix was
@@ -73,7 +73,7 @@ function scanHrefFor(market: ChartableMarket, baseAddress: string | null): strin
 export default function ChartPage() {
   usePageTitle(
     'Pro Charting',
-    "Candlestick charts for the island's pools, read from GeckoTerminal's own OHLCV feed — with every bucket the source did not return drawn as a gap rather than filled in with a price that never traded.",
+    "Candlestick charts for the island's pools, read from GeckoTerminal's own OHLCV feed, with every bucket the source did not return drawn as a gap rather than filled in with a price that never traded.",
   );
 
   const [params, setParams] = useSearchParams();
@@ -149,7 +149,7 @@ export default function ChartPage() {
           <section aria-label="Pool">
             <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-white/50">Pool</h2>
             <p className="mb-3 max-w-2xl text-xs leading-relaxed text-white/60">
-              Every pool the island's own registry names — this venue's token and each resident's
+              Every pool the island's own registry names: this venue's token and each resident's
               primary pair. The list is a fact this page can read without asking anyone, so it is
               complete here even when the price source is not answering.
             </p>
@@ -256,7 +256,7 @@ export default function ChartPage() {
             </h2>
             <ul className="space-y-2 text-xs leading-relaxed text-white/75">
               <li>
-                Candles: GeckoTerminal per-bucket OHLC for this pool, read by this venue — not
+                Candles: GeckoTerminal per-bucket OHLC for this pool, read by this venue. Not
                 computed or oracled by it.
               </li>
               {!isIndexerConfigured() ? (

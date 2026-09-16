@@ -261,7 +261,7 @@ export default function DeployerPage() {
           Paste a wallet address to see the tokens it{' '}
           <span className="text-text-primary font-medium">deployed directly</span> and where each one stands right now.
           It is a <span className="text-text-primary font-medium">descriptive measurement</span> of current on-chain
-          state — not a verdict on anyone&apos;s intent, and not a full track record (the limits are shown with every
+          state. Not a verdict on anyone&apos;s intent, and not a full track record (the limits are shown with every
           result).
         </p>
       </m.div>
@@ -359,7 +359,7 @@ function IdleHint() {
         <li>• Every token the address deployed <span className="text-text-primary">directly</span> (its own contract-creation transactions).</li>
         <li>• Each token&apos;s <span className="text-text-primary">current</span> market: an active pool, a thin pool, or no live market found.</li>
         <li>• A plain-English summary, a data-confidence flag, and a timestamp.</li>
-        <li>• The gaps stated loudly — factory-launched tokens are invisible here, and without launch-time baselines a strict &ldquo;survived / dumped / rugged&rdquo; outcome can&apos;t be computed.</li>
+        <li>• The gaps stated loudly: factory-launched tokens are invisible here, and without launch-time baselines a strict &ldquo;survived / dumped / rugged&rdquo; outcome can&apos;t be computed.</li>
       </ul>
       <p className="text-[11px] text-text-muted mt-3">
         This tool never invents a track record. When something can&apos;t be measured it says so rather than guessing.

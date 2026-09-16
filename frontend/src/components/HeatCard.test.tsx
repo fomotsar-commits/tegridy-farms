@@ -409,3 +409,183 @@ describe('a shared link arrives already reading', () => {
     expect((container.querySelector('input') as HTMLInputElement).value).toBe('not-an-address');
   });
 });
+
+// ─── WAVE SEVEN, ELEMENT D: THE ROOM'S OWN READ ─────────────────────────────
+//
+// The directive's done-means, verbatim: "the scoped read with a fixture
+// breakdown paints the room's row first and the whole-flame line second."
+// So ORDER is asserted, not just presence — a block that printed both in the
+// wrong order would satisfy every toBeInTheDocument and miss the whole point.
+
+const PEPE = '0x6982508145454ce325ddbe47a25d4ec3d2311933';
+// A Solana mint: base58, with real capitals. The registry and the island do not
+// agree on case, which is the trap this element walks into if it compares raw.
+const BAYLA_MINT = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
+
+function row(over: Record<string, unknown> = {}) {
+  return {
+    token_address: PEPE,
+    chain: 'ethereum',
+    name: 'Pepe',
+    symbol: 'PEPE',
+    heat_degrees: 338.21,
+    first_seen_at_unix: AS_OF - 400 * 86_400,
+    last_transfer_at_unix: AS_OF - 86_400,
+    retired: false,
+    ...over,
+  };
+}
+
+function mountScoped(scope: { address: string; symbol: string }) {
+  return render(
+    <MemoryRouter>
+      <HeatCard address={ADDR} variant="embedded" showEligibility={false} scopeTo={scope} />
+    </MemoryRouter>,
+  );
+}
+
+describe("element D — the room's own read", () => {
+  it('paints the room’s row FIRST and the whole flame SECOND', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+
+    await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+    const text = container.textContent ?? '';
+    const scoped = text.indexOf('338.21');
+    const flame = text.indexOf('your whole flame reads');
+    expect(scoped, 'the scoped number never rendered').toBeGreaterThan(-1);
+    expect(flame, 'the whole-flame line never rendered').toBeGreaterThan(-1);
+    expect(scoped, 'the flame came first — the room asks its own question first').toBeLessThan(flame);
+    expect(text).toContain('400 days held');
+    expect(text).toContain(`${DEGREES.toFixed(2)}`);
+  });
+
+  it('reads a wallet with no row as holding none, and still names the flame', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row({ token_address: '0xother', symbol: 'OTHER' })] }));
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() =>
+      expect(screen.getByText('This wallet holds no measured PEPE yet.')).toBeTruthy(),
+    );
+    // Never a bare "no" — a visitor with nothing HERE still has a flame, and
+    // hiding it would read as a zero.
+    expect(screen.getByText(/your whole flame reads/i)).toBeTruthy();
+  });
+
+  it('matches the contract case-insensitively, or every Solana room reads empty', async () => {
+    // The registry holds this mint with capitals; the island echoes lowercase.
+    // A raw === compare finds nothing and tells a holder they hold nothing.
+    h.fetchHeat.mockResolvedValue(
+      wireReading({ breakdown: [row({ token_address: BAYLA_MINT.toLowerCase(), symbol: 'BAYLA', heat_degrees: 92.5 })] }),
+    );
+    mountScoped({ address: BAYLA_MINT, symbol: 'BAYLA' });
+    await waitFor(() => expect(screen.getByText('92.50')).toBeTruthy());
+    expect(screen.queryByText('This wallet holds no measured BAYLA yet.')).toBeNull();
+  });
+
+  it('shows a retired row greyed, with the word and its own degrees', async () => {
+    // Row R: greyed, with the word "retired". The row's degrees stay on screen:
+    // a retired row that rendered as absent, or as a zero, would tell a holder
+    // their time had been taken away, and the number is the island's to paint.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row({ retired: true })] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() => expect(screen.getByText('338.21')).toBeTruthy());
+    expect(screen.getByText('retired')).toBeTruthy();
+    expect((screen.getByText('338.21') as HTMLElement).style.color).toBe('rgba(255, 255, 255, 0.45)');
+    expect(container.textContent).not.toContain('This wallet holds no measured');
+  });
+
+  it('never renders the venue’s whole-flame ladder inside a room', async () => {
+    // The room asks a narrower question. If the scope prop stopped taking
+    // effect, the full instrument would render here and this would catch it.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
+    const { container } = mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() => expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy());
+    expect(container.textContent).not.toMatch(/Where the .* comes from/i);
+  });
+});
+
+describe('element D — the room names its question before it has an answer', () => {
+  it('shows the scoped heading COLD, before any read', async () => {
+    // `variant="embedded"` drops the card's own title, which is right in the
+    // gate and was wrong in a room: it left a visitor looking at an address
+    // field and a Read button with nothing saying what they read. The question
+    // must exist before the answer does.
+    h.fetchHeat.mockImplementation(() => new Promise(() => {}));
+    render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" showEligibility={false} scopeTo={{ address: PEPE, symbol: 'PEPE' }} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/Your held time in PEPE/i)).toBeTruthy();
+  });
+
+  it('names it exactly once when the answer arrives', async () => {
+    // The heading moved out of the result block to sit above the form. If a
+    // copy of it were left behind, a room would ask its question twice.
+    h.fetchHeat.mockResolvedValue(wireReading({ breakdown: [row()] }));
+    mountScoped({ address: PEPE, symbol: 'PEPE' });
+    await waitFor(() => expect(screen.getByText('338.21')).toBeTruthy());
+    expect(screen.getAllByText(/Your held time in PEPE/i)).toHaveLength(1);
+  });
+});
+
+// ─── WAVE SEVEN, ROW R: A RETIRED ROW IS LABELED ────────────────────────────
+//
+// The island's done-means, verbatim: "a fixture reading with one retired: true
+// row renders that row labeled and the count without it; break the fix by
+// dropping the label and watch the test red."
+//
+// Three rows, one retired. token_count is 3 because on the live read
+// token_count equalled the row count, retired rows included.
+
+describe('row R: a retired row is labeled, not counted, not summed', () => {
+  const OLD = row({ token_address: '0xold', symbol: 'OLD', name: 'Old', heat_degrees: 50, retired: true });
+  const BBB = row({ token_address: '0xbbb', symbol: 'BBB', name: 'Bee', heat_degrees: 10 });
+  const readingWith = (degrees: number) =>
+    wireReading({ degrees, token_count: 3, breakdown: [OLD, row(), BBB] });
+  const SYMBOLS = new Set(['PEPE', 'BBB', 'OLD']);
+
+  it('renders the retired row greyed with the word, after the live rows, and the count without it', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(398.21));
+    const { container } = mount();
+    await waitFor(() => expect(screen.getByText('2 tokens counted')).toBeTruthy());
+
+    const order = Array.from(container.querySelectorAll('li'))
+      .map((li) => li.querySelector('span')?.textContent?.trim() ?? '')
+      .filter((t) => SYMBOLS.has(t));
+    expect(order).toEqual(['PEPE', 'BBB', 'OLD']);
+
+    const retired = container.querySelectorAll('li[data-retired="true"]');
+    expect(retired).toHaveLength(1);
+    expect(retired[0].textContent).toContain('OLD');
+    expect(retired[0].textContent).toContain('retired');
+    expect(retired[0].textContent).toContain('50.00');
+    expect(retired[0].querySelector('span')?.className).toContain('text-white/40');
+  });
+
+  it('sums the live rows only, and says the island total still includes the retired row', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(398.21));
+    mount();
+    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
+    expect(screen.getByText('348.21°')).toBeTruthy();
+    expect(screen.getByText(/still includes the retired row\./)).toBeTruthy();
+    expect(screen.queryByText(/These rows sum to/)).toBeNull();
+  });
+
+  it('once the island drops it from its sum, nothing more is said', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(348.21));
+    mount();
+    await waitFor(() => expect(screen.getByText('Sum across 2 tokens')).toBeTruthy());
+    expect(screen.queryByText(/still includes the retired/)).toBeNull();
+    expect(screen.queryByText(/These rows sum to/)).toBeNull();
+  });
+
+  it('a real disagreement is still flagged, against the live sum', async () => {
+    h.fetchHeat.mockResolvedValue(readingWith(500));
+    mount();
+    await waitFor(() =>
+      expect(screen.getByText(/These rows sum to 348\.21°, but the island reports 500\.00°/)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/still includes the retired/)).toBeNull();
+  });
+});

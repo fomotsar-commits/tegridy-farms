@@ -2,7 +2,7 @@
 // Batches events and flushes every 10 seconds to VITE_ANALYTICS_ENDPOINT
 //
 // AUDIT R046 H-1: every track/* helper is gated behind hasConsent() so no
-// telemetry leaves the browser before the user opts in via the ConsentBanner.
+// telemetry leaves the browser before the user opts in via the footer's ConsentRow.
 // AUDIT R046 M-1: trackError now routes both message and context through the
 // shared sanitize() from errorReporting.ts (closes wallet-PII / secret-leak
 // asymmetry between the analytics and error channels).
@@ -126,7 +126,7 @@ if (typeof window !== 'undefined') {
 export function track(eventName: string, properties?: Record<string, unknown>): void {
   // AUDIT R046 H-1: deny-by-default. No event is enqueued until consent is
   // granted, so trackPageView/trackWalletConnect/etc. all stay silent on
-  // pages mounted before the user clicks "Accept" in the ConsentBanner.
+  // pages mounted before the user says "Yes" in the footer's ConsentRow.
   if (!hasConsent()) return;
 
   queue.push({

@@ -30,6 +30,11 @@
  *     address; `addReadPredicate` supports fully custom matchers.
  *   - `useReadContracts` returns `status: 'failure'` when no stub matches so
  *     consuming hooks cleanly fall back to their defaults.
+ *   - A read passed `query: { enabled: false }` is NOT answered, exactly as
+ *     real wagmi does not answer it: `data` undefined, `isLoading` false. The
+ *     mock used to answer it anyway, so no test could see an `enabled` gate.
+ *   - `usePublicClient` returns what `setPublicClient` was given: undefined by
+ *     default, the "no client" every hook already handles.
  *   - `useWriteContract` exposes a Vitest mock fn you can assert against to
  *     verify the hook's action functions actually call the right args.
  *   - `useWaitForTransactionReceipt` returns flags the test sets via
@@ -70,6 +75,8 @@ interface WagmiMockState {
   writeStatus: WriteStatus;
   writeContractMock: ReturnType<typeof vi.fn>;
   chainId: number;
+  answerDisabledReads: boolean;
+  publicClient: unknown;
 }
 
 function defaultWriteStatus(): WriteStatus {
@@ -83,6 +90,8 @@ function defaultState(): WagmiMockState {
     writeStatus: defaultWriteStatus(),
     writeContractMock: vi.fn(),
     chainId: 1,
+    answerDisabledReads: false,
+    publicClient: undefined,
   };
 }
 
@@ -96,12 +105,32 @@ export const wagmiMock = {
     state.writeStatus = next.writeStatus;
     state.writeContractMock.mockReset();
     state.chainId = next.chainId;
+    state.answerDisabledReads = next.answerDisabledReads;
+    state.publicClient = next.publicClient;
   },
   setAccount(partial: Partial<AccountState>) {
     state.account = { ...state.account, ...partial };
   },
   setChainId(id: number) {
     state.chainId = id;
+  },
+  /**
+   * LEGACY ESCAPE HATCH: answer reads even when `query.enabled` is false, as
+   * this mock did before it honoured the flag. A suite that needs it is
+   * asserting on reads production never issues in that state. It exists for
+   * useBribes.test.ts (the reason is there), not as a pattern to copy.
+   */
+  setAnswerDisabledReads(on: boolean) {
+    state.answerDisabledReads = on;
+  },
+  /**
+   * What `usePublicClient()` returns. Keep ONE object for a whole test: wagmi
+   * memoises its client, and a fresh one per render re-fires every effect that
+   * lists it as a dependency. Like `usePublicClient({ chainId })` in wagmi, it
+   * does not follow the wallet's chain.
+   */
+  setPublicClient(client: unknown) {
+    state.publicClient = client;
   },
   setReadResult(stub: { functionName?: string; address?: string; result: unknown; status?: 'success' | 'failure' }) {
     state.reads.push({
@@ -147,7 +176,24 @@ vi.mock('wagmi', () => {
 
   const useChainId = () => state.chainId;
 
-  const useReadContract = (opts: { address?: string; functionName?: string; args?: unknown[] }) => {
+  // A DISABLED query never runs. TanStack leaves it `pending` with fetchStatus
+  // 'idle', so `isLoading` (isPending && isFetching, query-core
+  // queryObserver.js) is false and `data` is undefined -- no loading state, no
+  // result, no error. That is the shape an `enabled` gate hands its caller, and
+  // answering the read anyway hid every such gate from every test here.
+  // (TanStack also accepts `enabled` as a function; no hook in src/ passes one.)
+  const disabledRead = () => ({
+    data: undefined,
+    error: null,
+    isLoading: false,
+    isPending: true,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  });
+
+  const useReadContract = (opts: { address?: string; functionName?: string; args?: unknown[]; query?: { enabled?: boolean } }) => {
+    if (opts?.query?.enabled === false && !state.answerDisabledReads) return disabledRead();
     const stub = findRead({ address: opts?.address, functionName: opts?.functionName });
     if (!stub) {
       return { data: undefined, error: undefined, isLoading: false, isError: false, refetch: vi.fn() };
@@ -158,7 +204,8 @@ vi.mock('wagmi', () => {
     return { data: stub.result, error: undefined, isLoading: false, isError: false, refetch: vi.fn() };
   };
 
-  const useReadContracts = (opts: { contracts?: Array<{ address?: string; functionName?: string }> }) => {
+  const useReadContracts = (opts: { contracts?: Array<{ address?: string; functionName?: string }>; query?: { enabled?: boolean } }) => {
+    if (opts?.query?.enabled === false && !state.answerDisabledReads) return disabledRead();
     const arr = (opts?.contracts ?? []).map((c) => {
       const stub = findRead({ address: c?.address, functionName: c?.functionName });
       // No matching stub => simulate a failed read so consumers fall back
@@ -207,9 +254,12 @@ vi.mock('wagmi', () => {
   // R075: no-op so hooks using useWatchContractEvent still mount in tests.
   const useWatchContractEvent = (_opts: unknown) => undefined;
 
+  const usePublicClient = (_opts?: unknown) => state.publicClient;
+
   return {
     useAccount,
     useChainId,
+    usePublicClient,
     useReadContract,
     useReadContracts,
     useWriteContract,
