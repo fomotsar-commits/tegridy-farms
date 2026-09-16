@@ -121,8 +121,8 @@ describe('the curtain is gone by its budget, whatever the machine does', () => {
   //
   // The mark used to live only in the animation tick, at the frames where the
   // curtain ends by its own choreography. Arming the deadline made those frames
-  // unreachable — skipIntro at BUDGET - 400, a dissolve that needs 400, and the
-  // finalize timer at BUDGET winning the race — so `tf_loaded` was never
+  // unreachable — skipIntro at goneBy - 400, a dissolve that needs 400, and the
+  // finalize timer at goneBy winning the race — so `tf_loaded` was never
   // written and the curtain replayed on every single load. The island measured
   // five runs of five before anyone here noticed, because the guard that
   // claimed "once per browser: yes" read the skip decision instead of loading
@@ -191,6 +191,13 @@ describe('the curtain is gone by its budget, whatever the machine does', () => {
     // Small enough that a choreography running on time still reaches its own
     // dissolve before the deadline asks for one: the deadline is for a curtain
     // that is late, not a shorter curtain for everyone.
+    //
+    // TWO CLOCKS, AND THIS COMPARES THEM AS ONE. The left side counts from the
+    // commit that arms the timers; the right side from `s.t0`, stamped later in
+    // the canvas effect, after the post-processing pass is built. That gap is
+    // spent before the choreography starts counting and not before the deadline
+    // does, so the real margin is smaller than this arithmetic. Read it as a
+    // floor, not as a promise that the deadline never cuts an on-time curtain.
     const onTime = CURTAIN_TIMING.voidEnd
       + CURTAIN_TIMING.artCount * CURTAIN_TIMING.artDuration
       + CURTAIN_TIMING.textForm;

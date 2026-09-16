@@ -203,6 +203,47 @@ describe('the C1 deposit freeze', () => {
     }
   });
 
+  // THE MECHANISM ITSELF, exercised while the list is legitimately empty.
+  //
+  // WHY THIS IS HERE. Every other test in this block iterates
+  // C1_UNSAFE_LADDER_POOLS, so with the list empty they collectively survive the
+  // gate being DELETED: replacing the body of isC1UnsafeLadder with `return false`
+  // leaves this file 18/18 green. That was measured, not guessed — which means
+  // the one property the freeze depends on, "an address on the list closes the
+  // gate", had no coverage at all, and would be discovered broken by the first
+  // deposit into a pool someone believed was frozen.
+  //
+  // The freeze is empty because it SHOULD be (the six pre-fix ladders were
+  // redeployed 2026-09-05), so there is no honest address to assert on. Instead
+  // this loads the list the shipped function actually reads, drives the real
+  // exported function through it, and restores it. No literal from the registry is
+  // pinned; what is pinned is the wiring — list membership decides the answer,
+  // and the comparison is case-insensitive.
+  it('closes the gate for an address on the list, in any casing the chain returns', () => {
+    // Checksummed exactly as addresses.json and wagmi would hand it back, and NOT
+    // the casing the list stores — a case-sensitive compare fails OPEN here.
+    const CHECKSUMMED = '0xAbC0000000000000000000000000000000000123';
+    const mutable = C1_UNSAFE_LADDER_POOLS as string[];
+
+    expect(isC1UnsafeLadder(CHECKSUMMED), 'unlisted address must not be frozen').toBe(false);
+
+    mutable.push(CHECKSUMMED.toLowerCase());
+    try {
+      expect(isC1UnsafeLadder(CHECKSUMMED.toLowerCase()), 'listed, lowercase').toBe(true);
+      expect(isC1UnsafeLadder(CHECKSUMMED), 'listed, checksummed — the real call site').toBe(true);
+      expect(isC1UnsafeLadder(CHECKSUMMED.toUpperCase().replace('0X', '0x')), 'listed, upper').toBe(
+        true,
+      );
+      // And it is still a LIST lookup, not "freeze everything once anything is
+      // frozen" — the gate that traps every pool is its own outage.
+      expect(isC1UnsafeLadder('0x000000000000000000000000000000000000dEaD')).toBe(false);
+    } finally {
+      mutable.pop();
+    }
+
+    expect(isC1UnsafeLadder(CHECKSUMMED), 'the list must be left as it was found').toBe(false);
+  });
+
   it('never freezes an address that is not listed, and tolerates absent input', () => {
     expect(isC1UnsafeLadder('0x000000000000000000000000000000000000dEaD')).toBe(false);
     expect(isC1UnsafeLadder(null)).toBe(false);

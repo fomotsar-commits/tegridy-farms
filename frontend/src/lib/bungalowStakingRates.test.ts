@@ -76,7 +76,7 @@ const BAYLA_REWARD: RewardPoolView = {
   // Budget accounting exists only on the dynamic program.
   fundedAmountRaw: null,
   claimedAmountRaw: null,
-  claimPeriodSecs: 0,
+  claimPeriodSecs: 0, rateChangedAtTs: 0,
 };
 
 /**

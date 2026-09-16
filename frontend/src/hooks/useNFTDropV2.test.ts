@@ -54,14 +54,29 @@ describe('useNFTDropV2 — price read is never confused with a free mint', () =>
     expect(result.current.currentPriceFormatted).toBeCloseTo(0.08, 6);
   });
 
-  it('off mainnet is not an outage — the read was never issued', () => {
-    wagmiMock.setChainId(11155111);
+  it('a wallet on another chain is asked like any other, so its failure IS an outage', () => {
+    // The batch is chain-pinned, not chain-gated: off mainnet it still reads
+    // mainnet, and an unanswered price there is the same failure it is here.
+    wagmiMock.setChainId(8453);
     const { result } = renderHook(() => useNFTDropV2(DROP));
     // Nothing to arm a signature with...
     expect(result.current.priceReadOk).toBe(false);
-    // ...but no "the network did not answer" claim either.
-    expect(result.current.priceUnread).toBe(false);
+    // ...and, this time, the page says why.
+    expect(result.current.priceUnread).toBe(true);
     expect(result.current.onMainnet).toBe(false);
+  });
+
+  it('mint() still refuses off mainnet, even on a price it read', () => {
+    // `onMainnet` stays as the WRITE guard. The read landing is what proves
+    // the price check is not the thing stopping it.
+    wagmiMock.setChainId(8453);
+    wagmiMock.setReadResult({ functionName: 'currentPrice', result: parseEther('0.08') });
+    wagmiMock.setReadResult({ functionName: 'mintPhase', result: 2 });
+    const { result } = renderHook(() => useNFTDropV2(DROP));
+    expect(result.current.priceReadOk).toBe(true);
+    act(() => result.current.mint(1));
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+    expect(String(vi.mocked(toast.error).mock.calls[0][0])).toMatch(/switch to Ethereum Mainnet/i);
   });
 
   it('a placeholder drop address is not an outage', () => {

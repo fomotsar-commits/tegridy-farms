@@ -173,5 +173,9 @@ export const CURTAIN_BUDGET_MS = 3000;
  * Bounded both ways in curtainDeadline.test.tsx: larger than the lateness CI
  * measured, and small enough that a curtain running on time still reaches its
  * own dissolve before the deadline asks for one.
+ *
+ * That second bound is a floor rather than a promise: the deadline counts from
+ * the commit that arms it, while the choreography counts from a later passive
+ * effect, so the margin between them is smaller than the arithmetic suggests.
  */
 export const DEADLINE_SLACK_MS = 100;
