@@ -41,7 +41,9 @@ const stripComments = (s: string) =>
 const read = (...seg: string[]) => stripComments(readFileSync(join(HERE, ...seg), 'utf-8'));
 
 const PREMIUM_PAGE = read('..', 'pages', 'PremiumPage.tsx');
-const FAQ_PAGE = read('..', 'pages', 'FAQPage.tsx');
+// The FAQ's words live in lib/faqData.ts since wave seven row Q; the Gold
+// Card answer moved there, word for word, in the TOWELI room's list.
+const FAQ_PAGE = read('faqData.ts');
 const TOWELIE = read('towelieKnowledge.ts');
 
 describe('no ETH-earnings promise ships as a flat literal', () => {

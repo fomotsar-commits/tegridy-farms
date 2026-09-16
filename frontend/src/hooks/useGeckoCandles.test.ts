@@ -60,9 +60,12 @@ describe('useGeckoCandles', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Read through our own edge, not browser-direct — the upstream path is
+    // still named in full, so this still pins WHICH question was asked.
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      'api.geckoterminal.com/api/v2/networks/eth/pools/0xabc/ohlcv/hour',
+      'path=/networks/eth/pools/0xabc/ohlcv/hour',
     );
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('api.geckoterminal.com');
     expect(result.current.quoteSymbol).toBe('WETH');
     expect(result.current.baseAddress).toBe('0xdead');
     expect(result.current.barsRead).toBe(2);

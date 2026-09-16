@@ -1,4 +1,4 @@
-import { useReadContracts, useChainId } from 'wagmi';
+import { useReadContracts } from 'wagmi';
 import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { useTOWELIPrice } from '../contexts/PriceContext';
@@ -8,24 +8,26 @@ export function useFarmStats() {
   const addr = TEGRIDY_STAKING_ADDRESS;
   const isDeployed = checkDeployed(addr);
   const price = useTOWELIPrice();
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
 
   const effectivePrice = price.priceInUsd;
 
-  // R043 H-062-02: chainId pin on every entry, gate on onMainnet.
+  // R043 H-062-02: chainId pin on every entry, which sends these reads to
+  // mainnet whatever chain the wallet is on. NOT gated on useChainId() ===
+  // CHAIN_ID: since the multichain config that gate disabled them for any
+  // visitor whose wallet was, or was last, on Base or Robinhood — see
+  // useLPFarming.ts.
   const { data, isLoading } = useReadContracts({
     contracts: [
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalStaked', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'totalRewardsFunded', chainId: CHAIN_ID },
       { address: addr, abi: TEGRIDY_STAKING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
     ],
-    query: { enabled: isDeployed && onMainnet, refetchInterval: 60_000, refetchOnWindowFocus: true },
+    query: { enabled: isDeployed, refetchInterval: 60_000, refetchOnWindowFocus: true },
   });
 
   // F72: distinguish a real on-chain zero from a disabled/failed read. The
   // per-call status is the only honest signal — totalStaked defaults to 0n on
-  // a wrong-network/failed read, which must render "–", not a confident
+  // an undeployed/failed read, which must render "–", not a confident
   // "0 TOWELI" (the "wall of zeros reads as a dead protocol" failure mode).
   const stakedReadOk = data?.[0]?.status === 'success';
   const totalStaked = (stakedReadOk ? data![0].result as bigint : 0n);

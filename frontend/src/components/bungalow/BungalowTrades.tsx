@@ -1,5 +1,7 @@
 import type { Bungalow } from '../../lib/bungalows';
+import { useEffect, useState } from 'react';
 import { usePoolTrades, type PoolTrade } from '../../hooks/usePoolTrades';
+import { fetchTapeNames, type TapeName, type TapeNames } from '../../lib/heat/tapeNames';
 
 /**
  * The bungalow's trade tape — the last fills on its own pool.
@@ -19,6 +21,29 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
     market?.network ?? null,
     market?.pool ?? null,
   );
+
+  // WAVE SEVEN, element N: THE NAMED TAPE.
+  //
+  // One request for the whole tape, after the rows are already on screen. The
+  // names are an ENRICHMENT, never a precondition: if this never resolves, the
+  // rows render exactly as they always did. That is why it is a separate effect
+  // and not part of the trades read.
+  const [names, setNames] = useState<TapeNames>({});
+  const wallets = trades.map((t) => t.wallet).join(',');
+  useEffect(() => {
+    if (!wallets) return;
+    const ac = new AbortController();
+    let live = true;
+    fetchTapeNames(wallets.split(','), { signal: ac.signal }).then((n) => {
+      if (live) setNames(n);
+    });
+    return () => {
+      live = false;
+      ac.abort();
+    };
+    // Keyed on the joined wallet list rather than the trades array: a refresh
+    // that returns the same buyers must not re-spend the island's quota.
+  }, [wallets]);
 
   if (!market) return null;
 
@@ -58,7 +83,7 @@ export function BungalowTrades({ bungalow }: { bungalow: Bungalow }) {
             </thead>
             <tbody>
               {trades.map((t) => (
-                <Row key={t.txHash + t.at} trade={t} network={market.network} />
+                <Row key={t.txHash + t.at} trade={t} network={market.network} name={t.wallet ? names[t.wallet] : undefined} />
               ))}
             </tbody>
           </table>
@@ -81,7 +106,21 @@ const TX_EXPLORER: Record<MarketNetwork, { base: string; name: string }> = {
   base: { base: 'https://basescan.org/tx/', name: 'Basescan' },
 };
 
-function Row({ trade, network }: { trade: PoolTrade; network: MarketNetwork }) {
+function Row({
+  trade,
+  network,
+  name,
+}: {
+  trade: PoolTrade;
+  network: MarketNetwork;
+  name?: TapeName;
+}) {
+  // The row's own name, or the address it always had. NEVER a placeholder:
+  // an un-named row and an un-READ row look identical from here, and only one
+  // of those is a fact about the buyer.
+  const short = trade.wallet ? `${trade.wallet.slice(0, 4)}…${trade.wallet.slice(-4)}` : 'tx';
+  const label = name ? `@${name.xHandle}` : short;
+
   const isBuy = trade.kind === 'buy';
   const explorer = TX_EXPLORER[network];
   return (
@@ -99,11 +138,26 @@ function Row({ trade, network }: { trade: PoolTrade; network: MarketNetwork }) {
           href={`${explorer.base}${trade.txHash}`}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={`View transaction on ${explorer.name} (opens in new tab)`}
+          aria-label={
+            name
+              ? `View transaction on ${explorer.name} (opens in new tab). Buyer @${name.xHandle}, ${name.tier}${name.days !== null ? `, ${name.days} days held` : ''}.`
+              : `View transaction on ${explorer.name} (opens in new tab)`
+          }
           className="text-white/55 hover:text-white underline underline-offset-2"
         >
-          {trade.wallet ? `${trade.wallet.slice(0, 4)}…${trade.wallet.slice(-4)}` : 'tx'} ↗
+          {label} ↗
         </a>
+        {/* TIER AND DAYS, the other two thirds of what a named row carries.
+            Beneath the handle rather than beside it: the cell is one column of a
+            five-column tape and a single line would either wrap or truncate the
+            name, which is the part a reader recognises. Days are the island's
+            reckoning, and `null` renders nothing at all rather than a zero. */}
+        {name && (
+          <span className="block text-white/40 text-[10px] leading-tight">
+            {name.tier}
+            {name.days !== null && <> &middot; {name.days.toLocaleString('en-US')}d</>}
+          </span>
+        )}
       </td>
     </tr>
   );

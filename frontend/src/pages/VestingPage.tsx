@@ -32,8 +32,8 @@ export default function VestingPage() {
           <h1 className="text-2xl font-bold text-white">Vesting &amp; Locks</h1>
           <p className="text-white/60 text-sm mt-1 max-w-2xl leading-relaxed">
             Team vesting on OpenZeppelin's schedule behind a thin registry, and time-locked custody with a public read
-            surface. Neither rail has a clawback, a pause on withdrawal, or an admin who can reach the funds — which is
-            what makes a lock or a vest worth printing on a fact sheet.
+            surface. Neither rail has a clawback, a pause on withdrawal, or an admin who can reach the funds. That
+            is what makes a lock or a vest worth printing on a fact sheet.
           </p>
           {(!streamsLive || !locksLive) && (
             <p className="text-amber-200/85 text-[12px] mt-3 max-w-2xl leading-relaxed">

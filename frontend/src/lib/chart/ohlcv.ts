@@ -29,6 +29,7 @@ import { z } from 'zod';
 import { geckoTerminalOhlcvSchema, parseOrNull } from '../schemas/geckoTerminal';
 import { interleaveGaps, type Candle, type CandleSeries } from './candles';
 import type { ChartableMarket } from './markets';
+import { geckoEdgeUrl } from '../geckoTerminal/edge';
 
 export const GECKO_TIMEFRAME_IDS = ['5m', '15m', '1h', '4h', '1d'] as const;
 
@@ -72,8 +73,6 @@ export function isGeckoTimeframeId(value: unknown): value is GeckoTimeframeId {
 /** GeckoTerminal's documented ceiling for `limit` on this endpoint. */
 const MAX_LIMIT = 1000;
 
-const GECKO_BASE = 'https://api.geckoterminal.com/api/v2';
-
 /**
  * The URL for one (market, timeframe).
  *
@@ -104,7 +103,11 @@ export function ohlcvUrlFor(
   const limit = Math.min(Math.max(Math.floor(Number.isFinite(requested) ? requested : cfg.limit), 1), MAX_LIMIT);
   const net = encodeURIComponent(market.network);
   const pool = encodeURIComponent(market.pool);
-  return `${GECKO_BASE}/networks/${net}/pools/${pool}/ohlcv/${cfg.apiTf}?aggregate=${cfg.aggregate}&limit=${limit}&currency=usd`;
+  return geckoEdgeUrl(`/networks/${net}/pools/${pool}/ohlcv/${cfg.apiTf}`, {
+    aggregate: cfg.aggregate,
+    limit,
+    currency: 'usd',
+  });
 }
 
 /** One bucket exactly as the source reported it — nothing derived, nothing repaired. */

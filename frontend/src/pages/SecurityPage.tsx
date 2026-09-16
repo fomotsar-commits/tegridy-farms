@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { m } from 'framer-motion';
+import { Link } from 'react-router-dom';
+import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { pageArt, artStyle, type ArtPiece } from '../lib/artConfig';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { useSourceVerification } from '../hooks/useSourceVerification';
@@ -127,6 +129,7 @@ export default function SecurityPage() {
     [],
   );
   const verification = useSourceVerification(verifiableAddresses);
+  const floor = heatLaunchFloor();
 
   return (
     <div className="-mt-14 relative min-h-screen">
@@ -138,8 +141,27 @@ export default function SecurityPage() {
         {/* Hero */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6 }} className="text-center mb-16">
           <h1 className="text-4xl md:text-5xl font-bold mb-4 text-white" style={{ fontFamily: 'var(--font-family-heading)', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Security &amp; Transparency</h1>
-          <p className="text-white/85 max-w-2xl mx-auto text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Every claim on this page is one you can verify yourself — source-verified contracts on Etherscan, a public audit trail, and code that stays immutable after deployment. Here is the full record, including what we haven't done yet.</p>
+          <p className="text-white/85 max-w-2xl mx-auto text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>Every claim on this page is one you can verify yourself: source-verified contracts on Etherscan, a public audit trail, and code that stays immutable after deployment. Here is the full record, including what we haven't done yet.</p>
         </m.div>
+
+        {/* WAVE SEVEN, ruling 2 (row Q): THE VENUE FIRST. This page used to open
+            straight onto the TegridyStaking audit list, which is one resident's
+            protocol. It opens now on what the venue runs and what the island
+            judges; the classic protocol follows, whole, under its own name.
+            The launch line says ADVISORY on purpose: lib/heat/launchGate.ts
+            forbids calling the gate enforced anywhere a launcher can read. */}
+        <m.section initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6, delay: 0.05 }} className="mb-14" aria-labelledby="venue-runs">
+          <h2 id="venue-runs" className="text-2xl font-bold mb-6" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>What the venue runs, and what the island judges</h2>
+          <ArtCard art={pageArt('security', 17)}>
+            <ul className="space-y-3 text-white/90 text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>
+              <li>The venue runs the doors, the launch rail, and the swap and pool pages you use here. Every contract it points at is on <Link to="/contracts" className="underline underline-offset-4 hover:text-white">the venue&apos;s record</Link>, with its status.</li>
+              <li>The island judges held time. It measures Heat; the venue reads the island&apos;s number live and never computes its own.</li>
+              <li>The launch door opens for a wallet at or above {floor}&deg;. It is advisory: it holds the door the venue controls, and a launcher can still call the contracts directly.</li>
+              <li>A Fact Sheet or a gate tier is a disclosure, not a warranty (<Link to="/terms" className="underline underline-offset-4 hover:text-white">Terms</Link>, section 10).</li>
+              <li>Certification is the island&apos;s to give. The venue never declares its own.</li>
+            </ul>
+          </ArtCard>
+        </m.section>
 
         {/* Honest audit-status banner: leads the page. No paid outside-firm
             audit has been commissioned; this states that plainly and points to
@@ -147,14 +169,25 @@ export default function SecurityPage() {
             true elsewhere on this page. */}
         <m.div initial="hidden" animate="visible" variants={fade} transition={{ duration: 0.6, delay: 0.1 }} className="mb-14">
           <div className="rounded-2xl p-5 md:p-6" style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', border: '1px solid rgba(234,179,8,0.35)' }}>
-            <h2 className="text-lg md:text-xl font-bold text-amber-300 mb-2" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>No paid third-party audit yet — here is exactly what we do instead</h2>
-            <p className="text-white/85 text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We have not commissioned a paid audit from an outside security firm. In its place we run repeated internal multi-agent security reviews backed by an extensive Foundry test suite, track every finding and fix in public audit files, and keep the code immutable and non-upgradeable after deployment. The methodology, artifacts, and still-open items are all linked below — read the source of truth directly.</p>
+            <h2 className="text-lg md:text-xl font-bold text-amber-300 mb-2" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>No paid third-party audit yet. Here is exactly what we do instead</h2>
+            <p className="text-white/85 text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>We have not commissioned a paid audit from an outside security firm. In its place we run repeated internal multi-agent security reviews backed by an extensive Foundry test suite, track every finding and fix in public audit files, and keep the code immutable and non-upgradeable after deployment. The methodology, artifacts, and still-open items are all linked below: read the source of truth directly.</p>
           </div>
         </m.div>
 
+        {/* WAVE SEVEN, row Q: TOWELI'S PROTOCOL, UNDER ITS OWN NAME. Everything
+            in this section, word for word, is the classic protocol TOWELI runs
+            on Ethereum: its contracts (their on-chain names keep "Tegridy"), its
+            review waves, its bounty and its keys. The data-voice marker tells the
+            voice census and element I that this subtree is TOWELI's, by
+            structure; src/pages/recordSurfaces.test.ts pins which files may
+            declare one. */}
+        <section data-voice="toweli" aria-labelledby="toweli-protocol">
+          <h2 id="toweli-protocol" className="text-3xl font-bold mb-2" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>TOWELI&apos;s protocol: contracts, audits, governance</h2>
+          <p className="text-white/80 mb-10" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>The classic protocol TOWELI runs on Ethereum, and the review behind it.</p>
+
         {/* Audit Methodology */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6 flex items-center gap-3"><ShieldIcon /> Audit Methodology</h2>
+          <h3 className="text-2xl font-bold mb-6 flex items-center gap-3"><ShieldIcon /> Audit Methodology</h3>
           <ArtCard art={pageArt('security', 1)}>
             <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Our internal security audit employed red team testing across the full protocol surface. The final audit round included comprehensive re-testing of every previously identified finding.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -188,7 +221,7 @@ export default function SecurityPage() {
 
         {/* Security Fixes Tracked */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.05 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6">Audit Artifacts</h2>
+          <h3 className="text-2xl font-bold mb-6">Audit Artifacts</h3>
           <ArtCard art={pageArt('security', 2)}>
             <p className="mb-4" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95), 0 0 10px rgba(0,0,0,0.9)' }}>
               Multiple multi-agent security reviews have been run against the codebase. The full
@@ -246,7 +279,7 @@ export default function SecurityPage() {
 
         {/* Smart Contract Design */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.1 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6">Smart Contract Design</h2>
+          <h3 className="text-2xl font-bold mb-6">Smart Contract Design</h3>
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {PROTECTIONS.map((p, i) => {
               const Icon = iconMap[p.icon];
@@ -254,7 +287,7 @@ export default function SecurityPage() {
               return (
                 <ArtCard key={p.title} art={artPiece} padding="p-5">
                   <div className="mb-3">{Icon && <Icon />}</div>
-                  <h3 className="font-semibold text-white text-sm md:text-base mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{p.title}</h3>
+                  <h4 className="font-semibold text-white text-sm md:text-base mb-1" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>{p.title}</h4>
                   <p className="text-[#22c55e] text-xs md:text-sm" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>{p.desc}</p>
                 </ArtCard>
               );
@@ -264,7 +297,7 @@ export default function SecurityPage() {
 
         {/* Contract Addresses */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.15 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6">Contract Addresses</h2>
+          <h3 className="text-2xl font-bold mb-6">Contract Addresses</h3>
           <div className="space-y-3">
             {CONTRACTS.map((c, i) => {
               const artPiece = pageArt('security', 9 + i);
@@ -305,7 +338,7 @@ export default function SecurityPage() {
 
         {/* Transparency */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.2 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6">Transparency</h2>
+          <h3 className="text-2xl font-bold mb-6">Transparency</h3>
           <ArtCard art={pageArt('security', 15)}>
             <div className="space-y-3">
               {[
@@ -322,7 +355,7 @@ export default function SecurityPage() {
 
         {/* Bug Bounty */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.25 }} className="mb-14">
-          <h2 className="text-2xl font-bold mb-6">Bug Bounty</h2>
+          <h3 className="text-2xl font-bold mb-6">Bug Bounty</h3>
           <ArtCard art={pageArt('security', 16)}>
             <p className="text-[#22c55e] mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Bug bounties are paid case-by-case as the treasury allows — we don&rsquo;t run a third-party platform program. Report vulnerabilities directly via Twitter DM <a href="https://twitter.com/junglebayac" target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:text-purple-200">@junglebayac</a> or the disclosure channel in our community footer.</p>
             <p className="text-[#22c55e] text-sm mb-5" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>Indicative severity bands below — actual payouts are negotiated per report and paid as treasury funds allow:</p>
@@ -348,7 +381,7 @@ export default function SecurityPage() {
 
         {/* Multisig & Governance */}
         <m.section initial="hidden" whileInView="visible" viewport={{ once: true }} variants={fade} transition={{ duration: 0.5, delay: 0.3 }}>
-          <h2 className="text-2xl font-bold mb-6 flex items-center gap-3"><LockIcon /> Multisig &amp; Governance</h2>
+          <h3 className="text-2xl font-bold mb-6 flex items-center gap-3"><LockIcon /> Multisig &amp; Governance</h3>
           <ArtCard art={pageArt('security', 21)}>
             <div className="space-y-3">
               {[
@@ -369,9 +402,10 @@ export default function SecurityPage() {
             </div>
           </ArtCard>
         </m.section>
+        </section>
 
         <p className="text-center text-white/85 text-xs mt-12" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
-          Last reviewed: August 2026
+          Last reviewed: September 2026
         </p>
 
       </div>
