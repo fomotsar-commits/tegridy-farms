@@ -18,6 +18,7 @@
 // uncovered, and no data rows. It must never be mistaken for "this wallet did
 // nothing that year", which is what a bare header row with no explanation is.
 
+import { SITE_HOST } from '../constants';
 import { gapLines } from './coverage';
 import { INCOMPLETE_REASON_TEXT } from './lots';
 import { NOT_TAX_ADVICE, methodStatement } from './methods';
@@ -82,7 +83,7 @@ function iso(unixSeconds: number): string {
 export function reportHeaderLines(report: TaxReport, exportName: string): string[] {
   const lines = [
     `# ${exportName}`,
-    `# Generated ${iso(report.generatedAt)} by memetic.fun. Wallet: ${report.account ?? '(none connected)'}`,
+    `# Generated ${iso(report.generatedAt)} by ${SITE_HOST}. Wallet: ${report.account ?? '(none connected)'}`,
     `# Period ${iso(report.periodStart)} → ${iso(report.periodEnd)} (inclusive, UTC)`,
     `# ${methodStatement(report.method)}`,
     `# Values are ${report.quoteCurrency} to ${report.quoteScale} decimal places. An empty value column means ` +
