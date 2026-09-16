@@ -191,7 +191,11 @@ export function Footer() {
                 className={`${LINK_CLASS} text-left`}
                 style={LINK_SHADOW}
               >
-                🏝️ Bungalows{!inToweliRoom && getActiveBungalow() ? ` — ${getActiveBungalow()!.name}` : ''}
+                {/* A middle dot, not a dash: on a bungalow DOOR this label
+                    names the active room, so an em dash here put one prose dash
+                    of venue CHROME into all fourteen rooms and billed every one
+                    of them for it (answer eight, ruling 8, measured 09-16). */}
+                🏝️ Bungalows{!inToweliRoom && getActiveBungalow() ? ` · ${getActiveBungalow()!.name}` : ''}
               </button>
               {/* WAVE SEVEN, element E: the install offer, as a ROW.
                   It used to be a fixed z-9500 dialog that opened itself the

@@ -154,7 +154,11 @@ export function VenueHero() {
           style={{ background: 'rgba(6,12,26,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
         >
           <span className="text-white/90">&ldquo;{VENUE.museLine}&rdquo;</span>
-          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; {VENUE.museBy}</span>
+          {/* A middle dot, not a dash (answer eight, ruling 8). The dash here
+              was already outside element I by structure - it is its own text
+              node, which the walk reads as the unread placeholder - so this is
+              the island fixing its own typography, not a budget moving. */}
+          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&middot; {VENUE.museBy}</span>
         </span>
       </div>
     </>

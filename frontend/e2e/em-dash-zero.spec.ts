@@ -324,3 +324,92 @@ test.describe('element I: em dashes in venue-voice prose', () => {
     }
   });
 });
+
+// ── ELEMENT I REACHES THE ROOMS (answer eight, ruling 8) ──────────────
+//
+// FOURTEEN paths, not the thirteen the ruling names: App.tsx maps the registry
+// and appends the /towelie alias, and a table built on "thirteen" leaves one
+// door unwalked - the exact drift routes.ts records as having hidden 14 routes
+// from the a11y sweep for months.
+//
+// A SECOND TABLE, not more rows in the first. The guard below the venue table
+// forbids a non-venue voice as a key there, deliberately: a room's copy is not
+// the venue speaking, and the two debts are owed by different people. The
+// island's own Bayla copy is its canon, rewritten by the island itself in
+// answer eight; the settled doors' shared hero and the market footnote are the
+// venue's, and they ratchet down like any other venue prose.
+//
+// ON /toweli AND /towelie nothing carries the data-room or data-voice markers
+// the walker skips, so TOWELI's protocol copy counts here. That is correct: in
+// TOWELI's OWN room it is that room's prose, not a resident's copy leaking into
+// the venue's.
+const ROOM_VOICE_DEBT: Record<string, number> = {
+  // MEASURED 2026-09-16 against a production build, one door at a time.
+  // The two TOWELI-skin doors carry the whole protocol cluster, which is why
+  // they are an order above the rest; the settled doors share one hero and one
+  // market footnote; /bayla is the island's own canon, already rewritten by the
+  // island in answer eight; and the quiet slot says almost nothing, so it is
+  // at zero and stays there by the same rule every finished route does.
+  '/toweli': 22,
+  '/towelie': 22,
+  '/bayla': 4,
+  '/pepe': 6,
+  '/qr': 6,
+  '/mfer': 6,
+  '/bnkr': 6,
+  '/drb': 6,
+  '/bobo': 5,
+  '/jbm': 6,
+  '/soy': 5,
+  '/brainlet': 5,
+  '/rizz': 5,
+  '/nb1': 0,
+};
+
+test.describe('element I: em dashes in the rooms', () => {
+  for (const [path, budget] of Object.entries(ROOM_VOICE_DEBT)) {
+    test(`${path} carries ${budget} prose em dash${budget === 1 ? '' : 'es'}`, async ({ page }) => {
+      test.skip(test.info().project.name !== 'chromium', 'the debt here is a desktop measurement');
+      test.slow();
+      await page.addInitScript(() => {
+        try {
+          sessionStorage.setItem('tf_loaded', '1');
+          localStorage.setItem('tegridy-onboarding-seen', '1');
+          localStorage.setItem('tegridy_telemetry_consent', 'denied');
+          // The door sets its own skin on arrival; this is the sentinel a
+          // stranger carries in, not a skin of its own.
+          localStorage.setItem('tegridy-bungalow', 'venue');
+        } catch { /* private mode */ }
+      });
+      await settle(page, path);
+
+      const hits = await proseDashes(page);
+      const shown = hits.slice(0, 8).map((h) => `  ${h.owner}: ${h.text}`).join('\n');
+
+      if (budget === 0) {
+        expect(hits.length, `${path} is at zero and gained prose em dashes:\n${shown}`).toBe(0);
+        return;
+      }
+      expect(
+        hits.length,
+        hits.length > budget
+          ? `${path} gained prose em dashes (${budget} -> ${hits.length}). First few:\n${shown}`
+          : `${path} is DOWN to ${hits.length} from ${budget}. Good: lower the number in ROOM_VOICE_DEBT to ${hits.length}.`,
+      ).toBe(budget);
+    });
+  }
+
+  // The rooms table walks DOORS, and all of them. A door added to the registry
+  // without a row here is a room nobody is counting.
+  test('the room table walks every door the app routes, and only doors', () => {
+    // A DOOR is a route that renders the home page under a resident's skin.
+    // Filtering on voice alone would drag in TOWELI's six protocol rooms,
+    // which are rooms but not doors, and they are the venue's own pages
+    // wearing the band - counted in the table above, under the census.
+    const doors = ROUTES
+      .filter((r) => r.owner === 'pages/HomePage.tsx' && r.voice !== 'venue')
+      .map(navigablePath);
+    expect(doors.length, 'the app routes fourteen doors, thirteen ids plus the towelie alias').toBe(14);
+    expect(Object.keys(ROOM_VOICE_DEBT).sort()).toEqual([...doors].sort());
+  });
+});
