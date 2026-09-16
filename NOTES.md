@@ -15,6 +15,74 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
+
+**Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
+is ready, `gh pr checks` exiting 0 means the checks passed, and a stale branch is one
+click from current.
+
+**Measured** while triaging the open-PR backlog against `mvp-launch`, every one of those
+was wrong in a way that would have merged something nobody had checked.
+
+### `gh pr checks` exits 0 on the checks that exist, not the checks that should
+
+On a PR whose base is not a trunk branch, `gh pr checks <n>` exits **0** with 11 of the 32
+gates a trunk-based PR runs. It reports the check-runs that were created, and a job whose
+workflow never triggered creates none, so nothing in the output is red and nothing says
+"missing". The 2026-09-12 stacked-branch entry below records a stacked PR reading
+`all-checks-pass: SUCCESS`; the extra fact here is that the exit code agrees with it, so a
+script that gates on `$?` is exactly as blind as a human reading the tick.
+
+**Do:** list the NAMED contexts the touched paths must produce, look each one up in
+`gh pr checks --json name,state,workflow`, and treat an absent context as a failure. A
+count floor does not fix this (see the 2026-09-12 `all-checks-pass` entry below): which
+workflows run at all is path-dependent.
+
+### The aggregators finish before the frontend gate starts
+
+`all-checks-pass` and `all-tests-pass` are the terminal jobs of `solana-ci` and
+`Contracts CI` (the 2026-09-12 entry below has the table). On #576, a frontend PR, both
+were green at 15:54, `Build` started at 16:03 and both E2E jobs at 16:07, and the long
+E2E run finished at 16:47. A reviewer who stopped at the two green "all-*" names would
+have merged before the frontend was built, and nearly an hour before its E2E finished.
+They are not a frontend gate at any point in the run, not just early in it.
+
+### A green is computed against the base as of the last push
+
+A PR's checks ran against the trunk that existed when it was last pushed. Across the
+backlog, PRs sat **48 to 216 commits** behind `mvp-launch`, and none of them had ever run
+a guard added to trunk since, `em-dash-zero.spec.ts` among them. Their greens were true
+statements about a tree that no longer exists: nothing had re-run them.
+
+**Do:** refresh a PR onto current trunk before trusting its green, and wait for the new
+run. An old tick is evidence about its merge base, not about the merge.
+
+### The refresh has to be a merge: `update-branch` is off
+
+The repository has `allow_update_branch: false` (read with
+`gh api repos/<owner>/<repo> --jq .allow_update_branch`), so `gh pr update-branch` and the
+"Update branch" button are unavailable. Refresh a stale PR by merging trunk into its
+branch and pushing that as a plain fast-forward.
+
+### A lockfile marked `binary` cannot be three-way merged
+
+`.gitattributes` declares `package-lock.json  binary`, and the `binary` macro unsets
+`merge`, so git will not three-way merge `frontend/package-lock.json`: any two branches
+that both change it conflict on the whole file, however disjoint the edits. Dependabot
+PRs that touch the lockfile therefore land **one per rebase cycle** — merge one, and every
+other lockfile PR goes CONFLICTING until Dependabot regenerates it against the new trunk.
+Sequence them, and do not read a wall of conflicts as a wall of broken PRs.
+
+### A monitor alarm about a healthy site, fifteen times
+
+The literal-301 probe in the 2026-09-15 entry below had, by the time its fix (#573)
+landed, failed **15 consecutive runs** and commented **14 times** on issue #566 about a site
+that was serving correct 308 redirects the whole time. The durable rule is that entry's:
+assert a redirect's class and target, not a literal code. What the backlog adds is the
+count: fourteen false comments on one issue is fourteen chances to learn to skip it.
+
+---
+
 ## 2026-09-15 — a monitor that pins a vendor's status code fails the day the vendor is right
 
 **Believed:** a permanent redirect is a 301, so a synthetic probe can assert
