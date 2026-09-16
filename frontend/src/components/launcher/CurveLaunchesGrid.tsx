@@ -110,8 +110,10 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
           href="https://memetics.wtf/register"
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="underline underline-offset-2 hover:text-white/80"
+          /* relative z-10: the only thing on this card that sits above the
+             stretched link, so the door is clickable and the rest of the line
+             still opens the curve. */
+          className="relative z-10 underline underline-offset-2 hover:text-white/80"
         >
           Put yours on it
         </a>
@@ -120,12 +122,26 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
   })();
   const monogram = (card.symbol ?? card.token.slice(2, 5)).slice(0, 3).toUpperCase();
   return (
-    <Link
-      to={`/eth-curve/${card.token}?c=${chainId}`}
-      className="rounded-2xl p-3 flex gap-3 items-center hover:bg-white/5 transition-colors"
+    // THE CARD IS A CONTAINER WITH A STRETCHED LINK, not a link wrapping the
+    // card, and element P is why. P's unnamed form carries the island's door
+    // ("Put yours on it"), and an <a> inside an <a> is invalid HTML: React
+    // warns, and the HTML parser closes the outer anchor early wherever this
+    // markup is parsed rather than constructed, which is any pre-rendered or
+    // hydrated path. stopPropagation() silenced the click but not the nesting.
+    //
+    // The stretched link is absolutely positioned and FIRST in the DOM, so it
+    // paints over the static text and every click on the card still opens the
+    // curve; only a positioned child with a z-index sits above it, which is
+    // exactly what the planter's door does and nothing else does.
+    <div
+      className="relative rounded-2xl p-3 flex gap-3 items-center hover:bg-white/5 transition-colors focus-within:ring-2 focus-within:ring-[#8b5cf6]"
       style={cardStyle}
-      aria-label={`Open ${card.name ?? short} on the curve`}
     >
+      <Link
+        to={`/eth-curve/${card.token}?c=${chainId}`}
+        className="absolute inset-0 rounded-2xl"
+        aria-label={`Open ${card.name ?? short} on the curve`}
+      />
       {card.imageUrl ? (
         <img
           src={card.imageUrl}
@@ -176,7 +192,7 @@ export function CurveGridCardView({ card, chainId }: { card: CurveGridCardData; 
           </div>
         )}
       </div>
-    </Link>
+    </div>
   );
 }
 

@@ -126,6 +126,21 @@ describe('element P: the planter on a launch card', () => {
     expect(line()?.textContent).not.toContain('\u2014');
   });
 
+  it("puts the island's door OUTSIDE the card's own link, not inside it", () => {
+    // The door and the card are both links, and the card used to wrap the door.
+    // An <a> inside an <a> is invalid HTML: React warns, and any path that
+    // PARSES this markup rather than constructing it (pre-render, hydration)
+    // closes the outer anchor early, which puts the card's click target
+    // somewhere nobody chose. The card is a container with a stretched link now.
+    show({ address: PLANTER, row: { xHandle: null, isCold: false, tier: '', days: null } });
+    const door = screen.getByRole('link', { name: 'Put yours on it' });
+    const card = screen.getByRole('link', { name: /on the curve$/ });
+    expect(door.closest('a')).toBe(door);
+    expect(card.contains(door)).toBe(false);
+    // And the card is still one link over the whole card, not a bare div.
+    expect(card.className).toContain('absolute');
+  });
+
   it('prints the tier alone when the island sent no held-since', () => {
     show({ address: PLANTER, row: { ...named, days: null } });
     expect(line()?.textContent).toBe('Planted by @greencifer \u00b7 Builder');
