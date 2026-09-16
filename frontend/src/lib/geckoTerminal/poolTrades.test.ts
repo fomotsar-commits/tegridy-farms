@@ -55,7 +55,8 @@ beforeEach(() => {
 describe('poolTradesUrl', () => {
   it('addresses one pool on one network, encoding both segments', () => {
     const url = poolTradesUrl('solana', MINT);
-    expect(url).toBe(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${MINT}/trades`);
+    // Same-origin edge; the upstream path it names is still pinned in full.
+    expect(url).toBe(`/api/aggregator?resource=gecko-read&path=/networks/solana/pools/${MINT}/trades`);
   });
 
   it('cannot be steered into another endpoint by its arguments', () => {

@@ -160,7 +160,7 @@ function Coverage({
   }
   if (series.droppedOldestBucket) {
     lines.push(
-      'The oldest bucket was cut by that page boundary and has been removed — drawing it would have given it an open nobody measured.',
+      'The oldest bucket was cut by that page boundary and has been removed: drawing it would have given it an open nobody measured.',
     );
   }
   if (unpriceable > 0) {
@@ -181,7 +181,7 @@ function Coverage({
   }
   if (series.emptyBuckets > 0) {
     lines.push(
-      `${series.emptyBuckets} bucket${series.emptyBuckets === 1 ? '' : 's'} had no trade at all. They are drawn as gaps — no price is invented across them.`,
+      `${series.emptyBuckets} bucket${series.emptyBuckets === 1 ? '' : 's'} had no trade at all. They are drawn as gaps; no price is invented across them.`,
     );
   }
   if (syncedAt !== null) {
@@ -239,13 +239,13 @@ function geckoReasonSentence(
     case 'rate-limited':
       return 'GeckoTerminal refused this read (HTTP 429). Its published keyless limit is about thirty reads a minute, shared by every open island page. Nothing is drawn from a refused read; wait a moment and try again.';
     case 'not-found':
-      return `GeckoTerminal has no pool at this address on ${NETWORK_LABELS[market.network]} (HTTP 404). That says this source has not indexed it — not that the pool does not exist on-chain.`;
+      return `GeckoTerminal has no pool at this address on ${NETWORK_LABELS[market.network]} (HTTP 404). That says this source has not indexed it, not that the pool does not exist on-chain.`;
     case 'http':
       return `GeckoTerminal answered HTTP ${state.httpStatus ?? '(no status)'}, so nothing was read.`;
     case 'off-schema':
       return 'GeckoTerminal answered in a shape this page does not recognise, so the answer was refused rather than charted.';
     case 'off-grid':
-      return `GeckoTerminal returned buckets that do not sit on a ${timeframeLabel} grid, so nothing was drawn — a bent time axis is a chart that lies about when.`;
+      return `GeckoTerminal returned buckets that do not sit on a ${timeframeLabel} grid, so nothing was drawn. A bent time axis is a chart that lies about when.`;
     default:
       return 'No candles were read.';
   }
@@ -262,7 +262,7 @@ function GeckoStatus({ state, market, timeframeLabel }: GeckoChartStatusProps) {
     );
     if (series.newestStartSec !== null) {
       lines.push(
-        `Newest bucket opened ${utcStamp(series.newestStartSec)} UTC — the source's own newest bucket, not this page's clock.`,
+        `Newest bucket opened ${utcStamp(series.newestStartSec)} UTC: the source's own newest bucket, not this page's clock.`,
       );
     }
     // UNCONDITIONAL for any series that has a newest bucket. Whether that bucket
@@ -278,7 +278,7 @@ function GeckoStatus({ state, market, timeframeLabel }: GeckoChartStatusProps) {
     }
     if (series.emptyBuckets > 0) {
       lines.push(
-        `${series.emptyBuckets} bucket${series.emptyBuckets === 1 ? '' : 's'} were not returned by the source. They are drawn as gaps — no price is invented across them.`,
+        `${series.emptyBuckets} bucket${series.emptyBuckets === 1 ? '' : 's'} were not returned by the source. They are drawn as gaps; no price is invented across them.`,
       );
     }
     if (series.zeroVolumeBars > 0) {

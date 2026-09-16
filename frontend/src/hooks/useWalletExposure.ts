@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAccount, useChainId, useReadContracts } from 'wagmi';
+import { useAccount, useReadContracts } from 'wagmi';
 import { formatUnits } from 'viem';
 import { ERC20_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
@@ -31,9 +31,9 @@ import {
 //   instead of showing a fabricated band. The position size is exact either way.
 //   A scan that fails is NOT retried; see the scan effect below.
 //
-// SELF-GATING: no wallet ⇒ empty; wrong network ⇒ flagged + empty; a wallet with
-// no tracked balances ⇒ empty holdings (the page shows an honest empty state, not
-// a fake "you're safe").
+// SELF-GATING: no wallet ⇒ empty; a wallet with no tracked balances ⇒ empty
+// holdings (the page shows an honest empty state, not a fake "you're safe"). The
+// wallet's chain gates nothing: every read is pinned to mainnet (see below).
 
 const ZERO = '0x0000000000000000000000000000000000000000' as const;
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -54,7 +54,6 @@ export interface UseWalletExposureOptions {
 
 export interface WalletExposureState {
   isConnected: boolean;
-  isWrongNetwork: boolean;
   isLoading: boolean;
   /** True when the balance multicall itself errored (not merely empty). */
   error: boolean;
@@ -89,8 +88,6 @@ function curatedErc20Targets(): TokenTarget[] {
 export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletExposureState {
   const { extraTokens = [], scanToken, refetchInterval = 30_000 } = opts;
   const { address, isConnected } = useAccount();
-  const chainId = useChainId();
-  const onRightChain = chainId === CHAIN_ID;
 
   // Build the token universe: curated ERC-20s + any valid, de-duplicated extras.
   const targets = useMemo<TokenTarget[]>(() => {
@@ -125,10 +122,14 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
     ]);
   }, [targets, address]);
 
+  // Every read is pinned to mainnet, so a wallet on Base or Robinhood reads its
+  // mainnet balances too. NOT gated on the wallet's chain: that gate emptied the
+  // list, and the page then said "No tracked ERC-20 balances in this wallet"
+  // under its own "switch to read your holdings" notice. It never signs anything.
   const { data, isLoading, isError } = useReadContracts({
     contracts,
     query: {
-      enabled: !!address && isConnected && onRightChain && targets.length > 0,
+      enabled: !!address && isConnected && targets.length > 0,
       refetchInterval,
     },
   });
@@ -137,7 +138,7 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
     holdings: WalletHolding[];
     unreadableBalances: `0x${string}`[];
   }>(() => {
-    if (!data || !address || !onRightChain) return { holdings: [], unreadableBalances: [] };
+    if (!data || !address) return { holdings: [], unreadableBalances: [] };
     const out: WalletHolding[] = [];
     const unreadable: `0x${string}`[] = [];
     for (let i = 0; i < targets.length; i++) {
@@ -194,7 +195,7 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
     // Largest position-share first; unknown-supply positions sink to the bottom.
     out.sort((a, b) => (b.positionShareOfTotal ?? -1) - (a.positionShareOfTotal ?? -1));
     return { holdings: out, unreadableBalances: unreadable };
-  }, [data, address, onRightChain, targets]);
+  }, [data, address, targets]);
 
   // Per-token exposure. Without a scanner every holding is synchronously
   // `unmeasured` (no fabricated band). With a scanner, resolve asynchronously.
@@ -253,7 +254,6 @@ export function useWalletExposure(opts: UseWalletExposureOptions = {}): WalletEx
 
   return {
     isConnected,
-    isWrongNetwork: isConnected && !onRightChain,
     isLoading: isLoading && holdings.length === 0,
     error: isError,
     address,
