@@ -110,7 +110,7 @@ export function ZapPanel() {
                 </option>
               ) : (
                 <option key={v.id} value={v.id} disabled>
-                  {v.label} — unavailable
+                  {v.label} (unavailable)
                 </option>
               ),
             )}

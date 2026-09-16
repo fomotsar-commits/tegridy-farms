@@ -418,3 +418,70 @@ describe('parseHeatReading — the handle rides the reading', () => {
     expect(r.degrees).toBe(195.54); // the reading itself still stands
   });
 });
+
+describe("the island's retired flag on a breakdown row", () => {
+  // MEASURED AGAINST THE LIVE ENVELOPE, 2026-09-09, on a real 18-row flame
+  // (`/api/aggregator?resource=heat&address=0xd71caf9f…`):
+  //
+  //   envelope degrees  1792.96
+  //   all 18 rows sum   1792.96
+  //   the 4 retired     155.61  (BOBO 92.74, BOBO 56.54, ALPHA 4.34, SOY 1.99)
+  //
+  // Two facts, and the second one is the one worth having: the upstream has
+  // always sent `retired`, and a retired row STILL COUNTS toward the flame.
+  const ROW = {
+    token_address: '0xaaa',
+    chain: 'ethereum',
+    name: 'Bobo',
+    symbol: 'BOBO',
+    heat_degrees: 92.74,
+    first_seen_at_unix: 1642281378,
+    last_transfer_at_unix: 1787701079,
+  };
+  const envelope = (rows: unknown[]) => ({
+    address: '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a',
+    degrees: 100,
+    tier: 'Resident',
+    is_cold: false,
+    held_since_unix: 1642281378,
+    as_of_unix: 1789000000,
+    token_count: rows.length,
+    breakdown: rows,
+  });
+
+  it('reads the flag the envelope actually sends', () => {
+    const r = parseHeatReading(envelope([{ ...ROW, retired: true }]));
+    expect(r.breakdown[0]!.retired).toBe(true);
+  });
+
+  it('reads a row the island did not flag as not retired', () => {
+    const r = parseHeatReading(envelope([{ ...ROW, retired: false }]));
+    expect(r.breakdown[0]!.retired).toBe(false);
+  });
+
+  it('treats an absent flag as not retired, never as unknown', () => {
+    // Older envelopes, and any row the upstream stops sending it on. A row that
+    // is not flagged is not retired; there is no third state to render.
+    const r = parseHeatReading(envelope([ROW]));
+    expect(r.breakdown[0]!.retired).toBe(false);
+  });
+
+  it('does not coerce a truthy non-boolean into retired', () => {
+    // `retired: "false"` is a string and every string is truthy. A loose read
+    // here would retire every row on the day the upstream changed its encoding.
+    const r = parseHeatReading(envelope([{ ...ROW, retired: 'false' }]));
+    expect(r.breakdown[0]!.retired).toBe(false);
+  });
+
+  it('leaves a retired row COUNTING toward the flame, as the island does', () => {
+    // The trap this pins: "retired" reads like "excluded", and it is not. If a
+    // future change starts subtracting these, the venue tells a holder their
+    // held time was taken away — and the island's own number would disagree.
+    const r = parseHeatReading(
+      envelope([{ ...ROW, retired: true }, { ...ROW, token_address: '0xbbb', symbol: 'SOY', heat_degrees: 1.99, retired: false }]),
+    );
+    const sum = r.breakdown.reduce((a, b) => a + b.degrees, 0);
+    expect(Number(sum.toFixed(2))).toBe(94.73);
+    expect(r.breakdown.filter((b) => b.retired)).toHaveLength(1);
+  });
+});

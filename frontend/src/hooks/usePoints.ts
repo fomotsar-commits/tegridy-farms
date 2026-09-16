@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAccount, useReadContracts, usePublicClient, useChainId } from 'wagmi';
+import { useAccount, useReadContracts, usePublicClient } from 'wagmi';
 import { parseAbiItem } from 'viem';
 import {
   getPointsData, recordAction,
@@ -23,8 +23,6 @@ const SWAP_EXECUTED_EVENT = parseAbiItem(
 export function usePoints() {
   const { address } = useAccount();
   const publicClient = usePublicClient({ chainId: CHAIN_ID });
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
   const [data, setData] = useState<PointsData | null>(null);
   const [swapCount, setSwapCount] = useState(0);
   const [swapCountUnread, setSwapCountUnread] = useState(false);
@@ -32,10 +30,13 @@ export function usePoints() {
 
   const userAddr = address ?? ZERO_ADDR;
   const stakingDeployed = checkDeployed(TEGRIDY_STAKING_ADDRESS);
-  const enabled = stakingDeployed && !!address && onMainnet;
+  const enabled = stakingDeployed && !!address;
 
   // R043 H-062-02: chainId pin on every entry so a wrong-chain wallet doesn't
-  // read another chain's balances into the points computation.
+  // read another chain's balances into the points computation. NOT gated on
+  // useChainId() === CHAIN_ID as well: that gate scored a wallet on Base on its
+  // swap count alone (the getLogs scan below was never gated), and
+  // reconcilePoints() saved the understated total. See useLPFarming.ts.
   const { data: contractData } = useReadContracts({
     contracts: [
       { address: TEGRIDY_STAKING_ADDRESS, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr], chainId: CHAIN_ID },
