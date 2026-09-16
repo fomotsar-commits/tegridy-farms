@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { useAccount, useReadContract, useReadContracts, useWriteContract, useWaitForTransactionReceipt, useChainId } from 'wagmi';
 import { formatEther, parseEther, type Address } from 'viem';
 import { toast } from 'sonner';
@@ -280,6 +281,11 @@ export function NFTLendingSection() {
    ═══════════════════════════════════════════════════════════════════ */
 function LendTab() {
   const { isConnected } = useAccount();
+  // A control labelled "Connect Wallet" while `disabled` on the same !isConnected that
+  // produced the label is dead: a native disabled button dispatches no click. The Create
+  // Loan Offer button now OPENS the connect modal when disconnected instead of greying
+  // out under the word. Same fix as CollectionDetailV2 and AMMSection.
+  const { openConnectModal } = useConnectModal();
   const [selectedCollection, setSelectedCollection] = useState<Address>(COLLECTIONS[0]!.address);
   const [principal, setPrincipal] = useState('');
   const [aprBps, setAprBps] = useState('');
@@ -492,8 +498,8 @@ function LendTab() {
 
       {/* Create Offer Button */}
       <button
-        onClick={handleCreateOffer}
-        disabled={!isConnected || isPending || isConfirming}
+        onClick={isConnected ? handleCreateOffer : openConnectModal}
+        disabled={isConnected && (isPending || isConfirming)}
         className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{
           background: isPending || isConfirming ? 'var(--color-purple-15)' : 'linear-gradient(135deg, rgba(16,185,129,0.3), var(--color-purple-30))',

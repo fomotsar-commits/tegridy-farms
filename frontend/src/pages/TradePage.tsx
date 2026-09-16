@@ -89,7 +89,12 @@ export default function TradePage() {
   const [tab, setTab] = useState<Tab>(() => resolveInitialTab(searchParams));
   // Title follows the active tab so /liquidity reads "Liquidity" not "Trade".
   const titleByTab: Record<Tab, { title: string; desc: string }> = {
-    swap:      { title: 'Swap',      desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.' },
+    // VOICE 2026-09-09: this read "Trade ETH ↔ TOWELI via Uniswap V2". It is the
+    // og:description and the search-result line for /swap, on a page with no
+    // arrival-voice gate at all, so the venue was introducing its swap surface
+    // as one resident's pair — and understating it: the tab quotes the native
+    // pair AND the routed aggregators, across more than one chain.
+    swap:      { title: 'Swap',      desc: 'Swap tokens on the native DEX or across the routed aggregators, with custom slippage controls.' },
     // AUDIT FIX H-2: honest descriptions — these are browser-tab-only tools, not on-chain.
     dca:       { title: 'Recurring Swap', desc: 'Schedule reminders to buy TOWELI at regular intervals. Your wallet signs each swap \u2014 keep this tab open.' },
     // UPDATED 2026-07-19: CoW is now the PRIMARY path in this tab — a real

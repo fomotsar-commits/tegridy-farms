@@ -328,9 +328,8 @@ You don't need to read the contracts. Four steps from cold wallet to earning yie
 ### 1. Get a wallet
 MetaMask, Rabby, Coinbase Wallet, **Phantom** or **Trust** — or anything RainbowKit supports.
 Fund it with ETH for gas. For the Solana surfaces (the swap and the four Solana bungalow
-lighthouses) use Phantom or another Solana wallet; **Trust is deliberately absent from the
-Solana modal**, because its adapter is legacy-only and would connect and then fail on every
-swap. TOWELI itself is Ethereum-only.
+lighthouses) use Phantom, Trust, or another Solana wallet — **Trust works on both sides as
+of 2026-09-15**. TOWELI itself is Ethereum-only.
 
 ### 2. Get TOWELI
 - **App swap:** [memetics.finance/swap](https://memetics.finance/swap) — the smart front-door; the protocol fee is routed toward stakers (nothing has arrived yet — see the fee-rail bullet above).
@@ -475,13 +474,18 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   cancel returns unspent — plus a price chart, a priority/speed control, USD-denominated
   input, remembered pairs and real receipts. Pure fee-capture; we custody no liquidity.
   Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
-- **Wallets.** Phantom is in both the EVM and Solana modals (vendored, because importing
-  RainbowKit's `/wallets` barrel fails the **production** build against wagmi 3.7.6 —
-  `portoWallet` and `geminiWallet` import named exports that no longer exist). **Trust is on
-  the EVM side only, deliberately:** its Solana adapter declares
-  `supportedTransactionVersions = null`, i.e. legacy-only, so it would connect happily and
-  then throw on every versioned swap. Phantom's EVM entry cannot work in mobile Safari at
-  all; the app states that rather than papering over it.
+- **Wallets.** Phantom and Trust are both in the EVM and Solana modals, and both are
+  vendored — importing RainbowKit's `/wallets` barrel fails the **production** build against
+  wagmi 3.7.6 (`portoWallet` and `geminiWallet` import named exports that no longer exist),
+  and on the Solana side `@solana/wallet-adapter-trust` is stale in a way that matters.
+  **Trust was EVM-only until 2026-09-15** on the grounds that its packaged Solana adapter
+  declares `supportedTransactionVersions = null` — legacy-only — so it would connect happily
+  and then throw on every versioned write. That reading of the *package* was right and still
+  is; it was the wrong reading of the *wallet*. Trust's own Wallet Standard implementation
+  declares `['legacy', 0]` and `wallet-core` has signed v0 since 2023, so the venue vendors
+  an adapter with the honest declaration instead (`frontend/src/lib/solanaWallets.ts`) rather
+  than adopting a package whose metadata is stale. Phantom's EVM entry cannot work in mobile
+  Safari at all; the app states that rather than papering over it.
 - **Bungalow lighthouses (live).** Five Streamflow staking pools — BAYLA (2026-08-26, the
   first, and Token-2022 rather than legacy SPL), then BOBO, SOY, BRAINLET and RIZZ
   (2026-08-30). The whole pool lifecycle was rehearsed on **devnet with real transactions**
