@@ -50,19 +50,30 @@ They are not a frontend gate at any point in the run, not just early in it.
 ### A green is computed against the base as of the last push
 
 A PR's checks ran against the trunk that existed when it was last pushed. Across the
-backlog, PRs sat **48 to 216 commits** behind `mvp-launch`, and none of them had ever run
-a guard added to trunk since, `em-dash-zero.spec.ts` among them. Their greens were true
-statements about a tree that no longer exists: nothing had re-run them.
+backlog, PRs sat **48 to 216 commits** behind `mvp-launch`. The oldest of them predate
+`em-dash-zero.spec.ts` entirely (it arrived in `350dfa9d` on 2026-09-09), and the rest had
+run it only in an earlier revision, before the per-route budgets they would be merged
+against were rewritten. Their greens were true statements about a tree that no longer
+exists: nothing had re-run them.
 
 **Do:** refresh a PR onto current trunk before trusting its green, and wait for the new
 run. An old tick is evidence about its merge base, not about the merge.
 
-### The refresh has to be a merge: `update-branch` is off
+### `allow_update_branch: false` does not turn `update-branch` off
 
-The repository has `allow_update_branch: false` (read with
-`gh api repos/<owner>/<repo> --jq .allow_update_branch`), so `gh pr update-branch` and the
-"Update branch" button are unavailable. Refresh a stale PR by merging trunk into its
-branch and pushing that as a plain fast-forward.
+The repository reads `allow_update_branch: false`
+(`gh api repos/<owner>/<repo> --jq .allow_update_branch`), and the first draft of this
+plan concluded from that value that `gh pr update-branch` was unavailable. It is not. On
+2026-09-16 `gh pr update-branch 567` answered "PR branch updated" and GitHub pushed
+`536976e7`, a two-parent merge committed as GitHub, and the same call then refreshed
+fourteen more PRs. The setting governs whether GitHub always *suggests* the button, not
+whether the API works; GitHub had authored update-branch merges here on 2026-09-04 too. A
+setting's value is only a claim about its effect until the effect has been measured.
+
+**Do:** refresh with `gh pr update-branch <n>`. For a stacked PR, retarget first
+(`gh pr edit <n> --base mvp-launch`) and update second, so the one push runs against the
+trunk gates. #482's refresh was pushed a minute before its retarget, ran against the old
+base, and the retarget did not re-run anything.
 
 ### A lockfile marked `binary` cannot be three-way merged
 
@@ -75,9 +86,10 @@ Sequence them, and do not read a wall of conflicts as a wall of broken PRs.
 
 ### A monitor alarm about a healthy site, fifteen times
 
-The literal-301 probe in the 2026-09-15 entry below had, by the time its fix (#573)
-landed, failed **15 consecutive runs** and commented **14 times** on issue #566 about a site
-that was serving correct 308 redirects the whole time. The durable rule is that entry's:
+The literal-301 probe in the 2026-09-15 entry below had failed **15 consecutive runs** and
+commented **14 times** on issue #566 by the time its fix (#573) was opened, about a site
+that was serving correct 308 redirects the whole time. With #573 still open a day later,
+the issue held **19** of those comments (the latest at 2026-09-16 10:05Z). The durable rule is that entry's:
 assert a redirect's class and target, not a literal code. What the backlog adds is the
 count: fourteen false comments on one issue is fourteen chances to learn to skip it.
 
