@@ -33,6 +33,8 @@
  *   - A read passed `query: { enabled: false }` is NOT answered, exactly as
  *     real wagmi does not answer it: `data` undefined, `isLoading` false. The
  *     mock used to answer it anyway, so no test could see an `enabled` gate.
+ *   - `usePublicClient` returns what `setPublicClient` was given: undefined by
+ *     default, the "no client" every hook already handles.
  *   - `useWriteContract` exposes a Vitest mock fn you can assert against to
  *     verify the hook's action functions actually call the right args.
  *   - `useWaitForTransactionReceipt` returns flags the test sets via
@@ -74,6 +76,7 @@ interface WagmiMockState {
   writeContractMock: ReturnType<typeof vi.fn>;
   chainId: number;
   answerDisabledReads: boolean;
+  publicClient: unknown;
 }
 
 function defaultWriteStatus(): WriteStatus {
@@ -88,6 +91,7 @@ function defaultState(): WagmiMockState {
     writeContractMock: vi.fn(),
     chainId: 1,
     answerDisabledReads: false,
+    publicClient: undefined,
   };
 }
 
@@ -102,6 +106,7 @@ export const wagmiMock = {
     state.writeContractMock.mockReset();
     state.chainId = next.chainId;
     state.answerDisabledReads = next.answerDisabledReads;
+    state.publicClient = next.publicClient;
   },
   setAccount(partial: Partial<AccountState>) {
     state.account = { ...state.account, ...partial };
@@ -117,6 +122,15 @@ export const wagmiMock = {
    */
   setAnswerDisabledReads(on: boolean) {
     state.answerDisabledReads = on;
+  },
+  /**
+   * What `usePublicClient()` returns. Keep ONE object for a whole test: wagmi
+   * memoises its client, and a fresh one per render re-fires every effect that
+   * lists it as a dependency. Like `usePublicClient({ chainId })` in wagmi, it
+   * does not follow the wallet's chain.
+   */
+  setPublicClient(client: unknown) {
+    state.publicClient = client;
   },
   setReadResult(stub: { functionName?: string; address?: string; result: unknown; status?: 'success' | 'failure' }) {
     state.reads.push({
@@ -240,9 +254,12 @@ vi.mock('wagmi', () => {
   // R075: no-op so hooks using useWatchContractEvent still mount in tests.
   const useWatchContractEvent = (_opts: unknown) => undefined;
 
+  const usePublicClient = (_opts?: unknown) => state.publicClient;
+
   return {
     useAccount,
     useChainId,
+    usePublicClient,
     useReadContract,
     useReadContracts,
     useWriteContract,

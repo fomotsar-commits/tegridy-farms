@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { m, AnimatePresence } from 'framer-motion';
 import {
   useAccount,
@@ -554,6 +555,11 @@ function PoolTypeBadge({ type }: { type: number }) {
 
 function BuySellPanel({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
+  // A control labelled "Connect Wallet" while `disabled` on the same connection check
+  // that produced the label is dead: a native disabled button dispatches no click. These
+  // buttons now OPEN the connect modal when disconnected instead of greying out under
+  // the word. Same fix as CollectionDetailV2 and NFTLendingSection.
+  const { openConnectModal } = useConnectModal();
   const chainId = useChainId();
   const [mode, setMode] = useState<'buy' | 'sell'>('buy');
   const [collection, setCollection] = useState('');
@@ -1050,10 +1056,10 @@ function BuySellPanel({ deployed }: { deployed: boolean }) {
             <button
               className={`flex-1 ${btnPrimary}`}
               disabled={
-                !address || !validCollection || !bestAmount || !hasPool || isConfirming ||
-                (mode === 'sell' && parsedSellIds.length === 0)
+                !!address && (!validCollection || !bestAmount || !hasPool || isConfirming ||
+                (mode === 'sell' && parsedSellIds.length === 0))
               }
-              onClick={handleExecute}
+              onClick={address ? handleExecute : openConnectModal}
             >
               {!address
                 ? 'Connect Wallet'
@@ -2066,6 +2072,10 @@ function TradeTab({ deployed }: { deployed: boolean }) {
 
 function CreatePoolTab({ deployed }: { deployed: boolean }) {
   const { address } = useAccount();
+  // Same dead-control fix as the trade button: a "Connect Wallet" label on a button
+  // disabled by the very `!address` that produced it dispatches no click, so Deploy Pool
+  // now opens the connect modal when disconnected.
+  const { openConnectModal } = useConnectModal();
   const chainId = useChainId();
   const [step, setStep] = useState(1);
   const [collection, setCollection] = useState('');
@@ -2565,8 +2575,8 @@ function CreatePoolTab({ deployed }: { deployed: boolean }) {
                   ) : (
                     <button
                       className={`flex-1 ${btnPrimary}`}
-                      disabled={isPending || isConfirming || !address || approvalNeeded}
-                      onClick={handleDeploy}
+                      disabled={!!address && (isPending || isConfirming || approvalNeeded)}
+                      onClick={address ? handleDeploy : openConnectModal}
                     >
                       {isPending
                         ? 'Check wallet…'
