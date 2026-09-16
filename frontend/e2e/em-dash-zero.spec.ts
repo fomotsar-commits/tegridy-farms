@@ -57,6 +57,20 @@ import { gotoRoute, waitForQuiescence, gotoNakamigos, ROUTES, navigablePath } fr
 // and the venue had both been walking by hand; they came to 141. They are nine
 // of fifty-one. The venue's own nav reaches the rest.
 
+// ── WHERE THESE NUMBERS HOLD ─────────────────────────────────────────────────
+//
+// They are a CI measurement: `vite preview` runs no /api function, the build has
+// no VITE_INDEXER_URL, and no push keys are set. Production has all three, so it
+// renders branches this table never walks. Walked on production with
+// this same spec (2026-09-11, merge a08ec8a6), five routes read differently:
+// /chart 36 (the indexed chart's gap tooltips and rows, since cut to zero),
+// /developers 11 and /copy-trading 12 (one configured-branch line each, since
+// cut), and /alerts 14 and /launch 30 (fewer: a configured deployment shows fewer
+// outage and setup notices). The GeckoTerminal abort below held on production
+// too; the chart's candles there come from the indexer. The chart's own source
+// guard (src/components/chart/chartCopyDashes.test.ts) holds the branch CI cannot
+// reach.
+
 /** Routes whose numbers are not a guess. Measured 2026-09-09 against the
  *  production build under `vite preview`, twice, identical both passes. */
 const VENUE_VOICE_DEBT: Record<string, number> = {
@@ -111,7 +125,14 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/curve-launch': 14,
   '/eth-curve': 15,
   '/alerts': 17,
-  '/competitions': 17,
+  // 17 -> 16 on 2026-09-13. The ratchet fired on trunk run 34734760759 at
+  // 249e4964: "/competitions is DOWN to 16 from 17". Nobody set out to remove an
+  // em dash here — it fell out of the canonical-host and GeckoTerminal-caching
+  // change-sets, which rewrote copy on this route's data notice. Recording it is
+  // the whole point of the ratchet: an unrecorded improvement reds trunk, and a
+  // red trunk that everyone knows is "just the em-dash test" is how a real one
+  // gets waved through.
+  '/competitions': 16,
   '/yield': 21,
   // 32 until element F cut the header to one sentence; that sentence carried a
   // prose dash. The fold itself moved none of them — a closed <details> keeps its

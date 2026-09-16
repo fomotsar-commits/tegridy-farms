@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAccount, useReadContracts, useChainId } from 'wagmi';
+import { useAccount, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
 import { TEGRIDY_STAKING_ABI, ERC20_ABI } from '../lib/contracts';
 import { TEGRIDY_STAKING_ADDRESS, STAKING_MONITOR_VIEW_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
@@ -16,16 +16,19 @@ const MAX_ACCRUAL_DRIFT_SEC = 45;
 
 export function useUserPosition() {
   const { address } = useAccount();
-  const chainId = useChainId();
-  const onMainnet = chainId === CHAIN_ID;
   const stakingAddr = TEGRIDY_STAKING_ADDRESS;
   const isDeployed = checkDeployed(stakingAddr);
-  const enabled = isDeployed && !!address && onMainnet;
+  const enabled = isDeployed && !!address;
   const userAddr = address ?? ZERO_ADDR;
 
   // Batch read: tokenId, wallet balance, allowance.
   // R043 H-062-02: chainId pin on every entry so a wrong-chain wallet with a real
   // mainnet position never reads the wrong chain and renders the empty stake form.
+  // The pin is the whole fix. R043 also gated `enabled` on useChainId() ===
+  // CHAIN_ID, and since the multichain config that gate did what the line above
+  // forbids: a staker connected on Base got the empty stake form, beside an LP
+  // section already showing them their mainnet position. The writes keep their
+  // own chain guards (useFarmActions). See useLPFarming.ts.
   const { data, refetch, isLoading } = useReadContracts({
     contracts: [
       { address: stakingAddr, abi: TEGRIDY_STAKING_ABI, functionName: 'userTokenId', args: [userAddr], chainId: CHAIN_ID },
@@ -86,9 +89,10 @@ export function useUserPosition() {
   // Claim, Withdraw, the paused-only emergency exit - for the empty "Stake
   // TOWELI" form, and told them their wallet balance was 0. Keep the collapse for
   // display; carry the failure next to it. `enabled` is the batch's own gate
-  // (deployed && connected && on mainnet), so an undeployed contract, a
-  // disconnected visitor or a wrong-network wallet never asked - a not-attempted
-  // read must not render as a failed one. The second batch counts only when it
+  // (deployed && connected), so an undeployed contract or a disconnected
+  // visitor never asked - a not-attempted read must not render as a failed one.
+  // A wallet on another chain IS asked (the batch is chain-pinned, not
+  // chain-gated), so its failures count. The second batch counts only when it
   // was actually issued (`hasTokenId`); with tokenId 0 it is disabled, and leg 0
   // already carries that failure.
   const positionUnread = enabled && !isLoading

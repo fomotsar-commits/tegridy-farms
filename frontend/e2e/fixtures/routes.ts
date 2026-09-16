@@ -199,8 +199,16 @@ export async function gotoNakamigos(page: Page): Promise<void> {
 /**
  * THE MEASUREMENT BEHIND THE FOUR GECKOTERMINAL ROWS.
  *
+ * ⚠️ STILL VALID, BUT THE URL MOVED (2026-09-10). These four routes no longer
+ * read api.geckoterminal.com browser-direct: every GeckoTerminal read now goes
+ * to `/api/aggregator?resource=gecko-read` on our own origin, which forwards it
+ * with an `s-maxage` (see api/_lib/gecko-read.js). The three branches below are
+ * unchanged as a record of what was measured — what changes is the PATTERN a
+ * future stub would have to match. `'**api.geckoterminal.com/**'` intercepts
+ * nothing now; the equivalent is `'**resource=gecko-read**'`.
+ *
  * /terminal, /chart, /copy-trading and /competitions each read
- * api.geckoterminal.com browser-direct and keyless, and nothing stubs it. So
+ * GeckoTerminal keyless, and nothing stubs it. So
  * their audited DOM depends on whether a third party answered — which is
  * exactly the shape that flakes an EQUALITY assertion, if the ready branch and
  * the degraded branch violate different rules. The obvious fix is a route stub;
@@ -467,8 +475,8 @@ export const ROUTES: readonly RouteSpec[] = [
       'and nothing stubs it, so the tape read-ledger renders whichever answer the feed gives and the leader ' +
       'board is drawn ONLY when that read lands — a refused or rate-limited read leaves every pool unread ' +
       'and draws no board. A rule id pinned here therefore has to hold for both answers. The venue-router ' +
-      'section below is always in its unread state (VITE_INDEXER_URL is unset and the Ponder indexer is ' +
-      'hosted nowhere), so its three "could not be read" notices render and none of them draws a table. The ' +
+      'section below is one line in this build (VITE_INDEXER_URL is unset here, though production has it), ' +
+      'so it draws no notice and no table. The ' +
       'follow form and the pasted-Solana-address field are the only live controls — both write to ' +
       'localStorage and need no chain. The sized mirror plans, their refusals and the realised entry-lag ' +
       'figures need a connected wallet and a live feed this sweep cannot guarantee, and are pinned ' +
@@ -891,6 +899,22 @@ export const ROUTES: readonly RouteSpec[] = [
       'export-only footing. Only an UNKNOWN bungalow id redirects (App.tsx guards the id against ' +
       'the registry); a known id such as /bungalow-studio/bayla renders, which is why this cannot ' +
       'claim a redirect.',
+    knownViolations: [],
+  },
+  {
+    path: '/door-studio',
+    // Authoring tool, not a room the island speaks in — same as the other
+    // studios, which all declare a null voice.
+    voice: null,
+    owner: 'App.tsx',
+    gate: 'unlisted',
+    why:
+      'The island’s FRONT-PAGE authoring tool (2026-09-13): the thirteen door tiles in ' +
+      'VenueDoors and the rows in BungalowPicker, which no studio could reach while `thumb` ' +
+      'was hand-written on the registry entry. Draws from every resident’s pool at once, ' +
+      'because a door is a shop window rather than a surface owned by the resident behind it. ' +
+      'Unlisted in production on the same export-only footing as the surface studios; it takes ' +
+      'no params, so there is no unknown-id leg to redirect.',
     knownViolations: [],
   },
   {

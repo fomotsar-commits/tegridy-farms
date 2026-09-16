@@ -70,6 +70,51 @@ build, not after — see runbook §9.
 
 ---
 
+## 🔴 2026-09-12 — CORRECTION: THE CEILING DOES NOT EXIST. DO NOT ACT ON THE SECTION BELOW.
+
+Everything below this line that treats a cumulative `accounted_amount` as a kill switch is
+**refuted**, and the incident response it asks for across BOBO / BRAINLET / RIZZ / SOY is a sweep
+for a problem that is not there. Nothing below is deleted — it is the record of what was
+believed — but do not execute it.
+
+**What was measured on 2026-09-12** (mainnet, simulating the real `claim_rewards` and reading the
+destination token account's post-state, so the PAYOUT is measured rather than the call's exit
+code):
+
+* **Program-wide, the counter stops nothing.** Of 9,797 classic reward entries carrying a
+  non-zero counter, **5,868 are past `u64::MAX`** — and the largest sits **22,000,000x past it**
+  with a successful claim on record. `accounted_amount` is written ONLY by a successful claim, so
+  the maximum found anywhere is a proven working level. The 42.4% figure below is real; reading it
+  as "42.4% are bricked" is not.
+* **What actually breaks an entry is a reward-RATE change after it opened.** On pool
+  `EFWpSpH9…` the rate changed (600,000/86400s → 7/1s) at **2026-09-01T05:40:01Z**
+  (`last_amount_update_ts` = 1788241201). All 18 open positions split PERFECTLY on that instant:
+  the **2** created before it revert 6000, all **16** created after it pay — no exceptions either
+  way. The two that revert are the two SMALLEST positions (3,000 each) while the 1,000,000 pays
+  ~13,700 and rises ~3,037/day, so it was never size either.
+* **It cannot recur on this pool.** `update_pool` is one-shot on this program and is spent.
+
+**What it cost while believed.** The card disabled Claim and captioned **"Rewards closed on this
+position"** on a position holding ~13,700 claimable BAYLA, printed `0 accrued · 13,700.79
+stranded`, and capped a 365-day stake at ~16,712 tokens against a danger that does not exist.
+Fixed in **PR #556**: `claimCeilingReached` → `claimBrokenByRateChange`, new
+`RewardPoolView.rateChangedAtTs`, and `CLASSIC_ACCOUNTED_CEILING` / `maxSafeStakeRaw` /
+`maxSafeStakeAcrossPools` deleted outright rather than re-tuned.
+
+**The operator action that IS owed:** none, on any of the other four pools. If a holder there
+reports a claim reverting 6000, read that pool's `last_amount_update_ts` and compare it with the
+entry's `created_ts` — that comparison is the whole diagnosis.
+
+> **Why a careful sweep got this wrong, because it will happen again.** The 2026-09-06 sample had
+> a GAP in exactly the wrong place: its successes topped out at 78% of `u64::MAX` and its reverts
+> started at 265%, so nothing measured the band between and a LOWER BOUND was indistinguishable
+> from an exact line. Worse, the two reverting entries were ALSO the two oldest, so "counter" and
+> "predates a rate change" fit the same eight points equally well and the first one named won.
+> **Check that the sample brackets the boundary, and check whether a second variable explains it
+> just as well.**
+
+---
+
 ## 🟢 2026-09-06 (LATE) — POST-SHIP SWEEP: what the ceiling fix did not reach
 
 The ceiling fix is on trunk and the section below this one records it. This is the sweep that came
@@ -665,12 +710,33 @@ fee-remittance Safe `0xfc5D…fbf1`; no owner role exists): QR, MFER, BNKR, DRB,
 JBM. Solana (Streamflow, 1→365d ladder ramping 1.00x→5.00x): BAYLA, BOBO, SOY,
 BRAINLET, RIZZ. Every reward vault is EMPTY and every card says so.
 
-**🔴 ⬜ REDEPLOY ALL SIX EVM LADDERS — C1.** `docs/LIGHTHOUSE_AUDIT_2026_09_01.md`
-proved rewards are payable out of other stakers' principal. The SOURCE is fixed
-(`LighthouseLadder.sol:350` `withdrawPosition` and `:367` `earlyExit` now call
-`_payRewards` before `_close`); the six LIVE pools still carry pre-fix bytecode.
-**Exposure is zero only while they stay unstaked** — all six read
-`totalSupply() == 0`. That is the whole window.
+## ✅ ☑ REDEPLOY ALL SIX EVM LADDERS — C1. **CLOSED 2026-09-05 (PR #433). SPEND NO GAS HERE.**
+
+> 🛑 **This section is history. Do not run any command in it.** All six ladders were redeployed
+> and the registry repinned on 2026-09-05 (`0984c191`, PR #433). The guard reads **6 of 6 at
+> `6747 bytes / fixed / audited constants`, exit 0**, and the "registry vs chain" job is green on
+> trunk. Positive ID of the fixed build: `MIN_STAKE()` (`0xcb1c2b5c`) returns `100e18` on all six,
+> and the six RETIRED pools **revert** on it — use that selector to tell the builds apart, never a
+> deploy log.
+>
+> The new addresses, taken from the forge broadcast artifacts and never retyped:
+> PEPE `0xBE1905de5FCDe60E13a9F1AfA44BEfdE1C5aaA1D` · QR `0x55B72f09d31f43834bf7Eba42f53a419a716F554` ·
+> MFER `0xeCB3C54488A2A0dF764444f67B2Df6b8Ad4EaDd6` · BNKR `0xe6abC8AcA0415aFaC426ec1242BB17afABe8Dbcf` ·
+> DRB `0x0aCB93fcFD5b1950D94064998017a2601b36D7bB` · JBM `0x3C339692ec7B3b96ad6F8fbEb5F5202164b44465`.
+>
+> ⚠️ **`npm run verify-ladders` reads the WORKING-TREE registry.** On any branch older than
+> `0984c191` it re-reads the six RETIRED pools and prints a full-red FAIL table. That is a stale
+> registry, not a live bug — check `git log -1 origin/mvp-launch` before believing it.
+>
+> **Still open below this banner, and genuinely so:** proving the notifier Safe can execute, and
+> funding. Those are NOT closed — see the two ⬜ items further down.
+
+**Why this section existed** (retained so the reasoning survives, not as an instruction):
+`docs/LIGHTHOUSE_AUDIT_2026_09_01.md` proved rewards were payable out of other stakers' principal.
+The SOURCE was fixed (`LighthouseLadder.sol:350` `withdrawPosition` and `:367` `earlyExit` now call
+`_payRewards` before `_close`), and the six then-live pools still carried pre-fix bytecode.
+Exposure was zero only while they stayed unstaked — all six read `totalSupply() == 0`, and that was
+the whole window. The redeploy closed it before anyone staked.
 
 > ⚠️ **The command that used to sit here named `DeployLighthouseStaking.s.sol`.**
 > That is the SUPERSEDED vendored-Synthetix contract whose own header (`:21`,
@@ -696,11 +762,12 @@ node scripts/verify-ladder-builds.mjs
 Note the path: the script is at **repo-root `scripts/`**, not `frontend/scripts/`
 — that is what `.github/workflows/registry-onchain.yml:188` runs.
 
-**What it actually prints today (measured 2026-09-05):** PEPE reads
+**What it printed at the time (measured 2026-09-05, BEFORE the redeploy):** PEPE read
 `prefix / replaceable`, and **the five Base pools read `UNREADABLE — eth_call
-failed (transport)`**, so it reports only "1 of 6 are still inert". That is a
-GUARD bug, not a chain fact — **PR #424 is the fix in flight.** Until it lands,
-the guard cannot clear Base, so confirm those five yourself:
+failed (transport)`**, so it reported only "1 of 6 are still inert". That was a
+GUARD bug, not a chain fact. It is fixed and merged; the guard now reads **6/6
+`fixed`, exit 0** against trunk. The manual cross-check below is kept because the
+technique is still the right one whenever a guard reports UNREADABLE:
 
 ```powershell
 $pools = @{ QR='0xdcc3a95A0921b83326157132B17770f02094c8E3'; MFER='0x7288DbF43D3BDBfC439B6E8a47Aef225D4816273'; BNKR='0xe0A152EBC21891FD47a7Dcd6018cfE3a64363178'; DRB='0xB62BaD165997E95C503044787b2Dcc85DC6D83F1'; JBM='0xA0D43eF39C4940e68b2f81d51E6316a45C136D93' }
@@ -932,8 +999,12 @@ V2-provenance CI gate (this carries **PR #335**'s commits) · the 08-28 frontend
 
 ### 🔴 REMAINING — only you can do these
 
-1. **THE SIGNING SESSION — closes Sept 2–3.** Unchanged and still the top item; see the
-   2026-08-28 layer below and [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md).
+1. 🔴 **THE SIGNING SESSION — the Base window is OPEN and closes `2026-09-13 18:45:19 UTC`.**
+   The "closes Sept 2–3" this line used to carry was the FIRST proposal. It expired, was cancelled,
+   and was **re-proposed on 2026-09-05** — so the deadline moved forward, it did not pass. Read the
+   corrected 2026-08-28 layer below before you open
+   [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md), which still describes the dead
+   first attempt.
 2. **Decide whether to push.** 48 commits sit local. Nothing reaches prod until you push; prod
    auto-deploys on green trunk, so **pushing this sweep deploys the frontend audit's 46 fixes.**
 3. ⚠️ **The LIVE staking over-mint is pinned but NOT fixed** (`StakingRewardOverMint.t.sol` is a
@@ -972,17 +1043,37 @@ left needs YOU — a signature, a decision, or counsel — in unlock-per-minute 
 
 **WHAT NEEDS YOU — in order:**
 
-1. 🔴 **THE SIGNING SESSION — dated, closes Sept 2–3.** One sitting, 11 transactions, every value
-   read live and every selector derived. Full runbook with paste-ready calldata:
-   [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md).
-   - **Part A — 2-of-2 accept ceremony**, 4 tx per L2 from the multisig Safe `0xBC4E…Be5B`
-     (Base `acceptFeeToSetter` deadline **2026-09-02 07:20 UTC**; RH **2026-09-03 05:02 UTC**). The
-     TWAP `acceptOwnership` is ordered first as each nonce-0 Safe's smoke test — if it fails, STOP,
-     nothing is lost.
+1. 🔴 **THE SIGNING SESSION — re-dated 2026-09-09 from chain state. Base closes
+   `2026-09-13 18:45:19 UTC`; Robinhood has already lapsed and must be re-armed.**
+   Full runbook: [`SIGNING_SESSION_2026_08_28.md`](SIGNING_SESSION_2026_08_28.md) — but note that
+   document still describes the FIRST proposal and its dead Sept 2–3 dates.
+   - **Part A — Base 8453 is 3 of 4 DONE.** `owner()` is already the Safe `0xBC4E…Be5B` on
+     TegridyTWAP, SwapFeeRouter and SwapFeeRouterAdmin. **Only the factory is left**:
+     `acceptFeeToSetter()` — selector `0x2dd072a0`, value 0, to `0x12a249A0…9fEC`, from the Safe.
+     Simulated read-only from the Safe on 2026-09-09: returns `0x`; from any other caller it reverts
+     `NOT_PENDING`. ~43k gas, both owner EOAs funded.
+     Window is enforced on chain as `feeToSetterChangeTime` (`1788720319`) + 7 days →
+     **opened 2026-09-06 18:45:19 UTC, closes 2026-09-13 18:45:19 UTC.**
+   - ⚠️ **The "nonce-0 Safe smoke test" no longer applies to Base.** Safe `0xBC4E…Be5B` reads
+     `nonce() = 3`, `getThreshold() = 2` — it has proven it can sign. That hazard is closed here. It
+     is NOT closed for the mainnet Safes or for the notifier Safe `0xfc5D…fbf1`, which are still at
+     nonce 0.
+   - ⚠️ **Queue nothing guardian-related ahead of the accept in the same sitting.**
+     `acceptFeeToSetter` force-cancels a `GUARDIAN_CHANGE` queued before it: the guardian work is
+     destroyed and its 7-day window burned, while the accept still reports success.
+   - 🔴 **Robinhood 4663 has lapsed on all four legs.** `pendingFeeToSetter` is still the Safe but
+     `feeToSetterChangeTime` (`1787806926`) + 7 days expired **2026-09-03 05:02 UTC**, and the three
+     `acceptOwnership` windows expired **2026-09-09 05:01 UTC**. The slot is still occupied, and
+     `proposeFeeToSetter` reverts `CANCEL_EXISTING_FIRST` while it is — so RH is now
+     **cancel → re-propose → wait 24h → accept**, from the deployer EOA, not a single signature.
+   - `FEE_TO_SETTER_DELAY` is **86400 (24h)**, read from the deployed contract. Anywhere in these
+     docs that says 48h is wrong.
    - **Part B — reserve-recipient → Treasury Safe**, one `setLaunchConfig` per chain (mainnet + both
      L2s). **FREE while `launchCount` is 0 on all three (verified); permanently impossible for any
      launch created before it** (recipient is snapshotted per-launch). Do it in the same sitting.
    - Miss the deadline = re-propose + wait; not fatal, but roles stay on the hot deployer EOA.
+     Robinhood is the worked example of exactly that, and it lapsed unnoticed because this document
+     said it had already closed.
 
 2. 🟡 **US regulatory decisions — counsel + operator.** Copy is now honest (done); "within bounds"
    still needs you. Risk-ranked with cost-to-mitigate: [`US_COMPLIANCE_BRIEF_2026_08_28.md`](US_COMPLIANCE_BRIEF_2026_08_28.md).
@@ -1080,10 +1171,14 @@ Also noted, same shape as mainnet: the Robinhood factory's `feeToSetter` is stil
 `docs/GOLIVE_HANDOFF.md` applies on this chain too — **`executeFeeToChange()` before
 `acceptFeeToSetter()`, and the first is the deployer's call, not the Safe's.**
 
+✅ **CLOSED 2026-08-27 on trunk — kept as history, and read the correction at the end of this
+block before acting on it.** Both defects below WERE true of trunk when this was written; neither
+is true of trunk now. The text is preserved because a later reader will meet the same shapes.
+
 🛑 **NEW 2026-08-26 — two PRE-DEPLOY defects in `StreamingRevenueDistributor`, found by an
 adversarial review and confirmed by independent adjudicators.** The contract is deployed nowhere
 (no `addresses.json` entry, no `lib/constants.ts` constant), so this is **not live money** — but
-both are true of trunk today and both must be closed before it ships:
+both were true of trunk when written and both must be closed before it ships:
 
 1. **A stranger can drive a victim's grace anchor BACKWARDS.** `_observeLockEnd` assigns
    `lastObservedLockEnd` with no `>` guard and is reachable from the permissionless `sync`.
@@ -1101,6 +1196,36 @@ both are true of trunk today and both must be closed before it ships:
 Full account, plus the three regressions that refuted the attempted fix:
 [`V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md`](V2_FORFEIT_ATTEMPT4_REFUTED_2026_08_26.md).
 ⛔ Branch `fix/v2-owner-timelocked-forfeit-v4` is **attempt 4 and is REFUTED — do not merge it.**
+
+**CORRECTION — what actually landed, verified against `origin/mvp-launch` on 2026-09-10.**
+
+- Defect 1 is **gone by deletion, not by a guard**. `afa10262` (merged in `18ac84ec`) deleted the
+  forfeit, the 7-day claim deadline, `_observeLockEnd` and `lastObservedLockEnd` outright. Neither
+  the function nor the state variable exists in the contract any more (the sole remaining grep hit
+  is a historical comment in `getReward` explaining the removal). There is no anchor left to drive
+  backwards and no gate left to slam shut. Attempt 5, not attempt 4, is what shipped.
+- Defect 2 is **fixed**. `_updateReward` now keeps the last-written mirror on an unreadable read
+  and emits `MirrorReadUnavailable`; it no longer writes a stranger-chosen zero. Pinned by
+  `test_StrangerSyncDuringAnOutageCannotDivertTheStream` and
+  `test_RevertingStakingReadDoesNotBrickAndDoesNotZero`.
+- A **third** critical, found during the same review and NOT listed above, also landed:
+  `eb541c6a` made the two power legs additive. It shipped with no test — restoring the exact
+  pre-fix `_tryEffectivePower` left all 35 tests in the suite green, so a re-break would have been
+  silent. Four regression tests now pin it (`test_LiveStakeAndRestakeAreSummedNotShortCircuited`
+  and the three beside it); under the pre-fix function they fail. The money form measures it: a
+  one-token veNFT gift to a 4,000-weight restaker, followed by one permissionless `sync`, paid the
+  1,000-weight attacker **9.9900 ETH of a 10 ETH schedule** against a fair share of ~2 ETH, and
+  the victim **0.00999 ETH** against a fair share of ~8 ETH.
+
+⚠️ **Still OPEN, and it is an OWNER decision, not an engineering one.** Once `restakingContract` is
+wired, a broken restaking read freezes the mirror of **every** account whose escrow power reads
+zero — a set dominated by exited and expired PLAIN stakers who never touched restaking.
+`_mirrorPower`'s re-ask does not rescue them; it is gated on `restakingContract == address(0)`. A
+frozen mirror keeps its share of the stream, so the cost falls on the other stakers (measured at
+~17.6% of entitlement per frozen peer of equal weight). The options are to extend the re-ask to the
+wired case or to accept and document the bounded peer cost; both are defensible, and
+`V2_FORFEIT_ATTEMPT5_REVIEW_2026_08_27.md` §5.2 is explicit that picking one silently is not. This
+is the last thing between the contract and a deploy.
 
 **Five standing rules.**
 
@@ -1166,16 +1291,31 @@ including mine. Compare character-for-character against the registry before any 
 
 # TIER 0 — free, minutes each, unlocks the most
 
-## 0.1 ⭐ Run the login change-set — the single biggest unlock
+## 0.1 ✅ Run the login change-set — **DONE 2026-08-25. Nothing to run here.**
 
-**Time:** ~2 minutes. **Cost:** nothing. **Unlocks:** the entire social tier.
+> 🛑 **This was the ⭐ top item on the operator's list and it closed on 2026-08-25.** It is kept
+> because Steps 1–3 below are the exact SQL, and the *same* session procedure is what migrations
+> 024/025/026 still need — but do not re-run it as written.
+>
+> **Verified against the running system:** `GET /api/auth/siwe?action=nonce` returns **200** with a
+> real nonce and expiry, and `siwe_nonces` answers anon with `42501 permission denied` — the table
+> exists and is correctly service-role-only. Migration 014 landed. The same reading is recorded
+> ~360 lines below under *"Confirmed CLOSED today"*, and again ~150 lines below.
+>
+> ⚠️ **Do NOT re-run Step 1's eight DROPs and then re-run migration 008.** 008's
+> `ALTER DEFAULT PRIVILEGES` silently re-grants anon INSERT/UPDATE/DELETE — it is how this hole
+> re-opens. And never `supabase db push`: filename order runs 014 before 015 and publishes every
+> user's rows.
+>
+> **What IS still owed on this surface:** migrations **024, 025 and 026** (026 needs PR #466
+> merged first), applied by hand in that order, in one session, after a frontend deploy. See the
+> RLS section below.
 
-Login has never worked in production: `siwe_nonces` does not exist, so every sign-in 500s. Until it
-works, profiles, DMs, watchlists, votes, push notifications, alerts, referral claims and real
-analytics are all dark — and analytics events are currently printed to the visitor's own console
-and discarded.
+The original text, for the record: login had never worked in production because `siwe_nonces` did
+not exist, so every sign-in 500'd — and until it worked, profiles, DMs, watchlists, votes, push
+notifications, alerts, referral claims and real analytics were all dark.
 
-**Do this in the Supabase dashboard → SQL Editor, one session, in this order.**
+**The procedure — Supabase dashboard → SQL Editor, one session, in this order.**
 
 **Step 1 — the eight DROPs** (this is the security fix; it is a no-op on empty tables):
 
@@ -1295,19 +1435,38 @@ While you are looking: `swap-fee-account` `DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6a
 keypair file in them; none matches. Either it is somewhere else, or ~0.010 SOL is written off.
 Worth one sentence so the registry stops implying it is spendable.
 
-## 0.5 ⏳ EXECUTE THE TWAP FLOOR CHANGE — open now, expires 2026-08-30 18:03 UTC
+## 0.5 🔴 THE TWAP FLOOR CHANGE **EXPIRED** — it is cancel → re-propose → 24h → execute
 
-**Time:** ~30 seconds. **Cost:** ~$0.02 of gas. **Half of this is already done.**
+**Re-read from chain 2026-09-09. This is no longer a 30-second job, and the command that used to
+sit here reverts.**
 
-The proposal is staged on chain. `proposeAdminMinReserveFloor1(native pair, 1e18)` landed
-2026-08-22 18:03:59 UTC in tx
+**Measured, with the selectors derived (`cast sig`) rather than recalled:**
+
+| call | from | result |
+|---|---|---|
+| `pendingMinReserveFloor1(pair)` | — | `1000000000000000000` — the slot is still occupied |
+| `minReserveFloor1(pair)` | — | `0` — it was **never executed** |
+| `executeAdminMinReserveFloor1(pair)` `0x1b35a8e2` | owner | **reverts `ProposalExpired(bytes32)`** (`0x58f98006`) |
+| `proposeAdminMinReserveFloor1(pair,1e18)` `0xbc96263e` | owner | **reverts `ExistingProposalPending(bytes32)`** (`0xe5dba116`) |
+| same propose | `0x…dEaD` | reverts `OwnableUnauthorizedAccount` — negative control, the owner gate is real |
+
+Pair `0x55875887B43C2E23aE424AF0FC8606Fdb058a481`, TWAP `0xdFdd6D72539A425dC917F49FB834901105cA98c9`,
+owner `0x14898258…456E` (the deployer EOA).
+
+**So the dead proposal BLOCKS its own replacement** — the same cancel-then-propose shape as the
+factory's `CANCEL_EXISTING_FIRST`. The sequence is now:
+
+1. `cancelAdminMinReserveFloor1(pair)` — `0x71d65e91`, owner only, frees the slot.
+2. `proposeAdminMinReserveFloor1(pair, 1e18)` — `0xbc96263e`. **Starts a fresh 24h timelock.**
+3. Wait 24h, then `executeAdminMinReserveFloor1(pair)` — `0x1b35a8e2`.
+
+Steps 1–2 are ~30 seconds and cancellable, so **start them in the same sitting as anything else on
+the deployer EOA** and the clock runs in parallel with everything else. Only step 3 has to wait.
+
+The original proposal landed 2026-08-22 18:03:59 UTC in tx
 [`0x29cd52c0…6771f`](https://etherscan.io/tx/0x29cd52c0ed433f32a9438ddaadad8afd764cf7979899d6b3be70980864d6771f),
-block 25,812,358, and `pendingMinReserveFloor1` reads `1000000000000000000`. The 24-hour timelock
-opened **2026-08-23 18:03:59 UTC**.
-
-**If you do nothing it expires on 2026-08-30 18:03:59 UTC** and the 24-hour wait starts over. That
-is the only cost of missing it — nothing breaks — but it is a day back on the critical path for no
-reason.
+block 25,812,358, opened 2026-08-23 18:03:59 UTC and expired **2026-08-30 18:03:59 UTC** — ten days
+before this reading. Nothing broke; the cost was exactly the extra day this section now describes.
 
 ```
 & "C:\Users\jimbo\.foundry\bin\cast.exe" send 0xdFdd6D72539A425dC917F49FB834901105cA98c9 "executeAdminMinReserveFloor1(address)" 0x55875887B43C2E23aE424AF0FC8606Fdb058a481 --account deployer --rpc-url https://ethereum-rpc.publicnode.com
@@ -1657,7 +1816,7 @@ chain on every re-index, which would have destroyed every manifest).
 
 | When | What | If missed |
 |---|---|---|
-| **2026-08-30 18:03 UTC** | ⏳ **TWAP floor proposal expires** — §0.5, staged and waiting, ~30 seconds to execute | The staged 10 → 1.0 WETH change is discarded and the 24-hour timelock restarts. Nothing breaks; you just lose a day off the oracle's critical path for free |
+| ~~2026-08-30 18:03 UTC~~ **PASSED** | ✅ **TWAP floor proposal EXPIRED** — confirmed on chain 2026-09-09: `executeAdminMinReserveFloor1` reverts `ProposalExpired`. §0.5 is now cancel → re-propose → 24h → execute | Nothing broke. The cost was the extra day, which has now been spent. The dead slot also blocks a re-propose (`ExistingProposalPending`), so the cancel is mandatory |
 | **~2026-10-11** | Staking reserve runway ends | **Not an honesty problem — corrected 2026-08-23, see below.** Refill when convenient. |
 | **~Aug 2027** | `memetics.finance` renewal (1-year, registered 2026-08-02) | A second production domain lapses while monitoring stays green |
 | Standing | `TegridyStaking` has **22 bytes** of EIP-170 headroom; `VoteIncentives` has **99** | The next one-line edit to either makes its redeploy artifact undeployable. The extraction is unbuilt. Do not casually edit those two files. |
@@ -2279,7 +2438,7 @@ commands, what you should see, and what a mismatch means.
 
 | # | Do this | Time | Unlocks | Detail |
 |---|---|---|---|---|
-| **0** | ⏳ **Execute the staged TWAP floor change** — *expires 2026-08-30 18:03 UTC* | ~30 sec | Nothing on its own. Takes the 24h timelock off the oracle's critical path, so the deepen day is same-day. Half already done and on chain | §0.5 |
+| **0** | 🔴 **Re-arm the TWAP floor change** — the staged one EXPIRED 2026-08-30; verified on chain 2026-09-09 | ~30 sec, then 24h, then ~30 sec | Same unlock as before, but it is now **cancel → re-propose → wait 24h → execute**, because the dead proposal blocks its own replacement. Start steps 1–2 in any deployer-EOA sitting so the clock runs in parallel | §0.5 |
 | 1 | **Vercel env session + redeploy** | ~5 min | The CSP fix currently **browser-blocking Pro Pass creation**, the write-proxy repoint, the analytics endpoint | §0.2 |
 | 2 | **Login change-set** | ~2 min of SQL | Profiles, DMs, watchlists, votes, push, alerts, referral claims, real analytics — the entire social tier | §0.1 |
 | 3 | **Redeploy the Solana own venue** | one ceremony | The only Solana rail — Meteora is retired | [restart plan](SOLANA_RESTART_PLAN_2026_08_23.md) |
@@ -2721,11 +2880,21 @@ a new router is live the old balance is reachable only through the owner-gated
   failure modes are now pinned by tests: `test_RIG_enforcedFloorMatchesSpot` and mutation M9
   (`floorAmountIn` -> `swapAmount`, the pre-fix source) which reds the fix test.
 
-- **D2 - ⏳ TIME-SENSITIVE: `MAX_FOT_FLOOR_HAIRCUT_BPS = 1000` (10%).**
-  This is a `constant`. **Trivial to change before the router deploy, impossible after** - raising it
-  is another redeploy of both the library and the router. It covers the real fee-on-transfer
-  population (2-10%) with no headroom for the ~15% tail. **If you intend to support a token with a
-  transfer fee above 10%, say so before the ceremony.**
+- **D2 - ✅ DECIDED 2026-09-05: `MAX_FOT_FLOOR_HAIRCUT_BPS = 1000` (10%) STAYS. Nothing is owed
+  here.** The full reasoning is at the top of this file under *"`MAX_FOT_FLOOR_HAIRCUT_BPS = 1000`
+  — DECIDED: KEEP"*: four analysis angles and two adversarial reviewers, 5 of 6 said keep, and both
+  reviewers returned `mustChangeBeforeDeploy = false`. **Do not re-open this at the ceremony.**
+
+  > ⚠️ This entry carried a `⏳ TIME-SENSITIVE` marker until 2026-09-09, four days after the
+  > decision closed and three lines above P1 — so an operator reading down to decide whether to
+  > proceed met a settled decision presented as an open one, at exactly the wrong moment. The
+  > decision was recorded once, at :384, and never propagated here. If you add a dated marker
+  > anywhere in this file, grep the whole file for the same subject before you leave it.
+
+  Retained below as reference, not as a question. This is a `constant`: trivial to change before the
+  router deploy, impossible after - raising it is another redeploy of both the library and the
+  router. It covers the real fee-on-transfer population (2-10%) with no headroom for the ~15% tail;
+  supporting a token with a transfer fee above 10% would need that redeploy.
   The lever itself: `fotFloorHaircutBps` lets a patient compromised owner loosen the sandwich floor
   on any token routed through the FoT entry point, including a plain ERC20. Bounded at 10%, behind
   the same 7-day timelock as `proposeResetTWAPSnapshot` (the only other floor-relaxing lever here),

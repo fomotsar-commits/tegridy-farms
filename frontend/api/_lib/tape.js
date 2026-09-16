@@ -177,8 +177,13 @@ export async function handleTape(req, res) {
   });
   if (!allowed) return;
 
+  // windowSec is REQUIRED. ratelimit.js builds Upstash's window as `${windowSec} s`;
+  // without it production answered every tape read with a 500 ("Unable to parse
+  // window size: undefined s") while the in-memory limiter used off Vercel took the
+  // undefined silently. rateLimitWindows.test.js now pins this for every caller.
   const underCap = await checkGlobalLimit(res, {
     limit: Number(process.env.TAPE_GLOBAL_RPM) || 120,
+    windowSec: 60,
     identifier: "tape",
   });
   if (!underCap) return;
