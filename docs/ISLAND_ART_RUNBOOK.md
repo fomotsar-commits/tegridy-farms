@@ -10,10 +10,13 @@ memory. Where the words and the code disagree, the code is quoted.
 
 ---
 
-## Step 1. Drop the art in a folder named for the bungalow
+## Step 1. Drop the art in a folder, one folder per bungalow
 
-At the top of the repo, make a folder named exactly like the bungalow's id and
-put the pictures in it:
+At the top of the repo, make a folder for the bungalow and put the pictures in
+it. **This folder's name is for people, not for the tooling.** Nothing reads the
+top of the repo; the name that has to be exact is the one in step 2. Naming it
+after the bungalow is simply the way to know which pile is which, and the QR pile
+arrived as `qrbungalow/` without any harm done:
 
 ```
 bayla/   pepe/   mfer/   bnkr/   drb/   jbm/   bobo/   soy/   brainlet/   rizz/
@@ -30,13 +33,15 @@ bayla  bnkr  bobo  brainlet  drb  jbm  mfer  nb1  pepe  qr  rizz  soy  toweli
 
 Two notes on that list, both true today:
 
-* **`qr` has no drop folder, but it does have art.** Ten pieces are already
-  placed at `frontend/public/art/qr/`. Nothing is missing.
+* **`qr` shows how little the drop folder's name matters.** QR's pile sits at
+  the top of the repo as `qrbungalow/`, and its ten pictures are placed at
+  `frontend/public/art/qr/` under the id. Same ten filenames, both places.
 * **`nb1` has neither, and that is correct.** It is the quiet slot, and it is
   marked `live: false` in the registry.
 
-These folders are a drop zone. They are not read by the site and they are not
-committed.
+These folders are a drop zone. They are not read by the site, they are not
+committed, and no script opens them. Step 2 is what puts art where the site can
+find it.
 
 ## Step 2. Move the folder into the frontend
 
@@ -125,7 +130,9 @@ back to the automatic rotation. Nothing breaks, and nothing goes blank.
 
 ## If something does not show up
 
-1. Is the folder name exactly a registry id? `towelie` is not one. `toweli` is.
+1. Is the folder under `frontend/public/art/` named exactly a registry id?
+   `towelie` is not one. `toweli` is. (The drop folder at the top of the repo can
+   be called anything; it is only step 2's name that decides.)
 2. Did step 3 run, and did it print that bungalow with the count you expect?
 3. Is the file extension one of `.jpg .jpeg .png .webp .avif`?
 4. Is it a placement problem rather than a missing picture? An unknown piece id

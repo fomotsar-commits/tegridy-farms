@@ -73,6 +73,15 @@ const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 /**
  * The fields a tape row may learn about a stranger.
  *
+ * THIS LIST IS THREE OF THE FIVE, and the other two are copied in by name a few
+ * lines down with their own reasons (`as_of_unix`, so days can be reckoned from
+ * the island's own stamps rather than the viewer's clock, and `is_cold`). Read
+ * them together or this constant reads like the whole wire, which it is not.
+ * What actually pins the wire is one exhaustive assertion in
+ * api/_lib/__tests__/tape.test.js: the row's key set must equal those five
+ * exactly, so a sixth field cannot ride along by either route without failing
+ * there first.
+ *
  * STANDING NEVER RIDES WITHOUT THE HANDLE: tier and held_since are here only
  * because a row that has a handle has opted in at the island's own door.
  * `is_cold` is different, and the island ruled it across on 09-16 (answer
