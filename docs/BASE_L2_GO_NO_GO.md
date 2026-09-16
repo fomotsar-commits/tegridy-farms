@@ -256,7 +256,7 @@ constructed on a chain without veTOWELI.
 
 `DeployMVP.s.sol` constructs `TegridyFactory` with the **deployer EOA** as guardian and queues
 `proposeGuardianChange(pauseGuardian)` at deploy (audit M6). Its printed runbook then asks the
-multisig to (2) `acceptFeeToSetter()` after 48h, and (3b) `executeGuardianChange()`.
+multisig to (2) `acceptFeeToSetter()` after 24h, and (3b) `executeGuardianChange()`.
 
 **Step 2 destroys step 3b.** Audit F-30-10 made `acceptFeeToSetter` force-cancel any pending
 `GUARDIAN_CHANGE` queued by the outgoing setter (`TegridyFactory.sol:396-401`). The Safe's own
@@ -347,7 +347,10 @@ satisfied, this is an afternoon plus a ceremony, not a project.
    Read all fourteen `D-INV-*` printouts. It refuses every chain but 8453, so it cannot be
    pointed at mainnet by accident.
 4. Broadcast. Complete the ceremony the summary prints: accept three ownerships within the
-   14-day expiry, then `acceptFeeToSetter()` after 48h. There is no guardian rotation step.
+   14-day expiry, then `acceptFeeToSetter()` after 24h. There is no guardian rotation step.
+   (`FEE_TO_SETTER_DELAY` reads **86400** on the deployed Base factory — 24h, not 48h. The 48h
+   figure elsewhere in this file belongs to `GUARDIAN_CHANGE_DELAY`, which really is **172800**.
+   Both re-read from chain 2026-09-09.)
 5. `script/CheckCanonicalWETH.s.sol`, then `script/base/VerifyBaseMVP.s.sol`. All green or stop.
 6. **Publish the bridge cadence before the first fee lands.**
 7. Add a second `ChainConfig` to `frontend/src/lib/chains/registry.ts` with
