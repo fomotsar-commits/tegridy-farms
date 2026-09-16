@@ -49,7 +49,18 @@ describe('TOWELI sections on venue pages (ruling 2)', () => {
   const sections = declaring(/data-voice\s*=\s*["']toweli["']/g);
 
   it("only pages that moved TOWELI's protocol under its own name declare one", () => {
-    expect(sections.map((f) => f.file).sort()).toEqual(['pages/RisksPage.tsx', 'pages/SecurityPage.tsx']);
+    // CommunityPage joined on answer eight's ruling 3: all four of its tabs
+    // are TOWELI's own contracts, so the tab strip and its panel are one
+    // declared section on an otherwise venue page.
+    expect(sections.map((f) => f.file).sort()).toEqual([
+      'pages/CommunityPage.tsx',
+      // LaunchPage joined on ruling 5: the Afterlife card's veTOWELI and
+      // emissions claims moved out of the venue's essay and under TOWELI's
+      // name, words unchanged.
+      'pages/LaunchPage.tsx',
+      'pages/RisksPage.tsx',
+      'pages/SecurityPage.tsx',
+    ]);
   });
 
   it('each declares exactly one TOWELI section', () => {

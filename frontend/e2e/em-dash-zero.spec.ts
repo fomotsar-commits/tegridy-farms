@@ -112,7 +112,12 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   '/solana': 4,
   '/launch-simulator': 4,
   '/leaderboard': 4,
-  '/community': 5,
+  // 5 -> 2 on answer eight's ruling 3, and the three that left are MOVED, not
+  // cut: the tab intro, the deployed-not-wired title and its receipt line all
+  // sit inside the declared TOWELI section now, because all four tabs are
+  // TOWELI's own contracts. The two that remain are the venue's own: the
+  // page header and the venue-score card.
+  '/community': 2,
   '/liquidity': 6,
   '/privacy': 7,
   '/trust': 7,
@@ -137,7 +142,12 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   // 32 until element F cut the header to one sentence; that sentence carried a
   // prose dash. The fold itself moved none of them — a closed <details> keeps its
   // children in the DOM, which is exactly why the fold uses one.
-  '/launch': 31,
+  // 31 -> 27 on answer eight's ruling 5: the Afterlife card's TOWELI claim
+  // moved under a declared TOWELI section, taking three dash-bearing nodes
+  // with it, and the card's own title dash became a colon. MOVED, not cut -
+  // the words still render, and the section is what the census reads them
+  // under. src/pages/recordSurfaces.test.ts pins who may declare one.
+  '/launch': 27,
 
 };
 
