@@ -19,7 +19,7 @@ const TOKEN = {
  * how TokenDetail is mounted (SolanaSwapPage.tsx renders it inline).
  */
 function Harness() {
-  const [n, setN] = useState(0);
+  const [, setN] = useState(0);
   return (
     <>
       <button onClick={() => setN((v) => v + 1)}>rerender</button>
