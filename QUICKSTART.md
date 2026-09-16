@@ -20,9 +20,8 @@ The app is live at **[memetics.finance](https://memetics.finance)** (also
 
 **Prerequisites (all paths):**
 - A wallet — MetaMask, Rabby, Coinbase Wallet, **Phantom** or **Trust**, or anything
-  WalletConnect-compatible. For the Solana surfaces use Phantom or another Solana wallet;
-  **Trust is deliberately not offered on Solana**, because its adapter is legacy-only and
-  would connect and then fail on every swap.
+  WalletConnect-compatible. For the Solana surfaces use Phantom, Trust, or another Solana
+  wallet — **Trust works on both sides as of 2026-09-15**.
 - Gas on whichever chain you are using — Ethereum, Base, Robinhood Chain, or SOL on Solana.
 - Connect via the **Connect Wallet** button in the header.
 

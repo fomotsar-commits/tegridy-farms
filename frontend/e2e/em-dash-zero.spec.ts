@@ -142,6 +142,7 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   // (CupCoverageNotice.tsx); the 4 that remain are ScoringRules' four written
   // paragraphs, and they no longer depend on the feed at all: measured 4 with
   // the read aborted, 4 with it failing at the parse, and 4 unstubbed.
+  // Not #563's 16: that was the SPA-fallback reading of a dead stub, not a copy change.
   '/competitions': 4,
   '/yield': 21,
   // 32 until element F cut the header to one sentence; that sentence carried a
