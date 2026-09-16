@@ -93,10 +93,18 @@ export const VENUE = {
   /**
    * HEAT, MECHANICALLY — the sentence that has to be true.
    *
-   * Every word here is traceable to lib/heat/heatOracle.ts:
-   *   heat_degrees = 100 · (1 − e^(−60 · TWAB / totalSupply)) per (wallet, token),
-   *   summed across tokens; one token caps at 100°. The launch floor is 80°
-   *   (Resident) per heatGateConfig.heatLaunchFloor().
+   * Every word here is traceable to the island's PUBLISHED law (memetics.wtf/heat,
+   * read 2026-09-06), which is heat = weight · (size + loyalty), read per token
+   * and summed across everything a wallet holds. The launch floor is 80°
+   * (Resident) per heatGateConfig.heatLaunchFloor().
+   *
+   * WAVE SEVEN, element K: this sentence used to say "Each token you hold scores
+   * 0 to 100 degrees". That was the SIZE TERM described as the whole formula, and
+   * under the published law it is false: loyalty adds on top of the share curve
+   * and weight multiplies the pair, so a token's contribution is not bounded at
+   * 100. The island's directive named HeatCard and heatOracle as the stale
+   * surfaces; this one was rendered to every visitor on the venue arrival and was
+   * not on that list. Say what the law says, or say less.
    *
    * WHAT THIS DELIBERATELY DOES NOT SAY, and must never say: any averaging
    * window, any number of days, any decay schedule. The island has confirmed
@@ -111,9 +119,9 @@ export const VENUE = {
    * however large it is.
    */
   heatPlain:
-    'Heat scores how much of a token you have held, and for how long — as a share ' +
-    'of its supply, not a dollar amount. Each token you hold scores 0 to 100 degrees; ' +
-    'your Heat is those scores added together. Price never enters it, so Heat cannot ' +
+    'Heat scores how much of a token you have held, and for how long, as a share ' +
+    'of its supply rather than a dollar amount. It is read per token and added ' +
+    'together across everything you hold. Price never enters it, so Heat cannot ' +
     'be bought, and a fresh bag starts cold however large it is.',
   /** The worked example. 80° is the live launch floor, not a round number chosen for prose. */
   heatExample:

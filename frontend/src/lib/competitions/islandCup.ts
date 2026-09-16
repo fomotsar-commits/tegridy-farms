@@ -3,8 +3,9 @@
 //
 // ─── WHY A SECOND BOARD AT ALL ───────────────────────────────────────────────
 //
-// Season 1 scores the venue router's own swaps out of a Ponder indexer that is
-// hosted nowhere, so it has never drawn a row. Meanwhile every resident of the
+// Season 1 scores the venue router's own swaps out of a Ponder indexer that was
+// hosted nowhere when this board was built, so it had never drawn a row.
+// Meanwhile every resident of the
 // island already carries a pool address that GeckoTerminal answers for, the
 // browser already fetches those tapes on the bungalow pages, and the CSP already
 // permits the host. The board was one adapter away the whole time.
@@ -44,6 +45,7 @@
 
 import { parseUnits } from 'viem';
 import { BUNGALOWS } from '../bungalows';
+import { SITE_HOST } from '../constants';
 import { TOWELI_MARKET } from '../chart/market';
 import type { GeckoNetwork } from '../geckoTerminal/pools';
 import type { PoolTrade } from '../geckoTerminal/poolTrades';
@@ -542,5 +544,5 @@ export function cupShareText(
   newestFillIso: string,
 ): string {
   const provisional = status === 'complete' ? '' : ', provisional';
-  return `#${rank} of ${of} wallets (${poolsAnswered} of ${poolsTotal} pools answered${provisional}) on the Island Cup, memetic.fun/competitions, read at ${newestFillIso}`;
+  return `#${rank} of ${of} wallets (${poolsAnswered} of ${poolsTotal} pools answered${provisional}) on the Island Cup, ${SITE_HOST}/competitions, read at ${newestFillIso}`;
 }

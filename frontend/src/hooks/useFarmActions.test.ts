@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { parseEther } from 'viem';
+import { encodeFunctionData, parseEther } from 'viem';
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
 vi.mock('sonner', () => ({
@@ -15,6 +15,7 @@ vi.mock('../lib/explorer', () => ({ getTxUrl: () => 'https://example.test/tx' })
 
 import { useFarmActions } from './useFarmActions';
 import { toast } from 'sonner';
+import { TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import {
   TEGRIDY_STAKING_ADDRESS,
   TOWELI_ADDRESS,
@@ -157,6 +158,7 @@ describe('useFarmActions', () => {
     const { result } = renderHook(() => useFarmActions());
     act(() => result.current.withdraw(42n, true));
     act(() => result.current.earlyWithdraw(7n, true));
+    act(() => result.current.emergencyWithdraw(9n, true));
     act(() => result.current.emergencyExit(9n, true));
     expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
   });
@@ -182,9 +184,32 @@ describe('useFarmActions', () => {
     expect(call.args).toEqual([7n]);
   });
 
-  // ───── emergencyExit — same guard ───────────────────────────────────
+  // ───── the two emergency doors — same guard, different contract calls ──
+  //
+  // They are NOT interchangeable, and the staking card once treated them as one:
+  // it sent emergencyExitPosition to every paused staker under a "Forfeit
+  // Rewards" label. Read off the deployed bytecode on a mainnet fork:
+  //   emergencyWithdrawPosition - whenPaused; full principal, rewards FORFEITED.
+  //   emergencyExitPosition     - expired locks only (LockStillActive before
+  //                               lockEnd); PAYS the rewards, in any pause state.
+  // Which door a staker gets is the card's decision (StakingCard.pause.test.tsx).
 
-  it('emergencyExit() is guarded + uses emergencyExitPosition', () => {
+  it('emergencyWithdraw() is guarded + sends emergencyWithdrawPosition (the paused, forfeiting door)', () => {
+    wagmiMock.setReadResult({ functionName: 'pendingETH', result: 1n });
+    const { result } = renderHook(() => useFarmActions());
+    act(() => result.current.emergencyWithdraw(9n));
+    expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+
+    act(() => result.current.emergencyWithdraw(9n, true));
+    const call = wagmiMock.writeContract().mock.calls[0][0];
+    expect(call).toMatchObject({
+      address: TEGRIDY_STAKING_ADDRESS,
+      functionName: 'emergencyWithdrawPosition',
+    });
+    expect(call.args).toEqual([9n]);
+  });
+
+  it('emergencyExit() is guarded + sends emergencyExitPosition (the expired-lock door, which pays)', () => {
     wagmiMock.setReadResult({ functionName: 'pendingETH', result: 1n });
     const { result } = renderHook(() => useFarmActions());
     act(() => result.current.emergencyExit(9n));
@@ -254,9 +279,27 @@ describe('useFarmActions', () => {
     act(() => result.current.claim(1n));
     act(() => result.current.toggleAutoMaxLock(1n));
     act(() => result.current.extendLock(1n, 86400n));
+    act(() => result.current.emergencyWithdraw(1n, true));
     act(() => result.current.emergencyExit(1n, true));
     act(() => result.current.claimUnsettled());
     act(() => result.current.revalidateBoost(1n));
     expect(wagmiMock.writeContract()).not.toHaveBeenCalled();
+  });
+
+  // ───── the ABI the write is encoded against ─────────────────────────
+
+  it('encodes emergencyWithdrawPosition to the selector the deployed staking contract dispatches', () => {
+    // The write mock never encodes, so a functionName missing from the ABI
+    // passes every test above and throws in the user's wallet instead (viem
+    // AbiFunctionNotFoundError). emergencyWithdrawPosition was in NO frontend
+    // ABI before this. 0x5f667fc0 = keccak256("emergencyWithdrawPosition(uint256)"),
+    // and it is in the dispatcher of the runtime code at
+    // 0xcaDc93E96De58EA554c71ca609974625615E046D.
+    const data = encodeFunctionData({
+      abi: TEGRIDY_STAKING_ABI,
+      functionName: 'emergencyWithdrawPosition',
+      args: [9n],
+    });
+    expect(data.slice(0, 10)).toBe('0x5f667fc0');
   });
 });
