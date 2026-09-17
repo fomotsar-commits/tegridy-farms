@@ -112,8 +112,13 @@ function specifiersIn(source: string): string[] {
   return out;
 }
 function resolveSpecifier(fromFile: string, spec: string): string | null {
-  if (!spec.startsWith('.')) return null;
-  const base = resolve(dirname(fromFile), spec);
+  // '@/' is the configured alias for src (vite.config.ts and vitest.config.ts). A
+  // resolver that skipped it would let `import('@/components/loader/AppLoader')`
+  // put the film back on every route with both guards below still green.
+  let base: string;
+  if (spec.startsWith('@/')) base = join(SRC, spec.slice(2));
+  else if (spec.startsWith('.')) base = resolve(dirname(fromFile), spec);
+  else return null;
   for (const c of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')]) {
     if (existsSync(c) && statSync(c).isFile()) return c;
   }
@@ -127,6 +132,14 @@ const importsOf = (file: string) =>
     .filter((p): p is string => p !== null);
 
 describe('no route mounts the overlay (ruling 1)', () => {
+  it('resolves every way the app can name a module: relative and the @/ alias', () => {
+    const film = join(SRC, 'components', 'loader', 'AppLoader.tsx');
+    const layout = join(SRC, 'components', 'layout', 'AppLayout.tsx');
+    expect(resolveSpecifier(layout, '../loader/AppLoader')).toBe(film);
+    expect(resolveSpecifier(layout, '@/components/loader/AppLoader')).toBe(film);
+    expect(specifiersIn("const F = lazy(() => import('@/components/loader/AppLoader'));")).toEqual(['@/components/loader/AppLoader']);
+  });
+
   it('the layout and the app shell import nothing from components/loader', () => {
     for (const shell of ['components/layout/AppLayout.tsx', 'App.tsx', 'main.tsx']) {
       const fromLoader = importsOf(join(SRC, shell)).filter((p) => p.startsWith(LOADER_DIR));
@@ -169,6 +182,11 @@ describe('no route mounts the overlay (ruling 1)', () => {
       mounts.push(layout.slice(at, layout.indexOf('/>', at) + 2));
     }
     expect(mounts.length).toBeGreaterThan(0);
-    for (const m of mounts) expect(m, 'a welcome that opens unasked').toContain('invited');
+    // The boolean prop itself. A substring match passed on `invitedOpen` alone, and
+    // OnboardingModal opens by its own first-visit rule unless `invited` is set.
+    const invited = /\sinvited(?:=\{true\})?(?=[\s/>])/;
+    expect('<OnboardingModal invitedOpen={x} onInvitedClose={() => y()} />').not.toMatch(invited);
+    expect('<OnboardingModal invited invitedOpen={x} />').toMatch(invited);
+    for (const m of mounts) expect(m, 'a welcome that opens unasked').toMatch(invited);
   });
 });

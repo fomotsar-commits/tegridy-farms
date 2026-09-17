@@ -22,9 +22,10 @@ import { createMorphParticles, updateMorphParticles } from './fx/particleMorph';
 import { AudioEngine } from './fx/audio';
 import { PostFX } from './fx/postfx';
 
-// THE OVERLAY ONLY. `children` used to be rendered here; the eager shell in
-// ./index.tsx owns them now (PERF-16), so the app tree is not held behind this
-// module's lazy chunk. The prop is GONE rather than ignored: an optional
+// THE OVERLAY ONLY. `children` used to be rendered here, then by an eager shell in
+// ./index.tsx (PERF-16) so the app tree was not held behind this module's lazy
+// chunk; answer ten deleted that shell with the curtain, and the only mount left is
+// the Island page's film. The prop is GONE rather than ignored: an optional
 // `children` that silently rendered nothing is the kind of prop someone passes
 // once and then debugs for an hour.
 /**
@@ -58,6 +59,10 @@ export function AppLoader({
   // visitors aren't held for the full ~15-19s intro. The art/choreography is
   // unchanged — this only adds an opt-out (mirrors the existing Escape-to-skip).
   const [showSkip, setShowSkip] = useState(false);
+  // Set by the canvas effect while the art is loading: starts the loop straight into
+  // the dissolve. Nothing animates before the preload settles, so without it a skip
+  // in that window had no loop to dissolve it (see proceed() below).
+  const skipWhileLoadingRef = useRef<(() => void) | null>(null);
 
   const stateRef = useRef<LoaderState>({
     phase: 'loading',
@@ -151,6 +156,7 @@ export function AppLoader({
       initAudio();
       s.phase = 'skip';
       s.exitStart = performance.now();
+      skipWhileLoadingRef.current?.();
     }
   }, [visible, initAudio]);
 
@@ -269,10 +275,16 @@ export function AppLoader({
     const proceed = (loaded: HTMLImageElement[]) => {
       if (disposed || settled) return;
       settled = true;
+      skipWhileLoadingRef.current = null;
       s.images = loaded;
       s.titles = loaded.length === 0 ? [] : titles.slice(0, loaded.length);
-      s.phase = 'void';
-      s.t0 = performance.now();
+      // A Skip or Escape while the art was loading has already chosen the ending.
+      // This used to set 'void' unconditionally, overwriting that choice, and the
+      // whole film then played to a visitor who had asked to leave it.
+      if (s.phase !== 'skip') {
+        s.phase = 'void';
+        s.t0 = performance.now();
+      }
       rafId = requestAnimationFrame(tick);
     };
 
@@ -282,6 +294,11 @@ export function AppLoader({
     // Declared out here because the effect's cleanup clears it.
     let preloadTimer = 0;
     preloadTimer = window.setTimeout(() => proceed([]), PRELOAD_BUDGET_MS);
+    // A skip before the art arrives does not wait for it: dissolve now.
+    skipWhileLoadingRef.current = () => {
+      window.clearTimeout(preloadTimer);
+      proceed([]);
+    };
     preloadImages(srcs).then((results) => {
       window.clearTimeout(preloadTimer);
       proceed(results.filter((r): r is HTMLImageElement => r !== null));
@@ -659,6 +676,7 @@ export function AppLoader({
       disposed = true;
       cancelAnimationFrame(rafId);
       window.clearTimeout(preloadTimer);
+      skipWhileLoadingRef.current = null;
       window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('touchmove', onTouchMove);

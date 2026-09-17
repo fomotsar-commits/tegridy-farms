@@ -104,7 +104,7 @@ export interface ArrivalTiming {
    * A LEG, not a literal, because leaving it out of the sum is exactly how the
    * first version of this got the curtain's length wrong. It lived at
    * phases/textForm.ts:9 as `const textDuration = 2000`, shared by the film and
-   * the curtain, and the curtain routes STRAIGHT into it — so the two longest
+   * the since-deleted curtain, which routed STRAIGHT into it — so the two longest
    * legs of the run were invisible to anything reading this file.
    */
   textForm: number;
