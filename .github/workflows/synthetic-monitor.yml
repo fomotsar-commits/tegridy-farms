@@ -73,28 +73,56 @@ jobs:
 
           probe "$CANONICAL app shell" "https://$CANONICAL/" "/assets/"
 
-          # Each alias must answer 3xx AND point at the canonical host. Checking only
-          # for "a 3xx" would pass a redirect loop or a redirect to anywhere at all —
-          # which is how a misrouted domain reads as healthy.
+          # Each alias must answer with a PERMANENT redirect AND point at the
+          # canonical host. Checking only for "a 3xx" would pass a redirect loop or
+          # a redirect to anywhere at all — which is how a misrouted domain reads
+          # as healthy.
+          #
+          # 301 OR 308, because vercel.json expresses these as `"permanent": true`
+          # and Vercel emits 308 for that (307 for `false`) — a `redirects` entry
+          # never produces a 301. This loop demanded a literal 301 from #478
+          # (2026-09-12) and then failed EVERY scheduled run from 2026-09-13T06:20Z
+          # onward: it asserted a status code the config it shipped alongside could
+          # not emit. Production was correct the whole time — 308 is the
+          # method-preserving twin of 301 and search engines consolidate on it
+          # identically — so the literal was the defect, not the redirect. Pin the
+          # invariant (permanent, and onto the canonical host), not one vendor's
+          # choice of code. A temporary still fails: a 302/303/307 here means
+          # someone flipped `permanent` to false and the SEO signal quietly stopped
+          # consolidating.
           for host in $ALIASES; do
             read -r code location <<<"$(curl -sS -o /dev/null --max-time 20 \
               -w '%{http_code} %{redirect_url}' "https://$host/" 2>/dev/null)" \
               || { FAILS="$FAILS\n- $host: curl failed"; continue; }
-            if [ "$code" != "301" ]; then
-              FAILS="$FAILS\n- $host: expected a 301 to https://$CANONICAL/, got $code"
-              continue
-            fi
+            case "$code" in
+              301|308) : ;;
+              *)
+                FAILS="$FAILS\n- $host: expected a permanent redirect (301 or 308) to https://$CANONICAL/, got $code"
+                continue
+                ;;
+            esac
             case "$location" in
               "https://$CANONICAL"|"https://$CANONICAL"/*) : ;;
-              *) FAILS="$FAILS\n- $host: 301s to '$location', not the canonical host https://$CANONICAL/" ;;
+              *) FAILS="$FAILS\n- $host: ${code}s to '$location', not the canonical host https://$CANONICAL/" ;;
             esac
           done
 
           if [ -n "$FAILS" ]; then
+            REPORT="$(printf 'Synthetic monitor failures at %s UTC:%b' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILS")"
+
+            # To the STEP LOG as well as to $GITHUB_OUTPUT. The report used to go
+            # only to $GITHUB_OUTPUT, which `gh run view --log-failed` does not
+            # render — so this step's log showed the script source and a bare
+            # `exit 1`, and the one fact an operator needs (WHICH host, and what it
+            # actually returned) was recoverable only by reproducing the probe by
+            # hand. An alarm that cannot say what tripped it gets ignored, which is
+            # exactly what happened for two days.
+            printf '%s\n' "$REPORT"
+
             printf 'failed=true\n' >> "$GITHUB_OUTPUT"
             {
               printf 'report<<EOF\n'
-              printf 'Synthetic monitor failures at %s UTC:%b\n' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILS"
+              printf '%s\n' "$REPORT"
               printf 'EOF\n'
             } >> "$GITHUB_OUTPUT"
             exit 1
