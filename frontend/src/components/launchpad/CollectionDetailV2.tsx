@@ -1,10 +1,10 @@
 import { useState, useMemo, useCallback } from 'react';
 import { m, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
-import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { pageArt } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
+import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { INPUT, LABEL, BTN_EMERALD } from './launchpadConstants';
 import { ArtCard, PhaseIndicator, useExplorerAddressUrl, CreatorRevenueDashboard, LiveMintFeed } from './launchpadShared';
 import { OwnerAdminPanelV2 } from './OwnerAdminPanelV2';
@@ -32,7 +32,10 @@ export function CollectionDetailV2({
   // produced that label is dead: a native disabled button dispatches no click, and
   // handleMint only calls drop.mint — it never opened a modal. So the button now OPENS
   // the connect modal when disconnected instead of greying out under the word.
-  const { openConnectModal } = useConnectModal();
+  // The opener can be undefined (no RainbowKitProvider above, or a connection status
+  // RainbowKit does not open the modal from); the button must then be disabled, not
+  // enabled with no handler. useSafeConnectModal documents when.
+  const openConnectModal = useSafeConnectModal();
   const drop = useNFTDropV2(dropAddress);
   const explorerUrl = useExplorerAddressUrl(dropAddress);
   const [mintQty, setMintQty] = useState(1);
@@ -100,6 +103,13 @@ export function CollectionDetailV2({
     // wallet cap: each one's collapse would otherwise leave this button armed.
     !drop.saleStateReadOk ||
     (drop.currentPhase === 1 && (!proofInput.trim() || !allowedAmountInput.trim()));
+
+  // The button is a connect control exactly when mintLabel says "Connect Wallet", and
+  // then it is live exactly when there is a modal to open. Otherwise it is the mint
+  // button and mintDisabled governs. The class reads this same value, so a live connect
+  // control does not wear the greyed-out, not-allowed look of a disabled one.
+  const offersConnect = deployed && !isConnected;
+  const mintButtonDisabled = offersConnect ? !openConnectModal : mintDisabled;
 
   const progressPct = drop.maxSupply > 0 ? Math.min(100, (drop.totalSupply / drop.maxSupply) * 100) : 0;
 
@@ -522,12 +532,12 @@ export function CollectionDetailV2({
 
                 <button
                   className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                    mintDisabled
+                    mintButtonDisabled
                       ? 'bg-black/60 text-white cursor-not-allowed'
                       : `${BTN_EMERALD} shadow-[0_0_20px_-6px_rgba(16,185,129,0.3)]`
                   }`}
-                  disabled={isConnected && mintDisabled}
-                  onClick={isConnected ? handleMint : openConnectModal}
+                  disabled={mintButtonDisabled}
+                  onClick={offersConnect ? openConnectModal : handleMint}
                   title={drop.priceUnread
                     ? 'The mint price could not be read from the contract. Reload before minting — do not sign a price you cannot see.'
                     : drop.saleStateUnread
