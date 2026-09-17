@@ -121,6 +121,11 @@ export default function CollectionHealth({ stats, activities }) {
   const [totalOwners, setTotalOwners] = useState(0);
   const [totalHeld, setTotalHeld] = useState(0);
   const [listings, setListings] = useState([]);
+  // Listings are UNREAD, not empty, when fetchListings reports an outage. Both
+  // arrive here as the same [], and every branch below used to publish a
+  // confident zero from it: LISTED % "0.0%", a green Listings chip, +20 on the
+  // composite score, and an ACTIVE LISTINGS count of 0.
+  const [listingsUnavailable, setListingsUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const supply = stats.supply ?? collection.supply ?? 0;
@@ -133,15 +138,21 @@ export default function CollectionHealth({ stats, activities }) {
     setLoading(true);
     setHolders([]);
     setListings([]);
+    setListingsUnavailable(false);
 
     Promise.all([
       fetchTopHolders({ contract: collection.contract, limit: 100 }).catch(() => ({ holders: [], totalOwners: 0, totalHeld: 0 })),
-      fetchListings(collection.slug, { openseaSlug: collection.openseaSlug, contract: collection.contract }).catch(() => ({ listings: [] })),
+      // The .catch resolves to the same `error` shape fetchListings itself
+      // returns for an unread source, so one field answers "was this read?"
+      // whichever way the read failed.
+      fetchListings(collection.slug, { openseaSlug: collection.openseaSlug, contract: collection.contract })
+        .catch(() => ({ listings: [], error: "Listing data temporarily unavailable." })),
     ]).then(([holderData, listingData]) => {
       setHolders(holderData.holders || []);
       setTotalOwners(holderData.totalOwners || 0);
       setTotalHeld(holderData.totalHeld || 0);
       setListings(listingData.listings || []);
+      setListingsUnavailable(Boolean(listingData.error));
     }).finally(() => setLoading(false));
   }, [collection.contract, collection.slug, collection.openseaSlug]);
 
@@ -190,12 +201,14 @@ export default function CollectionHealth({ stats, activities }) {
     };
   }, [stats.floor, activities, now]);
 
-  // Listing metrics
+  // Listing metrics. `measured: false` means the feed went unread; every
+  // consumer below renders the unknown state instead of a rate.
   const listingMetrics = useMemo(() => {
+    if (listingsUnavailable) return { measured: false, count: null, pct: null };
     const count = listings.length;
     const pct = (count / safeSupply) * 100;
-    return { count, pct };
-  }, [listings, safeSupply]);
+    return { measured: true, count, pct };
+  }, [listings, safeSupply, listingsUnavailable]);
 
   // Volume metrics
   const volumeMetrics = useMemo(() => {
@@ -249,11 +262,13 @@ export default function CollectionHealth({ stats, activities }) {
 
   // Listing velocity
   const listingVelocity = useMemo(() => {
+    // An unread feed is neither a spike nor a calm market. Claim neither.
+    if (listingsUnavailable) return { measured: false, count: null, spike: false };
     const count = listings.length;
     // Spike detection: if listed % > 15%, it's a spike
     const spike = (count / safeSupply) * 100 > 15;
-    return { count, spike };
-  }, [listings, safeSupply]);
+    return { measured: true, count, spike };
+  }, [listings, safeSupply, listingsUnavailable]);
 
   // Whale concentration
   const whaleConcentration = useMemo(() => {
@@ -311,8 +326,10 @@ export default function CollectionHealth({ stats, activities }) {
       score += Math.min(15, ownerRatio * 30); // 50% unique ownership = +15
     }
 
-    // Listing rate: lower is better (+20 max)
-    if (supply > 0) {
+    // Listing rate: lower is better (+20 max). Skipped outright when the feed
+    // went unread: an outage used to arrive here as listPct 0 and score the
+    // full +20, so the health score ROSE when the listings data vanished.
+    if (supply > 0 && listingMetrics.measured) {
       const listPct = listingMetrics.pct;
       if (listPct < 5) score += 20;
       else if (listPct < 10) score += 12;
@@ -344,7 +361,7 @@ export default function CollectionHealth({ stats, activities }) {
     if (whaleConcentration && parseFloat(whaleConcentration.pct) > 30) score -= 10;
 
     return Math.max(0, Math.min(100, Math.round(score)));
-  }, [totalOwners, supply, listingMetrics.pct, volumeMetrics, floorMetrics, buyerSeller, whaleConcentration]);
+  }, [totalOwners, supply, listingMetrics, volumeMetrics, floorMetrics, buyerSeller, whaleConcentration]);
 
   // Skeleton loading
   if (loading) {
@@ -397,22 +414,23 @@ export default function CollectionHealth({ stats, activities }) {
             </div>
             <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", lineHeight: 1.6 }}>
               Based on holder trend, listing rate, volume trend, floor stability, buyer/seller ratio, and whale concentration.
+              {!listingMetrics.measured && " Listing rate is excluded from this score \u2014 listing data unavailable."}
             </div>
             <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
               {[
                 { label: "Holders", ok: totalOwners > 0 && supply > 0 && (totalOwners / supply) > 0.3 },
-                { label: "Listings", ok: listingMetrics.pct < 10 },
+                { label: "Listings", ok: listingMetrics.measured && listingMetrics.pct < 10, unknown: !listingMetrics.measured },
                 { label: "Volume", ok: volumeMetrics.dayVol > 0 },
                 { label: "Floor", ok: floorMetrics?.change24h != null && Math.abs(floorMetrics.change24h) < 10 },
-              ].map(({ label, ok }) => (
+              ].map(({ label, ok, unknown }) => (
                 <div key={label} style={{
                   fontFamily: "var(--mono)", fontSize: 8, letterSpacing: "0.06em",
                   padding: "3px 8px", borderRadius: 6,
-                  background: ok ? "rgba(74,222,128,0.08)" : "rgba(255,100,100,0.08)",
-                  color: ok ? "var(--green)" : "var(--red)",
-                  border: `1px solid ${ok ? "rgba(74,222,128,0.15)" : "rgba(255,100,100,0.15)"}`,
+                  background: unknown ? "rgba(255,255,255,0.04)" : ok ? "rgba(74,222,128,0.08)" : "rgba(255,100,100,0.08)",
+                  color: unknown ? "var(--text-muted)" : ok ? "var(--green)" : "var(--red)",
+                  border: `1px solid ${unknown ? "var(--border)" : ok ? "rgba(74,222,128,0.15)" : "rgba(255,100,100,0.15)"}`,
                 }}>
-                  {ok ? "\u2713" : "\u2717"} {label}
+                  {unknown ? "\u2014" : ok ? "\u2713" : "\u2717"} {label}
                 </div>
               ))}
             </div>
@@ -444,12 +462,23 @@ export default function CollectionHealth({ stats, activities }) {
         {/* Listed % */}
         <div className="analytics-stat-card">
           <div style={labelStyle}>LISTED %</div>
-          <div style={{ ...bigValueStyle, color: listingHealthColor(listingMetrics.pct) }}>
-            {listingMetrics.pct.toFixed(1)}%
-          </div>
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
-            {listingMetrics.count.toLocaleString()} of {supply ? supply.toLocaleString() : "?"}
-          </div>
+          {listingMetrics.measured ? (
+            <>
+              <div style={{ ...bigValueStyle, color: listingHealthColor(listingMetrics.pct) }}>
+                {listingMetrics.pct.toFixed(1)}%
+              </div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                {listingMetrics.count.toLocaleString()} of {supply ? supply.toLocaleString() : "?"}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ ...bigValueStyle, color: "var(--text-muted)" }}>{"\u2014"}</div>
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                listing data unavailable
+              </div>
+            </>
+          )}
         </div>
 
         {/* 24h Volume */}
@@ -605,7 +634,9 @@ export default function CollectionHealth({ stats, activities }) {
             </>
           ) : (
             <div className="empty-state" style={{ padding: "24px 0", minHeight: "auto" }}>
-              No listing data available
+              {listingsUnavailable
+                ? "Listing data unavailable \u2014 floor depth not measured"
+                : "No listing data available"}
             </div>
           )}
         </div>
@@ -627,9 +658,14 @@ export default function CollectionHealth({ stats, activities }) {
           </div>
           <div style={panelStyle}>
             <div style={labelStyle}>ACTIVE LISTINGS</div>
-            <div style={{ ...bigValueStyle, color: "var(--text)" }}>
-              {listingVelocity.count.toLocaleString()}
+            <div style={{ ...bigValueStyle, color: listingVelocity.measured ? "var(--text)" : "var(--text-muted)" }}>
+              {listingVelocity.measured ? listingVelocity.count.toLocaleString() : "\u2014"}
             </div>
+            {!listingVelocity.measured && (
+              <div style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
+                listing data unavailable
+              </div>
+            )}
           </div>
           {listingVelocity.spike && (
             <div style={{
