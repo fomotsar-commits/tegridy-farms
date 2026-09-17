@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { CURTAIN_STATE_EVENT, isCurtainUp } from '../lib/arrival';
 
 interface Particle {
   x: number;
@@ -202,12 +203,61 @@ export function ParticleBackground() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    /* AND PAUSE IT BEHIND THE ARRIVAL CURTAIN, for the same reason.
+     *
+     * A hidden tab and an opaque overlay at z-index 9999 are the same fact from
+     * this canvas's point of view: every frame it draws is thrown away. The
+     * difference is that the curtain has a 3,000 ms deadline to be gone inside,
+     * and this loop is competing with it for the one thread that can end it.
+     * Profiled at 4x CPU throttle across a whole curtain lifetime, this
+     * function was the largest single consumer on the page -- 597 ms per run,
+     * ahead of anything the curtain itself did -- spent entirely on frames
+     * behind black pixels.
+     *
+     * READ THEN LISTEN. This component is lazy (AppLayout mounts it through
+     * React.lazy) and routinely mounts after the curtain has already armed, so
+     * a listener on its own would miss the edge and animate through the whole
+     * arrival. isCurtainUp() covers the mount; the event covers the rest.
+     *
+     * RESUMES AT UNMOUNT, and that loses nothing on the healthy path: the
+     * curtain is opaque for its whole life. Its closing dissolve is not a fade
+     * to the page -- it repaints opaque black every frame and fades the
+     * PARTICLES out against it (AppLoader's 'skip' phase), so there is no
+     * window where this canvas is visible behind a live curtain.
+     *
+     * The one window where it is, is the deadline path: the compositor fade
+     * added in AppLoader takes the overlay to opacity 0 while the node is still
+     * attached, so this stays frozen until the finalize timer gets the thread
+     * back. Named and accepted rather than fixed -- resuming there would put
+     * this loop back on the exact thread that timer is queued behind, on a
+     * machine that already proved it cannot spare it.
+     *
+     * CURTAIN ONLY, not the film. setCurtainUp is armed in the deadline effect,
+     * which returns early for `full`. The film is a deliberate 14.5 s viewing
+     * with no deadline to protect, so it is left alone on purpose.
+     *
+     * Same two moves as handleVisibility above, including the lastTimeRef reset:
+     * without it the first frame after a 2.5 s pause carries a 2.5 s delta and
+     * every particle jumps across the viewport.
+     */
+    const handleCurtain = () => {
+      if (isCurtainUp()) {
+        cancelAnimationFrame(rafRef.current);
+      } else {
+        lastTimeRef.current = 0;
+        rafRef.current = requestAnimationFrame(animate);
+      }
+    };
+    window.addEventListener(CURTAIN_STATE_EVENT, handleCurtain);
+    if (isCurtainUp()) cancelAnimationFrame(rafRef.current);
+
     window.addEventListener('resize', debouncedResize);
     return () => {
       cancelAnimationFrame(rafRef.current);
       if (resizeTimer) clearTimeout(resizeTimer);
       window.removeEventListener('resize', debouncedResize);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener(CURTAIN_STATE_EVENT, handleCurtain);
       motionQuery.removeEventListener('change', handleMotionChange);
     };
   }, []);

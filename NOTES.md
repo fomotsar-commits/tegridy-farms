@@ -15,6 +15,213 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
+
+**Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
+is ready, `gh pr checks` exiting 0 means the checks passed, and a stale branch is one
+click from current.
+
+**Measured** while triaging the open-PR backlog against `mvp-launch`, every one of those
+was wrong in a way that would have merged something nobody had checked.
+
+### `gh pr checks` exits 0 on the checks that exist, not the checks that should
+
+On a PR whose base is not a trunk branch, `gh pr checks <n>` exits **0** with 11 of the 32
+gates a trunk-based PR runs. It reports the check-runs that were created, and a job whose
+workflow never triggered creates none, so nothing in the output is red and nothing says
+"missing". The 2026-09-12 stacked-branch entry below records a stacked PR reading
+`all-checks-pass: SUCCESS`; the extra fact here is that the exit code agrees with it, so a
+script that gates on `$?` is exactly as blind as a human reading the tick.
+
+**Do:** list the NAMED contexts the touched paths must produce, look each one up in
+`gh pr checks --json name,state,workflow`, and treat an absent context as a failure. A
+count floor does not fix this (see the 2026-09-12 `all-checks-pass` entry below): which
+workflows run at all is path-dependent.
+
+### The aggregators finish before the frontend gate starts
+
+`all-checks-pass` and `all-tests-pass` are the terminal jobs of `solana-ci` and
+`Contracts CI` (the 2026-09-12 entry below has the table). On #576, a frontend PR, both
+were green at 15:54, `Build` started at 16:03 and both E2E jobs at 16:07, and the long
+E2E run finished at 16:47. A reviewer who stopped at the two green "all-*" names would
+have merged before the frontend was built, and nearly an hour before its E2E finished.
+They are not a frontend gate at any point in the run, not just early in it.
+
+### A green is computed against the base as of the last push
+
+A PR's checks ran against the trunk that existed when it was last pushed. Across the
+backlog, PRs sat **48 to 216 commits** behind `mvp-launch`. The oldest of them predate
+`em-dash-zero.spec.ts` entirely (it arrived in `350dfa9d` on 2026-09-09), and the rest had
+run it only in an earlier revision, before the per-route budgets they would be merged
+against were rewritten. Their greens were true statements about a tree that no longer
+exists: nothing had re-run them.
+
+**Do:** refresh a PR onto current trunk before trusting its green, and wait for the new
+run. An old tick is evidence about its merge base, not about the merge.
+
+### `allow_update_branch: false` does not turn `update-branch` off
+
+The repository reads `allow_update_branch: false`
+(`gh api repos/<owner>/<repo> --jq .allow_update_branch`), and the first draft of this
+plan concluded from that value that `gh pr update-branch` was unavailable. It is not. On
+2026-09-16 `gh pr update-branch 567` answered "PR branch updated" and GitHub pushed
+`536976e7`, a two-parent merge committed as GitHub, and the same call then refreshed
+fourteen more PRs. The setting governs whether GitHub always *suggests* the button, not
+whether the API works; GitHub had authored update-branch merges here on 2026-09-04 too. A
+setting's value is only a claim about its effect until the effect has been measured.
+
+**Do:** refresh with `gh pr update-branch <n>`. For a stacked PR, retarget first
+(`gh pr edit <n> --base mvp-launch`) and update second, so the one push runs against the
+trunk gates. #482's refresh was pushed a minute before its retarget, ran against the old
+base, and the retarget did not re-run anything.
+
+### A lockfile marked `binary` cannot be three-way merged
+
+`.gitattributes` declares `package-lock.json  binary`, and the `binary` macro unsets
+`merge`, so git will not three-way merge `frontend/package-lock.json`: any two branches
+that both change it conflict on the whole file, however disjoint the edits. Dependabot
+PRs that touch the lockfile therefore land **one per rebase cycle** — merge one, and every
+other lockfile PR goes CONFLICTING until Dependabot regenerates it against the new trunk.
+Sequence them, and do not read a wall of conflicts as a wall of broken PRs.
+
+### A monitor alarm about a healthy site, fifteen times
+
+The literal-301 probe in the 2026-09-15 entry below had failed **15 consecutive runs** and
+commented **14 times** on issue #566 by the time its fix (#573) was opened, about a site
+that was serving correct 308 redirects the whole time. With #573 still open a day later,
+the issue held **19** of those comments (the latest at 2026-09-16 10:05Z). The durable rule is that entry's:
+assert a redirect's class and target, not a literal code. What the backlog adds is the
+count: fourteen false comments on one issue is fourteen chances to learn to skip it.
+
+---
+
+## 2026-09-15 — a monitor that pins a vendor's status code fails the day the vendor is right
+
+**Believed:** a permanent redirect is a 301, so a synthetic probe can assert
+`[ "$code" = "301" ]` and thereby be asserting "this alias redirects permanently".
+
+**Measured:** Vercel's `redirects` array never emits 301. `"permanent": true` emits
+**308**; `"permanent": false` emits **307**. Measured with `curl -sI` against three
+live aliases — all three 308, one hop, path and query preserved. There is no setting
+on a `redirects` entry that yields 301; you have to abandon `permanent` for a raw
+`statusCode` to get one.
+
+The failure mode this produced is the transferable part. **One commit** both created
+the redirect with `permanent: true` *and* rewrote the monitor to demand a literal
+`301`. It went red on the first scheduled run after merging and stayed red for **14
+consecutive runs** across three trunk commits, while production behaved exactly as
+designed. The check asserted a status code the config it shipped alongside could not
+emit — and because both halves rode in one commit, there was no "it used to pass"
+signal to bisect toward.
+
+**Why a literal is the wrong pin.** The invariant the probe exists to defend is
+*permanent, and onto the canonical host*. `301` is one vendor's spelling of half of
+that. Pinning the spelling fails on a correct implementation-detail change and, worse,
+stays silent if the platform later emits a permanent code you never enumerated. Assert
+the property:
+
+```bash
+case "$code" in 301|308) : ;; *) fail ;; esac
+```
+
+That is *stricter* than the `30[0-9]` it replaced, because 302/303/307 now fail: a
+temporary here means someone flipped `permanent` to false and the canonicalisation
+signal quietly stopped consolidating.
+
+**308 is not a downgrade.** It is the method-preserving twin of 301 (RFC 7538) and
+search engines consolidate on it identically. There was nothing to fix in production
+— "make the monitor green" and "fix the site" were different tasks and only one of
+them was real. A red monitor is a claim about production that itself needs checking.
+
+**Do:** when probing a managed platform, enumerate every code that satisfies the
+property you actually care about, and find out what the platform emits — one
+`curl -sI` — rather than inferring it from what the config field is *named*.
+`permanent: true` does not mean 301.
+
+### The corollary that cost the two days: an alarm must say what tripped it
+
+The probe wrote its failure text to `$GITHUB_OUTPUT` only, for use as an issue body.
+**`gh run view <id> --log-failed` does not render `$GITHUB_OUTPUT`** — it showed the
+`run:` script source and a bare `exit 1`. The one fact needed to act (WHICH host, and
+what it actually returned) was recoverable only by re-running the probe by hand.
+
+An alarm whose own log cannot name what tripped it gets ignored, and this one was, for
+two days, by everyone who looked at it. If a step composes a human-readable failure
+report, print it to stdout **as well as** to wherever the automation consumes it. The
+duplication costs one line and is the difference between a triaged alarm and wallpaper.
+
+---
+
+## 2026-09-15 — the knob that makes one file input strict does not make the action strict
+
+**Believed:** hand a GitHub Action a path to a file that is not there and the step fails.
+`softprops/action-gh-release` even advertises an input called `fail_on_unmatched_files`,
+which reads like the action's policy for missing files.
+
+**Read** (not run — see the caveat at the end) from the action's own source at the SHA this
+repo pins, `efb35369`:
+
+- `body_path` is **soft, with no opt-out**. `releaseBody()` in `src/util.ts:57-69` wraps the
+  read in a try/catch that only `console.warn`s, then returns `config.input_body`:
+
+      if (config.input_body_path) {
+        try { return readFileSync(config.input_body_path, 'utf8'); }
+        catch (err) { console.warn(`⚠️ Failed to read body_path ... Falling back to 'body' input.`); }
+      }
+      return config.input_body;
+
+  If `body` is not also set, that returns `undefined`, and the consumer coerces it:
+  `src/github.ts:688` reads `releaseBody(config) || ''`. So an unresolvable `body_path`
+  publishes an **empty release body on a green run**. Nothing in the action's 19 declared
+  inputs can harden this.
+- `fail_on_unmatched_files` governs a **different** input. Its only two consumers are
+  `src/run.ts:16` and `:46`, both on `config.input_files` — the release *assets*. It never
+  reaches `releaseBody`. It also defaults to soft: `parseConfig` reads
+  `env.INPUT_FAIL_ON_UNMATCHED_FILES == 'true'`, so unset is `false`, so an asset glob that
+  matches nothing warns and publishes a release with no assets.
+
+So one action carries two file inputs with two different policies, and the strictness knob
+that exists names the one you were not worried about. **Seeing a hardening option in an
+action's input list is not evidence that the action is strict; check which input it is
+wired to.**
+
+The same shape has a third policy elsewhere in this repo's workflows. `actions/upload-artifact`
+takes `if-no-files-found`, which is configurable *and* defaults to `warn`. Surveyed across
+`.github/workflows/` by walking the parsed YAML: 11 upload steps, 8 set the flag (5 `error`,
+3 `warn`), and 3 sit on the default — so **6** sites treat "produced nothing" as a warning and
+a green job. Three policies for one idea (no opt-out / opt-in-and-defaults-soft /
+configurable-and-defaults-soft) across two actions is why this has to be checked per input
+rather than remembered per action.
+
+That survey had to be structural, and the first pass of this entry got it wrong by not being.
+`grep -c if-no-files-found` over the same files returns **9**, not 8, because one of the matches
+is inside a *comment* explaining the setting rather than setting it (`solana-ci.yml:439`). The
+grep-derived numbers were in this entry's first draft and were corrected before it left the
+worktree. A
+comment naming a setting is a claim about configuration, not configuration — the same trap the
+2026-09-11 entry records for gate comments and wrong-chain notices, arriving here through a
+counting tool instead of a reader.
+
+**How to check it**, without trusting a README that may describe a different version than the
+one pinned:
+
+    gh api repos/<owner>/<repo>/contents/src/util.ts?ref=<pinned SHA> --jq '.content' | base64 -d
+
+Reading the pinned SHA is the point. A floating tag's docs and the bytes that actually run in
+CI are different artifacts.
+
+**Caveat, stated because this file's rule requires it:** the empty-body consequence is derived
+from reading that source plus the fact that the caller leaves `body` unset. It was **not**
+observed in a release run — the workflow it was found in has never executed even once. The
+line numbers and the input survey are reads; the consequence is an inference from them.
+
+**Why it is worth knowing beyond the warning:** it changes what counts as a safe edit. Renaming
+the generated file this repo feeds to `body_path` looked like a free string swap. Because the
+failure mode is a silent green, "move it to `${{ runner.temp }}`" — a change to how the path
+*resolves*, not just what it says — would have had no rehearsal that could catch it going
+wrong. When an input is soft, the cost of being wrong about it is paid silently and later, so
+the change that touches the fewest mechanisms wins.
+
 ## 2026-09-14 — a wallet adapter's declared capability is the SHIM's opinion, not the wallet's
 
 **Believed:** `supportedTransactionVersions` on an official `@solana/wallet-adapter-*`
@@ -130,6 +337,334 @@ the redirect, or the wallet's own in-app browser can bounce itself in a loop.
   `https://link.trustwallet.com/open_url?coin_id=<slip44>&url=<encoded>`. A wrong
   `coin_id` still opens the browser, so this fails silently on the wrong chain.
 
+## 2026-09-12 — a route stub whose pattern stops matching does not fail, it silently measures the unstubbed page
+
+**Believed:** if a Playwright `page.route(glob, r => r.abort())` is in the spec, the
+branch under it is the aborted one. A stub is either applied or the test errors.
+
+**Measured:** neither. When the app moved its GeckoTerminal reads from
+`api.geckoterminal.com` to a same-origin edge, the spec's
+`'**api.geckoterminal.com/**'` matched nothing and Playwright reported *nothing at
+all* — no warning, no unmatched-route error. The spec kept passing for two days
+against a branch it was not pinning, then reddened trunk when that branch's copy
+happened to differ by one character class.
+
+Proof it was inert, three runs on the same build, same route, identical source:
+
+| stub | prose em dashes on `/competitions` |
+|---|---|
+| `'**api.geckoterminal.com/**'` (dead) | 16 |
+| `'**resource=gecko-read**'` (live) | 17 |
+| no `page.route` at all | 16 |
+
+The dead stub and *no stub* agreeing exactly is the signature. If a stub is
+load-bearing, assert that: count `requestfailed` under it, or fail the test when
+the handler was never invoked. A stub you cannot prove fired is a comment.
+
+### Under `vite preview`, a missing `/api/*` is not a 404 — it is 200 text/html
+
+This is what turned an inert stub into a *wrong* measurement rather than merely a
+live one. `vite preview` runs no serverless function, and the SPA fallback answers
+any unmatched path with the index document, 200. So a client that checks
+`res.ok` before parsing sails through the status check and dies at
+`res.json()`. The failure is classified at a different layer:
+
+- aborted at the socket → `network` → *"The trades feed could not be reached — that
+  is an outage, not an empty tape."*
+- 200 text/html → `schema` → *"The trades feed returned something unreadable."*
+
+Same outage to the user, different sentence, and here a different em-dash count.
+Any assertion over the WORDS of a failure — not just its presence — is really an
+assertion about which layer the read died at, and `vite preview` moves that layer
+relative to production. Fail-closed code paths are not interchangeable just
+because they both render "could not read".
+
+### Writing down the correct pattern is not the same as applying it
+
+The fixture had already been updated, in prose, to say the old glob
+"intercepts nothing now; the equivalent is `'**resource=gecko-read**'`". Two specs
+still holding the old literal were not changed in that commit, so the note
+documented the breakage instead of preventing it. A note describing the right
+value, next to callers still using the wrong one, reads as done and is not.
+
+**Do:** when a URL a test depends on moves, export the pattern as one constant and
+import it. `grep` for the old literal in the same commit that writes the note —
+the note is the weakest possible fix.
+
+### An exact count over text built from a failed read cannot hold
+
+The guard budgeted `/competitions` at 17 prose em dashes. Thirteen were the read
+ledger: one `not read — <why>` chip per resident pool, plus one sentence per
+distinct failure reason. That number is a function of how many pools are
+registered, how many answered, and which reason each failure got — a third
+party's behaviour, not reviewable copy. It was fated to drift and it did.
+
+**Do:** exclude such a subtree by structure (a marker attribute the walker skips,
+plus a source guard pinning who may declare it), rather than budgeting it. The
+test of a good exclusion is that the remaining number stops moving: with that
+structural fix, proposed in #564 and still open, the route read 4 aborted, 4 on
+the fallback, and 4 unstubbed.
+
+---
+
+## 2026-09-12 — the same string at a second site is not automatically the same bug: read the GATE before the copy
+
+**Believed:** a known-bad string still live at a second site, present at the fixing
+PR's merge base, is a site the sweep did not reach — the same defect, closed by
+applying the same rewrite.
+
+**Measured** (PR #561 against #474, the string `'Trade ETH ↔ TOWELI via Uniswap V2
+with custom slippage controls.'`, byte-identical at `TradePage.tsx:92` and
+`HomePage.tsx:832`): the two sites render under different gates, so the rule that
+condemned the first does not reach the second. TradePage has no arrival-voice gate
+at all. The HomePage grid is inside `IS_TOWELI_ARRIVAL && !bungalowIdentity` — one
+resident's own page, where naming that resident is correct and deliberate. The
+cheapest evidence was two lines down in the SAME array literal: the neighbouring
+card names the same ticker on purpose (`farmCardDesc` → "Stake TOWELI to earn now"),
+hoisted to a lib and already pinned by a different test. Applying #474's rule here
+would have turned a reviewed line red, and the ruling's own test header warns
+against exactly that — "banning the word would have forced the venue to hide one
+resident to prove it favours none".
+
+There WAS a real defect at the second site, but a different one that the string
+match happened to sit on: the copy named one of the NINE sources `useSwapQuote`
+races, so it understated the surface rather than mis-voicing it. The correct fix
+and the assumed fix pointed opposite ways on the ticker — keep it, not delete it.
+
+**Do:** when a known-bad string turns up at a second site, read the gate that site
+renders under before reusing the first site's fix. Two occurrences of one string
+can be one bug, two unrelated bugs, or one bug and one correct usage. Check the
+siblings in the same literal first: a neighbour that keeps the "bad" pattern
+deliberately is the cheapest available proof that the rule does not apply there.
+
+### Incidental — `\b` inside a template literal is a BACKSPACE, and a negated matcher then passes vacuously
+
+A regex assembled as ``new RegExp(`\b(?:W?ETH)\b\s*…`)`` is not the regex you
+wrote. In a template literal `\b` is U+0008 and `\s` is a literal `s`, so the
+compiled source came out as `\b(?:W?ETH)\bs*[…]+s*TOWELI\b` — measured in node
+against the pre-fix string: the intended pattern matches, that one does not. Because
+the assertion was `.not.toMatch()`, the broken pattern would have PASSED, silently,
+against the very string it existed to ban. The mutation check is what surfaces this;
+a guard written this way and never watched fail reads green forever.
+
+Generating the file through a script adds a second, independent backslash level to
+lose (heredoc → script → disk ate one here, turning the intended `\\b` into `\b`).
+`String.raw` removes both problems at once and is the right default for any regex
+source built from a template.
+
+## 2026-09-12 — a green that ran nothing, a green that covers a different workflow, and a red that only timed out
+
+**Believed:** a vitest run that exits 0 ran the suite, a context called
+`all-checks-pass` covers the PR's checks, and a pre-fix test that goes red has
+done its job whichever way it went red.
+
+### `--reporter=<name-that-does-not-exist>` is a silent no-op
+
+`npx vitest run --reporter=basic` in `frontend/` printed a stack ending in
+
+```
+code: 'ERR_LOAD_URL'
+...
+[exited with code 0]
+```
+
+`basic` is not a reporter in this vitest, so vitest tried to resolve it as a
+**custom reporter module**, failed to import it, and exited **0** with **zero test
+files collected**. Nothing in the output says "0 tests" — the summary lines a real
+run prints (`Test Files`, `Tests`) are simply absent, which reads like truncation.
+`--reporter=dot` on the same tree reported `Test Files 603 passed (603)`.
+
+Same shape as the cancellation trap in
+`reference_trunk_ci_starved_by_cancellation`: the exit code is not the question.
+**Gate on the summary line, not the status** — `grep -E "Tests  " out` is the
+check, `$?` is not. This bites twice, because piping vitest into anything
+(`| tail`, `; echo $?`) also reports the *last* command's status: a run that
+printed `VITEST EXIT: 1` was reported by the surrounding shell as exit 0.
+
+### Await a sentinel that exists in BOTH worlds, then assert synchronously
+
+Writing a render-level test for a read-honesty fix, the natural shape is
+
+```js
+expect(await screen.findByText(/floor depth not measured/i)).toBeInTheDocument();
+```
+
+Against the **pre-fix** component that copy does not exist, so `findByText` burns
+the whole `waitFor` budget and fails with a timeout — measured at **1022ms**, next
+to 38–627ms for the legs that failed on a value. A timeout is a weak result: it is
+also what you get from a component that never finished loading, a mock that never
+resolved, or a typo in the matcher. It cannot separate "the copy is absent" from
+"nothing rendered at all".
+
+Rewritten to await a heading that renders in both the pre- and post-fix worlds,
+then assert synchronously:
+
+```js
+expect(await screen.findByRole("heading", { name: /Floor Depth/i })).toBeInTheDocument();
+expect(screen.getByText(/floor depth not measured/i)).toBeInTheDocument();
+```
+
+the same pre-fix run fails in **241ms** with `TestingLibraryElementError: Unable to
+find an element with the text: …` — an immediate, specific statement that the
+component rendered and the copy is not in it.
+
+**Do:** in a mutation check, `await` something both versions render. Only the
+assertion should target what changed.
+
+### `all-checks-pass` is not the PR's checks
+
+Measured on a docs-only PR (#552). `gh pr checks --json name,bucket,workflow`:
+
+| context | workflow |
+| --- | --- |
+| `all-checks-pass` | **solana-ci** |
+| `all-tests-pass` | **Contracts CI** |
+| `Lint, Type Check & Test` | **CI** |
+| `CodeQL (javascript-typescript)` | **CodeQL** |
+
+Neither aggregate spans the PR. They are the terminal jobs of the solana and
+contracts workflows, so on a docs or frontend change those workflows skip every
+job, their aggregate passes **in seconds**, and the frontend's real gate is still
+running in a different workflow. Watching the list settle, `all-checks-pass` and
+`all-tests-pass` both read `pass` while `Lint, Type Check & Test` and `CodeQL`
+were still `pending`.
+
+It looks like a race and is not one — it is a **scope** error. The name claims the
+PR; the job covers one workflow. This is the mechanism behind the existing rule
+that a check-COUNT floor is unsound: which workflows contribute at all is
+path-dependent, so both the count and any "all-*" name mean something different
+per PR.
+
+**Do:** assert the NAMED contexts that matter for the paths you touched — for a
+frontend change that is `Lint, Type Check & Test`, not `all-checks-pass`. Add
+`workflow` to the `gh pr checks --json` field list; without it a context's real
+scope is invisible.
+
+### Incidental
+
+- `getByText` with a **regex** matches every node whose text contains it, so adding
+  the same phrase to a summary line and to a detail line breaks a query that was
+  unique the day before (`Found multiple elements`). Matching the exact full string
+  separates them without scoping to a container.
+- A render-level outage test does not automatically need fake timers. Retry sleeps
+  only exist on paths that retry: in `frontend/src/nakamigos`, a proxy rejection
+  carrying a plain `Error` is non-retryable to `api.js`'s `withRetry` (it retries
+  `TypeError` and `ApiError.isRetryable` only), and the orderbook's `degraded: true`
+  answer is deliberately not retried. Picking those legs let 11 render tests run on
+  real timers in 3.81s of test time.
+
+## 2026-09-12 — an equality-based invariance test is blind to every field that is equal for the wrong reason
+
+**Believed:** the strongest way to pin "X must not change what this reports" is to
+assert the whole report is equal with X set and unset. Nothing can hide in an
+object comparison.
+
+**Measured** (PR #514's `farmReadsWalletChain.test.ts`, whose stated subject is
+"the wallet's chain does not decide what the farm reports"; the subject under test
+was `usePoolData`'s `batchRan`, carrying a `chainId === CHAIN_ID` term the
+`enabled` gate beside it had already lost):
+
+- The suite builds one all-success fixture and asserts
+  `figures(reportOn(hook, 8453))` equals `figures(reportOn(hook, CHAIN_ID))`, with
+  one scalar checked non-zero first so two unread reports cannot pass as equal.
+- Put the chain term back on `batchRan` and that suite still passes **10/10**, run
+  alone, while the hook's own suite fails 4 of 31 on the same tree. The three
+  unread flags are `false` on both sides of the equality, because under an
+  all-success fixture there is nothing to be unread about. The equality held, and
+  held for the wrong reason.
+- The 4 that fail are the ones that break **one** read off mainnet. Breaking a read
+  is what makes a failure flag take a value worth comparing.
+
+The guard against "two unread reports are equal too" was already there and was not
+enough: it proves the READS landed, not that any FLAG was exercised.
+
+**Do:** for each boolean in a report, ask what fixture makes it `true`. If no case
+in the invariance suite produces that fixture, the equality assertion is not
+covering that field, however wide the object comparison looks. An invariance test
+needs one fixture per interesting value, not one fixture and a wide `toEqual`.
+
+## 2026-09-12 — a stacked branch can hold a reference that exists in neither parent
+
+**Believed:** a semantic conflict between a branch and trunk shows up as a merge
+conflict, a type error in the branch, or a red check. A clean `merge-tree` and a
+green branch mean the merge is sound.
+
+**Measured** (PR #490 `fix/pool-reserve-unread`, stacked four deep under
+`mvp-launch`; trunk's #514 had deleted the `onMainnet` declaration from
+`usePoolData.ts` while #490 added a new line using it):
+
+- Both parents are internally consistent. On #490's branch `onMainnet` is declared
+  and `npx tsc -b --force` is clean; on trunk the name does not appear at all. The
+  dangling reference exists **only in the merge**, so neither branch's own build
+  can see it, and there is nothing for `merge-tree` to report: all nine commits
+  cherry-pick onto trunk with zero conflicts.
+- In the merged tree `npx tsc -b --force` gives
+  `src/hooks/usePoolData.ts(59,34): error TS2304: Cannot find name 'onMainnet'`.
+- That undersells it. An undeclared free variable is a **runtime**
+  `ReferenceError`, not a type complaint: vitest on the cherry-picked stack gives
+  27 failures, all `ReferenceError: onMainnet is not defined`, across every test
+  that renders the hook. So the hook throws on every render rather than returning
+  a wrong number — a different and louder class of consequence for the pages
+  that call it, which a type error alone does not suggest.
+- The branch's own CI cannot catch it, and says so in green. Of 15 workflows, the 7
+  with a `pull_request` trigger and a branch filter all read `branches: [main,
+  mvp-launch]`; the only unfiltered one is `solana-ci.yml`. On a PR opened with
+  base `fix/pool-reserve-unread`, `gh pr checks` reported **`all-checks-pass:
+  SUCCESS`** with only `scope` and `all-checks-pass` actually run: the other 7
+  Actions jobs, `build` and `diff-guard` among them, were `SKIPPED`, so the
+  frontend was never built. A stacked PR's green tick is an assertion
+  about which jobs were eligible, not about the code — and a job that did run
+  would be testing the parent that compiles.
+
+**Do:** for a branch whose base is not trunk, `git merge-tree --write-tree trunk
+<head>` and then typecheck **and run the tests of** the resulting tree; a clean
+merge-tree exit only means git found no textual conflict. When trunk has DELETED a
+declaration a stacked branch still reads, expect a free variable rather than a type
+mismatch, and expect it to throw rather than to compute wrongly.
+
+## 2026-09-12 — a guard whose two operands come from one source, hidden by a correct refusal from the wrong cause
+
+**Believed:** the zap had a chain guard. `planZap(descriptor, routes, expectedChainId)`
+refuses on `descriptor.chainId !== expectedChainId` with a dedicated refusal code
+(`chain-mismatch`), a message naming both chains, and a passing test. The hook that calls
+it reads `useChainId()`. Every part a reviewer looks for was present.
+
+**Measured:** the caller built `descriptor.chainId` from `useChainId()` and then passed
+that same `chainId` as `expectedChainId`. Two different expressions, two sensible names,
+one variable — so the comparison was `x !== x`. Unreachable on every chain, for every
+wallet, under every config. Not weakened: absent.
+
+Rendering the hook with the wallet on 8453 and on 4663, with usable routes in hand,
+returned `{ ok: true }` — a composed plan for contracts that exist on neither chain.
+`planner.test.ts` was green throughout, because it calls `planZap` directly and supplies
+both numbers itself: it pinned the FUNCTION, and the defect was in the CALL. Restoring
+the old argument after the fix failed exactly the three new caller-level tests and
+nothing else — including a positive control on the right chain, which passed both before
+and after.
+
+**What made it read as working:** a wallet on the wrong chain *was* refused — by
+something else. `useSwapQuote` gates its reads on the wallet's chain, so off mainnet
+every leg came back without a floor and the zap refused with `route-unavailable`:
+"no floor to submit". The user saw a refusal, so nobody went looking. But it blamed the
+route for a network problem, and the real guard sat dead behind two unrelated gates,
+either of which could move without anyone knowing it was load-bearing.
+
+**Do:**
+
+- Read a guard's operands back to their **source**, not their names. A parameter named
+  for what it *should* be is not evidence that it is that. The question is not "does this
+  compare the right things" but "can these two expressions ever differ".
+- A unit test that supplies **both** sides of a comparison cannot see this class, however
+  thorough it is. The test has to be written at the caller, where only one side is free.
+  This is the same shape as a mock that answers a query the real thing would refuse
+  (2026-09-10, below): the double removes the very degree of freedom under test.
+- When a bad state *is* refused, check **which** refusal. A misattributed refusal is the
+  strongest camouflage available: the visible behaviour is correct, so the wrong
+  component gets the credit and the right one rots. Grep the refusal a user actually
+  sees back to the branch that emits it before concluding a guard works.
+- A guard standing behind other gates is not redundancy — it is untested code with a
+  test-shaped comment on it. Either something must reach it, or it should not be there.
+
 ## 2026-09-12 — a threshold fitted to a sample with a GAP is a guess wearing a measurement's clothes
 
 **Believed:** a Streamflow CLASSIC reward entry stops being payable once its cumulative
@@ -212,6 +747,313 @@ animation that is running on time.
 each side counts from. If they differ, either anchor both to the same stamp, or keep
 the bound and say in the test what it is: a floor, short by however long the gap runs.
 The arithmetic is not wrong, it is optimistic, and the comment is where that belongs.
+
+---
+
+## 2026-09-12 — `Page.captureScreenshot` is served by the renderer it is screenshotting
+
+**Believed:** a CDP screenshot is taken by the browser, so it can observe a page
+whose main thread is blocked.
+
+It cannot. Probing whether a compositor-driven opacity animation still advances
+during a long task, the driver slept to a wall-clock instant and called
+`Page.captureScreenshot`. Every sample came back *after* the block ended: asking
+for +2,000 / +2,600 / +2,900 / +3,500 ms returned frames at +3,261 / +3,295 /
++3,326 / +3,396 ms. The screenshot path waits on the same blocked renderer, so
+the clock it appears to offer is the clock being investigated. It read "the
+overlay was still opaque at the deadline" — agreeing with the bug, for the wrong
+reason.
+
+**`Page.startScreencast` is a different channel.** Frames are *pushed* as the
+compositor produces them, and each carries `metadata.timestamp` (epoch seconds),
+so delivery latency does not smear the measurement. Re-probed with a solid
+3,000 ms busy loop across the deadline: 20 frames arrived *during* the block, with
+the overlay's opacity ramping smoothly to 0.
+
+**Do:** to answer "what was on screen at time T" for any T where script might be
+busy, use the screencast and the frame's own timestamp. Convert the page's clock
+with `performance.timeOrigin + performance.now()` to compare against it. Treat
+`captureScreenshot`, `page.screenshot()`, and anything routed through
+`page.evaluate` as main-thread instruments — fine for a quiescent page, useless
+for this question.
+
+---
+
+## 2026-09-12 — a compositor animation's `startTime` is set at the first frame, not at creation
+
+**Believed:** `el.animate(...)` starts the animation now, so a fade given the same
+duration as a deadline finishes at the same moment.
+
+It starts at the first frame the browser produces after creation, and on a loaded
+machine that frame is not soon. Measured on a real app under a blocked main
+thread: the overlay's first painted frame came **107 ms** after a MutationObserver
+stamped the node's insertion, and the fade finished at **3,002 ms** against a
+3,000 ms budget — having spent an entire 100 ms slack allowance on nothing but
+waiting to begin. The animation was correct; its zero was late.
+
+`animation.startTime = document.timeline.currentTime` dates it from the current
+commit instead. Same build, same block: the fade completed at **2,892 ms**.
+
+**Not the same trap as "a timeout and the animation it bounds can be counting from
+different moments" above**, though it is the same theme. That one is about a clock
+*your own code* stamps in a later effect; this one is the browser assigning a clock
+you never wrote, inside an API that looks synchronous.
+
+**Do:** pin `startTime` whenever an animation's *end* is a deadline rather than a
+decoration. `document.timeline.currentTime` is `null` before the document's first
+frame, so guard it. Note this is the same error as arming a `setTimeout` *at* a
+budget instead of inside it, one layer down — a deadline that begins late can only
+end late, and the lateness is invisible because the animation's own duration is
+exactly right.
+
+---
+
+## 2026-09-12 — a compositor emits frames only when something changes, so "assert a frame in [a, b]" fails correct code
+
+**Believed:** with a screencast running at `everyNthFrame: 1`, frames arrive
+continuously, so a test can assert that some frame inside a window shows the
+expected state.
+
+Frames are produced on change. Once a fade settles at opacity 0 the compositor has
+nothing further to draw and goes quiet: in one run the last frame of the fade was
+at **+2,918 ms** and the next at **+3,598 ms**, a 680 ms hole straddling the
+3,000 ms instant under test. An assertion requiring a frame inside
+`[budget, budget + 400]` therefore failed a curtain that was demonstrably gone.
+
+The opposite shape fails too, and more dangerously. "The first frame at or after
+the budget" was satisfied on one run by a frame at **+3,568 ms** — 168 ms after
+the blocked thread came back — so the *ordinary timers* answered it and the
+assertion would have passed on the unfixed build.
+
+**Do:** what is on screen at time T is **the last frame at or before T**, because
+that frame persists until the next one. Assert on that, and separately assert it
+post-dates whatever perturbation the test introduced, so a stale pre-test frame
+cannot answer for it.
+
+---
+
+## 2026-09-12 — a timing constant can make a whole code path unreachable, and the profile will not mention it
+
+**Believed:** the expensive function you can see in the phase that is running is
+the one to optimise.
+
+An arrival overlay's suspected cost was a glitch effect doing a full-canvas
+`getImageData` → per-pixel loop → `putImageData`, twice per call. It never ran.
+The phase branches on `pieceTime >= 1400`, and the variant's own `artDuration` is
+1,200, so `pieceTime` is bounded at 1,200 and the branch is dead — for that
+variant only; the other one, at 2,600, runs it every time.
+
+Reading the arithmetic found it, but **counting** is what settled it: patching
+`CanvasRenderingContext2D.prototype.getImageData`/`putImageData` to log size and
+count over one full overlay lifetime returned **0 `putImageData` calls** and 2
+`getImageData`, both at viewport size and both belonging to a different function
+entirely. A sampling profile agreed by omission, which is the weakest possible
+form of agreement — absent entries are indistinguishable from cheap ones.
+
+The same profile named the real top consumer: a decorative background component
+animating 530 particles **behind the opaque overlay**, at 597 ms per run, more
+than anything the overlay itself spent. It was not in the file under
+investigation.
+
+**Do:** before optimising a named suspect, instrument the primitive it is accused
+of over-using and count calls over one real run. A census answers "did this run at
+all, and how much", which is two questions a flame chart answers only by
+inference. And profile the whole page, not the component you suspect: work that is
+invisible is still work.
+
+---
+
+## 2026-09-11 — dropping a read gate re-arms every control the unread state was holding down
+
+**Believed:** a gate like `enabled: … && useChainId() === CHAIN_ID`, on reads already pinned
+with `chainId: CHAIN_ID`, only decides whether a figure shows. Delete it and the worst case is
+one more RPC call.
+
+**Found** (#526): CollectionDetailV2's Mint button had no chain term in its `disabled` expression.
+Off mainnet it was held down by `!drop.priceReadOk`, and that was false only because the gated
+price read never ran. Deleting the gate, correctly, lets the price land on Base, and the button
+arms under its own label "Switch to Ethereum Mainnet". `mint()` refused by itself, so a click
+only toasted, but the disabled state had been an accident of the read gate. Measured with the
+fix in place: removing the explicit `!drop.onMainnet` from `mintDisabled` fails both connected
+off-mainnet cases in `CollectionDetailV2.offMainnet.test.tsx`, on `toBeDisabled()`.
+
+**Do:** before deleting a read gate, grep its consumers for controls that need a positive read
+(`*ReadOk`, `status === 'success'`, `!== undefined`) and ask whether the gate was that control's
+real guard. If it was, write the guard into the control.
+
+**The test-side twin, same session: a guard's test can be held by an upstream copy of the
+guard.** `useAutoRefreshBoost` gates on the wallet's chain, and its test "stays quiet on the
+wrong chain" looked like it pinned that. It did not. The hook's input `holdsJBAC` came from
+`useNFTBoost`, which carried the same gate, so off mainnet it was `null` and the hook was
+disabled regardless. Measured (vitest, the original test file):
+- with the pre-fix `useNFTBoost` and `useAutoRefreshBoost`'s own gate deleted, the test
+  **passes**;
+- with `useNFTBoost`'s gate dropped, the same deletion **fails** it.
+
+The mutation that proves a guard is "delete this guard, with every upstream copy of it gone",
+not "delete this guard" in a tree where something else still holds the line.
+
+## 2026-09-11 — the partial-coverage scan over- AND under-reports, and a pre-fix run can fail for the wrong reason
+
+**Believed:** the per-index scan's gap list (method: #502) is the set of reads that
+publish an outage as a zero. Fix the list and the file is clean.
+
+**Measured** on six candidate files at trunk `1325f685`. Each gap index was
+adjudicated by what its zero *asserts*, then fixed and mutation-checked in PRs #508
+#512 #515 #517 #518, which are still open, so those fixes are not on trunk yet:
+
+- **It over-reports.** 25 gap indices; 15 made a claim or armed a control. Of the
+  other 10: a fail-closed owner panel, two reads with no consumer, a display
+  fallback, three allowances whose only failure mode is an extra Approve, two reads
+  whose failure renders the same `–` as a real zero, and one claim that is **true by
+  construction**. An unread `paidPerWallet` renders "No refund owed", but only on a
+  cancelled sale, and `cancelSale()` reverts `CancelAfterFirstMint` once anything has
+  minted. Read the contract before signalling.
+- **It under-reports.** Four claim sites have no `status === 'success' ? … : 0` to
+  match:
+  - a collapse through an intermediate `undefined`
+    (`x = ok ? r : undefined; n = x ? f(x) : 0`), twice in one hook;
+  - a separate `useBalance` feeding the same "Not enough ETH" claim as a batch read;
+  - an early `return { …, lpSupply: 0n }` that zeroed a value the hook *had* read,
+    whenever the price feed was stale. That became "0.00% of LP supply" on the
+    treasury page.
+- **The claim can be the bug when the control is already safe.** A CTA was disabled
+  on an unread balance before any fix, because a collapsed 0 is short of any amount.
+  "Fails closed" was true, and the button still said "Not enough TOWELI" about a
+  wallet nobody read.
+
+**New vacuity shape for the pre-fix run.** Testing an unexported component meant
+adding `export` in the fix. Restoring trunk's file for the pre-fix run then fails
+*every* test on the missing named export. That is a red run that proves nothing about
+behaviour. Reconstruct pre-fix as trunk **plus only the test-enabling change**. The
+honest split was then 4 fail / 2 pass, and the 2 are the genuine-zero guard rails.
+
+**Redundant gates make equivalent mutants.** Gating `insufficientX` on
+`balanceXKnown` *and* the CTA's `disabled` on `balanceUnknown` makes removing either
+one unobservable: the label checks "unknown" first, and `disabled` has the other
+gate. One of two belt-and-braces gates always survives a single-line mutation.
+Decide which one the tests pin and say so, rather than chasing it.
+
+**An animated figure asserted at t=0 proves nothing.** A score ring that eases
+from 0 over 1200ms of `requestAnimationFrame` is empty one frame after render
+whatever the score is, so "the ring is empty during an outage" passed — and a
+mutation that fills the ring from the UNDERSTATED score survived it. Driving the
+clock instead killed it: `vi.useFakeTimers({ toFake: ['requestAnimationFrame',
+'cancelAnimationFrame', 'performance'] })` then `act(() =>
+vi.advanceTimersByTime(1500))`. That also took the file from ~4s of real waiting
+(one `waitFor` was already timing out at 4000ms) to 70ms. A wall-clock wait would
+have been the threshold flake this file warns about elsewhere.
+
+**Tooling trap.** JSX *text* does not process `\u` escapes: `Minting closed —
+the creator…` rendered six literal characters with tsc and eslint clean. The Claude
+Code Edit tool normalises `—` in both strings, so it cannot target the literal
+escape ("old_string and new_string are exactly the same"). Fix it with a script that
+builds the backslash from `String.fromCharCode(92)`.
+
+**Do:** read the scan's output as a lower bound on where to look and an upper bound
+on what to fix. For each gap, write down what the zero asserts before touching it.
+Reconstruct pre-fix states rather than just `git show`-ing them.
+
+---
+
+## 2026-09-11 — a callee that never rejects has failure shapes a `.catch` cannot see
+
+**Believed:** a flag set in the `.catch` around a fetcher tells an outage from an empty
+result. `fetchListings` relied on one to choose between "temporarily unavailable" and
+"No active listings", and the first fix proposed was to read the fetcher's returned
+`error` instead.
+
+**Measured** (PR #535, vitest 4.1.11, trunk `ce4fac5e`): the native-orderbook fetcher
+fails in three shapes, and the `.catch` saw only the rarest.
+
+- A network failure **resolves** as `{ orders: [], error }`, because the fetcher's own
+  `try` wraps its retry loop. With the proxy down, the real function resolved in
+  3015ms, and `fetchListings` returned the healthy `source: "opensea"` with no error,
+  3 runs of 3.
+- The server's soft-fail for an unreachable database is a **200** with
+  `degraded: true` and no `error` field at all. Reading `error` still misses it. Only
+  the server's handler shows the shape exists.
+- Only a chunk-load failure of the lazily imported module **rejects**.
+
+The rule on top was too narrow as well. It called an outage only when *every* source
+failed, so OpenSea down beside an empty native book still read as an empty market. A
+one-line mutation back to that rule, with the flag already fixed, left 4 of 6
+unread-source tests reading as healthy.
+
+**Do:** before choosing a failure detector, list every shape the callee can produce: a
+rejection, a resolved error field, and a success status carrying a soft-fail flag. For
+the third, read the server. Then fold them into one shape at the callee, so no caller
+has to know there were three.
+
+### A turn-capped fake-timer drain passes alone and times out in the file
+
+**Believed:** `for (let i = 0; i < 120 && !settled; i++) await
+vi.advanceTimersByTimeAsync(500)` is a bounded way to skip a retry's sleeps.
+
+**Measured:** in the full file two tests hit `Test timed out in 5000ms`, while alone
+each ran correctly in 8–9ms. Instrumented, the trigger was an
+`afterEach(() => vi.doUnmock(...))`. After it, 6 of 11 tests spent all 120 turns with
+the request under test still unsent: 0 `fetch` calls when the loop exited. Four of
+those settled on their own afterwards, because they had no timers left to run. The two
+whose request fails needed the retry's fake timers advanced, and nothing advanced them
+any more. Without that `afterEach`, the request went out at turn 0–1 in every test
+that sent one. Across five variants, moving a `vi.resetModules()` test to the start or
+the end changed nothing; removing the `afterEach`, or draining until settled, fixed it.
+
+That first pre-fix run went red on the two timeouts, one of them a counter-test that
+should have passed: a red for the wrong reason, like the missing export in #520.
+
+**Do:** drain until the promise settles (`while (!settled) await
+vi.advanceTimersByTimeAsync(n)`) and let the test's timeout be the bound. A turn cap
+bounds turns, not the work they wait on.
+
+## 2026-09-11 — an exact gas estimate is only good for the second it was taken in
+
+**Believed:** if `eth_estimateGas` returns N, the same transaction against the same
+state mines at limit N. (A step earlier in the same chase: that the cost was
+"non-monotonic in the gas limit" — offer more gas, burn less. It was neither.)
+
+**Measured** (anvil 1.5.1, mainnet fork, `removeLiquidityETH` on a Uniswap-V2-style
+pair; automine off, every block timestamp pinned by hand with
+`evm_setNextBlockTimestamp` + `evm_mine`; byte-identical calldata and state):
+
+| estimate taken at | mined at | limit | used | result |
+|---|---|---|---|---|
+| T (= the pair's last update) | T | 207,033 | 163,888 | success |
+| T | **T+1** | 207,033 | **206,923** | **reverted — out of gas** |
+| T | T+1 | 310,549 (×1.5) | 172,080 | success |
+
+A V2 pair's `_update` writes both cumulative prices only when `block.timestamp` has
+moved since its last update. `pair.burn` cost 101,958 in the same second and 112,199
+one second later: the +10,241 is exactly those two SSTOREs. **Anvil lets consecutive
+blocks share a timestamp**, and a transaction sent with no `gas` is priced by anvil's
+own estimate against the pending block, exact to the gas — so anything estimated in
+the same second as the pair's last touch and mined in the next one is ~10k short.
+"Burn less at a higher limit" was the same-second block being cheaper, not the limit.
+
+Where it bit: an e2e bridge that forwarded the app's gas-less `eth_sendTransaction`
+unpadded. The UI runs add → approve → remove inside about a second, so the remove
+was often estimated in the add's second. The real spec against a fresh fork, trunk
+code: 2 of 9 runs failed, both out of gas one second after the add. Padded +50%, as a
+wallet would: 0 of 14, including one run where the race happened and the padding
+absorbed it.
+
+**Also measured:** anvil does **not** reject a gas-less send whose estimate fails. It
+mines it at the block gas limit (60,000,000 observed) and it reverts on-chain.
+
+**Do:** pad any transaction you hand a node without a limit. When a revert's
+`gasUsed` is within ~1% of its limit it ran out of gas — look at what changed
+between estimate and inclusion (timestamp, block, state), not at the arguments.
+
+### A test that dies at 3.0m and passes in 4.8s is an unbounded wait
+
+The first attempt ran into the whole 180s test budget; every assertion in the spec
+had a 20-30s budget. The error was `locator.getAttribute: Test timeout of 180000ms
+exceeded`: a Playwright locator read with no `timeout` inherits the TEST's, and the
+receipt link it wanted had been removed (the surface clears it 4s after a success).
+So the run printed nothing about what went wrong. A duration far beyond every
+assertion budget means an unbounded wait, not a slow system — find it, and bound
+every locator read that sits inside a poll.
 
 ## 2026-09-11 — anvil's `--retries` never retries a 408, and `--compute-units-per-second` never throttles
 
@@ -454,6 +1296,36 @@ it by re-rendering with a NEW function and asserting two things: the effect did 
 re-run (count something it does once per run, here `getContext`), and the new function
 is the one that gets called.
 
+### A callback prop in an effect's deps is only a bug if the SETUP has side effects
+
+A sweep flagged five components that list an `onClose` prop in an effect's deps
+while the parent passes an inline arrow, so the effect tears down and re-runs on
+every parent render. Only **two** were worth changing.
+
+The separator is what the effect's *setup* does:
+
+- **Real:** setup focuses an element or locks body scroll. Every parent render
+  runs cleanup (restore focus to the opener) then setup (focus the panel), so the
+  caret is yanked away from whoever is typing and the scroll-lock save/restore
+  churns. `SolanaSwapPage` re-renders about once a second while a quote is live.
+- **Benign:** setup only does `addEventListener`. Removing and re-adding the same
+  document listener in the same tick is invisible. Three of the five were this,
+  and their focus / scroll-lock effects already carried correct deps.
+
+**Do:** classify by what the setup *does* before fixing all N. "Prop in deps" is a
+smell, not a defect; fixing the benign ones is churn in files you then owe a
+re-verify.
+
+**The measurement that settles it**, and it is cheap: spy on
+`HTMLElement.prototype.focus`, render the component under a parent that re-renders,
+and count. Pre-fix, one re-render moved the count 1 -> 3 -- +2 per render, one from
+the cleanup and one from the setup. That +2 *is* the caret theft, and it makes the
+invariant ("a parent re-render adds no focus calls") pinnable without asserting any
+literal about dep arrays.
+
+Fix shape is the latest-ref: hold the prop in a ref updated in a layout effect, read
+`ref.current` from the handler, and let the setup effect be mount-scoped.
+
 ## 2026-09-11 — a local fallback that accepts a bad argument hides it until production
 
 **Believed:** a green unit suite plus a working dev server means a rate-limited
@@ -513,6 +1385,101 @@ mutation failed exactly 6 of 63.
 **Do:** to test one member of an OR, make every other member false, and assert that
 they are false in the test itself. Then the member under test is the only thing
 that can answer. "Everything failed" tests the union, not the clause.
+
+## 2026-09-10 — zeroing an input does not withdraw the claim built on it
+
+**Believed:** F100 fixed "the LP farm advertises a live APR after its reward
+period ends" by zeroing the reward rate once `periodFinish` passed. Its commit
+said the UI would "never advertise a dead emission schedule". The per-day tile
+did read 0, so the fix looked complete.
+
+**Measured** by mounting the real `useLPFarming` hook under `LPFarmingSection`
+with mainnet's own state: past `periodFinish` 1781493095, and a residual
+`rewardRate` of 3306878306878306 still in storage. The APR hero rendered `0.00%`
+in green, captioned "estimated from staked TVL · falls as more LP is staked".
+The derived figure's null-guard tested whether its *inputs* were present (pool
+loaded, supply non-zero, something staked, price positive), and they all were.
+A zero numerator over a finite denominator is a well-formed number, so the guard
+let it through as a confident, live-looking APR. The caption written for the
+ended state sat in the null branch the guard never took, so it was unreachable
+in exactly the state it was written for.
+
+**Do:** when a fix neutralises an input by setting it to 0, don't stop at that
+input. Trace every value derived from it, and ask whether the zero reaches the
+screen as "absent" or as "zero". Guards that test whether data is present cannot
+see a semantic state such as "ended". The state has to be passed down as its own
+flag and checked first. An unreachable branch whose copy names a real state is
+the cheapest detector there is.
+
+### A counter-test's fixture default can pin the next bug
+
+A sibling PR on the same section added a "genuine zero" counter-test, `reports
+a real empty farm as 0, and keeps the invitation`. Its point was sound: an empty
+farm is publishable, and a fix that blanked every zero would be a bug. But its
+base fixture was documented as "all reads landed, on an **ended** schedule with
+nothing staked". So it asserted "be the first to stake LP" on a farm paying
+nothing, which is exactly the bug above. Merging the two branches locally left
+**1 failure in 103: that test**. Giving it a live schedule made it 103/103.
+"Every read landed, every value zero" is not a neutral state. It is a specific
+state of the system, with claims attached.
+
+**Do:** in a counter-test ("the honest case must still render X"), set the state
+the claim depends on explicitly, and never inherit it from a base fixture's
+defaults. Before calling a fix done, list open PRs (`gh pr list --state open`),
+check which of them touch your files (`gh pr diff <n> --name-only`), merge the
+overlapping ones into a throwaway branch, and run both suites. Two PRs can each
+be green and still contradict each other.
+
+Aside, from the same simulation: `git merge --abort` refuses ("not uptodate")
+once you edit a file the merge *added*. On a throwaway branch that still points
+at your own HEAD, `git reset --hard` is the clean exit.
+
+## 2026-09-10 — "deployed == source" means the BROADCAST's commit, and a write mock never encodes
+
+**Believed:** to confirm a live contract behaves like `contracts/src`, build trunk
+and compare it with the chain; and a hook test that asserts
+`functionName: 'x'` on the wagmi write mock proves the button can send `x`.
+
+**Measured** on TegridyStaking (`0xcaDc93E96De58EA554c71ca609974625615E046D`) while
+re-wiring its paused exit (#510):
+
+- **Trunk was the wrong build target.** Five commits had touched
+  `TegridyStaking.sol` since the deploy. The Foundry broadcast
+  (`contracts/broadcast/<Script>.s.sol/<chainId>/run-latest.json`) records a
+  top-level `"commit"`, here `833b757`. Built at that commit in a detached
+  worktree (`forge build src/TegridyStaking.sol`, via_ir, 21 s wall), the executable
+  runtime matched the chain byte for byte: **24,284 of 24,337 bytes.**
+- **The other 53 bytes are CBOR metadata, and they did not match although the
+  code did.** A metadata mismatch is not a code mismatch. Strip
+  `2 + uint16(last two bytes)` from the end of both before comparing.
+- **Two kinds of slot differ by construction; handle both rather than skipping
+  them.** Library link slots (`deployedBytecode.linkReferences`): fill them from
+  the broadcast's `libraries` and assert the chain holds the same 20 bytes at
+  every offset (10 of 10 matched). Immutables (`immutableReferences`) compile as
+  zeros: adopt the chain's values and PRINT them, so a wrong constructor argument
+  is visible (20 slots, 2 addresses).
+- **A wagmi write mock never ABI-encodes.** With the new ABI entry deleted
+  (mutation), 58 of 59 tests in the affected files still passed, including the
+  one asserting `functionName: 'emergencyWithdrawPosition'`. A real wallet would
+  have thrown `AbiFunctionNotFoundError` at encode time. The only test that
+  failed runs `encodeFunctionData` against the real ABI and checks the selector
+  (`0x5f667fc0`) read out of the deployed dispatcher, which pins the ABI to the
+  chain and not just to itself.
+- **Fork-proving behaviour does not need the repo's build.** A standalone Foundry
+  project (only `forge-std` plus an inline interface) compiled 20 files in 2.3 s,
+  and 4 tests against `vm.createSelectFork("https://eth.drpc.org")` ran in 10 s.
+  Every call hit the on-chain bytecode, so repo source was not what got tested.
+  Make the rig BINDING first: top up the reward reserve and assert
+  `earned() > 0` before comparing "pays" with "forfeits". Otherwise both look
+  like "returned the principal".
+
+**Do:** before changing UI semantics on a live contract, build the broadcast's
+`commit`, not trunk, and compare with metadata stripped, link slots asserted and
+immutables printed. Then diff just the functions you depend on between that
+commit and trunk. For every hand-written ABI entry a button relies on, keep one
+test that ENCODES the call against the real ABI.
+
+---
 
 ## 2026-09-10 — the retry's error is not the failure's error
 
@@ -994,5 +1961,14 @@ Mutation-check both sides of a change that alters *when* a module is evaluated.
 - Suite wall-clock is a poor signal on a shared box. Between two runs of the same
   581 files it moved 249s → 307s, driven by jsdom `environment` setup going
   2169s → 2823s across *untouched* files. Compare per-test durations, not totals.
+  Load moves the verdict too, not only the total. Two later full-suite runs of one
+  tree, ~4 hours apart (2026-09-12), went 196.65s and 450.16s,
+  with jsdom `environment` at 1787s and 3638s — across *untouched* files. The slow
+  one failed 4 tests in 2 files, each a 5000ms body timeout plus one follow-on
+  failure from the timed-out test's un-cleaned DOM (`Found multiple elements`,
+  `expected length 0 got 1`). Both files passed in isolation and neither imported
+  the change under test. **A timeout cascade under load is not a defect in the code
+  you just wrote** — re-run before believing it, and compare per-phase durations,
+  not the verdict.
 - `no-unused-vars` does not flag a bare side-effect `import "x";` — it declares no
   binding. Lint will not remove the warming import; a human might.

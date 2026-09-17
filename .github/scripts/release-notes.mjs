@@ -43,7 +43,7 @@
 //      tags reproduces the same shape, so past MAX_SUBJECTS the body degrades
 //      to a compare link instead of inlining the list.
 //
-// Usage:  TAG=v1.2.3 REPO_URL=https://github.com/o/r node .github/scripts/release-notes.mjs > NOTES.md
+// Usage:  TAG=v1.2.3 REPO_URL=https://github.com/o/r node .github/scripts/release-notes.mjs > release-body.md
 // With no TAG it exits non-zero. It never invents a tag and never writes a body
 // for a range it could not resolve.
 

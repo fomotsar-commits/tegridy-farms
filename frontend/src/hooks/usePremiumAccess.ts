@@ -34,7 +34,7 @@ export function usePremiumAccess() {
   const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT
-  const { data: jbacBalance } = useReadContract({
+  const { data: jbacBalance, isError: isJbacError, isLoading: isJbacLoading } = useReadContract({
     address: JBAC_NFT_ADDRESS,
     abi: ERC20_ABI,
     chainId: CHAIN_ID,
@@ -43,6 +43,20 @@ export function usePremiumAccess() {
     query: { enabled: !!address },
   });
   const holdsJBAC = jbacBalance != null && (jbacBalance as bigint) > 0n;
+
+  /** The JBAC entitlement check did not land.
+   *
+   *  THIS IS A SEPARATE useReadContract, not part of the seven-entry batch, and
+   *  it originally destructured only `data` — so a failed read was
+   *  indistinguishable from "owns zero apes". It LOOKS fail-closed, because the
+   *  collapse HIDES the "Activate NFT Premium" button (PremiumPage.tsx:513).
+   *  Judged at the wallet it is fail-OPEN: the card's own copy two lines above
+   *  still reads "You get lifetime Gold Card access for free ... just claim your
+   *  access", while the paid plan grid is gated on `!hasPremium &&
+   *  !premiumUnread` — both false here — so Subscribe is fully armed at a
+   *  correct price. A JBAC holder is told the access is free, given no way to
+   *  take it, and handed a working purchase flow for what they already own. */
+  const jbacUnread = !!address && !isJbacLoading && isJbacError;
 
   const { data, refetch, isLoading: isDataLoading, isError: isDataError, error: dataError } = useReadContracts({
     contracts: [
@@ -77,6 +91,45 @@ export function usePremiumAccess() {
   const totalRevenue = data?.[4]?.status === 'success' ? (data[4].result as bigint) : 0n;
   const userBalance = data?.[5]?.status === 'success' ? (data[5].result as bigint) : 0n;
   const allowance = data?.[6]?.status === 'success' ? (data[6].result as bigint) : 0n;
+
+  // WHICH ENTRIES DID NOT LAND.
+  //
+  // `useReadContracts` defaults allowFailure to TRUE and this call does not
+  // override it, so ONE failed entry out of the seven still resolves the query
+  // SUCCESSFULLY: `isDataError` stays false and `isDataLoading` stays false.
+  // PremiumPage's red "Error Loading Data" banner (:167, gated on
+  // `premium.isDataError`) and every loading skeleton therefore stay hidden, and
+  // the page renders as if fully and confidently loaded while carrying a value
+  // nobody read. Per-entry is the only honest granularity here.
+  //
+  // Scoped to a batch that actually ran: a disconnected visitor and an
+  // undeployed contract never asked, and a not-attempted read must not be
+  // reported as a failed one.
+  const batchRan = !!address && isDeployed(PREMIUM_ACCESS_ADDRESS) && !isDataLoading;
+  const entryUnread = (i: number) => batchRan && data?.[i]?.status !== 'success';
+
+  /** Membership status unread. NOT the same fact as "you have no membership". */
+  const premiumUnread = entryUnread(0);
+
+  /** The purchase cannot be priced or afford-checked. Any one of these is fatal
+   *  to the quote: monthlyFee prices it, userBalance gates it, allowance routes
+   *  Approve vs Subscribe. They are collapsed into one flag because they arm the
+   *  SAME control and a partial answer is not a cheaper kind of wrong. */
+  const quoteUnread = entryUnread(2) || entryUnread(5) || entryUnread(6);
+
+  /** Display-only: the subscriber and revenue tiles. */
+  const statsUnread = entryUnread(3) || entryUnread(4);
+
+  /** getSubscription did not land, so `isLifetime`, `expiresAt` and
+   *  `daysRemaining` are not facts. Entry [1] was the one entry of the seven
+   *  covered by nothing.
+   *
+   *  It only renders behind `hasPremium`, so the reach is narrower than the
+   *  others — but inside that window the collapse SILENTLY DOWNGRADES a
+   *  LIFETIME holder to a plain one (PremiumPage.tsx:199) and deletes the
+   *  renewal countdown at :201, which is the only thing on screen telling a
+   *  monthly subscriber to renew before their access lapses. */
+  const subscriptionUnread = entryUnread(1);
 
   const monthlyFeeFormatted = Number(formatWei(monthlyFee, 18, 8));
   const totalRevenueFormatted = Number(formatWei(totalRevenue, 18, 4));
@@ -199,6 +252,11 @@ export function usePremiumAccess() {
   return {
     // Subscription status
     hasPremium,
+    premiumUnread,
+    jbacUnread,
+    subscriptionUnread,
+    quoteUnread,
+    statsUnread,
     isActive,
     isLifetime,
     expiresAt,
