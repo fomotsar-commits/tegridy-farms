@@ -107,8 +107,12 @@ const REWARD_VAULT_SEED = Buffer.from('rvault');
 const MIN_LOCK_SECS = 7 * 86_400;
 const MAX_LOCK_SECS = 4 * 365 * 86_400;
 const REWARDS_DURATION_SECS = 90 * 86_400;
-/** math.rs: penalty_for(a) = a * 2500 / 10000, floored. Used by BOTH exit doors. */
-const EARLY_EXIT_PENALTY_BPS = 2_500;
+/**
+ * math.rs: penalty_for(a) = a * 7500 / 10000, floored. Used by BOTH early doors.
+ * 75% since 2026-09-17; the test file reads it back out of math.rs. Not the EVM
+ * LighthouseLadder.sol, which still charges 25%.
+ */
+const EARLY_EXIT_PENALTY_BPS = 7_500;
 const BPS = 10_000;
 const PENALTY_PCT = `${EARLY_EXIT_PENALTY_BPS / 100}%`;
 
@@ -1612,8 +1616,9 @@ async function main() {
       const bad = authorityProblem(p, authority.publicKey) ?? declareDegradedProblem(p);
       if (bad) throw new Error(bad);
       console.log(`\ndeclare-degraded  -- ONE-WAY: there is no instruction that clears it`);
-      console.log(`  After this the pool takes NO new stakes, and the emergency hatch charges`);
-      console.log(`  no penalty while locked. Every existing position can still exit.`);
+      console.log(`  After this the pool takes NO new stakes, and neither early exit nor the`);
+      console.log(`  emergency hatch charges a penalty while locked. Every existing position can`);
+      console.log(`  still exit.`);
       // A dry run is always safe. Broadcasting an irreversible flag needs a second,
       // explicit word, so a --broadcast typed on the wrong line cannot set it.
       const unconfirmed = confirmPermanentProblem(broadcast, args);

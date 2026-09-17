@@ -481,7 +481,8 @@ jobs:
   # with os error 1314 (symlink privilege), and solana-program-test / litesvm both
   # fail building openssl-sys. The tests are authored + type-checked locally and
   # executed here.
-  # bayla-ladder: the lock-ladder staking program with the 25% early exit. Same two
+  # bayla-ladder: the lock-ladder staking program with the 75% early exit and the
+  # mid-window rate guard (a reload may not lower a live rate). Same two
   # gates as launch-curve, for the same reason — the money math is dependency-free and
   # proven under bare rustc, and the Anchor layer can only be compiled here.
   bayla-ladder:
