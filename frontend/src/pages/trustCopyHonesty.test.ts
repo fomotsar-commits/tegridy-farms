@@ -140,6 +140,13 @@ describe('social links', () => {
     }
     expect(SOCIAL_LINKS.length).toBeGreaterThan(0);
   });
+
+  // Owner ruling 2026-09-17: there is no Telegram channel and there never will be.
+  // A link to one is a link to whoever registers the handle.
+  it('carry no Telegram link', () => {
+    const telegram = SOCIAL_LINKS.filter((l) => /(^|\.|\/\/)(t\.me|telegram\.(me|org))\//i.test(l.href) || /telegram/i.test(l.label));
+    expect(telegram).toEqual([]);
+  });
 });
 
 // ── The two files served to machines ────────────────────────────────────────

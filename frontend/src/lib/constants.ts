@@ -298,9 +298,8 @@ export const GITHUB_TREE_BASE = `${GITHUB_REPO_URL}/tree/${GITHUB_BRANCH}`;
 // second copy. One list now, so a handle change is one edit and cannot half-land.
 export const SOCIAL_LINKS: readonly { href: string; label: string }[] = [
   { href: 'https://x.com/junglebayac', label: 'Twitter / X' },
-  { href: 'https://discord.gg/junglebay', label: 'Discord' },
-  // ⚠ OPERATOR: this handle is the RETIRED brand's. It is left in place rather
-  // than guessed at because only the operator can say whether the channel moved
-  // or should be dropped; when the answer lands, this is the single line to edit.
-  { href: 'https://t.me/tegridyfarms', label: 'Telegram' },
+  // Owner, 2026-09-17: the venue's own server (memetics.finance). The old
+  // discord.gg/junglebay invite was dead. There is no Telegram channel and there
+  // will not be one, so the retired brand's t.me link is gone rather than kept.
+  { href: 'https://discord.gg/QGCbsmwgJ', label: 'Discord' },
 ];
