@@ -41,6 +41,7 @@ const LOADED: PoolData = {
   toweliReserve: 1n,
   wethReserve: 1n,
   lpSupply: 1n,
+  lpSupplyReadOk: true,
   apr: '12.5%',
   aprNum: 12.5,
   vol24hFormatted: '$88.1K',
@@ -51,6 +52,7 @@ const LOADED: PoolData = {
   stakerShareLoaded: true,
   referralFeeBps: 0,
   feesReadOk: true,
+  feeBpsReadOk: true,
 };
 
 /** Every figure unreadable — the state the two *IsEstimated flags actually mean. */

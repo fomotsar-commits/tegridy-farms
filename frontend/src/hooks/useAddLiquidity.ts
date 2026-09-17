@@ -112,6 +112,23 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
   const tokenBBalance = data?.[7]?.status === 'success' ? data[7].result as bigint : 0n;
   const tokenBAllowance = data?.[8]?.status === 'success' ? data[8].result as bigint : 0n;
 
+  // The wallet balances [5]/[7] feed CLAIMS in LiquidityTab: "Balance: 0.0000"
+  // and, once an amount is typed, "Not enough TOWELI". A failed read collapses to
+  // 0n and made both claims about a wallet nobody read. `…ReadOk` needs a
+  // POSITIVE read, so a pending one claims nothing either; `…Unread` is the
+  // attempted-and-failed half the UI names. For a native side these read WETH
+  // and mean nothing - the tab reads native ETH with useBalance instead.
+  const tokenABalanceReadOk = data?.[5]?.status === 'success';
+  const tokenBBalanceReadOk = data?.[7]?.status === 'success';
+  const tokenABalanceUnread = !!data && data[5]?.status !== 'success';
+  const tokenBBalanceUnread = !!data && data[7]?.status !== 'success';
+  // The allowances [4]/[6]/[8] stay collapsed ON PURPOSE (adjudicated
+  // 2026-09-10). An unread allowance reads 0n, "not approved", which can only
+  // put an Approve in front of the user: it never skips a needed approval and
+  // never arms the add or the remove itself. It is not free - while the read
+  // keeps failing, Approve re-arms after every approval - but its worst case is
+  // a redundant approval, not a signature on a number nobody read.
+
   // Determine which reserve is tokenA and which is tokenB
   const isToken0A = token0 === addrA.toLowerCase();
   const reserveA = reserves ? (isToken0A ? reserves[0] : reserves[1]) : 0n;
@@ -419,6 +436,10 @@ export function useAddLiquidity(tokenA: TokenInfo | null, tokenB: TokenInfo | nu
     tokenABalanceFormatted: formatUnits(tokenABalance, decimalsA),
     tokenBBalance,
     tokenBBalanceFormatted: formatUnits(tokenBBalance, decimalsB),
+    tokenABalanceReadOk,
+    tokenABalanceUnread,
+    tokenBBalanceReadOk,
+    tokenBBalanceUnread,
     // Allowances
     tokenAAllowance,
     tokenBAllowance,
