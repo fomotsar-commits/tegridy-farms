@@ -5,7 +5,7 @@
 // helper never produced. Three of those would cost a user real money:
 //
 //   1. The emergency hatch priced as free while a position is LOCKED. It charges the
-//      same flat 25% as an early exit, the penalty rides inside a base64 event so no
+//      same flat 75% as an early exit, the penalty rides inside a base64 event so no
 //      dry run reveals it, and this repo has already had that wrong in the operator
 //      CLI, in the runbook, and out loud.
 //   2. Rewards printed from the stored `rewards_owed`, which only moves when somebody
@@ -169,11 +169,11 @@ const draw = () => render(<SolanaLadderPoolLive bungalow={BUNGALOW} />);
 /* ────────── 1. the hatch, which is the whole reason for this file ────────── */
 
 describe('the emergency hatch is priced, never assumed', () => {
-  it('⚠️ a LOCKED position is told the hatch costs 125 of its 500', () => {
-    // 500 x 2500bps = 125. The single most expensive thing this repo has said
+  it('⚠️ a LOCKED position is told the hatch costs 375 of its 500', () => {
+    // 500 x 7500bps = 375. The single most expensive thing this repo has said
     // wrongly about this program.
     draw();
-    return screen.findByText(/Emergency withdraw — costs 125 BAYLA/).then((btn) => {
+    return screen.findByText(/Emergency withdraw — costs 375 BAYLA/).then((btn) => {
       expect(btn).toBeTruthy();
       expect(screen.queryByText(/Emergency withdraw — no penalty/)).toBeNull();
     });
@@ -188,7 +188,7 @@ describe('the emergency hatch is priced, never assumed', () => {
 
   it('a DEGRADED pool frees the hatch even while the position is locked', async () => {
     // The flag exists so a captured or absent operator cannot trap anyone. If the
-    // card kept quoting 25% here it would deter the exit the flag was set to allow.
+    // card kept quoting 75% here it would deter the exit the flag was set to allow.
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
     expect(await screen.findByText(/Emergency withdraw — no penalty/)).toBeTruthy();
@@ -196,7 +196,7 @@ describe('the emergency hatch is priced, never assumed', () => {
 
   it('the hatch needs a second click before it sends anything', async () => {
     draw();
-    const btn = await screen.findByText(/Emergency withdraw — costs 125 BAYLA/);
+    const btn = await screen.findByText(/Emergency withdraw — costs 375 BAYLA/);
     btn.click();
     expect(writes.hatch).not.toHaveBeenCalled();      // armed, not fired
     expect(await screen.findByText('Confirm')).toBeTruthy();

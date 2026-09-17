@@ -18,9 +18,13 @@ const BREAKDOWN_LABELS: { key: keyof TegridyScoreBreakdown; label: string; color
 ];
 
 export function TegridyScore() {
-  const { score, breakdown, rank, tier, tips } = useTegridyScore();
+  const { score, breakdown, rank, tier, tips, scoreUnread, breakdownUnread } = useTegridyScore();
   const [displayScore, setDisplayScore] = useState(0);
   const [progress, setProgress] = useState(0);
+  // OUTAGE-AS-SEEDLING. An unread input leaves every figure here understated, so
+  // the ring stays empty and the number, rank and tier are withheld rather than
+  // drawn short. A READ zero is a real Seedling and still renders as one.
+  const ringScore = scoreUnread ? 0 : score;
 
   // Animate score count-up and ring fill
   useEffect(() => {
@@ -34,8 +38,8 @@ export function TegridyScore() {
       // Ease out cubic
       const eased = 1 - Math.pow(1 - t, 3);
 
-      setDisplayScore(Math.round(eased * score));
-      setProgress(eased * score);
+      setDisplayScore(Math.round(eased * ringScore));
+      setProgress(eased * ringScore);
 
       if (t < 1) {
         rafId = requestAnimationFrame(animate);
@@ -44,7 +48,7 @@ export function TegridyScore() {
 
     rafId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rafId);
-  }, [score]);
+  }, [ringScore]);
 
   const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
 
@@ -104,31 +108,44 @@ export function TegridyScore() {
           </svg>
           {/* Center score */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="stat-value text-4xl text-white">{displayScore}</span>
+            <span className="stat-value text-4xl text-white">{scoreUnread ? '–' : displayScore}</span>
           </div>
         </div>
 
-        <p className="text-[15px] text-white font-medium mt-3">{rank}</p>
-        <p className="text-[12px] text-white mt-0.5">{tier}</p>
+        <p className="text-[15px] text-white font-medium mt-3">{scoreUnread ? 'Score unavailable' : rank}</p>
+        {!scoreUnread && <p className="text-[12px] text-white mt-0.5">{tier}</p>}
         <p className="text-[10px] text-white mt-1.5 italic">Score based on on-chain activity</p>
       </div>
+
+      {scoreUnread && (
+        <div
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 mb-5 text-[12px] text-amber-100"
+          data-testid="tegridy-score-unread"
+        >
+          Part of your on-chain history could not be read — the network did not answer. The
+          score, rank and tier are withheld rather than shown short, and each component that
+          could not be read shows a dash below. This is not a statement that you have no
+          history, and nothing on-chain has changed — reload to try again.
+        </div>
+      )}
 
       {/* Breakdown bars with stagger */}
       <div className="space-y-2.5 mb-5">
         {BREAKDOWN_LABELS.map(({ key, label, color }, idx) => {
           const value = breakdown[key];
+          const unread = breakdownUnread[key];
           return (
             <div key={key}>
               <div className="flex items-center justify-between mb-1">
                 <span className="text-[11px] text-white">{label}</span>
-                <span className="stat-value text-[11px] text-white">{value}</span>
+                <span className="stat-value text-[11px] text-white">{unread ? '–' : value}</span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--color-purple-75)' }}>
                 <m.div
                   className="h-full rounded-full"
                   style={{ background: color }}
                   initial={{ width: 0 }}
-                  animate={{ width: `${value}%` }}
+                  animate={{ width: unread ? 0 : `${value}%` }}
                   transition={{ duration: 0.8, delay: 0.3 + idx * 0.2, ease: 'easeOut' }}
                 />
               </div>

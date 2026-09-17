@@ -67,3 +67,8 @@ idx.html
 
 # Playwright HTML report (generated per run)
 frontend/playwright-report/
+
+# Release body generated per run by .github/workflows/release.yml.
+# Deliberately NOT named NOTES.md: that name belongs to the TRACKED
+# engineering log at the repo root. This one is scratch, never committed.
+release-body.md

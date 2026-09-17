@@ -110,12 +110,13 @@ describe('the Anchor error table is derived from the program, not remembered', (
   it('never tells a locked staker the hatch is free', () => {
     // The single most expensive mistake this repo has made about this program: the
     // CLI, the runbook, a memory and a sentence said directly to the owner all had
-    // the hatch costing nothing while locked. It costs the same flat 25% as an
-    // early exit (lib.rs:607-613), and a `Withdrawn` event on a real 500-token
-    // locked position decoded to amount=375, penalty=125.
+    // the hatch costing nothing while locked. It costs the same flat penalty as an
+    // early exit (lib.rs `emergency_withdraw`), and a `Withdrawn` event on a real
+    // 500-token locked position decoded to amount=375, penalty=125 — on the
+    // superseded 25% build. It is 75% since the 2026-09-17 rebuild.
     const m = LADDER_ERRORS[6007]!.human!;
     expect(m).toMatch(/hatch/i);
-    expect(m).toMatch(/25%/);
+    expect(m).toMatch(/75%/);
     expect(m).not.toMatch(/penalty-free|no penalty|free of charge|costs? nothing/i);
   });
 });

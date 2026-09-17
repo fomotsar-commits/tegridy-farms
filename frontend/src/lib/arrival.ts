@@ -51,6 +51,45 @@ export function arrivalVoice(): ArrivalVoice {
  */
 export const OPEN_VENUE_WELCOME_EVENT = 'open-venue-welcome';
 
+/**
+ * THE CURTAIN IS UP — and anything decorative should stand down while it is.
+ *
+ * The arrival curtain is an opaque overlay at z-index 9999 with a 3,000 ms
+ * budget it must be gone inside. Everything the page animates underneath it is
+ * therefore spending main thread on frames NOBODY CAN SEE, and competing with
+ * the deadline that ends the curtain. Profiled at 4x CPU throttle over a whole
+ * curtain lifetime, ParticleBackground's 530-particle loop was the single
+ * largest consumer on the page -- 597 ms per run, more than the curtain's own
+ * post-processing, all of it behind black pixels.
+ *
+ * A WINDOW EVENT, matching OPEN_VENUE_WELCOME_EVENT above, rather than a store
+ * or a context: the listener is one component deep in a lazy chunk and the
+ * publisher is another, and neither should have to learn about the other.
+ *
+ * `isCurtainUp()` EXISTS BECAUSE AN EVENT IS NOT A STATE. ParticleBackground is
+ * lazy and mounts on its own schedule, routinely AFTER the curtain has already
+ * armed. A listener alone would miss the only edge that mattered and animate
+ * through the whole arrival -- which is the bug this is here to stop. Read the
+ * flag at mount, then listen for changes.
+ */
+export const CURTAIN_STATE_EVENT = 'tf-curtain-state';
+
+let curtainUp = false;
+
+/** True while the arrival curtain covers the page. */
+export function isCurtainUp(): boolean {
+  return curtainUp;
+}
+
+/** Publish the curtain's state. Idempotent: only an actual edge dispatches. */
+export function setCurtainUp(up: boolean): void {
+  if (curtainUp === up) return;
+  curtainUp = up;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(CURTAIN_STATE_EVENT));
+  }
+}
+
 /** True when the classic Tegridy voice should render (inside its bungalow). */
 export function isToweliVoice(): boolean {
   return arrivalVoice() === 'toweli';

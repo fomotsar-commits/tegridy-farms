@@ -21,7 +21,7 @@
 
 > **A DeFi protocol across four chains.** On **Ethereum**: swap fees are routed toward TOWELI stakers (the rail has collected and has **never paid out** — see [Live deployment status](#live-deployment-status)), votes are weighted by how long you have locked, and the whole thing runs on fixed-supply TOWELI. On **Base (8453)** and **Robinhood Chain (4663)**: the same DEX/fee stack, live since 2026-08-25, with fees landing in a **remittance Safe** — queued for the bridge, explicitly *not* staker yield. On **Solana**: a Jupiter-routed swap with DCA, and Streamflow staking lighthouses for the island's Solana residents — **TOWELI itself never ships there.** Real yield. No inflation tricks.
 
-> **Live at [memetics.finance](https://memetics.finance)** — the one canonical origin. `memetic.fun`, `www.memetic.fun`, `www.memetics.finance` and the `tegridyfarms*.vercel.app` deploy aliases all **301 onto it** (`frontend/vercel.json`); they are ways in, not second homes. This line used to read "two co-equal production origins, neither redirecting to the other", which had stopped being true when SITE_URL moved on 2026-08-27 and was never true of a site that also ships a single `rel=canonical`. The surfaces taking the most build effort today are the **island build-out** (thirteen bungalows, ten lighthouse staking pools across Ethereum/Base/Solana) and the **token launchers** — our own [`TegridyCurveLauncher`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on three EVM chains, plus the Doppler rail at [/launch](https://memetics.finance/launch).
+> **Live at [memetics.finance](https://memetics.finance)** — the one canonical origin. `memetic.fun`, `www.memetic.fun`, `www.memetics.finance` and the `tegridyfarms*.vercel.app` deploy aliases all **permanently redirect (308) onto it** (`frontend/vercel.json`); they are ways in, not second homes. This line used to read "two co-equal production origins, neither redirecting to the other", which had stopped being true when SITE_URL moved on 2026-08-27 and was never true of a site that also ships a single `rel=canonical`. The surfaces taking the most build effort today are the **island build-out** (thirteen bungalows, ten lighthouse staking pools across Ethereum/Base/Solana) and the **token launchers** — our own [`TegridyCurveLauncher`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) on three EVM chains, plus the Doppler rail at [/launch](https://memetics.finance/launch).
 
 > ⚠️ **Status: live, hardening in progress, not yet decentralized.** The core protocol was **redeployed to Ethereum mainnet on 2026-06-06** (the "MVP" set), the audited **gated-feature batch — 11 contracts** — was deployed and Etherscan-verified on **2026-07-16**, the capital-free revenue surfaces went live in the app on **2026-07-21/22**, and the **Base + Robinhood legs** deployed on **2026-08-25**. Ownership still sits behind the deployer key on mainnet (Safe rebuild + 2-of-2 accept ceremony pending — [`docs/SAFE_REHOME_RUNBOOK.md`](docs/SAFE_REHOME_RUNBOOK.md)), the emission/spend-side features (governance, grants, bounties) stay **frontend-gated until a revenue line funds them**, and there is **no professional human-firm audit yet**. Size deposits accordingly.
 
@@ -36,7 +36,7 @@
 
 Yes, the name is from Randy Marsh's South Park weed farm. The bit ends there — the contracts are standard Synthetix / Curve / Aave / Uniswap / Gondi / Raydium primitives, copied from battle-tested sources on purpose. Since **2026-08-26** that is standing rule 0: *only battle-tested, billion-dollar, unhacked upstreams*, with minimal surface on top.
 
-- **Website:** [memetics.finance](https://memetics.finance) (canonical; `memetic.fun` 301s here)
+- **Website:** [memetics.finance](https://memetics.finance) (canonical; `memetic.fun` permanently redirects here)
 - **Token:** [`TOWELI`](https://etherscan.io/token/0x420698CFdEDdEa6bc78D59bC17798113ad278F9D) · 1,000,000,000 fixed supply · Ethereum Mainnet (unchanged across the relaunch — only the protocol contracts were redeployed)
 - **Price / liquidity:** [GeckoTerminal](https://www.geckoterminal.com/eth/pools/0x6682Ac593513cc0A6c25D0F3588e8fA4FF81104D) (the deep TOWELI/WETH liquidity lives in the Uniswap V2 pool)
 
@@ -328,9 +328,8 @@ You don't need to read the contracts. Four steps from cold wallet to earning yie
 ### 1. Get a wallet
 MetaMask, Rabby, Coinbase Wallet, **Phantom** or **Trust** — or anything RainbowKit supports.
 Fund it with ETH for gas. For the Solana surfaces (the swap and the four Solana bungalow
-lighthouses) use Phantom or another Solana wallet; **Trust is deliberately absent from the
-Solana modal**, because its adapter is legacy-only and would connect and then fail on every
-swap. TOWELI itself is Ethereum-only.
+lighthouses) use Phantom, Trust, or another Solana wallet — **Trust works on both sides as
+of 2026-09-15**. TOWELI itself is Ethereum-only.
 
 ### 2. Get TOWELI
 - **App swap:** [memetics.finance/swap](https://memetics.finance/swap) — the smart front-door; the protocol fee is routed toward stakers (nothing has arrived yet — see the fee-rail bullet above).
@@ -475,13 +474,18 @@ token, ever). Solana is fee-capture, staking, and a venue we intend to own.
   cancel returns unspent — plus a price chart, a priority/speed control, USD-denominated
   input, remembered pairs and real receipts. Pure fee-capture; we custody no liquidity.
   Frontend: [`SolanaSwapPage.tsx`](frontend/src/pages/SolanaSwapPage.tsx).
-- **Wallets.** Phantom is in both the EVM and Solana modals (vendored, because importing
-  RainbowKit's `/wallets` barrel fails the **production** build against wagmi 3.7.6 —
-  `portoWallet` and `geminiWallet` import named exports that no longer exist). **Trust is on
-  the EVM side only, deliberately:** its Solana adapter declares
-  `supportedTransactionVersions = null`, i.e. legacy-only, so it would connect happily and
-  then throw on every versioned swap. Phantom's EVM entry cannot work in mobile Safari at
-  all; the app states that rather than papering over it.
+- **Wallets.** Phantom and Trust are both in the EVM and Solana modals, and both are
+  vendored — importing RainbowKit's `/wallets` barrel fails the **production** build against
+  wagmi 3.7.6 (`portoWallet` and `geminiWallet` import named exports that no longer exist),
+  and on the Solana side `@solana/wallet-adapter-trust` is stale in a way that matters.
+  **Trust was EVM-only until 2026-09-15** on the grounds that its packaged Solana adapter
+  declares `supportedTransactionVersions = null` — legacy-only — so it would connect happily
+  and then throw on every versioned write. That reading of the *package* was right and still
+  is; it was the wrong reading of the *wallet*. Trust's own Wallet Standard implementation
+  declares `['legacy', 0]` and `wallet-core` has signed v0 since 2023, so the venue vendors
+  an adapter with the honest declaration instead (`frontend/src/lib/solanaWallets.ts`) rather
+  than adopting a package whose metadata is stale. Phantom's EVM entry cannot work in mobile
+  Safari at all; the app states that rather than papering over it.
 - **Bungalow lighthouses (live).** Five Streamflow staking pools — BAYLA (2026-08-26, the
   first, and Token-2022 rather than legacy SPL), then BOBO, SOY, BRAINLET and RIZZ
   (2026-08-30). The whole pool lifecycle was rehearsed on **devnet with real transactions**

@@ -10,6 +10,7 @@ import { ART, pageArt, artStyle } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 import { useCountdown } from '../../hooks/useCountdown';
 import { useTabListKeys } from '../../hooks/useTabListKeys';
+import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { surfaceTxError } from '../../lib/txErrors';
 import { artImgProps } from '../../lib/artSrcSet';
 
@@ -280,6 +281,11 @@ export function NFTLendingSection() {
    ═══════════════════════════════════════════════════════════════════ */
 function LendTab() {
   const { isConnected } = useAccount();
+  // A control labelled "Connect Wallet" while `disabled` on the same !isConnected that
+  // produced the label is dead: a native disabled button dispatches no click. The Create
+  // Loan Offer button now OPENS the connect modal when disconnected instead of greying
+  // out under the word. Same fix as CollectionDetailV2 and AMMSection.
+  const openConnectModal = useSafeConnectModal();
   const [selectedCollection, setSelectedCollection] = useState<Address>(COLLECTIONS[0]!.address);
   const [principal, setPrincipal] = useState('');
   const [aprBps, setAprBps] = useState('');
@@ -492,8 +498,8 @@ function LendTab() {
 
       {/* Create Offer Button */}
       <button
-        onClick={handleCreateOffer}
-        disabled={!isConnected || isPending || isConfirming}
+        onClick={isConnected ? handleCreateOffer : openConnectModal}
+        disabled={isConnected ? isPending || isConfirming : !openConnectModal}
         className="w-full min-h-[44px] rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{
           background: isPending || isConfirming ? 'var(--color-purple-15)' : 'linear-gradient(135deg, rgba(16,185,129,0.3), var(--color-purple-30))',

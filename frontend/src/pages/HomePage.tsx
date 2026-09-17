@@ -24,7 +24,7 @@ import { ReferralWidget } from '../components/ReferralWidget';
 import { WrongChainBanner } from '../components/ui/WrongChainGuard';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { YieldCalculator } from '../components/ui/YieldCalculator';
-import { TOWELIE_QUOTES, FAQ_INTRO } from '../lib/copy';
+import { TOWELIE_QUOTES, FAQ_INTRO, HOME_SWAP_CARD } from '../lib/copy';
 import { TOWELI_FAQ_DATA } from '../lib/faqData';
 import { ArtImg } from '../components/ArtImg';
 import { ProtocolStats } from '../components/ProtocolStats';
@@ -829,7 +829,7 @@ export default function HomePage() {
               220px-min cards in a row are unreadably narrow, so tablets get a 2x2. */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { to: '/swap', title: 'Swap', desc: 'Trade ETH ↔ TOWELI via Uniswap V2 with custom slippage controls.', stat: 'Uniswap V2', label: 'Ethereum', art: pageArt('home', 6) },
+              { to: '/swap', title: 'Swap', desc: HOME_SWAP_CARD.desc, stat: HOME_SWAP_CARD.stat, label: HOME_SWAP_CARD.label, art: pageArt('home', 6) },
               // 2026-08-28: "two active pools to earn yield" outlived the LP
               // pool's funded period (periodFinish 2026-06-15, lpEmissions.ts) —
               // the exact literal-vs-phase drift dayTwoEconomyPhrase() exists to

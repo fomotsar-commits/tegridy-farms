@@ -4,6 +4,7 @@ import { useAccount } from 'wagmi';
 import { formatEther } from 'viem';
 import { pageArt } from '../../lib/artConfig';
 import { useNFTDropV2 } from '../../hooks/useNFTDropV2';
+import { useSafeConnectModal } from '../../hooks/useSafeConnectModal';
 import { INPUT, LABEL, BTN_EMERALD } from './launchpadConstants';
 import { ArtCard, PhaseIndicator, useExplorerAddressUrl, CreatorRevenueDashboard, LiveMintFeed } from './launchpadShared';
 import { OwnerAdminPanelV2 } from './OwnerAdminPanelV2';
@@ -27,6 +28,14 @@ export function CollectionDetailV2({
   deployed: boolean;
 }) {
   const { isConnected } = useAccount();
+  // A control labelled "Connect Wallet" while `disabled` on the same !isConnected that
+  // produced that label is dead: a native disabled button dispatches no click, and
+  // handleMint only calls drop.mint — it never opened a modal. So the button now OPENS
+  // the connect modal when disconnected instead of greying out under the word.
+  // The opener can be undefined (no RainbowKitProvider above, or a connection status
+  // RainbowKit does not open the modal from); the button must then be disabled, not
+  // enabled with no handler. useSafeConnectModal documents when.
+  const openConnectModal = useSafeConnectModal();
   const drop = useNFTDropV2(dropAddress);
   const explorerUrl = useExplorerAddressUrl(dropAddress);
   const [mintQty, setMintQty] = useState(1);
@@ -55,6 +64,12 @@ export function CollectionDetailV2({
     if (drop.isPending) return 'Confirm in Wallet...';
     if (drop.isConfirming) return 'Confirming...';
     if (drop.isSoldOut) return 'Sold Out';
+    // OUTAGE-AS-OPEN. The branches above can only fire on a value that was READ
+    // - every sale-state collapse lands on not-cancelled / not-paused / not-sold-
+    // out - so they are safe ahead of this. "Minting Closed" below is not: an
+    // unread mintPhase collapses to 0, which IS closed. Know the sale first.
+    if (drop.saleStateUnread) return 'Sale state unknown — reload';
+    if (!drop.saleStateReadOk) return 'Reading sale state…';
     // F261: phase 0 is CLOSED (creator hasn't opened the sale), distinct from a
     // genuinely paused contract (drop.paused above). Don't call both "Paused".
     if (drop.currentPhase === 0) return 'Minting Closed';
@@ -65,7 +80,7 @@ export function CollectionDetailV2({
     if (drop.priceUnread) return 'Price unknown — reload';
     if (!drop.priceReadOk) return 'Reading price…';
     return `Mint ${mintQty} for ${totalCost.toFixed(4)} ETH`;
-  }, [deployed, isConnected, drop.onMainnet, drop.isCancelled, drop.paused, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.currentPhase, drop.priceUnread, drop.priceReadOk, mintQty, totalCost]);
+  }, [deployed, isConnected, drop.onMainnet, drop.isCancelled, drop.paused, drop.isPending, drop.isConfirming, drop.isSoldOut, drop.saleStateUnread, drop.saleStateReadOk, drop.currentPhase, drop.priceUnread, drop.priceReadOk, mintQty, totalCost]);
 
   const mintDisabled =
     !deployed ||
@@ -84,7 +99,17 @@ export function CollectionDetailV2({
     // requires a POSITIVE read rather than the absence of a failure, so a
     // still-pending batch and a disabled (placeholder-address) query also disarm.
     !drop.priceReadOk ||
+    // OUTAGE-AS-OPEN. Same positive-read rule for the pause, phase, supply and
+    // wallet cap: each one's collapse would otherwise leave this button armed.
+    !drop.saleStateReadOk ||
     (drop.currentPhase === 1 && (!proofInput.trim() || !allowedAmountInput.trim()));
+
+  // The button is a connect control exactly when mintLabel says "Connect Wallet", and
+  // then it is live exactly when there is a modal to open. Otherwise it is the mint
+  // button and mintDisabled governs. The class reads this same value, so a live connect
+  // control does not wear the greyed-out, not-allowed look of a disabled one.
+  const offersConnect = deployed && !isConnected;
+  const mintButtonDisabled = offersConnect ? !openConnectModal : mintDisabled;
 
   const progressPct = drop.maxSupply > 0 ? Math.min(100, (drop.totalSupply / drop.maxSupply) * 100) : 0;
 
@@ -256,9 +281,10 @@ export function CollectionDetailV2({
             </button>
           </div>
 
-          {/* Phase Indicator */}
+          {/* Phase Indicator. -1 lights no step: an unread phase collapses to 0,
+              and lighting "Closed" for it is a claim nobody read. */}
           <div className="flex justify-center mb-8">
-            <PhaseIndicator current={drop.currentPhase} />
+            <PhaseIndicator current={drop.saleStateReadOk ? drop.currentPhase : -1} />
           </div>
 
           {/* Cancelled-sale refund banner */}
@@ -332,9 +358,14 @@ export function CollectionDetailV2({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Minted</p>
+              {/* An unread supply renders a dash, never "0/0". */}
               <p className="text-white font-mono text-lg tabular-nums">
-                {drop.totalSupply}
-                <span className="text-white">/{drop.maxSupply}</span>
+                {drop.saleStateReadOk ? (
+                  <>
+                    {drop.totalSupply}
+                    <span className="text-white">/{drop.maxSupply}</span>
+                  </>
+                ) : '–'}
               </p>
             </div>
             <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
@@ -348,12 +379,12 @@ export function CollectionDetailV2({
             </div>
             <div className="rounded-xl p-3 sm:p-4 text-center bg-black/60 border border-white/[0.05]">
               <p className={LABEL}>Phase</p>
-              <p className="text-white font-medium text-lg">{drop.phaseLabel}</p>
+              <p className="text-white font-medium text-lg">{drop.saleStateReadOk ? drop.phaseLabel : '–'}</p>
             </div>
           </div>
 
           {/* Progress Bar */}
-          {drop.maxSupply > 0 && (
+          {drop.saleStateReadOk && drop.maxSupply > 0 && (
             <div className="mb-8">
               <div className="flex justify-between text-[10px] text-white mb-1.5 uppercase tracking-wider label-pill">
                 <span>Progress</span>
@@ -379,12 +410,13 @@ export function CollectionDetailV2({
             </div>
           )}
 
-          {/* Closed empty state (phase=0) \u2014 F261: distinct from a paused contract */}
-          {drop.currentPhase === 0 && (
+          {/* Closed empty state (phase=0) \u2014 F261: distinct from a paused contract.
+              Only for a phase that was READ: an unread one also collapses to 0. */}
+          {drop.saleStateReadOk && drop.currentPhase === 0 && (
             <ArtCard art={pageArt('launchpad-collection', 1)} opacity={1} overlay="none" className="mb-6">
               <div className="text-center py-4">
                 <div className="text-white/15 text-4xl mb-3">{'\u23F8'}</div>
-                <p className="text-white text-sm">Minting closed \u2014 the creator hasn't opened the sale yet.</p>
+                <p className="text-white text-sm">Minting closed {'\u2014'} the creator hasn't opened the sale yet.</p>
               </div>
             </ArtCard>
           )}
@@ -435,23 +467,33 @@ export function CollectionDetailV2({
                 )}
               </AnimatePresence>
 
-              {/* OUTAGE-AS-FREE. Name the failed read, deny the free-mint
-                  claim the 0 would have made, and say what to do. */}
-              {drop.priceUnread && (
+              {/* OUTAGE-AS-FREE / OUTAGE-AS-OPEN. Name each failed read, deny
+                  the claim its 0 would have made, and say what to do. One box
+                  and one Retry: a real outage usually fails both at once. */}
+              {(drop.priceUnread || drop.saleStateUnread) && (
                 <div
                   data-testid="collection-detail-v2-unread"
-                  className="rounded-xl px-3 py-2 text-[11px] text-amber-300"
+                  className="rounded-xl px-3 py-2 text-[11px] text-amber-300 space-y-1"
                   style={{
                     background: 'rgba(255,178,55,0.10)',
                     border: '1px solid rgba(255,178,55,0.35)',
                   }}
                   role="status"
                 >
-                  <p>
-                    The mint price could not be read — the network did not answer. This is
-                    not a statement that this mint is free. Reload before minting; the
-                    button stays disabled until the price is known.
-                  </p>
+                  {drop.priceUnread && (
+                    <p>
+                      The mint price could not be read — the network did not answer. This is
+                      not a statement that this mint is free. Reload before minting; the
+                      button stays disabled until the price is known.
+                    </p>
+                  )}
+                  {drop.saleStateUnread && (
+                    <p data-testid="collection-detail-v2-state-unread">
+                      The sale's state — its phase, pause switch, supply and per-wallet cap —
+                      could not be read. This is not a statement that minting is closed, open,
+                      paused or sold out. The button stays disabled until it is known.
+                    </p>
+                  )}
                   <button
                     type="button"
                     className="btn-secondary mt-2 px-4 py-1.5 text-[11px]"
@@ -490,22 +532,24 @@ export function CollectionDetailV2({
 
                 <button
                   className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                    mintDisabled
+                    mintButtonDisabled
                       ? 'bg-black/60 text-white cursor-not-allowed'
                       : `${BTN_EMERALD} shadow-[0_0_20px_-6px_rgba(16,185,129,0.3)]`
                   }`}
-                  disabled={mintDisabled}
-                  onClick={handleMint}
+                  disabled={mintButtonDisabled}
+                  onClick={offersConnect ? openConnectModal : handleMint}
                   title={drop.priceUnread
                     ? 'The mint price could not be read from the contract. Reload before minting — do not sign a price you cannot see.'
-                    : undefined}
+                    : drop.saleStateUnread
+                      ? 'The sale state could not be read from the contract. Reload before minting.'
+                      : undefined}
                 >
                   {mintLabel}
                 </button>
               </div>
 
               {/* Total cost */}
-              {drop.currentPhase > 0 && !drop.isSoldOut && deployed && drop.priceReadOk && (
+              {drop.currentPhase > 0 && !drop.isSoldOut && deployed && drop.priceReadOk && drop.saleStateReadOk && (
                 <p className="text-center text-xs text-white font-mono tabular-nums">
                   Total: {totalCost.toFixed(4)} ETH
                 </p>

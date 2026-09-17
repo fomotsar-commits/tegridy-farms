@@ -22,13 +22,14 @@
 //  2. `rewardsCarried` — a per-wallet balance the hatch and a closing exit deposit,
 //     claimable separately. It is real money sitting in a field, and a UI that never
 //     shows it is hiding a balance.
-//  3. `degraded` — an authority-set flag that FLATTENS the ladder and makes the
-//     hatch free. It changes what the exit doors cost, so it changes what the UI
-//     must say.
+//  3. `degraded` — a one-way, authority-set flag that makes BOTH early doors free
+//     while locked and refuses new stakes. It does not touch existing weights. It
+//     changes what the exit doors cost, so it changes what the UI must say.
 //
 // ⚠️ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same flat
-// 25% as `early_exit` when `now < lock_end` and the pool is not degraded
-// (bayla-ladder/src/lib.rs:607-613). Confirmed on chain: the `Withdrawn` event on a
+// penalty as `early_exit` when `now < lock_end` and the pool is not degraded
+// (bayla-ladder/src/lib.rs, `emergency_withdraw`) — 75% since the 2026-09-17 rebuild.
+// Confirmed on chain against the superseded 25% build: the `Withdrawn` event on a
 // 500-token locked position decoded to `amount=375, penalty=125`, while the
 // `transfer_checked` in that same transaction moved only 375 — so the penalty is
 // invisible to anything watching token transfers, and to a raw simulation. It has to
@@ -72,8 +73,12 @@ export const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111
 export const MIN_LOCK_SECS = 7 * 86_400;
 export const MAX_LOCK_SECS = 4 * 365 * 86_400;
 export const REWARDS_DURATION_SECS = 90 * 86_400;
-/** Both exit doors charge this. `penalty_for(a) = a * 2500 / 10000`, floored. */
-export const EARLY_EXIT_PENALTY_BPS = 2_500;
+/**
+ * Both early doors charge this while locked. `penalty_for(a) = a * 7500 / 10000`,
+ * floored. 75% since 2026-09-17 (owner decision); `program.test.ts` reads it back out
+ * of math.rs. NOT the EVM `LighthouseLadder.sol`, which still charges 25%.
+ */
+export const EARLY_EXIT_PENALTY_BPS = 7_500;
 export const BPS = 10_000;
 /** The ladder's ends, in bps: 0.40x at the 7-day floor, 4.00x at 4 years. */
 export const MIN_BOOST_BPS = 4_000;
@@ -226,7 +231,7 @@ export interface LadderPoolView {
   rewardFundedCumulative: bigint;
   penaltyCollectedCumulative: bigint;
   orphanedPenaltyRaw: bigint;
-  /** Set by the authority. Flattens the ladder AND makes the hatch free. */
+  /** Set by the authority, one-way. Both early doors are free while it is set. */
   degraded: boolean;
 }
 
@@ -392,7 +397,7 @@ export function weightForStake(amountRaw: bigint, lockSecs: number): bigint {
   return (amountRaw * BigInt(boostBpsForLock(lockSecs))) / BigInt(BPS);
 }
 
-/** `penalty_for` — 25%, floored, exactly as `math.rs` computes it. */
+/** `penalty_for` — `EARLY_EXIT_PENALTY_BPS` of principal, floored, exactly as `math.rs` computes it. */
 export function penaltyFor(amountRaw: bigint): bigint {
   return (amountRaw * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
 }
@@ -416,10 +421,14 @@ export interface ExitQuote {
  * The two normal doors partition time — `withdraw_matured` demands `now >= lock_end`
  * and `early_exit` demands `now <`, so exactly one is open and the other reverts. The
  * hatch is always open, and is the one whose price surprises people: it charges the
- * SAME 25% while locked, and is free only after maturity or once the pool is
+ * SAME penalty while locked, and is free only after maturity or once the pool is
  * `degraded`. `early_exit` at the same price also pays the rewards out, so in a
  * healthy pool it strictly dominates the hatch; the hatch is for when the reward
  * ledger is what is blocking you.
+ *
+ * A DEGRADED pool zeroes BOTH early doors (lib.rs `early_exit`, audit M-3), not just
+ * the hatch. Pricing the early door at the full penalty there would tell a staker to
+ * give up principal the program no longer takes.
  */
 export function quoteExit(
   position: Pick<LadderPositionView, 'amountRaw' | 'lockEnd'>,
@@ -430,6 +439,8 @@ export function quoteExit(
   const locked = !matured;
   const full = position.amountRaw;
   const pen = penaltyFor(full);
+  const pct = `${EARLY_EXIT_PENALTY_BPS / 100}%`;
+  const earlyPenalty = pool.degraded ? 0n : pen;
   const hatchPenalty = locked && !pool.degraded ? pen : 0n;
   return [
     {
@@ -441,12 +452,14 @@ export function quoteExit(
     },
     {
       door: 'early',
-      penaltyRaw: pen,
-      receivesRaw: full - pen,
+      penaltyRaw: earlyPenalty,
+      receivesRaw: full - earlyPenalty,
       refused: matured,
       reason: matured
         ? 'already matured — the program sends you to the free door instead'
-        : '25% retained; your accrued rewards are paid out',
+        : earlyPenalty > 0n
+          ? `${pct} retained; your accrued rewards are paid out`
+          : 'free while the pool is degraded; your accrued rewards are paid out',
     },
     {
       door: 'hatch',
@@ -454,7 +467,7 @@ export function quoteExit(
       receivesRaw: full - hatchPenalty,
       refused: false,
       reason: hatchPenalty > 0n
-        ? '25% retained — the hatch is NOT free while locked; rewards are deferred, not lost'
+        ? `${pct} retained — the hatch is NOT free while locked; rewards are deferred, not lost`
         : pool.degraded
           ? 'free while the pool is degraded; rewards are deferred, not lost'
           : 'free after maturity; rewards are deferred, not lost',
@@ -502,7 +515,11 @@ export function checkDeposit(
   return { allowed: true, reason: '' };
 }
 
-/** Seconds of runway the reward vault has left, or null when it cannot be derived. */
+/**
+ * Seconds left in the current reward WINDOW (`period_finish - now`, floored at 0), or
+ * null when no rate has ever been set. It never reads the reward vault: it says how
+ * long the scheduled rate runs, not how much the vault holds.
+ */
 export function rewardRunwaySecs(
   pool: Pick<LadderPoolView, 'rewardRate' | 'periodFinish'>, nowSecs: number,
 ): number | null {

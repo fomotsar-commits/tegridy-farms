@@ -66,7 +66,13 @@ export default function PremiumPage() {
     ? premium.monthlyFee * BigInt(plan.months) * BigInt(100 - plan.discount) / 100n
     : premium.monthlyFee * BigInt(plan.months);
   const totalCostDisplay = formatEther(totalCostRaw);
-  const canAfford = premium.userBalance >= totalCostRaw;
+  // `canAfford` is the cap behind the "Insufficient TOWELI Balance" button. An
+  // unread monthlyFee collapses to 0n, so totalCostRaw becomes 0n and
+  // `userBalance >= 0n` is UNCONDITIONALLY TRUE — the cap stopped capping for
+  // every wallet, including an empty one. An unread userBalance collapses the
+  // other way and is merely conservative, but neither is a fact we hold, so
+  // affording is not claimed unless the quote actually landed.
+  const canAfford = !premium.quoteUnread && premium.userBalance >= totalCostRaw;
   const needsApproval = premium.needsApproval(plan.months);
 
   const isLoading = premium.isDataLoading;
@@ -190,9 +196,17 @@ export default function PremiumPage() {
               border: '1px solid rgba(212,160,23,0.3)',
             }}>
             <div className="text-[13px] font-semibold" style={{ color: '#d4a017' }}>
-              {premium.isLifetime ? '\u{1F451} LIFETIME GOLD CARD ACTIVE' : '\u{1F451} GOLD CARD ACTIVE'}
+              {premium.subscriptionUnread ? '\u{1F451} GOLD CARD ACTIVE' : premium.isLifetime ? '\u{1F451} LIFETIME GOLD CARD ACTIVE' : '\u{1F451} GOLD CARD ACTIVE'}
             </div>
-            {!premium.isLifetime && premium.daysRemaining > 0 && (
+            {/* An unread subscription must not delete the renewal prompt — that
+                line is the only thing telling a monthly subscriber to renew
+                before their access lapses. Say we could not read it. */}
+            {premium.subscriptionUnread && (
+              <p className="text-[12px] mt-1" style={{ color: '#FFD37C' }}>
+                Term details could not be read &mdash; if you are on a monthly plan, check your renewal date before it lapses.
+              </p>
+            )}
+            {!premium.subscriptionUnread && !premium.isLifetime && premium.daysRemaining > 0 && (
               <div className="text-white text-[12px] mt-1">
                 {premium.daysRemaining} days remaining
               </div>
@@ -218,9 +232,14 @@ export default function PremiumPage() {
             </>
           ) : (
             [
-              { label: 'Monthly Fee', value: premium.monthlyFeeFormatted > 0 ? `${premium.monthlyFeeFormatted.toLocaleString()} TOWELI` : '...' },
-              { label: 'Active Subscribers', value: premium.totalSubscribers.toString() },
-              { label: 'Total Revenue', value: premium.totalRevenueFormatted > 0 ? `${premium.totalRevenueFormatted.toLocaleString()} TOWELI` : '0' },
+              // An em dash where a read failed. The old hedges keyed off the
+              // VALUE, not off whether it landed: Monthly Fee showed '...' and
+              // Total Revenue showed a flat '0' — which is a claim, and the
+              // wrong one, for a protocol whose revenue is the pitch. A real
+              // on-chain zero still prints as before.
+              { label: 'Monthly Fee', value: premium.quoteUnread ? '—' : premium.monthlyFeeFormatted > 0 ? `${premium.monthlyFeeFormatted.toLocaleString()} TOWELI` : '...' },
+              { label: 'Active Subscribers', value: premium.statsUnread ? '—' : premium.totalSubscribers.toString() },
+              { label: 'Total Revenue', value: premium.statsUnread ? '—' : premium.totalRevenueFormatted > 0 ? `${premium.totalRevenueFormatted.toLocaleString()} TOWELI` : '0' },
               { label: 'Revenue Distributed', value: revenue.totalDistributed > 0 ? `${revenue.totalDistributed.toFixed(4)} ETH` : '0 ETH' },
             ].map((s) => (
               <div key={s.label} className="glass-card p-3 text-center">
@@ -248,8 +267,24 @@ export default function PremiumPage() {
           </div>
         </m.div>
 
-        {/* Subscribe Section */}
-        {!premium.hasPremium && (
+        {/* MEMBERSHIP UNREAD — not the same fact as "no membership".
+            `hasPremium` collapses to false on a failed read, and one failed
+            entry does not set isDataError, so without this the page hid the
+            gold-card banner and rendered the whole sales section below to
+            someone who may already hold LIFETIME access. */}
+        {premium.premiumUnread && (
+          <div className="mb-8 rounded-xl p-4 text-center" style={{ background: 'rgba(240,178,107,0.08)', border: '1px solid rgba(240,178,107,0.35)' }}>
+            <p className="text-[13px]" style={{ color: '#f0b26b' }}>
+              We could not read your membership status just now &mdash; this is not a statement that you have none.
+              Retry in a moment before buying anything.
+            </p>
+          </div>
+        )}
+
+        {/* Subscribe Section. `premiumUnread` suppresses it for the same reason
+            the banner above exists: an unread status must not be spent as a
+            sales opportunity. */}
+        {!premium.hasPremium && !premium.premiumUnread && (
           <m.div className="mb-10" initial={{ opacity: 0, y: 15 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}>
             <h2 className="heading-luxury text-xl text-white tracking-tight mb-1">Choose Your Plan</h2>
             <p className="text-white text-[12px] mb-5">Pay in TOWELI. One flat monthly rate — pick how long you prepay.</p>
@@ -359,6 +394,14 @@ export default function PremiumPage() {
                     </div>
                   )}
                 </ConnectButton.Custom>
+              ) : premium.quoteUnread ? (
+                /* Ordered BEFORE !canAfford deliberately. Both disable the
+                   button, but "Insufficient TOWELI Balance" is itself a claim
+                   about the user's wallet, and we did not read it. Say which
+                   thing we do not know. */
+                <button disabled className="w-full py-3 rounded-lg text-[14px] font-semibold bg-black/60 text-white cursor-not-allowed">
+                  Price unread &mdash; retry
+                </button>
               ) : !canAfford ? (
                 <button disabled className="w-full py-3 rounded-lg text-[14px] font-semibold bg-black/60 text-white cursor-not-allowed">
                   Insufficient TOWELI Balance
@@ -475,7 +518,18 @@ export default function PremiumPage() {
                 No subscription needed — just claim your access.
               </p>
             </div>
-            {address && premium.holdsJBAC && !premium.hasPremium && (
+            {/* An unread entitlement check must not read as "you own no ape".
+                The copy beside this button still promises the access is free,
+                and the paid plan grid above is fully armed — so hiding the
+                button silently leaves a holder with no way to claim and a live
+                purchase flow for what they already own. */}
+            {address && premium.jbacUnread && !premium.hasPremium && (
+              <p role="alert" className="text-[12px] flex-shrink-0 max-w-[260px] text-left" style={{ color: '#FFD37C' }}>
+                We could not check your JBAC holdings. If you hold one, your access is free &mdash;
+                do not buy a subscription until this loads.
+              </p>
+            )}
+            {address && premium.holdsJBAC && !premium.jbacUnread && !premium.hasPremium && (
               <button onClick={premium.activateNFTPremium}
                 disabled={premium.isPending || premium.isConfirming}
                 className="px-5 py-3 rounded-lg text-[13px] font-semibold flex-shrink-0"
