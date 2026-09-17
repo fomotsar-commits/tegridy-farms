@@ -15,6 +15,46 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — `gh`'s `--json files` stops at 100 files, and says nothing
+
+**Believed:** a sibling-PR check ("does any open PR touch the files I touched?") is one
+query: `gh pr list --json number,files`, filtered on your paths. An empty result means no
+overlap.
+
+**Measured** (gh 2.92.0, PR #591 in this repo): `changedFiles` is **113**, and `.files` has
+**100** entries, from both `gh pr view 591 --json files` and `gh pr list --json files`.
+There is no warning, no truncation marker and no flag to page it. `frontend/src/pages/TradePage.tsx`
+was one of the 13 dropped, so an open-PR filter for that path came back **empty** while
+#591 changes it. `gh pr diff 591 --name-only` listed all 113, and the REST endpoint
+`pulls/591/files?per_page=100&page=2` returned the missing 13.
+
+The PRs this hides are the big ones, which are the likeliest to overlap with you.
+
+**Do:** treat `.files` as a sample whenever it is shorter than `changedFiles`, and re-read
+those PRs in full:
+
+```bash
+gh pr list --state open --limit 100 --json number,changedFiles,files \
+  --jq '.[] | select(.changedFiles > (.files|length)) | .number' |
+  while read -r n; do gh pr diff "$n" --name-only | sed "s/^/#$n /"; done
+```
+
+## 2026-09-17 — "element(s) not found" on `getByRole(role, { name })` does not say which half failed
+
+**Believed:** when `getByRole('dialog', { name: /select token/i })` fails with
+`element(s) not found`, the dialog did not open.
+
+**Measured** while mutation-checking an a11y test (a dist copy with the dialog's
+`aria-labelledby` pointed at an id nothing renders): the failure text was identical to a
+dialog that never opened. The dialog **was** open. The locator matches role and name
+together, so an unnamed dialog is "not found" too. A mutant that fails for the wrong reason
+proves nothing about the assertion it was aimed at.
+
+**Do:** read `error-context.md` in the test's output directory before trusting the
+reason. Its page snapshot prints a named node as `- dialog "Select Token":` and an unnamed one as
+`- dialog:`. Here it showed `- dialog:` directly above `- heading "Select Token"`: open,
+titled, unlabelled. That settles it in one grep, with no rerun.
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
