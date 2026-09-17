@@ -95,10 +95,12 @@ pub struct Pool {
     /// `total_principal` already excludes it.
     pub orphaned_penalty: u64,
 
-    /// ONE-WAY. When set, `emergency_withdraw` charges no penalty while locked. This
-    /// is the answer to "what if the operator is the failure": a flag that can only
-    /// ever move in the direction that frees stakers gives a stolen key nothing it
-    /// wants. Its cost is honest — it stops future penalty inflow.
+    /// ONE-WAY. When set, BOTH early doors (`early_exit` and `emergency_withdraw`)
+    /// charge no penalty while locked, and `stake` is refused. It answers "what if the
+    /// operator is the failure", and it only ever moves in the direction that frees
+    /// stakers — but it is not worthless to a thief: a key-holder who also holds a
+    /// locked position escapes their own 75% penalty by firing it. Its cost is honest —
+    /// it stops future penalty inflow.
     pub degraded: bool,
 
     /// Truncation remainders (audit M-2 / L-4). Carved OUT of `_reserved` rather than

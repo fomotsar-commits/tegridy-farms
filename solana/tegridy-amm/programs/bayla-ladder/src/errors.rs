@@ -19,7 +19,7 @@ pub enum LadderError {
     TooManyPositions,
     #[msg("Deposit would exceed the pool's cap")]
     DepositCapExceeded,
-    #[msg("Position is still locked — use early_exit or emergency_withdraw (25% penalty)")]
+    #[msg("Position is still locked — use early_exit or emergency_withdraw (75% penalty)")]
     StillLocked,
     #[msg("Position has matured — use withdraw_matured; it must not eat a penalty by accident")]
     UseWithdrawMatured,
@@ -61,4 +61,9 @@ pub enum LadderError {
     PoolDegraded,
     #[msg("This wallet already holds its maximum share of the pool")]
     WalletCapExceeded,
+    // 6028, added 2026-09-17 with the rate guard. APPENDED LAST so no code in circulation
+    // moves. The message is plain ASCII on purpose: it is mirrored byte-for-byte into the
+    // committed IDL, which CI diffs against a fresh build.
+    #[msg("A reload inside a live window may not lower the reward rate: schedule at least reward_rate x seconds elapsed, or wait for period_finish")]
+    RewardRateWouldDecrease,
 }

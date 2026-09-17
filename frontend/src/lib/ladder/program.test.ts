@@ -17,6 +17,9 @@
 //     (`HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK`) and driven end to end. The
 //     weights, the penalty and the account sizes below are what it ACTUALLY
 //     produced, read back off real accounts — not what this file computes.
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import {
@@ -29,6 +32,11 @@ import {
   EARLY_EXIT_PENALTY_BPS, BPS,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
 } from './program';
+
+const MATH_RS = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../solana/tegridy-amm/programs/bayla-ladder/src/math.rs',
+);
 
 // The real devnet deployment.
 const PROGRAM = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
@@ -131,20 +139,37 @@ describe('the ladder — pinned to weights the chain produced', () => {
   });
 });
 
-describe('the penalty — pinned to the event the chain emitted', () => {
-  it('is 25%, floored, exactly as math.rs computes it', () => {
-    expect(EARLY_EXIT_PENALTY_BPS).toBe(2500);
-    expect(BPS).toBe(10000);
-    expect(penaltyFor(1_000_000n)).toBe(250_000n);
-    expect(penaltyFor(3n)).toBe(0n);     // floors, never rounds up
-    expect(penaltyFor(7n)).toBe(1n);
+describe('the penalty — read from the program, and checked against a real event', () => {
+  it('is the constant math.rs declares — read from the source, not remembered', () => {
+    // Three copies of this number exist: math.rs, this module and the operator CLI.
+    // A copy that lags the program quotes a staker the wrong price for their own
+    // principal, and nothing on chain would say so until they paid it. NOT a
+    // conditional skip: a missing math.rs fails here rather than passing quietly.
+    expect(existsSync(MATH_RS), `math.rs not found at ${MATH_RS}`).toBe(true);
+    const m = /pub const EARLY_EXIT_PENALTY_BPS: u64 = ([\d_]+);/.exec(readFileSync(MATH_RS, 'utf8'));
+    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in math.rs — re-anchor this test').not.toBeNull();
+    expect(EARLY_EXIT_PENALTY_BPS).toBe(Number(m![1]!.replace(/_/g, '')));
   });
 
-  it('reproduces the live Withdrawn event: 500 in -> 375 out, 125 retained', () => {
-    // Decoded from the real base64 `Program data:` line on devnet.
+  it('is 75%, floored, exactly as math.rs computes it', () => {
+    // The same cases math.rs `penalty_is_exactly_three_quarters_rounded_down` pins.
+    expect(EARLY_EXIT_PENALTY_BPS).toBe(7500);
+    expect(BPS).toBe(10000);
+    expect(penaltyFor(1_000_000n)).toBe(750_000n);
+    expect(penaltyFor(3n)).toBe(2n);     // 2.25 floors, never rounds up
+    expect(penaltyFor(7n)).toBe(5n);     // 5.25
+    expect(penaltyFor(1n)).toBe(0n);
+  });
+
+  it('a 500-token locked exit keeps 125 and retains 375', () => {
+    // HISTORY, so nobody "restores" the old numbers: the live `Withdrawn` event this
+    // test was first pinned to (devnet, 2026-09-09) decoded to amount=375,
+    // penalty=125. That was the SUPERSEDED 25% build. It confirmed the shape —
+    // floor(principal x bps / 10_000), retained, not transferred — and the rate is
+    // the only thing the 2026-09-17 rebuild changed.
     const amount = 500_000_000n;
-    expect(penaltyFor(amount)).toBe(125_000_000n);
-    expect(amount - penaltyFor(amount)).toBe(375_000_000n);
+    expect(penaltyFor(amount)).toBe(375_000_000n);
+    expect(amount - penaltyFor(amount)).toBe(125_000_000n);
   });
 });
 
@@ -156,14 +181,17 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
   const degraded = { degraded: true };
   const door = (qs: ReturnType<typeof quoteExit>, d: string) => qs.find((q) => q.door === d)!;
 
-  it('WHILE LOCKED the hatch costs the SAME 25% as an early exit', () => {
+  it('WHILE LOCKED the hatch costs the SAME 75% as an early exit', () => {
     // The defect this whole module exists to not repeat: the CLI and the runbook
     // both said the hatch was free, and the penalty is invisible in a simulation.
     const q = quoteExit(locked, healthy, NOW);
-    expect(door(q, 'hatch').penaltyRaw).toBe(125_000_000n);
+    expect(door(q, 'hatch').penaltyRaw).toBe(375_000_000n);
     expect(door(q, 'hatch').penaltyRaw).toBe(door(q, 'early').penaltyRaw);
-    expect(door(q, 'hatch').receivesRaw).toBe(375_000_000n);
+    expect(door(q, 'hatch').receivesRaw).toBe(125_000_000n);
     expect(door(q, 'hatch').reason).toMatch(/NOT free while locked/);
+    // The percentage in the sentence is the constant's, not a literal that can lag it.
+    expect(door(q, 'hatch').reason).toMatch(/^75% retained/);
+    expect(door(q, 'early').reason).toMatch(/^75% retained/);
   });
 
   it('the two normal doors PARTITION time — exactly one is open', () => {
@@ -191,11 +219,23 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
     expect(door(quoteExit(locked, degraded, NOW), 'hatch').penaltyRaw).toBe(0n);
   });
 
+  it('a DEGRADED pool makes the EARLY door free too — the program zeroes both', () => {
+    // lib.rs `early_exit`: `if pool.degraded { 0 } else { penalty_for(..) }`. This
+    // quote used to price the early door at the full penalty regardless, so a locked
+    // staker in a degraded pool was told the door that also PAYS their rewards would
+    // cost 375 of their 500, when it costs nothing.
+    const q = quoteExit(locked, degraded, NOW);
+    expect(door(q, 'early').penaltyRaw).toBe(0n);
+    expect(door(q, 'early').receivesRaw).toBe(500_000_000n);
+    expect(door(q, 'early').refused).toBe(false);
+    expect(door(q, 'early').reason).toMatch(/free while the pool is degraded/);
+  });
+
   it('the matured door is free and the early door is not', () => {
     const q = quoteExit(matured, healthy, NOW);
     expect(door(q, 'matured').penaltyRaw).toBe(0n);
     expect(door(q, 'matured').receivesRaw).toBe(500_000_000n);
-    expect(door(q, 'early').penaltyRaw).toBe(125_000_000n);
+    expect(door(q, 'early').penaltyRaw).toBe(375_000_000n);
   });
 });
 
