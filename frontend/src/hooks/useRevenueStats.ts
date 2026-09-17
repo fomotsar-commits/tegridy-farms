@@ -83,6 +83,45 @@ export function useRevenueStats() {
   const referrer = data?.[3]?.status === 'success' ? (data[3].result as string) : null;
   const hasReferrer = !!referrer && referrer !== '0x0000000000000000000000000000000000000000';
 
+  // `isDataError` CANNOT SEE ANY OF THIS. useReadContracts defaults
+  // allowFailure to true, so ONE reverting or unanswered leg comes back
+  // status:'failure' inside a query that RESOLVED -- isGlobalError and
+  // isUserError both stay false, every consumer's error branch is skipped, and
+  // the zeros above print as fact. ProofOfClaims.tsx:50 already documents this
+  // wagmi behaviour; nothing in this hook acted on it.
+  //
+  // The user batch is gated on `!!address`, so a disconnected visitor never
+  // asked and must not be told a read failed.
+  const userBatchRan = !!address;
+  const userUnread = (i: number) => userBatchRan && data?.[i]?.status !== 'success';
+
+  /** Nothing here can be spent as "you have nothing to claim".
+   *
+   *  CLAIMING IS WHAT RESETS THE FORFEITURE CLOCKS, which is why this one is
+   *  not cosmetic. RevenueDistributor.CLAIM_GRACE_PERIOD is 7 days after a lock
+   *  expires before an epoch stops being claimable (:198) and DUST_RECLAIM_GRACE
+   *  is 14 days before the owner may reclaim it (:1573); ReferralSplitter
+   *  sweeps a referrer's pendingETH to treasury after FORFEITURE_PERIOD = 90
+   *  days with no claim (:97). So the one surface whose job is to send a user to
+   *  claim was telling them there was nothing to claim, on the exact days the
+   *  clock runs. Entry [1] is included because it supplies the fallback that
+   *  entry [2] reads when [2] itself fails. */
+  const pendingUnread = userUnread(0) || userUnread(1) || userUnread(2);
+
+  /** `referrerOf` is ONE-TIME AND PERMANENT on-chain, so an unread answer must
+   *  not read as "not yet referred". ReferralAttributionCard's own header says
+   *  it exists so we never "offer a Link button that reverts" -- and its
+   *  `canLink` gate gives exactly that on a failed read (:64), as does the
+   *  one-time guard in setReferrer below. The user signs, pays gas, and
+   *  ReferralSplitter.setReferrer reverts AlreadyReferred. */
+  const referrerUnread = userUnread(3);
+
+  /** Lifetime protocol figures. Ungated -- this batch runs for a disconnected
+   *  visitor too, so it has no `!!address` scope. Display-only: these back the
+   *  "every fee flows on-chain, verifiable" pitch, and a fabricated 0 ETH
+   *  undersells it rather than costing anyone money. */
+  const globalUnread = !!globalData && globalData.some((e) => e?.status !== 'success');
+
   // Actions — no registration needed, just claim
   function claimRevenue() {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
@@ -107,6 +146,10 @@ export function useRevenueStats() {
   function setReferrer(referrerAddress: `0x${string}`) {
     if (chainId !== CHAIN_ID) { toast.error('Please switch to Ethereum Mainnet'); return; }
     if (hasReferrer) { toast.info('Referrer already set'); return; }
+    // An UNREAD referrer is not an absent one, and this guard is the last thing
+    // between the user and a transaction that reverts AlreadyReferred with their
+    // gas already spent. Refusing costs a retry; proceeding costs a failed tx.
+    if (referrerUnread) { toast.error('Could not check whether you already have a referrer — try again in a moment'); return; }
     writeClaim({
       chainId: CHAIN_ID,
       address: REFERRAL_SPLITTER_ADDRESS,
@@ -151,6 +194,13 @@ export function useRevenueStats() {
     // Revenue Distribution
     totalDistributed: Number(formatWei(totalDistributed, 18, 6)),
     totalClaimed: Number(formatWei(totalClaimed, 18, 6)),
+    /** ⚠ DERIVED FROM TWO INDEPENDENTLY-FAILING READS — totalDistributed minus
+     *  totalClaimed — which is the exact shape of the usePoolData reserve bug:
+     *  if totalClaimed alone fails it collapses to 0n and this becomes the whole
+     *  lifetime distributed figure, a large plausible wrong number that passes
+     *  any `> 0` hedge. It is harmless ONLY because nothing reads it today
+     *  (grep `.unclaimed` across src/ — no consumer). THE FIRST CONSUMER MUST
+     *  GATE ON `globalUnread`. */
     unclaimed: Number(formatWei(totalDistributed > totalClaimed ? totalDistributed - totalClaimed : 0n, 18, 6)),
     epochCount,
     pendingRevenue: Number(formatWei(pendingRevenue, 18, 6)),
@@ -163,6 +213,16 @@ export function useRevenueStats() {
     totalReferralsPaid: Number(formatWei(totalReferralsPaid, 18, 6)),
     referrer,
     hasReferrer,
+    /** `referrerOf` did not land. NOT the same fact as "no referrer" — the
+     *  on-chain value is one-time and permanent, so acting on the collapse
+     *  offers a Link button that reverts AlreadyReferred. */
+    referrerUnread,
+    /** pendingETH / getReferralInfo did not land, so NOTHING here may be spent
+     *  as "nothing to claim". Claiming is what resets the 7d / 14d / 90d
+     *  forfeiture clocks. */
+    pendingUnread,
+    /** The lifetime protocol figures did not fully land. Display-only. */
+    globalUnread,
     // Actions
     claimRevenue,
     claimReferralRewards,
