@@ -17,16 +17,33 @@
  * And the island's limits: ASCII only, no community links (owner, 09-17: the old
  * Discord is dead and there will never be a Telegram), no APR, no prices.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { collectFacts, renderLlmsTxt, isLiveInLedger, type AddressLedger, type LlmsFacts } from './llmsTxt';
+import {
+  collectFacts,
+  renderLlmsTxt,
+  isLiveInLedger,
+  duration,
+  multiplier,
+  percent,
+  type AddressLedger,
+  type LlmsFacts,
+} from './llmsTxt';
 import { VENUE, heatExampleLine } from './arrival';
 import { BUNGALOWS } from './bungalows';
 import { OPEN_DOOR_IDS } from '../components/VenueDoors';
-import { SITE_URL, EARLY_WITHDRAWAL_PENALTY_BPS, MIN_BOOST_BPS, MAX_BOOST_BPS, JBAC_BONUS_BPS } from './constants';
-import { PENALTY_BPS } from './lighthouseLadder';
+import {
+  SITE_URL,
+  EARLY_WITHDRAWAL_PENALTY_BPS,
+  MIN_BOOST_BPS,
+  MAX_BOOST_BPS,
+  JBAC_BONUS_BPS,
+  MIN_LOCK_DURATION,
+  MAX_LOCK_DURATION,
+} from './constants';
+import * as ladder from './lighthouseLadder';
 import { heatLaunchFloor } from './heat/heatGateConfig';
 import { tierAtFloor } from './heat/heatOracle';
 
@@ -35,6 +52,28 @@ const REPO = join(FRONTEND, '..');
 const ledger = JSON.parse(readFileSync(join(FRONTEND, 'scripts', 'addresses.json'), 'utf8')) as AddressLedger;
 const facts = collectFacts(ledger);
 const text = renderLlmsTxt(facts, { date: '2026-09-17', commit: 'abc1234' });
+
+/** A `uint256 public constant NAME = <expr>;` from Solidity, evaluated: `4 * 365 days`, `2_500`. */
+function solConstant(sol: string, name: string): number {
+  const m = new RegExp(`constant\\s+${name}\\s*=\\s*([^;]+);`).exec(sol);
+  if (!m) throw new Error(`${name} is not declared in this contract`);
+  const unit: Record<string, number> = { seconds: 1, minutes: 60, hours: 3600, days: 86_400 };
+  return m[1]!.split('*').reduce((acc, term) => {
+    const t = /^\s*([\d_]+)\s*(seconds|minutes|hours|days)?\s*$/.exec(term);
+    if (!t) throw new Error(`${name}: cannot evaluate "${m[1]}"`);
+    return acc * Number(t[1]!.replace(/_/g, '')) * (t[2] ? unit[t[2]]! : 1);
+  }, 1);
+}
+
+/** The door ids listed between two headings of the rendered file. */
+function doorIdsBetween(from: string, to: string): string[] {
+  const start = text.indexOf(from);
+  const end = text.indexOf(to, start);
+  expect(start, `no "${from}" heading`).toBeGreaterThan(-1);
+  expect(end, `no "${to}" after "${from}"`).toBeGreaterThan(start);
+  const origin = SITE_URL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [...text.slice(start, end).matchAll(new RegExp(`${origin}/([a-z0-9-]+) token `, 'g'))].map((x) => x[1]!).sort();
+}
 
 describe('llms.txt says only what the venue itself says', () => {
   it('opens as llms.txt does, in plain ASCII, with not one em dash', () => {
@@ -59,6 +98,18 @@ describe('llms.txt says only what the venue itself says', () => {
     }
   });
 
+  it('prints each door under the heading the hall gives it, not merely somewhere in the file', () => {
+    // The facts can be right and the file still wrong: a swapped filter would tell
+    // assistants the settled rooms are open for business.
+    const listed = BUNGALOWS.filter((b) => b.chain !== 'tbd' && b.address);
+    expect(doorIdsBetween('Open for business:', 'Settled:')).toEqual(
+      listed.filter((b) => OPEN_DOOR_IDS.has(b.id)).map((b) => b.id).sort(),
+    );
+    expect(doorIdsBetween('Settled:', '## Staking terms')).toEqual(
+      listed.filter((b) => !OPEN_DOOR_IDS.has(b.id)).map((b) => b.id).sort(),
+    );
+  });
+
   it('carries no community link, no APR and no price', () => {
     expect(text).not.toMatch(/discord|t\.me|telegram/i);
     expect(text).not.toMatch(/\bAP[RY]\b/i);
@@ -74,21 +125,51 @@ describe('llms.txt says only what the venue itself says', () => {
 });
 
 describe('every generated number equals its source', () => {
-  it('TOWELI staking: the constant, and the Solidity it mirrors', () => {
+  it('TOWELI staking: every term is the constant, and the Solidity it mirrors', () => {
     const sol = readFileSync(join(REPO, 'contracts', 'src', 'TegridyStaking.sol'), 'utf8');
-    const onChain = Number(/EARLY_WITHDRAWAL_PENALTY_BPS\s*=\s*([\d_]+)/.exec(sol)![1]!.replace(/_/g, ''));
-    expect(EARLY_WITHDRAWAL_PENALTY_BPS).toBe(onChain);
-    expect(facts.toweliStaking.earlyExitBps).toBe(EARLY_WITHDRAWAL_PENALTY_BPS);
-    expect(text).toContain(`leaving a lock early costs ${EARLY_WITHDRAWAL_PENALTY_BPS / 100}% of the amount staked`);
-    expect(text).toContain(`boost from ${MIN_BOOST_BPS / 10_000}x to ${MAX_BOOST_BPS / 10_000}x`);
-    expect(text).toContain(`plus ${JBAC_BONUS_BPS / 10_000}x with a JBAC NFT`);
+    const terms = {
+      minLockSeconds: [MIN_LOCK_DURATION, solConstant(sol, 'MIN_LOCK_DURATION')],
+      maxLockSeconds: [MAX_LOCK_DURATION, solConstant(sol, 'MAX_LOCK_DURATION')],
+      earlyExitBps: [EARLY_WITHDRAWAL_PENALTY_BPS, solConstant(sol, 'EARLY_WITHDRAWAL_PENALTY_BPS')],
+      minBoostBps: [MIN_BOOST_BPS, solConstant(sol, 'MIN_BOOST_BPS')],
+      maxBoostBps: [MAX_BOOST_BPS, solConstant(sol, 'MAX_BOOST_BPS')],
+      bonusBps: [JBAC_BONUS_BPS, solConstant(sol, 'JBAC_BONUS_BPS')],
+    } as const;
+    for (const [field, [constant, onChain]] of Object.entries(terms)) {
+      expect(constant, `${field}: the app's constant disagrees with TegridyStaking.sol`).toBe(onChain);
+      expect(facts.toweliStaking[field as keyof typeof terms], `${field} is not read from its constant`).toBe(constant);
+    }
+    expect(text).toContain(
+      `- TOWELI staking on Ethereum: locks from ${duration(MIN_LOCK_DURATION)} to ${duration(MAX_LOCK_DURATION)}; ` +
+        `boost from ${multiplier(MIN_BOOST_BPS)} to ${multiplier(MAX_BOOST_BPS)}; plus ${multiplier(JBAC_BONUS_BPS)} with a JBAC NFT; ` +
+        `leaving a lock early costs ${percent(EARLY_WITHDRAWAL_PENALTY_BPS)} of the amount staked.`,
+    );
   });
 
-  it('the ladder pools: the constant, and the Solidity it mirrors', () => {
+  it('the ladder pools: every term is the constant, and the Solidity it mirrors', () => {
     const sol = readFileSync(join(REPO, 'contracts', 'src', 'LighthouseLadder.sol'), 'utf8');
-    const onChain = Number(/EARLY_EXIT_PENALTY_BPS\s*=\s*([\d_]+)/.exec(sol)![1]!.replace(/_/g, ''));
-    expect(Number(PENALTY_BPS)).toBe(onChain);
-    expect(facts.ladderStaking.earlyExitBps).toBe(Number(PENALTY_BPS));
+    const terms = {
+      minLockSeconds: [Number(ladder.MIN_LOCK_SECS), solConstant(sol, 'MIN_LOCK_DURATION')],
+      maxLockSeconds: [Number(ladder.MAX_LOCK_SECS), solConstant(sol, 'MAX_LOCK_DURATION')],
+      earlyExitBps: [Number(ladder.PENALTY_BPS), solConstant(sol, 'EARLY_EXIT_PENALTY_BPS')],
+      minBoostBps: [Number(ladder.MIN_BOOST_BPS), solConstant(sol, 'MIN_BOOST_BPS')],
+      maxBoostBps: [Number(ladder.MAX_BOOST_BPS), solConstant(sol, 'MAX_BOOST_BPS')],
+    } as const;
+    for (const [field, [constant, onChain]] of Object.entries(terms)) {
+      expect(constant, `${field}: lighthouseLadder.ts disagrees with LighthouseLadder.sol`).toBe(onChain);
+      expect(facts.ladderStaking[field as keyof typeof terms], `${field} is not read from its constant`).toBe(constant);
+    }
+    // The rendered line, read on its own: these numbers happen to equal TOWELI's, so a
+    // check anywhere in the file would pass on the TOWELI line. The ladder pools carry
+    // no JBAC bonus, and saying they do would be false on every one of them.
+    const line = text.split('\n').find((l) => l.startsWith('- Ladder pools ('));
+    expect(line, 'the ladder pools line is missing').toBeDefined();
+    expect(line).toContain(
+      `: locks from ${duration(terms.minLockSeconds[0])} to ${duration(terms.maxLockSeconds[0])}; ` +
+        `boost from ${multiplier(terms.minBoostBps[0])} to ${multiplier(terms.maxBoostBps[0])}; ` +
+        `leaving a lock early costs ${percent(terms.earlyExitBps[0])} of the amount staked.`,
+    );
+    expect(line).not.toContain('JBAC');
   });
 
   it('DERIVES what it prints: a synthetic 12.34% exit and 123-degree floor render as such', () => {
@@ -98,20 +179,52 @@ describe('every generated number equals its source', () => {
       ...facts,
       launchFloorLine: heatExampleLine(123, tierAtFloor(123)),
       toweliStaking: { ...facts.toweliStaking, earlyExitBps: 1234, minLockSeconds: 3 * 86_400, maxLockSeconds: 2 * 365 * 86_400 },
+      ladderStaking: { ...facts.ladderStaking, earlyExitBps: 4321, minBoostBps: 2_500, maxBoostBps: 55_000 },
     };
     const out = renderLlmsTxt(synthetic, { date: '2026-09-17' });
-    expect(out).toContain('leaving a lock early costs 12.34% of the amount staked');
-    expect(out).toContain('locks from 3 days to 2 years');
+    const toweliLine = out.split('\n').find((l) => l.startsWith('- TOWELI staking'));
+    const ladderLine = out.split('\n').find((l) => l.startsWith('- Ladder pools ('));
+    expect(toweliLine).toContain('leaving a lock early costs 12.34% of the amount staked');
+    expect(toweliLine).toContain('locks from 3 days to 2 years');
+    // Each line from its own terms: the ladder's synthetic numbers, never TOWELI's.
+    expect(ladderLine).toContain('boost from 0.25x to 5.5x; leaving a lock early costs 43.21% of the amount staked');
     expect(out).toContain('The launch door opens at 123 degrees.');
     expect(out).not.toContain('commit ');
   });
 
-  it('prints the BAYLA ladder terms only when a deployed program is configured', () => {
+  it('prints the BAYLA ladder terms only when the venue offers the pool: program AND pool', async () => {
     // No mainnet bayla-ladder exists; publishing its 75% unconditionally would tell
-    // BAYLA holders the rules of a pool they cannot use.
-    expect(facts.baylaLadderStaking === null).toBe(!import.meta.env.VITE_BAYLA_LADDER_PROGRAM);
-    if (facts.baylaLadderStaking === null) expect(text).not.toContain('BAYLA ladder');
-  });
+    // BAYLA holders the rules of a pool they cannot use. The app needs BOTH variables
+    // to mount the card, so an operator halfway through the ceremony, program set and
+    // pool not, must publish nothing either.
+    const build = async (env: Record<string, string>) => {
+      vi.resetModules();
+      for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+      const mod = await import('./llmsTxt');
+      const f = mod.collectFacts(ledger);
+      return { f, out: mod.renderLlmsTxt(f, { date: '2026-09-17' }) };
+    };
+    const PROGRAM = 'LadrProg1111111111111111111111111111111111';
+    const POOL = 'LadrPoo11111111111111111111111111111111111';
+
+    const neither = await build({ VITE_BAYLA_LADDER_PROGRAM: '', VITE_BAYLA_LADDER_POOL: '' });
+    expect(neither.f.baylaLadderStaking).toBeNull();
+    expect(neither.out).not.toContain('BAYLA ladder');
+
+    const programOnly = await build({ VITE_BAYLA_LADDER_PROGRAM: PROGRAM, VITE_BAYLA_LADDER_POOL: '' });
+    expect(programOnly.f.baylaLadderStaking, 'published a ladder the app does not mount').toBeNull();
+    expect(programOnly.out).not.toContain('BAYLA ladder');
+
+    const both = await build({ VITE_BAYLA_LADDER_PROGRAM: PROGRAM, VITE_BAYLA_LADDER_POOL: POOL });
+    expect(both.f.baylaLadderStaking).not.toBeNull();
+    const bayla = await import('./ladder/program');
+    expect(both.out).toContain(`leaving a lock early costs ${percent(bayla.EARLY_EXIT_PENALTY_BPS)} of the amount staked.`);
+    expect(bayla.EARLY_EXIT_PENALTY_BPS).toBe(7_500);
+  }, 30_000);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe('every contract printed is a live entry in the ledger', () => {

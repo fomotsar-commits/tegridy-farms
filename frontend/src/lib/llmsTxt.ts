@@ -77,7 +77,10 @@ export interface LlmsFacts {
   doors: DoorFact[];
   toweliStaking: StakingTerms;
   ladderStaking: StakingTerms;
-  /** Present only when an operator has pointed the build at a deployed program. */
+  /**
+   * Present only when the venue actually offers the pool: a bungalow carries a
+   * `ladderPool` AND the build is pointed at a deployed program.
+   */
   baylaLadderStaking: StakingTerms | null;
   /** Live contracts, confirmed against the ledger, grouped by chain. */
   contracts: { chain: string; label: string; address: string }[];
@@ -148,7 +151,11 @@ export function collectFacts(ledger: AddressLedger): LlmsFacts {
       minBoostBps: Number(ladder.MIN_BOOST_BPS),
       maxBoostBps: Number(ladder.MAX_BOOST_BPS),
     },
-    baylaLadderStaking: baylaLadder.isLadderConfigured()
+    // BOTH, as the app requires. The farm panel mounts the ladder card only for a
+    // bungalow carrying `ladderPool`, and the card refuses to derive anything without
+    // the program. An operator halfway through the ceremony (program set, pool not)
+    // must not have llms.txt tell BAYLA holders the terms of a pool nobody can open.
+    baylaLadderStaking: BUNGALOWS.some((b) => b.chain === 'solana' && b.ladderPool) && baylaLadder.isLadderConfigured()
       ? {
           minLockSeconds: baylaLadder.MIN_LOCK_SECS,
           maxLockSeconds: baylaLadder.MAX_LOCK_SECS,
