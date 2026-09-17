@@ -40,7 +40,7 @@ import {
   ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
   authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
-  toRaw, fmt, intArg, parseArgs, EARLY_EXIT_PENALTY_BPS, BPS,
+  toRaw, fmt, intArg, parseArgs, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
 } from './bayla-ladder-ops.mjs';
@@ -474,26 +474,34 @@ describe('the two commands that had no builder at all', () => {
   });
 });
 
-describe('the hatch penalty the CLI now prints', () => {
-  // lib.rs emergency_withdraw charges penalty_for(amount) when
-  // `now < lock_end && !degraded`. math.rs floors amount * 7500 / 10000.
-  // The CLI claimed "no penalty" unconditionally until this was caught.
-  const pen = (amount) => (BigInt(amount) * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
+describe('the hatch penalty the CLI now prints — its constants, read from math.rs', () => {
+  // lib.rs `early_exit`, and `emergency_withdraw` while `now < lock_end`, charge
+  // penalty_for(position.amount, position.lock_end, now) unless the pool is degraded.
+  // math.rs is veYFI's schedule: min(time left / MAX_LOCK_SECS, MAX_PENALTY_RATIO) at 1e18
+  // fixed point, floored twice. The CLI claimed "no penalty" unconditionally once, and a
+  // flat 75% after that; every constant the schedule reads is pinned to the source here.
+  const MATH_RS = readFileSync(new URL('../../solana/tegridy-amm/programs/bayla-ladder/src/math.rs', import.meta.url), 'utf8');
+  /** A `pub const` from math.rs: a literal, or a product of literals (`4 * 365 * 86_400`). */
+  const rsConst = (name, type) => {
+    const m = new RegExp(`pub const ${name}: ${type} = ([\\d_ *]+);`).exec(MATH_RS);
+    expect(m, `${name} not found in math.rs - re-anchor this test`).not.toBeNull();
+    return m[1].split('*').map((f) => BigInt(f.trim().replace(/_/g, ''))).reduce((a, c) => a * c);
+  };
 
-  it('is the constant math.rs declares, read from the source', () => {
-    const src = readFileSync(new URL('../../solana/tegridy-amm/programs/bayla-ladder/src/math.rs', import.meta.url), 'utf8');
-    const m = /pub const EARLY_EXIT_PENALTY_BPS: u64 = ([\d_]+);/.exec(src);
-    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in math.rs - re-anchor this test').not.toBeNull();
-    expect(EARLY_EXIT_PENALTY_BPS).toBe(Number(m[1].replace(/_/g, '')));
+  it('MAX_EARLY_EXIT_PENALTY_BPS and PENALTY_SCALE are the ones math.rs declares, read from the source', () => {
+    expect(BigInt(MAX_EARLY_EXIT_PENALTY_BPS)).toBe(rsConst('MAX_EARLY_EXIT_PENALTY_BPS', 'u64'));
+    expect(PENALTY_SCALE).toBe(rsConst('PENALTY_SCALE', 'u128'));
+    // The two the schedule divides by, too: a drift in either moves every penalty.
+    expect(BigInt(BPS)).toBe(rsConst('BPS', 'u64'));
+    expect(BigInt(MAX_LOCK_SECS)).toBe(rsConst('MAX_LOCK_SECS', 'i64'));
+    // ...and the function still takes what the CLI passes it.
+    expect(MATH_RS).toMatch(/pub fn penalty_for\(amount: u64, lock_end: i64, now: i64\) -> u64 \{/);
   });
 
-  it('is 75%, floored, exactly as math.rs computes it', () => {
-    expect(EARLY_EXIT_PENALTY_BPS).toBe(7500);
-    expect(BPS).toBe(10000);
-    expect(pen(1000000)).toBe(750000n);
-    expect(pen(3)).toBe(2n);
-    expect(pen(7)).toBe(5n);
-    expect(pen(1)).toBe(0n);
+  it('MAX_PENALTY_RATIO is derived exactly as math.rs derives it: SCALE x cap / BPS, three quarters of SCALE', () => {
+    expect(MATH_RS).toMatch(/pub const MAX_PENALTY_RATIO: u128 =\s*PENALTY_SCALE \* \(MAX_EARLY_EXIT_PENALTY_BPS as u128\) \/ \(BPS as u128\);/);
+    expect(MAX_PENALTY_RATIO).toBe((rsConst('PENALTY_SCALE', 'u128') * rsConst('MAX_EARLY_EXIT_PENALTY_BPS', 'u64')) / rsConst('BPS', 'u64'));
+    expect(MAX_PENALTY_RATIO).toBe((PENALTY_SCALE * 3n) / 4n);
   });
 });
 
@@ -910,31 +918,43 @@ describe('declare-degraded needs a second word before it will broadcast', () => 
 // above, which other branches edit.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
-  PRECISION, PENALTY_PCT, KEEP_PCT, LADDER_ERRORS, SYSVAR_OWNER, LANDING_SLACK_SECS,
+  PRECISION, LADDER_ERRORS, SYSVAR_OWNER, LANDING_SLACK_SECS,
   decodeClock, decodeTokenAccount, loadSnapshot, simErrorName,
   lastTimeApplicable, minWeightFloor, rewardPerWeightWithResidue, emittedDeltaWithResidue,
   checkpointReplay, newRewardRate, rateChangeAllowed, fundable, penaltyFor,
   exitPreview, exitReport, liveLedger, poolLines,
   driftBound, budgetMargin, fromBudgetMax, notifyPreview, notifyReport, resolveNotifyAmounts,
 } from './bayla-ladder-ops.mjs';
+// veYFI's time-left penalty (2026-09-17): its constants and everything that prints it.
+import {
+  PENALTY_SCALE, MAX_PENALTY_RATIO, MAX_PENALTY_PCT, CAP_YEARS, PENALTY_SCHEDULE,
+  fmtPct, fmtDuration, positionLine, USAGE,
+} from './bayla-ladder-ops.mjs';
 
 // HOW THESE VECTORS WERE GENERATED — by rustc from the program's own math.rs, NOT by this
 // file's JavaScript and not by hand.
 //
 //   generator  C:/Users/jimbo/tegriddy-worktrees/_b_vectors/main.rs (outside the repo),
-//              sha256 6607a19a4a5ce2b5e172eb7cee4cc1df87dd7d5dde5bed57893765f5b34a03aa
-//   compiled   rustc 1.94.0 (4a4ef493e 2026-03-02): `rustc --edition 2021 -O main.rs`
-//   output     vectors.json, sha256 556e95e4d9f1a6a3498c7aae8b44841b64a406b5ce6cd25bc6dec322f9b6a77a,
+//              sha256 91057f3e337ca0ce943b53a01e9f427ba8f178a869b8b281cf0efc4675cf58a3
+//   compiled   rustc 1.94.0 (4a4ef493e 2026-03-02): `rustc --edition 2021 -O main.rs -o gen.exe`
+//   output     vectors.json, sha256 7f53745f86ef6c286837916a4ba60315457ae44a5284244144e485c686a65e73,
 //              pasted below unchanged apart from layout
 //
-// The generator pulls math.rs in with `#[path = ...] mod`:
-//   - `math75`: math.rs from the feat/bayla-ladder-75-penalty working tree (PR A, not yet
-//     committed when these were printed; EARLY_EXIT_PENALTY_BPS = 7_500, and it has
-//     `rate_change_allowed`), sha256 4e0c9313e490f7c54afb7d7108b4f48d7ac6ffa9ebe981a7e5bcf914e933f276.
-//     Every column except the last one of `penalty_for` comes from this module.
-//   - `math25`: trunk's math.rs at 2ac5bd65 (2_500), sha256
-//     6e18d374c63d763ef2cdb5fe941e9feed8399fc01e192d8b65e5294c0622e190, used ONLY for the
-//     last `penalty_for` column, so the penalty parity holds whichever constant is live.
+// The generator pulls math.rs in with `#[path = ...] mod math`: math.rs from the
+// feat/bayla-ladder-yearn-penalty worktree, identical to its blob at 53a60668 (git
+// 2b8cec58fc300189c13d770d426e5872dbc78865, sha256
+// 3f60a379d77ff129bceb8af40564035c05e7a6f02b24f2d4e3568a784558c5e7): veYFI's time-left
+// `penalty_for(amount, lock_end, now)`, MAX_EARLY_EXIT_PENALTY_BPS = 7_500, PENALTY_SCALE = 1e18.
+// Every column comes from this one module.
+//
+// REGENERATED 2026-09-17 for that penalty. Only `constants` and `penalty_for` changed: every
+// other section came out identical to the previous run (compared as parsed JSON), which is
+// expected, because the program commit touched nothing else in math.rs. The previous
+// generator printed a flat-7_500 column beside trunk's flat-2_500 one; that trunk column is
+// dropped, since a one-argument penalty has nothing left to be compared against. The old
+// generator and its output are kept beside the new ones, byte-identical:
+//   main.flat75-2026-09-16.rs       sha256 6607a19a4a5ce2b5e172eb7cee4cc1df87dd7d5dde5bed57893765f5b34a03aa
+//   vectors.flat75-2026-09-16.json  sha256 556e95e4d9f1a6a3498c7aae8b44841b64a406b5ce6cd25bc6dec322f9b6a77a
 //
 // Every expected value is the Rust function's own return. TWO THINGS ARE TRANSCRIPTIONS,
 // said plainly: lib.rs is an Anchor crate that bare rustc cannot build, so the generator's
@@ -948,14 +968,17 @@ import {
 //   reward_per_weight_with_residue[stored, residue, last_update, applicable, rate, tw, floor, -> rpw, residue]
 //   emitted_delta_with_residue    [rpw_now, rpw_stored, tw, residue, -> delta, residue]
 //   fundable                      [vault, emitted, paid, -> budget]
-//   penalty_for                   [amount, -> at 7_500, -> at 2_500]
+//   penalty_for                   [amount, lock_end, now, -> penalty]
+//                                 (amounts 1, 2, 3, 4, 1_460, 1e12, u64::MAX, each at time left
+//                                 -1d, -1s, 0, 1s, 1d, 7d, 1y, 2y, 3y-1s, 3y, 3y+1s, 4y, 10y from
+//                                 now 1_800_000_000; then two other nows, both i64 extremes, amount 0)
 //   min_weight_floor              [min_stake, -> floor]
 //   checkpoint                    [label, pool, [t...], [pool after each t]]
 //   notify                        [label, pool, vault, amount, from_budget, now, "ok" | error, rate, period_finish]
 //   pool = [min_stake, total_weighted, reward_rate, period_finish, last_update_time,
 //           reward_per_weight_stored, rewards_emitted, rewards_paid, rpw_residue, emitted_residue]
 const RUST = {
-  constants: {"PRECISION":"1000000000000","REWARDS_DURATION_SECS":"7776000","MIN_BOOST_BPS":"4000","BPS":"10000","EARLY_EXIT_PENALTY_BPS_75":"7500","EARLY_EXIT_PENALTY_BPS_25":"2500"},
+  constants: {"PRECISION":"1000000000000","REWARDS_DURATION_SECS":"7776000","MIN_BOOST_BPS":"4000","BPS":"10000","MAX_LOCK_SECS":"126144000","MAX_EARLY_EXIT_PENALTY_BPS":"7500","PENALTY_SCALE":"1000000000000000000","MAX_PENALTY_RATIO":"750000000000000000"},
   new_reward_rate: [
     ["7776000000","1000","500","999","1000"],
     ["7775000000","0","1000","1000","1000"],
@@ -1014,19 +1037,102 @@ const RUST = {
     ["0","0","0","0"],
   ],
   penalty_for: [
-    ["0","0","0"],
-    ["1","0","0"],
-    ["2","1","0"],
-    ["3","2","0"],
-    ["4","3","1"],
-    ["7","5","1"],
-    ["999","749","249"],
-    ["1000000","750000","250000"],
-    ["100000000","75000000","25000000"],
-    ["1000000000000","750000000000","250000000000"],
-    ["2460000000000001","1845000000000000","615000000000000"],
-    ["9223372036854775807","6917529027641081855","2305843009213693951"],
-    ["18446744073709551615","13835058055282163711","4611686018427387903"],
+    ["1","1799913600","1800000000","0"],
+    ["1","1799999999","1800000000","0"],
+    ["1","1800000000","1800000000","0"],
+    ["1","1800000001","1800000000","0"],
+    ["1","1800086400","1800000000","0"],
+    ["1","1800604800","1800000000","0"],
+    ["1","1831536000","1800000000","0"],
+    ["1","1863072000","1800000000","0"],
+    ["1","1894607999","1800000000","0"],
+    ["1","1894608000","1800000000","0"],
+    ["1","1894608001","1800000000","0"],
+    ["1","1926144000","1800000000","0"],
+    ["1","2115360000","1800000000","0"],
+    ["2","1799913600","1800000000","0"],
+    ["2","1799999999","1800000000","0"],
+    ["2","1800000000","1800000000","0"],
+    ["2","1800000001","1800000000","0"],
+    ["2","1800086400","1800000000","0"],
+    ["2","1800604800","1800000000","0"],
+    ["2","1831536000","1800000000","0"],
+    ["2","1863072000","1800000000","1"],
+    ["2","1894607999","1800000000","1"],
+    ["2","1894608000","1800000000","1"],
+    ["2","1894608001","1800000000","1"],
+    ["2","1926144000","1800000000","1"],
+    ["2","2115360000","1800000000","1"],
+    ["3","1799913600","1800000000","0"],
+    ["3","1799999999","1800000000","0"],
+    ["3","1800000000","1800000000","0"],
+    ["3","1800000001","1800000000","0"],
+    ["3","1800086400","1800000000","0"],
+    ["3","1800604800","1800000000","0"],
+    ["3","1831536000","1800000000","0"],
+    ["3","1863072000","1800000000","1"],
+    ["3","1894607999","1800000000","2"],
+    ["3","1894608000","1800000000","2"],
+    ["3","1894608001","1800000000","2"],
+    ["3","1926144000","1800000000","2"],
+    ["3","2115360000","1800000000","2"],
+    ["4","1799913600","1800000000","0"],
+    ["4","1799999999","1800000000","0"],
+    ["4","1800000000","1800000000","0"],
+    ["4","1800000001","1800000000","0"],
+    ["4","1800086400","1800000000","0"],
+    ["4","1800604800","1800000000","0"],
+    ["4","1831536000","1800000000","1"],
+    ["4","1863072000","1800000000","2"],
+    ["4","1894607999","1800000000","2"],
+    ["4","1894608000","1800000000","3"],
+    ["4","1894608001","1800000000","3"],
+    ["4","1926144000","1800000000","3"],
+    ["4","2115360000","1800000000","3"],
+    ["1460","1799913600","1800000000","0"],
+    ["1460","1799999999","1800000000","0"],
+    ["1460","1800000000","1800000000","0"],
+    ["1460","1800000001","1800000000","0"],
+    ["1460","1800086400","1800000000","0"],
+    ["1460","1800604800","1800000000","6"],
+    ["1460","1831536000","1800000000","365"],
+    ["1460","1863072000","1800000000","730"],
+    ["1460","1894607999","1800000000","1094"],
+    ["1460","1894608000","1800000000","1095"],
+    ["1460","1894608001","1800000000","1095"],
+    ["1460","1926144000","1800000000","1095"],
+    ["1460","2115360000","1800000000","1095"],
+    ["1000000000000","1799913600","1800000000","0"],
+    ["1000000000000","1799999999","1800000000","0"],
+    ["1000000000000","1800000000","1800000000","0"],
+    ["1000000000000","1800000001","1800000000","7927"],
+    ["1000000000000","1800086400","1800000000","684931506"],
+    ["1000000000000","1800604800","1800000000","4794520547"],
+    ["1000000000000","1831536000","1800000000","250000000000"],
+    ["1000000000000","1863072000","1800000000","500000000000"],
+    ["1000000000000","1894607999","1800000000","749999992072"],
+    ["1000000000000","1894608000","1800000000","750000000000"],
+    ["1000000000000","1894608001","1800000000","750000000000"],
+    ["1000000000000","1926144000","1800000000","750000000000"],
+    ["1000000000000","2115360000","1800000000","750000000000"],
+    ["18446744073709551615","1799913600","1800000000","0"],
+    ["18446744073709551615","1799999999","1800000000","0"],
+    ["18446744073709551615","1800000000","1800000000","0"],
+    ["18446744073709551615","1800000001","1800000000","146235604321"],
+    ["18446744073709551615","1800086400","1800000000","12634756214869554"],
+    ["18446744073709551615","1800604800","1800000000","88443293504086882"],
+    ["18446744073709551615","1831536000","1800000000","4611686018427387903"],
+    ["18446744073709551615","1863072000","1800000000","9223372036854775807"],
+    ["18446744073709551615","1894607999","1800000000","13835057909046559371"],
+    ["18446744073709551615","1894608000","1800000000","13835058055282163711"],
+    ["18446744073709551615","1894608001","1800000000","13835058055282163711"],
+    ["18446744073709551615","1926144000","1800000000","13835058055282163711"],
+    ["18446744073709551615","2115360000","1800000000","13835058055282163711"],
+    ["1000000000000","31536000","0","250000000000"],
+    ["1000000000000","1","-31535999","250000000000"],
+    ["1000000000000","9223372036854775807","-9223372036854775808","750000000000"],
+    ["1000000000000","-9223372036854775808","9223372036854775807","0"],
+    ["0","1926144000","1800000000","0"],
   ],
   min_weight_floor: [
     ["0","0"],
@@ -1100,15 +1206,26 @@ const poolOf = (row, extra = {}) => ({
 const ledgerOf = (p) => POOL_FIELDS.map((k) => String(p[k]));
 /** The first error the PROGRAM would raise, in lib.rs order; CLI-only refusals carry no code. */
 const programVerdict = (pv) => pv.problems.find((x) => x.code !== null)?.name ?? 'ok';
-/** rustc's penalty_for for whichever constant this CLI carries. */
-const PENALTY_COLUMN = { 7500: 1, 2500: 2 }[EARLY_EXIT_PENALTY_BPS];
-const rustPenalty = (amount) => BigInt(RUST.penalty_for.find((r) => r[0] === String(amount))[PENALTY_COLUMN]);
+/** rustc's penalty_for(amount, lock_end, now), looked up — never recomputed here. */
+const rustPenalty = (amount, lockEnd, now) => {
+  const row = RUST.penalty_for.find((r) => r[0] === String(amount) && r[1] === String(lockEnd) && r[2] === String(now));
+  if (!row) throw new Error(`no rustc penalty_for vector for (${amount}, ${lockEnd}, ${now}): add it to the generator`);
+  return BigInt(row[3]);
+};
+/** The generator's penalty `now`, and a year as math.rs counts one. */
+const PEN_NOW = 1_800_000_000n;
+const YEAR = 365n * 86_400n;
 
 describe('parity with math.rs — every expected value printed by rustc', () => {
   it('the generator compiled the constants this CLI replays with', () => {
     expect(PRECISION).toBe(BigInt(RUST.constants.PRECISION));
     expect(BigInt(REWARDS_DURATION_SECS)).toBe(BigInt(RUST.constants.REWARDS_DURATION_SECS));
     expect(BigInt(BPS)).toBe(BigInt(RUST.constants.BPS));
+    // ...and the penalty schedule's, from the same compile.
+    expect(BigInt(MAX_LOCK_SECS)).toBe(BigInt(RUST.constants.MAX_LOCK_SECS));
+    expect(BigInt(MAX_EARLY_EXIT_PENALTY_BPS)).toBe(BigInt(RUST.constants.MAX_EARLY_EXIT_PENALTY_BPS));
+    expect(PENALTY_SCALE).toBe(BigInt(RUST.constants.PENALTY_SCALE));
+    expect(MAX_PENALTY_RATIO).toBe(BigInt(RUST.constants.MAX_PENALTY_RATIO));
   });
 
   it('new_reward_rate — including the mid-window fold-in and saturation', () => {
@@ -1144,13 +1261,17 @@ describe('parity with math.rs — every expected value printed by rustc', () => 
     expect(lastTimeApplicable(9n, 5n)).toBe(5n);
   });
 
-  it('penalty_for — the CLI constant has rustc vectors, and matches them', () => {
-    expect(PENALTY_COLUMN, `no rustc penalty_for vectors for EARLY_EXIT_PENALTY_BPS = ${EARLY_EXIT_PENALTY_BPS}: regenerate them`).toBeDefined();
-    expect(String(EARLY_EXIT_PENALTY_BPS)).toBe(PENALTY_COLUMN === 1
-      ? RUST.constants.EARLY_EXIT_PENALTY_BPS_75 : RUST.constants.EARLY_EXIT_PENALTY_BPS_25);
-    for (const row of RUST.penalty_for) {
-      expect(penaltyFor(BigInt(row[0])), `penalty_for(${row[0]})`).toBe(BigInt(row[PENALTY_COLUMN]));
+  it('penalty_for — every amount at every time left, the cap, both floors and the i64 extremes', () => {
+    expect(RUST.penalty_for.length).toBeGreaterThanOrEqual(96);
+    for (const [a, le, n, want] of RUST.penalty_for) {
+      expect(penaltyFor(BigInt(a), BigInt(le), BigInt(n)), `penalty_for(${a}, ${le}, ${n})`).toBe(BigInt(want));
     }
+    // Spot checks that the vectors say what math.rs's own tests say, so a generator that
+    // silently compiled the wrong math.rs cannot slip through as "parity".
+    expect(rustPenalty(1_000_000_000_000n, PEN_NOW + YEAR, PEN_NOW)).toBe(250_000_000_000n);
+    expect(rustPenalty(1_000_000_000_000n, PEN_NOW + 3n * YEAR, PEN_NOW)).toBe(750_000_000_000n);
+    expect(rustPenalty(1_000_000_000_000n, PEN_NOW + 86_400n, PEN_NOW)).toBe(684_931_506n);
+    expect(rustPenalty(1_460n, PEN_NOW + 86_400n, PEN_NOW)).toBe(0n);
   });
 
   describe('lib.rs checkpoint, replayed step by step', () => {
@@ -1271,6 +1392,8 @@ describe('chain time comes from the Clock sysvar, never this machine', () => {
     const refused = /must be the Clock sysvar's unix_timestamp \(a bigint\), got number/;
     expect(() => checkpointReplay(p, wall)).toThrow(refused);
     expect(() => exitPreview({ amount: 1n, lockEnd: 0n }, p, wall)).toThrow(refused);
+    // The penalty is a function of chain time now, so its own entry point refuses one too.
+    expect(() => penaltyFor(1_000_000n, 2_000_000_000n, wall)).toThrow(refused);
     expect(() => notifyPreview({ pool: p, now: wall, rewardVaultRaw: 0n, amount: 1n, fromBudget: 0n })).toThrow(refused);
     expect(() => poolLines(p, wall)).toThrow(refused);
   });
@@ -1371,16 +1494,18 @@ describe('loadSnapshot — ONE same-slot read, and it refuses rather than defaul
   });
 });
 
-describe('exitPreview — every door, every state, amounts from the constant', () => {
+describe('exitPreview — every door, every state, amounts from rustc penalty_for', () => {
   const AMOUNT = 1_000_000_000_000n;
-  const LOCK_END = 2_000_000n;
+  // ONE SECOND left at the generator's penalty `now`, so a rustc vector exists for exactly
+  // this position; the penalty is time-dependent now, so `locked` must be that `now`.
+  const LOCK_END = PEN_NOW + 1n;
   const pos = { amount: AMOUNT, lockEnd: LOCK_END };
   const healthy = { degraded: false, decimals: 6 };
   const degraded = { degraded: true, decimals: 6 };
   const locked = LOCK_END - 1n;
 
-  it('LOCKED, healthy pool: both early doors forfeit penalty_for(amount); the matured door refuses', () => {
-    const pen = rustPenalty(AMOUNT);
+  it('LOCKED, healthy pool: both early doors forfeit penalty_for(amount, lock_end, now); the matured door refuses', () => {
+    const pen = rustPenalty(AMOUNT, LOCK_END, locked);
     expect(pen).toBeGreaterThan(0n);
     expect(exitPreview(pos, healthy, locked, 'early_exit'))
       .toEqual({ door: 'early_exit', locked: true, penalty: pen, receive: AMOUNT - pen, refusedReason: null });
@@ -1412,20 +1537,33 @@ describe('exitPreview — every door, every state, amounts from the constant', (
     expect(() => exitPreview(pos, healthy, locked, 'withdraw')).toThrow(/unknown exit door/);
   });
 
-  it('every charged amount is rustc penalty_for, and penalty + receive is the whole principal', () => {
-    for (const [a] of RUST.penalty_for) {
-      const p = { amount: BigInt(a), lockEnd: LOCK_END };
-      const pv = exitPreview(p, healthy, locked, 'early_exit');
-      expect(pv.penalty).toBe(rustPenalty(a));
-      expect(pv.penalty + pv.receive).toBe(BigInt(a));
+  it('every charged amount is rustc penalty_for at ITS OWN lock_end and now, on both early doors, and penalty + receive is the whole principal', () => {
+    for (const [a, le, n, want] of RUST.penalty_for) {
+      const p = { amount: BigInt(a), lockEnd: BigInt(le) };
+      const now = BigInt(n);
+      const label = `(${a}, ${le}, ${n})`;
+      const hatch = exitPreview(p, healthy, now, 'emergency_withdraw');
+      expect(hatch.penalty, `hatch ${label}`).toBe(BigInt(want));
+      expect(hatch.penalty + hatch.receive).toBe(BigInt(a));
+      const early = exitPreview(p, healthy, now, 'early_exit');
+      if (now < BigInt(le)) {
+        expect(early.penalty, `--early ${label}`).toBe(BigInt(want));
+      } else {
+        // Matured: early_exit refuses, and rustc agrees there is nothing to charge.
+        expect(early.refusedReason, `--early ${label}`).toMatch(/UseWithdrawMatured/);
+        expect(BigInt(want)).toBe(0n);
+      }
     }
   });
 
-  it('exit --early PRINTS what is forfeited and what comes back', () => {
-    const pen = rustPenalty(AMOUNT);
+  it('exit --early PRINTS what is forfeited, its share of THIS principal, the time left and the rule', () => {
+    const pen = rustPenalty(AMOUNT, LOCK_END, locked);
     const text = exitReport(exitPreview(pos, healthy, locked, 'early_exit'), pos, healthy, locked).join('\n');
-    expect(text).toContain(`${fmt(pen, 6)} FORFEITED  (${PENALTY_PCT} of principal)`);
-    expect(text).toContain(`you receive   ${fmt(AMOUNT - pen, 6)}  (${KEEP_PCT} of principal)`);
+    // One second of four years: a real charge too small for two decimals is never "0.00%".
+    expect(text).toContain(`${fmt(pen, 6)} FORFEITED  (under 0.01% of principal, at chain now)`);
+    expect(text).toContain(`you receive   ${fmt(AMOUNT - pen, 6)}  (99.99% of principal)`);
+    expect(text).toContain('time left     1s  (by the chain clock)');
+    expect(text).toContain(`penalty rule  ${PENALTY_SCHEDULE}`);
     expect(text).toContain('the lock ends in 1s');
     const deg = exitReport(exitPreview(pos, degraded, locked, 'early_exit'), pos, degraded, locked).join('\n');
     expect(deg).toContain('penalty       none — the pool is degraded');
@@ -1433,23 +1571,148 @@ describe('exitPreview — every door, every state, amounts from the constant', (
   });
 
   it('asking the matured door of a LOCKED position prints what --early would cost instead', () => {
-    const pen = rustPenalty(AMOUNT);
+    const pen = rustPenalty(AMOUNT, LOCK_END, locked);
     const text = exitReport(exitPreview(pos, healthy, locked, 'withdraw_matured'), pos, healthy, locked).join('\n');
     expect(text).toMatch(/REFUSED: .*StillLocked/);
-    expect(text).toContain(`--early would forfeit ${fmt(pen, 6)} and return ${fmt(AMOUNT - pen, 6)}`);
-  });
-
-  it('the printed percentages are complementary and follow the constant', () => {
-    expect(parseFloat(PENALTY_PCT) + parseFloat(KEEP_PCT)).toBe(100);
-    expect(parseFloat(PENALTY_PCT) * 100).toBe(EARLY_EXIT_PENALTY_BPS);
+    expect(text).toContain(`--early would forfeit ${fmt(pen, 6)} and return ${fmt(AMOUNT - pen, 6)} of principal (under 0.01% forfeited at chain now)`);
+    expect(text).toContain(`penalty rule  ${PENALTY_SCHEDULE}`);
   });
 
   it('no penalty percentage is typed into anything the CLI prints — every one is derived', () => {
     // Comments are skipped: they may name the EVM ladder's 25% or explain the decision.
-    // Every CODE line (strings, templates, USAGE) must build its percentage from the constant.
+    // Every CODE line (strings, templates, USAGE) must build its percentage from an amount
+    // or, for the cap description, from MAX_EARLY_EXIT_PENALTY_BPS.
     const src = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
     const code = src.split('\n').filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line));
     expect(code.filter((line) => /\b(25|75) ?%/.test(line))).toEqual([]);
+  });
+});
+
+describe('the time-left penalty — charged and printed for THIS position at the chain clock', () => {
+  // math.rs since 53a60668: min(time left / 4 years, 75%), floored twice. There is no one
+  // number to print any more, so every figure below is one position's, at one chain `now`.
+  const AMOUNT = 1_000_000_000_000n; // 1,000,000 tokens at 6 dp
+  const CAP = (AMOUNT * 3n) / 4n;
+  const healthy = { degraded: false, decimals: 6 };
+  const degraded = { degraded: true, decimals: 6 };
+  const at = (left) => ({ amount: AMOUNT, lockEnd: PEN_NOW + left, weight: 4_000_000_000_000n });
+  const DAY = 86_400n;
+
+  it('a locked exit with ONE YEAR left charges exactly 25%, and prints 25.00%', () => {
+    const pos = at(YEAR);
+    const pv = exitPreview(pos, healthy, PEN_NOW, 'early_exit');
+    expect(pv.penalty).toBe(AMOUNT / 4n);
+    expect(pv.penalty).toBe(rustPenalty(AMOUNT, pos.lockEnd, PEN_NOW));
+    expect(pv.receive).toBe((AMOUNT * 3n) / 4n);
+    const text = exitReport(pv, pos, healthy, PEN_NOW).join('\n');
+    expect(text).toContain('🔴 PENALTY    250,000 FORFEITED  (25.00% of principal, at chain now)');
+    expect(text).toContain('you receive   750,000  (75.00% of principal)');
+    expect(text).toContain('time left     365d 0h 0m 0s  (by the chain clock)');
+    expect(text).toContain(`penalty rule  ${PENALTY_SCHEDULE}`);
+  });
+
+  it('a 7-day position charges under 0.5%, and prints its own share', () => {
+    const pos = at(7n * DAY);
+    const pv = exitPreview(pos, healthy, PEN_NOW, 'early_exit');
+    expect(pv.penalty).toBe(rustPenalty(AMOUNT, pos.lockEnd, PEN_NOW));
+    expect(pv.penalty).toBeGreaterThan(0n);
+    expect(pv.penalty * 200n).toBeLessThan(AMOUNT); // strictly under 0.5% of principal
+    const text = exitReport(pv, pos, healthy, PEN_NOW).join('\n');
+    expect(text).toContain('4,794.520547 FORFEITED  (0.47% of principal, at chain now)');
+    expect(text).toContain('time left     7d 0h 0m 0s  (by the chain clock)');
+  });
+
+  it(`the cap: ${CAP_YEARS} or more years left charges exactly 75%, never more; a second under it is under`, () => {
+    expect(CAP_YEARS).toBe(3);
+    for (const left of [3n * YEAR, 3n * YEAR + 1n, 4n * YEAR, 10n * YEAR]) {
+      expect(exitPreview(at(left), healthy, PEN_NOW, 'early_exit').penalty, `${left}s left`).toBe(CAP);
+    }
+    // The printed "3 or more years" is where the function actually reaches the cap.
+    expect(penaltyFor(AMOUNT, PEN_NOW + BigInt(CAP_YEARS) * YEAR, PEN_NOW)).toBe(CAP);
+    expect(penaltyFor(AMOUNT, PEN_NOW + BigInt(CAP_YEARS) * YEAR - 1n, PEN_NOW)).toBeLessThan(CAP);
+  });
+
+  it('it never rises as the lock runs down, never passes the cap, and is zero at lock_end (hour steps, four years)', () => {
+    // math.rs's own monotonicity test, mirrored: waiting must never cost more.
+    const amount = (1n << 64n) - 1n;
+    const cap = (amount * 3n) / 4n;
+    const lockEnd = 2_000_000_000n;
+    let prev = amount;
+    const bad = [];
+    for (let t = lockEnd - BigInt(MAX_LOCK_SECS) - 3_600n; t <= lockEnd; t += 3_600n) {
+      const pen = penaltyFor(amount, lockEnd, t);
+      if (pen > prev || pen > cap) bad.push(`now=${t}: ${pen} after ${prev}`);
+      prev = pen;
+    }
+    expect(bad).toEqual([]);
+    expect(prev).toBe(0n);
+  });
+
+  it('the hatch and exit --early quote the SAME amount for the same position and chain now', () => {
+    for (const left of [1n, DAY, 7n * DAY, YEAR, 2n * YEAR, 3n * YEAR - 1n, 3n * YEAR, 4n * YEAR]) {
+      const pos = at(left);
+      const early = exitPreview(pos, healthy, PEN_NOW, 'early_exit');
+      const hatch = exitPreview(pos, healthy, PEN_NOW, 'emergency_withdraw');
+      expect(hatch.penalty, `${left}s left`).toBe(early.penalty);
+      const forfeited = (pv) => exitReport(pv, pos, healthy, PEN_NOW).filter((l) => l.includes('FORFEITED'));
+      expect(forfeited(hatch), `${left}s left`).toEqual(forfeited(early));
+      expect(forfeited(hatch)).toHaveLength(1);
+      // The hatch's pointer at --early names that same amount, and so does `positions`.
+      expect(exitReport(hatch, pos, healthy, PEN_NOW))
+        .toContain(`  'exit --early' forfeits the same ${fmt(early.penalty, 6)} at this chain clock, and ALSO pays your rewards out.`);
+      expect(positionLine(0, pos, healthy, PEN_NOW)).toContain(`the hatch forfeits ${fmt(early.penalty, 6)} (`);
+    }
+  });
+
+  it('positions prints each row\'s OWN penalty and time left, at the snapshot\'s chain clock', () => {
+    expect(positionLine(0, at(YEAR), healthy, PEN_NOW))
+      .toBe('  #0  1,000,000  weight 4000000000000  locked 365d 0h 0m 0s more; --early or the hatch forfeits 250,000 (25.00% at chain now)');
+    expect(positionLine(1, at(7n * DAY), healthy, PEN_NOW))
+      .toBe('  #1  1,000,000  weight 4000000000000  locked 7d 0h 0m 0s more; --early or the hatch forfeits 4,794.520547 (0.47% at chain now)');
+    // The same one-year position, half a year on by the chain clock, forfeits half as much.
+    expect(positionLine(0, at(YEAR), healthy, PEN_NOW + YEAR / 2n)).toContain('locked 182d 12h 0m 0s more; --early or the hatch forfeits 125,000 (12.50% at chain now)');
+    expect(positionLine(0, at(YEAR), healthy, PEN_NOW + YEAR)).toBe('  #0  1,000,000  weight 4000000000000  MATURED — withdraw is free');
+    expect(positionLine(0, at(YEAR), degraded, PEN_NOW)).toContain('forfeits 0 (none: the pool is degraded)');
+    // ...and the command feeds every row the snapshot's chain `now`, with the rule printed once.
+    const block = caseBlock('positions');
+    expect(block).toMatch(/^\s*const now = snap\.now;$/m);
+    expect(block).toMatch(/^\s*console\.log\(positionLine\(n, d\.value, p, now\)\);$/m);
+    expect(block).toMatch(/^\s*console\.log\(` {2}early exits {6}\$\{PENALTY_SCHEDULE\}`\);$/m);
+  });
+
+  it('USAGE describes the time-left schedule on both doors, not a flat rate', () => {
+    expect(PENALTY_SCHEDULE).toBe('time left / 4 years, capped at 75% with 3 or more years left; it shrinks as the lock runs down');
+    expect(MAX_PENALTY_PCT).toBe(`${MAX_EARLY_EXIT_PENALTY_BPS / 100}%`);
+    expect(USAGE).toContain(`#   ${PENALTY_SCHEDULE}.`);
+    expect(USAGE).toContain('hatch      --pool <addr> --nonce <n>       # principal; the SAME time-left penalty as --early WHILE LOCKED');
+  });
+
+  it('no "75%" is PRINTED except in the cap description — a position is quoted at its own share', () => {
+    const lines = [...USAGE.split('\n')];
+    for (const left of [-1n, 0n, 1n, DAY, 7n * DAY, YEAR, 2n * YEAR, 3n * YEAR, 4n * YEAR]) {
+      const pos = at(left);
+      for (const pool of [healthy, degraded]) {
+        for (const door of ['early_exit', 'emergency_withdraw', 'withdraw_matured']) {
+          lines.push(...exitReport(exitPreview(pos, pool, PEN_NOW, door), pos, pool, PEN_NOW));
+        }
+        lines.push(positionLine(0, pos, pool, PEN_NOW));
+      }
+    }
+    expect(lines.filter((l) => /\b75 ?%/.test(l) && !l.includes(PENALTY_SCHEDULE))).toEqual([]);
+    expect(lines.some((l) => l.includes(PENALTY_SCHEDULE)), 'the cap description is printed somewhere').toBe(true);
+  });
+
+  it('fmtPct floors to two decimals and never prints a real charge as 0.00%; fmtDuration is exact', () => {
+    expect(fmtPct(250n, 1_000n)).toBe('25.00%');
+    expect(fmtPct(4_794_520_547n, AMOUNT)).toBe('0.47%');
+    expect(fmtPct(749_999_992_072n, AMOUNT)).toBe('74.99%'); // 3y - 1s: floored, never rounded up to the cap
+    expect(fmtPct(1n, AMOUNT)).toBe('under 0.01%');
+    expect(fmtPct(0n, AMOUNT)).toBe('0.00%');
+    expect(fmtDuration(0n)).toBe('0s');
+    expect(fmtDuration(59n)).toBe('59s');
+    expect(fmtDuration(3_661n)).toBe('1h 1m 1s');
+    expect(fmtDuration(DAY)).toBe('1d 0h 0m 0s');
+    expect(fmtDuration(3n * YEAR - 1n)).toBe('1094d 23h 59m 59s');
   });
 });
 
@@ -1828,7 +2091,7 @@ describe('exit and hatch never BROADCAST a penalty nobody previewed', () => {
 
   it('both commands PRINT the penalty preview, computed at the CHAIN clock; --early is strictly a bare flag', () => {
     const exit = caseBlock('exit');
-    // `--early no` parses "no" as the flag's value; a truthy check would take the 75% door.
+    // `--early no` parses "no" as the flag's value; a truthy check would take the paying door.
     expect(exit).toMatch(/^\s*const early = args\.early === true;$/m);
     expect(exit).toMatch(/^\s*const pv = exitPreview\(pos\.value, p, snap\.now, early \? 'early_exit' : 'withdraw_matured'\);$/m);
     const hatch = caseBlock('hatch');

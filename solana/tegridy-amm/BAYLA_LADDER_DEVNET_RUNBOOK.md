@@ -9,12 +9,15 @@
 Everything below was run end to end, not just written. The addresses are real and live.
 
 > ⚠️ **Measured on the superseded 25% build.** `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` was compiled with
-> `EARLY_EXIT_PENALTY_BPS = 2_500` and has no reload rate guard. From the 2026-09-17
-> rebuild on (branch `feat/bayla-ladder-75-penalty`), the ladder forfeits **75%** of
-> principal on an early exit (the leaver keeps 25%) and `notify_reward` refuses a
-> mid-window reload that would lower the rate. Every penalty figure in this section is a
-> record of the old build. **Nothing has been measured at 75% on any cluster.** Upgrade
-> this devnet program to the 75% build before any preview environment points at it.
+> `EARLY_EXIT_PENALTY_BPS = 2_500` (a flat 25%) and has no reload rate guard. The
+> 2026-09-17 rebuild first set a flat 75% (branch `feat/bayla-ladder-75-penalty`, #586),
+> then the same day replaced it with **Yearn's veYFI schedule** (branch
+> `feat/bayla-ladder-yearn-penalty`): an early exit forfeits
+> `amount × min(time left / 4 years, 75%)` — 75% with three or more years left, about
+> 0.48% on a 7-day lock left at once — and `notify_reward` refuses a mid-window reload that
+> would lower the rate. Every penalty figure in this section is a record of the old build.
+> **Nothing has been measured on devnet or mainnet under the schedule.** Upgrade this
+> devnet program to the schedule build before any preview environment points at it.
 
 | | |
 | --- | --- |
@@ -50,8 +53,10 @@ outstanding 0, `total_principal` 0, stake vault 0, `orphaned_penalty` swept to 0
   `MIN_BOOST + (MAX_BOOST − MIN_BOOST) × (lock − MIN) / (MAX − MIN)` exactly.
 - **The hatch penalty is real.** The `Withdrawn` event on a 500-token locked position
   decodes to `amount = 375.00, penalty = 125.00` — measured on the superseded 25% build,
-  where 375 is what was RETURNED and 125 what was FORFEITED. (On the 75% build the same
-  position would return 125 and forfeit 375: the two numbers trade places. That is
+  where 375 is what was RETURNED and 125 what was FORFEITED. (Under the veYFI schedule the
+  same 500 tokens would forfeit `500 × min(time left / 4 years, 75%)`, set by the time left
+  at the exit: at most 2.397260 on a 7-day lock, at most 10.273972 on a 30-day lock, and
+  375 — the two numbers trading places — only with three or more years left. That is
   arithmetic, not a measurement.) ⚠️ The `transfer_checked` in that same transaction
   moved **375**, the returned share — the penalty exists ONLY inside the event, so a reader
   watching token transfers, or a raw simulation, sees no penalty at all. That is exactly
@@ -76,12 +81,21 @@ This runbook is the devnet half. The mainnet half is `BAYLA_LADDER_MAINNET_RUNBO
 
 ## 0. What this program is
 
-Lock-ladder staking with a flat **75% early-exit penalty** — a leaver before `lock_end`
-keeps 25% of principal. It ports the lock ladder of `contracts/src/LighthouseLadder.sol`
-(7 d–4 y, 0.40x–4.00x) but **not its penalty**: the EVM contract charges 25%, this
-program 75% (owner decision 2026-09-17). The forfeited 75% is not paid to anyone on the
-way out: it is forfeited to the reward pool, scheduled into a later window by the
+Lock-ladder staking with **Yearn's veYFI early-exit penalty** — a leaver before `lock_end`
+forfeits `amount × min(time_left / 4 years, 75%)`, where `time_left = lock_end − now`,
+floored twice as veYFI floors it (`math::penalty_for`, copied from yearn/veYFI
+`VotingYFI.vy`). Three or more years left forfeits 75%; two years, 50%; one year, 25%;
+seven days, about 0.48%; nothing at or after `lock_end`. It ports the lock ladder of
+`contracts/src/LighthouseLadder.sol` (7 d–4 y, 0.40x–4.00x) but **not its penalty**: the
+EVM contract charges 25%, this program the schedule (owner decision 2026-09-17,
+replacing a flat 75% set earlier that day). The forfeited share is not paid to anyone on
+the way out: it is forfeited to the reward pool, scheduled into a later window by the
 operator, and then shared by weight among whoever is staked then.
+
+The schedule has a price, and it bounds reward sizing: weights are frozen at stake time, so
+once the max-boost annual reward rate exceeds roughly 28%, "lock 4 years and leave early"
+beats an honest shorter lock. Keep reward loads under that (`BAYLA_LADDER_MAINNET_RUNBOOK.md`
+§8; on devnet, the stand-in funding below is not a sizing example).
 
 It is a **separate product** from the Streamflow BAYLA lighthouse pool
 (`EFWpSpH9rU6jGqpMPpo9VavMdBd64CdodakaJtCXEZ9f`), which keeps running and still needs its
@@ -91,16 +105,17 @@ ceiling". That ceiling does not exist — see the 2026-09-12 correction in
 `docs/TODO_OPERATOR.md`.)
 
 The property that matters most: **principal is always recoverable** — some door always
-opens. Before `lock_end`, in a healthy pool, that door returns 25% of it. Three doors:
+opens. Before `lock_end`, in a healthy pool, that door returns at least 25% of it (exactly
+25% only with three or more years left). Three doors:
 
 | door | price | notes |
 | --- | --- | --- |
 | `withdraw_matured` | free | only after `lock_end` |
-| `early_exit` | 75% of principal (25% returned); free once the pool is `degraded` | pays your rewards out on the way |
-| `emergency_withdraw` (the hatch) | **75% while still locked** (the same penalty as `early_exit`), free once matured or once the pool is `degraded` | principal only; touches no reward accounting, so it cannot revert on drift |
+| `early_exit` | `min(time_left / 4 years, 75%)` of principal — 75% with 3+ years left, 25% with 1 year, about 0.48% with 7 days; free once the pool is `degraded` | pays your rewards out on the way |
+| `emergency_withdraw` (the hatch) | **the same time-left penalty while still locked** (identical to `early_exit` at the same second), free once matured or once the pool is `degraded` | principal only; touches no reward accounting, so it cannot revert on drift |
 
 > 🔴 **THE HATCH IS NOT FREE WHILE LOCKED.** `emergency_withdraw` in `lib.rs` charges the same
-> `penalty_for(amount)` as `early_exit` whenever `now < lock_end` and the pool is not
+> `penalty_for(amount, lock_end, now)` as `early_exit` whenever `now < lock_end` and the pool is not
 > degraded. This document said "free" in two places and the CLI printed "no penalty"
 > unconditionally; both were wrong, and a review caught it before anyone ran it.
 >
@@ -114,7 +129,7 @@ opens. Before `lock_end`, in a healthy pool, that door returns 25% of it. Three 
 | --- | --- | --- |
 | `MIN_LOCK_SECS` | 7 days | boost 0.40x |
 | `MAX_LOCK_SECS` | 4 years | boost 4.00x |
-| `EARLY_EXIT_PENALTY_BPS` | 7 500 | flat 75% forfeited (25% of principal returned), charged by `early_exit` and, while locked, `emergency_withdraw`; 0 in a `degraded` pool. Forfeited to the reward pool as budget for a later window. Compile-time, no setter. **The devnet build `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` was compiled with 2 500.** |
+| `MAX_EARLY_EXIT_PENALTY_BPS` | 7 500 | the **cap** of veYFI's schedule, not a flat rate. `penalty_for(amount, lock_end, now)` forfeits `amount × min(time_left / 4 years, 75%)`, floored twice (`PENALTY_SCALE` 1e18, `MAX_PENALTY_RATIO` = 3/4 of it), and 0 at or after `lock_end`. Charged by `early_exit` and, while locked, `emergency_withdraw`; 0 in a `degraded` pool. Forfeited to the reward pool as budget for a later window. Compile-time, no setter. **The devnet build `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` has no schedule: it was compiled with a flat `EARLY_EXIT_PENALTY_BPS = 2_500`.** |
 | `REWARDS_DURATION_SECS` | 90 days (7 776 000 s) | per-second distribution |
 | `MAX_POSITIONS` | 20 | per wallet per pool |
 | `CAP_TIMELOCK_SECS` | 48 h | deposit-cap raises only; the cap can only go UP |
@@ -318,8 +333,10 @@ The run's summary page prints the sha256s, the rent estimate, and the deploy com
 below with your addresses already filled in.
 
 > 📄 **You do not need a run to get an IDL any more.** `idl/bayla_ladder.json` is
-> committed, and it is the **75% program's** IDL: #586 edited it BY HAND to match the
-> 75% source, because `anchor build` cannot run on the operator's machine.
+> committed, and it is the **schedule program's** IDL: #586 edited it BY HAND to match the
+> flat-75% source, and the veYFI schedule commit on `feat/bayla-ladder-yearn-penalty` edited
+> it by hand again to match the schedule, because `anchor build` cannot run on the
+> operator's machine.
 > `ladder-constraints` checks it against the IDL a fresh `anchor build` emits on every
 > push (`tools/check_committed_idl.py`), so a hand-edit that disagrees with the program
 > fails there. GitHub deletes the artifact 30 days after the run, so the committed copy
@@ -332,7 +349,8 @@ below with your addresses already filled in.
 > whose `.so` sha256 matched the deployed bytes exactly when it was checked
 > (`idl/README.md`). The IDL that run emitted is the file as it was committed in
 > `7ecbd163ba9688f7454dfe621b92b0917a240e2d`, before #586. Against the committed file,
-> devnet differs in the description and penalty doc strings (25% vs 75%), error 6007's
+> devnet differs in the description and penalty doc strings (a flat 25% vs the time-left
+> schedule, up to 75%), error 6007's
 > message, the `degraded` flag's doc, and error **6028 `RewardRateWouldDecrease`**, which
 > devnet does not have. Every instruction, account, argument, type and discriminator is unchanged,
 > so a client built from the committed IDL still calls devnet correctly; only error
@@ -472,7 +490,7 @@ Three rules to respect:
 - `rate <= fundable / 7_776_000`, where `fundable = vault − (emitted − paid)`. The pool
   will not schedule what it does not physically hold after reserving what it already
   owes. This is the TegridyRestaking bug as a `require!`.
-- **The rate guard (75% rebuild on; the devnet build
+- **The rate guard (2026-09-17 rebuild on; the devnet build
   `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` does not have it).** While
   `now < period_finish`, the folded rate
   `(scheduled + (period_finish − now) × reward_rate) / 7_776_000` must be **at least the
@@ -490,13 +508,15 @@ program refuses the call if the result would lower the rate. So a small top-up l
 window, or a penalty-only `from_budget` reload that does not cover the elapsed emission,
 is refused rather than silently diluting the rate. Recycle penalties at the regular
 reload. The reload policy (cadence, sizing, what to publish) is in
-`BAYLA_LADDER_MAINNET_RUNBOOK.md` §8.
+`BAYLA_LADDER_MAINNET_RUNBOOK.md` §8 — including the ceiling the veYFI penalty puts on
+sizing: keep the max-boost annual reward rate under about 28%, or "lock 4 years and leave
+early" beats an honest shorter lock.
 
 ---
 
 ## 8. Smoke test on devnet, in this order
 
-The integration suite (`tests/bayla-ladder.test.ts`, 28 tests since the 75% rebuild added the rate-guard test) covers all of this against
+The integration suite (`tests/bayla-ladder.test.ts`, 29 tests: #586 added the rate-guard test, and the veYFI schedule added a 7-day early exit that must forfeit its time-left share, not the cap) covers all of this against
 a local validator in CI. On devnet, drive it with the CLI from §5b — dry-run each first,
 then re-run with `--broadcast`:
 
@@ -516,8 +536,8 @@ node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000 --keypair <au
 
 # let a few minutes of the 90-day window accrue, then:
 node scripts/bayla-ladder-ops.mjs claim --pool <p> --nonce 0
-node scripts/bayla-ladder-ops.mjs exit  --pool <p> --nonce 0 --early   # 75% penalty (25% back), pays rewards
-node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 1           # 75% penalty while locked, defers rewards
+node scripts/bayla-ladder-ops.mjs exit  --pool <p> --nonce 0 --early   # time-left penalty (~0.48% on a fresh 7-day lock), pays rewards
+node scripts/bayla-ladder-ops.mjs hatch --pool <p> --nonce 1           # the same time-left penalty while locked, defers rewards
 node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>             # what the hatch deferred
 node scripts/bayla-ladder-ops.mjs sweep --pool <p>                     # permissionless
 ```
@@ -531,21 +551,35 @@ Confirm each:
 3. `notify_reward` a small 90-day budget. Confirm `RewardAdded` and a non-zero rate.
 4. Wait a few minutes, `claim`. **Confirm the payout comes from the reward vault only**
    (invariant I-12) and the stake vault is untouched.
-5. `early_exit`. Confirm exactly 75% is retained (25% of principal returned) and **the
-   penalty lands in the reward vault**, and that `withdraw_matured` refuses the same
-   position.
+5. `early_exit`. Confirm the retained penalty is the **time-left share, not 75%**:
+   `penalty = floor(amount × floor(time_left × 10^18 / 126,144,000) / 10^18)`, with
+   `time_left = lock_end − t`, `lock_end` as `positions` showed it before the exit closed
+   the account, and `t` the exit transaction's `blockTime` (the slot's clock). For the
+   500-token, 7-day positions above, exited a few minutes after staking, that is **just
+   under 2.397260 forfeited** (about 0.48%; 2.397260 is the figure with the full 7 days
+   left, and it falls by about 0.000004 per second that passes, so roughly 0.0024 in ten
+   minutes) and about 497.60 returned — nowhere near 375. Confirm **the penalty lands in
+   the reward vault**, and that `withdraw_matured` refuses the same position.
 6. `emergency_withdraw` on a second position, and test BOTH arms — this is the step
    that was documented backwards. On a position that is **still locked** in a healthy
-   pool, confirm the hatch retains exactly 75% (`hatch` prints the number before you
-   broadcast) and that `pool.orphaned_penalty` rises by that amount. Then
-   `declare_degraded` and confirm the hatch becomes free. Either way, confirm the
-   accrued rewards were NOT destroyed: they land in `user_stats.rewards_carried` and
-   `claim-carried` pays them out.
-   ⚠️ The CLI's penalty is a local constant (`EARLY_EXIT_PENALTY_BPS` in `bayla-ladder-ops.mjs`), not read from
-   the chain, and nothing on chain exposes the rate. Against a program still on the 25%
-   build — `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` today — a CLI built at 75% prints a penalty that program does not
-   charge. The CLI and the program must be the same build: upgrade devnet first, and
-   confirm steps 5 and 6 from the decoded `Withdrawn` event, not the CLI's preview.
+   pool, confirm the hatch retains the same time-left share `early_exit` would at that
+   second (again just under 2.397260 for a 7-day 500-token position) and that
+   `pool.orphaned_penalty` rises by exactly that amount. Then `declare_degraded` and
+   confirm the hatch becomes free. Either way, confirm the accrued rewards were NOT
+   destroyed: they land in `user_stats.rewards_carried` and `claim-carried` pays them out.
+   (Optional, to see the cap: a position staked at the 4-year maximum, `--lock-days 1460`,
+   and exited while more than three years remain forfeits exactly 75% — 375 of 500. A
+   3-year lock exited at once does NOT: its time left is already a few seconds under
+   three years.)
+   ⚠️ The CLI's penalty is a local copy of the schedule in `bayla-ladder-ops.mjs`, not
+   read from the chain, and nothing on chain exposes the schedule. Its preview is computed
+   at the moment it runs, so the charged penalty is slightly lower for every second before
+   the transaction lands (about 4 raw units per second on a 500-token position). And
+   against a program still on the flat-25% build —
+   `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` today — a CLI built on the schedule prints
+   a penalty that program does not charge (that build takes 125 of 500, whatever the time
+   left). The CLI and the program must be the same build: upgrade devnet first, and confirm
+   steps 5 and 6 from the decoded `Withdrawn` event, not the CLI's preview.
 7. `sweep_orphaned_penalty` from a **stranger's** keypair — it is permissionless by
    design, and the struct declares no `Signer`.
 
@@ -640,8 +674,8 @@ path in their own harness.** It is the first thing to hand them.
 
 ```bash
 cd solana/tegridy-amm
-cargo test -p bayla-ladder --lib                    # 40 host tests (35 before the 75% rebuild)
-cargo test -p bayla-ladder --lib --features devnet  # 40, both configs matter
+cargo test -p bayla-ladder --lib                    # 41 host tests (40 at #586's flat 75%, 35 before it)
+cargo test -p bayla-ladder --lib --features devnet  # 41, both configs matter
 ```
 
 Both feature configs are run in CI deliberately: `deployer::ID` is cfg-gated, and the

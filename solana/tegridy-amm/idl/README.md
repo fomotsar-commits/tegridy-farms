@@ -19,7 +19,8 @@ discriminators and account orderings by reading Rust.
 ## `bayla_ladder.json`
 
 > **⚠️ The provenance table below describes the SUPERSEDED 25% build.** On 2026-09-17
-> the program changed: the early-exit penalty went from 25% to 75%, and
+> the program changed: the early-exit penalty went from a flat 25% to veYFI's schedule,
+> `min(time left / 4 years, 75%)`, and
 > `notify_reward` gained a guard that refuses to lower the rate inside a live window
 > (new error `6028 RewardRateWouldDecrease`, appended last so no existing code moved).
 > The committed file was edited BY HAND to match, because `anchor build` still cannot
@@ -30,7 +31,7 @@ discriminators and account orderings by reading Rust.
 > So the sha256 and source commit below no longer hash to this file, and devnet
 > `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the 25% binary until it is
 > upgraded. Replace the table (see **Refreshing it**) from the first
-> `solana-deploy-artifact` run built on the 75% source.
+> `solana-deploy-artifact` run built on the new source.
 
 | | |
 | --- | --- |

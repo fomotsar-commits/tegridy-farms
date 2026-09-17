@@ -11,7 +11,8 @@ import {
   isLadderConfigured, ladderProgramId,
   boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
   minWeightFloor,
-  MAX_LOCK_SECS, MAX_POSITIONS, EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
+  MAX_LOCK_SECS, MAX_POSITIONS, MAX_EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
+  penaltyFor, penaltyPct,
   type LadderPoolView, type LadderPositionView,
 } from '../../lib/ladder/program';
 import {
@@ -36,9 +37,10 @@ import { fmtRaw, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '..
  *
  * ── THE FOUR THINGS THIS CARD MUST NOT GET WRONG ────────────────────────────
  *
- * 1. THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same flat
- *    `EARLY_EXIT_PENALTY_BPS` as `early_exit` unless the position has matured or the
- *    pool is degraded (and in a degraded pool `early_exit` is free too).
+ * 1. THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same penalty
+ *    as `early_exit` — veYFI's schedule, the time left over four years capped at 75% —
+ *    unless the position has matured or the pool is degraded (and in a degraded pool
+ *    `early_exit` is free too).
  *    An earlier version of the operator CLI, the runbook and a sentence said out
  *    loud all had it costing nothing; the penalty rides inside a base64 event, so a
  *    dry run does not show it. Every door here is priced by `quoteExit()` and the
@@ -122,7 +124,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const [lockSecs, setLockSecs] = useState<number>(RUNGS[0]!);
   const [action, setAction] = useState<{ busy?: string; note?: string; sig?: string } | null>(null);
   // Two-step confirm, keyed by nonce+door. A door that costs a share of someone's
-  // principal (`EARLY_EXIT_PENALTY_BPS`) must never be one mis-click away.
+  // principal (up to `MAX_EARLY_EXIT_PENALTY_BPS`) must never be one mis-click away.
   // ⚠️ ARMED AGAINST ONE READ. Nonces restart at 0 for every wallet, so a bare
   // `nonce:door` armed by one wallet came up pre-armed on the next wallet's first
   // position after a switch. The armed door is stored with the exact wallet read its
@@ -472,7 +474,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                       and unlock in {humanDuration(lockSecs)}.{' '}
                       {pool.degraded
                         ? 'While the pool is degraded it accepts no new stakes.'
-                        : `Leaving early costs ${EARLY_EXIT_PENALTY_BPS / 100}% of the principal.`}
+                        : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
                     </p>
                   )}
 
@@ -648,9 +650,9 @@ function PositionRow({
           {busy === 'Claim' ? 'Claiming…' : 'Claim rewards'}
         </button>
 
-        {/* The normal door. Free once matured (or in a degraded pool), charged
-            `EARLY_EXIT_PENALTY_BPS` before — and the program refuses whichever one is
-            not open, so only the open one is offered. */}
+        {/* The normal door. Free once matured (or in a degraded pool), charged the
+            time-left penalty before — and the program refuses whichever one is not
+            open, so only the open one is offered. */}
         <ExitButton
           label={matured ? `Withdraw ${fmtRaw(normal.receivesRaw, decimals)} ${sym}` : `Exit early — keep ${fmtRaw(normal.receivesRaw, decimals)} ${sym}`}
           detail={matured

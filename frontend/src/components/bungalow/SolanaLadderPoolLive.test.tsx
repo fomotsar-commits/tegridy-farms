@@ -5,7 +5,7 @@
 // helper never produced. Three of those would cost a user real money:
 //
 //   1. The emergency hatch priced as free while a position is LOCKED. It charges the
-//      same flat 75% as an early exit, the penalty rides inside a base64 event so no
+//      same time-left penalty as an early exit (veYFI's, capped at 75%), the penalty rides inside a base64 event so no
 //      dry run reveals it, and this repo has already had that wrong in the operator
 //      CLI, in the runbook, and out loud.
 //   2. Rewards printed from the stored `rewards_owed`, which only moves when somebody
@@ -127,8 +127,10 @@ const poolView = (o: Record<string, unknown> = {}) => ({
 const position = (o: Record<string, unknown> = {}) => ({
   address: 'POS0', pool: POOL_ADDR, owner: OWNER, nonce: 0,
   amountRaw: 500_000_000n,                 // 500 BAYLA
-  weight: 200_000_000n,                    // 0.40x, the seven-day floor
-  lockEnd: BigInt(NOW + 7 * DAY),          // LOCKED
+  weight: 2_000_000_000n,                  // 4.00x, the four-year top
+  // LOCKED, with four years left: over three, so veYFI's schedule is at its 75% cap and
+  // every price below is the capped one (375 of 500). A short lock is priced separately.
+  lockEnd: BigInt(NOW + 4 * 365 * DAY),
   rewardPerWeightPaid: 0n,
   rewardsOwed: 0n,
   ...o,
@@ -170,13 +172,24 @@ const draw = () => render(<SolanaLadderPoolLive bungalow={BUNGALOW} />);
 
 describe('the emergency hatch is priced, never assumed', () => {
   it('⚠️ a LOCKED position is told the hatch costs 375 of its 500', () => {
-    // 500 x 7500bps = 375. The single most expensive thing this repo has said
-    // wrongly about this program.
+    // Four years left: the 75% cap, 375 of 500. The single most expensive thing this
+    // repo has said wrongly about this program is that the hatch is free.
     draw();
     return screen.findByText(/Emergency withdraw — costs 375 BAYLA/).then((btn) => {
       expect(btn).toBeTruthy();
       expect(screen.queryByText(/Emergency withdraw — no penalty/)).toBeNull();
     });
+  });
+
+  it('a SHORT lock is quoted its time-left price, not the cap', async () => {
+    // veYFI's schedule: 7 days left on 500 is floor(500e6 x floor(604_800e18 / 4y) / 1e18)
+    // = 2_397_260 raw — under half a percent. A card still quoting the cap would tell
+    // this staker their exit costs 375.
+    reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW + 7 * DAY), weight: 200_000_000n })] }) };
+    draw();
+    expect(await screen.findByText(`Emergency withdraw — costs ${fmtRaw(2_397_260n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.getByText(`Exit early — keep ${fmtRaw(497_602_740n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.queryByText(/costs 375 BAYLA/)).toBeNull();
   });
 
   it('a MATURED position is told the hatch is free, because by then it is', async () => {
@@ -188,7 +201,7 @@ describe('the emergency hatch is priced, never assumed', () => {
 
   it('a DEGRADED pool frees the hatch even while the position is locked', async () => {
     // The flag exists so a captured or absent operator cannot trap anyone. If the
-    // card kept quoting 75% here it would deter the exit the flag was set to allow.
+    // card kept quoting the penalty here it would deter the exit the flag was set to allow.
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
     expect(await screen.findByText(/Emergency withdraw — no penalty/)).toBeTruthy();
@@ -327,6 +340,16 @@ describe('the stake form refuses what the program would refuse', () => {
     expect(await screen.findByText(/no instruction to change it/i)).toBeTruthy();
     const stake = screen.getByRole('button', { name: /Lock BAYLA/ });
     expect((stake as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('tells a staker, before they lock, what leaving straight away would cost — and that it shrinks', async () => {
+    // The default rung is 7 days: 200 BAYLA forfeits 958_904 raw at once, 0.47% floored.
+    draw();
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+    const line = await screen.findByText(/Leaving straight away would forfeit/);
+    expect(line.textContent).toMatch(/forfeit 0\.47% of the principal/);
+    expect(line.textContent).toMatch(/time left on the lock over four years, capped at 75%/);
+    expect(line.textContent).toMatch(/shrinks as the lock runs down/);
   });
 
   it('accepts an amount that clears every gate', async () => {
@@ -713,7 +736,7 @@ describe('switching wallets while something is in flight', () => {
   // B's first position: 800 BAYLA, nonce 0 — the same nonce as A's.
   const B_VIEW = walletView({
     stats: { address: 'USB', nextNonce: 1, openPositions: 1, rewardsCarriedRaw: 0n, principalRaw: 800_000_000n },
-    open: [position({ address: 'POSB0', owner: OTHER, amountRaw: 800_000_000n, weight: 320_000_000n })],
+    open: [position({ address: 'POSB0', owner: OTHER, amountRaw: 800_000_000n, weight: 3_200_000_000n })],
   });
   const byOwner = () => vi.mocked(read.readLadderWallet).mockImplementation(async (_c, _p, _pool, owner) =>
     ({ ok: true, value: owner.toBase58() === OWNER ? walletView() : B_VIEW }) as never);

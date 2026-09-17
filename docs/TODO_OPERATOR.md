@@ -47,13 +47,17 @@ Eight of fifteen instructions executed on chain. Accounting reconciled to the la
 The 0.40x floor rung and the hatch penalty both moved from claim to measurement — the
 penalty as **25%, measured on the superseded 25% build**.
 
-> ⚠️ **2026-09-17 — the ladder is being rebuilt at a 75% early-exit penalty** (the leaver
-> keeps 25%; EVM/TOWELI stay 25%), with a `notify_reward` guard that refuses a mid-window
-> reload lowering the rate (6028 `RewardRateWouldDecrease`). `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the 25%
+> ⚠️ **2026-09-17 — the ladder is being rebuilt with veYFI's early-exit penalty**,
+> `amount × min(time left / 4 years, 75%)` (`math::penalty_for`): three or more years left
+> forfeits 75%, one year 25%, seven days about 0.48%, and nothing at or after `lock_end`.
+> It replaced a flat 75% set earlier the same day; EVM/TOWELI stay 25%. The rebuild
+> also adds a `notify_reward` guard that refuses a mid-window reload lowering the rate
+> (6028 `RewardRateWouldDecrease`). `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the flat-25%
 > build with no guard, so every penalty figure in this section is a record of that build,
-> and **nothing has been measured at 75%**. Upgrade the devnet program to the 75% build
-> before any preview environment points at it. Decisions and the superseded mainnet
-> artifact: `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`.
+> and **nothing has been measured on chain under the schedule**. Upgrade the devnet program
+> to the schedule build before any preview environment points at it. Decisions (including
+> the reward-sizing bound the schedule brings) and the superseded mainnet artifact:
+> `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`.
 
 ### ✅ O-0909-1 — DONE 2026-09-17: `withdraw_matured` executed on devnet
 
@@ -80,8 +84,8 @@ test funding, not an APR signal.
 **Every figure in that table was measured on the superseded 25% build.** The
 `penalty_collected_cumulative` of 250 is the two 25% penalties of 125 from the 09-09 run.
 The matured door passes a zero penalty at any rate (`withdraw_matured` calls
-`exit_with_penalty(ctx, now, 0)`), so "500 back, penalty 0" carries over to the 75% build;
-the 250 does not.
+`exit_with_penalty(ctx, now, 0)`), so "500 back, penalty 0" carries over to the schedule
+build; the 250 does not.
 
 **The command as it was written here did not run** — it omitted `--program`, and the CLI
 refuses without it (`--program <id> (or BAYLA_LADDER_PROGRAM) is required`). The devnet

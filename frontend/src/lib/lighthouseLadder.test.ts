@@ -169,7 +169,7 @@ describe('the exit costs', () => {
   });
 
   it('is the constant LighthouseLadder.sol declares, not the Solana ladder one', () => {
-    // The Solana bayla-ladder charges 75% since 2026-09-17; this EVM contract is a
+    // The Solana bayla-ladder charges veYFI's time-left schedule (up to 75%) since 2026-09-17; this EVM contract is a
     // separate product and was not changed. Read from the Solidity so a sweep that
     // "fixes" every 2_500 in the repo fails here instead of misquoting EVM stakers.
     const here = dirname(fileURLToPath(import.meta.url));
