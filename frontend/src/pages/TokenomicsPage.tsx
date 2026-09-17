@@ -181,10 +181,16 @@ export default function TokenomicsPage() {
             <h2 className="heading-luxury text-[15px] text-white mb-3">Emission Schedule</h2>
             <div className="space-y-3">
               {[
-                { l: 'Rewards / Day', v: pool.isDeployed ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
-                { l: 'Rewards / Second', v: pool.isDeployed ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
-                { l: 'Funded (lifetime)', v: pool.isDeployed ? `${formatNumber(totalFunded, 1)} TOWELI` : '–' },
-                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : 'Period ended' },
+                // T18: `isDeployed` says the ADDRESS is real, not that the read
+                // landed. Every row below used to print a confident "0 TOWELI"
+                // for an RPC outage. Gate each on its own unread signal.
+                { l: 'Rewards / Day', v: pool.isDeployed && !pool.rewardRateUnread ? `${formatNumber(rewardPerDay, 0)} TOWELI` : '–' },
+                { l: 'Rewards / Second', v: pool.isDeployed && !pool.rewardRateUnread ? `${(parseFloat(pool.rewardRate) || 0).toFixed(4)} TOWELI` : '–' },
+                { l: 'Funded (lifetime)', v: pool.isDeployed && !pool.rewardsFundedUnread ? `${formatNumber(totalFunded, 1)} TOWELI` : '–' },
+                // "Period ended" is a CLAIM. It may only be made off a reserve
+                // that was actually read and found empty (isDry), never off a
+                // runway that is 0 because nothing could be read.
+                { l: 'Emissions End In', v: !pool.isDeployed ? '–' : pool.isLoading ? '…' : daysLeft > 0 ? `~${Math.floor(daysLeft)} days` : pool.isDry ? 'Period ended' : '–' },
               ].map((r) => (
                 <div key={r.l} className="flex items-center justify-between">
                   <span className="text-white text-[13px]">{r.l}</span>
@@ -232,8 +238,9 @@ export default function TokenomicsPage() {
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Emission Rate</p>
-                {/* §2.2: the configured rate emits NOTHING while the reserve is empty. */}
-                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.isDry ? '0.00 / day — reserve empty' : `${((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day`}</p>
+                {/* §2.2: the configured rate emits NOTHING while the reserve is empty.
+                    T18: and an unread rate is not "0.00 / day" — it is unknown. */}
+                <p className="stat-value text-[13px]" style={{ color: '#22c55e', textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>{pool.isDry ? '0.00 / day — reserve empty' : pool.rewardRateUnread ? '–' : `${((parseFloat(pool.rewardRate) || 0) * 86400).toFixed(2)} / day`}</p>
               </div>
               <div className="rounded-lg p-3" style={{ background: 'var(--color-purple-75)', border: '1px solid var(--color-purple-75)' }}>
                 <p className="text-[10px] uppercase tracking-wider label-pill mb-0.5" style={{ color: '#22c55e', textShadow: '0 1px 4px rgba(0,0,0,0.9)' }}>Ends In</p>
