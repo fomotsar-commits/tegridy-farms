@@ -105,7 +105,23 @@ function persistToLocalStorage(entries: ErrorEntry[]) {
 /** Validate the error endpoint to prevent exfiltration to unexpected origins. */
 function isAllowedEndpoint(url: string): boolean {
   try {
-    const parsed = new URL(url);
+    // A SAME-ORIGIN PATH IS THE NORMAL CONFIGURATION, AND IT USED TO THROW.
+    // `.env.example` sets the analytics twin as `/api/analytics`, so an
+    // operator wiring this one copies that shape - and `new URL('/api/errors')`
+    // with no base raises TypeError, the catch below returns false, and flush()
+    // silently diverts every batch to the write-only localStorage buffer. The
+    // endpoint would read as "configured" while errors kept vanishing: exactly
+    // the bug this reporter exists to end, rebuilt one layer down.
+    //
+    // Resolve ONLY a genuine same-origin path. The `//` exclusion is
+    // load-bearing: `new URL('//evil.example/x', origin)` resolves to
+    // `https://evil.example/x`, so accepting protocol-relative input here would
+    // widen the exfiltration control this function exists to enforce. Those
+    // still fall through to the bare parse, which rejects them as before.
+    const sameOriginPath = url.startsWith('/') && !url.startsWith('//');
+    const parsed = sameOriginPath
+      ? new URL(url, window.location.origin)
+      : new URL(url);
     const h = parsed.hostname;
     // Block non-HTTPS (except localhost for dev)
     if (parsed.protocol !== 'https:' && h !== 'localhost') return false;
