@@ -40,7 +40,7 @@ export function HeatCard({ defaultAddress }: { defaultAddress?: string }) {
     try {
       setReading(await fetchHeat(address.trim()));
     } catch {
-      setError('The Island is quiet right now — the oracle could not be read. That is an outage, not a zero.');
+      setError('The Island is quiet right now. The oracle could not be read. That is an outage, not a zero.');
     } finally {
       setLoading(false);
     }

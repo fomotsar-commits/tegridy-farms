@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { bungalowByAddress } from '../lib/bungalows';
+import { setLastBuy } from '../lib/heat/lastBuy';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useBalance, useChainId, usePublicClient } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { toast } from 'sonner';
@@ -306,6 +308,24 @@ export function useSwap() {
     const submittedInput = submittedInputAmountRef.current || inputAmount;
     const submittedRoute = submittedRouteRef.current || quote.selectedRoute;
     trackSwap(fromToken?.symbol ?? '', toToken?.symbol ?? '', submittedInput, submittedRoute);
+    // WAVE SEVEN, element O: latch a buy that landed in a resident's token, so
+    // the room can say one true sentence about this buyer's own clock. Here
+    // rather than in a page, so the terminal's quick-buy panel is served too.
+    // This rail is pinned to Ethereum mainnet (see the guard in executeSwap),
+    // which is why the chain word is not derived from chainId. No network
+    // call is added: the line peeks at a reading the venue already holds.
+    const boughtAddress = toToken?.address;
+    const room = boughtAddress ? bungalowByAddress('ethereum', boughtAddress) : null;
+    if (room && address) {
+      setLastBuy({
+        hash,
+        symbol: room.symbol,
+        tokenAddress: boughtAddress as string,
+        chain: room.chain,
+        buyer: address,
+        atUnix: Math.floor(Date.now() / 1000),
+      });
+    }
     submittedInputAmountRef.current = '';
     submittedRouteRef.current = '';
     lastActionRef.current = null;
@@ -313,7 +333,7 @@ export function useSwap() {
     setFotRetryAttempted(false);
     const t = setTimeout(() => { reset(); setInputAmount(''); }, 4000);
     return () => clearTimeout(t);
-  }, [isSuccess, hash, allowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute]);
+  }, [isSuccess, hash, allowance, refetchFromBalance, fromToken, toToken, reset, chainId, inputAmount, quote.selectedRoute, address]);
 
   // AUDIT (receipt-status): terminal handler for a receipt that came back
   // REVERTED. Shares `lastHandledHashRef` with the success effect so exactly

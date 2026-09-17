@@ -32,11 +32,11 @@ import { RealYieldProof } from '../components/RealYieldProof';
 import { ProtocolPulse } from '../components/ProtocolPulse';
 import { ProofOfClaims } from '../components/ProofOfClaims';
 import { CopyButton } from '../components/ui/CopyButton';
-import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, GITHUB_REPO_URL, SOCIAL_LINKS, isDeployed } from '../lib/constants';
+import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAUNCHER_ADDRESS, isDeployed } from '../lib/constants';
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
-import { arrivalVoice, VENUE } from '../lib/arrival';
+import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
@@ -55,6 +55,9 @@ const REF_STORAGE_KEY = 'tegridy_ref';
 // arrival voice. Same mechanics both ways (the fee loop is a venue fact);
 // only the Tegridy personality words are contained to the TOWELI bungalow.
 const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
+
+/** Answer ten, ruling 2: flipped by the first home mount, so only that one skips the hero's entrance. */
+let homeMountedOnce = false;
 
 const CORE_LOOP_STEPS = [
   IS_TOWELI_ARRIVAL
@@ -115,6 +118,15 @@ const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
 ];
 
 export default function HomePage() {
+  // ANSWER TEN, RULING 2: the hero does not fade in over the static first frame the
+  // visitor is already reading. Only the document's first home mount, and only when
+  // index.html's frame was actually shown (theme-init stamps the attribute).
+  const [heroAlreadyOnScreen] = useState(
+    () => !homeMountedOnce && typeof document !== 'undefined' && document.documentElement.getAttribute('data-first-frame') === 'venue',
+  );
+  useEffect(() => {
+    homeMountedOnce = true;
+  }, []);
   // Jungle Bay bungalows: resolved FIRST because the title below depends on
   // it — the /bayla door serves her <title> statically for crawlers, and
   // without this the SPA would overwrite it back to the venue title the
@@ -249,7 +261,7 @@ export default function HomePage() {
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
         <div className="pt-28 pb-20">
-          <m.div className="max-w-xl relative" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <m.div className="max-w-xl relative" initial={heroAlreadyOnScreen ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             {/* Readability scrim — softly darkens the art behind the hero copy so the white
                 text stays legible over light patches of the art (e.g. the pale ape on the
                 left). Additive only: fades to transparent, so the art elsewhere is untouched. */}
@@ -332,7 +344,7 @@ export default function HomePage() {
                 per-address badges. So the headline leads with the one differentiator
                 a skeptic can check in a single click. */}
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-              Farm TOWELI.<br /><span className="text-white">Check our work.</span>
+              Farm TOWELI.{' '}<br /><span className="text-white">Check our work.</span>
             </h1>
 
             {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE
@@ -384,6 +396,21 @@ export default function HomePage() {
                 style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
                 Scan a token
               </Link>
+            </div>
+
+            {/* ANSWER TEN, RULING 1: the TOWELI welcome stopped opening itself, so
+                this is its door - the same quiet link, and the same event, the
+                venue hero's tour uses. Without it TOWELI's own onboarding script
+                would be unreachable, not merely unasked. */}
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event(OPEN_VENUE_WELCOME_EVENT))}
+                className="text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
+                style={{ color: 'rgba(255,255,255,0.75)' }}
+              >
+                First time here? Take the tour
+              </button>
             </div>
 
             {/* Rotating Towelie one-liner — the personality beat right next to
@@ -1015,55 +1042,6 @@ export default function HomePage() {
           </div>
         </div>
         )}
-
-        {/* Trust Badges */}
-        <div className="pb-16">
-          <div className="flex flex-wrap justify-center gap-3">
-            {/* HONESTY PASS 2026-06-11: "Bug Bounty Active" → "Responsible
-                Disclosure" (the bounty has no funded pool yet).
-                UPDATED 2026-07-19: "Contracts Verified" is RESTORED — all 8 core
-                contracts are now Etherscan source-verified, and /contracts proves
-                it with a live per-address badge. It replaces "82 Findings
-                Resolved", which was an aggregate count backed by nothing in the
-                repo and which the Security page deliberately refuses to publish
-                ("We do not publish aggregate 'resolved' counts here"). Every
-                badge here must be checkable in one click. */}
-            {[
-              { label: 'Contracts Verified', to: '/contracts' },
-              { label: 'Timelocked Admin', to: '/security' },
-              { label: 'Responsible Disclosure', to: '/security' },
-              { label: 'Open Source', href: GITHUB_REPO_URL },
-            ].map((b) => (
-              'href' in b ? (
-                <a key={b.label} href={b.href} target="_blank" rel="noopener noreferrer"
-                  className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
-                  style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
-                  <span className="text-emerald-400">&#10003;</span> {b.label}
-                </a>
-              ) : (
-                <Link key={b.label} to={b.to}
-                  className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
-                  style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
-                  <span className="text-emerald-400">&#10003;</span> {b.label}
-                </Link>
-              )
-            ))}
-          </div>
-
-          {/* F91: community/social proof — the same links the Footer carries,
-              surfaced near the trust row so first-time visitors see an active
-              community without scrolling to the footer. */}
-          <div className="flex flex-wrap justify-center gap-3 mt-4">
-            {SOCIAL_LINKS.map((s) => (
-              <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer"
-                aria-label={`${s.label} (opens in new tab)`}
-                className="px-4 py-2 rounded-lg text-white text-[11px] hover:text-white transition-colors flex items-center gap-1.5"
-                style={{ background: 'rgba(6,12,26,0.78)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid var(--color-purple-40)' }}>
-                {s.label} <span className="text-white/40">↗</span>
-              </a>
-            ))}
-          </div>
-        </div>
 
         {/* Ecosystem — ARRIVAL FLOW 2026-08-31: the subline places the island
             ABOVE the venue (the island is the world; the venue lives on it). */}

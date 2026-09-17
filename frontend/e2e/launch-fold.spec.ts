@@ -24,7 +24,6 @@ const FOLD = { width: 1280, height: 800 };
 async function openLaunch(page: Page) {
   await page.addInitScript(() => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
       localStorage.setItem('tegridy-bungalow', 'venue');
       localStorage.setItem('tegridy-onboarding-seen', '1');

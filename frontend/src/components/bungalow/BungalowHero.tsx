@@ -28,7 +28,9 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-        {id.heroTitle}<br /><span className="text-white">{id.heroLine}</span>
+        {/* A real space before the break, as on the venue hero (answer ten, ruling 3):
+            a <br> is not text, so without it the heading read "BAYLA.The muse". */}
+        {id.heroTitle}{' '}<br /><span className="text-white">{id.heroLine}</span>
       </h1>
 
       <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
@@ -95,7 +97,10 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
           style={{ background: 'rgba(6,12,26,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
         >
           <span className="text-white/90">&ldquo;{id.museLine}&rdquo;</span>
-          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; {id.museBy}</span>
+          {/* A middle dot, as the venue hero uses (answer ten, ruling 6). The dash
+              here sat alone in its own text node, so every count filed it as the
+              unread placeholder while every reader saw a prose dash. */}
+          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&middot; {id.museBy}</span>
         </span>
       </div>
 

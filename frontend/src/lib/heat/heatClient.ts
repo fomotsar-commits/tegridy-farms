@@ -69,6 +69,29 @@ export function clearHeatCache(): void {
   cache.clear();
 }
 
+/**
+ * THE CACHE, READ WITHOUT TOUCHING THE NETWORK (answer eight, ruling 10).
+ *
+ * Element O's line renders on the buy path, and the island ruled that path
+ * gains no network call, ever. So the line may only say a buyer's clock "keeps
+ * running" when the venue ALREADY holds a reading for them: this hands back
+ * that reading or null, and never fetches, never mutates, never starts a timer.
+ *
+ * It reuses `cacheKey` and the TTL comparison rather than restating either. A
+ * peek with its own key rule would fold a Solana buyer's base58 to lower case
+ * and miss on every Solana buy; a peek with its own freshness rule could serve
+ * a reading `fetchHeat` itself would already have thrown away.
+ *
+ * WHAT A null MEANS IS "THE VENUE HAS NOT READ THIS WALLET", never "this wallet
+ * holds nothing". The caller owes that distinction to whoever reads the line.
+ */
+export function peekHeat(address: string): HeatReading | null {
+  if (!isSupportedHeatAddress(address)) return null;
+  const hit = cache.get(cacheKey(address));
+  if (!hit) return null;
+  return Date.now() - hit.storedAt < CACHE_TTL_MS ? hit.reading : null;
+}
+
 export interface FetchHeatOptions {
   signal?: AbortSignal;
   /**

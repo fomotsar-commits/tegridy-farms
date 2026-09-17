@@ -149,7 +149,7 @@ export function usePoolMarket(
         if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
         // Leave any previously read values in place — a dropped refresh must
         // not repaint real numbers as blanks.
-        setError('Market data could not be read — that is an outage, not a zero.');
+        setError('Market data could not be read. That is an outage, not a zero.');
       } finally {
         if (!cancelled) setIsLoading(false);
       }

@@ -121,6 +121,10 @@ export function OnboardingModal({
   const close = () => {
     try { localStorage.setItem(STORAGE_KEY, '1'); } catch { /* seen-marker only */ }
     setAutoOpen(false);
+    // An invited tour can be opened again, and this component outlives the route it
+    // was closed on: the next opening starts at the welcome, as BungalowOnboarding's does.
+    setStep(0);
+    setDir(1);
     onInvitedClose?.();
   };
 

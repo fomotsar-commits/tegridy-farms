@@ -126,23 +126,17 @@ test.describe('a11y landmarks — core pages', () => {
   });
 
   test('OnboardingModal uses aria-labelledby against its visible title', async ({ page, walletMock: _w }) => {
-    // NO SKIP. This used to skip whenever `dialog.count()` read 0 straight after
-    // `page.goto('/')`, which was every run, by construction, twice over:
-    //   1. the wallet fixture pre-seeds `tegridy-onboarding-seen` = '1', and
-    //      OnboardingModal auto-opens only when that key is not '1';
-    //   2. AppLayout mounts the AUTO-opening modal only in the TOWELI voice.
-    //      Everywhere else, `/` under this file's venue pin included, it mounts
-    //      the invited welcome, which never opens by itself.
-    // Measured 2026-09-10 on all four projects: with the key cleared and the
-    // venue pin kept, `/` showed no dialog within 8s. The skip also guarded a
-    // dead assertion: `#onboarding-title` is an id nothing renders, because
-    // Modal gives its title a useId() id.
+    // NO SKIP, and no waiting for a dialog to open itself: none does any more.
+    // Answer ten, ruling 1 made the TOWELI welcome INVITED like every other one,
+    // so this opens it the way a visitor does, from the TOWELI home's own
+    // "Take the tour" link. What is under test is unchanged: the dialog is
+    // labelled by its visible title. (`#onboarding-title` is an id nothing
+    // renders; Modal gives its title a useId() id.)
     //
-    // So clear the key and wear the TOWELI skin, then walk /toweli. Its door
+    // Clear the seen-key and wear the TOWELI skin, then walk /toweli. Its door
     // already matches the stored skin, so there is no BungalowDoor reload to
     // race. Registered here, these run AFTER the fixture's init scripts and the
     // venue pin in the beforeEach, so these writes are the ones that stick.
-    // Every other overlay stays suppressed by the fixture.
     await page.addInitScript(() => {
       try {
         localStorage.removeItem('tegridy-onboarding-seen');
@@ -150,13 +144,14 @@ test.describe('a11y landmarks — core pages', () => {
       } catch { /* ignore */ }
     });
     await gotoRoute(page, '/toweli');
+    await page.getByRole('button', { name: 'First time here? Take the tour' }).click();
 
     // Found by its heading, not by its accessible name, so a broken label fails
     // on the label assertions below rather than on "element not found".
     const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: /^welcome to/i }) });
     await expect(
       dialog,
-      'the first-visit onboarding did not open on /toweli with its seen-key cleared. Do not reinstate a skip.',
+      'the TOWELI tour did not open the welcome on /toweli. Do not reinstate a skip.',
     ).toBeVisible();
     const title = dialog.getByRole('heading', { name: /^welcome to/i });
     const titleId = await title.getAttribute('id', { timeout: 5_000 });

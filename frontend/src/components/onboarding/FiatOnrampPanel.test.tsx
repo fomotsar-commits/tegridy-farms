@@ -120,7 +120,11 @@ describe('a signing partner surfaces its round-trip honestly', () => {
     const { container } = render(<FiatOnrampPanel walletAddress={EVM} />);
     fireEvent.click(screen.getByRole('button', { name: /prepare purchase/i }));
     await waitFor(() => expect(container.textContent).toMatch(/unavailable right now/i));
-    expect(container.textContent).toMatch(/this is an outage/i);
+    // Answer eight, ruling 8: the venue's outage sentence is one sentence
+    // ending and another beginning - "That is an outage", not a dash and
+    // "this is". The claim under test is unchanged: an outage reads as an
+    // outage, and no link is offered into one.
+    expect(container.textContent).toMatch(/that is an outage/i);
     expect(container.querySelectorAll('a').length).toBe(0);
   });
 });

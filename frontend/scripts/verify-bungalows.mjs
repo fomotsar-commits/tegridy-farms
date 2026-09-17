@@ -65,7 +65,7 @@ try {
   // ---------- A) Toweli baseline, desktop ----------
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    await ctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','toweli');`);
+    await ctx.addInitScript(`${SEED_COMMON}localStorage.setItem('tegridy-bungalow','toweli');`);
     const page = await ctx.newPage();
     for (const [route, name] of [['/', 'home'], ['/farm', 'farm'], ['/swap', 'swap'], ['/dashboard', 'dashboard']]) {
       await page.goto(BASE + route, { waitUntil: 'domcontentloaded' });
@@ -86,7 +86,7 @@ try {
   // ---------- B) Bayla mode ----------
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    await ctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','${B_ID}');`);
+    await ctx.addInitScript(`${SEED_COMMON}localStorage.setItem('tegridy-bungalow','${B_ID}');`);
     const page = await ctx.newPage();
     const failedImages = [];
     page.on('response', (r) => {
@@ -168,7 +168,7 @@ try {
       ['ipad', { width: 820, height: 1180 }, 2, false],
     ]) {
       const mctx = await browser.newContext({ viewport: vp, deviceScaleFactor: scale, isMobile: mobile, hasTouch: mobile });
-      await mctx.addInitScript(`sessionStorage.setItem('tf_loaded','1');${SEED_COMMON}localStorage.setItem('tegridy-bungalow','${B_ID}');`);
+      await mctx.addInitScript(`${SEED_COMMON}localStorage.setItem('tegridy-bungalow','${B_ID}');`);
       const mp = await mctx.newPage();
       for (const [route, name] of [['/', 'home'], ['/farm', 'farm']]) {
         await mp.goto(BASE + route, { waitUntil: 'domcontentloaded' });
@@ -185,7 +185,7 @@ try {
   // ---------- D) The door format: memetics.finance/<bungalow> ----------
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
-    await ctx.addInitScript(SEED_COMMON); // no tf_loaded, no bungalow choice — a cold shared link
+    await ctx.addInitScript(SEED_COMMON); // no bungalow choice: a cold shared link
     const page = await ctx.newPage();
     await page.goto(BASE + '/' + B_ID, { waitUntil: 'domcontentloaded' });
     await settle(page, 4000); // door persists + reloads in place
@@ -206,15 +206,19 @@ try {
   {
     const ctx = await browser.newContext({
       viewport: { width: 1280, height: 800 },
-      reducedMotion: 'reduce', // splash self-skips; picker should follow immediately
+      reducedMotion: 'reduce',
     });
-    await ctx.addInitScript(SEED_COMMON); // NO tf_loaded, NO bungalow choice
+    await ctx.addInitScript(SEED_COMMON); // NO bungalow choice: a cold visitor
     const page = await ctx.newPage();
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     const picker = page.locator('text=Thirteen bungalows');
-    const appeared = await picker.isVisible({ timeout: 15000 }).catch(() => false)
-      || await picker.waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
-    ok('C: picker auto-opens after (skipped) intro on first visit', appeared);
+    // Answer ten, ruling 1: the picker opens by tap only, everywhere. It used to
+    // auto-open on a first visit, and this section asserted that.
+    await settle(page, 5000);
+    ok('C: picker does NOT open by itself on a first visit', !(await picker.isVisible().catch(() => false)));
+    await page.getByRole('button', { name: 'Choose your bungalow' }).first().click();
+    const appeared = await picker.waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+    ok('C: picker opens on a tap of the Bungalows chip', appeared);
     if (appeared) {
       await page.screenshot({ path: `${OUT}/first-visit-picker.png` });
       await Promise.all([
@@ -228,7 +232,7 @@ try {
       ok('C: post-reload backgrounds are bayla', srcs.length > 0 && srcs.every((s) => s.src?.includes(ART_DIR)),
         `${srcs.length} surfaces`);
       await page.screenshot({ path: `${OUT}/first-visit-after-enter-${B_ID}.png` });
-      // Dismissing must not nag on next load: picker stays closed.
+      // And it stays closed on the next load: nothing reopens it unasked.
       await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
       await settle(page, 2000);
       ok('C: picker does not reopen once a choice exists', !(await picker.isVisible().catch(() => false)));

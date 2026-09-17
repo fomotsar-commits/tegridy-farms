@@ -43,6 +43,11 @@
   // visitor will not see. src/lib/heroPreload.test.ts pins the href against
   // pageArt('home', 0) and this id against DEFAULT_BUNGALOW_ID.
   var HERO_SRC = '/art/door-home.jpg';
+  // The srcset ArtImg asks for in production, and the static first frame's <img>
+  // too (answer ten, ruling 2). Without it this preload fetched the 2,048 px
+  // original while the page drew a 960 px webp: the hero, twice, on every phone.
+  // Pinned against artSrcSet's own arithmetic by src/lib/heroPreload.test.ts.
+  var HERO_SRCSET = '/_derived/art/door-home-jpg-128.webp 128w, /_derived/art/door-home-jpg-480.webp 480w, /_derived/art/door-home-jpg-960.webp 960w, /art/door-home.jpg 2048w';
   var VENUE_ID = 'venue';
   var BUNGALOW_STORAGE_KEY = 'tegridy-bungalow';
   try {
@@ -58,6 +63,11 @@
       // which is the trade this file already states: a missed preload is a
       // slightly later paint, a wrong one is a picture the visitor never sees.
       if (chosen === '' || chosen === VENUE_ID) {
+        // ANSWER TEN, RULING 2: open the static first frame. index.html ships the
+        // hero inside #root, hidden by default, because the SPA fallback serves
+        // that same file on every route. This is the one place that knows both
+        // conditions under which the venue hero is what `/` will render.
+        document.documentElement.setAttribute('data-first-frame', 'venue');
         var link = document.createElement('link');
         // setAttribute for all four, not the IDL properties: `as` is not
         // reflected as a content attribute everywhere (jsdom does not reflect
@@ -67,11 +77,63 @@
         link.setAttribute('rel', 'preload');
         link.setAttribute('as', 'image');
         link.setAttribute('href', HERO_SRC);
+        link.setAttribute('imagesrcset', HERO_SRCSET);
+        link.setAttribute('imagesizes', '100vw');
         link.setAttribute('fetchpriority', 'high');
         document.head.appendChild(link);
       }
     }
   } catch (_e2) {
     /* No preload is a slower first paint, never a broken one. */
+  }
+
+  // ─── The first frame's field (answer ten, ruling 2) ────────────────────────
+  //
+  // Once the static markup exists: on `/` with the gate open, a shared read link
+  // (/?heat=<address>) fills the field so the number a stranger followed is
+  // already there before React; any OTHER query parameter rides along as a hidden
+  // input, or a native submit would drop a referral's ?ref= on the floor. Off the
+  // gate, the frame is removed outright: hidden is not absent, and a crawler or a
+  // screen reader on /farm has no business with the venue's H1.
+  function wireFirstFrame() {
+    try {
+      var frame = document.getElementById('first-frame');
+      if (!frame) return;
+      if (document.documentElement.getAttribute('data-first-frame') !== 'venue') {
+        frame.parentNode.removeChild(frame);
+        return;
+      }
+      var form = frame.querySelector('form');
+      var field = form && form.querySelector('input[name="heat"]');
+      if (!form || !field) return;
+      var params = new URLSearchParams(window.location.search);
+      var heat = params.get('heat');
+      if (heat && !field.value) field.value = heat.trim().slice(0, 64);
+      params.forEach(function (value, key) {
+        if (key === 'heat') return;
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = key;
+        hidden.value = value;
+        form.appendChild(hidden);
+      });
+    } catch (_e3) {
+      /* The frame works as plain HTML without any of this. */
+    }
+  }
+  // WHEN PARSING ENDS, NOT AT DOMContentLoaded. The two sound alike and are seconds
+  // apart: DOMContentLoaded waits for every deferred and module script to RUN, which
+  // on the island's phone throttle is the whole entry graph, about 7.5 s, while this
+  // frame is painted at about 0.7 s. readyState turns 'interactive' the moment the
+  // parser finishes, before any of those scripts runs, so the field is filled and the
+  // referral carried for the whole time the frame is what the visitor is using.
+  if (document.readyState === 'loading') {
+    document.addEventListener('readystatechange', function onReady() {
+      if (document.readyState === 'loading') return;
+      document.removeEventListener('readystatechange', onReady);
+      wireFirstFrame();
+    });
+  } else {
+    wireFirstFrame();
   }
 })();

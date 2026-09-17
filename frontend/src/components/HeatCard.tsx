@@ -11,6 +11,7 @@
 //  4. "The instrument is unreachable" and "this wallet is cold" are DIFFERENT states
 //     with different copy. An outage must never render as a zero score.
 
+import { daysHeld } from '../lib/heat/daysHeld';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
@@ -19,6 +20,8 @@ import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/
 import {
   isStale,
   nextTier,
+  tierFor,
+  tierAtFloor,
   gateDecision,
   TIER_FLOORS,
   type HeatReading,
@@ -27,6 +30,8 @@ import {
 import { fetchFlames, insertionRank } from '../lib/heat/flamesClient';
 import { heatLaunchFloor, heatGateMaxAgeDays } from '../lib/heat/heatGateConfig';
 import { shortenAddress } from '../lib/formatting';
+import { heatExampleLine } from '../lib/arrival';
+import { hasInjectedWallet, readInjectedAddress } from '../lib/heat/walletFill';
 import { SITE_URL } from '../lib/constants';
 
 const TIER_COLOR: Record<HeatTier, string> = {
@@ -49,22 +54,6 @@ function agoLabel(unix: number, now: number): string {
   return mo < 24 ? `${mo}mo ago` : `${Math.floor(d / 365)}y ago`;
 }
 
-/**
- * The days the ISLAND has measured: held_since_unix to as_of_unix.
- *
- * NOT to our clock. The span between the island's last reckoning and this moment is
- * time the island has not counted yet, and quietly adding it would make the venue
- * state a number the oracle never served — the one thing §5 forbids. It also keeps
- * the figure stable: two people reading the same wallet an hour apart see the same
- * day count, because both are reading the same reckoning.
- *
- * Days are the unit a stranger can compare without being taught anything; degrees are
- * the island's grammar. Both render, and this is the one that leads.
- */
-function daysHeld(heldSinceUnix: number | null, asOfUnix: number | null): number | null {
-  if (heldSinceUnix === null || asOfUnix === null) return null;
-  return Math.max(0, Math.floor((asOfUnix - heldSinceUnix) / DAY));
-}
 
 /** "on the island since <month year>". UTC so the month cannot shift by viewer. */
 function sinceLabel(unix: number): string {
@@ -153,6 +142,15 @@ export interface HeatCardProps {
    */
   initialAddress?: string | null;
   /**
+   * Put a value in the field WITHOUT reading it: what a visitor typed and did not
+   * submit before this card existed (the venue's first frame, answer ten). It counts
+   * as typed, so it suspends the auto-read exactly as typing does; a draft equal to
+   * `initialAddress` (an untouched ?heat= prefill) does not.
+   */
+  initialDraft?: string | null;
+  /** Take focus on mount: the field this card replaced had it. */
+  focusField?: boolean;
+  /**
    * Drop the outer panel chrome and the explainer paragraph, for embedding inside a
    * surface that has already introduced itself (the gate). The READING is unchanged:
    * degrees, tier word, held-since, reckoning date and the per-token breakdown all
@@ -181,6 +179,8 @@ export interface HeatCardProps {
 export function HeatCard({
   address: pinned,
   initialAddress = null,
+  initialDraft = null,
+  focusField = false,
   variant = 'panel',
   showEligibility = true,
   scopeTo,
@@ -193,10 +193,16 @@ export function HeatCard({
   // Seeded from `initialAddress` so a shared link arrives already reading. The field
   // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
   // be one paste away from their own.
-  const [draft, setDraft] = useState<string | null>(initialAddress);
+  const [draft, setDraft] = useState<string | null>(initialDraft ?? initialAddress);
   const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
+  // WALLET FILL (element B). `canFill` is read once per mount rather than on
+  // every render: an extension that injects late is caught by the next mount,
+  // and a button that appears mid-interaction under the visitor's finger is
+  // worse than one that arrives a navigation later.
+  const [canFill] = useState(() => hasInjectedWallet());
+  const [fillFailed, setFillFailed] = useState(false);
   const [showMath, setShowMath] = useState(false);
   // Frozen per lookup so every relative label on screen is measured from one instant.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -268,7 +274,7 @@ export function HeatCard({
             Your held time in {scopeTo.symbol}
           </p>
           <p className="text-white/55 text-[12px] mt-0.5">
-            Read any wallet. Held time is the island's, not this room's — the
+            Read any wallet. Held time is the island's, not this room's: the
             same number the venue reads, answered for {scopeTo.symbol}.
           </p>
         </div>
@@ -303,6 +309,7 @@ export function HeatCard({
           <input
             value={input}
             onChange={(e) => setDraft(e.target.value)}
+            autoFocus={focusField}
             spellCheck={false}
             autoComplete="off"
             aria-label="Wallet address to read Heat for (Ethereum or Solana)"
@@ -318,6 +325,33 @@ export function HeatCard({
           >
             {state.kind === 'loading' ? 'Reading…' : 'Read Heat'}
           </button>
+          {/* THE WALLET FILL (element B). Shown only when something in the
+              browser can answer, so a visitor without a wallet is never offered
+              a button that cannot work. type="button": it must not submit the
+              form, and it never reads the chain or asks for a signature -
+              lib/heat/walletFill.ts says exactly what it does ask for. */}
+          {canFill && (
+            <button
+              type="button"
+              onClick={() => {
+                setFillFailed(false);
+                void readInjectedAddress().then((addr) => {
+                  if (addr) setDraft(addr);
+                  else setFillFailed(true);
+                });
+              }}
+              className="px-3 py-2 rounded-lg text-[12px] text-white/80 hover:text-white transition-colors"
+              style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid var(--color-purple-25)' }}
+            >
+              Use my wallet
+            </button>
+          )}
+          {/* One sentence, and nothing else: no error code, no retry, no reason.
+              A locked wallet, a declined prompt and an untrusted origin are the
+              same thing to the visitor - the field still takes a paste. */}
+          {fillFailed && (
+            <p className="w-full text-[12px] text-white/60">Paste the address instead.</p>
+          )}
         </form>
       )}
 
@@ -472,18 +506,23 @@ function Reading({
   // under it.
   const summed = liveRows.reduce((a, r) => a + r.degrees, 0);
   const matchesLive = Math.abs(summed - reading.degrees) <= 0.05;
-  // Until the island drops retired rows from its own sum (it is doing so, on the
-  // owner's ruling), its total still includes them. That is not a mismatch and
-  // must not be flagged as one, or every holder of a retired token is told the
-  // island disagrees with itself. So the envelope is added up once, here, only
-  // to tell those two cases apart. That figure is never printed.
+  // THE ISLAND'S DROP LANDED 2026-09-16, and this stays anyway, as the guard for
+  // the next retirement. Measured through our own proxy that day: the envelope
+  // serves 10 rows, none retired, degrees 1341.7, and the rows sum to 1341.7 -
+  // so matchesLive is true and nothing below it renders.
+  //
+  // While a retired row DOES arrive inside the total (as it did for months), its
+  // sum is not a mismatch and must not be flagged as one, or every holder of a
+  // retired token is told the island disagrees with itself. So the envelope is
+  // added up once, here, only to tell those two cases apart, and never printed.
   const matchesEnvelope =
     Math.abs(rows.reduce((a, r) => a + r.degrees, 0) - reading.degrees) <= 0.05;
   const includesRetired = retiredCount > 0 && !matchesLive && matchesEnvelope;
   const mismatch = rows.length > 0 && !matchesLive && !includesRetired;
   // The count under the number. token_count equalled the row count on the live
-  // 18-row read, retired rows included, so the retired rows come off it. Once
-  // the island stops sending them, retiredCount is 0 and this is token_count.
+  // 18-row read, retired rows included, so the retired rows come off it. With
+  // the drop landed retiredCount is 0 and this IS token_count, which the same
+  // proxy read confirms: 10 rows, token_count 10.
   const countedTokens = Math.max(0, reading.tokenCount - retiredCount);
 
   return (
@@ -564,20 +603,12 @@ function Reading({
           what a wallet is told here and what happens at submit cannot drift. */}
       {showEligibility && <Eligibility reading={reading} now={now} />}
 
-      {next && !reading.isCold && (
-        <div className="mb-4">
-          <div className="flex justify-between text-[11px] text-white/50 mb-1">
-            <span>Toward {next.tier}</span>
-            <span>{next.remaining.toFixed(2)}° to go</span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.10)' }}>
-            <div
-              className="h-full rounded-full transition-[width] duration-700"
-              style={{ width: `${Math.min(100, (reading.degrees / next.floor) * 100)}%`, background: color }}
-            />
-          </div>
-        </div>
-      )}
+      {/* THE LADDER (element B). It replaces the single "Toward <tier>" bar that
+          stood here: the bar showed one rung and the ladder shows all five, and
+          carries the same arithmetic under the next one. Two surfaces for one
+          fact is how they drift. Suppressed on a cold read, with the delta and
+          the share, by the island's own rule: nothing to feel behind. */}
+      {!reading.isCold && <TierLadder degrees={reading.degrees} next={next} />}
 
       {/* THE NAME, OR THE DOOR. A number nobody can see is a private fact; a number
           with a name on it is a place in public. `xHandle` arrives already stripped and
@@ -820,8 +851,80 @@ function ScopedReading({
   );
 }
 
+/**
+ * WAVE SEVEN, element B: THE LADDER, FIVE RUNGS, FROM THE ISLAND'S OWN DIALS.
+ *
+ * Drifter 0 - Observer 30 - Resident 80 - Builder 150 - Elder 250, read from
+ * TIER_FLOORS rather than typed, so a dial the island moves moves this. FIVE
+ * rungs, not the four the explainer fold shows: that one drops Drifter because
+ * 0 is not a threshold to aim at, but a ladder is where you are STANDING, and a
+ * warm wallet below 30 stands on Drifter. Hiding the rung under someone's feet
+ * is how a ladder starts lying about where they are.
+ *
+ * REACHED RUNGS ARE LIT, and under the next one, one line of arithmetic on two
+ * served numbers: the rung's floor minus the degrees the island served. No
+ * projection, no date, no rate - the instrument never computes a degree.
+ *
+ * THE LAUNCH FLOOR'S RUNG CARRIES ITS OWN SENTENCE, and the number in it is READ
+ * at render time from heatLaunchFloor(), the same helper the launch gate
+ * enforces with. Typing 80 would make this line disagree with the gate the day
+ * an operator sets VITE_HEAT_LAUNCH_FLOOR.
+ *
+ * BOTH DIALS ARE CANONICAL (answer ten, ruling 4), which settles the drift this
+ * comment used to name. TIER_FLOORS is the island's standard: what tier a number
+ * is. heatLaunchFloor() is the venue's policy: what number opens the launch door.
+ * Neither answers the other's question, so neither yields. The defect was the
+ * word "Resident", TYPED beside a number that was read. So the sentence hangs
+ * under the rung tierFor(floor) returns, and names a tier only when
+ * tierAtFloor(floor) finds the floor exactly on one: 150 says Builder under
+ * Builder, 123 names nothing under Resident.
+ */
+function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeof nextTier> }) {
+  const launchFloor = heatLaunchFloor();
+  const launchRung = tierFor(launchFloor);
+  const launchTier = tierAtFloor(launchFloor);
+  // TIER_FLOORS is published high-to-low; a ladder is climbed low-to-high.
+  const rungs = [...TIER_FLOORS].reverse();
+  return (
+    <div className="mb-4" data-element="b-ladder">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-white/45 mb-1.5">The ladder</div>
+      <ul className="space-y-1.5">
+        {rungs.map((rung) => {
+          const reached = degrees >= rung.floor;
+          const isNext = next !== null && next.tier === rung.tier;
+          const dim = reached ? undefined : 'rgba(255,255,255,0.35)';
+          return (
+            <li key={rung.tier}>
+              <div className="flex items-baseline gap-2 text-[12px]">
+                <span className="w-[68px] shrink-0" style={{ color: reached ? TIER_COLOR[rung.tier] : dim }}>
+                  {rung.tier}
+                </span>
+                <span className="w-[46px] shrink-0 stat-value" style={{ color: dim }}>{rung.floor}&deg;</span>
+                {reached && (
+                  <span className="text-[10px]" style={{ color: TIER_COLOR[rung.tier] }}>&#10003; reached</span>
+                )}
+              </div>
+              {isNext && (
+                <p className="text-[11.5px] text-white/65 mt-0.5 ml-[76px]">
+                  {(rung.floor - degrees).toFixed(2)}&deg; to {rung.tier}
+                </p>
+              )}
+              {rung.tier === launchRung && (
+                <p className="text-[11.5px] mt-0.5 ml-[76px]" style={{ color: 'var(--color-kyle)' }}>
+                  {heatExampleLine(launchFloor, launchTier)}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
   const floor = heatLaunchFloor();
+  const floorTier = tierAtFloor(floor);
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());
   const warm = d.state === 'WARM';
   const pct = Math.min(100, (reading.degrees / floor) * 100);
@@ -838,9 +941,11 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
         <span className="text-[12.5px] font-semibold" style={{ color: warm ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
           {warm ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
         </span>
-        {/* Tier word VERBATIM. "Residents may plant" is the door's own sentence. */}
+        {/* The tier is named only when the floor sits exactly on its rung
+            (answer ten, ruling 4). Between rungs the number stands alone,
+            because no tier opens a door at 123. */}
         <span className="text-[11px] text-white/45">
-          the door opens at {floor}° · Resident
+          the door opens at {floor}°{floorTier ? ` · ${floorTier}` : ''}
         </span>
       </div>
 

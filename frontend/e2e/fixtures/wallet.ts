@@ -569,20 +569,16 @@ type Fixtures = { walletMock: WalletMock };
 // fixture payload) seeing the cold, unspent wallet they were written against.
 export const test = base.extend<Fixtures>({
   walletMock: async ({ page }, provide, testInfo) => {
-    // Suppress full-viewport overlays that block clicks in test runs:
-    //   - AppLoader splash canvas (zIndex 9999)
-    //   - OnboardingModal welcome dialog (zIndex 100)
-    // Both self-dismiss on repeat visits by checking storage flags; pre-seed
-    // the flags before nav so they short-circuit on mount.
+    // Pre-seed the storage flags every spec is written against. The arrival
+    // splash and the auto-opening welcome and picker are GONE (answer ten,
+    // ruling 1): nothing opens over the page unasked, so the old `tf_loaded`
+    // seed that suppressed the splash is gone with it. The flags that remain
+    // decide VOICE and copy, not overlays:
+    //   - 'tegridy-onboarding-seen' keeps the welcome's first-visit wording out;
+    //   - 'tegridy-bungalow' = 'toweli' pins the skin these specs assume.
     await page.addInitScript(() => {
       try {
-        sessionStorage.setItem('tf_loaded', '1');
         localStorage.setItem('tegridy-onboarding-seen', '1');
-        // BungalowPicker (Jungle Bay Island) is a FOURTH full-viewport overlay;
-        // it auto-opens only on a fresh-splash load with no persisted choice.
-        // The tf_loaded seed above already suppresses it (freshSplash gate in
-        // AppLayout), but pin the choice too so specs that clear sessionStorage
-        // or replay the splash stay picker-free.
         localStorage.setItem('tegridy-bungalow', 'toweli');
         // Consent is answered up front. It used to be load-bearing: the ask was
         // a full-width fixed banner that, with the fixed header, sandwiched the

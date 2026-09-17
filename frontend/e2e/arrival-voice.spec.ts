@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { FAQ_INTRO } from '../src/lib/copy';
+import { gotoRoute } from './fixtures/routes';
 
 // ARRIVAL IDENTITY 2026-08-27 — the containment contract, walked end to end.
 //
@@ -27,7 +28,6 @@ import { FAQ_INTRO } from '../src/lib/copy';
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
     } catch { /* ignore */ }
@@ -43,11 +43,20 @@ test.describe('arrival voice', () => {
     await page.addInitScript(() => {
       try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
     });
-    await page.goto('/');
+    // gotoRoute, not goto: `/` now paints the same H1 twice before the real one, as
+    // static HTML and then as React's busy fallback (answer ten, ruling 2). An
+    // assertion that retries until it matches would pass on either of those and never
+    // see VenueHero's own heading, so this waits for the page to be the page.
+    await gotoRoute(page, '/');
 
     await expect(page).toHaveTitle(/MEMETICS/i, { timeout: 20_000 });
-    await expect(page.locator('h1')).toContainText('MEMETICS.FINANCE');
-    await expect(page.locator('h1')).toContainText('Held time counts here.');
+    // EXACT, not a substring (answer ten, ruling 3). toContainText('MEMETICS.FINANCE')
+    // passed with the stray period after FINANCE and would pass without the space at
+    // the <br> joint too, so it could never have caught either. Playwright's text
+    // concatenates text nodes, which is exactly how a reader hears the join.
+    await expect(page.locator('#first-frame')).toHaveCount(0);
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0);
+    await expect(page.locator('h1')).toHaveText('MEMETICS.FINANCE Held time counts here.');
     // The classic cluster is relocated, not deleted — it must not be here.
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
     // Wordmarks follow the voice: nav and footer both speak the venue.
@@ -90,6 +99,16 @@ test.describe('arrival voice', () => {
 // and only one of them is what the island ruled.
 
 const CUT_FROM_THE_VENUE = ['Launch & Verify', 'Ecosystem', 'The Collection'];
+
+// ANSWER EIGHT, ruling 7: THE TRUST STRIP LEFT THE ARRIVAL AND THE ROOMS.
+//
+// Deliberately NOT folded into CUT_FROM_THE_VENUE: those three are cut from
+// the venue and RESTORED on /toweli, which the pair of loops below is built
+// to say. These four are gone from both. They were inline JSX with no
+// heading, no section and no data hook, which is how two island probes that
+// read headings and sections walked past them for two answers running, and
+// why they are literals here: what a visitor reads is the whole point.
+const TRUST_STRIP_LABELS = ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source'];
 
 // THE FAQ TEASER IS THE FIFTH GATE, AND IT NEEDS ITS OWN PAIR OF STRINGS.
 //
@@ -134,6 +153,9 @@ test.describe('the home, cut to the line', () => {
     for (const section of CUT_FROM_THE_VENUE) {
       expect(text, `"${section}" is still on the venue arrival`).not.toContain(section);
     }
+    for (const label of TRUST_STRIP_LABELS) {
+      expect(text, `the trust strip's "${label}" is still on the venue arrival`).not.toContain(label);
+    }
     // THE LOAD-BEARING ONE IS FAQ_INTRO, NOT THE RETIRED VENUE LINE.
     //
     // The island's break-the-fix was "widen the gate and watch the venue
@@ -173,6 +195,10 @@ test.describe('the home, cut to the line', () => {
     const text = await readWholePage(page);
     for (const section of CUT_FROM_THE_VENUE) {
       expect(text, `"${section}" was DELETED, not gated`).toContain(section);
+    }
+    // The strip is the other way round: gone from the room as well.
+    for (const label of TRUST_STRIP_LABELS) {
+      expect(text, `the trust strip's "${label}" is still in the room`).not.toContain(label);
     }
     // The teaser under its own headline, which is where it went rather than
     // where it stopped existing.

@@ -187,6 +187,16 @@ export function feePercent(hundredthsOfBip: number): string {
  * `isDeployed(TEGRIDY_V4_MIGRATOR_ADDRESS)` gate that `airlock.ts` branches on, so the two
  * cannot disagree about what will run.
  */
+/**
+ * The hook's name ON CHAIN, and the reason it is a constant rather than three
+ * letters inside a sentence (answer eight, ruling 5): a contract's real name is
+ * an IDENTIFIER, not the venue's prose, and a surface that renders it needs to
+ * know where the identifier starts and stops so it can set it in code font.
+ * The string below is unchanged - it is built from this, so the two cannot
+ * drift and every existing caller reads exactly what it read before.
+ */
+export const VENUE_HOOK_NAME = 'TegridyV4Hook';
+
 export function plannedVenueMigrator(): {
   address: Address;
   configured: boolean;
@@ -203,7 +213,7 @@ export function plannedVenueMigrator(): {
     // WAVE SEVEN, element F: the venue's PROSE is swept; the contract's NAME is
     // not. `TegridyV4Hook` is what the artifact is called on chain, and renaming
     // it in copy would misname a real thing an operator has to go and find.
-    venue: "a hooked canonical Uniswap V4 pool (TegridyV4Hook — the venue's fee economics on Uniswap liquidity)",
+    venue: `a hooked canonical Uniswap V4 pool (${VENUE_HOOK_NAME} — the venue's fee economics on Uniswap liquidity)`,
     preconditions: [
       'Deploy the venue graduation migrator and verify it on Etherscan.',
       'Whetstone whitelists it on the Airlock: setModuleState(migrator, 4). Airlock.create rejects a non-whitelisted module, so launches fail at CREATE time without this.',

@@ -9,6 +9,7 @@ import type { NavSection } from '../../lib/navConfig';
 import { safeGetItem } from '../../lib/storage';
 import { pageArt } from '../../lib/artConfig';
 import { getActiveBungalow, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
+import { isToweliRoomPage } from '../../lib/routeVoice';
 import { ArtImg } from '../ArtImg';
 import { VENUE } from '../../lib/arrival';
 import { artImgProps } from '../../lib/artSrcSet';
@@ -297,7 +298,12 @@ export const TopNav = React.memo(function TopNav() {
                   emoji keeps the control discoverable; the name returns at lg.
                   Bungalow names vary in length ("Brainlet" > "Bayla"), so hiding
                   the label removes that variability from the row entirely. */}
-              <span className="hidden lg:inline">{getActiveBungalow()?.name ?? 'Bungalows'}</span>
+              <span className="hidden lg:inline">
+                {/* ANSWER EIGHT, ruling 1: the door decides the chrome. In a
+                    TOWELI room the chip stops naming the last resident a
+                    visitor walked through. */}
+                {isToweliRoomPage(location.pathname) ? 'Bungalows' : (getActiveBungalow()?.name ?? 'Bungalows')}
+              </span>
             </button>
           </div>
 

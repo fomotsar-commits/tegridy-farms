@@ -7,7 +7,7 @@ import { BUNGALOWS } from '../src/lib/bungalows';
 // toweli (to keep every other spec picker-free), and these tests are ABOUT
 // entering bungalows, so they seed only the overlay flags and leave the
 // bungalow choice to the door under test. reducedMotion comes from
-// playwright.config (the splash self-skips).
+// playwright.config.
 //
 // The door mechanic is persist + reload-in-place, so each first visit
 // triggers one full navigation; assertions use generous timeouts and the
@@ -16,7 +16,6 @@ import { BUNGALOWS } from '../src/lib/bungalows';
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy-onboarding-bayla-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
@@ -193,6 +192,12 @@ test.describe('bungalow doors', () => {
       for (const section of ['Launch & Verify', 'Ecosystem', 'The Collection']) {
         expect(text, `/${id} still renders the venue's "${section}"`).not.toContain(section);
       }
+      // ANSWER EIGHT, ruling 7: the trust strip was ungated inside HomePage,
+      // so TOWELI's four protocol claims stood in every other resident's
+      // room. They live on the Check overview now.
+      for (const label of ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source']) {
+        expect(text, `/${id} still renders the trust strip's "${label}"`).not.toContain(label);
+      }
     });
   }
 
@@ -215,6 +220,10 @@ test.describe('bungalow doors', () => {
     const text = await readWholePage(page);
     expect(text).toContain('Protocol Overview');
     expect(text).toContain('TOWELI');
+    // ...and the trust strip is gone from the thirteenth door too.
+    for (const label of ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source']) {
+      expect(text, `/toweli still renders the trust strip's "${label}"`).not.toContain(label);
+    }
   });
 
   test('the quiet slot renders the unmarked landing without switching', async ({ page }) => {

@@ -17,9 +17,12 @@
 
 import { Link } from 'react-router-dom';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
+import { tierAtFloor } from '../lib/heat/heatOracle';
 
 export function ThreePaths() {
   const floor = heatLaunchFloor();
+  // Answer ten, ruling 4: name the tier only when the floor sits exactly on its rung.
+  const floorTier = tierAtFloor(floor);
 
   const paths = [
     {
@@ -39,7 +42,7 @@ export function ThreePaths() {
     {
       to: '/launch',
       title: 'Launch',
-      line: `Residents may plant. The floor is ${floor}°.`,
+      line: floorTier ? `${floorTier}s may plant. The floor is ${floor}°.` : `The floor is ${floor}°.`,
       accent: '#d4a843',
     },
   ];

@@ -33,6 +33,23 @@ import { gotoRoute } from './fixtures/routes';
  */
 
 test.describe('Trust pages', () => {
+  // ANSWER EIGHT, ruling 7: THE POSITIVE HALF OF THE MOVE.
+  //
+  // These four claims used to render on the venue arrival and inside all
+  // fourteen bungalow doors, ungated. arrival-voice.spec and
+  // bungalow-doors.spec assert they are gone from both; without this test,
+  // deleting them outright would satisfy the pair and the island would lose
+  // four checkable facts. This is where they went.
+  test('the Check overview carries the four trust claims', async ({ page }) => {
+    await gotoRoute(page, '/trust');
+    for (const label of ['Contracts Verified', 'Timelocked Admin', 'Responsible Disclosure', 'Open Source']) {
+      await expect(page.getByRole('link', { name: new RegExp(label) }).first())
+        .toBeVisible({ timeout: 15_000 });
+    }
+    // Beside the record they were moved next to, not floating on their own.
+    await expect(page.getByText('Internal audit waves').first()).toBeVisible();
+  });
+
   test('security page renders core trust signals', async ({ page }) => {
     await gotoRoute(page, '/security');
     await expect(page.locator('h1')).toBeVisible();
@@ -144,6 +161,24 @@ test.describe('SEO & social metadata', () => {
   test('robots.txt is served', async ({ page }) => {
     const res = await page.request.get('/robots.txt');
     expect(res.status()).toBe(200);
+  });
+
+  // llms.txt (answer ten, §2). A bare `status 200` proves nothing here: the SPA
+  // fallback answers 200 text/html for ANY missing path, so an assistant asking for
+  // a file that was never built would read the app shell and be told it succeeded.
+  // So this reads the content type and the body, and a control asks for a file
+  // that does not exist to prove this server has the fallback being guarded against.
+  test('llms.txt is a real text file, not the SPA shell', async ({ page }) => {
+    const res = await page.request.get('/llms.txt');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type'] ?? '').toMatch(/^text\/plain/);
+    const body = await res.text();
+    expect(body.startsWith('# memetics.finance\n'), 'llms.txt is not the generated file').toBe(true);
+    expect(body).not.toMatch(/<!doctype/i);
+    expect(body).toContain('https://memetics.finance/read/<address>');
+
+    const control = await page.request.get('/llms-absent-control.txt');
+    expect(control.headers()['content-type'] ?? '', 'this server has no SPA fallback, so the check above proves less').toMatch(/text\/html/);
   });
 
   test('og.svg hero banner is served', async ({ page }) => {

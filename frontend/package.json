@@ -9,7 +9,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/generate-image-derivatives.mjs && tsc -b tsconfig.app.json tsconfig.node.json && vite build && node scripts/check-dist-graph.mjs && node scripts/render-bungalow-doors.mjs && node scripts/verify-dist-derivatives.mjs",
+    "build": "node scripts/generate-image-derivatives.mjs && tsc -b tsconfig.app.json tsconfig.node.json && vite build && node scripts/check-dist-graph.mjs && node scripts/render-bungalow-doors.mjs && node scripts/llms-txt.mjs && node scripts/verify-dist-derivatives.mjs",
     "lint": "eslint .",
     "check:unread": "node scripts/check-unread-signal.mjs",
     "preview": "vite preview",

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { UNISWAP_BUY_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, TOWELI_ADDRESS, SOCIAL_LINKS } from '../../lib/constants';
 import { bungalowTradeBlurb, getActiveBungalow, getBungalowIdentity, bungalowExplorerUrl, OPEN_BUNGALOWS_EVENT } from '../../lib/bungalows';
 import { InstallPrompt } from '../pwa/InstallPrompt';
@@ -8,6 +8,7 @@ import { isSolanaSwapLive } from '../../lib/solana';
 import { shortenAddress } from '../../lib/formatting';
 import { CopyButton } from '../ui/CopyButton';
 import { isToweliVoice, VENUE } from '../../lib/arrival';
+import { isToweliRoomPage } from '../../lib/routeVoice';
 
 /**
  * Footer — four-column IA: Product / Resources / Community / Legal.
@@ -75,7 +76,19 @@ const TRUST_LINKS: { to: string; label: string }[] = [
 export function Footer() {
   // Jungle Bay bungalows: token-first footer identity (blurb + contract card)
   // when the active bungalow carries one. Stable per document.
-  const bungalowIdentity = getBungalowIdentity();
+  // ANSWER EIGHT, ruling 1: THE DOOR DECIDES THE CHROME.
+  //
+  // getBungalowIdentity() reads ambient storage, never the route, so a
+  // visitor who walked through /bayla and then opened a TOWELI protocol
+  // page got the band saying TOWELI and this footer saying Bayla in the
+  // same viewport, down to a BAYLA contract card with a Solana explorer
+  // link. On a room route the route wins: the resident is suppressed and
+  // the room's own voice stands, which is TOWELI or the venue, never the
+  // last resident a visitor happened to visit.
+  const { pathname } = useLocation();
+  const inToweliRoom = isToweliRoomPage(pathname);
+  const bungalowIdentity = inToweliRoom ? null : getBungalowIdentity();
+  const toweliVoice = inToweliRoom || isToweliVoice();
   // Footer sits on top of whatever fixed art background the current page provides
   // (galleryCollage on Home, apeHug on Trade, etc.). Before this change, links were
   // text-white/60 with no scrim — barely legible over bright art regions. Now we
@@ -121,10 +134,10 @@ export function Footer() {
                 is untouched in the default. */}
             {bungalowIdentity ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-                {bungalowIdentity.name} bungalow — Jungle Bay Island. {bungalowIdentity.tagline}{' '}
+                {bungalowIdentity.name} bungalow, Jungle Bay Island. {bungalowIdentity.tagline}{' '}
                 {bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}
               </p>
-            ) : isToweliVoice() ? (
+            ) : toweliVoice ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
                 Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain to stakers in ETH. On Solana, swap through Jupiter.
               </p>
@@ -137,7 +150,7 @@ export function Footer() {
                 contract. A bungalow footer shows its own token's CA; the
                 TOWELI card renders inside the TOWELI bungalow. The venue
                 footer stays the island's: name, vow, doors. */}
-            {(bungalowIdentity || isToweliVoice()) && (
+            {(bungalowIdentity || toweliVoice) && (
             <div className="mt-4 rounded-lg p-3 inline-block" style={{ background: 'rgba(0,0,0,0.75)', border: '1px solid var(--color-kyle-40)' }}>
               <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-kyle)', textShadow: '0 1px 4px rgba(0,0,0,0.85)' }}>
                 {bungalowIdentity ? `${bungalowIdentity.symbol} contract` : 'TOWELI contract'}
@@ -178,7 +191,11 @@ export function Footer() {
                 className={`${LINK_CLASS} text-left`}
                 style={LINK_SHADOW}
               >
-                🏝️ Bungalows{getActiveBungalow() ? ` — ${getActiveBungalow()!.name}` : ''}
+                {/* A middle dot, not a dash: on a bungalow DOOR this label
+                    names the active room, so an em dash here put one prose dash
+                    of venue CHROME into all fourteen rooms and billed every one
+                    of them for it (answer eight, ruling 8, measured 09-16). */}
+                🏝️ Bungalows{!inToweliRoom && getActiveBungalow() ? ` · ${getActiveBungalow()!.name}` : ''}
               </button>
               {/* WAVE SEVEN, element E: the install offer, as a ROW.
                   It used to be a fixed z-9500 dialog that opened itself the
@@ -201,6 +218,14 @@ export function Footer() {
                   {l.label}
                 </Link>
               ))}
+              {/* llms.txt (answer ten, §2): what an AI assistant may say about the
+                  venue, in the venue's words. A PLAIN <a>, never a router <Link>:
+                  /llms.txt is a static file, and client-side routing would land on
+                  the not-found page without ever requesting it. One footer link
+                  and nothing on the arrival, by the island's terms. */}
+              <a href="/llms.txt" className={LINK_CLASS} style={LINK_SHADOW}>
+                For your AI
+              </a>
               {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) — inside
                   the TOWELI bungalow only; the bungalow card above carries each
                   other resident's own explorer link.

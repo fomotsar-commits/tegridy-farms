@@ -21,7 +21,8 @@ const CHAIN_LABEL: Record<Bungalow['chain'], string> = {
 };
 
 /**
- * Jungle Bay Island bungalow picker — the screen after the intro.
+ * Jungle Bay Island bungalow picker — the hall of doors, opened on a tap and
+ * never by itself (answer ten, ruling 1: nothing opens over a cold arrival).
  *
  * Thirteen bungalows, one per community token. Entering one re-skins every
  * background surface with that bungalow's art pool (see lib/bungalows.ts);
@@ -98,9 +99,10 @@ export function BungalowPicker({ open, onClose }: { open: boolean; onClose: () =
         {/* THE WAY BACK lives on the WORDMARK, not in here (owner, 2026-08-31).
             This hall is the island's residents; the venue is not one of them, and
             listing it as a fourteenth tile read like a bungalow you could move
-            into. The two ways to the venue are now: the arrival after the intro,
-            and clicking the MEMETICS.FINANCE wordmark in the nav — which clears
-            the stored bungalow and walks home. See TopNav. */}
+            into. The two ways to the venue are now: a first arrival at `/`, which
+            opens straight on the venue's own page, and clicking the
+            MEMETICS.FINANCE wordmark in the nav — which clears the stored
+            bungalow and walks home. See TopNav. */}
         {BUNGALOWS.map((b) => {
           const isCurrent = b.id === currentId;
           const locked = b.chain === 'tbd'; // only the quiet slot stays locked
