@@ -14,7 +14,8 @@ program's deployer is compiled into the binary.
 > `LighthouseLadder.sol` stays 25%), and `notify_reward` refuses a mid-window reload that
 > would lower the rate (§8). The deployer is **rotated** (key rotation option A), the pool
 > authority is **a multisig before any funds** (§1), and the Streamflow pool is a
-> **separate product** with no migration (§12). The mainnet artifact `fada8148…` from CI
+> **separate product** with no migration (§12). The mainnet artifact
+> `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` from CI
 > run 34712334698 is **SUPERSEDED — do not deploy it**: it carries the 25% penalty, no rate
 > guard, and the hot faucet key as its deployer. Decisions and gates:
 > `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`.
@@ -27,7 +28,8 @@ program's deployer is compiled into the binary.
       commit the auditor signed off on. Tag it (§4) and write the hash here: `________`
       **The audited commit must contain the 75% penalty constant and the `notify_reward`
       rate guard.** A sign-off on code from before that change, or on the superseded
-      `fada8148…` build, does not satisfy this box.
+      `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` build, does not
+      satisfy this box.
 - [x] **`withdraw_matured` has executed on devnet.** Done **2026-09-17**, finalized, tx
       `4AYtGTnHvSV3bCuaq4nhQPSLnvbc6pnJJfaNY7SqC2FeR2QYQK3ukdwJbAzFjEXNynWYxpBHP9pgRkPYSyAZWeAf`:
       500 back, penalty 0, `penalty_collected_cumulative` unchanged, accounting reconciled
@@ -47,14 +49,15 @@ program's deployer is compiled into the binary.
       charges the same while locked; both early doors charge 0 once the pool is
       `degraded`. Compile-time, no setter (§6).
 - [x] **The deployer is decided**, 2026-09-17: **rotate** (option A). A fresh key,
-      generated outside any cloud-synced folder, replaces `GCCSLE7d…` (§1). Its pubkey
+      generated outside any cloud-synced folder, replaces
+      `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` (§1). Its pubkey
       goes into §1 before the §4 build.
 - [ ] **The pool authority is a multisig before any funds** (decided 2026-09-17): the
       handover in §8 completes before the first `notify`.
 - [ ] **A keyed mainnet RPC URL.** The public endpoint throttles hard, and a program upload
       is several hundred write transactions. Never paste the URL into the repo.
-- [ ] **~3 SOL in the deployer wallet** — the rotated deployer, not `GCCSLE7d…` (§5 for
-      the breakdown).
+- [ ] **~3 SOL in the deployer wallet** — the rotated deployer, not
+      `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` (§5 for the breakdown).
 
 ---
 
@@ -63,7 +66,7 @@ program's deployer is compiled into the binary.
 | what | value | notes |
 | --- | --- | --- |
 | program id | `EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ` | Generated 2026-09-11. The keyfile lives outside the repo, and is only needed until the program is deployed. |
-| deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **a rotated key, pubkey not yet recorded** | **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7d…` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7d…`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority. |
+| deployer | ~~`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`~~ → **a rotated key, pubkey not yet recorded** | **SUPERSEDED 2026-09-17 (key rotation option A).** `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` was confirmed 2026-09-12 as the owner's existing BAYLA admin wallet; it is also the devnet faucet bot's hot key in a cloud-synced folder (`docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md` §1). The rebuild compiles a fresh key generated outside any cloud-synced folder — write its pubkey here before §4, and never build with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`. Compiled in: the only key that can call `initialize_pool`, and it becomes the pool's first authority. |
 | BAYLA mint | `7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump` | Token-2022, 6 decimals |
 | upgrade authority | `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` | The venue's existing Squads v4 **vault**: index 0 of multisig `EVGSnRZFWqjCaWR7z2xKbSXnuddY8upevEQK5HFmj6NK`, threshold 2. A PDA with no private key, so the transfer needs `--skip-new-upgrade-authority-signer-check`. |
 
@@ -86,12 +89,22 @@ So: create the pool with the deployer (§7), hand the authority to the multisig 
 ⚠️ **The ops CLI signs from a keyfile only** (`--keypair <path-to-id.json>`). If the
 deployer is a hardware wallet, `init-pool` cannot be signed with this tool — choose a
 deployer you hold as a keyfile, or build a different signing path first. **The same limit
-applies to every authority command once the authority is a multisig:** a broadcasting
-`notify` needs the keyfile to BE the pool authority, so after the handover each reload
-(§8) is built and signed inside the multisig's own app. What the CLI still does for a
-multisig is `notify --preview`: no keyfile, nothing built or sent, and it runs the
-program's own checks — including the rate guard — and prints the minimum amount that holds
-the rate. Settle the signing path before the handover, not at the first reload.
+applies to every authority command once the authority is a multisig, and it covers the dry
+run too:** `notify` without `--preview`, `propose-cap-raise`, `cancel-cap-raise`,
+`propose-authority` and `declare-degraded` each load `--keypair` first (without one:
+`--keypair is required`) and then refuse locally with
+`this pool's authority is <AUTHORITY>, not <KEYFILE-PUBKEY> (Unauthorized)` before anything
+is built or simulated, unless that keyfile IS the pool authority. A Squads vault has no
+keyfile, so after the handover the CLI cannot even dry-run those commands: each reload
+(§8), cap raise, cancel, authority proposal and `declare-degraded` is built, simulated and
+signed inside the multisig's own app. What the CLI still does for a multisig is
+`notify --preview`: no keyfile, nothing built, simulated or sent, and it replays the
+program's own checks at chain now — including the rate guard — and prints the minimum
+`--amount` that holds the rate. It also refuses when the authority's **associated** BAYLA
+token account is missing or holds less than `--amount`, because the program rejects that
+account before any ladder check. It can only see that ATA: the program accepts any BAYLA
+account the authority holds, so build the Squads transaction to fund from the ATA the
+preview checked. Settle the signing path before the handover, not at the first reload.
 
 ---
 
@@ -163,10 +176,12 @@ git push origin bayla-ladder-mainnet
 gh workflow run solana-deploy-artifact.yml --ref bayla-ladder-mainnet -f program=bayla-ladder -f cluster=mainnet -f program_id=EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ -f deployer=<ROTATED-DEPLOYER-PUBKEY>
 ```
 
-⚠️ **`deployer` is the rotated key from §1, never `GCCSLE7d…`** (key rotation option A,
-2026-09-17). The artifact from CI run 34712334698 (`.so` sha256 `fada8148…`) was built
-with `GCCSLE7d…`, the 25% penalty and no rate guard: it is **SUPERSEDED** and must not be
-deployed. This command, run on the audited commit, is the rebuild that replaces it.
+⚠️ **`deployer` is the rotated key from §1, never
+`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`** (key rotation option A, 2026-09-17). The
+artifact from CI run 34712334698 (`.so` sha256
+`fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) was built with
+`GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, the 25% penalty and no rate guard: it is
+**SUPERSEDED** and must not be deployed. This command, run on the audited commit, is the rebuild that replaces it.
 
 When it finishes:
 
@@ -346,16 +361,20 @@ node scripts\bayla-ladder-ops.mjs read --pool <POOL> --program EJLP5GEJXEyPTdoKb
    which nothing is staked emits nothing (`math::reward_per_weight_with_residue` returns
    the accumulator unchanged while `total_weighted` is 0, and `checkpoint` still moves the
    clock), so a window funded ahead of its stakers spends its clock on nobody. Those tokens
-   stay in the vault, reachable only by a later `from_budget` reload.
+   stay in the vault, reachable only by a later `from_budget` reload. The ops CLI enforces
+   this: while `total_weighted` is below `min_weight_floor(min_stake)` it refuses `notify`,
+   dry run included (`notify --preview` lists it as `REFUSED` and exits 1), unless
+   `--allow-empty-pool` is passed. Never pass that flag on mainnet.
 
 ```powershell
 node scripts\bayla-ladder-ops.mjs notify --pool <POOL> --amount <WHOLE-BAYLA> --program EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ --rpc <MAINNET-RPC-URL> --keypair <authority-keyfile>
 ```
 
 (After the handover the authority is the multisig. The line above shows the instruction's
-arguments, but a broadcast needs `--keypair` to BE the pool authority (§1), so the
-transaction is built and signed in the multisig's app. Preview it first with the same
-line, `--preview` in place of `--keypair`.)
+arguments, but any run of it without `--preview` — the dry run included — needs
+`--keypair` to BE the pool authority (§1), so the transaction is built, simulated and
+signed in the multisig's app. Preview it first with the same line, `--preview` in place of
+`--keypair`.)
 
 - The rate is the amount divided by **7,776,000 seconds** (90 days). Below
   **7.776 BAYLA** the rate rounds to zero, and the program refuses (`RewardRateTooSmall`).
@@ -374,8 +393,11 @@ line, `--preview` in place of `--keypair`.)
   `reward_rate × (now − (period_finish − 7,776,000))`, where `scheduled` is `--amount`
   plus `--from-budget`. Exactly that holds the rate; more raises it. **At or after
   `period_finish` any rate is allowed.** `notify --preview` checks this before anything is
-  signed, folds the unspent tail into the rate it prints, and prints the minimum that holds
-  the rate now and two minutes later — use it. **By hand**, three unit traps:
+  signed, folds the unspent tail into the rate it prints (`unemitted tail`, `new rate`),
+  and prints the minimum that holds the rate now and two minutes later — two
+  `minimum --amount` lines, *"holds the current rate if it lands at chain now"* and
+  *"holds it if it lands 120s later"*, plus how much each further second adds. Use it. **By
+  hand**, three unit traps:
   `reward_rate` is raw base units per second, so the product is RAW — divide by 10^6
   (BAYLA has 6 decimals) and round UP at the sixth decimal to get the figure
   `--amount`/`--from-budget` take; `read` prints `period finish` as an ISO date, so convert
@@ -402,15 +424,28 @@ operator policy; the program does not enforce it.
 - **Publish dates, never rates or APRs.** Say when the next reload is due. The per-staker
   yield of a fixed pool-wide budget moves with every stake and exit, so a quoted rate or
   APR is wrong the moment TVL moves.
-- ⚠️ **Before any LATER top-up, do not read solvency off `read`'s "outstanding owed".**
-  `rewards_emitted` is banked only when an instruction runs `checkpoint()`, so on a quiet
-  pool that line omits every second of emission since the last interaction. Measured on
-  devnet 2026-09-17: it showed **0.019 BAYLA** owed against a true **~4,275 BAYLA**. The
-  program itself is safe — `notify_reward` checkpoints before its solvency checks — but an
-  operator sizing a top-up from that number would be off by the whole accrual. Compute
+- ⚠️ **Before any LATER top-up, judge solvency from `read`'s `outstanding (LIVE)` line and
+  its I-4 verdict — never from `outstanding (stored)`.** `rewards_emitted` is banked only
+  when an instruction runs `checkpoint()`, so on a quiet pool the stored figure omits every
+  second of emission since the last interaction. `read` prints both: `outstanding (stored)`
+  (banked emitted − paid, as the account holds it) and `outstanding (LIVE)` (what the pool
+  owes at chain now, replaying `checkpoint` exactly, burn branch included). It then checks
+  I-4 against the LIVE figure: a pass prints
+  `invariant I-4 holds: reward vault >= live outstanding`; anything else —
+  `INVARIANT I-4 BROKEN: live outstanding > reward vault` or
+  `INVARIANT I-4 UNVERIFIED: the reward vault could not be read.` — makes `read` exit 1,
+  and is not a pass. `notify` and `notify --preview` print the same live figure as
+  `owed (LIVE)`. The program itself is safe either way — `notify_reward` checkpoints
+  before its solvency checks.
+  **Why this matters:** measured on devnet 2026-09-17, with the CLI as it was before #588
+  (one "outstanding owed" line, the stored figure), `read` showed **0.019 BAYLA** owed
+  against a true **~4,275 BAYLA**. By hand, as a cross-check only:
   `rewards_emitted + reward_rate × (min(now, period_finish) − last_update_time) −
-  rewards_paid` instead. (Right after `init-pool` in §7 nothing has emitted yet, so the
-  `read` there is accurate.)
+  rewards_paid` matches the LIVE figure to within rounding while stakers are in the pool,
+  but while `total_weighted` is below `min_weight_floor(min_stake)` — an empty pool — it
+  OVERSTATES it by the whole `reward_rate × (min(now, period_finish) − last_update_time)`
+  term, because the program burns those seconds rather than emitting them
+  (`math::reward_per_weight_with_residue`).
 
 ---
 
@@ -429,8 +464,8 @@ set the two on **Preview** only and test on a preview URL; production stays unch
 ⚠️ **The build must carry the 75% penalty.** The card quotes every early exit from its own
 constant, `EARLY_EXIT_PENALTY_BPS` in `frontend/src/lib/ladder/program.ts`, because nothing on
 chain exposes the rate. It ships at `7_500` in lockstep with this deploy. And a Preview
-pointed at the devnet program must wait until devnet runs the 75% build — `HzxzfSQ…`
-still runs the superseded 25% one.
+pointed at the devnet program must wait until devnet runs the 75% build —
+`HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the superseded 25% one.
 
 Check `/farm` in the BAYLA bungalow: both pool cards render, and the ladder card shows the
 pool's figures — not *"there is no account at this pool address"*, which means a wrong
@@ -452,12 +487,18 @@ addresses on mainnet every day.
 
 ## 11. Running the pool
 
-All of these take `--program`, `--rpc` and `--keypair`, and are dry runs until
-`--broadcast`. Each one refuses locally, before any fee, whatever the program would
-refuse. Two limits: once the pool authority is the multisig, every row signed by "the
-authority" is built and signed in Squads, not with this CLI (§1) — the CLI's part is the
-dry run, and for `notify` the keyfile-free `--preview`; and a preview is computed at the
-moment it runs, so a reload that lands later needs the margin §8 describes.
+All of these take `--program`, `--rpc` and `--keypair` (`notify --preview` alone takes no
+`--keypair`), and are dry runs until `--broadcast`. Each one refuses locally, before any
+fee, whatever the program would refuse. Two limits:
+
+- **Once the pool authority is the multisig, the CLI cannot dry-run the rows signed by "the
+  authority".** Every authority command except `notify --preview` refuses unless
+  `--keypair` IS the pool authority (§1), and a Squads vault has no keyfile. The CLI's only
+  part is `notify --preview`; every other authority row — `notify` itself,
+  `propose-cap-raise`, `cancel-cap-raise`, `propose-authority` and the one-way
+  `declare-degraded` — is built, simulated and checked in Squads, with no CLI pre-flight.
+- **A preview is computed at the moment it runs**, so a reload that lands later needs the
+  margin §8 describes.
 
 | task | command | who signs |
 | --- | --- | --- |

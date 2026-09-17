@@ -94,16 +94,25 @@ node scripts/bayla-ladder-ops.mjs exit --program HzxzfSQzJ9WQKe6xBoP5AgHFP8a84Cg
 # dry run first; add --broadcast. NO --early: the point is the FREE matured door.
 ```
 
-⚠️ **The `read` command's "outstanding owed" is STALE — do not size a top-up or judge
-solvency from it.** `rewards_emitted` is banked lazily, only when an instruction runs
-`checkpoint()`. Nobody had touched this pool since 2026-09-09 09:57:24, so `read` reported
+⚠️ **Size a top-up and judge solvency from `read`'s `outstanding (LIVE)` line and its I-4
+verdict — never from `outstanding (stored)`.** `rewards_emitted` is banked lazily, only when
+an instruction runs `checkpoint()`, so the stored figure is stale on a quiet pool. What this
+run found, with the CLI as it was before #588 (one "outstanding owed" line, the stored
+figure): nobody had touched this pool since 2026-09-09 09:57:24, so `read` reported
 **0.019 BAYLA** owed while the true liability was **~4,275 BAYLA** — 7.70 days of un-banked
 emission. The dry run's 1,995-BAYLA payout looked like a 100,000× overpay until the pool
 account was decoded; it reconciled to within 0.012% of position #2's 46.68% weight share.
 The PROGRAM is safe: `notify_reward` calls `checkpoint()` before it computes `outstanding`
-and before both solvency `require!`s (in `notify_reward` itself). Only the off-chain
-display is wrong. Live liability ≈ `rewards_emitted + reward_rate × (min(now, period_finish)
-− last_update_time) − rewards_paid`.
+and before both solvency `require!`s (in `notify_reward` itself).
+#588 replaced that line: `read` now prints `outstanding (stored)` beside
+`outstanding (LIVE)` (checkpoint replayed to chain now) and judges I-4 against the live
+figure — `invariant I-4 holds: reward vault >= live outstanding` is the only pass, and a
+BROKEN or UNVERIFIED I-4 makes `read` exit 1. `notify --preview` prints it as `owed (LIVE)`.
+The hand formula `rewards_emitted + reward_rate × (min(now, period_finish) −
+last_update_time) − rewards_paid` is a cross-check only: it overstates by the whole
+`reward_rate × (min(now, period_finish) − last_update_time)` term while `total_weighted` is
+below `min_weight_floor(min_stake)` (an empty pool), because the program burns those
+seconds (I-11).
 
 Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
 

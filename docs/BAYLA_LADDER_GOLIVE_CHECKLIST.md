@@ -299,28 +299,47 @@ gap in emission for as long as the reload waits. The guard also closes the grind
 authority key could otherwise run for free: `notify_reward(0, 1)` over and over, lowering
 the rate each time while every solvency check still passed.
 
-### ⚠️ Do not size a top-up from `read`'s "outstanding owed" — it is stale
+### ⚠️ Size a top-up from `read`'s `outstanding (LIVE)` and its I-4 verdict — never the stored figure
 
-Found running the devnet test on 2026-09-17. `rewards_emitted` is banked **lazily**, only when
-an instruction runs `checkpoint()`, and the ops `read` command prints
-`rewards_emitted − rewards_paid` as "outstanding owed". On a quiet pool that leaves out every
-second of emission since the last interaction.
+`rewards_emitted` is banked **lazily**, only when an instruction runs `checkpoint()`, so the
+stored `rewards_emitted − rewards_paid` leaves out every second of emission since the last
+interaction. The ops `read` command prints both figures:
 
-Measured: the devnet pool had not been touched since 2026-09-09 09:57:24. `read` said
-**0.019 BAYLA** owed; the true liability was **~4,275 BAYLA** — 7.70 days of un-banked
-emission. The dry run's 1,995-BAYLA payout looked like a ~100,000× overpay until the pool
-account was decoded, at which point it reconciled to within 0.012% of position #2's 46.68%
-weight share.
+- `outstanding (stored)` — banked emitted − paid, as the account holds it. **Stale on a
+  quiet pool; do not size anything from it.**
+- `outstanding (LIVE)` — what the pool owes at chain now: `checkpoint` replayed exactly
+  (both residue carries and the burn branch), with the un-banked part printed beside it as
+  `emitted since then`.
+
+`read` then judges invariant I-4 (reward vault ≥ what the pool owes) against the **LIVE**
+figure. `invariant I-4 holds: reward vault >= live outstanding` is the only pass.
+`INVARIANT I-4 BROKEN: live outstanding > reward vault` and
+`INVARIANT I-4 UNVERIFIED: the reward vault could not be read.` both make `read` exit 1;
+an unverified row is an outage, not a pass. `notify` and `notify --preview` print the same
+live figure as `owed (LIVE)`.
+
+**Why this matters — found running the devnet test on 2026-09-17**, with the CLI as it was
+before #588, which printed only the stored figure, as "outstanding owed". The devnet pool
+had not been touched since 2026-09-09 09:57:24. `read` said **0.019 BAYLA** owed; the true
+liability was **~4,275 BAYLA** — 7.70 days of un-banked emission. The dry run's 1,995-BAYLA
+payout looked like a ~100,000× overpay until the pool account was decoded, at which point it
+reconciled to within 0.012% of position #2's 46.68% weight share. #588 replaced that line
+with the two above.
 
 **The program is safe** — `notify_reward` calls `checkpoint()` before computing `outstanding`
 and before both solvency `require!`s (in `notify_reward` itself), so the on-chain
-guard always sees the real liability. The risk is purely an operator misreading the display
-when deciding how much to top up, or whether the vault is covered. Use instead:
+guard always sees the real liability. The risk was purely an operator misreading the display
+when deciding how much to top up, or whether the vault is covered.
+
+A hand cross-check, not a replacement for the LIVE line:
 
 `rewards_emitted + reward_rate × (min(now, period_finish) − last_update_time) − rewards_paid`
 
-(Straight after `init-pool` nothing has emitted, so the runbook §7 `read` is accurate there.
-Correcting the display itself is an ops-script change, not made here.)
+It agrees with `outstanding (LIVE)` to within rounding while stakers are in the pool. While
+`total_weighted` is below `min_weight_floor(min_stake)` — an empty pool — it **overstates**
+by the whole `reward_rate × (min(now, period_finish) − last_update_time)` term: the program
+burns those seconds instead of emitting them (I-11; `math::reward_per_weight_with_residue`
+returns the accumulator unchanged), and the CLI's replay does the same.
 
 ### Two pool parameters are permanent — and so is the penalty
 
@@ -331,8 +350,11 @@ both in `lib.rs` — and the `math.rs` constant is only the penalty.)
 - **`min_stake` and `max_wallet_principal` have no setter** (runbook §6): written once in
   `initialize_pool`, never changed.
 - **The early-exit penalty is a compile-time constant with no setter: 75% forfeited, 25%
-  returned** (`EARLY_EXIT_PENALTY_BPS = 7_500` in `math.rs`, from #586; `2_500` on trunk
-  until it merges). Only a program upgrade through the Squads vault
+  returned** (`EARLY_EXIT_PENALTY_BPS = 7_500` in `math.rs`, from #586, merged on trunk as
+  `be20d8073fff0ab8d6ead3f5c4ff3791d91e9845`; only the superseded devnet deployment
+  `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` and the superseded
+  `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` artifact still carry
+  `2_500`). Only a program upgrade through the Squads vault
   could change it (D6).
 - **`deposit_cap` only rises,** 48 hours after `propose_cap_raise`, via the permissionless
   `execute_cap_raise`, which **has never succeeded anywhere**.

@@ -8,7 +8,7 @@
 
 Everything below was run end to end, not just written. The addresses are real and live.
 
-> ⚠️ **Measured on the superseded 25% build.** `HzxzfSQ…` was compiled with
+> ⚠️ **Measured on the superseded 25% build.** `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` was compiled with
 > `EARLY_EXIT_PENALTY_BPS = 2_500` and has no reload rate guard. From the 2026-09-17
 > rebuild on (branch `feat/bayla-ladder-75-penalty`), the ladder forfeits **75%** of
 > principal on an early exit (the leaver keeps 25%) and `notify_reward` refuses a
@@ -114,7 +114,7 @@ opens. Before `lock_end`, in a healthy pool, that door returns 25% of it. Three 
 | --- | --- | --- |
 | `MIN_LOCK_SECS` | 7 days | boost 0.40x |
 | `MAX_LOCK_SECS` | 4 years | boost 4.00x |
-| `EARLY_EXIT_PENALTY_BPS` | 7 500 | flat 75% forfeited (25% of principal returned), charged by `early_exit` and, while locked, `emergency_withdraw`; 0 in a `degraded` pool. Forfeited to the reward pool as budget for a later window. Compile-time, no setter. **The devnet build `HzxzfSQ…` was compiled with 2 500.** |
+| `EARLY_EXIT_PENALTY_BPS` | 7 500 | flat 75% forfeited (25% of principal returned), charged by `early_exit` and, while locked, `emergency_withdraw`; 0 in a `degraded` pool. Forfeited to the reward pool as budget for a later window. Compile-time, no setter. **The devnet build `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` was compiled with 2 500.** |
 | `REWARDS_DURATION_SECS` | 90 days (7 776 000 s) | per-second distribution |
 | `MAX_POSITIONS` | 20 | per wallet per pool |
 | `CAP_TIMELOCK_SECS` | 48 h | deposit-cap raises only; the cap can only go UP |
@@ -318,18 +318,25 @@ The run's summary page prints the sha256s, the rent estimate, and the deploy com
 below with your addresses already filled in.
 
 > 📄 **You do not need a run to get an IDL any more.** `idl/bayla_ladder.json` is
-> committed — it is the IDL from run `34336193019`, whose `.so` sha256 matches what
-> is deployed at `HzxzfSQ…` on devnet byte for byte. GitHub deletes the artifact 30
-> days after the run, so the committed copy is the durable one; `idl/README.md`
-> carries the hashes and the two fields a mainnet build changes. `ladder-constraints`
-> re-checks it against a fresh `anchor build` on every push, so it cannot go stale
-> quietly. You still need the artifact for the **`.so`** — that is not committed.
+> committed, and it is the **75% program's** IDL: #586 edited it BY HAND to match the
+> 75% source, because `anchor build` cannot run on the operator's machine.
+> `ladder-constraints` checks it against the IDL a fresh `anchor build` emits on every
+> push (`tools/check_committed_idl.py`), so a hand-edit that disagrees with the program
+> fails there. GitHub deletes the artifact 30 days after the run, so the committed copy
+> is the durable one; `idl/README.md` carries the provenance and the two fields a mainnet
+> build changes. You still need the artifact for the **`.so`** — that is not committed.
 >
-> ⚠️ Run `34336193019` is the **superseded 25% build**. The 75% rebuild changes the
-> IDL's bytes (the penalty docs strings, error 6007's message, and the new error 6028
-> `RewardRateWouldDecrease`), so once its IDL is committed, the committed file no longer
-> describes what `HzxzfSQ…` runs — until devnet is upgraded. `idl/README.md` carries the
-> provenance of whichever IDL is committed.
+> ⚠️ **The committed IDL does NOT describe what
+> `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` runs today, and will not until devnet
+> is upgraded.** That program is still the superseded 25% build from run `34336193019`,
+> whose `.so` sha256 matched the deployed bytes exactly when it was checked
+> (`idl/README.md`). The IDL that run emitted is the file as it was committed in
+> `7ecbd163ba9688f7454dfe621b92b0917a240e2d`, before #586. Against the committed file,
+> devnet differs in the description and penalty doc strings (25% vs 75%), error 6007's
+> message, the `degraded` flag's doc, and error **6028 `RewardRateWouldDecrease`**, which
+> devnet does not have. Every instruction, account, argument, type and discriminator is unchanged,
+> so a client built from the committed IDL still calls devnet correctly; only error
+> decoding and doc text disagree.
 
 > ⚠️ **`deployer` is required for BOTH clusters.** A mainnet build with no deployer keeps
 > the System-program sentinel, which is fail-closed: `initialize_pool` becomes uncallable
@@ -426,11 +433,22 @@ Enforced at init, in this order:
 ## 7. Fund the 90-day window
 
 ```bash
+# only once the pool holds at least one stake (§8) — see the empty-pool refusal below
 node scripts/bayla-ladder-ops.mjs notify --pool <pool> --amount 50000 --keypair <authority.json>
 # dry run; add --broadcast to send
 ```
 
-The CLI checks the L-1 floor and the authority match before building anything.
+Before building anything, the CLI checks the authority match and replays
+`notify_reward`'s own checks at chain now — the L-1 floor and the rate guard among them.
+
+**It also refuses to fund an empty pool, dry run included.** Straight after §6 nothing is
+staked, so `total_weighted` is 0 and below `min_weight_floor(min_stake)`; the notify above
+is then refused (`notify refused before anything was built or sent`) with a message ending
+*"Pass --allow-empty-pool to fund an empty pool knowingly."* Stake first, as §8 does. The
+flag exists, but funding before anyone stakes burns window time, not tokens: the 90 days
+start at the notify, and every second until the first stake emits nothing (I-11), while
+the tokens stay in the reward vault for a later `--from-budget`. It is never used on
+mainnet (`BAYLA_LADDER_MAINNET_RUNBOOK.md` §8: never fund an empty pool).
 
 ```
 notify_reward(amount: u64, from_budget: u64)
@@ -454,7 +472,8 @@ Three rules to respect:
 - `rate <= fundable / 7_776_000`, where `fundable = vault − (emitted − paid)`. The pool
   will not schedule what it does not physically hold after reserving what it already
   owes. This is the TegridyRestaking bug as a `require!`.
-- **The rate guard (75% rebuild on; the devnet build `HzxzfSQ…` does not have it).** While
+- **The rate guard (75% rebuild on; the devnet build
+  `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` does not have it).** While
   `now < period_finish`, the folded rate
   `(scheduled + (period_finish − now) × reward_rate) / 7_776_000` must be **at least the
   current `reward_rate`**, or the call is refused with **6028 `RewardRateWouldDecrease`**
@@ -482,16 +501,18 @@ a local validator in CI. On devnet, drive it with the CLI from §5b — dry-run 
 then re-run with `--broadcast`:
 
 ```bash
-# FUND FIRST. A claim against an unfunded pool succeeds and pays ZERO, which proves
-# nothing and reads like the claim path working.
-node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000 --keypair <authority.json>
-
+# STAKERS FIRST. The CLI refuses to fund an empty pool (§7), and a window funded before
+# anyone stakes burns its clock on nobody.
 # TWO positions: the exit below CLOSES the one it names, so a second is needed to
 # exercise the hatch. Nonces are assigned by the program from UserStats.next_nonce -
 # `positions` prints the real ones; do not assume 0 and 1.
 node scripts/bayla-ladder-ops.mjs stake --pool <p> --amount 500 --lock-days 7
 node scripts/bayla-ladder-ops.mjs stake --pool <p> --amount 500 --lock-days 7
 node scripts/bayla-ladder-ops.mjs positions --pool <p> --owner <you>
+
+# THEN FUND, before any claim. A claim against an unfunded pool succeeds and pays ZERO,
+# which proves nothing and reads like the claim path working.
+node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000 --keypair <authority.json>
 
 # let a few minutes of the 90-day window accrue, then:
 node scripts/bayla-ladder-ops.mjs claim --pool <p> --nonce 0
@@ -522,7 +543,7 @@ Confirm each:
    `claim-carried` pays them out.
    ⚠️ The CLI's penalty is a local constant (`EARLY_EXIT_PENALTY_BPS` in `bayla-ladder-ops.mjs`), not read from
    the chain, and nothing on chain exposes the rate. Against a program still on the 25%
-   build — `HzxzfSQ…` today — a CLI built at 75% prints a penalty that program does not
+   build — `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` today — a CLI built at 75% prints a penalty that program does not
    charge. The CLI and the program must be the same build: upgrade devnet first, and
    confirm steps 5 and 6 from the decoded `Withdrawn` event, not the CLI's preview.
 7. `sweep_orphaned_penalty` from a **stranger's** keypair — it is permissionless by
@@ -538,7 +559,8 @@ close — measured at **24 455 CU**. Comfortable.
 
 These are not tasks I can do, and none of them should be improvised on the day.
 
-1. 🔑 **Upgrade authority.** The current BAYLA admin `GCCSLE7d…` is a bare on-curve
+1. 🔑 **Upgrade authority.** The current BAYLA admin
+   `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` is a bare on-curve
    keypair. For a program holding other people's principal that is not adequate. Choose:
    Squads multisig with a timelock, or burn the authority and make the program immutable.
    Immutable is the stronger promise and forecloses fixing anything.
@@ -582,7 +604,8 @@ These are not tasks I can do, and none of them should be improvised on the day.
    `period_finish`; there is no sunset and no wind-down. The reload policy is in
    `BAYLA_LADDER_MAINNET_RUNBOOK.md` §8.
 7. 🔑 **The pool authority is a multisig before any funds** (decided 2026-09-17), and the
-   mainnet deployer is a freshly generated key, not `GCCSLE7d…` (key rotation option A,
+   mainnet deployer is a freshly generated key, not
+   `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` (key rotation option A,
    `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`).
 
 ---
