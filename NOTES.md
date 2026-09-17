@@ -15,6 +15,51 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — `git bundle verify` passes a bundle cut in half, so a safety net is only proven by restoring from it
+
+**Believed:** a bundle that `git bundle verify` accepts is a backup you can delete against.
+The command is named for exactly that check, it exits 0, and it prints "The bundle records a
+complete history."
+
+**Measured** (git 2.53.0.windows.1). A throwaway repo with 6 commits of random 200 KB files,
+bundled with `git bundle create full.bundle --all` (1,201,601 bytes); `half.bundle` is the
+first 600,800 bytes of that file:
+
+| check | `full.bundle` | `half.bundle` |
+|---|---|---|
+| `git bundle verify` in the source repo | pass | **pass** |
+| `git bundle list-heads` | pass | **pass** |
+| `git bundle verify` in an empty repo | pass | **pass** |
+| `git fetch <bundle> 'refs/*:refs/r/*'` in an empty repo | pass | fail: `early EOF`, `index-pack died` |
+
+`verify` and `list-heads` read the bundle's header (its ref list and prerequisite commits) and
+check the prerequisites against the current repository. Neither reads the pack data that follows.
+A partial copy, an interrupted download or a disk-full write can leave the header intact, and then
+both checks still pass.
+
+This was caught while reviewing a branch cleanup whose design was "bundle it, verify the bundle,
+then delete": the verify step proved nothing about the part that mattered.
+
+**Do:** prove a bundle by restoring from it before you delete what it backs up. Fetch it into a
+fresh repository that holds only the bundle's prerequisites, check that every oid you meant to
+keep is present (`git cat-file --batch-check`), and run `git fsck --connectivity-only`. Record a
+hash of the proven file, so anything that later trusts the bundle can check that it is still the
+file that was proven.
+
+### Two more places a zero-loss cleanup quietly loses the last copy
+
+- **`.git/lost-found/other/` can hold the only copy of a blob.** `git fsck --lost-found` writes
+  each dangling blob's *content* into a file named by its oid. Once gc prunes the object, that
+  file is all that remains. In this repo 3 of the 13 files there hashed to their own names
+  (`git hash-object --no-filters <file>` equals the filename) while `git cat-file -e <oid>`
+  failed. A cleanup that treats `lost-found` as a folder of names and deletes it destroys
+  content. Move it instead. The files in `lost-found/commit/` really are just names.
+- **Loose-ref file timestamps are not evidence of recent use.** A guard that skipped tags whose
+  `.git/refs/tags/<name>` file had changed in the last 72h protected nothing within the same
+  hour: another session's `gc --auto` packed every ref into `packed-refs`, and the loose files
+  disappeared. Use something the packing cannot erase, such as the tagged commit's date, or a
+  name convention that live work actually follows.
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
