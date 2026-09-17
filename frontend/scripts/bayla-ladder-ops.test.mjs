@@ -1258,7 +1258,7 @@ describe('chain time comes from the Clock sysvar, never this machine', () => {
     const guard = '      const blind = unpreviewedExitProblem(broadcast, pos);\n      if (blind) throw new Error(blind);';
     expect(stripComments(guard.replace(/^ {6}/gm, '      // '))).not.toMatch(/unpreviewedExitProblem|throw/);
     expect(stripComments(`      /*\n${guard}\n      */`)).not.toMatch(/unpreviewedExitProblem|throw/);
-    expect(stripComments(`      /* ${guard.replace('\n', ' ')} */`)).not.toMatch(/unpreviewedExitProblem|throw/);
+    expect(stripComments(`      /* ${guard.replace(/\n/g, ' ')} */`)).not.toMatch(/unpreviewedExitProblem|throw/);
     expect(stripComments(`${guard} // trailing`)).toBe(`${guard} `);
     expect(stripComments("  const rpc = 'https://api.devnet.solana.com';")).toContain('https://api.devnet.solana.com');
   });
