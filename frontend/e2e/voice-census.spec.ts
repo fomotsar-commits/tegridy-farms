@@ -5,6 +5,7 @@ import {
   gotoRoute,
   navigablePath,
   waitForQuiescence,
+  GECKO_EDGE_GLOB,
   type RouteSpec,
 } from './fixtures/routes';
 
@@ -136,7 +137,7 @@ test.describe('row Q: the route census', () => {
       test.skip(test.info().project.name !== 'chromium', 'rendered copy is engine-independent; one desktop project is the honest amount of work');
       test.slow();
       await seedVenueVisitor(page, true);
-      if (FEED_ROUTES.has(path)) await page.route('**api.geckoterminal.com/**', (r) => r.abort());
+      if (FEED_ROUTES.has(path)) await page.route(GECKO_EDGE_GLOB, (r) => r.abort());
       await settle(page, path);
       if (route.voice === 'record') await expect(page.locator('[data-record]')).toHaveCount(1);
 

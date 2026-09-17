@@ -110,7 +110,7 @@ describe('the edge middleware stamps the canonical host, not the requested one',
   }
 });
 
-describe('vercel.json 301s the aliases onto the canonical host', () => {
+describe('vercel.json permanently redirects the aliases onto the canonical host', () => {
   type Redirect = {
     source: string;
     destination: string;
@@ -133,7 +133,10 @@ describe('vercel.json 301s the aliases onto the canonical host', () => {
   it('sends the bare alias host to the canonical origin, permanently', () => {
     const rule = hostRule(ALIAS_HOST);
     expect(rule, `no catch-all host redirect for ${ALIAS_HOST}`).toBeTruthy();
-    expect(rule!.permanent, 'an alias redirect must be a 301, not a 307').toBe(true);
+    // `permanent: true` makes Vercel emit 308 (it emits 307 for `false`); a
+    // `redirects` entry never emits 301. Saying "301" here is what led the
+    // synthetic monitor to demand a literal 301 and fail every run for two days.
+    expect(rule!.permanent, 'an alias redirect must be permanent (308), not a 307').toBe(true);
     expect(new URL(rule!.destination.replace('$1', '')).origin).toBe(CANONICAL_ORIGIN);
   });
 
