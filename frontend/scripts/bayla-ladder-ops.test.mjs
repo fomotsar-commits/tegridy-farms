@@ -362,12 +362,15 @@ describe('decoders read the RIGHT field at the RIGHT width', () => {
     u128at(d, 267, (1n << 68n) + 9n);
     i64at(d, 283, 1700000000);
     i64at(d, 291, 1600000000);
+    u128at(d, 299, (1n << 67n) + 11n);
     u128at(d, 315, (1n << 66n) + 1n);
     u128at(d, 331, 123n);
     u128at(d, 347, 456n);
     u128at(d, 363, 789n);
     u64at(d, 379, 31337);
     d[387] = 1;
+    u128at(d, 388, (1n << 69n) + 13n);
+    u128at(d, 404, (1n << 65n) + 17n);
 
     const r = decodePool(d);
     expect(r.ok).toBe(true);
@@ -397,6 +400,10 @@ describe('decoders read the RIGHT field at the RIGHT width', () => {
     expect(v.penaltyCollectedCumulative).toBe(789n);
     expect(v.orphanedPenalty).toBe(31337n);
     expect(v.degraded).toBe(true);
+    // The checkpoint replay is exact only with these three.
+    expect(v.rewardPerWeightStored).toBe((1n << 67n) + 11n);
+    expect(v.rpwResidue).toBe((1n << 69n) + 13n);
+    expect(v.emittedResidue).toBe((1n << 65n) + 17n);
   });
 
   it('Position: every field comes back from its own offset', () => {
@@ -885,5 +892,728 @@ describe('declare-degraded needs a second word before it will broadcast', () => 
   it('a truthy-but-not-true value does NOT count', () => {
     // `--confirm-permanent yes` parses "yes" as the flag's value. Only a bare flag is true.
     expect(confirmPermanentProblem(true, argv('--confirm-permanent', 'yes', '--broadcast'))).toMatch(/--confirm-permanent/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHAIN TIME, THE OFF-CHAIN REPLAY OF THE REWARD ENGINE, AND THE PREVIEWS ON IT
+//
+// Imported separately (ES imports hoist) so this block does not touch the import list
+// above, which other branches edit.
+// ─────────────────────────────────────────────────────────────────────────────
+import {
+  PRECISION, PENALTY_PCT, KEEP_PCT, LADDER_ERRORS, SYSVAR_OWNER, LANDING_SLACK_SECS,
+  decodeClock, decodeTokenAccount, loadSnapshot, simErrorName,
+  lastTimeApplicable, minWeightFloor, rewardPerWeightWithResidue, emittedDeltaWithResidue,
+  checkpointReplay, newRewardRate, rateChangeAllowed, fundable, penaltyFor,
+  exitPreview, exitReport, liveLedger, poolLines,
+  driftBound, budgetMargin, fromBudgetMax, notifyPreview, notifyReport, resolveNotifyAmounts,
+} from './bayla-ladder-ops.mjs';
+
+// HOW THESE VECTORS WERE GENERATED — by rustc from the program's own math.rs, NOT by this
+// file's JavaScript and not by hand.
+//
+//   generator  C:/Users/jimbo/tegriddy-worktrees/_b_vectors/main.rs (outside the repo),
+//              sha256 6607a19a4a5ce2b5e172eb7cee4cc1df87dd7d5dde5bed57893765f5b34a03aa
+//   compiled   rustc 1.94.0 (4a4ef493e 2026-03-02): `rustc --edition 2021 -O main.rs`
+//   output     vectors.json, sha256 556e95e4d9f1a6a3498c7aae8b44841b64a406b5ce6cd25bc6dec322f9b6a77a,
+//              pasted below unchanged apart from layout
+//
+// The generator pulls math.rs in with `#[path = ...] mod`:
+//   - `math75`: math.rs from the feat/bayla-ladder-75-penalty working tree (PR A, not yet
+//     committed when these were printed; EARLY_EXIT_PENALTY_BPS = 7_500, and it has
+//     `rate_change_allowed`), sha256 4e0c9313e490f7c54afb7d7108b4f48d7ac6ffa9ebe981a7e5bcf914e933f276.
+//     Every column except the last one of `penalty_for` comes from this module.
+//   - `math25`: trunk's math.rs at 2ac5bd65 (2_500), sha256
+//     6e18d374c63d763ef2cdb5fe941e9feed8399fc01e192d8b65e5294c0622e190, used ONLY for the
+//     last `penalty_for` column, so the penalty parity holds whichever constant is live.
+//
+// Every expected value is the Rust function's own return. TWO THINGS ARE TRANSCRIPTIONS,
+// said plainly: lib.rs is an Anchor crate that bare rustc cannot build, so the generator's
+// `checkpoint` is lib.rs `checkpoint` copied verbatim onto a plain struct, and its `notify`
+// is lib.rs `notify_reward`'s checks in lib.rs order with the token transfer modelled as
+// `vault + amount`. Both call only the real math.rs functions.
+//
+// Row shapes:
+//   new_reward_rate               [amount, now, period_finish, old_rate, -> rate]
+//   rate_change_allowed           [now, period_finish, old_rate, new_rate, -> bool]
+//   reward_per_weight_with_residue[stored, residue, last_update, applicable, rate, tw, floor, -> rpw, residue]
+//   emitted_delta_with_residue    [rpw_now, rpw_stored, tw, residue, -> delta, residue]
+//   fundable                      [vault, emitted, paid, -> budget]
+//   penalty_for                   [amount, -> at 7_500, -> at 2_500]
+//   min_weight_floor              [min_stake, -> floor]
+//   checkpoint                    [label, pool, [t...], [pool after each t]]
+//   notify                        [label, pool, vault, amount, from_budget, now, "ok" | error, rate, period_finish]
+//   pool = [min_stake, total_weighted, reward_rate, period_finish, last_update_time,
+//           reward_per_weight_stored, rewards_emitted, rewards_paid, rpw_residue, emitted_residue]
+const RUST = {
+  constants: {"PRECISION":"1000000000000","REWARDS_DURATION_SECS":"7776000","MIN_BOOST_BPS":"4000","BPS":"10000","EARLY_EXIT_PENALTY_BPS_75":"7500","EARLY_EXIT_PENALTY_BPS_25":"2500"},
+  new_reward_rate: [
+    ["7776000000","1000","500","999","1000"],
+    ["7775000000","0","1000","1000","1000"],
+    ["7776000000","1000000","4888000","1000","1500"],
+    ["6776000000","1000000","2000000","1000","1000"],
+    ["6775999999","1000000","2000000","1000","999"],
+    ["1000000000","1000000","2000000","1000","257"],
+    ["1000000000","2000000","2000000","1000","128"],
+    ["1000000000","1999999","2000000","1000","128"],
+    ["0","1000000","2000000","1000","128"],
+    ["7775999","5","0","0","0"],
+    ["7776000","5","0","0","1"],
+    ["18446744073709551615","0","1","340282366920938463463374607431768211455","43760592453824390877491590461904"],
+    ["18446744073709551615","0","9223372036854775807","340282366920938463463374607431768211455","43760592453824390877491590461904"],
+    ["18446744073709551615","100","0","0","2372266470384"],
+    ["1","3888000","7776000","10000","5000"],
+  ],
+  rate_change_allowed: [
+    ["999","1000","1000","999",false],
+    ["999","1000","1000","1000",true],
+    ["999","1000","1000","1001",true],
+    ["1000","1000","1000","1",true],
+    ["1001","1000","1000","0",true],
+    ["0","0","0","1",true],
+    ["1788000000","0","0","1",true],
+    ["-5","0","7","6",false],
+    ["0","1","340282366920938463463374607431768211455","340282366920938463463374607431768211454",false],
+    ["0","1","0","0",true],
+  ],
+  reward_per_weight_with_residue: [
+    ["0","0","0","1000","1000000","2000000000","4000","500000000000","0"],
+    ["100","12345","0","1000","1000000","3999","4000","100","0"],
+    ["100","12345","0","1000","1000000","0","4000","100","0"],
+    ["100","12345","0","1000","1000000","4000","4000","250000000000000103","345"],
+    ["7","5","1000","900","1000000","1000000","4000","7","5"],
+    ["0","0","0","1","12860","999999999999983","4000","12","860000000000204"],
+    ["3","999999999999982","0","1","12860","999999999999983","4000","16","860000000000203"],
+    ["340282366920938463463374607431768211454","0","0","9223372036854775807","340282366920938463463374607431768211455","1","0","340282366920938463463374607431768211455","0"],
+    ["0","0","-9223372036854775808","9223372036854775807","1","1","0","9223372036854775807000000000000","0"],
+    ["0","7","0","0","1","3","0","2","1"],
+  ],
+  emitted_delta_with_residue: [
+    ["500000000000","0","4000000000000","0","2000000000000","0"],
+    ["100","100","3999","999999999999","0","999999999999"],
+    ["5","10","1000","123","0","123"],
+    ["340282366920938463463374607431768211455","0","340282366920938463463374607431768211455","5","340282366920938463463374607","431768211455"],
+    ["123456789","100","999999999999983","777","123456688999","997901237064"],
+    ["12860000000000221","0","999999999999983","999999999999","12860000000000002380","999999996242"],
+  ],
+  fundable: [
+    ["10000","3000","1000","8000"],
+    ["1000","3000","0","0"],
+    ["1000","5","9","1000"],
+    ["18446744073709551615","340282366920938463463374607431768211455","0","0"],
+    ["18446744073709551615","0","340282366920938463463374607431768211455","18446744073709551615"],
+    ["0","0","0","0"],
+  ],
+  penalty_for: [
+    ["0","0","0"],
+    ["1","0","0"],
+    ["2","1","0"],
+    ["3","2","0"],
+    ["4","3","1"],
+    ["7","5","1"],
+    ["999","749","249"],
+    ["1000000","750000","250000"],
+    ["100000000","75000000","25000000"],
+    ["1000000000000","750000000000","250000000000"],
+    ["2460000000000001","1845000000000000","615000000000000"],
+    ["9223372036854775807","6917529027641081855","2305843009213693951"],
+    ["18446744073709551615","13835058055282163711","4611686018427387903"],
+  ],
+  min_weight_floor: [
+    ["0","0"],
+    ["3","1"],
+    ["10000","4000"],
+    ["100000000","40000000"],
+    ["18446744073709551615","7378697629483820646"],
+  ],
+  checkpoint: [
+    ["live outstanding: a day un-banked",["100000000","40000000","1000","1790620059","1789533659","0","5000000","1000000","0","0"],["1789620059"],[["100000000","40000000","1000","1790620059","1789620059","2160000000000","91400000","1000000","0","0"]]],
+    ["L-4 split",["100000000","999999999999983","12860","1000000000","0","0","0","0","0","0"],["1234","5000"],[["100000000","999999999999983","12860","1000000000","1234","15869","15868999","0","240000000269773","999999730227"],["100000000","999999999999983","12860","1000000000","5000","64300","64299999","0","1093100","999998906900"]]],
+    ["L-4 single",["100000000","999999999999983","12860","1000000000","0","0","0","0","0","0"],["5000"],[["100000000","999999999999983","12860","1000000000","5000","64300","64299999","0","1093100","999998906900"]]],
+    ["L-4 per-second",["100000000","999999999999983","12860","1000000000","0","0","0","0","0","0"],["1","2","3","4","5","6","7","8","9","10","11","12"],[["100000000","999999999999983","12860","1000000000","1","12","11999","0","860000000000204","999999999796"],["100000000","999999999999983","12860","1000000000","2","25","24999","0","720000000000425","999999999575"],["100000000","999999999999983","12860","1000000000","3","38","37999","0","580000000000646","999999999354"],["100000000","999999999999983","12860","1000000000","4","51","50999","0","440000000000867","999999999133"],["100000000","999999999999983","12860","1000000000","5","64","63999","0","300000000001088","999999998912"],["100000000","999999999999983","12860","1000000000","6","77","76999","0","160000000001309","999999998691"],["100000000","999999999999983","12860","1000000000","7","90","89999","0","20000000001530","999999998470"],["100000000","999999999999983","12860","1000000000","8","102","101999","0","880000000001734","999999998266"],["100000000","999999999999983","12860","1000000000","9","115","114999","0","740000000001955","999999998045"],["100000000","999999999999983","12860","1000000000","10","128","127999","0","600000000002176","999999997824"],["100000000","999999999999983","12860","1000000000","11","141","140999","0","460000000002397","999999997603"],["100000000","999999999999983","12860","1000000000","12","154","153999","0","320000000002618","999999997382"]]],
+    ["burn keeps emitted_residue",["10000","3999","1000000","1000000","0","100","77","0","12345","999999999999"],["1000"],[["10000","3999","1000000","1000000","1000","100","77","0","0","999999999999"]]],
+    ["empty pool burns",["100000000","0","1000","1000000","0","9","0","0","5","6"],["500"],[["100000000","0","1000","1000000","500","9","0","0","0","6"]]],
+    ["clamp at period_finish",["100000000","40000001","7","10000","1000","0","0","0","40000000","999999999999"],["10000"],[["100000000","40000001","7","10000","10000","1574999961","63001","0","25000039","14999960"]]],
+    ["clamp past period_finish",["100000000","40000001","7","10000","1000","0","0","0","40000000","999999999999"],["20000"],[["100000000","40000001","7","10000","10000","1574999961","63001","0","25000039","14999960"]]],
+    ["mark ahead of now",["100000000","40000000","1000","1000000","5000","3","11","0","17","19"],["4000"],[["100000000","40000000","1000","1000000","5000","3","11","0","17","19"]]],
+    ["grid 0",["343549047","8698688358916827","158","1702693829","1700896889","147907634302639165691032829","337906411760038541","210759888329822047","6013102673629419","965279734726"],["1705401061","1709083721","1709083809"],[["343549047","8698688358916827","158","1702693829","1702693829","147907634302639165691065468","337906412043955031","210759888329822047","6043755987312966","311966051179"],["343549047","8698688358916827","158","1702693829","1702693829","147907634302639165691065468","337906412043955031","210759888329822047","6043755987312966","311966051179"],["343549047","8698688358916827","158","1702693829","1702693829","147907634302639165691065468","337906412043955031","210759888329822047","6043755987312966","311966051179"]]],
+    ["grid 1",["450492685","180197846","852091650","1703867477","1700604210","870345773708103720305351376","555332003692304026","1059268902365562694","48099622","953779592818"],["1703513695","1704575251","1704575327"],[["450492685","180197846","852091650","1703867477","1703513695","870345787466025523101207215","557811151566604276","1059268902365562694","133776828","953693915612"],["450492685","180197846","852091650","1703867477","1703867477","870345789138935021255252852","558112606254724576","1059268902365562694","160678926","953667013514"],["450492685","180197846","852091650","1703867477","1703867477","870345789138935021255252852","558112606254724576","1059268902365562694","160678926","953667013514"]]],
+    ["grid 2",["471864441","162323818","44446","1703423154","1700558119","672442115331797736691968686","838163248571105735","1092574135523031640","696594","522636408600"],["1704379314","1708432406","1708432464"],[["471864441","162323818","44446","1703423154","1703423154","672442115331797736691968686","838163248571105735","1092574135523031640","0","522636408600"],["471864441","162323818","44446","1703423154","1703423154","672442115331797736691968686","838163248571105735","1092574135523031640","0","522636408600"],["471864441","162323818","44446","1703423154","1703423154","672442115331797736691968686","838163248571105735","1092574135523031640","0","522636408600"]]],
+    ["grid 3",["391259894","3557193387955908","769","1703365955","1700994148","789964497749212468171198288","1098207492085576882","126431868700946797","2163865706114947","786849395726"],["1703767454","1707348147","1707348167"],[["391259894","3557193387955908","769","1703365955","1703365955","789964497749212468171711029","1098207493909495777","126431868700946797","2851931805891119","720749619554"],["391259894","3557193387955908","769","1703365955","1703365955","789964497749212468171711029","1098207493909495777","126431868700946797","2851931805891119","720749619554"],["391259894","3557193387955908","769","1703365955","1703365955","789964497749212468171711029","1098207493909495777","126431868700946797","2851931805891119","720749619554"]]],
+    ["grid 4",["117491521","9778010148155422","764074437","1703934116","1700189663","407651899510651713302047236","392594600479138000","848499931253011334","9434811259249049","43877441064"],["1704361361","1705621848","1705621946"],[["117491521","9778010148155422","764074437","1703934116","1703934116","407651899510652005901540845","395455641296991939","848499931253011334","3456268631551051","586505139062"],["117491521","9778010148155422","764074437","1703934116","1703934116","407651899510652005901540845","395455641296991939","848499931253011334","3456268631551051","586505139062"],["117491521","9778010148155422","764074437","1703934116","1703934116","407651899510652005901540845","395455641296991939","848499931253011334","3456268631551051","586505139062"]]],
+    ["grid 5",["155043259","62017667","38947","1706119862","1700497068","129558093907681574365160392","140617463316955827","215772378883076442","39914322","25292367020"],["1703787263","1703804136","1703804232"],[["155043259","62017667","38947","1706119862","1703787263","129558093909747811791747239","140617591460180492","215772378883076442","16088373","25316192969"],["155043259","62017667","38947","1706119862","1703804136","129558093909758408009934550","140617592117333223","215772378883076442","18864936","25313416406"],["155043259","62017667","38947","1706119862","1703804232","129558093909758468297787687","140617592121072135","215772378883076442","23493557","25308787785"]]],
+    ["grid 6",["906386117","253107949","973","1701774593","1700161403","429145973478183218567580948","541926574120500418","154026045757105491","180903704","771910236778"],["1702765009","1703593604","1703593630"],[["906386117","253107949","973","1701774593","1701774593","429145973478183218567580948","541926574120500418","154026045757105491","0","771910236778"],["906386117","253107949","973","1701774593","1701774593","429145973478183218567580948","541926574120500418","154026045757105491","0","771910236778"],["906386117","253107949","973","1701774593","1701774593","429145973478183218567580948","541926574120500418","154026045757105491","0","771910236778"]]],
+    ["grid 7",["266979788","3349933605645390","460269489","1705737242","1700094566","1014348182117092695119355136","396848870337382196","645137241604060174","3295218612920693","316841368221"],["1700562745","1701925696","1701925795"],[["266979788","3349933605645390","460269489","1705737242","1700562745","1014348182117092759445558118","397064358846475164","645137241604060174","857720360367713","815093921201"],["266979788","3349933605645390","460269489","1705737242","1701925696","1014348182117092946710392037","397691683606776025","645137241604060174","2035921202384303","614251904611"],["266979788","3349933605645390","460269489","1705737242","1701925795","1014348182117092946723994301","397691729173457312","645137241604060174","160460717221343","74737067571"]]],
+    ["grid 8",["846238337","5657029934106147","70224","1707677251","1700736114","157731922976781814739651483","673461230275998634","570584363765988849","1343038176867511","35843538080"],["1703241087","1707902590","1707902669"],[["846238337","5657029934106147","70224","1707677251","1703241087","157731922976781814770747168","673461406185219500","570584363765988849","4428502673191816","571347213775"],["846238337","5657029934106147","70224","1707677251","1707677251","157731922976781814825815850","673461717710402006","570584363765988849","2658730309803562","343710602029"],["846238337","5657029934106147","70224","1707677251","1707677251","157731922976781814825815850","673461717710402006","570584363765988849","2658730309803562","343710602029"]]],
+    ["grid 9",["178911356","71565236","555","1703621174","1700070535","847752119049708500187886200","1035335251391776057","1135636269789522961","37542885","485499370878"],["1702722565","1703131943","1703132042"],[["178911356","71565236","555","1703621174","1702722565","847752119049729067110211447","1035335252863652707","1135636269789522961","67229593","485469684170"],["178911356","71565236","555","1703621174","1703131943","847752119049732241902927844","1035335253090857497","1135636269789522961","34854901","485502058862"],["178911356","71565236","555","1703621174","1703132042","847752119049732242670688884","1035335253090912442","1135636269789522961","15649461","485521264302"]]],
+    ["grid 10",["134280301","41379594","776359838","1703448720","1700962672","896731226857816567273441872","891423683105238118","519006566801712269","40717598","972400125666"],["1705535596","1706258109","1706258109"],[["134280301","41379594","776359838","1703448720","1703448720","896731226857816567273441872","891423683105238118","519006566801712269","0","972400125666"],["134280301","41379594","776359838","1703448720","1703448720","896731226857816567273441872","891423683105238118","519006566801712269","0","972400125666"],["134280301","41379594","776359838","1703448720","1703448720","896731226857816567273441872","891423683105238118","519006566801712269","0","972400125666"]]],
+    ["grid 11",["560534190","2609217593302648","97349","1702035115","1700006945","340925129067343527580927677","14652850440669184","72314023109302130","43428560240284","880937472433"],["1701835676","1705065363","1705065415"],[["560534190","2609217593302648","97349","1702035115","1701835676","340925129067343527649156993","14653028465800871","72314023109302130","2476222706211516","86791501201"],["560534190","2609217593302648","97349","1702035115","1702035115","340925129067343527656597993","14653047880988982","72314023109302130","1575457702443516","851795269201"],["560534190","2609217593302648","97349","1702035115","1702035115","340925129067343527656597993","14653047880988982","72314023109302130","1575457702443516","851795269201"]]],
+  ],
+  notify: [
+    ["half window left: rate 1500, not 1000",["100000000","40000000","1000","4888000","-2888000","0","0","0","0","0"],"20000000000","7776000000","0","1000000","ok","1500","8776000"],
+    ["exactly holds the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","6776000000","0","1000000","ok","1000","8776000"],
+    ["one unit short of holding the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","6775999999","0","1000000","RewardRateWouldDecrease",null,null],
+    ["rate cut mid-window",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","1000000000","0","1000000","RewardRateWouldDecrease",null,null],
+    ["same amount at period_finish",["100000000","40000000","1000","1000000","1000000","0","0","0","0","0"],"20000000000","1000000000","0","1000000","ok","128","8776000"],
+    ["zero-cost grief",["100000000","40000000","10000","4888000","1000000","0","0","0","0","0"],"100000000000","0","1","1000000","RewardRateWouldDecrease",null,null],
+    ["from budget only, holds the rate",["100000000","40000000","1000","2000000","1000000","0","0","0","0","0"],"20000000000","0","6776000000","1000000","ok","1000","8776000"],
+    ["empty pool is accepted on chain",["100000000","0","0","0","1000000","0","0","0","0","0"],"0","7776000000","0","1000000","ok","1000","8776000"],
+    ["RewardTooHigh",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"1000000","0","7776000000","1000000","RewardTooHigh",null,null],
+    ["EmissionExceedsFunding",["100000000","40000000","0","0","1000000","0","5000000000","1000","0","0"],"1000000","1000","0","1000000","EmissionExceedsFunding",null,null],
+    ["ZeroAmount",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"1000000","0","0","1000000","ZeroAmount",null,null],
+    ["rate floors to zero",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"0","7775999","0","1000000","RewardRateTooSmall",null,null],
+    ["rate below the divisor",["100000000","3970000000000000","0","0","1000000","0","0","0","0","0"],"100000000000","7776000000","0","1000000","RewardRateTooSmall",null,null],
+    ["doubly invalid reports RewardRateTooSmall first",["100000000","40000000","1000","1000010","1000000","0","0","0","0","0"],"20000000000","0","1","1000000","RewardRateTooSmall",null,null],
+    ["first notify, never funded",["100000000","40000000","0","0","1000000","0","0","0","0","0"],"0","50000000000","0","1000000","ok","6430","8776000"],
+    ["drift: zero-margin max at preview time",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","70760007","1000000","ok","10","8776000"],
+    ["drift: zero-margin max one second later",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","70760007","1000001","RewardTooHigh",null,null],
+    ["drift: margin 4 one second later",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","70760003","1000001","ok","9","8776001"],
+    ["drift: 1-token margin +1s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000001","ok","9","8776001"],
+    ["drift: 1-token margin +2s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000002","ok","9","8776002"],
+    ["drift: 1-token margin +3s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000003","ok","9","8776003"],
+    ["drift: 1-token margin +60s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000060","ok","9","8776060"],
+    ["drift: 1-token margin +120s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000120","ok","9","8776120"],
+    ["drift: 1-token margin +299s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000299","ok","9","8776299"],
+    ["drift: 1-token margin +300s",["100000000","40000001","7","2000000","1000000","0","0","0","40000000","999999999999"],"77760007","0","69760007","1000300","ok","9","8776300"],
+  ],
+};
+
+const POOL_FIELDS = [
+  'minStake', 'totalWeighted', 'rewardRate', 'periodFinish', 'lastUpdateTime',
+  'rewardPerWeightStored', 'rewardsEmitted', 'rewardsPaid', 'rpwResidue', 'emittedResidue',
+];
+/** A decoded-pool-shaped object from a generator row. 6 decimals, a 1,000-token cap. */
+const poolOf = (row, extra = {}) => ({
+  decimals: 6, depositCap: 1_000_000_000n, pendingCap: 0n, degraded: false,
+  ...Object.fromEntries(POOL_FIELDS.map((k, i) => [k, BigInt(row[i])])),
+  ...extra,
+});
+const ledgerOf = (p) => POOL_FIELDS.map((k) => String(p[k]));
+/** The first error the PROGRAM would raise, in lib.rs order; CLI-only refusals carry no code. */
+const programVerdict = (pv) => pv.problems.find((x) => x.code !== null)?.name ?? 'ok';
+/** rustc's penalty_for for whichever constant this CLI carries. */
+const PENALTY_COLUMN = { 7500: 1, 2500: 2 }[EARLY_EXIT_PENALTY_BPS];
+const rustPenalty = (amount) => BigInt(RUST.penalty_for.find((r) => r[0] === String(amount))[PENALTY_COLUMN]);
+
+describe('parity with math.rs — every expected value printed by rustc', () => {
+  it('the generator compiled the constants this CLI replays with', () => {
+    expect(PRECISION).toBe(BigInt(RUST.constants.PRECISION));
+    expect(BigInt(REWARDS_DURATION_SECS)).toBe(BigInt(RUST.constants.REWARDS_DURATION_SECS));
+    expect(BigInt(BPS)).toBe(BigInt(RUST.constants.BPS));
+  });
+
+  it('new_reward_rate — including the mid-window fold-in and saturation', () => {
+    for (const [a, n, pf, old, want] of RUST.new_reward_rate) {
+      expect(newRewardRate(BigInt(a), BigInt(n), BigInt(pf), BigInt(old)), `new_reward_rate(${a}, ${n}, ${pf}, ${old})`).toBe(BigInt(want));
+    }
+  });
+
+  it('rate_change_allowed — the rate guard, `>=` on both sides', () => {
+    for (const [n, pf, old, nw, want] of RUST.rate_change_allowed) {
+      expect(rateChangeAllowed(BigInt(n), BigInt(pf), BigInt(old), BigInt(nw)), `rate_change_allowed(${n}, ${pf}, ${old}, ${nw})`).toBe(want);
+    }
+  });
+
+  it('reward_per_weight_with_residue — burn branch, clamp, carry, saturation', () => {
+    for (const [st, re, lu, ap, r, tw, fl, rpw, res] of RUST.reward_per_weight_with_residue) {
+      expect(rewardPerWeightWithResidue(BigInt(st), BigInt(re), BigInt(lu), BigInt(ap), BigInt(r), BigInt(tw), BigInt(fl)),
+        `rpw(${st}, ${re}, ${lu}, ${ap}, ${r}, ${tw}, ${fl})`).toEqual([BigInt(rpw), BigInt(res)]);
+    }
+  });
+
+  it('emitted_delta_with_residue — the burn branch KEEPS its residue', () => {
+    for (const [now, st, tw, re, delta, res] of RUST.emitted_delta_with_residue) {
+      expect(emittedDeltaWithResidue(BigInt(now), BigInt(st), BigInt(tw), BigInt(re)),
+        `emitted(${now}, ${st}, ${tw}, ${re})`).toEqual([BigInt(delta), BigInt(res)]);
+    }
+  });
+
+  it('fundable and min_weight_floor', () => {
+    for (const [v, e, p, want] of RUST.fundable) expect(fundable(BigInt(v), BigInt(e), BigInt(p))).toBe(BigInt(want));
+    for (const [m, want] of RUST.min_weight_floor) expect(minWeightFloor(BigInt(m))).toBe(BigInt(want));
+    expect(lastTimeApplicable(5n, 9n)).toBe(5n);
+    expect(lastTimeApplicable(9n, 5n)).toBe(5n);
+  });
+
+  it('penalty_for — the CLI constant has rustc vectors, and matches them', () => {
+    expect(PENALTY_COLUMN, `no rustc penalty_for vectors for EARLY_EXIT_PENALTY_BPS = ${EARLY_EXIT_PENALTY_BPS}: regenerate them`).toBeDefined();
+    expect(String(EARLY_EXIT_PENALTY_BPS)).toBe(PENALTY_COLUMN === 1
+      ? RUST.constants.EARLY_EXIT_PENALTY_BPS_75 : RUST.constants.EARLY_EXIT_PENALTY_BPS_25);
+    for (const row of RUST.penalty_for) {
+      expect(penaltyFor(BigInt(row[0])), `penalty_for(${row[0]})`).toBe(BigInt(row[PENALTY_COLUMN]));
+    }
+  });
+
+  describe('lib.rs checkpoint, replayed step by step', () => {
+    for (const [label, p0, ts, after] of RUST.checkpoint) {
+      it(label, () => {
+        let p = poolOf(p0);
+        ts.forEach((t, i) => {
+          p = checkpointReplay(p, BigInt(t));
+          expect(ledgerOf(p), `${label}: after checkpoint at ${t}`).toEqual(after[i]);
+        });
+      });
+    }
+
+    it('a split replay equals a single replay (both residues carried)', () => {
+      const split = RUST.checkpoint.find((c) => c[0] === 'L-4 split');
+      const single = RUST.checkpoint.find((c) => c[0] === 'L-4 single');
+      expect(split[3].at(-1)).toEqual(single[3].at(-1));
+      const a = checkpointReplay(checkpointReplay(poolOf(split[1]), 1_234n), 5_000n);
+      const b = checkpointReplay(poolOf(single[1]), 5_000n);
+      expect(ledgerOf(a)).toEqual(ledgerOf(b));
+    });
+  });
+
+  describe('lib.rs notify_reward, previewed: the program verdict and the rate', () => {
+    for (const [label, pool, vault, amount, fb, now, verdict, rate, pf] of RUST.notify) {
+      it(label, () => {
+        const pv = notifyPreview({
+          pool: poolOf(pool), now: BigInt(now), rewardVaultRaw: BigInt(vault),
+          amount: BigInt(amount), fromBudget: BigInt(fb),
+        });
+        expect(programVerdict(pv)).toBe(verdict);
+        if (verdict === 'ok') {
+          expect(pv.newRate).toBe(BigInt(rate));
+          expect(pv.newPeriodFinish).toBe(BigInt(pf));
+        }
+      });
+    }
+  });
+});
+
+describe('chain time comes from the Clock sysvar, never this machine', () => {
+  // A REAL devnet Clock account, fetched read-only on 2026-09-16 with
+  // getMultipleAccounts(["SysvarC1ock11111111111111111111111111111111"], base64):
+  // owner Sysvar1111111111111111111111111111111111111, space 40, context slot 499643743.
+  const DEVNET_CLOCK = {
+    owner: new PublicKey('Sysvar1111111111111111111111111111111111111'),
+    data: Buffer.from('X/XHHQAAAAC6zKpqAAAAAIQEAAAAAAAAhQQAAAAAAABbb6tqAAAAAA==', 'base64'),
+  };
+
+  it('decodes a real devnet Clock: slot @0 equals the RPC context slot, unix_timestamp @32', () => {
+    expect(SYSVAR_OWNER.toBase58()).toBe('Sysvar1111111111111111111111111111111111111');
+    const c = decodeClock(DEVNET_CLOCK);
+    expect(c.ok).toBe(true);
+    expect(c.value.slot).toBe(499_643_743n);
+    expect(c.value.epochStartTimestamp).toBe(1_789_578_426n);
+    expect(c.value.epoch).toBe(1_156n);
+    expect(c.value.leaderScheduleEpoch).toBe(1_157n);
+    expect(c.value.unixTimestamp).toBe(1_789_620_059n);
+  });
+
+  it('unix_timestamp is the SIGNED i64 at offset 32, not any neighbour', () => {
+    const d = Buffer.alloc(40);
+    d.writeBigUInt64LE(11n, 0);
+    d.writeBigInt64LE(-22n, 8);
+    d.writeBigUInt64LE(33n, 16);
+    d.writeBigUInt64LE(44n, 24);
+    d.writeBigInt64LE(-55n, 32);
+    expect(decodeClock({ owner: SYSVAR_OWNER, data: d }).value).toEqual({
+      slot: 11n, epochStartTimestamp: -22n, epoch: 33n, leaderScheduleEpoch: 44n, unixTimestamp: -55n,
+    });
+  });
+
+  it('a Clock of the wrong size, the wrong owner, or none at all is a REASON', () => {
+    expect(decodeClock({ owner: SYSVAR_OWNER, data: DEVNET_CLOCK.data.subarray(0, 39) }))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/bad-length 39/) });
+    expect(decodeClock({ owner: SYSVAR_OWNER, data: Buffer.concat([DEVNET_CLOCK.data, Buffer.alloc(1)]) }))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/bad-length 41/) });
+    expect(decodeClock({ owner: new PublicKey('11111111111111111111111111111111'), data: DEVNET_CLOCK.data }))
+      .toMatchObject({ ok: false, reason: expect.stringMatching(/not the sysvar program/) });
+    expect(decodeClock(null)).toMatchObject({ ok: false });
+  });
+
+  it('there is no wall clock anywhere in the CLI source', () => {
+    const src = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
+    expect(src.match(/Date\.now\(/g)).toBeNull();
+  });
+
+  it('a Number where the chain timestamp belongs is refused, not coerced', () => {
+    // Matched on the MESSAGE: a bare TypeError also passes when the export does not exist
+    // at all ("is not a function"), which is how this test first passed on pre-fix code.
+    const p = poolOf(RUST.checkpoint[0][1]);
+    const wall = Math.floor(1_789_620_059.5);
+    const refused = /must be the Clock sysvar's unix_timestamp \(a bigint\), got number/;
+    expect(() => checkpointReplay(p, wall)).toThrow(refused);
+    expect(() => exitPreview({ amount: 1n, lockEnd: 0n }, p, wall)).toThrow(refused);
+    expect(() => notifyPreview({ pool: p, now: wall, rewardVaultRaw: 0n, amount: 1n, fromBudget: 0n })).toThrow(refused);
+    expect(() => poolLines(p, wall)).toThrow(refused);
+  });
+});
+
+describe('loadSnapshot — ONE same-slot read, and it refuses rather than defaults', () => {
+  const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+  const pool = poolPda(PROGRAM, MINT, 0);
+  const rv = vaultPda(PROGRAM, REWARD_VAULT_SEED, pool);
+  const sv = vaultPda(PROGRAM, STAKE_VAULT_SEED, pool);
+  const poolData = ({ rewardVault = rv } = {}) => {
+    const d = Buffer.alloc(POOL_L.SIZE);
+    Buffer.from(ACCT.Pool).copy(d, 0);
+    MINT.toBuffer().copy(d, POOL_L.mint);
+    TOKEN_2022.toBuffer().copy(d, POOL_L.tokenProgram);
+    d[POOL_L.decimals] = 6;
+    sv.toBuffer().copy(d, POOL_L.stakeVault);
+    rewardVault.toBuffer().copy(d, POOL_L.rewardVault);
+    d.writeBigUInt64LE(100_000_000n, POOL_L.minStake);
+    return d;
+  };
+  const tokenAcct = (amount, mint = MINT) => {
+    const d = Buffer.alloc(165);
+    mint.toBuffer().copy(d, 0);
+    d.writeBigUInt64LE(amount, 64);
+    return { owner: TOKEN_2022, data: d };
+  };
+  const clock = (unix, len = 40) => {
+    const d = Buffer.alloc(len);
+    if (len >= 40) d.writeBigInt64LE(unix, 32);
+    return { owner: SYSVAR_OWNER, data: d };
+  };
+  const conn = (value, slot = 7) => {
+    const calls = [];
+    return {
+      calls,
+      getMultipleAccountsInfoAndContext: async (keys, commitment) => {
+        calls.push({ keys: keys.map((k) => k.toBase58()), commitment });
+        return { context: { slot }, value };
+      },
+    };
+  };
+  const poolInfo = (o) => ({ owner: PROGRAM, data: poolData(o) });
+
+  it('reads the pool, the Clock and both vaults in ONE call, in that order, at "confirmed"', async () => {
+    const c = conn([poolInfo(), clock(1_789_620_059n), tokenAcct(5_000n), tokenAcct(9_000n)]);
+    const snap = await loadSnapshot(c, PROGRAM, pool);
+    expect(c.calls).toEqual([{
+      keys: [pool.toBase58(), 'SysvarC1ock11111111111111111111111111111111', rv.toBase58(), sv.toBase58()],
+      commitment: 'confirmed',
+    }]);
+    expect(snap.now).toBe(1_789_620_059n);
+    expect(snap.slot).toBe(7);
+    expect(snap.rewardVault).toEqual({ ok: true, value: { amount: 5_000n } });
+    expect(snap.stakeVault).toEqual({ ok: true, value: { amount: 9_000n } });
+  });
+
+  it('a position rides in the SAME call', async () => {
+    const pos = positionPda(PROGRAM, pool, OWNER, 3);
+    const c = conn([poolInfo(), clock(1n), tokenAcct(0n), tokenAcct(0n), null]);
+    const snap = await loadSnapshot(c, PROGRAM, pool, { extra: [pos] });
+    expect(c.calls).toHaveLength(1);
+    expect(c.calls[0].keys[4]).toBe(pos.toBase58());
+    expect(snap.extra).toEqual([null]);
+  });
+
+  it('an unreadable reward vault REJECTS when the vaults are required', async () => {
+    await expect(loadSnapshot(conn([poolInfo(), clock(1n), null, tokenAcct(0n)]), PROGRAM, pool, { requireVaults: true }))
+      .rejects.toThrow(/reward vault.*unreadable/);
+  });
+
+  it('...and otherwise comes back as a reason, never as a zero balance', async () => {
+    const snap = await loadSnapshot(conn([poolInfo(), clock(1n), null, tokenAcct(0n)]), PROGRAM, pool);
+    expect(snap.rewardVault.ok).toBe(false);
+    expect(snap.rewardVault.value).toBeUndefined();
+  });
+
+  it('an unreadable Clock always rejects', async () => {
+    await expect(loadSnapshot(conn([poolInfo(), clock(1n, 39), tokenAcct(0n), tokenAcct(0n)]), PROGRAM, pool))
+      .rejects.toThrow(/Clock sysvar is unreadable/);
+    await expect(loadSnapshot(conn([poolInfo(), null, tokenAcct(0n), tokenAcct(0n)]), PROGRAM, pool))
+      .rejects.toThrow(/Clock sysvar is unreadable/);
+  });
+
+  it('a partial answer, a foreign pool owner, or a pool naming other vaults rejects', async () => {
+    await expect(loadSnapshot(conn([poolInfo(), clock(1n), tokenAcct(0n)]), PROGRAM, pool)).rejects.toThrow(/partial/);
+    await expect(loadSnapshot(conn([{ owner: OWNER, data: poolData() }, clock(1n), tokenAcct(0n), tokenAcct(0n)]), PROGRAM, pool))
+      .rejects.toThrow(/not the ladder program/);
+    await expect(loadSnapshot(conn([poolInfo({ rewardVault: OWNER }), clock(1n), tokenAcct(0n), tokenAcct(0n)]), PROGRAM, pool))
+      .rejects.toThrow(/vault PDAs/);
+  });
+
+  it('a token account for another mint or token program is not a balance', () => {
+    const p = { mint: MINT, tokenProgram: TOKEN_2022 };
+    expect(decodeTokenAccount(tokenAcct(1n, OWNER), p)).toMatchObject({ ok: false, reason: expect.stringMatching(/different mint/) });
+    expect(decodeTokenAccount({ ...tokenAcct(1n), owner: OWNER }, p)).toMatchObject({ ok: false });
+    expect(decodeTokenAccount({ owner: TOKEN_2022, data: Buffer.alloc(164) }, p)).toMatchObject({ ok: false });
+  });
+});
+
+describe('exitPreview — every door, every state, amounts from the constant', () => {
+  const AMOUNT = 1_000_000_000_000n;
+  const LOCK_END = 2_000_000n;
+  const pos = { amount: AMOUNT, lockEnd: LOCK_END };
+  const healthy = { degraded: false, decimals: 6 };
+  const degraded = { degraded: true, decimals: 6 };
+  const locked = LOCK_END - 1n;
+
+  it('LOCKED, healthy pool: both early doors forfeit penalty_for(amount); the matured door refuses', () => {
+    const pen = rustPenalty(AMOUNT);
+    expect(pen).toBeGreaterThan(0n);
+    expect(exitPreview(pos, healthy, locked, 'early_exit'))
+      .toEqual({ door: 'early_exit', locked: true, penalty: pen, receive: AMOUNT - pen, refusedReason: null });
+    expect(exitPreview(pos, healthy, locked, 'emergency_withdraw'))
+      .toEqual({ door: 'emergency_withdraw', locked: true, penalty: pen, receive: AMOUNT - pen, refusedReason: null });
+    const m = exitPreview(pos, healthy, locked, 'withdraw_matured');
+    expect(m).toMatchObject({ penalty: null, receive: null });
+    expect(m.refusedReason).toMatch(/StillLocked \(6007\)/);
+  });
+
+  it('LOCKED, degraded pool: BOTH early doors charge nothing', () => {
+    expect(exitPreview(pos, degraded, locked, 'early_exit')).toMatchObject({ penalty: 0n, receive: AMOUNT, refusedReason: null });
+    expect(exitPreview(pos, degraded, locked, 'emergency_withdraw')).toMatchObject({ penalty: 0n, receive: AMOUNT, refusedReason: null });
+  });
+
+  it('MATURED (chain now == lock_end, the `>=` boundary): free, and early_exit refuses', () => {
+    for (const pool of [healthy, degraded]) {
+      expect(exitPreview(pos, pool, LOCK_END, 'withdraw_matured')).toMatchObject({ locked: false, penalty: 0n, receive: AMOUNT, refusedReason: null });
+      expect(exitPreview(pos, pool, LOCK_END, 'emergency_withdraw')).toMatchObject({ penalty: 0n, receive: AMOUNT, refusedReason: null });
+      const e = exitPreview(pos, pool, LOCK_END, 'early_exit');
+      expect(e).toMatchObject({ penalty: null, receive: null });
+      expect(e.refusedReason).toMatch(/UseWithdrawMatured \(6008\)/);
+    }
+  });
+
+  it('the default door is the one that applies', () => {
+    expect(exitPreview(pos, healthy, locked).door).toBe('early_exit');
+    expect(exitPreview(pos, healthy, LOCK_END).door).toBe('withdraw_matured');
+    expect(() => exitPreview(pos, healthy, locked, 'withdraw')).toThrow(/unknown exit door/);
+  });
+
+  it('every charged amount is rustc penalty_for, and penalty + receive is the whole principal', () => {
+    for (const [a] of RUST.penalty_for) {
+      const p = { amount: BigInt(a), lockEnd: LOCK_END };
+      const pv = exitPreview(p, healthy, locked, 'early_exit');
+      expect(pv.penalty).toBe(rustPenalty(a));
+      expect(pv.penalty + pv.receive).toBe(BigInt(a));
+    }
+  });
+
+  it('exit --early PRINTS what is forfeited and what comes back', () => {
+    const pen = rustPenalty(AMOUNT);
+    const text = exitReport(exitPreview(pos, healthy, locked, 'early_exit'), pos, healthy, locked).join('\n');
+    expect(text).toContain(`${fmt(pen, 6)} FORFEITED  (${PENALTY_PCT} of principal)`);
+    expect(text).toContain(`you receive   ${fmt(AMOUNT - pen, 6)}  (${KEEP_PCT} of principal)`);
+    expect(text).toContain('the lock ends in 1s');
+    const deg = exitReport(exitPreview(pos, degraded, locked, 'early_exit'), pos, degraded, locked).join('\n');
+    expect(deg).toContain('penalty       none — the pool is degraded');
+    expect(deg).not.toContain('FORFEITED');
+  });
+
+  it('asking the matured door of a LOCKED position prints what --early would cost instead', () => {
+    const pen = rustPenalty(AMOUNT);
+    const text = exitReport(exitPreview(pos, healthy, locked, 'withdraw_matured'), pos, healthy, locked).join('\n');
+    expect(text).toMatch(/REFUSED: .*StillLocked/);
+    expect(text).toContain(`--early would forfeit ${fmt(pen, 6)} and return ${fmt(AMOUNT - pen, 6)}`);
+  });
+
+  it('the printed percentages are complementary and follow the constant', () => {
+    expect(parseFloat(PENALTY_PCT) + parseFloat(KEEP_PCT)).toBe(100);
+    expect(parseFloat(PENALTY_PCT) * 100).toBe(EARLY_EXIT_PENALTY_BPS);
+  });
+
+  it('no penalty percentage is typed into anything the CLI prints — every one is derived', () => {
+    // Comments are skipped: they may name the EVM ladder's 25% or explain the decision.
+    // Every CODE line (strings, templates, USAGE) must build its percentage from the constant.
+    const src = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
+    const code = src.split('\n').filter((line) => !/^\s*(\/\/|\/\*|\*)/.test(line));
+    expect(code.filter((line) => /\b(25|75) ?%/.test(line))).toEqual([]);
+  });
+});
+
+describe('notify preview — refused before a fee, and the rate it prints is the real one', () => {
+  const NOW = 1_000_000n;
+  const base = (over = {}) => poolOf(['100000000', '40000000', '1000', '2000000', '1000000', '0', '0', '0', '0', '0'], over);
+  const preview = (pool, amount, fromBudget = 0n, extra = {}) =>
+    notifyPreview({ pool, now: NOW, rewardVaultRaw: 20_000_000_000n, amount, fromBudget, ...extra });
+
+  it('MID-WINDOW: half a window left at 1000/s plus 7,776 tokens is 1500/s, not the 1000/s scheduled/90d gives', () => {
+    const pv = preview(base({ periodFinish: NOW + 3_888_000n }), 7_776_000_000n);
+    expect(7_776_000_000n / BigInt(REWARDS_DURATION_SECS)).toBe(1000n); // what the old CLI printed
+    expect(pv.newRate).toBe(1500n);
+    expect(pv.leftover).toBe(3_888_000_000n);
+    expect(pv.pctChangeBps).toBe(5000n);
+    expect(pv.newPeriodFinish).toBe(NOW + 7_776_000n);
+    expect(pv.problems).toEqual([]);
+    const text = notifyReport(pv, base({ periodFinish: NOW + 3_888_000n }), { amount: 7_776_000_000n, fromBudget: 0n, now: NOW }).join('\n');
+    expect(text).toContain('current rate   0.001 / s  (86.4 / day)');
+    expect(text).toContain('new rate       0.0015 / s  (129.6 / day)');
+    expect(text).toContain('change         +50.00%');
+    expect(text).toContain(`new finish     ${new Date(Number(NOW + 7_776_000n) * 1000).toISOString()}`);
+    expect(text).toMatch(/owed \(LIVE\) {4}0 /);
+    expect(text).toContain('fundable       27,776');
+    expect(text).toContain('minimum        3,888 holds the current rate');
+  });
+
+  it('THE RATE GUARD: exactly rate x elapsed passes, one unit less is refused and names the minimum', () => {
+    const held = preview(base(), 6_776_000_000n);
+    expect(held.problems).toEqual([]);
+    expect(held.newRate).toBe(1000n);
+    expect(held.minScheduled).toBe(6_776_000_000n);
+
+    const short = preview(base(), 6_775_999_999n);
+    expect(programVerdict(short)).toBe('RewardRateWouldDecrease');
+    expect(short.newRate).toBe(999n);
+    expect(short.problems.find((x) => x.code === 6028).text).toContain('Schedule at least 6,776');
+  });
+
+  it('a mid-window cut is refused; the same amount at period_finish is allowed', () => {
+    const cut = preview(base(), 1_000_000_000n);
+    expect(cut.newRate).toBe(257n);
+    expect(programVerdict(cut)).toBe('RewardRateWouldDecrease');
+    const after = preview(base({ periodFinish: NOW }), 1_000_000_000n);
+    expect(after.problems).toEqual([]);
+    expect(after.newRate).toBe(128n);
+    expect(after.pctChangeBps).toBeNull();
+  });
+
+  it('a from-budget that cannot hold the rate is told the --amount that would, and that amount works', () => {
+    const short = preview(base(), 0n, 1_000_000_000n);
+    expect(programVerdict(short)).toBe('RewardRateWouldDecrease');
+    // (6,776,000,000 + 120s x 1000) - 1,000,000,000 from budget
+    expect(short.problems.find((x) => x.code === 6028).text).toContain('an --amount of at least 5,776.12 (120s of landing slack included)');
+    const topped = preview(base(), 5_776_120_000n, 1_000_000_000n);
+    expect(topped.problems).toEqual([]);
+    expect(topped.risks).toEqual([]);
+  });
+
+  it('landing drift: at today\'s minimum is a RISK; at the slack minimum it is not', () => {
+    const atMin = preview(base(), 6_776_000_000n);
+    expect(atMin.minScheduledAtSlack).toBe(1000n * (7_776_000n - (1_000_000n - LANDING_SLACK_SECS)));
+    expect(atMin.risks.join()).toMatch(/lands NOW/);
+    expect(preview(base(), atMin.minScheduledAtSlack).risks).toEqual([]);
+  });
+
+  it('ZERO WEIGHT is refused — every second until the first stake would be burned', () => {
+    const pv = preview(base({ totalWeighted: 0n, periodFinish: 0n, rewardRate: 0n }), 7_776_000_000n);
+    expect(programVerdict(pv)).toBe('ok'); // the program itself would accept it
+    expect(pv.problems.map((x) => x.text).join()).toMatch(/nobody is staked.*BURNED/);
+    const ok = preview(base({ totalWeighted: 0n, periodFinish: 0n, rewardRate: 0n }), 7_776_000_000n, 0n, { allowEmptyPool: true });
+    expect(ok.problems).toEqual([]);
+    expect(ok.notes.join()).toMatch(/--allow-empty-pool/);
+  });
+
+  it('weight one unit below the min-stake floor is refused too', () => {
+    const pv = preview(base({ totalWeighted: 39_999_999n, periodFinish: 0n }), 7_776_000_000n);
+    expect(pv.problems.some((x) => x.code === null && /below the floor 40000000/.test(x.text))).toBe(true);
+  });
+
+  it('nothing scheduled, a zero rate, RewardTooHigh and a rate below the divisor are all refused', () => {
+    const idle = base({ periodFinish: 0n, rewardRate: 0n });
+    expect(programVerdict(preview(idle, 0n))).toBe('ZeroAmount');
+    expect(programVerdict(preview(idle, 7_775_999n))).toBe('RewardRateTooSmall');
+    expect(programVerdict(notifyPreview({ pool: idle, now: NOW, rewardVaultRaw: 0n, amount: 0n, fromBudget: 7_776_000_000n }))).toBe('RewardTooHigh');
+    expect(programVerdict(preview(base({ periodFinish: 0n, totalWeighted: 3_970_000_000_000_000n }), 7_776_000_000n))).toBe('RewardRateTooSmall');
+  });
+});
+
+describe('--from-budget max', () => {
+  // The rustc drift vector: with NO margin this schedule is accepted at preview time and
+  // refused as RewardTooHigh one second later.
+  const DRIFT = RUST.notify.find((r) => r[0] === 'drift: zero-margin max at preview time');
+  const pool = poolOf(DRIFT[1]);
+  const NOW = BigInt(DRIFT[5]);
+  const VAULT = BigInt(DRIFT[2]);
+
+  it('is the rustc 1-token-margin vector, and does not depend on --amount', () => {
+    const oneToken = RUST.notify.find((r) => r[0] === 'drift: 1-token margin +1s');
+    expect(budgetMargin(pool)).toBe(1_000_000n);
+    expect(driftBound(pool)).toBe(4n);
+    const max = fromBudgetMax({ pool, now: NOW, rewardVaultRaw: VAULT });
+    expect(max).toBe(BigInt(oneToken[4]));
+    expect(fromBudgetMax({ pool, now: NOW, rewardVaultRaw: VAULT, amount: 5_000_000_000n })).toBe(max);
+  });
+
+  it('why the margin exists: the zero-margin figure is refused one second later', () => {
+    const zero = fromBudgetMax({ pool, now: NOW, rewardVaultRaw: VAULT, margin: 0n });
+    expect(zero).toBe(BigInt(DRIFT[4]));
+    const later = notifyPreview({ pool, now: NOW + 1n, rewardVaultRaw: VAULT, amount: 0n, fromBudget: zero });
+    expect(programVerdict(later)).toBe('RewardTooHigh');
+  });
+
+  it('the default max stays inside the ceiling for EVERY landing second from 0 to 300', () => {
+    const max = fromBudgetMax({ pool, now: NOW, rewardVaultRaw: VAULT });
+    for (let dt = 0n; dt <= 300n; dt++) {
+      const pv = notifyPreview({ pool, now: NOW + dt, rewardVaultRaw: VAULT, amount: 0n, fromBudget: max });
+      expect(programVerdict(pv), `landing ${dt}s after the preview`).toBe('ok');
+    }
+    // ...and the preview does not flag its own figure as a landing risk.
+    expect(notifyPreview({ pool, now: NOW, rewardVaultRaw: VAULT, amount: 0n, fromBudget: max }).risks).toEqual([]);
+  });
+
+  it('resolves from the command line, and refuses to send 0/0 when nothing is unpledged', () => {
+    const snap = (vault) => ({ pool, now: NOW, rewardVault: { ok: true, value: { amount: vault } } });
+    const args = parseArgs(['notify', '--pool', 'X', '--amount', '0', '--from-budget', 'max']);
+    expect(resolveNotifyAmounts(args, snap(VAULT))).toEqual({ amount: 0n, fromBudget: 69_760_007n, max: true });
+    // A vault holding exactly the unemitted tail has nothing unpledged.
+    expect(() => resolveNotifyAmounts(args, snap(7_000_000n))).toThrow(/nothing in the reward vault is unpledged/);
+    expect(() => resolveNotifyAmounts(args, { ...snap(0n), rewardVault: { ok: false, reason: 'missing' } })).toThrow(/unreadable/);
+    const plain = parseArgs(['notify', '--pool', 'X', '--amount', '1', '--from-budget', '2']);
+    expect(resolveNotifyAmounts(plain, snap(VAULT))).toEqual({ amount: 1_000_000n, fromBudget: 2_000_000n, max: false });
+  });
+});
+
+describe('read — the LIVE liability beside the stored one', () => {
+  const [, p0, [t], [after]] = RUST.checkpoint.find((c) => c[0] === 'live outstanding: a day un-banked');
+  const pool = poolOf(p0);
+  const NOW = BigInt(t);
+
+  it('a day un-banked at 1000/s: stored says 4,000,000 raw owed, the pool really owes 90,400,000', () => {
+    const l = liveLedger(pool, NOW);
+    expect(l.storedOutstanding).toBe(4_000_000n);
+    expect(l.liveEmitted).toBe(BigInt(after[6])); // rustc's rewards_emitted after the checkpoint
+    expect(l.liveOutstanding).toBe(BigInt(after[6]) - BigInt(after[7]));
+    expect(l.liveOutstanding).toBe(90_400_000n);
+    expect(l.unbanked).toBe(86_400_000n);
+    expect(l.paidExceedsEmitted).toBe(false);
+  });
+
+  it('paid above emitted is an anomaly shown as 0, never a negative', () => {
+    const l = liveLedger({ ...pool, rewardsPaid: 999_999_999n }, NOW);
+    expect(l.liveOutstanding).toBe(0n);
+    expect(l.paidExceedsEmitted).toBe(true);
+  });
+
+  it('prints both figures, labelled, with the reason they differ', () => {
+    const full = {
+      ...pool, mint: MINT, tokenProgram: new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'),
+      authority: OWNER, pendingAuthority: PublicKey.default, stakeVault: OWNER, rewardVault: OWNER,
+      maxWalletPrincipal: 0n, totalPrincipal: 0n, penaltyCollectedCumulative: 0n, orphanedPenalty: 0n,
+    };
+    const text = poolLines(full, NOW).join('\n');
+    expect(text).toContain('outstanding (stored) 4  (');
+    expect(text).toContain('outstanding (LIVE)   90.4  (');
+    expect(text).toMatch(/they differ because rewards_emitted is only banked when an instruction checkpoints/);
+    expect(text).not.toMatch(/scaled/);
+  });
+});
+
+describe('program error codes', () => {
+  const idl = JSON.parse(readFileSync(new URL('../../solana/tegridy-amm/idl/bayla_ladder.json', import.meta.url), 'utf8'));
+
+  it('every error in the committed IDL is named here under the same code', () => {
+    expect(idl.errors.length).toBeGreaterThan(0);
+    for (const e of idl.errors) expect(LADDER_ERRORS[e.code], `IDL ${e.code}`).toBe(e.name);
+  });
+
+  it('the only code here beyond the committed IDL is 6028, which the rate guard appends', () => {
+    const inIdl = new Set(idl.errors.map((e) => String(e.code)));
+    const extra = Object.keys(LADDER_ERRORS).filter((c) => !inIdl.has(c));
+    expect(extra.filter((c) => !(c === '6028' && LADDER_ERRORS[c] === 'RewardRateWouldDecrease'))).toEqual([]);
+  });
+
+  it('covers 6000..6028 with no gap, ending in RewardRateWouldDecrease', () => {
+    expect(Object.keys(LADDER_ERRORS).map(Number)).toEqual(Array.from({ length: 29 }, (_, i) => 6000 + i));
+    expect(LADDER_ERRORS[6028]).toBe('RewardRateWouldDecrease');
+  });
+
+  it('a simulated failure is named only when the failing instruction is the ladder\'s', () => {
+    const pool = poolPda(PROGRAM, MINT, 0);
+    const ata = { programId: new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL') };
+    const ladder = ixClaimCarried({ programId: PROGRAM, owner: OWNER, pool, p: {
+      mint: MINT, tokenProgram: OWNER, rewardVault: OWNER } });
+    expect(simErrorName({ InstructionError: [1, { Custom: 6028 }] }, [ata, ladder])).toBe('RewardRateWouldDecrease (6028)');
+    expect(simErrorName({ InstructionError: [0, { Custom: 6028 }] }, [ata, ladder])).toBeNull();
+    expect(simErrorName({ InstructionError: [0, 'InvalidAccountData'] }, [ladder])).toBeNull();
+    expect(simErrorName('AccountNotFound', [ladder])).toBeNull();
   });
 });

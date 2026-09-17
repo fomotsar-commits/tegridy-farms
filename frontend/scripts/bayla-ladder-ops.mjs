@@ -14,23 +14,36 @@
 //     node scripts/bayla-ladder-ops.mjs init-pool --mint <m> --nonce 0 \
 //          --min-stake 100 --deposit-cap 1000000 --max-wallet 100000
 //     node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000
+//     node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 0 --from-budget max
 //
 //   STAKER (same dry-run rule):
 //     node scripts/bayla-ladder-ops.mjs stake  --pool <p> --amount 500 --lock-days 90
 //     node scripts/bayla-ladder-ops.mjs claim  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0        # matured, free
-//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 25% penalty
+//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 75% penalty
 //     node scripts/bayla-ladder-ops.mjs hatch  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>
 //
 // ⚠ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the SAME flat
-// 25% as `early_exit` when `now < lock_end` and the pool is not `degraded`
-// (lib.rs:607-613). It is free only after maturity, or once the pool is degraded.
+// 75% as `early_exit` when `now < lock_end` and the pool is not `degraded`
+// (lib.rs `emergency_withdraw`). It is free only after maturity, or once the pool is
+// degraded — which frees `early_exit` too.
 // This file said "no penalty" unconditionally and the runbook agreed with it; both
 // were wrong, and the penalty is invisible in a dry run because it rides inside a
 // base64 `Program data:` event line. `hatch` now reads the position and prints the
 // real number. What the hatch DOES avoid is the reward ledger: accrued rewards move
 // to `rewards_carried` and stay claimable, so it cannot revert on accounting drift.
+//
+// NO PERCENTAGE IS TYPED INTO ANYTHING THIS CLI PRINTS. Every one is built from
+// EARLY_EXIT_PENALTY_BPS (and every amount from `penaltyFor`), so the output cannot say
+// one number while the program charges another; the test refuses a literal.
+//
+// ⏱ "NOW" IS THE CHAIN'S, NEVER THIS MACHINE'S. Lock state, penalties and reward rates
+// are all decided against the Clock sysvar's `unix_timestamp`, read in the SAME
+// `getMultipleAccountsInfoAndContext` call as the pool and its vaults. A wall clock that
+// runs even a few seconds ahead of the cluster prints "matured, no penalty" for a
+// position the program still charges, and a failed Clock read aborts rather than
+// becoming zero.
 //
 //   Add --broadcast to actually send. Without it NOTHING is signed or sent: the
 //   transaction is built and run through `simulateTransaction` with
@@ -70,6 +83,7 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  SYSVAR_CLOCK_PUBKEY,
   SystemProgram,
   Transaction,
   TransactionInstruction,
@@ -96,6 +110,7 @@ const REWARDS_DURATION_SECS = 90 * 86_400;
 /** math.rs: penalty_for(a) = a * 2500 / 10000, floored. Used by BOTH exit doors. */
 const EARLY_EXIT_PENALTY_BPS = 2_500;
 const BPS = 10_000;
+const PENALTY_PCT = `${EARLY_EXIT_PENALTY_BPS / 100}%`;
 
 const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const TOKEN_LEGACY = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -122,6 +137,45 @@ const IX = {
 };
 // math.rs:102 - the delay between propose_cap_raise and execute_cap_raise.
 const CAP_TIMELOCK_SECS = 48 * 3_600;
+
+/** math.rs PRECISION and MIN_BOOST_BPS, for the off-chain replay of `checkpoint`. */
+const PRECISION = 1_000_000_000_000n;
+const MIN_BOOST_BPS = 4_000n;
+const U64_MAX = (1n << 64n) - 1n;
+const U128_MAX = (1n << 128n) - 1n;
+const I64_MIN = -(1n << 63n);
+const I64_MAX = (1n << 63n) - 1n;
+
+/** What the leaver KEEPS on an early door, as printed (PENALTY_PCT, above, is what they forfeit). */
+const KEEP_PCT = `${(BPS - EARLY_EXIT_PENALTY_BPS) / 100}%`;
+
+/** Blockhash life is ~60-90s; a notify previewed now may land this much later. */
+const LANDING_SLACK_SECS = 120n;
+
+// The program's error codes, 6000 + declaration order in errors.rs. Pinned against the
+// committed IDL by the test. `submit` names a simulated failure with this, so an
+// operator reads `RewardRateWouldDecrease (6028)` instead of `{"Custom":6028}`.
+const LADDER_ERRORS = Object.freeze({
+  6000: 'Overflow', 6001: 'ZeroAmount', 6002: 'LockTooShort', 6003: 'LockTooLong',
+  6004: 'BelowMinStake', 6005: 'TooManyPositions', 6006: 'DepositCapExceeded',
+  6007: 'StillLocked', 6008: 'UseWithdrawMatured', 6009: 'Unauthorized',
+  6010: 'NotDeployAuthority', 6011: 'MintHasFreezeAuthority', 6012: 'UnsupportedMintExtension',
+  6013: 'WrongTokenProgram', 6014: 'RewardTooHigh', 6015: 'CapCanOnlyRaise',
+  6016: 'TimelockNotElapsed', 6017: 'NoPendingChange', 6018: 'InvalidParameter',
+  6019: 'AlreadyDegraded', 6020: 'EmissionExceedsFunding', 6021: 'PrincipalInvariant',
+  6022: 'WeightInvariant', 6023: 'NothingToSweep', 6024: 'RewardRateTooSmall',
+  6025: 'MintHasMintAuthority', 6026: 'PoolDegraded', 6027: 'WalletCapExceeded',
+  6028: 'RewardRateWouldDecrease',
+});
+const errName = (code) => `${LADDER_ERRORS[code]} (${code})`;
+
+// Sysvar accounts are owned by the sysvar "program", and the Clock is exactly 40 bytes:
+// slot u64 @0, epoch_start_timestamp i64 @8, epoch u64 @16, leader_schedule_epoch u64 @24,
+// unix_timestamp i64 @32.
+const SYSVAR_OWNER = new PublicKey('Sysvar1111111111111111111111111111111111111');
+const CLOCK_SIZE = 40;
+/** An SPL token account (legacy and Token-2022 base): mint @0, owner @32, amount u64 @64. */
+const TOKEN_ACCOUNT_MIN_SIZE = 165;
 
 const ACCT = {
   Pool: disc('account', 'Pool'),
@@ -234,6 +288,11 @@ function decodePool(data) {
       rewardRate: rdU128(data, POOL_L.rewardRate),
       periodFinish: rdI64(data, POOL_L.periodFinish),
       lastUpdateTime: rdI64(data, POOL_L.lastUpdateTime),
+      // The replay of `checkpoint` is exact only with BOTH residues; without them it
+      // drifts by up to a unit per interval from what the program will compute.
+      rewardPerWeightStored: rdU128(data, POOL_L.rewardPerWeightStored),
+      rpwResidue: rdU128(data, POOL_L.rpwResidue),
+      emittedResidue: rdU128(data, POOL_L.emittedResidue),
       rewardsEmitted: rdU128(data, POOL_L.rewardsEmitted),
       rewardsPaid: rdU128(data, POOL_L.rewardsPaid),
       rewardFundedCumulative: rdU128(data, POOL_L.rewardFundedCumulative),
@@ -272,6 +331,393 @@ function decodeUserStats(data) {
       principal: rdU64(data, USER_L.principal),
     },
   };
+}
+
+/** The Clock sysvar. `unix_timestamp` is the only "now" this file may use. */
+function decodeClock(info) {
+  if (!info) return { ok: false, reason: 'missing — the RPC returned no Clock account' };
+  if (!info.owner?.equals?.(SYSVAR_OWNER)) {
+    return { ok: false, reason: `owned by ${info.owner?.toBase58?.() ?? String(info.owner)}, not the sysvar program` };
+  }
+  const data = info.data;
+  if (!data || data.length !== CLOCK_SIZE) return { ok: false, reason: `bad-length ${data?.length} != ${CLOCK_SIZE}` };
+  return {
+    ok: true,
+    value: {
+      slot: rdU64(data, 0),
+      epochStartTimestamp: rdI64(data, 8),
+      epoch: rdU64(data, 16),
+      leaderScheduleEpoch: rdU64(data, 24),
+      unixTimestamp: rdI64(data, 32),
+    },
+  };
+}
+
+/** A pool vault's balance, or a reason. Never a zero standing in for an unread account. */
+function decodeTokenAccount(info, p) {
+  if (!info) return { ok: false, reason: 'missing — no account at that address' };
+  if (!info.owner?.equals?.(p.tokenProgram)) {
+    return { ok: false, reason: `owned by ${info.owner?.toBase58?.() ?? String(info.owner)}, not the pool's token program` };
+  }
+  const data = info.data;
+  if (!data || data.length < TOKEN_ACCOUNT_MIN_SIZE) return { ok: false, reason: `bad-length ${data?.length} < ${TOKEN_ACCOUNT_MIN_SIZE}` };
+  if (!Buffer.from(data.subarray(0, 32)).equals(p.mint.toBuffer())) return { ok: false, reason: 'holds a different mint' };
+  return { ok: true, value: { amount: rdU64(data, 64) } };
+}
+
+// ── the reward engine, replayed off-chain (PURE, BigInt) ─────────────────────
+//
+// `rewards_emitted` is only BANKED when an instruction checkpoints the pool, so the
+// stored figure is stale by every second since `last_update_time`. notify_reward
+// checkpoints FIRST and then reasons about the banked value, so a preview built on the
+// stored one can be wrong in both directions. These mirror math.rs and lib.rs
+// `checkpoint` exactly — saturating u128 arithmetic, both residue carries, the burn
+// branch — and the test pins them to vectors printed by rustc from math.rs itself.
+
+const satAdd = (a, b) => (a + b > U128_MAX ? U128_MAX : a + b);
+const satMul = (a, b) => (a * b > U128_MAX ? U128_MAX : a * b);
+const satSub = (a, b) => (a > b ? a - b : 0n);
+const i64SatSub = (a, b) => { const d = a - b; return d > I64_MAX ? I64_MAX : d < I64_MIN ? I64_MIN : d; };
+
+/** A `now` that did not come from the Clock sysvar is refused, not coerced. */
+function chainTime(now) {
+  if (typeof now !== 'bigint') {
+    throw new TypeError(`"now" must be the Clock sysvar's unix_timestamp (a bigint), got ${typeof now}`);
+  }
+  return now;
+}
+
+/** math.rs `last_time_applicable`. */
+const lastTimeApplicable = (now, periodFinish) => (now < periodFinish ? now : periodFinish);
+
+/** math.rs `min_weight_floor` — invariant I-11's divisor floor. */
+const minWeightFloor = (minStake) => (minStake * MIN_BOOST_BPS) / BigInt(BPS);
+
+/** math.rs `reward_per_weight_with_residue`. Returns [rpw, residue]. */
+function rewardPerWeightWithResidue(stored, residue, lastUpdate, applicable, rate, totalWeighted, floor) {
+  // The burn branch drops the rpw residue.
+  if (totalWeighted === 0n || totalWeighted < floor) return [stored, 0n];
+  const d = i64SatSub(applicable, lastUpdate);
+  const dt = d > 0n ? d : 0n;
+  const num = satAdd(residue, satMul(satMul(dt, rate), PRECISION));
+  return [satAdd(stored, num / totalWeighted), num % totalWeighted];
+}
+
+/** math.rs `emitted_delta_with_residue`. Returns [delta, residue]. */
+function emittedDeltaWithResidue(rpwNow, rpwStored, totalWeighted, residue) {
+  const num = satAdd(residue, satMul(satSub(rpwNow, rpwStored), totalWeighted));
+  return [num / PRECISION, num % PRECISION];
+}
+
+/**
+ * lib.rs `checkpoint(pool, now)`, returning the pool as the program would leave it.
+ *
+ * NOTE THE BURN BRANCH. When the interval is burned `rpw == stored`, so the emitted
+ * numerator is just the carried `emitted_residue`: it comes back UNCHANGED, not zeroed.
+ * state.rs's docstring says both residues are dropped; the code keeps this one, and the
+ * replay follows the code.
+ */
+function checkpointReplay(p, now) {
+  chainTime(now);
+  const applicable = lastTimeApplicable(now, p.periodFinish);
+  const [rpw, rpwResidue] = rewardPerWeightWithResidue(
+    p.rewardPerWeightStored, p.rpwResidue, p.lastUpdateTime, applicable,
+    p.rewardRate, p.totalWeighted, minWeightFloor(p.minStake));
+  const [delta, emittedResidue] = emittedDeltaWithResidue(
+    rpw, p.rewardPerWeightStored, p.totalWeighted, p.emittedResidue);
+  return {
+    ...p,
+    rewardsEmitted: satAdd(p.rewardsEmitted, delta),
+    rpwResidue,
+    emittedResidue,
+    rewardPerWeightStored: rpw,
+    // `.max(...)`: a mark ahead of `now` is never moved back.
+    lastUpdateTime: applicable > p.lastUpdateTime ? applicable : p.lastUpdateTime,
+  };
+}
+
+/** math.rs `new_reward_rate`: fresh after the window, the unspent tail folded in during it. */
+function newRewardRate(amount, now, periodFinish, oldRate) {
+  const dur = BigInt(REWARDS_DURATION_SECS);
+  if (now >= periodFinish) return amount / dur;
+  return satAdd(amount, satMul(periodFinish - now, oldRate)) / dur;
+}
+
+/** math.rs `rate_change_allowed`: inside a live window the rate may not fall. */
+const rateChangeAllowed = (now, periodFinish, oldRate, newRate) => now >= periodFinish || newRate >= oldRate;
+
+/** math.rs `fundable`: the vault after reserving everything emitted and not yet paid. */
+const fundable = (vault, emitted, paid) => satSub(vault, satSub(emitted, paid));
+
+/** math.rs `penalty_for`: the amount FORFEITED on an early door, floored. */
+const penaltyFor = (amountRaw) => (amountRaw * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
+
+/**
+ * What one exit door would do to `position` at chain `now`, mirroring lib.rs:
+ *
+ *   withdraw_matured    refused while locked (StillLocked); free.
+ *   early_exit          refused once matured (UseWithdrawMatured); penalty_for(amount),
+ *                       or 0 when the pool is degraded.
+ *   emergency_withdraw  never refused; penalty_for(amount) while locked, 0 once matured
+ *                       or when the pool is degraded.
+ *
+ * `door` defaults to the one that applies. A refused door moves nothing, so its
+ * `penalty` and `receive` are null, never a zero that reads like "free".
+ * `receive` is principal only — rewards are paid (or carried) separately.
+ */
+const DOORS = ['withdraw_matured', 'early_exit', 'emergency_withdraw'];
+function exitPreview(position, pool, chainNow, door) {
+  chainTime(chainNow);
+  const locked = chainNow < position.lockEnd;
+  const d = door ?? (locked ? 'early_exit' : 'withdraw_matured');
+  if (!DOORS.includes(d)) throw new Error(`unknown exit door: ${d}`);
+  const refuse = (refusedReason) => ({ door: d, locked, penalty: null, receive: null, refusedReason });
+  const charge = (penalty) => ({ door: d, locked, penalty, receive: position.amount - penalty, refusedReason: null });
+  if (d === 'withdraw_matured') {
+    return locked ? refuse(`the position is still locked; withdraw_matured refuses it (${errName(6007)})`) : charge(0n);
+  }
+  if (d === 'early_exit') {
+    if (!locked) return refuse(`the position has matured; early_exit refuses it (${errName(6008)}) — withdraw for free instead`);
+    return charge(pool.degraded ? 0n : penaltyFor(position.amount));
+  }
+  return charge(locked && !pool.degraded ? penaltyFor(position.amount) : 0n);
+}
+
+/** The lines `exit` and `hatch` print for a preview. Pure, so the test can read them. */
+function exitReport(pv, position, pool, chainNow) {
+  const d = pool.decimals;
+  const out = [];
+  const iso = (t) => new Date(Number(t) * 1000).toISOString();
+  out.push(`  door          ${pv.door}`);
+  out.push(`  principal     ${fmt(position.amount, d)}`);
+  out.push(`  status        ${pv.locked ? 'STILL LOCKED' : 'matured'}${pool.degraded ? ', pool DEGRADED' : ''}` +
+    `  (lock ends ${iso(position.lockEnd)}; chain clock ${iso(chainNow)})`);
+  if (pv.refusedReason) {
+    out.push(`  ⚠ REFUSED: ${pv.refusedReason}`);
+    if (pv.door === 'withdraw_matured') {
+      const alt = exitPreview(position, pool, chainNow, 'early_exit');
+      out.push(`  --early would forfeit ${fmt(alt.penalty, d)} and return ${fmt(alt.receive, d)} of principal` +
+        (alt.penalty > 0n ? ` (you keep ${KEEP_PCT})` : ' (no penalty: the pool is degraded)'));
+    }
+    return out;
+  }
+  if (pv.penalty > 0n) {
+    out.push(`  🔴 PENALTY    ${fmt(pv.penalty, d)} FORFEITED  (${PENALTY_PCT} of principal)`);
+    out.push(`  you receive   ${fmt(pv.receive, d)}  (${KEEP_PCT} of principal)`);
+    const left = position.lockEnd - chainNow;
+    if (left <= LANDING_SLACK_SECS) out.push(`  the lock ends in ${left}s — waiting that long makes this free`);
+    else out.push(`  Waiting until ${iso(position.lockEnd)} makes it free.`);
+  } else {
+    out.push(`  penalty       none — ${pool.degraded && pv.locked ? 'the pool is degraded' : 'this position has matured'}`);
+    out.push(`  you receive   ${fmt(pv.receive, d)}  (all of it)`);
+  }
+  return out;
+}
+
+/**
+ * The reward ledger as it stands at chain `now`, beside what the account stores.
+ * `live` is what the next checkpoint will bank; the stored figure lags it by every
+ * second since `last_update_time`.
+ */
+function liveLedger(p, now) {
+  const c = checkpointReplay(p, now);
+  return {
+    bankedEmitted: p.rewardsEmitted,
+    unbanked: c.rewardsEmitted - p.rewardsEmitted,
+    liveEmitted: c.rewardsEmitted,
+    paid: p.rewardsPaid,
+    storedOutstanding: satSub(p.rewardsEmitted, p.rewardsPaid),
+    liveOutstanding: satSub(c.rewardsEmitted, p.rewardsPaid),
+    // L-4's failure shape: saturation would print this as a healthy zero.
+    paidExceedsEmitted: p.rewardsPaid > c.rewardsEmitted,
+  };
+}
+
+/**
+ * How far a mid-window schedule can drift toward RewardTooHigh between preview and
+ * landing. The unemitted tail falls by exactly `rate` per second; the fundable budget
+ * falls by what gets banked, which exceeds `rate` per second by at most the two residue
+ * carries: 2 + 2*ceil(tw/1e12) raw units, with tw bounded by 4x the larger of the
+ * deposit cap and any pending raise (every weight is at most 4.00x its principal).
+ */
+function driftBound(p) {
+  const cap = p.depositCap > p.pendingCap ? p.depositCap : p.pendingCap;
+  const twMax = 4n * cap > p.totalWeighted ? 4n * cap : p.totalWeighted;
+  return 2n + 2n * ((twMax + PRECISION - 1n) / PRECISION);
+}
+
+/** What `--from-budget max` leaves unscheduled: the drift bound, never less than one whole token. */
+function budgetMargin(p) {
+  const bound = driftBound(p);
+  const oneToken = 10n ** BigInt(p.decimals);
+  return oneToken > bound ? oneToken : bound;
+}
+
+/**
+ * Everything in the reward vault that a new window may schedule and nothing has pledged:
+ * the fundable budget after the transfer, minus the tail the window will fold in, minus
+ * the fresh amount (it is already inside that budget), minus the landing margin. The
+ * amount cancels, so the result does not depend on it.
+ */
+function fromBudgetMax({ pool, now, rewardVaultRaw, amount = 0n, margin = budgetMargin(pool) }) {
+  const c = checkpointReplay(pool, now);
+  const budgetAfter = fundable(rewardVaultRaw + amount, c.rewardsEmitted, pool.rewardsPaid);
+  const leftover = now < pool.periodFinish ? satMul(pool.periodFinish - now, pool.rewardRate) : 0n;
+  const v = budgetAfter - leftover - amount - margin;
+  return v > 0n ? v : 0n;
+}
+
+/**
+ * notify_reward, previewed at chain `now` against a same-slot snapshot. Checks run in
+ * lib.rs order, so the first `problems` entry that carries a `code` is the error the
+ * program would raise. Entries without a code are this CLI's own refusals.
+ *
+ *   problems  always refused before anything is sent
+ *   risks     refused under --broadcast: true at preview time, but at risk of flipping
+ *             in the seconds before the transaction lands
+ *   notes     printed only
+ */
+function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, allowEmptyPool = false,
+  slackSecs = LANDING_SLACK_SECS }) {
+  chainTime(now);
+  const d = pool.decimals;
+  const DUR = BigInt(REWARDS_DURATION_SECS);
+  const problems = [];
+  const risks = [];
+  const notes = [];
+  const program = (code, text) => problems.push({ code, name: LADDER_ERRORS[code], text: `${text} (${errName(code)})` });
+
+  const oldRate = pool.rewardRate;
+  const pf = pool.periodFinish;
+  const midWindow = now < pf;
+  const remaining = midWindow ? pf - now : 0n;
+  const leftover = satMul(remaining, oldRate);
+  const scheduled = amount + fromBudget;
+
+  if (amount === 0n && fromBudget === 0n) program(6001, 'nothing is scheduled: pass --amount and/or --from-budget');
+  if (amount > U64_MAX || fromBudget > U64_MAX || scheduled > U64_MAX) {
+    problems.push({ code: null, text: 'amount + from-budget exceeds u64; the program would saturate it silently' });
+  }
+  const c = checkpointReplay(pool, now);
+  const vaultPost = rewardVaultRaw + amount;
+  const outstanding = satSub(c.rewardsEmitted, pool.rewardsPaid);
+  if (outstanding > vaultPost) {
+    program(6020, `the pool owes ${fmt(outstanding, d)} at chain now but the vault would hold ${fmt(vaultPost, d)}`);
+  }
+  const newRate = newRewardRate(scheduled > U64_MAX ? U64_MAX : scheduled, now, pf, oldRate);
+  const budget = fundable(vaultPost, c.rewardsEmitted, pool.rewardsPaid);
+  const ceiling = budget / DUR;
+  if (newRate > ceiling) {
+    program(6014, `rate ${fmt(newRate, d)}/s exceeds what the vault can fund, ${fmt(ceiling, d)}/s (budget ${fmt(budget, d)} over 90 days)`);
+  }
+  if (newRate === 0n) {
+    program(6024, `the new rate floors to ZERO per second — the window would emit nothing`);
+  } else if (pool.totalWeighted !== 0n && satMul(newRate, PRECISION) < pool.totalWeighted) {
+    program(6024, `rate x 1e12 is below total_weighted ${pool.totalWeighted}: the accumulator floors to zero every second and the pool emits NOTHING`);
+  }
+  // THE RATE GUARD. floor((S + L) / D) >= r  iff  S + L >= r x D, so this is exact.
+  const minScheduled = midWindow ? satSub(satMul(oldRate, DUR), leftover) : 0n;
+  // Landing drift: the tail shrinks by `oldRate` every second the transaction waits, so
+  // the minimum rises. Worst case is the latest landing still inside the window.
+  const worstRemaining = remaining - slackSecs >= 1n ? remaining - slackSecs : 1n;
+  const minScheduledAtSlack = midWindow ? satSub(satMul(oldRate, DUR), satMul(worstRemaining, oldRate)) : 0n;
+  if (!rateChangeAllowed(now, pf, oldRate, newRate)) {
+    program(6028, `mid-window the rate may not fall: ${fmt(newRate, d)}/s < ${fmt(oldRate, d)}/s. ` +
+      `Schedule at least ${fmt(minScheduled, d)} (the current rate x the seconds elapsed since the last notify)` +
+      (fromBudget > 0n
+        ? ` — with this from-budget, an --amount of at least ${fmt(satSub(minScheduledAtSlack, fromBudget), d)} (${slackSecs}s of landing slack included)`
+        : '') +
+      `, or wait for period_finish ${new Date(Number(pf) * 1000).toISOString()}`);
+  }
+  const drift = driftBound(pool);
+  if (midWindow) {
+    if (scheduled >= minScheduled && scheduled < minScheduledAtSlack) {
+      risks.push(`${fmt(scheduled, d)} holds the rate only if it lands NOW: the minimum is ${fmt(minScheduled, d)} ` +
+        `at chain now but ${fmt(minScheduledAtSlack, d)} if it lands ${slackSecs}s later ` +
+        `(RewardRateWouldDecrease). Schedule at least ${fmt(minScheduledAtSlack, d)}.`);
+    }
+    // After period_finish nothing more is banked, so this drift exists only mid-window.
+    if (newRate <= ceiling && satAdd(scheduled, leftover) + drift > budget) {
+      risks.push(`the schedule sits within ${drift} raw units of the fundable budget: banking between now and landing ` +
+        `can turn it into RewardTooHigh. Schedule a little less.`);
+    }
+  }
+  if (pool.rewardsPaid > c.rewardsEmitted) {
+    risks.push(`rewards_paid exceeds live rewards_emitted (L-4 anomaly): outstanding saturates to zero and the budget reads high`);
+  }
+  // CLI-ONLY. Every open position weighs at least the floor, so below it means nobody is
+  // staked: each second of the window is burned (I-11), not emitted. The tokens stay in the
+  // vault and can be scheduled again, but the window's time is lost.
+  const floor = minWeightFloor(pool.minStake);
+  if (pool.totalWeighted < floor) {
+    const text = `total_weighted ${pool.totalWeighted} is below the floor ${floor}${pool.totalWeighted === 0n ? ' (nobody is staked)' : ''}: ` +
+      `every second until the first stake is BURNED, not emitted`;
+    if (allowEmptyPool) notes.push(`${text}. Proceeding (--allow-empty-pool); the unemitted tokens stay schedulable.`);
+    else problems.push({ code: null, text: `${text}. Pass --allow-empty-pool to fund an empty pool knowingly.` });
+  }
+
+  return {
+    problems, risks, notes, checkpoint: c, midWindow, oldRate, newRate, remaining, leftover, scheduled,
+    vaultPost, outstanding, budget, ceiling, minScheduled, minScheduledAtSlack, floor, drift,
+    newPeriodFinish: now + DUR,
+    // basis points of the old rate; null when there is no live window to compare against
+    pctChangeBps: midWindow && oldRate > 0n ? ((newRate - oldRate) * 10_000n) / oldRate : null,
+  };
+}
+
+/** Signed basis points as a percentage with two decimals: 5000n -> "+50.00%". */
+function fmtBps(bps) {
+  const abs = bps < 0n ? -bps : bps;
+  return `${bps < 0n ? '-' : '+'}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
+}
+
+/** The lines `notify` prints for a preview. Pure, so the test can read them. */
+function notifyReport(pv, pool, { amount, fromBudget, now, slot }) {
+  const d = pool.decimals;
+  const iso = (t) => new Date(Number(t) * 1000).toISOString();
+  const perDay = (r) => `${fmt(r, d)} / s  (${fmt(r * 86_400n, d)} / day)`;
+  const out = [];
+  if (slot !== undefined) out.push(`  snapshot       slot ${slot}, chain clock ${iso(now)}`);
+  out.push(`  fresh capital  ${fmt(amount, d)}  (transferred from your ATA)`);
+  out.push(`  from budget    ${fmt(fromBudget, d)}  (already in the reward vault)`);
+  out.push(`  current rate   ${perDay(pv.oldRate)}${pv.midWindow ? '' : `  — window ended ${pool.periodFinish === 0n ? '(never funded)' : iso(pool.periodFinish)}, nothing is emitting`}`);
+  out.push(`  new rate       ${perDay(pv.newRate)}`);
+  out.push(`  change         ${pv.pctChangeBps === null ? 'n/a — no live window to compare against' : fmtBps(pv.pctChangeBps)}`);
+  if (pv.midWindow) {
+    out.push(`  unemitted tail ${fmt(pv.leftover, d)}  (${pv.remaining}s left x current rate, folded into the new window)`);
+  }
+  out.push(`  new finish     ${iso(pv.newPeriodFinish)}  (chain now + 90 days; the program uses its landing time)`);
+  out.push(`  owed (LIVE)    ${fmt(pv.outstanding, d)}  (emitted to chain now, minus paid; reserved first)`);
+  out.push(`  vault after    ${fmt(pv.vaultPost, d)}`);
+  out.push(`  fundable       ${fmt(pv.budget, d)}  (ceiling ${fmt(pv.ceiling, d)} / s)`);
+  if (pv.midWindow) {
+    out.push(`  minimum        ${fmt(pv.minScheduled, d)} holds the current rate at chain now; ` +
+      `${fmt(pv.minScheduledAtSlack, d)} if it lands ${LANDING_SLACK_SECS}s later`);
+  }
+  for (const n of pv.notes) out.push(`  note: ${n}`);
+  for (const r of pv.risks) out.push(`  ⚠ RISK: ${r}`);
+  for (const p of pv.problems) out.push(`  🔴 REFUSED: ${p.text}`);
+  return out;
+}
+
+/**
+ * `--amount` and `--from-budget` as raw units. `--from-budget max` schedules everything
+ * unpledged; when that is nothing and no fresh amount is given, it is refused rather than
+ * sent as 0/0.
+ */
+function resolveNotifyAmounts(args, snap) {
+  const p = snap.pool;
+  const amount = toRaw(args.amount ?? '0', p.decimals);
+  if (args.fromBudget !== 'max') return { amount, fromBudget: toRaw(args.fromBudget ?? '0', p.decimals), max: false };
+  if (!snap.rewardVault?.ok) throw new Error(`--from-budget max needs the reward vault balance, and it is unreadable: ${snap.rewardVault?.reason}`);
+  if (p.rewardsPaid > checkpointReplay(p, snap.now).rewardsEmitted) {
+    throw new Error('--from-budget max refused: rewards_paid exceeds live rewards_emitted (L-4 anomaly), so the fundable budget reads high');
+  }
+  const fromBudget = fromBudgetMax({ pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount });
+  if (fromBudget === 0n && amount === 0n) {
+    throw new Error('--from-budget max: nothing in the reward vault is unpledged (after the live liability, the unemitted tail and the landing margin)');
+  }
+  return { amount, fromBudget, max: true };
 }
 
 // ── instruction builders (PURE: no connection, no signing) ───────────────────
@@ -596,6 +1042,73 @@ async function loadPool(conn, programId, poolKey) {
 }
 
 /**
+ * THE POOL, THE CHAIN CLOCK AND BOTH VAULTS FROM ONE SLOT.
+ *
+ * One `getMultipleAccountsInfoAndContext` call, so every figure is from the same slot:
+ * separate reads can straddle a claim or a stake and produce a budget no slot ever had.
+ * `extra` rides in the same call (a position, for the exit doors).
+ *
+ * The pool and the Clock are REQUIRED: without them nothing time-dependent can be said,
+ * so an unreadable one throws. The vaults come back as `{ ok, value | reason }`; with
+ * `requireVaults` an unreadable vault throws too. Nothing here ever defaults to zero.
+ */
+async function loadSnapshot(conn, programId, poolKey, { requireVaults = false, extra = [] } = {}) {
+  const rewardVaultKey = vaultPda(programId, REWARD_VAULT_SEED, poolKey);
+  const stakeVaultKey = vaultPda(programId, STAKE_VAULT_SEED, poolKey);
+  const keys = [poolKey, SYSVAR_CLOCK_PUBKEY, rewardVaultKey, stakeVaultKey, ...extra];
+  const res = await conn.getMultipleAccountsInfoAndContext(keys, 'confirmed');
+  const infos = res?.value;
+  if (!Array.isArray(infos) || infos.length !== keys.length) {
+    throw new Error(`the RPC answered ${Array.isArray(infos) ? infos.length : 'nothing'} accounts for ${keys.length} requested — refusing a partial snapshot`);
+  }
+  const [poolInfo, clockInfo, rvInfo, svInfo, ...extraInfos] = infos;
+  if (!poolInfo) throw new Error(`no account at ${poolKey.toBase58()} — is the pool created, and is --rpc pointing at the right cluster?`);
+  if (!poolInfo.owner.equals(programId)) {
+    throw new Error(`${poolKey.toBase58()} is owned by ${poolInfo.owner.toBase58()}, not the ladder program ${programId.toBase58()}`);
+  }
+  const d = decodePool(poolInfo.data);
+  if (!d.ok) throw new Error(`could not decode Pool: ${d.reason}`);
+  const p = d.value;
+  if (!p.rewardVault.equals(rewardVaultKey) || !p.stakeVault.equals(stakeVaultKey)) {
+    throw new Error(`the pool's stored vaults are not this program's vault PDAs — refusing to read balances from the wrong accounts`);
+  }
+  const clock = decodeClock(clockInfo);
+  if (!clock.ok) {
+    throw new Error(`the Clock sysvar is unreadable (${clock.reason}) — refusing to decide anything time-dependent without the chain's own clock`);
+  }
+  const rewardVault = decodeTokenAccount(rvInfo, p);
+  const stakeVault = decodeTokenAccount(svInfo, p);
+  if (requireVaults) {
+    if (!rewardVault.ok) throw new Error(`reward vault ${rewardVaultKey.toBase58()} is unreadable: ${rewardVault.reason}`);
+    if (!stakeVault.ok) throw new Error(`stake vault ${stakeVaultKey.toBase58()} is unreadable: ${stakeVault.reason}`);
+  }
+  return {
+    slot: res.context?.slot,
+    now: clock.value.unixTimestamp,
+    clock: clock.value,
+    pool: p,
+    rewardVault,
+    stakeVault,
+    extra: extraInfos,
+  };
+}
+
+/**
+ * A simulated `{ InstructionError: [i, { Custom: n }] }` as the ladder's error name, or
+ * null. Named ONLY when instruction `i` belongs to the ladder program (every call site
+ * puts the ladder instruction last): an ATA-create in front of it has its own numbering.
+ */
+function simErrorName(err, ixs) {
+  const ie = err?.InstructionError;
+  if (!Array.isArray(ie)) return null;
+  const [i, detail] = ie;
+  const code = detail?.Custom;
+  const ladder = ixs[ixs.length - 1]?.programId;
+  if (typeof code !== 'number' || !LADDER_ERRORS[code] || !ladder || !ixs[i]?.programId?.equals(ladder)) return null;
+  return errName(code);
+}
+
+/**
  * DRY RUN IS THE DEFAULT AND IT IS NOT A FORMATTING EXERCISE.
  *
  * The transaction is built and run through `simulateTransaction` against real
@@ -614,7 +1127,8 @@ async function submit(conn, ixs, payer, { broadcast, label }) {
   console.log(`\n  simulation: ${sim.value.err ? 'FAILED' : 'ok'}${cu !== undefined ? `  (${cu.toLocaleString()} CU)` : ''}`);
   for (const l of logs) console.log('    ' + l);
   if (sim.value.err) {
-    console.log(`\n  ${label} would FAIL: ${JSON.stringify(sim.value.err)}`);
+    const named = simErrorName(sim.value.err, ixs);
+    console.log(`\n  ${label} would FAIL: ${JSON.stringify(sim.value.err)}${named ? `  — ${named}` : ''}`);
     process.exitCode = 1;
     return null;
   }
@@ -639,29 +1153,42 @@ async function submit(conn, ixs, payer, { broadcast, label }) {
   }
 }
 
-function printPool(p) {
+/** The pool as `read` prints it, at chain `now`. Pure, so the test can read it. */
+function poolLines(p, now) {
+  chainTime(now);
   const d = p.decimals;
-  const now = Math.floor(Date.now() / 1000);
-  console.log(`  mint                 ${p.mint.toBase58()}  (${d} dp)`);
-  console.log(`  token program        ${p.tokenProgram.toBase58()}${p.tokenProgram.equals(TOKEN_2022) ? '  (Token-2022)' : p.tokenProgram.equals(TOKEN_LEGACY) ? '  (legacy SPL)' : '  (UNKNOWN)'}`);
-  console.log(`  authority            ${p.authority.toBase58()}`);
-  if (!p.pendingAuthority.equals(PublicKey.default)) console.log(`  pending authority    ${p.pendingAuthority.toBase58()}`);
-  console.log(`  stake vault          ${p.stakeVault.toBase58()}`);
-  console.log(`  reward vault         ${p.rewardVault.toBase58()}`);
-  console.log(`  min stake            ${fmt(p.minStake, d)}`);
-  console.log(`  deposit cap          ${fmt(p.depositCap, d)}`);
-  console.log(`  max per wallet       ${fmt(p.maxWalletPrincipal, d)}`);
-  console.log(`  total principal      ${fmt(p.totalPrincipal, d)}`);
-  console.log(`  total weighted       ${p.totalWeighted}`);
-  console.log(`  reward rate          ${p.rewardRate}  (per second, scaled)`);
-  const left = Number(p.periodFinish) - now;
-  console.log(`  period finish        ${p.periodFinish === 0n ? 'never funded' : new Date(Number(p.periodFinish) * 1000).toISOString() + (left > 0 ? `  (${Math.floor(left / 86400)}d left)` : '  (ENDED)')}`);
-  console.log(`  rewards emitted      ${fmt(p.rewardsEmitted, d)}`);
-  console.log(`  rewards paid         ${fmt(p.rewardsPaid, d)}`);
-  console.log(`  outstanding owed     ${fmt(p.rewardsEmitted - p.rewardsPaid, d)}`);
-  console.log(`  penalties collected  ${fmt(p.penaltyCollectedCumulative, d)}`);
-  console.log(`  orphaned penalty     ${fmt(p.orphanedPenalty, d)}`);
-  if (p.degraded) console.log(`  ⚠ DEGRADED — the ladder is flat and early_exit charges nothing`);
+  const out = [];
+  out.push(`  mint                 ${p.mint.toBase58()}  (${d} dp)`);
+  out.push(`  token program        ${p.tokenProgram.toBase58()}${p.tokenProgram.equals(TOKEN_2022) ? '  (Token-2022)' : p.tokenProgram.equals(TOKEN_LEGACY) ? '  (legacy SPL)' : '  (UNKNOWN)'}`);
+  out.push(`  authority            ${p.authority.toBase58()}`);
+  if (!p.pendingAuthority.equals(PublicKey.default)) out.push(`  pending authority    ${p.pendingAuthority.toBase58()}`);
+  out.push(`  stake vault          ${p.stakeVault.toBase58()}`);
+  out.push(`  reward vault         ${p.rewardVault.toBase58()}`);
+  out.push(`  min stake            ${fmt(p.minStake, d)}`);
+  out.push(`  deposit cap          ${fmt(p.depositCap, d)}`);
+  out.push(`  max per wallet       ${fmt(p.maxWalletPrincipal, d)}`);
+  out.push(`  total principal      ${fmt(p.totalPrincipal, d)}`);
+  out.push(`  total weighted       ${p.totalWeighted}`);
+  // Raw base units per second. PRECISION scales only the accumulator, never the rate.
+  out.push(`  reward rate          ${fmt(p.rewardRate, d)} / second  (${fmt(p.rewardRate * 86_400n, d)} / day)`);
+  const left = p.periodFinish - now;
+  out.push(`  period finish        ${p.periodFinish === 0n ? 'never funded' : new Date(Number(p.periodFinish) * 1000).toISOString() + (left > 0n ? `  (${left / 86_400n}d left by the chain clock)` : '  (ENDED)')}`);
+  const l = liveLedger(p, now);
+  out.push(`  rewards emitted      ${fmt(l.bankedEmitted, d)}  (banked at the last checkpoint)`);
+  out.push(`  emitted since then   ${fmt(l.unbanked, d)}  (replayed to chain now; not yet banked)`);
+  out.push(`  rewards paid         ${fmt(l.paid, d)}`);
+  out.push(`  outstanding (stored) ${fmt(l.storedOutstanding, d)}  (banked emitted − paid, as the account holds it)`);
+  out.push(`  outstanding (LIVE)   ${fmt(l.liveOutstanding, d)}  (what the pool owes at chain now)`);
+  if (l.unbanked > 0n) {
+    out.push(`    they differ because rewards_emitted is only banked when an instruction checkpoints`);
+    out.push(`    the pool; ${fmt(l.unbanked, d)} has accrued since ${new Date(Number(p.lastUpdateTime) * 1000).toISOString()}`);
+    out.push(`    and the next checkpoint will bank it exactly as replayed here.`);
+  }
+  if (l.paidExceedsEmitted) out.push(`  🔴 ANOMALY: rewards_paid exceeds live rewards_emitted — outstanding is shown as 0, not negative (L-4)`);
+  out.push(`  penalties collected  ${fmt(p.penaltyCollectedCumulative, d)}`);
+  out.push(`  orphaned penalty     ${fmt(p.orphanedPenalty, d)}`);
+  if (p.degraded) out.push(`  ⚠ DEGRADED — no new stakes, and BOTH early doors (exit --early and the hatch) charge no penalty`);
+  return out;
 }
 
 // ── commands ─────────────────────────────────────────────────────────────────
@@ -671,11 +1198,12 @@ const USAGE = `bayla-ladder ops
   read       --pool <addr>
   positions  --pool <addr> --owner <addr>
   init-pool  --mint <addr> --nonce <n> --min-stake <t> --deposit-cap <t> --max-wallet <t>
-  notify     --pool <addr> --amount <t> [--from-budget <t>]
+  notify     --pool <addr> --amount <t> [--from-budget <t>|max] [--allow-empty-pool]
+                                             # mid-window the rate may not fall; the preview prints the minimum
   stake      --pool <addr> --amount <t> --lock-days <d>
   claim      --pool <addr> --nonce <n>
   exit       --pool <addr> --nonce <n> [--early]
-  hatch      --pool <addr> --nonce <n>       # principal; 25% penalty WHILE LOCKED
+  hatch      --pool <addr> --nonce <n>       # principal; ${PENALTY_PCT} penalty WHILE LOCKED (you keep ${KEEP_PCT})
   claim-carried --pool <addr>
   sweep      --pool <addr>                   # permissionless, no signer
   propose-cap-raise --pool <addr> --cap <t>     # authority; raise-only, runs after 48h
@@ -711,13 +1239,15 @@ async function main() {
   switch (args._) {
     case 'read': {
       const poolKey = new PublicKey(need(args, 'pool'));
-      const p = await loadPool(conn, programId, poolKey);
+      const snap = await loadSnapshot(conn, programId, poolKey);
+      const p = snap.pool;
       console.log(`\nPool ${poolKey.toBase58()}  (nonce ${p.nonce})`);
-      printPool(p);
-      const sv = await conn.getTokenAccountBalance(p.stakeVault).catch(() => null);
-      const rv = await conn.getTokenAccountBalance(p.rewardVault).catch(() => null);
-      console.log(`\n  stake vault balance  ${sv ? fmt(BigInt(sv.value.amount), p.decimals) : '— unreadable'}`);
-      console.log(`  reward vault balance ${rv ? fmt(BigInt(rv.value.amount), p.decimals) : '— unreadable'}`);
+      console.log(`  snapshot             slot ${snap.slot}, chain clock ${new Date(Number(snap.now) * 1000).toISOString()}`);
+      for (const line of poolLines(p, snap.now)) console.log(line);
+      const sv = snap.stakeVault;
+      const rv = snap.rewardVault;
+      console.log(`\n  stake vault balance  ${sv.ok ? fmt(sv.value.amount, p.decimals) : `— unreadable (${sv.reason})`}`);
+      console.log(`  reward vault balance ${rv.ok ? fmt(rv.value.amount, p.decimals) : `— unreadable (${rv.reason})`}`);
       // INVARIANT I-1: the stake vault must hold at least the tracked principal.
       //
       // THREE OUTCOMES, NOT TWO. This used to check `if (sv && ...)`, so an
@@ -725,16 +1255,34 @@ async function main() {
       // reporting success for a solvency question it never got to ask. That is the
       // bug class this repo names most often: a zero is only publishable when a read
       // returned it.
-      if (!sv) {
+      if (!sv.ok) {
         console.log(`  ⚠ INVARIANT I-1 UNVERIFIED: the stake vault could not be read.`);
         console.log(`    This is an OUTAGE, not a pass. Re-run before acting on it.`);
         process.exitCode = 1;
-      } else if (BigInt(sv.value.amount) < p.totalPrincipal) {
+      } else if (sv.value.amount < p.totalPrincipal) {
         console.log(`  🔴 INVARIANT I-1 BROKEN: stake vault < total_principal`);
-        console.log(`    ${fmt(BigInt(sv.value.amount), p.decimals)} held vs ${fmt(p.totalPrincipal, p.decimals)} owed.`);
+        console.log(`    ${fmt(sv.value.amount, p.decimals)} held vs ${fmt(p.totalPrincipal, p.decimals)} owed.`);
         process.exitCode = 1;
       } else {
         console.log(`  invariant I-1 holds: vault >= total_principal`);
+      }
+      // INVARIANT I-4, against the LIVE liability (same three outcomes). notify_reward
+      // refuses EmissionExceedsFunding on exactly this comparison after its checkpoint.
+      const owed = liveLedger(p, snap.now).liveOutstanding;
+      if (!rv.ok) {
+        console.log(`  ⚠ INVARIANT I-4 UNVERIFIED: the reward vault could not be read.`);
+        console.log(`    This is an OUTAGE, not a pass. Re-run before acting on it.`);
+        process.exitCode = 1;
+      } else if (owed > rv.value.amount) {
+        console.log(`  🔴 INVARIANT I-4 BROKEN: live outstanding > reward vault`);
+        console.log(`    ${fmt(rv.value.amount, p.decimals)} held vs ${fmt(owed, p.decimals)} owed at chain now.`);
+        process.exitCode = 1;
+      } else {
+        console.log(`  invariant I-4 holds: reward vault >= live outstanding`);
+        const tail = snap.now < p.periodFinish ? satMul(p.periodFinish - snap.now, p.rewardRate) : 0n;
+        console.log(`  unemitted tail       ${fmt(tail, p.decimals)}  (still to emit in this window)`);
+        const unpledged = fromBudgetMax({ pool: p, now: snap.now, rewardVaultRaw: rv.value.amount });
+        console.log(`  unpledged budget     ${fmt(unpledged, p.decimals)}  (what 'notify --from-budget max' would schedule)`);
       }
       return;
     }
@@ -742,7 +1290,9 @@ async function main() {
     case 'positions': {
       const poolKey = new PublicKey(need(args, 'pool'));
       const owner = new PublicKey(need(args, 'owner'));
-      const p = await loadPool(conn, programId, poolKey);
+      const snap = await loadSnapshot(conn, programId, poolKey);
+      const p = snap.pool;
+      const now = snap.now;
       const us = decodeUserStats((await conn.getAccountInfo(userPda(programId, poolKey, owner)))?.data);
       if (!us.ok) { console.log(`\nUserStats: ${us.reason}`); return; }
       console.log(`\nUserStats for ${owner.toBase58()}`);
@@ -750,7 +1300,7 @@ async function main() {
       console.log(`  open positions   ${us.value.openPositions}`);
       console.log(`  principal        ${fmt(us.value.principal, p.decimals)}`);
       console.log(`  rewards carried  ${fmt(us.value.rewardsCarried, p.decimals)}`);
-      const now = Math.floor(Date.now() / 1000);
+      console.log(`  chain clock      ${new Date(Number(now) * 1000).toISOString()}`);
       // Every nonce ever issued is probed: a CLOSED position leaves no account, so
       // an absent one is reported as closed rather than skipped silently.
       for (let n = 0; n < us.value.nextNonce; n++) {
@@ -758,9 +1308,12 @@ async function main() {
         const d = decodePosition(info?.data);
         if (!d.ok) { console.log(`  #${n}  closed (${d.reason})`); continue; }
         const v = d.value;
-        const left = Number(v.lockEnd) - now;
+        const left = v.lockEnd - now;
+        const early = exitPreview(v, p, now, 'early_exit');
         console.log(`  #${n}  ${fmt(v.amount, p.decimals)}  weight ${v.weight}  ` +
-          (left > 0 ? `locked ${Math.ceil(left / 86400)}d more` : 'MATURED — withdraw is free'));
+          (left > 0n
+            ? `locked ${(left + 86_399n) / 86_400n}d more; --early forfeits ${fmt(early.penalty, p.decimals)}`
+            : 'MATURED — withdraw is free'));
       }
       return;
     }
@@ -807,23 +1360,27 @@ async function main() {
     case 'notify': {
       const authority = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
-      const p = await loadPool(conn, programId, poolKey);
-      const amount = toRaw(args.amount ?? '0', p.decimals);
-      const fromBudget = toRaw(args.fromBudget ?? '0', p.decimals);
-      if (amount === 0n && fromBudget === 0n) throw new Error('nothing to schedule: pass --amount and/or --from-budget');
-      const scheduled = amount + fromBudget;
-      // audit L-1: rate = scheduled / 7_776_000, integer division. Below this the
-      // rate truncates to zero and the program refuses with RewardRateTooSmall.
-      if (scheduled < BigInt(REWARDS_DURATION_SECS)) {
-        throw new Error(`scheduling ${fmt(scheduled, p.decimals)} gives a per-second rate of ZERO; the minimum is ${fmt(BigInt(REWARDS_DURATION_SECS), p.decimals)}`);
+      // ONE same-slot read of the pool, the Clock and both vaults. The preview is
+      // meaningless against a balance nobody read, so an unreadable vault throws.
+      const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true });
+      const p = snap.pool;
+      const notMine = authorityProblem(p, authority.publicKey);
+      if (notMine) throw new Error(notMine);
+      const { amount, fromBudget, max } = resolveNotifyAmounts(args, snap);
+      // The program's own order of checks, replayed at chain now: the rate is the
+      // mid-window fold-in (not scheduled / 90 days), and nothing is sent that it would refuse.
+      const pv = notifyPreview({
+        pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount, fromBudget,
+        allowEmptyPool: args.allowEmptyPool === true,
+      });
+      console.log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days${max ? '  (--from-budget max)' : ''}`);
+      for (const line of notifyReport(pv, p, { amount, fromBudget, now: snap.now, slot: snap.slot })) console.log(line);
+      if (pv.problems.length) {
+        throw new Error(`notify refused before anything was built or sent: ${pv.problems.length} problem(s), listed above as REFUSED`);
       }
-      if (!authority.publicKey.equals(p.authority)) {
-        throw new Error(`this pool's authority is ${p.authority.toBase58()}, not ${authority.publicKey.toBase58()}`);
+      if (broadcast && pv.risks.length) {
+        throw new Error('refusing to BROADCAST with a landing RISK (listed above); a dry run is still allowed');
       }
-      console.log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days`);
-      console.log(`  fresh capital  ${fmt(amount, p.decimals)}  (transferred from your ATA)`);
-      console.log(`  from budget    ${fmt(fromBudget, p.decimals)}  (already in the reward vault)`);
-      console.log(`  rate           ~${fmt(scheduled / BigInt(REWARDS_DURATION_SECS), p.decimals)} / second`);
       await submit(conn, [ixNotifyReward({
         programId, authority: authority.publicKey, pool: poolKey, p, amountRaw: amount, fromBudgetRaw: fromBudget,
       })], authority, { broadcast, label: 'notify-reward' });
@@ -870,62 +1427,59 @@ async function main() {
     case 'exit': {
       const owner = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
-      const p = await loadPool(conn, programId, poolKey);
       const n = intArg(args, 'nonce');
       const early = args.early === true;
-      const pos = decodePosition((await conn.getAccountInfo(positionPda(programId, poolKey, owner.publicKey, n)))?.data);
-      if (pos.ok) {
-        const matured = Math.floor(Date.now() / 1000) >= Number(pos.value.lockEnd);
-        console.log(`\nposition #${n}: ${fmt(pos.value.amount, p.decimals)}, ${matured ? 'MATURED' : 'still locked'}`);
-        // The two doors partition time; taking the wrong one is refused on-chain,
-        // so say which one applies rather than letting it fail as a constraint.
-        if (matured && early) console.log(`  ⚠ this position is MATURED — drop --early and withdraw for free`);
-        if (!matured && !early) console.log(`  ⚠ this position is still LOCKED — withdraw_matured will refuse it; --early costs 25%`);
+      // The position rides in the SAME snapshot as the pool and the Clock, so the lock
+      // state below is the chain's at one slot, not this machine's wall clock.
+      const snap = await loadSnapshot(conn, programId, poolKey,
+        { extra: [positionPda(programId, poolKey, owner.publicKey, n)] });
+      const p = snap.pool;
+      const pos = decodePosition(snap.extra[0]?.data);
+      console.log(`\n${early ? 'early-exit' : 'withdraw-matured'} — position #${n}`);
+      if (!pos.ok) {
+        console.log(`  ⚠ could not read the position (${pos.reason}) — the penalty is UNKNOWN.`);
+      } else {
+        // The two doors partition time; taking the wrong one is refused on-chain, so say
+        // which one applies, and what the early door actually costs, before any fee.
+        const pv = exitPreview(pos.value, p, snap.now, early ? 'early_exit' : 'withdraw_matured');
+        for (const line of exitReport(pv, pos.value, p, snap.now)) console.log(line);
       }
       const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
       await submit(conn, [...pre, ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
-        owner, { broadcast, label: early ? 'early-exit (25% penalty)' : 'withdraw-matured' });
+        owner, { broadcast, label: early ? `early-exit (${p.degraded ? 'no penalty, pool degraded' : `${PENALTY_PCT} penalty`})` : 'withdraw-matured' });
       return;
     }
 
     case 'hatch': {
       const owner = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
-      const p = await loadPool(conn, programId, poolKey);
       const n = intArg(args, 'nonce');
       // THE HATCH IS NOT FREE WHILE LOCKED, and this used to say it was.
       //
-      // `emergency_withdraw` (lib.rs:607-613) charges the SAME flat 25% as
+      // `emergency_withdraw` (lib.rs) charges the SAME flat 75% as
       // `early_exit` when `now < lock_end` and the pool is not `degraded`. It is
       // free only after maturity, or once the pool is degraded — the M-3 fix that
       // made the two doors agree so neither dominates the other.
       //
       // The penalty is invisible in a dry run: it rides inside the `Withdrawn`
       // event as a base64 `Program data:` line, so the simulation cannot correct a
-      // wrong claim on screen. It has to be computed and shown here.
-      const pos = decodePosition((await conn.getAccountInfo(positionPda(programId, poolKey, owner.publicKey, n)))?.data);
+      // wrong claim on screen. It has to be computed and shown here — against the
+      // CHAIN clock: a wall clock ahead of the cluster near lock_end printed "matured,
+      // free" for a position the program still charged.
+      const snap = await loadSnapshot(conn, programId, poolKey,
+        { extra: [positionPda(programId, poolKey, owner.publicKey, n)] });
+      const p = snap.pool;
+      const pos = decodePosition(snap.extra[0]?.data);
       console.log(`\nemergency-withdraw — position #${n}`);
       console.log(`  principal only. Accrued rewards are NOT lost: they move to`);
       console.log(`  rewards_carried and stay claimable with 'claim-carried'.`);
       if (!pos.ok) {
         console.log(`  ⚠ could not read the position (${pos.reason}) — the penalty below is UNKNOWN.`);
       } else {
-        const now = Math.floor(Date.now() / 1000);
-        const locked = now < Number(pos.value.lockEnd);
-        // Same arithmetic as math.rs `penalty_for`: amount * 2500 / 10000, floored.
-        const penalty = locked && !p.degraded
-          ? (pos.value.amount * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS)
-          : 0n;
-        console.log(`  amount        ${fmt(pos.value.amount, p.decimals)}`);
-        console.log(`  status        ${locked ? 'STILL LOCKED' : 'matured'}${p.degraded ? ', pool DEGRADED' : ''}`);
-        if (penalty > 0n) {
-          console.log(`  🔴 PENALTY    ${fmt(penalty, p.decimals)}  (25% — the hatch is NOT free while locked)`);
-          console.log(`  you receive   ${fmt(pos.value.amount - penalty, p.decimals)}`);
-          console.log(`  'exit --early' costs exactly the same 25% and ALSO pays your rewards out.`);
-          console.log(`  Waiting until ${new Date(Number(pos.value.lockEnd) * 1000).toISOString()} makes it free.`);
-        } else {
-          console.log(`  penalty       none — ${p.degraded ? 'the pool is degraded' : 'this position has matured'}`);
-          console.log(`  you receive   ${fmt(pos.value.amount, p.decimals)}`);
+        const pv = exitPreview(pos.value, p, snap.now, 'emergency_withdraw');
+        for (const line of exitReport(pv, pos.value, p, snap.now)) console.log(line);
+        if (pv.penalty > 0n) {
+          console.log(`  'exit --early' costs exactly the same ${PENALTY_PCT} and ALSO pays your rewards out.`);
         }
       }
       const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
@@ -1004,8 +1558,9 @@ async function main() {
       // PERMISSIONLESS once the timelock has run. The signer only pays the fee.
       const payer = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
-      const p = await loadPool(conn, programId, poolKey);
-      const bad = executeCapRaiseProblem(p, Math.floor(Date.now() / 1000));
+      const snap = await loadSnapshot(conn, programId, poolKey);
+      const p = snap.pool;
+      const bad = executeCapRaiseProblem(p, snap.now);
       if (bad) throw new Error(bad);
       console.log(`\nexecute-cap-raise (permissionless)`);
       console.log(`  cap            ${fmt(p.depositCap, p.decimals)}  ->  ${fmt(p.pendingCap, p.decimals)}`);
@@ -1102,4 +1657,14 @@ export {
   toRaw, fmt, parseArgs, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
+};
+
+// Chain time, the off-chain replay of the reward engine, and the previews built on them.
+export {
+  PRECISION, PENALTY_PCT, KEEP_PCT, LADDER_ERRORS, SYSVAR_OWNER, LANDING_SLACK_SECS,
+  decodeClock, decodeTokenAccount, loadSnapshot, simErrorName,
+  lastTimeApplicable, minWeightFloor, rewardPerWeightWithResidue, emittedDeltaWithResidue,
+  checkpointReplay, newRewardRate, rateChangeAllowed, fundable, penaltyFor,
+  exitPreview, exitReport, liveLedger, poolLines,
+  driftBound, budgetMargin, fromBudgetMax, notifyPreview, notifyReport, resolveNotifyAmounts,
 };
