@@ -15,6 +15,7 @@
 // the same act as rendering an outage as a clean scan.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import * as apiAuth from "../_lib/apiAuth.js";
 
 const GOOD_KEY = "mtk_" + "a".repeat(43);
 
@@ -98,14 +99,30 @@ function req(headers = {}) {
   return { method: "GET", query: {}, headers };
 }
 
-/** Load apiAuth with the stubs and env of this test. */
-async function loadAuth({ store = true, redis = true } = {}) {
-  vi.resetModules();
-  const stubs = makeUpstashStubs();
-  vi.doMock("@supabase/supabase-js", makeSupabaseStub);
-  vi.doMock("@upstash/ratelimit", () => stubs.ratelimit);
-  vi.doMock("@upstash/redis", () => stubs.redis);
+// Registered once and hoisted above the import at the top of this file, rather
+// than re-registered per test: the stub factories read the `let`s above lazily,
+// so a single set of stubs serves every test. What varies between tests is
+// those variables and the env, never the module.
+vi.mock("@supabase/supabase-js", makeSupabaseStub);
+vi.mock("@upstash/ratelimit", () => makeUpstashStubs().ratelimit);
+vi.mock("@upstash/redis", () => makeUpstashStubs().redis);
 
+/**
+ * Point apiAuth at the env of this test.
+ *
+ * This used to `vi.resetModules()` and re-import apiAuth — 23 times per run of
+ * this file. Alone that is a few ms a call; under the full suite each one is a
+ * fresh module-graph fetch queued behind every other worker's transforms, and
+ * the file inflated from 226ms to ~1.9s. Close enough to the 5s default that a
+ * test would occasionally time out, which reads as a broken assertion and is
+ * not one.
+ *
+ * The re-import only ever bought one thing: dropping the memoised Redis and
+ * Supabase clients so a changed env is read again. apiAuth exports the seam
+ * that does exactly that, and those memos are its ONLY module state — so the
+ * import belongs at the top of the file, not inside a 5s-bounded test.
+ */
+async function loadAuth({ store = true, redis = true } = {}) {
   if (store) {
     process.env.SUPABASE_URL = "https://stub.supabase.co";
     process.env.SUPABASE_SERVICE_KEY = "service-key";
@@ -121,7 +138,8 @@ async function loadAuth({ store = true, redis = true } = {}) {
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
   }
-  return import("../_lib/apiAuth.js");
+  apiAuth.__resetApiAuthCaches();
+  return apiAuth;
 }
 
 beforeEach(() => {
@@ -140,9 +158,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.doUnmock("@supabase/supabase-js");
-  vi.doUnmock("@upstash/ratelimit");
-  vi.doUnmock("@upstash/redis");
 });
 
 describe("401 — the caller's key", () => {

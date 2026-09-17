@@ -70,6 +70,10 @@ export function bundleAuthItemsString(items) {
 
 // ═══ FETCH NATIVE LISTINGS ═══
 // Query active native listings for a given contract address.
+//
+// Never rejects: every failed read RESOLVES as { orders: [], count: 0, error }.
+// Callers must test `error`. A .catch() on this call never fires, and
+// `orders: []` alone cannot tell an outage from an empty book.
 
 export async function fetchNativeListings(contract, { sort = "price_eth", limit = 50, bundles = false } = {}) {
   if (!contract) return { orders: [], count: 0 };
@@ -90,7 +94,7 @@ export async function fetchNativeListings(contract, { sort = "price_eth", limit 
   // aborted so every retry died instantly. A fresh controller per attempt gives each
   // try its own honest 15s budget.
   try {
-    return await withRetry(async () => {
+    const data = await withRetry(async () => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
       try {
@@ -104,6 +108,12 @@ export async function fetchNativeListings(contract, { sort = "price_eth", limit 
         clearTimeout(timeout);
       }
     });
+    // The server's soft-fail for an unreachable database is a 200 with an EMPTY
+    // list and `degraded: true` (api/orderbook.js, DEGRADED READS). That list was
+    // never read, so hand it back in the failure shape above. Not retried: the
+    // server degrades precisely so the UI can move on at once.
+    if (data?.degraded) return { orders: [], count: 0, error: "Native orderbook temporarily unavailable" };
+    return data;
   } catch (e) {
     if (e.name === "AbortError") return { orders: [], count: 0, error: "Request timed out" };
     return { orders: [], count: 0, error: e.message };

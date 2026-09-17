@@ -17,7 +17,7 @@
  * `!drop.onMainnet` from mintDisabled and the connected off-mainnet cases fail.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, cleanup } from '@testing-library/react';
+import { screen, cleanup, fireEvent } from '@testing-library/react';
 import { parseEther } from 'viem';
 import { wagmiMock } from '../../test-utils/wagmi-mocks';
 import { renderWithProviders } from '../../test-utils/render';
@@ -50,6 +50,16 @@ vi.mock('./launchpadShared', async (importOriginal) => ({
   CreatorRevenueDashboard: () => null,
 }));
 vi.mock('./OwnerAdminPanelV2', () => ({ OwnerAdminPanelV2: () => null }));
+// The connect modal's opener is a spy the tests control. Unmocked, it is `undefined`
+// here: test-utils/render installs no RainbowKitProvider, and RainbowKit's context
+// default carries no opener. That is how #578's guard passed while proving nothing:
+// an ENABLED button wired to `undefined` satisfies toBeEnabled() and opens nothing.
+const connectModal = vi.hoisted(() => ({ open: undefined as (() => void) | undefined }));
+vi.mock('@rainbow-me/rainbowkit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@rainbow-me/rainbowkit')>()),
+  useConnectModal: () => ({ connectModalOpen: false, openConnectModal: connectModal.open }),
+}));
+const openConnectModal = vi.fn();
 
 import { CollectionDetailV2 } from './CollectionDetailV2';
 
@@ -87,6 +97,8 @@ function tileValue(label: string): string {
 beforeEach(() => {
   wagmiMock.reset();
   stubLiveSale();
+  openConnectModal.mockClear();
+  connectModal.open = openConnectModal;
 });
 
 describe('CollectionDetailV2 — logged out, wallet chain persisted from another network', () => {
@@ -124,8 +136,34 @@ describe('CollectionDetailV2 — the connect control a disconnected visitor is o
       renderAt(chainId);
       const connect = screen.getByRole('button', { name: /connect wallet/i });
       expect(connect).toBeEnabled();
+      // Enabled is not enough: `onClick={undefined}` is enabled too. The click must
+      // reach the modal.
+      fireEvent.click(connect);
+      expect(openConnectModal).toHaveBeenCalledTimes(1);
+      // And it must not LOOK disabled while it is live: the greyed, not-allowed class
+      // tracks the disabled attribute, not the connection state.
+      // (classList, so a `disabled:cursor-not-allowed` variant is not mistaken for it.)
+      expect(connect.classList.contains('cursor-not-allowed')).toBe((connect as HTMLButtonElement).disabled);
     },
   );
+
+  it('with no connect modal to open, the control is disabled rather than live and inert', () => {
+    // useConnectModal is typed `(() => void) | undefined`: no RainbowKitProvider above,
+    // or a connection status RainbowKit does not open the modal from.
+    connectModal.open = undefined;
+    renderAt(CHAIN_ID);
+    const connect = screen.getByRole('button', { name: /connect wallet/i });
+    expect(connect).toBeDisabled();
+    expect(connect.classList.contains('cursor-not-allowed')).toBe(true);
+  });
+
+  it('an undeployed drop offers a disabled label, not a connect control', () => {
+    renderWithProviders(<CollectionDetailV2 dropAddress={DROP} onClose={() => {}} deployed={false} />);
+    const button = screen.getByRole('button', { name: /contract not deployed/i });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(openConnectModal).not.toHaveBeenCalled();
+  });
 
   it('offers exactly one connect control, and no disabled one wearing the word', () => {
     renderAt(CHAIN_ID);
