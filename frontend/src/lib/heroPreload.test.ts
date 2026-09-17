@@ -188,3 +188,57 @@ describe('theme-init.js opens the first frame only where it is the page', () => 
     expect(gate('/?bungalow=bayla')).toBeNull();
   });
 });
+
+// ANSWER TEN, RULING 2: THE FRAME'S FORM IS WIRED WHEN PARSING ENDS.
+//
+// It was wired at DOMContentLoaded, which a browser fires only after every module
+// script has RUN: on the island's phone throttle, 6.8 s after the frame painted. For
+// all of that time a shared ?heat= link showed an empty field and a submit dropped
+// ?ref=. readyState turns 'interactive' before those scripts run, and that is the
+// moment asserted here: no DOMContentLoaded is ever dispatched.
+describe('theme-init.js wires the first frame as soon as the markup is parsed', () => {
+  let readyState: DocumentReadyState = 'loading';
+
+  beforeEach(() => {
+    readyState = 'loading';
+    Object.defineProperty(document, 'readyState', { configurable: true, get: () => readyState });
+    document.body.innerHTML =
+      '<div id="root"><div id="first-frame"><form method="get" action="/"><input name="heat" required></form></div></div>';
+  });
+
+  afterEach(() => {
+    delete (document as unknown as { readyState?: unknown }).readyState;
+    document.body.innerHTML = '';
+    document.documentElement.removeAttribute('data-first-frame');
+    localStorage.clear();
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('fills a shared read and carries the referral before any module script has run', () => {
+    const address = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
+    window.history.replaceState(null, '', `/?heat=${address}&ref=0x1111111111111111111111111111111111111111`);
+    new Function(themeInit)();
+    const form = document.querySelector('#first-frame form')!;
+    const field = form.querySelector<HTMLInputElement>('input[name="heat"]')!;
+    expect(field.value, 'wired while the markup was still being parsed').toBe('');
+
+    readyState = 'interactive';
+    document.dispatchEvent(new Event('readystatechange'));
+    expect(field.value, 'the field waited for DOMContentLoaded').toBe(address);
+    const hidden = Array.from(form.querySelectorAll<HTMLInputElement>('input[type="hidden"]')).map((i) => [i.name, i.value]);
+    expect(hidden).toEqual([['ref', '0x1111111111111111111111111111111111111111']]);
+
+    // Once only: the later 'complete' change must not add the hidden input again.
+    readyState = 'complete';
+    document.dispatchEvent(new Event('readystatechange'));
+    expect(form.querySelectorAll('input[type="hidden"]')).toHaveLength(1);
+  });
+
+  it('removes the frame outright where it is not the page, at the same moment', () => {
+    window.history.replaceState(null, '', '/farm');
+    new Function(themeInit)();
+    readyState = 'interactive';
+    document.dispatchEvent(new Event('readystatechange'));
+    expect(document.getElementById('first-frame')).toBeNull();
+  });
+});

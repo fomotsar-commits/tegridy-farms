@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { takeFirstFrameDraft } from '../lib/firstFrameDraft';
+import { clearFirstFrameDraft, peekFirstFrameDraft } from '../lib/firstFrameDraft';
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
@@ -34,10 +34,15 @@ export function VenueHero() {
   // string cannot be poured into the input.
   const [searchParams] = useSearchParams();
   const heatParam = searchParams.get('heat');
-  // Answer ten, ruling 2: an address typed into the first frame before React
-  // arrived, taken once on mount. A shared ?heat= link still wins.
-  const [typedBeforeReact] = useState(() => takeFirstFrameDraft());
-  const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : typedBeforeReact;
+  const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : null;
+  // Answer ten, ruling 2: what the first frame's field held when this replaced it, and
+  // whether it had focus. PEEKED here and cleared from the effect below, never taken in
+  // render: this page's first render suspends and is thrown away, and a take in it left
+  // the retry with nothing (lib/firstFrameDraft.ts). It is only put in the field, never
+  // read: nobody submitted it. An untouched ?heat= prefill equals initialAddress, so a
+  // shared link still reads on arrival.
+  const [typedBeforeReact] = useState(peekFirstFrameDraft);
+  useEffect(() => clearFirstFrameDraft(), []);
   const launchFloor = heatLaunchFloor();
 
   return (
@@ -84,7 +89,12 @@ export function VenueHero() {
           hides the answer to the sentence immediately above it is a wall with a
           handle on it. The Read button is now the only filled button in the hero. */}
       <div className="mb-6 max-w-md">
-        <HeatCard variant="embedded" initialAddress={initialAddress} />
+        <HeatCard
+          variant="embedded"
+          initialAddress={initialAddress}
+          initialDraft={typedBeforeReact.value}
+          focusField={typedBeforeReact.focused}
+        />
 
         {/* Under the card, in venue voice. The first sentence answers the question
             every multi-wallet holder asks on sight, and answers it honestly rather

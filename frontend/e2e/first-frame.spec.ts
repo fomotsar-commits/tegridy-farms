@@ -25,6 +25,46 @@ import { test, expect, type Page } from '@playwright/test';
 // paint, the engine the island measured with.
 
 const ADDRESS = '0xd71caf9fdbbd3dd7f974431edf7f9f2c7ba8f93a';
+const OTHER = '0x420698cfdeddea6bc78d59bc17798113ad278f9d';
+const REF = '0x1111111111111111111111111111111111111111';
+
+/** Hold every request matching `glob` until released: slow, not absent. */
+async function hold(page: Page, glob: string): Promise<() => void> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route(glob, async (route) => {
+    await gate;
+    await route.continue().catch(() => { /* the page moved on while it was held */ });
+  });
+  return release;
+}
+
+/** The island's read, stubbed, counting each time the app actually asks. */
+async function stubHeatRead(page: Page, onRead: () => void) {
+  await page.route('**/api/aggregator**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('resource') !== 'heat') return route.fallback();
+    onRead();
+    const now = Math.floor(Date.now() / 1000);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        address: ADDRESS, degrees: 195.54, tier: 'Builder', is_cold: false,
+        held_since_unix: now - 400 * 86_400, as_of_unix: now - 3_600, token_count: 1,
+        breakdown: [{ token_address: '0x420698CFdEDdEa6bc78D59bC17798113ad278F9D', chain: 'ethereum', name: 'Towelie', symbol: 'TOWELI', heat_degrees: 195.54, first_seen_at_unix: now - 400 * 86_400, last_transfer_at_unix: now - 30 * 86_400 }],
+      }),
+    });
+  });
+}
+
+/** A client-side navigation, the way a nav link makes one: history, then the router. */
+async function clientNavigate(page: Page, path: string) {
+  await page.evaluate((to) => {
+    window.history.pushState({}, '', to);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, path);
+}
 
 async function phoneThrottle(page: Page) {
   const cdp = await page.context().newCDPSession(page);
@@ -120,6 +160,96 @@ test.describe('the first frame is the hero (ruling 2)', () => {
     await page.reload();
     await expect(page.locator('main#main-content').getByText('Builder').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('main#main-content').getByText(/195\.5/).first()).toBeVisible();
+  });
+
+  // THE WINDOW THE FRAME EXISTS FOR, walked with the app SLOW rather than absent.
+  //
+  // The test above blocks the entry chunk outright, which proves the no-script form
+  // and nothing about the seconds in between, when the frame is on screen AND the app
+  // is on its way. A review found three losses in exactly that window that an aborted
+  // chunk can never show:
+  //   - the frame's field was wired (a shared ?heat= filled in, ?ref= carried as a
+  //     hidden input) only at DOMContentLoaded, which waits for the whole module
+  //     graph: about 7.5 s on the phone throttle, against a frame painted at 0.7 s;
+  //   - React's fallback on `/` blanked what had been typed, dropped focus, and had
+  //     no hidden inputs, so a submit from it lost the referral;
+  //   - the hero then READ the half-typed address nobody had submitted.
+  // So these hold the chunks and release them by hand, the way a phone delivers them.
+
+  test('while the app is still arriving, a shared read is in the field and a referral rides the form', async ({ page }) => {
+    test.slow();
+    const releaseEntry = await hold(page, '**/assets/index-*.js');
+    await page.goto(`/?heat=${ADDRESS}&ref=${REF}`, { waitUntil: 'commit' });
+    const form = page.locator('#first-frame form');
+    const field = form.locator('input[name="heat"]');
+    await expect(field).toBeVisible({ timeout: 15_000 });
+    // The entry chunk is still held: this is the static frame, before any module ran.
+    await expect(field, 'the shared read is not in the field while the app is arriving').toHaveValue(ADDRESS, { timeout: 5_000 });
+    await expect(form.locator('input[type="hidden"][name="ref"]'), 'the referral is not carried by the frame form').toHaveValue(REF);
+
+    await field.fill(OTHER);
+    // 'commit': the new page cannot reach `load` while its entry chunk is still held.
+    await Promise.all([page.waitForURL(/[?&]heat=/, { waitUntil: 'commit' }), field.press('Enter')]);
+    const landed = new URL(page.url()).searchParams;
+    expect(landed.get('heat')).toBe(OTHER);
+    expect(landed.get('ref'), 'a submit from the frame dropped the referral').toBe(REF);
+    releaseEntry();
+  });
+
+  test('an address typed before the app arrives survives both swaps, keeps focus, and is read only when submitted', async ({ page }) => {
+    test.slow();
+    let heatReads = 0;
+    await stubHeatRead(page, () => { heatReads += 1; });
+    const releaseEntry = await hold(page, '**/assets/index-*.js');
+    const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+    await page.goto(`/?ref=${REF}`, { waitUntil: 'commit' });
+
+    const staticField = page.locator('#first-frame input[name="heat"]');
+    await expect(staticField).toBeVisible({ timeout: 15_000 });
+    await staticField.fill(ADDRESS.slice(0, 12));
+    releaseEntry();
+
+    // React's fallback on `/`, with the home page's chunk still held.
+    const fallback = page.locator('main#main-content [aria-busy="true"]');
+    const fallbackField = fallback.locator('input[name="heat"]');
+    await expect(fallbackField).toBeVisible({ timeout: 60_000 });
+    await expect(fallbackField, 'the fallback blanked what was typed into the frame').toHaveValue(ADDRESS.slice(0, 12));
+    await expect(fallbackField, 'focus fell out of the field when React took over').toBeFocused();
+    await expect(fallback.locator('input[type="hidden"][name="ref"]'), 'a submit from the fallback would drop the referral').toHaveValue(REF);
+
+    // The visitor keeps typing where they already are.
+    await page.keyboard.type(ADDRESS.slice(12));
+    await expect(fallbackField).toHaveValue(ADDRESS);
+
+    releaseHome();
+    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum or Solana)"]:not([name])');
+    await expect(heroField).toBeVisible({ timeout: 60_000 });
+    await expect(heroField, 'the hero dropped the address typed before it arrived').toHaveValue(ADDRESS);
+    await expect(heroField, 'focus fell out of the field when the hero arrived').toBeFocused();
+    await page.waitForTimeout(2_000);
+    expect(heatReads, 'the hero read an address nobody submitted').toBe(0);
+
+    await heroField.press('Enter');
+    await expect.poll(() => heatReads, { timeout: 15_000 }).toBe(1);
+  });
+
+  test('an unsubmitted address does not come back after leaving the page', async ({ page }) => {
+    test.slow();
+    await stubHeatRead(page, () => {});
+    const releaseHome = await hold(page, '**/assets/HomePage-*.js');
+    await page.goto('/');
+    const fallbackField = page.locator('main#main-content [aria-busy="true"] input[name="heat"]');
+    await expect(fallbackField).toBeVisible({ timeout: 60_000 });
+    await fallbackField.fill(ADDRESS);
+
+    // Leave before the home page ever mounts, then come back to it client-side.
+    await clientNavigate(page, '/farm');
+    await expect(page.locator('main#main-content [aria-busy="true"] input[name="heat"]')).toHaveCount(0, { timeout: 15_000 });
+    releaseHome();
+    await clientNavigate(page, '/');
+    const heroField = page.locator('main#main-content form input[aria-label="Wallet address to read Heat for (Ethereum or Solana)"]:not([name])');
+    await expect(heroField).toBeVisible({ timeout: 60_000 });
+    await expect(heroField, 'an address typed minutes ago came back on a later visit').toHaveValue('');
   });
 
   test('the frame is shut and absent off the venue home', async ({ page }) => {

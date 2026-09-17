@@ -121,8 +121,18 @@
       /* The frame works as plain HTML without any of this. */
     }
   }
+  // WHEN PARSING ENDS, NOT AT DOMContentLoaded. The two sound alike and are seconds
+  // apart: DOMContentLoaded waits for every deferred and module script to RUN, which
+  // on the island's phone throttle is the whole entry graph, about 7.5 s, while this
+  // frame is painted at about 0.7 s. readyState turns 'interactive' the moment the
+  // parser finishes, before any of those scripts runs, so the field is filled and the
+  // referral carried for the whole time the frame is what the visitor is using.
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', wireFirstFrame, { once: true });
+    document.addEventListener('readystatechange', function onReady() {
+      if (document.readyState === 'loading') return;
+      document.removeEventListener('readystatechange', onReady);
+      wireFirstFrame();
+    });
   } else {
     wireFirstFrame();
   }

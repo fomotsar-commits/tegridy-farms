@@ -142,6 +142,15 @@ export interface HeatCardProps {
    */
   initialAddress?: string | null;
   /**
+   * Put a value in the field WITHOUT reading it: what a visitor typed and did not
+   * submit before this card existed (the venue's first frame, answer ten). It counts
+   * as typed, so it suspends the auto-read exactly as typing does; a draft equal to
+   * `initialAddress` (an untouched ?heat= prefill) does not.
+   */
+  initialDraft?: string | null;
+  /** Take focus on mount: the field this card replaced had it. */
+  focusField?: boolean;
+  /**
    * Drop the outer panel chrome and the explainer paragraph, for embedding inside a
    * surface that has already introduced itself (the gate). The READING is unchanged:
    * degrees, tier word, held-since, reckoning date and the per-token breakdown all
@@ -170,6 +179,8 @@ export interface HeatCardProps {
 export function HeatCard({
   address: pinned,
   initialAddress = null,
+  initialDraft = null,
+  focusField = false,
   variant = 'panel',
   showEligibility = true,
   scopeTo,
@@ -182,7 +193,7 @@ export function HeatCard({
   // Seeded from `initialAddress` so a shared link arrives already reading. The field
   // stays EDITABLE (unlike `pinned`) — someone who followed a stranger's number should
   // be one paste away from their own.
-  const [draft, setDraft] = useState<string | null>(initialAddress);
+  const [draft, setDraft] = useState<string | null>(initialDraft ?? initialAddress);
   const subject = pinned ?? initialAddress ?? connected ?? '';
   const input = pinned ?? draft ?? connected ?? '';
   const [state, setState] = useState<State>({ kind: 'idle' });
@@ -298,6 +309,7 @@ export function HeatCard({
           <input
             value={input}
             onChange={(e) => setDraft(e.target.value)}
+            autoFocus={focusField}
             spellCheck={false}
             autoComplete="off"
             aria-label="Wallet address to read Heat for (Ethereum or Solana)"

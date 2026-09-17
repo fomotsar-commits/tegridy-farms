@@ -428,6 +428,54 @@ describe('a shared link arrives already reading', () => {
   });
 });
 
+// ANSWER TEN, RULING 2: a value typed into the venue's first frame and NOT submitted
+// arrives as a draft. The first version handed it over as `initialAddress`, which
+// reads on mount, so a half-typed address raised the instrument's error panel for a
+// read nobody asked for.
+describe('a draft typed before the card existed', () => {
+  function mountDraft(props: { initialDraft?: string | null; initialAddress?: string | null; focusField?: boolean }) {
+    return render(
+      <MemoryRouter>
+        <HeatCard variant="embedded" {...props} />
+      </MemoryRouter>,
+    );
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it('is put in the field and not read: nobody submitted it', async () => {
+    const { container } = mountDraft({ initialDraft: '0xd71caf9f' });
+    expect((container.querySelector('input') as HTMLInputElement).value).toBe('0xd71caf9f');
+    await settle();
+    expect(h.fetchHeat).not.toHaveBeenCalled();
+  });
+
+  it('holds back the connected wallet’s auto-read too, as typing does', async () => {
+    h.address = ADDR;
+    mountDraft({ initialDraft: '0xd71caf9f' });
+    await settle();
+    expect(h.fetchHeat).not.toHaveBeenCalled();
+  });
+
+  it('reads when it is submitted', async () => {
+    const { container } = mountDraft({ initialDraft: ADDR });
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement);
+    await waitFor(() => expect(h.fetchHeat).toHaveBeenCalledWith(ADDR, expect.anything()));
+  });
+
+  it('still reads an untouched ?heat= prefill on arrival', async () => {
+    mountDraft({ initialDraft: ADDR, initialAddress: ADDR });
+    await waitFor(() => expect(h.fetchHeat).toHaveBeenCalledWith(ADDR, expect.anything()));
+  });
+
+  it('takes focus only when the field it replaced had it', () => {
+    const first = mountDraft({ initialDraft: '0xd7', focusField: true });
+    expect(document.activeElement).toBe(first.container.querySelector('input'));
+    first.unmount();
+    const second = mountDraft({ initialDraft: '0xd7' });
+    expect(document.activeElement).not.toBe(second.container.querySelector('input'));
+  });
+});
+
 // ─── WAVE SEVEN, ELEMENT D: THE ROOM'S OWN READ ─────────────────────────────
 //
 // The directive's done-means, verbatim: "the scoped read with a fixture
