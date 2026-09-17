@@ -21,12 +21,19 @@
 //     node scripts/bayla-ladder-ops.mjs stake  --pool <p> --amount 500 --lock-days 90
 //     node scripts/bayla-ladder-ops.mjs claim  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0        # matured, free
-//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 75% penalty
+//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # time-left penalty
 //     node scripts/bayla-ladder-ops.mjs hatch  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>
 //
-// ⚠ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the SAME flat
-// 75% as `early_exit` when `now < lock_end` and the pool is not `degraded`
+// THE EARLY-EXIT PENALTY IS veYFI's, NOT A FLAT RATE (math.rs `penalty_for`, 2026-09-17):
+// the share of principal forfeited is min(time left on the lock / 4 years, 75%), floored
+// twice in veYFI's order. Three or more years left pays the 75% cap, one year left pays
+// 25%, a week left pays under half a percent, and it shrinks every second the lock runs
+// down. So there is no single number to print: every penalty this CLI shows is computed
+// for THAT position at the snapshot's chain `now`, with the time left beside it.
+//
+// ⚠ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the SAME
+// time-left penalty as `early_exit` when `now < lock_end` and the pool is not `degraded`
 // (lib.rs `emergency_withdraw`). It is free only after maturity, or once the pool is
 // degraded — which frees `early_exit` too.
 // This file said "no penalty" unconditionally and the runbook agreed with it; both
@@ -35,9 +42,10 @@
 // real number. What the hatch DOES avoid is the reward ledger: accrued rewards move
 // to `rewards_carried` and stay claimable, so it cannot revert on accounting drift.
 //
-// NO PERCENTAGE IS TYPED INTO ANYTHING THIS CLI PRINTS. Every one is built from
-// EARLY_EXIT_PENALTY_BPS (and every amount from `penaltyFor`), so the output cannot say
-// one number while the program charges another; the test refuses a literal.
+// NO PERCENTAGE IS TYPED INTO ANYTHING THIS CLI PRINTS. A position's percentage is derived
+// from its own amounts (penalty / principal), every amount from `penaltyFor`, and the cap
+// description from MAX_EARLY_EXIT_PENALTY_BPS, so the output cannot say one number while
+// the program charges another; the test refuses a literal.
 //
 // ⏱ "NOW" IS THE CHAIN'S, NEVER THIS MACHINE'S. Lock state, penalties and reward rates
 // are all decided against the Clock sysvar's `unix_timestamp`, read in the SAME
@@ -109,13 +117,24 @@ const MIN_LOCK_SECS = 7 * 86_400;
 const MAX_LOCK_SECS = 4 * 365 * 86_400;
 const REWARDS_DURATION_SECS = 90 * 86_400;
 /**
- * math.rs: penalty_for(a) = a * 7500 / 10000, floored. Used by BOTH early doors.
- * 75% since 2026-09-17; the test file reads it back out of math.rs. Not the EVM
- * LighthouseLadder.sol, which still charges 25%.
+ * math.rs's penalty schedule constants, mirrored exactly (the test reads the first two back
+ * out of math.rs). veYFI's schedule: `penaltyFor` below, used by BOTH early doors.
+ * MAX_EARLY_EXIT_PENALTY_BPS is the CAP, not the charge: the charge is time left / 4 years
+ * up to it. Not the EVM LighthouseLadder.sol, which still charges a flat quarter.
  */
-const EARLY_EXIT_PENALTY_BPS = 7_500;
+const MAX_EARLY_EXIT_PENALTY_BPS = 7_500;
 const BPS = 10_000;
-const PENALTY_PCT = `${EARLY_EXIT_PENALTY_BPS / 100}%`;
+/** veYFI's `SCALE`: the penalty ratio is fixed-point at 1e18. */
+const PENALTY_SCALE = 1_000_000_000_000_000_000n;
+/** veYFI's `MAX_PENALTY_RATIO`, derived from the bps cap exactly as math.rs derives it. */
+const MAX_PENALTY_RATIO = (PENALTY_SCALE * BigInt(MAX_EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
+const YEAR_SECS = 365 * 86_400;
+/** The cap as printed, and how many years left reach it: MAX_LOCK x cap / BPS = 3 years. */
+const MAX_PENALTY_PCT = `${MAX_EARLY_EXIT_PENALTY_BPS / 100}%`;
+const CAP_YEARS = (MAX_LOCK_SECS * MAX_EARLY_EXIT_PENALTY_BPS) / BPS / YEAR_SECS;
+/** The one sentence every penalty line carries. The only place the cap percentage is printed. */
+const PENALTY_SCHEDULE = `time left / ${MAX_LOCK_SECS / YEAR_SECS} years, capped at ${MAX_PENALTY_PCT} ` +
+  `with ${CAP_YEARS} or more years left; it shrinks as the lock runs down`;
 
 const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const TOKEN_LEGACY = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -150,9 +169,6 @@ const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
-
-/** What the leaver KEEPS on an early door, as printed (PENALTY_PCT, above, is what they forfeit). */
-const KEEP_PCT = `${(BPS - EARLY_EXIT_PENALTY_BPS) / 100}%`;
 
 /** Blockhash life is ~60-90s; a notify previewed now may land this much later. */
 const LANDING_SLACK_SECS = 120n;
@@ -467,17 +483,63 @@ const rateChangeAllowed = (now, periodFinish, oldRate, newRate) => now >= period
 /** math.rs `fundable`: the vault after reserving everything emitted and not yet paid. */
 const fundable = (vault, emitted, paid) => satSub(vault, satSub(emitted, paid));
 
-/** math.rs `penalty_for`: the amount FORFEITED on an early door, floored. */
-const penaltyFor = (amountRaw) => (amountRaw * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
+/**
+ * math.rs `penalty_for(amount, lock_end, now)`: the amount FORFEITED on an early door.
+ * yearn/veYFI `VotingYFI.vy` `withdraw`, as math.rs copies it, step for step:
+ *
+ *   time_left = lock_end.saturating_sub(now)      (i64, saturating)
+ *   time_left <= 0                                 -> 0
+ *   time_left = min(time_left, MAX_LOCK_SECS)
+ *   ratio     = min(time_left * 1e18 / MAX_LOCK_SECS, MAX_PENALTY_RATIO)   floor #1
+ *   penalty   = amount * ratio / 1e18                                     floor #2
+ *
+ * TWO floors, in that order. One combined floor differs: 1_460 raw with a day left is
+ * 0 here and 1 under `amount * time_left / MAX_LOCK`. `now` must be the chain's.
+ */
+function penaltyFor(amount, lockEnd, now) {
+  chainTime(now);
+  const left = i64SatSub(lockEnd, now);
+  if (left <= 0n) return 0n;
+  const maxLock = BigInt(MAX_LOCK_SECS);
+  const timeLeft = left < maxLock ? left : maxLock;
+  const r = (timeLeft * PENALTY_SCALE) / maxLock;
+  const ratio = r < MAX_PENALTY_RATIO ? r : MAX_PENALTY_RATIO;
+  return (amount * ratio) / PENALTY_SCALE;
+}
+
+/**
+ * `part` as a share of `whole`, to two decimals, FLOORED — so an exact 25% prints "25.00%"
+ * and nothing is ever rounded up into a charge it is not. A non-zero part too small to show
+ * prints "under 0.01%", never a "0.00%" that reads as free.
+ */
+function fmtPct(part, whole) {
+  if (whole <= 0n) return 'n/a';
+  const bps = (part * 10_000n) / whole;
+  if (bps === 0n && part > 0n) return 'under 0.01%';
+  return `${bps / 100n}.${String(bps % 100n).padStart(2, '0')}%`;
+}
+
+/** Seconds as `Nd Nh Nm Ns`, leading zero units dropped. Chain seconds, never a wall clock. */
+function fmtDuration(secs) {
+  let s = secs < 0n ? 0n : secs;
+  const parts = [];
+  for (const [unit, size] of [['d', 86_400n], ['h', 3_600n], ['m', 60n]]) {
+    const n = s / size;
+    s %= size;
+    if (n > 0n || parts.length) parts.push(`${n}${unit}`);
+  }
+  parts.push(`${s}s`);
+  return parts.join(' ');
+}
 
 /**
  * What one exit door would do to `position` at chain `now`, mirroring lib.rs:
  *
  *   withdraw_matured    refused while locked (StillLocked); free.
- *   early_exit          refused once matured (UseWithdrawMatured); penalty_for(amount),
- *                       or 0 when the pool is degraded.
- *   emergency_withdraw  never refused; penalty_for(amount) while locked, 0 once matured
- *                       or when the pool is degraded.
+ *   early_exit          refused once matured (UseWithdrawMatured);
+ *                       penalty_for(amount, lock_end, now), or 0 when the pool is degraded.
+ *   emergency_withdraw  never refused; penalty_for(amount, lock_end, now) while locked,
+ *                       0 once matured or when the pool is degraded.
  *
  * `door` defaults to the one that applies. A refused door moves nothing, so its
  * `penalty` and `receive` are null, never a zero that reads like "free".
@@ -494,42 +556,74 @@ function exitPreview(position, pool, chainNow, door) {
   if (d === 'withdraw_matured') {
     return locked ? refuse(`the position is still locked; withdraw_matured refuses it (${errName(6007)})`) : charge(0n);
   }
+  // Both early doors pass the SAME three arguments lib.rs passes: the position's own amount
+  // and lock_end, and the instruction's now.
   if (d === 'early_exit') {
     if (!locked) return refuse(`the position has matured; early_exit refuses it (${errName(6008)}) — withdraw for free instead`);
-    return charge(pool.degraded ? 0n : penaltyFor(position.amount));
+    return charge(pool.degraded ? 0n : penaltyFor(position.amount, position.lockEnd, chainNow));
   }
-  return charge(locked && !pool.degraded ? penaltyFor(position.amount) : 0n);
+  return charge(locked && !pool.degraded ? penaltyFor(position.amount, position.lockEnd, chainNow) : 0n);
 }
 
-/** The lines `exit` and `hatch` print for a preview. Pure, so the test can read them. */
+/**
+ * The lines `exit` and `hatch` print for a preview. Pure, so the test can read them.
+ *
+ * Every penalty figure is THIS position's at `chainNow`: the amount from `exitPreview`, the
+ * percentage derived from that amount over the principal, and the time left beside it. The
+ * schedule is monotone in time, so what lands a few seconds later can only be lower.
+ */
 function exitReport(pv, position, pool, chainNow) {
   const d = pool.decimals;
   const out = [];
   const iso = (t) => new Date(Number(t) * 1000).toISOString();
+  const left = position.lockEnd - chainNow;
   out.push(`  door          ${pv.door}`);
   out.push(`  principal     ${fmt(position.amount, d)}`);
   out.push(`  status        ${pv.locked ? 'STILL LOCKED' : 'matured'}${pool.degraded ? ', pool DEGRADED' : ''}` +
     `  (lock ends ${iso(position.lockEnd)}; chain clock ${iso(chainNow)})`);
+  if (pv.locked) out.push(`  time left     ${fmtDuration(left)}  (by the chain clock)`);
   if (pv.refusedReason) {
     out.push(`  ⚠ REFUSED: ${pv.refusedReason}`);
     if (pv.door === 'withdraw_matured') {
       const alt = exitPreview(position, pool, chainNow, 'early_exit');
       out.push(`  --early would forfeit ${fmt(alt.penalty, d)} and return ${fmt(alt.receive, d)} of principal` +
-        (alt.penalty > 0n ? ` (you keep ${KEEP_PCT})` : ' (no penalty: the pool is degraded)'));
+        (pool.degraded
+          ? ' (no penalty: the pool is degraded)'
+          : ` (${fmtPct(alt.penalty, position.amount)} forfeited at chain now)`));
+      if (!pool.degraded) out.push(`  penalty rule  ${PENALTY_SCHEDULE}`);
     }
     return out;
   }
   if (pv.penalty > 0n) {
-    out.push(`  🔴 PENALTY    ${fmt(pv.penalty, d)} FORFEITED  (${PENALTY_PCT} of principal)`);
-    out.push(`  you receive   ${fmt(pv.receive, d)}  (${KEEP_PCT} of principal)`);
-    const left = position.lockEnd - chainNow;
+    out.push(`  🔴 PENALTY    ${fmt(pv.penalty, d)} FORFEITED  (${fmtPct(pv.penalty, position.amount)} of principal, at chain now)`);
+    out.push(`  you receive   ${fmt(pv.receive, d)}  (${fmtPct(pv.receive, position.amount)} of principal)`);
+    out.push(`  penalty rule  ${PENALTY_SCHEDULE}`);
+    out.push(`                the program charges it at ITS clock when this lands, so it can only be lower`);
     if (left <= LANDING_SLACK_SECS) out.push(`  the lock ends in ${left}s — waiting that long makes this free`);
     else out.push(`  Waiting until ${iso(position.lockEnd)} makes it free.`);
+    if (pv.door === 'emergency_withdraw') {
+      const early = exitPreview(position, pool, chainNow, 'early_exit');
+      out.push(`  'exit --early' forfeits the same ${fmt(early.penalty, d)} at this chain clock, and ALSO pays your rewards out.`);
+    }
   } else {
     out.push(`  penalty       none — ${pool.degraded && pv.locked ? 'the pool is degraded' : 'this position has matured'}`);
     out.push(`  you receive   ${fmt(pv.receive, d)}  (all of it)`);
   }
   return out;
+}
+
+/**
+ * One `positions` row at chain `now`. Pure, so the test can read it. A locked row quotes
+ * what an early door forfeits for THIS position right now — the same `exitPreview` figure
+ * `exit --early` and `hatch` print — beside its time left.
+ */
+function positionLine(n, v, pool, now) {
+  const d = pool.decimals;
+  const head = `  #${n}  ${fmt(v.amount, d)}  weight ${v.weight}  `;
+  const early = exitPreview(v, pool, now, 'early_exit');
+  if (!early.locked) return head + 'MATURED — withdraw is free';
+  return head + `locked ${fmtDuration(v.lockEnd - now)} more; --early or the hatch forfeits ${fmt(early.penalty, d)}` +
+    (pool.degraded ? ' (none: the pool is degraded)' : ` (${fmtPct(early.penalty, v.amount)} at chain now)`);
 }
 
 /**
@@ -1043,7 +1137,8 @@ function confirmPermanentProblem(broadcast, args) {
 
 /** `exit` and `hatch` print "the penalty is UNKNOWN" when the position did not decode.
  *  A dry run may still go ahead - it signs nothing and its simulation is evidence. A
- *  BROADCAST may not: the penalty is 75% of principal while locked, and an operator must
+ *  BROADCAST may not: while locked the penalty is up to 75% of principal (time left / 4
+ *  years, capped), and without the position its time left is unknown, so an operator must
  *  not pay it blind. `pos` is `decodePosition`'s `{ ok, value | reason }`; anything but
  *  `ok === true` is unreadable. */
 /** `notify`'s mode, from the arguments alone, before any keypair or RPC is touched.
@@ -1426,7 +1521,11 @@ const USAGE = `bayla-ladder ops
   stake      --pool <addr> --amount <t> --lock-days <d>
   claim      --pool <addr> --nonce <n>
   exit       --pool <addr> --nonce <n> [--early]
-  hatch      --pool <addr> --nonce <n>       # principal; ${PENALTY_PCT} penalty WHILE LOCKED (you keep ${KEEP_PCT})
+                                             # --early while locked forfeits part of the principal:
+                                             #   ${PENALTY_SCHEDULE}.
+                                             #   Prints THIS position's amount and share at the chain clock.
+  hatch      --pool <addr> --nonce <n>       # principal; the SAME time-left penalty as --early WHILE LOCKED,
+                                             #   printed for this position before anything is sent
   claim-carried --pool <addr>
   sweep      --pool <addr>                   # permissionless, no signer
   propose-cap-raise --pool <addr> --cap <t>     # authority; raise-only, runs after 48h
@@ -1492,19 +1591,15 @@ async function main() {
       console.log(`  principal        ${fmt(us.value.principal, p.decimals)}`);
       console.log(`  rewards carried  ${fmt(us.value.rewardsCarried, p.decimals)}`);
       console.log(`  chain clock      ${new Date(Number(now) * 1000).toISOString()}`);
+      console.log(`  early exits      ${PENALTY_SCHEDULE}`);
       // Every nonce ever issued is probed: a CLOSED position leaves no account, so
       // an absent one is reported as closed rather than skipped silently.
       for (let n = 0; n < us.value.nextNonce; n++) {
         const info = await conn.getAccountInfo(positionPda(programId, poolKey, owner, n));
         const d = decodePosition(info?.data);
         if (!d.ok) { console.log(`  #${n}  closed (${d.reason})`); continue; }
-        const v = d.value;
-        const left = v.lockEnd - now;
-        const early = exitPreview(v, p, now, 'early_exit');
-        console.log(`  #${n}  ${fmt(v.amount, p.decimals)}  weight ${v.weight}  ` +
-          (left > 0n
-            ? `locked ${(left + 86_399n) / 86_400n}d more; --early forfeits ${fmt(early.penalty, p.decimals)}`
-            : 'MATURED — withdraw is free'));
+        // Each row's penalty is THAT position's, at the snapshot's chain clock.
+        console.log(positionLine(n, d.value, p, now));
       }
       return;
     }
@@ -1617,7 +1712,7 @@ async function main() {
       if (blindExit) throw new Error(blindExit);
       const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
       await submit(conn, [...pre, ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
-        owner, { broadcast, label: early ? `early-exit (${p.degraded ? 'no penalty, pool degraded' : `${PENALTY_PCT} penalty`})` : 'withdraw-matured' });
+        owner, { broadcast, label: early ? 'early-exit' : 'withdraw-matured' });
       return;
     }
 
@@ -1627,7 +1722,7 @@ async function main() {
       const n = intArg(args, 'nonce');
       // THE HATCH IS NOT FREE WHILE LOCKED, and this used to say it was.
       //
-      // `emergency_withdraw` (lib.rs) charges the SAME flat 75% as
+      // `emergency_withdraw` (lib.rs) charges the SAME time-left penalty as
       // `early_exit` when `now < lock_end` and the pool is not `degraded`. It is
       // free only after maturity, or once the pool is degraded — the M-3 fix that
       // made the two doors agree so neither dominates the other.
@@ -1647,11 +1742,9 @@ async function main() {
       if (!pos.ok) {
         console.log(`  ⚠ could not read the position (${pos.reason}) — the penalty below is UNKNOWN.`);
       } else {
+        // exitReport also prints what 'exit --early' would forfeit at this same chain clock.
         const pv = exitPreview(pos.value, p, snap.now, 'emergency_withdraw');
         for (const line of exitReport(pv, pos.value, p, snap.now)) console.log(line);
-        if (pv.penalty > 0n) {
-          console.log(`  'exit --early' costs exactly the same ${PENALTY_PCT} and ALSO pays your rewards out.`);
-        }
       }
       // Before ANYTHING is built: an unknown penalty is never broadcast.
       const blindHatch = unpreviewedExitProblem(broadcast, pos);
@@ -1829,14 +1922,14 @@ export {
   ixExecuteCapRaise, ixDeclareDegraded, CAP_TIMELOCK_SECS,
   authorityProblem, capRaiseProblem, cancelCapRaiseProblem, executeCapRaiseProblem,
   acceptAuthorityProblem, declareDegradedProblem, confirmPermanentProblem,
-  toRaw, fmt, parseArgs, intArg, EARLY_EXIT_PENALTY_BPS, BPS,
+  toRaw, fmt, parseArgs, intArg, MAX_EARLY_EXIT_PENALTY_BPS, BPS,
   POOL_SEED, POSITION_SEED, USER_SEED, STAKE_VAULT_SEED, REWARD_VAULT_SEED,
   MIN_LOCK_SECS, MAX_LOCK_SECS, REWARDS_DURATION_SECS,
 };
 
 // Chain time, the off-chain replay of the reward engine, and the previews built on them.
 export {
-  PRECISION, PENALTY_PCT, KEEP_PCT, LADDER_ERRORS, SYSVAR_OWNER, LANDING_SLACK_SECS,
+  PRECISION, LADDER_ERRORS, SYSVAR_OWNER, LANDING_SLACK_SECS,
   decodeClock, decodeTokenAccount, loadSnapshot, simErrorName,
   lastTimeApplicable, minWeightFloor, rewardPerWeightWithResidue, emittedDeltaWithResidue,
   checkpointReplay, newRewardRate, rateChangeAllowed, fundable, penaltyFor,
@@ -1847,4 +1940,10 @@ export {
 // The read verdicts, the blind-exit broadcast guard, and `notify --preview`.
 export {
   solvencyVerdicts, unpreviewedExitProblem, notifyMode, notifyPreviewLines, notifyCommand,
+};
+
+// veYFI's time-left early-exit penalty: the schedule constants and what prints it.
+export {
+  PENALTY_SCALE, MAX_PENALTY_RATIO, MAX_PENALTY_PCT, CAP_YEARS, PENALTY_SCHEDULE,
+  fmtPct, fmtDuration, positionLine, USAGE,
 };
