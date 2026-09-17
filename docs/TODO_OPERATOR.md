@@ -49,7 +49,7 @@ penalty as **25%, measured on the superseded 25% build**.
 
 > ⚠️ **2026-09-17 — the ladder is being rebuilt at a 75% early-exit penalty** (the leaver
 > keeps 25%; EVM/TOWELI stay 25%), with a `notify_reward` guard that refuses a mid-window
-> reload lowering the rate (6028 `RewardRateWouldDecrease`). `HzxzfSQ…` still runs the 25%
+> reload lowering the rate (6028 `RewardRateWouldDecrease`). `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the 25%
 > build with no guard, so every penalty figure in this section is a record of that build,
 > and **nothing has been measured at 75%**. Upgrade the devnet program to the 75% build
 > before any preview environment points at it. Decisions and the superseded mainnet
@@ -86,7 +86,7 @@ the 250 does not.
 **The command as it was written here did not run** — it omitted `--program`, and the CLI
 refuses without it (`--program <id> (or BAYLA_LADDER_PROGRAM) is required`). The devnet
 program id was verified on chain rather than assumed: it is executable, and it is the owner
-of pool `2RJNUuj3…`. The working command:
+of pool `2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4`. The working command:
 
 ```bash
 cd frontend
@@ -101,7 +101,7 @@ solvency from it.** `rewards_emitted` is banked lazily, only when an instruction
 emission. The dry run's 1,995-BAYLA payout looked like a 100,000× overpay until the pool
 account was decoded; it reconciled to within 0.012% of position #2's 46.68% weight share.
 The PROGRAM is safe: `notify_reward` calls `checkpoint()` before it computes `outstanding`
-and before both solvency `require!`s (`lib.rs:752`, checkpoint at `:763`). Only the off-chain
+and before both solvency `require!`s (in `notify_reward` itself). Only the off-chain
 display is wrong. Live liability ≈ `rewards_emitted + reward_rate × (min(now, period_finish)
 − last_update_time) − rewards_paid`.
 

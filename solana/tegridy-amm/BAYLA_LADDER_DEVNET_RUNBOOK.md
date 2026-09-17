@@ -57,10 +57,10 @@ outstanding 0, `total_principal` 0, stake vault 0, `orphaned_penalty` swept to 0
   watching token transfers, or a raw simulation, sees no penalty at all. That is exactly
   how the "the hatch is free" error survived in this document and in the CLI.
 
-🔴 **STILL NEVER EXECUTED: `withdraw_matured`.** Positions `#2` (7-day) and `#3` (30-day)
-were opened on 2026-09-09 for this purpose. **`#2` matures 2026-09-16** — run
-`exit --pool <p> --nonce 2` (no `--early`) then and the last principal path is closed.
-It cannot be automated from a cloud runner: it needs the operator's local signing key.
+✅ **`withdraw_matured` EXECUTED on devnet, 2026-09-17** — position `#2`, 500 back,
+penalty 0, on the superseded 25% build (the matured door charges nothing at any rate). The
+transaction and the on-chain reconciliation are in `docs/TODO_OPERATOR.md` O-0909-1. It is
+still unreachable from CI (§10).
 
 ---
 
@@ -70,7 +70,7 @@ returned a verdict on sequencing that has not changed: this program had **never 
 a single instruction** at audit time, and an external audit has not happened. Devnet
 first, external audit second, mainnet third.
 
-This runbook is the devnet half. The mainnet half is deliberately not written yet.
+This runbook is the devnet half. The mainnet half is `BAYLA_LADDER_MAINNET_RUNBOOK.md`.
 
 ---
 
@@ -99,7 +99,7 @@ opens. Before `lock_end`, in a healthy pool, that door returns 25% of it. Three 
 | `early_exit` | 75% of principal (25% returned); free once the pool is `degraded` | pays your rewards out on the way |
 | `emergency_withdraw` (the hatch) | **75% while still locked** (the same penalty as `early_exit`), free once matured or once the pool is `degraded` | principal only; touches no reward accounting, so it cannot revert on drift |
 
-> 🔴 **THE HATCH IS NOT FREE WHILE LOCKED.** `lib.rs:607-613` charges the same
+> 🔴 **THE HATCH IS NOT FREE WHILE LOCKED.** `emergency_withdraw` in `lib.rs` charges the same
 > `penalty_for(amount)` as `early_exit` whenever `now < lock_end` and the pool is not
 > degraded. This document said "free" in two places and the CLI printed "no penalty"
 > unconditionally; both were wrong, and a review caught it before anyone ran it.
@@ -477,7 +477,7 @@ reload. The reload policy (cadence, sizing, what to publish) is in
 
 ## 8. Smoke test on devnet, in this order
 
-The integration suite (`tests/bayla-ladder.test.ts`, 27 tests) covers all of this against
+The integration suite (`tests/bayla-ladder.test.ts`, 28 tests since the 75% rebuild added the rate-guard test) covers all of this against
 a local validator in CI. On devnet, drive it with the CLI from §5b — dry-run each first,
 then re-run with `--broadcast`:
 
@@ -520,7 +520,7 @@ Confirm each:
    `declare_degraded` and confirm the hatch becomes free. Either way, confirm the
    accrued rewards were NOT destroyed: they land in `user_stats.rewards_carried` and
    `claim-carried` pays them out.
-   ⚠️ The CLI's penalty is a local constant (`bayla-ladder-ops.mjs:97`), not read from
+   ⚠️ The CLI's penalty is a local constant (`EARLY_EXIT_PENALTY_BPS` in `bayla-ladder-ops.mjs`), not read from
    the chain, and nothing on chain exposes the rate. Against a program still on the 25%
    build — `HzxzfSQ…` today — a CLI built at 75% prints a penalty that program does not
    charge. The CLI and the program must be the same build: upgrade devnet first, and
@@ -555,7 +555,7 @@ These are not tasks I can do, and none of them should be improvised on the day.
    outside the repo). ⚠️ **Not yet backed up.** Back it up before it deploys anything.
 3. 💰 **`min_stake`, `deposit_cap`, `max_wallet_principal`.** `min_stake` is permanent.
    **So is `max_wallet_principal`** (found 2026-09-11): it is written only in
-   `initialize_pool` (lib.rs:383) and no instruction ever changes it. Only `deposit_cap`
+   `initialize_pool` and no instruction ever changes it. Only `deposit_cap`
    moves - upward only, 48 hours after `propose_cap_raise`, via the permissionless
    `execute_cap_raise`. Three consequences: `max_wallet_principal` must be **at least the
    largest single wallet expected to stake** (sizing reference, measured 2026-09-12: the
@@ -589,8 +589,10 @@ These are not tasks I can do, and none of them should be improvised on the day.
 
 ## 10. Known coverage gap — state it to the auditor, do not bury it
 
-**`withdraw_matured` has never executed.** The minimum lock is 7 days and
-`solana-test-validator` has no clock warp, so no CI job can reach it. Both real harnesses
+**No CI job can execute `withdraw_matured`.** It ran once, by hand, on devnet on
+2026-09-17 (O-0909-1, on the superseded 25% build), which proves the path works on a real
+cluster but pins nothing: the minimum lock is 7 days and `solana-test-validator` has no
+clock warp, so no CI job can reach it. Both real harnesses
 that could (`solana-program-test`, `litesvm`) transitively pull `openssl-sys` through
 `agave-precompiles`, whose vendored build needs a perl toolchain the dev box does not
 have — verified with `cargo tree --invert openssl-sys` for both.
@@ -615,8 +617,8 @@ path in their own harness.** It is the first thing to hand them.
 
 ```bash
 cd solana/tegridy-amm
-cargo test -p bayla-ladder --lib                    # 35 host tests
-cargo test -p bayla-ladder --lib --features devnet  # 35, both configs matter
+cargo test -p bayla-ladder --lib                    # 40 host tests (35 before the 75% rebuild)
+cargo test -p bayla-ladder --lib --features devnet  # 40, both configs matter
 ```
 
 Both feature configs are run in CI deliberately: `deployer::ID` is cfg-gated, and the

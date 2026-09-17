@@ -86,10 +86,12 @@ So: create the pool with the deployer (§7), hand the authority to the multisig 
 ⚠️ **The ops CLI signs from a keyfile only** (`--keypair <path-to-id.json>`). If the
 deployer is a hardware wallet, `init-pool` cannot be signed with this tool — choose a
 deployer you hold as a keyfile, or build a different signing path first. **The same limit
-applies to every authority command once the authority is a multisig:** `notify` refuses
-unless the keyfile IS the pool authority (`bayla-ladder-ops.mjs:820-822`), so after the
-handover each reload (§8) has to be built and signed inside the multisig's own app. Settle
-that path before the handover, not at the first reload.
+applies to every authority command once the authority is a multisig:** a broadcasting
+`notify` needs the keyfile to BE the pool authority, so after the handover each reload
+(§8) is built and signed inside the multisig's own app. What the CLI still does for a
+multisig is `notify --preview`: no keyfile, nothing built or sent, and it runs the
+program's own checks — including the rate guard — and prints the minimum amount that holds
+the rate. Settle the signing path before the handover, not at the first reload.
 
 ---
 
@@ -240,7 +242,7 @@ must now show the vault as the authority. For option B instead:
 ## 6. Pool parameters — TWO OF THE THREE ARE PERMANENT
 
 `min_stake` and `max_wallet_principal` are written once, in `initialize_pool`
-(`lib.rs:381-383`), and **no instruction ever changes them**. Only `deposit_cap` moves:
+and **no instruction ever changes them**. Only `deposit_cap` moves:
 upward only, 48 hours after it is proposed.
 
 | parameter | what the program enforces | changeable later? | **decided 2026-09-12** |
@@ -261,8 +263,9 @@ whoever is staked then.
 
 **Also disclosed, not changed (decided 2026-09-17): a matured position keeps its full
 boost indefinitely.** Weight is `amount × boost`, frozen at stake time
-(`state.rs:132-133`) and written only by `stake` (`lib.rs:479`), and there is no forced
-maturity, decay or kick (`state.rs:51-52`), so a 4-year position that has matured and
+(`Position.weight` in `state.rs`) and written only by `stake`, and there is no forced
+maturity, decay or kick (the `Pool.max_wallet_principal` doc in `state.rs`), so a 4-year
+position that has matured and
 never withdraws keeps earning at 4.00x. A future upgrade MAY reset matured weight to the
 0.40x floor; nothing does today.
 
@@ -332,9 +335,13 @@ node scripts\bayla-ladder-ops.mjs read --pool <POOL> --program EJLP5GEJXEyPTdoKb
 **Two things happen before the first `notify`, in this order:**
 
 1. **Hand the pool authority to the multisig** (decided 2026-09-17: a multisig before any
-   funds). `propose-authority --pool <POOL> --new-authority <MULTISIG>` signed by the
-   deployer, then `accept-authority` from inside the multisig's app (§11). Confirm with
-   `read` that `authority` is the multisig and no `pending authority` remains.
+   funds). `propose-authority --pool <POOL> --new-authority <SQUADS-VAULT-PDA>` signed by
+   the deployer, then `accept-authority` from inside the multisig's app (§11). The address
+   is a **vault** PDA, never the multisig config account — §3's warning applies here
+   exactly as it did to the cp-swap admin: the config account cannot sign, so it could
+   never accept. **Which vault is not decided yet** — the upgrade authority's vault 0
+   (`GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`) or a separate one. Confirm with `read`
+   that `authority` is that vault and no `pending authority` remains.
 2. **Turn the card on (§9) and let stakers arrive.** Never fund an empty pool: a second in
    which nothing is staked emits nothing (`math::reward_per_weight_with_residue` returns
    the accumulator unchanged while `total_weighted` is 0, and `checkpoint` still moves the
@@ -346,8 +353,9 @@ node scripts\bayla-ladder-ops.mjs notify --pool <POOL> --amount <WHOLE-BAYLA> --
 ```
 
 (After the handover the authority is the multisig. The line above shows the instruction's
-arguments, but the CLI refuses it — dry run included — unless `--keypair` IS the pool
-authority (§1), so the transaction is built and signed in the multisig's app.)
+arguments, but a broadcast needs `--keypair` to BE the pool authority (§1), so the
+transaction is built and signed in the multisig's app. Preview it first with the same
+line, `--preview` in place of `--keypair`.)
 
 - The rate is the amount divided by **7,776,000 seconds** (90 days). Below
   **7.776 BAYLA** the rate rounds to zero, and the program refuses (`RewardRateTooSmall`).
@@ -365,11 +373,14 @@ authority (§1), so the transaction is built and signed in the multisig's app.)
   must schedule at least `reward_rate × seconds elapsed since the last notify`**, i.e.
   `reward_rate × (now − (period_finish − 7,776,000))`, where `scheduled` is `--amount`
   plus `--from-budget`. Exactly that holds the rate; more raises it. **At or after
-  `period_finish` any rate is allowed.** The ops CLI's `notify` does not pre-check this,
-  and the rate it prints ignores the fold-in (`bayla-ladder-ops.mjs:807-830`). With a
-  multisig authority the CLI cannot simulate the reload at all, so compute the minimum by
-  hand from `read`'s `reward rate` (raw units per second) and `period finish` before the
-  multisig signs.
+  `period_finish` any rate is allowed.** `notify --preview` checks this before anything is
+  signed, folds the unspent tail into the rate it prints, and prints the minimum that holds
+  the rate now and two minutes later — use it. **By hand**, three unit traps:
+  `reward_rate` is raw base units per second, so the product is RAW — divide by 10^6
+  (BAYLA has 6 decimals) and round UP at the sixth decimal to get the figure
+  `--amount`/`--from-budget` take; `read` prints `period finish` as an ISO date, so convert
+  it to unix seconds first; and `now` is when the transaction LANDS, not when you did the
+  arithmetic, so every second of signing delay raises the minimum by `reward_rate`.
 
 ### Reload policy — funding never stops
 
@@ -416,7 +427,7 @@ In Vercel → Settings → Environment Variables, for **Production**:
 set the two on **Preview** only and test on a preview URL; production stays unchanged.
 
 ⚠️ **The build must carry the 75% penalty.** The card quotes every early exit from its own
-constant, `frontend/src/lib/ladder/program.ts:76` (`2_500` on trunk), because nothing on
+constant, `EARLY_EXIT_PENALTY_BPS` in `frontend/src/lib/ladder/program.ts`, because nothing on
 chain exposes the rate. It ships at `7_500` in lockstep with this deploy. And a Preview
 pointed at the devnet program must wait until devnet runs the 75% build — `HzxzfSQ…`
 still runs the superseded 25% one.
@@ -443,7 +454,10 @@ addresses on mainnet every day.
 
 All of these take `--program`, `--rpc` and `--keypair`, and are dry runs until
 `--broadcast`. Each one refuses locally, before any fee, whatever the program would
-refuse.
+refuse. Two limits: once the pool authority is the multisig, every row signed by "the
+authority" is built and signed in Squads, not with this CLI (§1) — the CLI's part is the
+dry run, and for `notify` the keyfile-free `--preview`; and a preview is computed at the
+moment it runs, so a reload that lands later needs the margin §8 describes.
 
 | task | command | who signs |
 | --- | --- | --- |
