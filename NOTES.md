@@ -15,6 +15,66 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
+
+**Believed:** carrying a value from pre-React markup into a lazily loaded component is a
+module variable plus `useState(() => takeDraft())`, where take reads and clears; a unit
+test that the store hands the value over proves the handoff; and an e2e that aborts the
+entry chunk covers the seconds before the app loads.
+
+**Measured** on a production build of the venue's static first frame (answer ten, PR #591),
+with chunks held by a Playwright route handler and released by hand. All three were wrong,
+and the store's own unit test was green the whole time.
+
+### A render thrown away by Suspense runs your initializer again
+
+An address typed into React's fallback was in the store, and the real field mounted empty,
+every run. The home page's first render suspends on a sibling lazy chunk, React discards
+that render with its state, and the retry's initializer ran again and found the store
+already cleared. Reproduced in vitest by rendering the component beside a child that throws
+a promise once: red with the take in the initializer, green with a peek in render and the
+clear in `useEffect`.
+
+**Do:** in render, only read (repeatable); consume in an effect, which runs only for a render
+that committed. Test a handoff through a boundary that really suspends, not through the store.
+
+### DOMContentLoaded waits for module scripts; `readyState === 'interactive'` does not
+
+A classic script in `<head>` deferred its wiring of the static form to `DOMContentLoaded` so
+the body markup would exist. On the phone throttle (150 ms RTT, 1.6 Mbps, CPU 4x) the markup
+painted at about 0.7 s and `DOMContentLoaded` fired only after the entry module graph had run,
+about 7.5 s. With the entry chunk held, the listener never ran at all. A `readystatechange`
+listener that acts once `readyState !== 'loading'` wired the form while the chunk was still
+held: readiness turns interactive when parsing ends, before deferred and module scripts run.
+
+### Chromium fires `blur` on a focused node as it is removed, while it is still connected
+
+Focus an input, then remove it with `replaceChildren`. Chromium dispatched `blur`
+synchronously with `isConnected === true` and `document.activeElement` already moved; WebKit
+dispatched no `blur` at all. So at event time a blur handler cannot tell "React swapped this
+field out" from "the visitor tapped away". What worked: decide one microtask later and check
+`isConnected` then. React's commit, including the replacement field's layout effect, finishes
+before any microtask runs.
+
+### An aborted chunk proves the no-script path, not the slow-script path
+
+`route.abort()` on the entry chunk tested the static form's plain GET and could not see any
+of the three defects above, which only exist while the markup is on screen and the app is on
+its way. Holding the request (`await gate; await route.continue()`) and releasing it by hand
+showed all three. Two traps in that harness: `page.waitForURL` waits for `load` by default,
+which a page whose entry chunk is held never reaches (use `waitUntil: 'commit'`); and a
+`page.goto` that must not wait for scripts needs `waitUntil: 'commit'` too.
+
+### On Windows, stopping the shell that ran `npx vite preview` leaves node serving
+
+Killing the backgrounded Git Bash shell left its `node.exe` child running; four previews
+survived that way. The survivor holds `lightningcss.win32-x64-msvc.node` open, and the next
+`npm ci` failed EPERM on that file after it had already deleted most of `node_modules`. Find
+them by command line (`Get-CimInstance Win32_Process -Filter "Name='node.exe'"`) and stop
+them by PID before reinstalling.
+
+---
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
