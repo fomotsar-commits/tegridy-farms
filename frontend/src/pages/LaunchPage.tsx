@@ -62,7 +62,7 @@ import {
   EAS_SCHEMA_REGISTRY_ABI,
 } from '../lib/launcher/attestation';
 import { collectTokenFacts, viemChainReader } from '../lib/launcher/collector';
-import { readMigrationStream, lockResolverFor, type MigrationStream } from '../lib/launcher/lockerStream';
+import { readMigrationStream, lockResolverFor, verdictFromReads, type MigrationStream } from '../lib/launcher/lockerStream';
 import type { FeeConstitutionLine } from '../lib/launcher/factSheet';
 import { fetchLauncherOutcomes } from '../lib/launcher/outcomesClient';
 import type { LaunchSummary } from '../lib/launcher/ordering';
@@ -887,6 +887,10 @@ type ReattestPhase =
   | { phase: 'idle' }
   | { phase: 'reading' }
   | { phase: 'not-graduated' }
+  // Distinct from 'not-graduated' on purpose: the locker read is unavailable, which says
+  // NOTHING about this token. Collapsing the two is what let a permanently broken call
+  // render for weeks as an ordinary "hasn't graduated yet" empty state.
+  | { phase: 'unsupported' }
   | { phase: 'ready'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
   | { phase: 'attesting'; sheet: LaunchFactSheet; lines: FeeConstitutionLine[]; poolId: string; locker: string; pair: string }
   | { phase: 'done'; uid: string; txHash: string }
@@ -921,15 +925,20 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
       const tokenAddr = getAddress(token) as Address;
       const ready = await factSheetSchemaRegistered(publicClient);
       setSchemaReady(ready);
-      // Auto-detect the base pair: read the locker for each allowed numeraire; the one it
-      // actually graduated against has a stream (streams() reverts for the others). ETH-only
-      // while exotic is gated off, so this is a single read in the common case.
-      let stream: MigrationStream | null = null;
+      // Auto-detect the base pair: read the locker for each allowed numeraire and keep the
+      // one that actually holds a stream. ETH-only while exotic is gated off, so this is a
+      // single read in the common case.
+      const reads: MigrationStream[] = [];
       for (const numeraire of allowedNumeraires()) {
         const s = await readMigrationStream(publicClient, tokenAddr, numeraire);
-        if (s.graduated) { stream = s; break; }
+        reads.push(s);
+        if (s.graduated) break; // short-circuit: no need to read the remaining pairs
       }
-      if (!stream) return setState({ phase: 'not-graduated' });
+      // verdictFromReads keeps "not in the locker" apart from "couldn't read the locker";
+      // both of its non-graduated kinds are render phases below.
+      const verdict = verdictFromReads(reads);
+      if (verdict.kind !== 'graduated') return setState({ phase: verdict.kind });
+      const stream = verdict.stream;
       if (stream.beneficiaries.length === 0) {
         return setState({ phase: 'error', message: 'The migration stream exists but exposes no fee beneficiaries — nothing to attest.' });
       }
@@ -1008,6 +1017,17 @@ function PostGraduationReattest({ prefillToken }: { prefillToken?: string }) {
           No fee stream for this token in Doppler&rsquo;s StreamableFeesLocker — it either hasn&rsquo;t graduated yet
           (price discovery still running), or it wasn&rsquo;t launched through this rail. Re-attestation reads the
           real split once the auction migrates to its V4 pool.
+        </p>
+      )}
+
+      {/* Deliberately says nothing about the token — the limitation is ours, not its. */}
+      {state.phase === 'unsupported' && (
+        <p className="mt-3 text-amber-300/80 text-xs leading-relaxed break-words">
+          Automatic re-attestation isn&rsquo;t available yet. The locker holding graduated-pool fees indexes
+          positions by their Uniswap V4 position id, and we can&rsquo;t yet map a token to that id on-chain — so
+          we can&rsquo;t read this token&rsquo;s split from here. <strong className="text-amber-200">This is a gap on
+          our side and says nothing about this token</strong> — it may well have graduated. If it launched
+          through this rail, the fee split it committed at launch is unaffected and still on-chain.
         </p>
       )}
 
