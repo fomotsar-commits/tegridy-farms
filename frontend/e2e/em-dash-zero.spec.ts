@@ -294,7 +294,6 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       test.slow();
       await page.addInitScript(() => {
         try {
-          sessionStorage.setItem('tf_loaded', '1');
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
           // 'venue', NOT the wallet fixture's 'toweli'. Footer.tsx:180 renders
@@ -344,7 +343,6 @@ test.describe('element I: em dashes in venue-voice prose', () => {
       test.slow();
       await page.addInitScript(() => {
         try {
-          sessionStorage.setItem('tf_loaded', '1');
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
           localStorage.setItem('tegridy-bungalow', 'venue');
@@ -428,7 +426,6 @@ test.describe('element I: em dashes in the rooms', () => {
       test.slow();
       await page.addInitScript(() => {
         try {
-          sessionStorage.setItem('tf_loaded', '1');
           localStorage.setItem('tegridy-onboarding-seen', '1');
           localStorage.setItem('tegridy_telemetry_consent', 'denied');
           // The door sets its own skin on arrival; this is the sentinel a

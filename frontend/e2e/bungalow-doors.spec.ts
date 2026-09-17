@@ -7,7 +7,7 @@ import { BUNGALOWS } from '../src/lib/bungalows';
 // toweli (to keep every other spec picker-free), and these tests are ABOUT
 // entering bungalows, so they seed only the overlay flags and leave the
 // bungalow choice to the door under test. reducedMotion comes from
-// playwright.config (the splash self-skips).
+// playwright.config.
 //
 // The door mechanic is persist + reload-in-place, so each first visit
 // triggers one full navigation; assertions use generous timeouts and the
@@ -16,7 +16,6 @@ import { BUNGALOWS } from '../src/lib/bungalows';
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy-onboarding-bayla-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');

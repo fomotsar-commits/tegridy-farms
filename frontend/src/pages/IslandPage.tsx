@@ -117,7 +117,7 @@ export default function IslandPage() {
 
       {watching && (
         <Suspense fallback={null}>
-          <ArrivalFilm full onComplete={() => setWatching(false)} />
+          <ArrivalFilm onComplete={() => setWatching(false)} />
         </Suspense>
       )}
 

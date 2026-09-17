@@ -36,7 +36,7 @@ import { TOWELI_ADDRESS, SITE_URL, ETHERSCAN_TOKEN, GECKOTERMINAL_URL, CURVE_LAU
 import { shortenAddress } from '../lib/formatting';
 import { safeGetItem, safeSetItem } from '../lib/storage';
 import { bungalowTradeBlurb, getBungalowIdentity } from '../lib/bungalows';
-import { arrivalVoice, VENUE } from '../lib/arrival';
+import { arrivalVoice, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { VenueHero } from '../components/VenueHero';
 import { HeatCard } from '../components/HeatCard';
 import { VenueDoors } from '../components/VenueDoors';
@@ -384,6 +384,21 @@ export default function HomePage() {
                 style={{ background: 'rgba(0,0,0,0.72)', border: '1px solid rgba(76,175,80,0.55)', color: 'var(--color-kyle)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
                 Scan a token
               </Link>
+            </div>
+
+            {/* ANSWER TEN, RULING 1: the TOWELI welcome stopped opening itself, so
+                this is its door - the same quiet link, and the same event, the
+                venue hero's tour uses. Without it TOWELI's own onboarding script
+                would be unreachable, not merely unasked. */}
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event(OPEN_VENUE_WELCOME_EVENT))}
+                className="text-[12px] underline underline-offset-4 decoration-white/30 hover:decoration-white transition-colors"
+                style={{ color: 'rgba(255,255,255,0.75)' }}
+              >
+                First time here? Take the tour
+              </button>
             </div>
 
             {/* Rotating Towelie one-liner — the personality beat right next to

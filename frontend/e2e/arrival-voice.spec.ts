@@ -27,7 +27,6 @@ import { FAQ_INTRO } from '../src/lib/copy';
 async function seedOverlays(page: Page) {
   await page.addInitScript(() => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
     } catch { /* ignore */ }

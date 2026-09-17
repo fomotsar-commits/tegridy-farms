@@ -16,9 +16,9 @@
 
 import { test, expect } from './fixtures/wallet';
 
-// The walletMock fixture suppresses the AppLoader splash overlay as a side
-// effect. All tests here destructure { walletMock } so the init-script fires
-// before page.goto, even if the test doesn't actually call mock methods.
+// All tests here destructure { walletMock } so the fixture's init script (its
+// storage seeds and the mock provider) runs before page.goto, even when a test
+// never calls a mock method.
 
 test.describe('TradePage', () => {
   test('renders with disconnected-wallet gate', async ({ page, walletMock: _w }) => {

@@ -117,7 +117,6 @@ async function voiceHits(page: Page): Promise<string[]> {
 function seedVenueVisitor(page: Page, withSkin: boolean) {
   return page.addInitScript((skin) => {
     try {
-      sessionStorage.setItem('tf_loaded', '1');
       localStorage.setItem('tegridy-onboarding-seen', '1');
       localStorage.setItem('tegridy_telemetry_consent', 'denied');
       // A VENUE visitor, the "seen, chose nothing" sentinel: the ruling is about
@@ -244,7 +243,6 @@ test.describe('row Q: the route census', () => {
     test.slow();
     await page.addInitScript(() => {
       try {
-        sessionStorage.setItem('tf_loaded', '1');
         localStorage.setItem('tegridy-onboarding-seen', '1');
         localStorage.setItem('tegridy_telemetry_consent', 'denied');
         // The visitor arrives carrying the last door they walked through.
