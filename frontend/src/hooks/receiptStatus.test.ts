@@ -1,9 +1,19 @@
 /**
- * Regression suite: a REVERTED transaction must never render as success.
+ * Regression suite: a transaction's three terminal outcomes must each read as
+ * themselves — success, revert, and "we could not read the receipt".
+ *
+ * HOW WAGMI ACTUALLY DELIVERS A REVERT (measured 2026-09-17, @wagmi/core 3.6.5):
+ * it does not return one. `waitForTransactionReceipt` THROWS on
+ * `status === 'reverted'`, so a real revert arrives as `isError` with `data`
+ * undefined, the same flag as a receipt READ failure. This suite's first version
+ * modelled a revert as `isSuccess` + `data.status: 'reverted'`, a shape wagmi 3
+ * never produces, so it stayed green while every hook's revert branch was
+ * unreachable. The revert suite below now runs against BOTH shapes, the thrown
+ * one first; lib/txErrors.receipt.test.ts pins the thrown shape against the real
+ * library.
  *
  * wagmi's `useWaitForTransactionReceipt().isSuccess` means "the receipt was
- * FETCHED", not "the transaction succeeded" — an on-chain revert still mines a
- * receipt, with `receipt.status === 'reverted'`. Every money path in
+ * FETCHED", not "the transaction succeeded". Every money path in
  * useFarmActions / useLPFarming / useSwap keyed its success toast (and, via the
  * returned `isSuccess`, the confetti + receipt modal on FarmPage/TradePage) off
  * that flag alone, so a stake/withdraw/claim/swap that moved nothing showed
@@ -35,6 +45,9 @@ const wagmiState = vi.hoisted(() => ({
   receiptQuerySucceeded: false,
   receiptQueryErrored: false,
   receiptStatus: 'success' as 'success' | 'reverted',
+  // What wagmi puts on `error` when `isError` is set. The hooks tell a revert
+  // from an unreadable receipt by this alone.
+  receiptError: undefined as unknown,
   writeContractMock: null as unknown as ReturnType<typeof import('vitest').vi.fn>,
 }));
 
@@ -55,7 +68,9 @@ vi.mock('wagmi', async () => {
       data: (opts?.contracts ?? []).map(() => ({ status: 'failure' as const, error: new Error('no stub') })),
       error: undefined, isLoading: false, isError: false, refetch: vitest.fn(),
     }),
-    useBalance: () => ({ data: undefined, refetch: vitest.fn() }),
+    // Funded, so useSwap's `insufficientBalance` gate cannot be what stops a second
+    // executeSwap in the latch tests below.
+    useBalance: () => ({ data: { value: 10n ** 24n, decimals: 18, symbol: 'ETH' }, refetch: vitest.fn() }),
     usePublicClient: () => ({
       readContract: vitest.fn().mockResolvedValue(0n),
       multicall: vitest.fn().mockResolvedValue([]),
@@ -77,6 +92,7 @@ vi.mock('wagmi', async () => {
       isLoading: wagmiState.isConfirming,
       isSuccess: wagmiState.receiptQuerySucceeded,
       isError: wagmiState.receiptQueryErrored,
+      error: wagmiState.receiptQueryErrored ? wagmiState.receiptError : null,
     }),
   };
 });
@@ -139,7 +155,15 @@ vi.mock('./useSwapAllowance', () => ({
 import { useFarmActions } from './useFarmActions';
 import { useLPFarming } from './useLPFarming';
 import { useSwap } from './useSwap';
+import { useAddLiquidity } from './useAddLiquidity';
+import { useBribes } from './useBribes';
+import { useRevenueStats } from './useRevenueStats';
+import { useNFTDropV2 } from './useNFTDropV2';
+import { useRestaking } from './useRestaking';
+import { usePremiumAccess } from './usePremiumAccess';
+import { DEFAULT_TOKENS } from '../lib/tokenList';
 import { toast } from 'sonner';
+import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundError } from 'viem';
 import { trackStake, trackSwap } from '../lib/analytics';
 import { CHAIN_ID } from '../lib/constants';
 
@@ -147,13 +171,72 @@ const USER = '0xdddddddddddddddddddddddddddddddddddddddd' as `0x${string}`;
 const OTHER_HASH = '0xbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeef' as `0x${string}`;
 const HASH = '0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed' as `0x${string}`;
 
-/** Put the mock in "a receipt has come back for HASH" state. */
+/** Put the mock in "a receipt has come back for HASH" state, delivered as DATA. */
 function landReceipt(status: 'success' | 'reverted') {
   wagmiState.hash = HASH;
   wagmiState.isConfirming = false;
-  wagmiState.receiptQuerySucceeded = true; // wagmi latches this for BOTH outcomes
+  wagmiState.receiptQuerySucceeded = true;
   wagmiState.receiptQueryErrored = false;
+  wagmiState.receiptError = undefined;
   wagmiState.receiptStatus = status;
+}
+
+/**
+ * A genuine on-chain revert, in either shape it can arrive in.
+ *
+ * `thrown` is what @wagmi/core 3 does: it reads the reverted receipt, replays the
+ * tx with `call` for a reason, and THROWS the resulting CallExecutionError. `data`
+ * is the older assumption (a reverted receipt on `data`), kept because the hooks
+ * still honour it and it costs nothing to keep true.
+ */
+type RevertShape = 'thrown' | 'data';
+function landRevert(shape: RevertShape) {
+  if (shape === 'data') { landReceipt('reverted'); return; }
+  wagmiState.hash = HASH;
+  wagmiState.isConfirming = false;
+  wagmiState.receiptQuerySucceeded = false;
+  wagmiState.receiptQueryErrored = true;
+  wagmiState.receiptError = new CallExecutionError(
+    new ExecutionRevertedError({ message: 'execution reverted' }),
+    {},
+  );
+}
+
+/**
+ * Put the mock in "the receipt READ failed" state - wagmi's `isError` with a viem
+ * read error on `error`.
+ *
+ * Nothing whatever is known about what the transaction did. Measured on an anvil
+ * fork 2026-09-10 by answering every `eth_getTransactionReceipt` with
+ * `{result: null}` - an addLiquidityETH that was mined and SUCCESSFUL reported
+ * "Transaction failed". That fault throws exactly this error type.
+ */
+function landUnreadableReceipt() {
+  wagmiState.hash = HASH;
+  wagmiState.isConfirming = false;
+  wagmiState.receiptQuerySucceeded = false;
+  wagmiState.receiptQueryErrored = true;
+  wagmiState.receiptError = new TransactionReceiptNotFoundError({ hash: HASH });
+}
+
+function resetMocks() {
+  wagmiState.chainId = CHAIN_ID;
+  wagmiState.account = { address: USER, isConnected: true };
+  wagmiState.hash = undefined;
+  wagmiState.isPending = false;
+  wagmiState.isConfirming = false;
+  wagmiState.receiptQuerySucceeded = false;
+  wagmiState.receiptQueryErrored = false;
+  wagmiState.receiptError = undefined;
+  wagmiState.receiptStatus = 'success';
+  wagmiState.writeContractMock?.mockReset();
+  vi.mocked(toast.success).mockClear();
+  vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.warning).mockClear();
+  vi.mocked(toast.info).mockClear();
+  vi.mocked(trackStake).mockClear();
+  vi.mocked(trackSwap).mockClear();
+  try { window.localStorage.clear(); } catch { /* jsdom only */ }
 }
 
 const HOOKS: Array<{ name: string; use: () => { isSuccess: boolean } }> = [
@@ -162,87 +245,214 @@ const HOOKS: Array<{ name: string; use: () => { isSuccess: boolean } }> = [
   { name: 'useSwap', use: () => useSwap() },
 ];
 
-describe('reverted receipts must not render as success', () => {
-  beforeEach(() => {
-    wagmiState.chainId = CHAIN_ID;
-    wagmiState.account = { address: USER, isConnected: true };
-    wagmiState.hash = undefined;
-    wagmiState.isPending = false;
-    wagmiState.isConfirming = false;
-    wagmiState.receiptQuerySucceeded = false;
-    wagmiState.receiptQueryErrored = false;
-    wagmiState.receiptStatus = 'success';
-    wagmiState.writeContractMock?.mockReset();
-    vi.mocked(toast.success).mockClear();
-    vi.mocked(toast.error).mockClear();
-    vi.mocked(toast.info).mockClear();
-    vi.mocked(trackStake).mockClear();
-    vi.mocked(trackSwap).mockClear();
-    try { window.localStorage.clear(); } catch { /* jsdom only */ }
+/** Every surface whose receipt handling this file pins. */
+const ALL_HOOKS: Array<{ name: string; use: () => { isSuccess: boolean } }> = [
+  ...HOOKS,
+  { name: 'useAddLiquidity', use: () => useAddLiquidity(DEFAULT_TOKENS[0], DEFAULT_TOKENS[1]) },
+  { name: 'useBribes', use: () => useBribes() },
+  { name: 'useRevenueStats', use: () => useRevenueStats() },
+  { name: 'useNFTDropV2', use: () => useNFTDropV2('0x00000000000000000000000000000000000d7009') },
+  { name: 'useRestaking', use: () => useRestaking() },
+  { name: 'usePremiumAccess', use: () => usePremiumAccess() },
+];
+
+const SHAPES: Array<{ shape: RevertShape; label: string }> = [
+  { shape: 'thrown', label: 'thrown by wagmi (how wagmi 3 delivers it)' },
+  { shape: 'data', label: "delivered as data.status 'reverted'" },
+];
+
+for (const { shape, label } of SHAPES) {
+  describe(`reverted receipts must not render as success — ${label}`, () => {
+    beforeEach(resetMocks);
+
+    for (const { name, use } of HOOKS) {
+      it(`${name}: a revert does NOT report success`, () => {
+        landRevert(shape);
+        const { result } = renderHook(use);
+        expect(result.current.isSuccess).toBe(false);
+      });
+
+      it(`${name}: a revert fires no success toast`, () => {
+        landRevert(shape);
+        renderHook(use);
+        expect(toast.success).not.toHaveBeenCalled();
+      });
+
+      it(`${name}: a revert surfaces an actionable error`, () => {
+        landRevert(shape);
+        renderHook(use);
+        expect(toast.error).toHaveBeenCalled();
+        const [, opts] = vi.mocked(toast.error).mock.calls[0] as [string, Record<string, unknown> | undefined];
+        // "Actionable" = the user is given somewhere to go (explorer link) and
+        // told what to do next, not just a dead-end "failed".
+        expect(opts?.action).toBeTruthy();
+        expect(typeof opts?.description).toBe('string');
+        expect((opts?.description as string).length).toBeGreaterThan(0);
+      });
+    }
+
+    // Every surface, not just the three above: a revert says REVERTED and never
+    // borrows the unconfirmed copy. "We can't tell whether it went through" is
+    // false about a receipt we read, and the honest advice there is the opposite:
+    // nothing moved, so fixing it and trying again is safe.
+    for (const { name, use } of ALL_HOOKS) {
+      it(`${name}: a revert gets the revert message, not the unconfirmed one`, () => {
+        landRevert(shape);
+        renderHook(use);
+        expect(toast.warning, 'a revert was told it could not be confirmed').not.toHaveBeenCalled();
+        const titles = vi.mocked(toast.error).mock.calls.map(([msg]) => String(msg));
+        expect(
+          titles.some((t) => /revert/i.test(t)),
+          `no toast said the transaction reverted. Toasts: ${JSON.stringify(titles)}`,
+        ).toBe(true);
+        expect(titles.filter((t) => /^transaction failed/i.test(t))).toEqual([]);
+      });
+    }
+
+    it('useFarmActions: a reverted stake is not sent to analytics — now or later', () => {
+      const { result, rerender } = renderHook(() => useFarmActions());
+      // Put a real stake in flight so pendingStakeRef is populated.
+      act(() => result.current.stake('10', 86400n));
+      expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1);
+
+      landRevert(shape);
+      rerender();
+      expect(trackStake).not.toHaveBeenCalled();
+
+      // …and the dead stake must not be resurrected by the NEXT tx that succeeds.
+      landReceipt('success');
+      wagmiState.hash = OTHER_HASH;
+      rerender();
+      expect(trackStake).not.toHaveBeenCalled();
+    });
+
+    it('useSwap: a reverted swap is not sent to analytics', () => {
+      landRevert(shape);
+      renderHook(() => useSwap());
+      expect(trackSwap).not.toHaveBeenCalled();
+    });
+
+    it('useFarmActions / useSwap: a reverted receipt is also an error state', () => {
+      landRevert(shape);
+      const farm = renderHook(() => useFarmActions());
+      expect(farm.result.current.isTxError).toBe(true);
+      const swap = renderHook(() => useSwap());
+      expect(swap.result.current.isTxError).toBe(true);
+    });
   });
+}
 
+describe('a successful receipt still reports success', () => {
+  beforeEach(resetMocks);
+
+  // Control: the fix must not be "never succeed".
   for (const { name, use } of HOOKS) {
-    it(`${name}: receipt.status 'reverted' does NOT report success`, () => {
-      landReceipt('reverted');
-      const { result } = renderHook(use);
-      expect(result.current.isSuccess).toBe(false);
-    });
-
-    it(`${name}: receipt.status 'reverted' fires no success toast`, () => {
-      landReceipt('reverted');
-      renderHook(use);
-      expect(toast.success).not.toHaveBeenCalled();
-    });
-
-    it(`${name}: receipt.status 'reverted' surfaces an actionable error`, () => {
-      landReceipt('reverted');
-      renderHook(use);
-      expect(toast.error).toHaveBeenCalled();
-      const [, opts] = vi.mocked(toast.error).mock.calls[0] as [string, Record<string, unknown> | undefined];
-      // "Actionable" = the user is given somewhere to go (explorer link) and
-      // told what to do next, not just a dead-end "failed".
-      expect(opts?.action).toBeTruthy();
-      expect(typeof opts?.description).toBe('string');
-      expect((opts?.description as string).length).toBeGreaterThan(0);
-    });
-
-    // Control: the fix must not be "never succeed".
     it(`${name}: receipt.status 'success' still reports success`, () => {
       landReceipt('success');
       const { result } = renderHook(use);
       expect(result.current.isSuccess).toBe(true);
       expect(toast.success).toHaveBeenCalled();
       expect(toast.error).not.toHaveBeenCalled();
+      expect(toast.warning).not.toHaveBeenCalled();
+    });
+  }
+});
+
+/**
+ * THE SAME MISTAKE, INVERTED - and the more expensive direction.
+ *
+ * The suites above pin "a revert must not render as success". This one pins the
+ * mirror: A RECEIPT WE COULD NOT READ MUST NOT RENDER AS FAILED.
+ *
+ * Every hook here surfaced wagmi's `isError` as "Transaction failed" (useSwap as
+ * nothing at all). "Failed" is an instruction: it tells the user to send it again,
+ * and on an add, a stake or a swap that pays twice. Nor may it say the transaction
+ * "may have succeeded": a real revert whose receipt read also failed lands here
+ * too (measured, see lib/txErrors.ts). The only honest statement is that we
+ * cannot tell.
+ *
+ * Reproducible end to end: e2e/liquidity.spec.ts, e2e/stake.spec.ts and
+ * e2e/swap.spec.ts drive this branch on an anvil fork via `blindReceiptReads` and
+ * assert the transaction SUCCEEDED on chain while the app was told nothing.
+ *
+ *   receipt read failed  =>  no toast claiming failure, revert or success
+ *                        /\  a warning that says we cannot tell
+ *                        /\  somewhere to go and check (explorer action + hash)
+ *                        /\  hook.isSuccess === false
+ */
+describe('an unreadable receipt must not render as failure', () => {
+  beforeEach(resetMocks);
+
+  for (const { name, use } of ALL_HOOKS) {
+    it(name + ': an unreadable receipt is never called a failure', () => {
+      landUnreadableReceipt();
+      renderHook(use);
+      const claims = vi.mocked(toast.error).mock.calls.map(([msg]) => String(msg));
+      expect(
+        claims.filter((m) => /fail|revert|reject/i.test(m)),
+        'the hook claimed the transaction failed, but all that failed was our read of ' +
+          'the receipt. That claim is an instruction to resend, and a resend pays twice.',
+      ).toEqual([]);
+    });
+
+    it(name + ': an unreadable receipt says we cannot tell, with somewhere to check', () => {
+      landUnreadableReceipt();
+      renderHook(use);
+      const calls = vi.mocked(toast.warning).mock.calls;
+      expect(calls.length, 'the hook said nothing at all about a terminal transaction').toBeGreaterThan(0);
+      const [title, opts] = calls[0] as [string, Record<string, unknown> | undefined];
+      expect(title).toMatch(/(couldn.?t|could not|cannot|unable to) confirm/i);
+      const description = String(opts?.description ?? '');
+      expect(description, 'no description - "we could not confirm it" alone is a dead end').not.toBe('');
+      expect(
+        description,
+        'the copy does not say the outcome is unknown, so it still reads as a verdict',
+      ).toMatch(/can.?t tell whether it went through/i);
+      expect(
+        description,
+        'the copy claims the transaction may have SUCCEEDED - false for a revert whose receipt read also failed',
+      ).not.toMatch(/succeeded/i);
+      expect(
+        description,
+        'the copy does not warn the user to check before resending - the entire point of this branch',
+      ).toMatch(/before you send it again/i);
+      expect(description, 'the copy does not name WHICH transaction to check').toMatch(/0x[0-9a-fA-F]{6,}/);
+      expect(opts?.action, 'no explorer action - nowhere for the user to go and read it themselves').toBeTruthy();
+    });
+
+    it(name + ': an unreadable receipt is not a success either', () => {
+      landUnreadableReceipt();
+      const { result } = renderHook(use);
+      expect(result.current.isSuccess).toBe(false);
+      expect(toast.success).not.toHaveBeenCalled();
     });
   }
 
-  it('useFarmActions: a reverted stake is not sent to analytics — now or later', () => {
-    const { result, rerender } = renderHook(() => useFarmActions());
-    // Put a real stake in flight so pendingStakeRef is populated.
-    act(() => result.current.stake('10', 86400n));
-    expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1);
+  // THE DEAD SWAP BUTTON. `isPendingRef` is a ref, so a latch left set re-renders
+  // nothing: the button stays enabled and every click returns at executeSwap's first
+  // line. Pinned by behaviour — a second executeSwap must reach writeContract.
+  for (const [label, land] of [
+    ['an unreadable receipt', landUnreadableReceipt],
+    ['a thrown revert', () => landRevert('thrown')],
+  ] as const) {
+    it(`useSwap: after ${label}, the next swap is actually sent`, () => {
+      const { result, rerender } = renderHook(() => useSwap());
+      act(() => result.current.setInputAmount('0.01'));
+      act(() => result.current.executeSwap());
+      expect(wagmiState.writeContractMock, 'the first swap never reached writeContract').toHaveBeenCalledTimes(1);
 
-    landReceipt('reverted');
-    rerender();
-    expect(trackStake).not.toHaveBeenCalled();
+      land();
+      rerender();
+      act(() => result.current.executeSwap());
+      expect(
+        wagmiState.writeContractMock,
+        'the second swap was swallowed: the in-flight latch was never released',
+      ).toHaveBeenCalledTimes(2);
+    });
+  }
 
-    // …and the dead stake must not be resurrected by the NEXT tx that succeeds.
-    wagmiState.hash = OTHER_HASH;
-    wagmiState.receiptStatus = 'success';
-    rerender();
-    expect(trackStake).not.toHaveBeenCalled();
-  });
-
-  it('useSwap: a reverted swap is not sent to analytics', () => {
-    landReceipt('reverted');
-    renderHook(() => useSwap());
-    expect(trackSwap).not.toHaveBeenCalled();
-  });
-
-  it('useFarmActions / useSwap: a reverted receipt is also an error state', () => {
-    landReceipt('reverted');
-    const farm = renderHook(() => useFarmActions());
-    expect(farm.result.current.isTxError).toBe(true);
+  it('useSwap: an unreadable receipt is an error state for the page', () => {
+    landUnreadableReceipt();
     const swap = renderHook(() => useSwap());
     expect(swap.result.current.isTxError).toBe(true);
   });
