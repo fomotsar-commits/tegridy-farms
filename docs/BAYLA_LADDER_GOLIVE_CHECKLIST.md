@@ -1,6 +1,7 @@
 # BAYLA ladder — mainnet go-live checklist
 
-**Status as of 2026-09-15: NOT READY. Do not move SOL yet.**
+**Status as of 2026-09-17: NOT READY. Do not move SOL yet.** (Updated 09-17: the devnet
+`withdraw_matured` precondition is now DONE — §3. The two hard gates in §1 and §2 are unchanged.)
 
 This is the sequenced answer to "are we ready to load SOL, load the rewards, and get staking".
 It is a companion to `solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md`, not a replacement:
@@ -87,12 +88,12 @@ than trusting the marker file, and move `OneDrive\Desktop\faucet\` out of the sy
 
 ## 2. 🔴 HARD GATE — the runbook's own go/no-go is unsatisfied
 
-`BAYLA_LADDER_MAINNET_RUNBOOK.md:14-27` is an explicit precondition list — *"all of them,
-before anything costs SOL."* **Five of seven boxes are unchecked**, including:
+`BAYLA_LADDER_MAINNET_RUNBOOK.md:13-30` is an explicit precondition list — *"all of them,
+before anything costs SOL."* **Four of seven boxes are unchecked** (it was five until
+2026-09-17, when the devnet `withdraw_matured` box was ticked with evidence — §3):
 
 - the external audit report being in, with every fix merged — its *"write the hash here:
   `________`"* line is still literally blank;
-- `withdraw_matured` having executed on devnet (see §3);
 - both keyfiles backed up offline (see §1);
 - a keyed mainnet RPC;
 - ~3 SOL in the deployer.
@@ -108,7 +109,7 @@ The internal audit's own sequencing verdict was **devnet → external audit → 
 
 **Owner action:** state where the external audit actually stands — engaged, scoped, in
 progress, or not started. If a report exists, commit it and write the signed-off commit hash
-into the blank at `:17`. If it is not in, deploying means overriding the repo's own stated
+into the blank at `:16`. If it is not in, deploying means overriding the repo's own stated
 gate, which is what happened on 2026-08-08 and cost two program ids. That is a decision you are
 entitled to make — but make it explicitly, in writing, rather than by omission.
 
@@ -116,11 +117,15 @@ entitled to make — but make it explicitly, in writing, rather than by omission
 
 ## 3. Do these now — they are ready, cost nothing, and shorten the critical path
 
-- [ ] **Run `withdraw_matured` on devnet — position `#2` unlocks 2026-09-16 09:57:21 UTC.** This is the ordinary
-      exit every staker will use and **it has never executed on any cluster**. Devnet position
-      #2 was opened at the 7-day minimum on 09-09 specifically so it would mature on the 16th.
-      Exact command: `docs/TODO_OPERATOR.md:49-62` (O-0909-1). Dry-run, then `--broadcast`;
-      expect the full 500 back with **no** penalty. Signable today with a key we hold.
+- [x] **Run `withdraw_matured` on devnet — ✅ DONE 2026-09-17.** The ordinary exit every
+      staker will use had never executed on any cluster; it now has. Finalized tx
+      `4AYtGTnHvSV3bCuaq4nhQPSLnvbc6pnJJfaNY7SqC2FeR2QYQK3ukdwJbAzFjEXNynWYxpBHP9pgRkPYSyAZWeAf`,
+      read back on chain: **500 returned, penalty 0**, `penalty_collected_cumulative`
+      **250 → 250**, `total_principal` **1,000 → 500**, and the `rewards_paid` delta equals the
+      `RewardPaid` amount to the raw unit. Full table and the corrected command in
+      `docs/TODO_OPERATOR.md` O-0909-1 — **the command previously recorded there did not run**:
+      it omitted `--program` (devnet id `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK`,
+      verified on chain as the pool's owner).
 - [ ] **Download the mainnet artifact and verify its hash.** 27 days on the clock.
       ⚠️ The only `.so` on this machine today is the **devnet** one
       (`3e1b2b7b…`), and the two binaries are the same size — verify by **hash**, never by
@@ -174,6 +179,29 @@ un-emitted tail into a new rate:
 So a *small* top-up 80 days in takes the ~10 days of budget still to run and re-spreads it over
 a fresh 90 — **lowering** the instantaneous rate. Top-ups are not free; size them deliberately.
 
+### ⚠️ Do not size a top-up from `read`'s "outstanding owed" — it is stale
+
+Found running the devnet test on 2026-09-17. `rewards_emitted` is banked **lazily**, only when
+an instruction runs `checkpoint()`, and the ops `read` command prints
+`rewards_emitted − rewards_paid` as "outstanding owed". On a quiet pool that leaves out every
+second of emission since the last interaction.
+
+Measured: the devnet pool had not been touched since 2026-09-09 09:57:24. `read` said
+**0.019 BAYLA** owed; the true liability was **~4,275 BAYLA** — 7.70 days of un-banked
+emission. The dry run's 1,995-BAYLA payout looked like a ~100,000× overpay until the pool
+account was decoded, at which point it reconciled to within 0.012% of position #2's 46.68%
+weight share.
+
+**The program is safe** — `notify_reward` calls `checkpoint()` before computing `outstanding`
+and before both solvency `require!`s (`lib.rs:752`, checkpoint at `:763`), so the on-chain
+guard always sees the real liability. The risk is purely an operator misreading the display
+when deciding how much to top up, or whether the vault is covered. Use instead:
+
+`rewards_emitted + reward_rate × (min(now, period_finish) − last_update_time) − rewards_paid`
+
+(Straight after `init-pool` nothing has emitted, so the runbook §7 `read` is accurate there.
+Correcting the display itself is an ops-script change, not made here.)
+
 ### Two pool parameters are permanent
 
 `deposit_cap` and the early-exit penalty have no setter (`math.rs:72-75`). The cap can only be
@@ -191,7 +219,7 @@ Nothing here is runnable until §1 and §2 are resolved.
 |---|---|---|---|
 | 1 | Resolve key custody | — | §1. Rotate or accept, in writing |
 | 2 | Resolve audit scope | — | §2 |
-| 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | §3, ready today |
+| 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | ✅ **done 2026-09-17** — §3 |
 | 4 | Fund the deployer ~3 SOL | — | ~2.62 needed; **`GCCSLE7d…`**, never `5MtoeJ8D…` |
 | 5 | `solana config set` → mainnet | — | CLI is on **devnet** right now |
 | 6 | `solana program deploy` | program keypair **+ fee payer** | fee payer becomes initial upgrade authority |

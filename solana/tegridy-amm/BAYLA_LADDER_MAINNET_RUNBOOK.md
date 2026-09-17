@@ -14,9 +14,11 @@ permanent, and the program's deployer is compiled into the binary.
 
 - [ ] **The external audit report is in and every fix is merged.** Deploy the exact
       commit the auditor signed off on. Tag it (§4) and write the hash here: `________`
-- [ ] **`withdraw_matured` has executed on devnet.** It is the only principal path never
-      run. Position `#2` unlocks **2026-09-16 09:57:21 UTC** (read off chain 2026-09-11);
-      the command is in the devnet runbook.
+- [x] **`withdraw_matured` has executed on devnet.** Done **2026-09-17**, finalized, tx
+      `4AYtGTnHvSV3bCuaq4nhQPSLnvbc6pnJJfaNY7SqC2FeR2QYQK3ukdwJbAzFjEXNynWYxpBHP9pgRkPYSyAZWeAf`:
+      500 back, penalty 0, `penalty_collected_cumulative` unchanged, accounting reconciled
+      to the raw unit. Evidence and the working command (the one recorded before omitted
+      `--program`) are in `docs/TODO_OPERATOR.md` O-0909-1.
 - [ ] **Both keyfiles are backed up offline** — the program keyfile and the deployer's.
       Not to OneDrive or any cloud folder in plaintext.
 - [x] **The upgrade authority is decided** (§3), 2026-09-12: the venue's **existing Squads v4
@@ -270,6 +272,15 @@ node scripts\bayla-ladder-ops.mjs notify --pool <POOL> --amount <WHOLE-BAYLA> --
   **7.776 BAYLA** the rate rounds to zero, and the program refuses (`RewardRateTooSmall`).
 - The tokens come from the authority's own BAYLA account.
 - Funding may come last: the card shows an empty reward vault as a labelled real zero.
+- ⚠️ **Before any LATER top-up, do not read solvency off `read`'s "outstanding owed".**
+  `rewards_emitted` is banked only when an instruction runs `checkpoint()`, so on a quiet
+  pool that line omits every second of emission since the last interaction. Measured on
+  devnet 2026-09-17: it showed **0.019 BAYLA** owed against a true **~4,275 BAYLA**. The
+  program itself is safe — `notify_reward` checkpoints before its solvency checks — but an
+  operator sizing a top-up from that number would be off by the whole accrual. Compute
+  `rewards_emitted + reward_rate × (min(now, period_finish) − last_update_time) −
+  rewards_paid` instead. (Right after `init-pool` in §7 nothing has emitted yet, so the
+  `read` there is accurate.)
 
 ---
 

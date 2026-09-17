@@ -46,20 +46,51 @@ real transactions. Full record, with the measured compute and the reconciled acc
 Eight of fifteen instructions executed on chain. Accounting reconciled to the last digit.
 The 0.40x floor rung and the 25% hatch penalty both moved from claim to measurement.
 
-### 🔴 O-0909-1 — DATED: run `withdraw_matured` on **2026-09-16**
+### ✅ O-0909-1 — DONE 2026-09-17: `withdraw_matured` executed on devnet
 
-It is the ONLY principal path that has never executed anywhere. Position `#2` was opened
-at the 7-day minimum on 2026-09-09 specifically so it would mature on the 16th:
+It was the ONLY principal path that had never executed anywhere. Position `#2` was opened
+at the 7-day minimum on 2026-09-09 specifically so it would mature on the 16th. It ran on
+2026-09-17, finalized, tx
+`4AYtGTnHvSV3bCuaq4nhQPSLnvbc6pnJJfaNY7SqC2FeR2QYQK3ukdwJbAzFjEXNynWYxpBHP9pgRkPYSyAZWeAf`
+(slot 499599875, 25,314 CU — identical to the simulation). Read back on chain, not taken
+from the CLI's success line:
+
+| check | expected | on chain |
+|---|---|---|
+| `Withdrawn.amount` | 500 | **500.000000** |
+| `Withdrawn.penalty` / `emergency` | 0 / false | **0 / false** |
+| `penalty_collected_cumulative` | unchanged | **250 → 250** |
+| `total_principal` | −500 | **1,000 → 500** |
+| `total_weighted` | −#2's weight | **−200,000,000** (the 0.40× rung) |
+| `rewards_paid` delta | = `RewardPaid.amount` | **1,995.875081 = 1,995.875081** |
+
+`withdraw_matured` also CLAIMS in the same instruction — that is why it makes two
+`TransferChecked` calls and emits `RewardPaid` beside `Withdrawn`. The 1,995 BAYLA is devnet
+test funding, not an APR signal.
+
+**The command as it was written here did not run** — it omitted `--program`, and the CLI
+refuses without it (`--program <id> (or BAYLA_LADDER_PROGRAM) is required`). The devnet
+program id was verified on chain rather than assumed: it is executable, and it is the owner
+of pool `2RJNUuj3…`. The working command:
 
 ```bash
 cd frontend
-node scripts/bayla-ladder-ops.mjs exit --pool 2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4   --nonce 2 --keypair C:/Users/jimbo/solana-keys/devnet-deploy.json
+node scripts/bayla-ladder-ops.mjs exit --program HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK --pool 2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4 --nonce 2 --keypair C:/Users/jimbo/solana-keys/devnet-deploy.json
 # dry run first; add --broadcast. NO --early: the point is the FREE matured door.
 ```
 
-Expect the full 500 back with **no** penalty, and `penalty_collected_cumulative`
-unchanged. **This cannot be automated from a cloud runner** — it needs the operator's
-local signing key. Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
+⚠️ **The `read` command's "outstanding owed" is STALE — do not size a top-up or judge
+solvency from it.** `rewards_emitted` is banked lazily, only when an instruction runs
+`checkpoint()`. Nobody had touched this pool since 2026-09-09 09:57:24, so `read` reported
+**0.019 BAYLA** owed while the true liability was **~4,275 BAYLA** — 7.70 days of un-banked
+emission. The dry run's 1,995-BAYLA payout looked like a 100,000× overpay until the pool
+account was decoded; it reconciled to within 0.012% of position #2's 46.68% weight share.
+The PROGRAM is safe: `notify_reward` calls `checkpoint()` before it computes `outstanding`
+and before both solvency `require!`s (`lib.rs:752`, checkpoint at `:763`). Only the off-chain
+display is wrong. Live liability ≈ `rewards_emitted + reward_rate × (min(now, period_finish)
+− last_update_time) − rewards_paid`.
+
+Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
 
 ### 🔴 O-0909-2 — the devnet upgrade authority is a key Claude generated
 
