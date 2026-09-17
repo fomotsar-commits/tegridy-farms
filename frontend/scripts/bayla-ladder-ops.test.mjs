@@ -1625,3 +1625,322 @@ describe('program error codes', () => {
     expect(simErrorName('AccountNotFound', [ladder])).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW FIXES: guards that had no test, the read verdicts, the blind-exit broadcast
+// guard, and `notify --preview`. Each test below was run against a mutation of the code
+// it guards and went red; the mutation list is in the commit message.
+// ─────────────────────────────────────────────────────────────────────────────
+import {
+  solvencyVerdicts, unpreviewedExitProblem, notifyMode, notifyPreviewLines, notifyCommand,
+} from './bayla-ladder-ops.mjs';
+
+/** The rustc vector with a day of emission un-banked: stored owed 4,000,000 raw, live 90,400,000. */
+const UNBANKED = RUST.checkpoint.find((c) => c[0] === 'live outstanding: a day un-banked');
+const UNBANKED_NOW = BigInt(UNBANKED[2][0]);
+const CLI_SRC = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
+/** One `case '<name>': { ... }` of main(), up to the next case. */
+const caseBlock = (name) => {
+  const start = CLI_SRC.indexOf(`    case '${name}': {`);
+  expect(start, `case '${name}' not found in main()`).toBeGreaterThan(-1);
+  const end = CLI_SRC.slice(start + 1).search(/\n {4}(case '|default:)/);
+  return CLI_SRC.slice(start, start + 1 + end);
+};
+
+describe('notify preview — the guards that had no test', () => {
+  it('EmissionExceedsFunding is judged on the LIVE liability: stored owed fits the vault, live owed does not', () => {
+    const pool = poolOf(UNBANKED[1]);
+    const l = liveLedger(pool, UNBANKED_NOW);
+    const vault = 49_000_000n;
+    const amount = 1_000_000n; // the vault after the transfer holds 50,000,000 raw
+    expect(UNBANKED_NOW < pool.periodFinish).toBe(true);
+    expect(l.unbanked).toBeGreaterThan(0n);
+    expect(l.storedOutstanding).toBeLessThanOrEqual(vault + amount);
+    expect(l.liveOutstanding).toBeGreaterThan(vault + amount);
+    const pv = notifyPreview({ pool, now: UNBANKED_NOW, rewardVaultRaw: vault, amount, fromBudget: 0n });
+    // lib.rs notify_reward checkpoints FIRST, so this is the first error it raises.
+    expect(programVerdict(pv)).toBe('EmissionExceedsFunding');
+    expect(pv.problems[0].code).toBe(6020);
+    expect(pv.outstanding).toBe(l.liveOutstanding);
+  });
+
+  it('--from-budget max refuses when rewards_paid exceeds LIVE rewards_emitted (the L-4 anomaly)', () => {
+    const pool = poolOf(UNBANKED[1]);
+    const live = liveLedger(pool, UNBANKED_NOW).liveEmitted;
+    const args = parseArgs(['notify', '--pool', 'X', '--amount', '0', '--from-budget', 'max']);
+    const snap = (paid) => ({
+      pool: { ...pool, rewardsPaid: paid }, now: UNBANKED_NOW,
+      rewardVault: { ok: true, value: { amount: 1_000_000_000_000n } },
+    });
+    expect(() => resolveNotifyAmounts(args, snap(live + 1n))).toThrow(/L-4 anomaly/);
+    // Paid equal to the LIVE figure (though far above the stored one) is not an anomaly.
+    expect(pool.rewardsEmitted).toBeLessThan(live);
+    expect(resolveNotifyAmounts(args, snap(live))).toMatchObject({ max: true });
+  });
+
+  it('a schedule beyond u64 is refused, whether one argument or only the sum overflows', () => {
+    const idle = poolOf(['100000000', '40000000', '0', '0', '1000000', '0', '0', '0', '0', '0']);
+    const overflow = (amount, fromBudget) =>
+      notifyPreview({ pool: idle, now: 1_000_000n, rewardVaultRaw: 0n, amount, fromBudget })
+        .problems.filter((x) => x.code === null && /exceeds u64/.test(x.text));
+    expect(overflow(2n ** 64n, 0n)).toHaveLength(1);
+    expect(overflow(2n ** 64n - 1n, 1n)).toHaveLength(1);
+    expect(overflow(2n ** 64n - 1n, 0n)).toEqual([]);
+  });
+
+  it('RewardTooHigh landing drift: ok at chain now and refused a second later, so it is a RISK, not a problem', () => {
+    const now = RUST.notify.find((r) => r[0] === 'drift: zero-margin max at preview time');
+    const later = RUST.notify.find((r) => r[0] === 'drift: zero-margin max one second later');
+    // rustc: the SAME pool, vault and schedule, one second apart.
+    expect([now[1], now[2], now[3], now[4]]).toEqual([later[1], later[2], later[3], later[4]]);
+    expect([now[6], later[6], BigInt(later[5]) - BigInt(now[5])]).toEqual(['ok', 'RewardTooHigh', 1n]);
+    const pool = poolOf(now[1]);
+    const pv = notifyPreview({
+      pool, now: BigInt(now[5]), rewardVaultRaw: BigInt(now[2]), amount: BigInt(now[3]), fromBudget: BigInt(now[4]),
+    });
+    expect(pv.problems).toEqual([]);
+    expect(pv.risks).toHaveLength(1);
+    expect(pv.risks[0]).toMatch(/RewardTooHigh/);
+    expect(pv.risks[0]).toContain(`within ${driftBound(pool)} raw units`);
+  });
+
+  it('rewards_paid above LIVE rewards_emitted is a RISK; above only the stored figure it is not', () => {
+    const pool = poolOf(UNBANKED[1]);
+    const live = liveLedger(pool, UNBANKED_NOW).liveEmitted;
+    const l4 = (paid) => notifyPreview({
+      pool: { ...pool, rewardsPaid: paid }, now: UNBANKED_NOW,
+      rewardVaultRaw: 1_000_000_000_000n, amount: 10_000_000_000n, fromBudget: 0n,
+    }).risks.filter((r) => /L-4 anomaly/.test(r));
+    expect(l4(live + 1n)).toHaveLength(1);
+    expect(l4(live)).toEqual([]);
+  });
+});
+
+describe('read — the I-1 and I-4 solvency verdicts', () => {
+  const pool = poolOf(UNBANKED[1], { totalPrincipal: 500_000_000n });
+  const bal = (amount) => ({ ok: true, value: { amount } });
+  const gone = { ok: false, reason: 'missing — no account at that address' };
+  const verdicts = (stakeVault, rewardVault) => {
+    const v = solvencyVerdicts(pool, UNBANKED_NOW, { stakeVault, rewardVault });
+    return {
+      exitCode: v.exitCode,
+      by: Object.fromEntries(v.rows.map((r) => [r.invariant, r.verdict])),
+      text: v.rows.flatMap((r) => r.lines).join('\n'),
+    };
+  };
+
+  it('an unreadable vault is UNVERIFIED and exits 1 — an outage is never a pass', () => {
+    const s = verdicts(gone, bal(1_000_000_000_000n));
+    expect(s.by).toEqual({ 'I-1': 'UNVERIFIED', 'I-4': 'HOLDS' });
+    expect(s.exitCode).toBe(1);
+    expect(s.text).toContain('INVARIANT I-1 UNVERIFIED: the stake vault could not be read');
+    const r = verdicts(bal(500_000_000n), gone);
+    expect(r.by).toEqual({ 'I-1': 'HOLDS', 'I-4': 'UNVERIFIED' });
+    expect(r.exitCode).toBe(1);
+    expect(r.text).toContain('INVARIANT I-4 UNVERIFIED: the reward vault could not be read');
+    expect(verdicts(undefined, undefined)).toMatchObject({ by: { 'I-1': 'UNVERIFIED', 'I-4': 'UNVERIFIED' }, exitCode: 1 });
+  });
+
+  it('live owed above the reward vault is BROKEN and exits 1, although the STORED owed fits', () => {
+    const l = liveLedger(pool, UNBANKED_NOW);
+    const vault = 50_000_000n;
+    expect(l.storedOutstanding).toBeLessThanOrEqual(vault);
+    expect(l.liveOutstanding).toBeGreaterThan(vault);
+    const s = verdicts(bal(500_000_000n), bal(vault));
+    expect(s.by).toEqual({ 'I-1': 'HOLDS', 'I-4': 'BROKEN' });
+    expect(s.exitCode).toBe(1);
+    expect(s.text).toContain('50 held vs 90.4 owed at chain now');
+  });
+
+  it('a stake vault below total_principal is BROKEN and exits 1', () => {
+    const s = verdicts(bal(499_999_999n), bal(1_000_000_000_000n));
+    expect(s.by).toEqual({ 'I-1': 'BROKEN', 'I-4': 'HOLDS' });
+    expect(s.exitCode).toBe(1);
+  });
+
+  it('both hold at the exact boundary, and only then is the exit code 0', () => {
+    const s = verdicts(bal(500_000_000n), bal(90_400_000n));
+    expect(s.by).toEqual({ 'I-1': 'HOLDS', 'I-4': 'HOLDS' });
+    expect(s.exitCode).toBe(0);
+    expect(s.text).toContain('unpledged budget');
+  });
+
+  it('`read` prints these rows and exits with their code', () => {
+    const block = caseBlock('read');
+    expect(block).toContain('solvencyVerdicts(p, snap.now, { stakeVault: sv, rewardVault: rv })');
+    expect(block).toMatch(/if \(solvency\.exitCode\) process\.exitCode = solvency\.exitCode;/);
+  });
+});
+
+describe('exit and hatch never BROADCAST a penalty nobody previewed', () => {
+  it('an unreadable position refuses --broadcast', () => {
+    for (const pos of [{ ok: false, reason: 'missing' }, undefined, null, { ok: 'yes' }]) {
+      expect(unpreviewedExitProblem(true, pos), JSON.stringify(pos))
+        .toMatch(/refusing to broadcast an exit whose penalty could not be previewed/);
+    }
+  });
+
+  it('a dry run of an unreadable position is still allowed, and a readable one may broadcast', () => {
+    expect(unpreviewedExitProblem(false, { ok: false, reason: 'missing' })).toBeNull();
+    expect(unpreviewedExitProblem(true, { ok: true, value: {} })).toBeNull();
+  });
+
+  it('both commands throw on it BEFORE anything is built', () => {
+    for (const cmd of ['exit', 'hatch']) {
+      const block = caseBlock(cmd);
+      const m = /const (\w+) = unpreviewedExitProblem\(broadcast, pos\);\s*if \(\1\) throw new Error\(\1\);/.exec(block);
+      expect(m, `${cmd}: the guard must be called with the real broadcast flag and thrown`).not.toBeNull();
+      expect(m.index, `${cmd}: guard before ensureAta`).toBeLessThan(block.indexOf('ensureAta('));
+      expect(m.index, `${cmd}: guard before submit`).toBeLessThan(block.indexOf('submit('));
+    }
+  });
+});
+
+describe('notify --preview — no keypair, nothing built, and never with --broadcast', () => {
+  const argv = (...a) => parseArgs(['notify', '--pool', 'X', '--amount', '1', ...a]);
+
+  it('--preview with --broadcast is refused, in either order', () => {
+    expect(() => notifyMode(argv('--preview', '--broadcast'))).toThrow(/--preview never sends/);
+    expect(() => notifyMode(argv('--broadcast', '--preview'))).toThrow(/--preview never sends/);
+  });
+
+  it('--preview needs no keypair; without it notify still does', () => {
+    expect(notifyMode(argv('--preview'))).toEqual({ preview: true, needsKeypair: false });
+    expect(notifyMode(argv())).toEqual({ preview: false, needsKeypair: true });
+    expect(notifyMode(argv('--keypair', 'k.json', '--broadcast'))).toEqual({ preview: false, needsKeypair: true });
+  });
+
+  it('a VALUE on --preview is refused, never read as "not a preview" and routed to the signing path', () => {
+    expect(() => notifyMode(argv('--preview', 'yes', '--broadcast'))).toThrow(/--preview takes no value/);
+    expect(() => notifyMode(argv('--preview', 'false'))).toThrow(/--preview takes no value/);
+  });
+
+  // The command itself, against an RPC that can ONLY read the snapshot: a blockhash fetch,
+  // a simulation or a send would throw "is not a function". The pool is the notify
+  // describe's base: 1000/s, 1,000,000s left, 20,000 tokens in the reward vault.
+  const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+  const AUTHORITY = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK'); // stands in for a Squads vault
+  const POOL = poolPda(PROGRAM, MINT, 0);
+  const u128le = (d, v, o) => { d.writeBigUInt64LE(v & ((1n << 64n) - 1n), o); d.writeBigUInt64LE(v >> 64n, o + 8); };
+  const poolAccount = () => {
+    const d = Buffer.alloc(POOL_L.SIZE);
+    Buffer.from(ACCT.Pool).copy(d, 0);
+    MINT.toBuffer().copy(d, POOL_L.mint);
+    TOKEN_2022.toBuffer().copy(d, POOL_L.tokenProgram);
+    d[POOL_L.decimals] = 6;
+    AUTHORITY.toBuffer().copy(d, POOL_L.authority);
+    vaultPda(PROGRAM, STAKE_VAULT_SEED, POOL).toBuffer().copy(d, POOL_L.stakeVault);
+    vaultPda(PROGRAM, REWARD_VAULT_SEED, POOL).toBuffer().copy(d, POOL_L.rewardVault);
+    d.writeBigUInt64LE(100_000_000n, POOL_L.minStake);
+    d.writeBigUInt64LE(1_000_000_000n, POOL_L.depositCap);
+    u128le(d, 40_000_000n, POOL_L.totalWeighted);
+    u128le(d, 1_000n, POOL_L.rewardRate);
+    d.writeBigInt64LE(2_000_000n, POOL_L.periodFinish);
+    d.writeBigInt64LE(1_000_000n, POOL_L.lastUpdateTime);
+    return { owner: PROGRAM, data: d };
+  };
+  const tokenAccount = (amount) => {
+    const d = Buffer.alloc(165);
+    MINT.toBuffer().copy(d, 0);
+    d.writeBigUInt64LE(amount, 64);
+    return { owner: TOKEN_2022, data: d };
+  };
+  const readOnlyRpc = () => {
+    const calls = [];
+    return {
+      calls,
+      getMultipleAccountsInfoAndContext: async (keys) => {
+        calls.push(keys.length);
+        const clock = Buffer.alloc(40);
+        clock.writeBigInt64LE(1_000_000n, 32);
+        return { context: { slot: 9 }, value: [poolAccount(), { owner: SYSVAR_OWNER, data: clock }, tokenAccount(20_000_000_000n), tokenAccount(0n)] };
+      },
+    };
+  };
+  const noKeypair = () => { throw new Error('signer() was called: --preview must not read a keypair'); };
+  const run = async (rpc, ...extra) => {
+    const lines = [];
+    const args = parseArgs(['notify', '--pool', POOL.toBase58(), ...extra]);
+    const code = await notifyCommand(args, {
+      conn: rpc, programId: PROGRAM, broadcast: args.broadcast === true, signer: noKeypair, log: (l) => lines.push(l),
+    });
+    return { code, text: lines.join('\n') };
+  };
+
+  it('a preview that holds the rate exits 0 with no keypair and one read, printing the authority and the minimum --amount', async () => {
+    const rpc = readOnlyRpc();
+    const { code, text } = await run(rpc, '--amount', '7000', '--preview');
+    expect(code).toBe(0);
+    expect(rpc.calls).toEqual([4]);
+    expect(text).toContain('PREVIEW — no keypair was read; nothing was built, simulated or sent.');
+    expect(text).toContain(`pool authority     ${AUTHORITY.toBase58()}`);
+    expect(text).toContain('minimum --amount   6,776  holds the current rate if it lands at chain now');
+    expect(text).toContain(`minimum --amount   6,776.12  holds it if it lands ${LANDING_SLACK_SECS}s later`);
+    expect(text).toContain('adds 0.001, 3.6 per hour');
+    expect(text).not.toContain('REFUSED');
+  });
+
+  it('a preview the program would refuse exits 1, still with no keypair and no transaction', async () => {
+    const rpc = readOnlyRpc();
+    const { code, text } = await run(rpc, '--amount', '1000', '--preview');
+    expect(code).toBe(1);
+    expect(rpc.calls).toEqual([4]);
+    expect(text).toMatch(/REFUSED: .*RewardRateWouldDecrease \(6028\)/);
+  });
+
+  it('--preview with --broadcast is refused before the RPC or a keypair is touched', async () => {
+    const rpc = readOnlyRpc();
+    await expect(run(rpc, '--amount', '7000', '--preview', '--broadcast')).rejects.toThrow(/--preview never sends/);
+    expect(rpc.calls).toEqual([]);
+  });
+
+  it('without --preview the keypair is still required', async () => {
+    await expect(run(readOnlyRpc(), '--amount', '7000')).rejects.toThrow(/signer\(\) was called/);
+  });
+
+  it('the minimum --amount is net of --from-budget, and there is none after the window', () => {
+    const pool = poolOf(['100000000', '40000000', '1000', '2000000', '1000000', '0', '0', '0', '0', '0'], { authority: AUTHORITY });
+    const pv = notifyPreview({ pool, now: 1_000_000n, rewardVaultRaw: 20_000_000_000n, amount: 0n, fromBudget: 1_000_000_000n });
+    const text = notifyPreviewLines(pv, pool, { fromBudget: 1_000_000_000n }).join('\n');
+    expect(text).toContain('minimum --amount   5,776  holds the current rate');
+    expect(text).toContain('minimum --amount   5,776.12  holds it');
+    const ended = notifyPreview({ pool, now: 2_000_000n, rewardVaultRaw: 20_000_000_000n, amount: 1_000_000_000n, fromBudget: 0n });
+    expect(notifyPreviewLines(ended, pool, { fromBudget: 0n }).join('\n')).toContain('none — no live window');
+  });
+
+  it('`notify` delegates to the command and never reads a keypair itself', () => {
+    const block = caseBlock('notify');
+    expect(block).toContain('notifyCommand(args, { conn, programId, broadcast, signer })');
+    expect(block).not.toMatch(/signer\(\)/);
+    expect(block).toMatch(/if \(code\) process\.exitCode = code;/);
+  });
+});
+
+describe('--allow-empty-pool: what an empty pool costs is TIME, never tokens', () => {
+  const empty = poolOf(['100000000', '0', '0', '0', '1000000', '0', '0', '0', '0', '0']);
+  const at = (allowEmptyPool) => notifyPreview({
+    pool: empty, now: 1_000_000n, rewardVaultRaw: 0n, amount: 7_776_000_000n, fromBudget: 0n, allowEmptyPool,
+  });
+
+  it('the refusal, and the note when overridden, both say exactly that', () => {
+    const refusal = at(false).problems.find((x) => x.code === null).text;
+    expect(refusal).toMatch(/loses window TIME, not tokens/);
+    expect(refusal).toMatch(/the burned seconds never come back, but their tokens stay in the reward vault and remain schedulable/);
+    expect(refusal).toMatch(/Pass --allow-empty-pool/);
+    const pv = at(true);
+    expect(pv.problems).toEqual([]);
+    expect(pv.notes.join()).toMatch(/loses window TIME, not tokens/);
+  });
+
+  it('...and the replay of lib.rs checkpoint agrees: a burned interval banks nothing, so the budget is untouched', () => {
+    // rustc: an empty pool at 1000/s, checkpointed 500s on.
+    const [, p0, [t], [after]] = RUST.checkpoint.find((c) => c[0] === 'empty pool burns');
+    const before = poolOf(p0);
+    const burned = checkpointReplay(before, BigInt(t));
+    expect(ledgerOf(burned)).toEqual(after);
+    expect(burned.lastUpdateTime).toBe(BigInt(t)); // the time is spent
+    expect(burned.rewardsEmitted).toBe(before.rewardsEmitted); // the tokens are not
+    const vault = 7_776_000_000n;
+    expect(fundable(vault, burned.rewardsEmitted, burned.rewardsPaid)).toBe(fundable(vault, before.rewardsEmitted, before.rewardsPaid));
+  });
+});

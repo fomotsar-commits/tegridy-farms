@@ -15,6 +15,7 @@
 //          --min-stake 100 --deposit-cap 1000000 --max-wallet 100000
 //     node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000
 //     node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 0 --from-budget max
+//     node scripts/bayla-ladder-ops.mjs notify --pool <p> --amount 50000 --preview  # NO keypair
 //
 //   STAKER (same dry-run rule):
 //     node scripts/bayla-ladder-ops.mjs stake  --pool <p> --amount 500 --lock-days 90
@@ -652,12 +653,24 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, allowEmp
   // CLI-ONLY. Every open position weighs at least the floor, so below it means nobody is
   // staked: each second of the window is burned (I-11), not emitted. The tokens stay in the
   // vault and can be scheduled again, but the window's time is lost.
+  //
+  // Both halves are the program's, not a hope. lib.rs `checkpoint` below the floor: math.rs
+  // `reward_per_weight_with_residue` returns `stored` unchanged, so `emitted_delta_with_residue`
+  // banks `emitted_residue / PRECISION` = 0 and `rewards_emitted` does not move, while
+  // `last_update_time` still advances to `applicable`. TIME: those seconds are gone, and
+  // `period_finish` was fixed at notify time. TOKENS: `fundable` = vault - (emitted - paid)
+  // still counts them, and the next mid-window tail is `remaining x rate` only, so they are
+  // budget a later notify can schedule with `from_budget`. Nothing can withdraw them either.
+  // The floor is never 0 on-chain (initialize_pool requires min_stake >= 10,000 raw), so
+  // `total_weighted < floor` covers the program's `total_weighted == 0` case too.
   const floor = minWeightFloor(pool.minStake);
   if (pool.totalWeighted < floor) {
     const text = `total_weighted ${pool.totalWeighted} is below the floor ${floor}${pool.totalWeighted === 0n ? ' (nobody is staked)' : ''}: ` +
       `every second until the first stake is BURNED, not emitted`;
-    if (allowEmptyPool) notes.push(`${text}. Proceeding (--allow-empty-pool); the unemitted tokens stay schedulable.`);
-    else problems.push({ code: null, text: `${text}. Pass --allow-empty-pool to fund an empty pool knowingly.` });
+    const cost = 'Funding before anyone stakes loses window TIME, not tokens: the 90 days start now and ' +
+      'the burned seconds never come back, but their tokens stay in the reward vault and remain schedulable (--from-budget)';
+    if (allowEmptyPool) notes.push(`${text}. Proceeding (--allow-empty-pool). ${cost}.`);
+    else problems.push({ code: null, text: `${text}. ${cost}. Pass --allow-empty-pool to fund an empty pool knowingly.` });
   }
 
   return {
@@ -701,6 +714,32 @@ function notifyReport(pv, pool, { amount, fromBudget, now, slot }) {
   for (const n of pv.notes) out.push(`  note: ${n}`);
   for (const r of pv.risks) out.push(`  ⚠ RISK: ${r}`);
   for (const p of pv.problems) out.push(`  🔴 REFUSED: ${p.text}`);
+  return out;
+}
+
+/**
+ * What `notify --preview` adds, for an operator who builds the transaction elsewhere (a
+ * Squads multisig): who has to sign it, and the smallest --amount that holds the current
+ * rate. The minimums are the preview's own `minScheduled` and `minScheduledAtSlack` less
+ * --from-budget, because the guard is on the SUM: amount + from_budget + tail >= rate x D.
+ * A multisig can take far longer than LANDING_SLACK_SECS to execute, so the per-second
+ * growth is printed as well. Pure, so the test can read it.
+ */
+function notifyPreviewLines(pv, pool, { fromBudget }) {
+  const d = pool.decimals;
+  const out = [
+    '',
+    '  PREVIEW — no keypair was read; nothing was built, simulated or sent.',
+    `  pool authority     ${pool.authority.toBase58()}  (the notify_reward signer: build the transaction there, e.g. in Squads)`,
+  ];
+  if (pv.midWindow) {
+    out.push(`  minimum --amount   ${fmt(satSub(pv.minScheduled, fromBudget), d)}  holds the current rate if it lands at chain now`);
+    out.push(`  minimum --amount   ${fmt(satSub(pv.minScheduledAtSlack, fromBudget), d)}  holds it if it lands ${LANDING_SLACK_SECS}s later`);
+    out.push(`                     (with --from-budget ${fmt(fromBudget, d)}; each further second before it lands adds ` +
+      `${fmt(pv.oldRate, d)}, ${fmt(pv.oldRate * 3_600n, d)} per hour, until period_finish)`);
+  } else {
+    out.push('  minimum --amount   none — no live window, so the rate guard does not apply');
+  }
   return out;
 }
 
@@ -968,6 +1007,37 @@ function confirmPermanentProblem(broadcast, args) {
     : null;
 }
 
+/** `exit` and `hatch` print "the penalty is UNKNOWN" when the position did not decode.
+ *  A dry run may still go ahead - it signs nothing and its simulation is evidence. A
+ *  BROADCAST may not: the penalty is 75% of principal while locked, and an operator must
+ *  not pay it blind. `pos` is `decodePosition`'s `{ ok, value | reason }`; anything but
+ *  `ok === true` is unreadable. */
+/** `notify`'s mode, from the arguments alone, before any keypair or RPC is touched.
+ *
+ *  --preview exists for a pool authority nobody holds as a file (a Squads multisig): it
+ *  reads NO keypair, skips the authority check, and never builds, simulates or sends.
+ *  It is a bare flag, STRICTLY `=== true` like --broadcast, and any value is REFUSED:
+ *  `--preview yes` read as "not a preview" would route an operator who asked for a
+ *  preview to the path that signs, and with --broadcast also present, that sends.
+ *  --preview together with --broadcast is a contradiction and is refused too. */
+function notifyMode(args) {
+  if (args.preview !== undefined && args.preview !== true) {
+    throw new Error(`--preview takes no value, got ${JSON.stringify(args.preview)}`);
+  }
+  const preview = args.preview === true;
+  if (preview && args.broadcast !== undefined) {
+    throw new Error('--preview never sends: drop --broadcast, or drop --preview and sign with --keypair');
+  }
+  return { preview, needsKeypair: !preview };
+}
+
+function unpreviewedExitProblem(broadcast, pos) {
+  return broadcast && pos?.ok !== true
+    ? `refusing to broadcast an exit whose penalty could not be previewed (position: ${pos?.reason ?? 'unread'}); ` +
+      'a dry run without --broadcast is still allowed'
+    : null;
+}
+
 // ── plumbing ─────────────────────────────────────────────────────────────────
 
 function parseArgs(argv) {
@@ -1195,6 +1265,108 @@ function poolLines(p, now) {
   return out;
 }
 
+/**
+ * The two solvency invariants `read` reports, at chain `now`. Pure, so the test reaches them.
+ *
+ * THREE OUTCOMES, NOT TWO. This used to check `if (sv && ...)`, so an UNREADABLE vault
+ * skipped the check entirely and the command exited 0 - reporting success for a solvency
+ * question it never got to ask. That is the bug class this repo names most often: a zero
+ * is only publishable when a read returned it.
+ *
+ *   I-1  stake vault  >= total_principal
+ *   I-4  reward vault >= LIVE outstanding (emitted replayed to chain now, minus paid).
+ *        notify_reward refuses EmissionExceedsFunding on exactly this comparison after
+ *        its checkpoint; the STORED figure lags it and can pass while the pool is short.
+ *
+ * `balances` is `{ stakeVault, rewardVault }`, each `{ ok, value: { amount } | reason }`.
+ * Each row is `{ invariant, verdict: 'HOLDS' | 'BROKEN' | 'UNVERIFIED', lines }`; `exitCode`
+ * is 1 when any row is not HOLDS.
+ */
+function solvencyVerdicts(p, now, { stakeVault: sv, rewardVault: rv } = {}) {
+  chainTime(now);
+  const d = p.decimals;
+  const rows = [];
+  const outage = (invariant, which) => rows.push({ invariant, verdict: 'UNVERIFIED', lines: [
+    `  ⚠ INVARIANT ${invariant} UNVERIFIED: the ${which} vault could not be read.`,
+    `    This is an OUTAGE, not a pass. Re-run before acting on it.`,
+  ] });
+
+  if (!sv?.ok) {
+    outage('I-1', 'stake');
+  } else if (sv.value.amount < p.totalPrincipal) {
+    rows.push({ invariant: 'I-1', verdict: 'BROKEN', lines: [
+      `  🔴 INVARIANT I-1 BROKEN: stake vault < total_principal`,
+      `    ${fmt(sv.value.amount, d)} held vs ${fmt(p.totalPrincipal, d)} owed.`,
+    ] });
+  } else {
+    rows.push({ invariant: 'I-1', verdict: 'HOLDS', lines: [`  invariant I-1 holds: vault >= total_principal`] });
+  }
+
+  const owed = liveLedger(p, now).liveOutstanding;
+  if (!rv?.ok) {
+    outage('I-4', 'reward');
+  } else if (owed > rv.value.amount) {
+    rows.push({ invariant: 'I-4', verdict: 'BROKEN', lines: [
+      `  🔴 INVARIANT I-4 BROKEN: live outstanding > reward vault`,
+      `    ${fmt(rv.value.amount, d)} held vs ${fmt(owed, d)} owed at chain now.`,
+    ] });
+  } else {
+    const tail = now < p.periodFinish ? satMul(p.periodFinish - now, p.rewardRate) : 0n;
+    const unpledged = fromBudgetMax({ pool: p, now, rewardVaultRaw: rv.value.amount });
+    rows.push({ invariant: 'I-4', verdict: 'HOLDS', lines: [
+      `  invariant I-4 holds: reward vault >= live outstanding`,
+      `  unemitted tail       ${fmt(tail, d)}  (still to emit in this window)`,
+      `  unpledged budget     ${fmt(unpledged, d)}  (what 'notify --from-budget max' would schedule)`,
+    ] });
+  }
+
+  return { rows, exitCode: rows.every((r) => r.verdict === 'HOLDS') ? 0 : 1 };
+}
+
+/**
+ * The `notify` command. The connection, the signer and the printer are injected so the
+ * test can drive the command itself: above all, that `--preview` never asks for a keypair
+ * and never reaches anything that builds, simulates or sends. Returns the exit code.
+ */
+async function notifyCommand(args, { conn, programId, broadcast, signer, log = console.log }) {
+  const { preview, needsKeypair } = notifyMode(args);
+  // --preview reads NO keypair. Once the pool authority is a Squads multisig nobody holds
+  // it as a file, and the rate guard (6028) makes previewing a reload essential.
+  const authority = needsKeypair ? signer() : null;
+  const poolKey = new PublicKey(need(args, 'pool'));
+  // ONE same-slot read of the pool, the Clock and both vaults. The preview is
+  // meaningless against a balance nobody read, so an unreadable vault throws.
+  const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true });
+  const p = snap.pool;
+  if (needsKeypair) {
+    const notMine = authorityProblem(p, authority.publicKey);
+    if (notMine) throw new Error(notMine);
+  }
+  const { amount, fromBudget, max } = resolveNotifyAmounts(args, snap);
+  // The program's own order of checks, replayed at chain now: the rate is the
+  // mid-window fold-in (not scheduled / 90 days), and nothing is sent that it would refuse.
+  const pv = notifyPreview({
+    pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount, fromBudget,
+    allowEmptyPool: args.allowEmptyPool === true,
+  });
+  log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days${max ? '  (--from-budget max)' : ''}${preview ? '  (--preview)' : ''}`);
+  for (const line of notifyReport(pv, p, { amount, fromBudget, now: snap.now, slot: snap.slot })) log(line);
+  if (preview) {
+    for (const line of notifyPreviewLines(pv, p, { fromBudget })) log(line);
+    return pv.problems.length ? 1 : 0;
+  }
+  if (pv.problems.length) {
+    throw new Error(`notify refused before anything was built or sent: ${pv.problems.length} problem(s), listed above as REFUSED`);
+  }
+  if (broadcast && pv.risks.length) {
+    throw new Error('refusing to BROADCAST with a landing RISK (listed above); a dry run is still allowed');
+  }
+  await submit(conn, [ixNotifyReward({
+    programId, authority: authority.publicKey, pool: poolKey, p, amountRaw: amount, fromBudgetRaw: fromBudget,
+  })], authority, { broadcast, label: 'notify-reward' });
+  return 0;
+}
+
 // ── commands ─────────────────────────────────────────────────────────────────
 
 const USAGE = `bayla-ladder ops
@@ -1202,8 +1374,11 @@ const USAGE = `bayla-ladder ops
   read       --pool <addr>
   positions  --pool <addr> --owner <addr>
   init-pool  --mint <addr> --nonce <n> --min-stake <t> --deposit-cap <t> --max-wallet <t>
-  notify     --pool <addr> --amount <t> [--from-budget <t>|max] [--allow-empty-pool]
+  notify     --pool <addr> --amount <t> [--from-budget <t>|max] [--allow-empty-pool] [--preview]
                                              # mid-window the rate may not fall; the preview prints the minimum
+                                             # --preview: NO --keypair, nothing built/simulated/sent; prints the
+                                             #   pool authority and the minimum --amount (for a Squads authority).
+                                             #   Exits 1 if the notify would be refused. Not with --broadcast.
   stake      --pool <addr> --amount <t> --lock-days <d>
   claim      --pool <addr> --nonce <n>
   exit       --pool <addr> --nonce <n> [--early]
@@ -1252,42 +1427,10 @@ async function main() {
       const rv = snap.rewardVault;
       console.log(`\n  stake vault balance  ${sv.ok ? fmt(sv.value.amount, p.decimals) : `— unreadable (${sv.reason})`}`);
       console.log(`  reward vault balance ${rv.ok ? fmt(rv.value.amount, p.decimals) : `— unreadable (${rv.reason})`}`);
-      // INVARIANT I-1: the stake vault must hold at least the tracked principal.
-      //
-      // THREE OUTCOMES, NOT TWO. This used to check `if (sv && ...)`, so an
-      // UNREADABLE vault skipped the check entirely and the command exited 0 -
-      // reporting success for a solvency question it never got to ask. That is the
-      // bug class this repo names most often: a zero is only publishable when a read
-      // returned it.
-      if (!sv.ok) {
-        console.log(`  ⚠ INVARIANT I-1 UNVERIFIED: the stake vault could not be read.`);
-        console.log(`    This is an OUTAGE, not a pass. Re-run before acting on it.`);
-        process.exitCode = 1;
-      } else if (sv.value.amount < p.totalPrincipal) {
-        console.log(`  🔴 INVARIANT I-1 BROKEN: stake vault < total_principal`);
-        console.log(`    ${fmt(sv.value.amount, p.decimals)} held vs ${fmt(p.totalPrincipal, p.decimals)} owed.`);
-        process.exitCode = 1;
-      } else {
-        console.log(`  invariant I-1 holds: vault >= total_principal`);
-      }
-      // INVARIANT I-4, against the LIVE liability (same three outcomes). notify_reward
-      // refuses EmissionExceedsFunding on exactly this comparison after its checkpoint.
-      const owed = liveLedger(p, snap.now).liveOutstanding;
-      if (!rv.ok) {
-        console.log(`  ⚠ INVARIANT I-4 UNVERIFIED: the reward vault could not be read.`);
-        console.log(`    This is an OUTAGE, not a pass. Re-run before acting on it.`);
-        process.exitCode = 1;
-      } else if (owed > rv.value.amount) {
-        console.log(`  🔴 INVARIANT I-4 BROKEN: live outstanding > reward vault`);
-        console.log(`    ${fmt(rv.value.amount, p.decimals)} held vs ${fmt(owed, p.decimals)} owed at chain now.`);
-        process.exitCode = 1;
-      } else {
-        console.log(`  invariant I-4 holds: reward vault >= live outstanding`);
-        const tail = snap.now < p.periodFinish ? satMul(p.periodFinish - snap.now, p.rewardRate) : 0n;
-        console.log(`  unemitted tail       ${fmt(tail, p.decimals)}  (still to emit in this window)`);
-        const unpledged = fromBudgetMax({ pool: p, now: snap.now, rewardVaultRaw: rv.value.amount });
-        console.log(`  unpledged budget     ${fmt(unpledged, p.decimals)}  (what 'notify --from-budget max' would schedule)`);
-      }
+      // I-1 and I-4, three outcomes each (holds / BROKEN / UNVERIFIED). See solvencyVerdicts.
+      const solvency = solvencyVerdicts(p, snap.now, { stakeVault: sv, rewardVault: rv });
+      for (const row of solvency.rows) for (const line of row.lines) console.log(line);
+      if (solvency.exitCode) process.exitCode = solvency.exitCode;
       return;
     }
 
@@ -1362,32 +1505,9 @@ async function main() {
     }
 
     case 'notify': {
-      const authority = signer();
-      const poolKey = new PublicKey(need(args, 'pool'));
-      // ONE same-slot read of the pool, the Clock and both vaults. The preview is
-      // meaningless against a balance nobody read, so an unreadable vault throws.
-      const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true });
-      const p = snap.pool;
-      const notMine = authorityProblem(p, authority.publicKey);
-      if (notMine) throw new Error(notMine);
-      const { amount, fromBudget, max } = resolveNotifyAmounts(args, snap);
-      // The program's own order of checks, replayed at chain now: the rate is the
-      // mid-window fold-in (not scheduled / 90 days), and nothing is sent that it would refuse.
-      const pv = notifyPreview({
-        pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount, fromBudget,
-        allowEmptyPool: args.allowEmptyPool === true,
-      });
-      console.log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days${max ? '  (--from-budget max)' : ''}`);
-      for (const line of notifyReport(pv, p, { amount, fromBudget, now: snap.now, slot: snap.slot })) console.log(line);
-      if (pv.problems.length) {
-        throw new Error(`notify refused before anything was built or sent: ${pv.problems.length} problem(s), listed above as REFUSED`);
-      }
-      if (broadcast && pv.risks.length) {
-        throw new Error('refusing to BROADCAST with a landing RISK (listed above); a dry run is still allowed');
-      }
-      await submit(conn, [ixNotifyReward({
-        programId, authority: authority.publicKey, pool: poolKey, p, amountRaw: amount, fromBudgetRaw: fromBudget,
-      })], authority, { broadcast, label: 'notify-reward' });
+      // Extracted so the test can drive it; --preview needs no keypair (see notifyMode).
+      const code = await notifyCommand(args, { conn, programId, broadcast, signer });
+      if (code) process.exitCode = code;
       return;
     }
 
@@ -1448,6 +1568,9 @@ async function main() {
         const pv = exitPreview(pos.value, p, snap.now, early ? 'early_exit' : 'withdraw_matured');
         for (const line of exitReport(pv, pos.value, p, snap.now)) console.log(line);
       }
+      // Before ANYTHING is built: an unknown penalty is never broadcast.
+      const blindExit = unpreviewedExitProblem(broadcast, pos);
+      if (blindExit) throw new Error(blindExit);
       const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
       await submit(conn, [...pre, ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
         owner, { broadcast, label: early ? `early-exit (${p.degraded ? 'no penalty, pool degraded' : `${PENALTY_PCT} penalty`})` : 'withdraw-matured' });
@@ -1486,6 +1609,9 @@ async function main() {
           console.log(`  'exit --early' costs exactly the same ${PENALTY_PCT} and ALSO pays your rewards out.`);
         }
       }
+      // Before ANYTHING is built: an unknown penalty is never broadcast.
+      const blindHatch = unpreviewedExitProblem(broadcast, pos);
+      if (blindHatch) throw new Error(blindHatch);
       const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
       await submit(conn, [...pre, ixEmergencyWithdraw({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n })],
         owner, { broadcast, label: 'emergency-withdraw' });
@@ -1672,4 +1798,9 @@ export {
   checkpointReplay, newRewardRate, rateChangeAllowed, fundable, penaltyFor,
   exitPreview, exitReport, liveLedger, poolLines,
   driftBound, budgetMargin, fromBudgetMax, notifyPreview, notifyReport, resolveNotifyAmounts,
+};
+
+// The read verdicts, the blind-exit broadcast guard, and `notify --preview`.
+export {
+  solvencyVerdicts, unpreviewedExitProblem, notifyMode, notifyPreviewLines, notifyCommand,
 };
