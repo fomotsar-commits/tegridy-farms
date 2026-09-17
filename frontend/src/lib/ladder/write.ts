@@ -22,7 +22,7 @@ import {
   claimCarriedIx, claimIx, createAtaIdempotentIx, emergencyWithdrawIx, exitIx, stakeIx,
   type PoolAccounts,
 } from './ix';
-import { EARLY_EXIT_PENALTY_BPS } from './program';
+import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
 
 /** Sent and confirmed, or an honest reason. Never a bare boolean. */
 export type WriteResult =
@@ -59,7 +59,7 @@ export const LADDER_ERRORS: Record<number, { name: string; human?: string }> = {
   },
   6005: { name: 'TooManyPositions', human: 'You already hold the maximum number of open positions on this pool — close one first. Nothing moved.' },
   6006: { name: 'DepositCapExceeded', human: 'This would take the pool past its deposit cap — nothing moved.' },
-  6007: { name: 'StillLocked', human: `This position is still locked, so the no-penalty exit is refused until the lock ends. Early exit and the emergency hatch are both open, and both cost ${EARLY_EXIT_PENALTY_BPS / 100}%. Nothing moved.` },
+  6007: { name: 'StillLocked', human: `This position is still locked, so the no-penalty exit is refused until the lock ends. Early exit and the emergency hatch are both open, and both cost the same share of principal: the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%. Nothing moved.` },
   6008: { name: 'UseWithdrawMatured', human: 'This position has already matured, so the program refused the penalty door and sent you to the free one. Nothing moved — and nothing was charged.' },
   6009: { name: 'Unauthorized', human: 'Only the pool’s authority can do that — nothing moved.' },
   6010: { name: 'NotDeployAuthority' },
@@ -393,7 +393,7 @@ export async function ladderExit(
  * The hatch: principal out, no reward accounting, so it cannot revert on an
  * accounting drift or a dry reward vault.
  *
- * ⚠️ NOT FREE WHILE LOCKED — it charges the same flat penalty as `early_exit` unless
+ * ⚠️ NOT FREE WHILE LOCKED — it charges the same time-left penalty as `early_exit` unless
  * the position has matured or the pool is degraded. Quote it with `quoteExit()`
  * and show the number before calling this.
  */
