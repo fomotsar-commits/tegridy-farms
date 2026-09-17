@@ -205,7 +205,16 @@ export async function gotoNakamigos(page: Page): Promise<void> {
  * with an `s-maxage` (see api/_lib/gecko-read.js). The three branches below are
  * unchanged as a record of what was measured — what changes is the PATTERN a
  * future stub would have to match. `'**api.geckoterminal.com/**'` intercepts
- * nothing now; the equivalent is `'**resource=gecko-read**'`.
+ * nothing now; the equivalent is `GECKO_EDGE_GLOB` below.
+ *
+ * That note was written and the two specs still holding the old pattern were
+ * not changed, so both went on aborting nothing for two days. It cost a red
+ * trunk: em-dash-zero read /competitions at 16 instead of 17, because an
+ * un-aborted read against `vite preview` gets the SPA fallback's 200 text/html,
+ * fails at the JSON parse instead of at the socket, and the coverage notice
+ * prints the 'schema' sentence (no dash) where it used to print 'network'
+ * ("could not be reached — that is an outage"). Hence the exported constant:
+ * one string, so the next move cannot leave a caller behind.
  *
  * /terminal, /chart, /copy-trading and /competitions each read
  * GeckoTerminal keyless, and nothing stubs it. So
@@ -252,6 +261,17 @@ export async function gotoNakamigos(page: Page): Promise<void> {
  * adding one back — the reason to add it is a route whose two branches DO
  * differ, not the fact that a network read exists.
  */
+/**
+ * The glob that really intercepts a GeckoTerminal read, for a spec that wants
+ * the degraded branch on purpose.
+ *
+ * It matches the SAME-ORIGIN edge (`/api/aggregator?resource=gecko-read&…`,
+ * src/lib/geckoTerminal/edge.ts), which is where every such read goes since
+ * 2026-09-10. Import this rather than writing a literal: a stub that matches
+ * nothing does not fail, it silently measures whatever the unstubbed page did.
+ */
+export const GECKO_EDGE_GLOB = '**resource=gecko-read**';
+
 const BOTH_BRANCHES_MEASURED =
   'BOTH BRANCHES MEASURED (2026-09-03, all four device projects): with the feed answering, with it ' +
   'aborted at the browser, and with it 429ing, this route violated NOTHING in every case — see the ' +
