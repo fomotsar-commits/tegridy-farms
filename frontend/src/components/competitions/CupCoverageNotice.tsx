@@ -20,6 +20,33 @@ import type { IslandCupStatus } from '../../hooks/useIslandCup';
 // and where its coverage therefore starts, or that it was not read and why. The
 // two limits of the wash rule and the absence of any archive are printed here
 // too, next to the numbers they qualify, rather than behind a link.
+//
+// ── `data-unread-ledger`: THIS IS A REPORT OF A READ, NOT THE VENUE'S PROSE ──
+//
+// Three nodes below carry it, and they are exactly the three whose WORDS are a
+// function of what the network did:
+//
+//   the heading   — five different sentences by status, and the 'partial' one
+//                   ("N of M pools answered — totals are floors") carries a dash
+//                   that only a partial read can produce;
+//   the chip list — one `not read — <why>` per pool that failed, so its dash
+//                   count is the size of the resident-pool registry;
+//   the detail list — the reader's sentence for each distinct failure, and the
+//                   reasons carry different punctuation ('network' says "could
+//                   not be reached — that is an outage"; 'schema' says "returned
+//                   something unreadable").
+//
+// e2e/em-dash-zero.spec.ts holds every venue-voice route to an EXACT count of
+// prose em dashes. It cannot hold this subtree: nothing here is copy anybody
+// wrote for this page, and all of it moves when a third party answers
+// differently, when a resident pool joins the registry, or when a read fails for
+// a new reason. That is the same reason the bare `—` placeholder is exempt by
+// construction — an unreadable read is not the venue speaking. Measured: the
+// guard read 17 with the feed aborted and 16 with it merely failing, on
+// identical copy.
+//
+// This marker takes copy out of a guard, so src/pages/recordSurfaces.test.ts
+// pins the one file allowed to declare it and how many times.
 
 export interface CupCoverageNoticeProps {
   status: IslandCupStatus;
@@ -67,7 +94,9 @@ export function CupCoverageNotice({
   return (
     <div className={`rounded-xl border px-4 py-3 ${TONES[status]}`} role="status">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-white">{title(status, answered, poolsTotal)}</h2>
+        <h2 data-unread-ledger="heading" className="text-sm font-semibold text-white">
+          {title(status, answered, poolsTotal)}
+        </h2>
         <button
           type="button"
           onClick={onReload}
@@ -78,7 +107,11 @@ export function CupCoverageNotice({
       </div>
 
       {coverage.length > 0 ? (
-        <ul className="mt-2.5 flex flex-wrap gap-1.5" aria-label="What each pool answered">
+        <ul
+          data-unread-ledger="pools"
+          className="mt-2.5 flex flex-wrap gap-1.5"
+          aria-label="What each pool answered"
+        >
           {coverage.map((c) => {
             if (c.state === 'read') {
               return (
@@ -114,7 +147,7 @@ export function CupCoverageNotice({
       ) : null}
 
       {details.length > 0 ? (
-        <ul className="mt-2 space-y-0.5 text-[11px] leading-relaxed text-white/65">
+        <ul data-unread-ledger="failures" className="mt-2 space-y-0.5 text-[11px] leading-relaxed text-white/65">
           {details.map((d) => (
             <li key={d}>{d}</li>
           ))}
