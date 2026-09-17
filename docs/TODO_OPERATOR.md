@@ -44,7 +44,16 @@ real transactions. Full record, with the measured compute and the reconciled acc
 | keys | `C:/Users/jimbo/solana-keys/` — outside the repo, **unbacked-up** |
 
 Eight of fifteen instructions executed on chain. Accounting reconciled to the last digit.
-The 0.40x floor rung and the 25% hatch penalty both moved from claim to measurement.
+The 0.40x floor rung and the hatch penalty both moved from claim to measurement — the
+penalty as **25%, measured on the superseded 25% build**.
+
+> ⚠️ **2026-09-17 — the ladder is being rebuilt at a 75% early-exit penalty** (the leaver
+> keeps 25%; EVM/TOWELI stay 25%), with a `notify_reward` guard that refuses a mid-window
+> reload lowering the rate (6028 `RewardRateWouldDecrease`). `HzxzfSQ…` still runs the 25%
+> build with no guard, so every penalty figure in this section is a record of that build,
+> and **nothing has been measured at 75%**. Upgrade the devnet program to the 75% build
+> before any preview environment points at it. Decisions and the superseded mainnet
+> artifact: `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`.
 
 ### ✅ O-0909-1 — DONE 2026-09-17: `withdraw_matured` executed on devnet
 
@@ -67,6 +76,12 @@ from the CLI's success line:
 `withdraw_matured` also CLAIMS in the same instruction — that is why it makes two
 `TransferChecked` calls and emits `RewardPaid` beside `Withdrawn`. The 1,995 BAYLA is devnet
 test funding, not an APR signal.
+
+**Every figure in that table was measured on the superseded 25% build.** The
+`penalty_collected_cumulative` of 250 is the two 25% penalties of 125 from the 09-09 run.
+The matured door passes a zero penalty at any rate (`withdraw_matured` calls
+`exit_with_penalty(ctx, now, 0)`), so "500 back, penalty 0" carries over to the 75% build;
+the 250 does not.
 
 **The command as it was written here did not run** — it omitted `--program`, and the CLI
 refuses without it (`--program <id> (or BAYLA_LADDER_PROGRAM) is required`). The devnet
@@ -315,7 +330,13 @@ the 90-day decision, or change the default — and note that `min_duration` / `m
 **create-only and immutable** on the stake program, so a pool created at 365 days keeps that maximum
 for its whole life even though the UI will not offer it.
 
-### ⬜ O-0906-5 — PR #445 (`feat/bayla-ladder`) is the replacement rail, open and green, recorded nowhere
+### ✅ O-0906-5 — PR #445 (`feat/bayla-ladder`) merged (`8bef013c`) — a SEPARATE rail, not a replacement
+
+> **Superseded framing (owner decision 2026-09-17):** the Streamflow BAYLA pool and the
+> ladder are separate products. The ladder does not replace the Streamflow rail, and no
+> migration is planned; the Streamflow pool keeps running and still needs its own reward
+> funding through its last lock. The body below is kept as the record of what was believed
+> on 2026-09-06, under the banner above that says not to act on it.
 
 An Anchor program at `solana/tegridy-amm/programs/bayla-ladder/`, **39 checks — 32 pass, 7 skipping,
 zero failures**. It matters here because it is the rail that ends this incident class, and **it was
