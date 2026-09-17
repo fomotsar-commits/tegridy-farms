@@ -18,6 +18,7 @@ import {
   MAX_LOCK_SECS,
   MIN_LOCK_SECS,
   MIN_STAKE_RAW,
+  PENALTY_BPS,
   type LadderReads,
 } from './lighthouseLadder';
 
@@ -165,6 +166,17 @@ describe('the dust floor', () => {
 describe('the exit costs', () => {
   it('prices the early exit at exactly 25%, the contract constant', () => {
     expect(penaltyOn(1_000n * E18)).toBe(250n * E18);
+  });
+
+  it('is the constant LighthouseLadder.sol declares, not the Solana ladder one', () => {
+    // The Solana bayla-ladder charges 75% since 2026-09-17; this EVM contract is a
+    // separate product and was not changed. Read from the Solidity so a sweep that
+    // "fixes" every 2_500 in the repo fails here instead of misquoting EVM stakers.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sol = readFileSync(join(here, '..', '..', '..', 'contracts', 'src', 'LighthouseLadder.sol'), 'utf8');
+    const m = /uint256 public constant EARLY_EXIT_PENALTY_BPS = ([\d_]+);/.exec(sol);
+    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in LighthouseLadder.sol — re-anchor this test').not.toBeNull();
+    expect(PENALTY_BPS).toBe(BigInt(m![1]!.replace(/_/g, '')));
   });
 
   it('counts down a lock and stops at zero rather than going negative', () => {

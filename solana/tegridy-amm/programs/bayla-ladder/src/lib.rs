@@ -1,9 +1,15 @@
-//! # bayla-ladder — lock-ladder staking with a flat 25% early exit
+//! # bayla-ladder — lock-ladder staking with a flat 75% early-exit penalty
 //!
 //! The Solana port of `contracts/src/LighthouseLadder.sol`: Synthetix's reward
 //! engine with boosted weight as its divisor and multiplier, a 7d→4y ladder at
-//! 0.40x→4.00x (TOWELI parity), and THREE exits — matured, early (−25%, rewards
-//! paid), and an emergency hatch that never touches the reward vault.
+//! 0.40x→4.00x (TOWELI parity), and THREE exits — matured, early (−75% of principal,
+//! rewards paid), and an emergency hatch (the same −75% while locked) that never touches
+//! the reward vault.
+//!
+//! TWO DELIBERATE DIVERGENCES from the Solidity, both owner decisions of 2026-09-17:
+//! the penalty is 75% here and stays 25% there (`math::EARLY_EXIT_PENALTY_BPS`), and a
+//! reload inside a live window may not lower the reward rate (`math::rate_change_allowed`),
+//! which the Solidity and Synthetix both allow.
 //!
 //! ## Verification status — read this before trusting anything here
 //!
@@ -95,7 +101,15 @@
 //! in-pool removes an instruction, an address, and a whole class of admin discretion.
 //! The penalty and the ladder are compile-time constants: a stolen authority key can
 //! raise the cap (slowly, visibly), rotate itself, and declare the pool degraded —
-//! which only ever frees stakers. It cannot move principal or retune the penalty.
+//! which only ever frees stakers. It cannot move principal or retune the penalty, and
+//! since 2026-09-17 it cannot slow a LIVE window either: a mid-window `notify_reward`
+//! may not lower the rate. It can still wait for a window to end and restart it low.
+//!
+//! What that list must NOT be read as: "a stolen key is harmless". At a 75% penalty,
+//! whoever holds the authority AND a locked position escapes three quarters of their
+//! own principal by firing `declare_degraded`. That is a custody problem, not a code
+//! one — the pool authority belongs in a multisig before any funds go in. Also: every
+//! guarantee here holds only while the UPGRADE authority does not replace the program.
 //!
 //! CORRECTED 2026-09-06 (audit M-3): this used to end "or change what anyone was
 //! promised", which was false. `declare_degraded` cannot touch
@@ -152,11 +166,12 @@
 //!
 //! ## What is NOT ported from the Solidity, and why
 //!
-//! `LighthouseLadder.emergencyWithdraw` charges the 25% while locked, unconditionally.
+//! `LighthouseLadder.emergencyWithdraw` charges its 25% while locked, unconditionally
+//! (and the rate itself is not ported either: this program charges 75%).
 //! Here BOTH early doors charge nothing once `declare_degraded` has been called — the
 //! one-way flag that answers "what if the operator is the failure". Under the venue's
 //! own upgrade authority, holders will want a hatch that works when the venue is the
-//! problem, and charging them 25% then reads badly.
+//! problem, and charging them 75% then reads badly.
 //!
 //! Its cost is honest and belongs in the panel copy: it stops future penalty inflow,
 //! transferring value from stayers to leavers, and it CLOSES THE POOL TO NEW STAKES
@@ -400,8 +415,10 @@ pub mod bayla_ladder {
         // THE TRADE-OFF, stated rather than glossed: this hands the authority an
         // IRREVERSIBLE deposit freeze, and `pause` is on the deliberately-absent list.
         // The objection is weaker than it looks. A pause is reversible and its abuse is
-        // to TRAP people; this is one-way and can only ever RELEASE them — a stolen key
-        // firing it gives the thief nothing and gives every staker a free exit. And a
+        // to TRAP people; this is one-way and can only ever RELEASE them — firing it gives
+        // every staker a free exit. (It is NOT worthless to a thief: a key-holder who also
+        // holds a locked position escapes their own 75% penalty by firing it. That is why
+        // the pool authority must be a multisig, and it is outside what code can fix.) And a
         // pool whose operator has declared it broken should not be taking new money.
         require!(!ctx.accounts.pool.degraded, LadderError::PoolDegraded);
         require!(amount > 0, LadderError::ZeroAmount);
@@ -558,7 +575,7 @@ pub mod bayla_ladder {
         exit_with_penalty(ctx, now, 0)
     }
 
-    /// Leave BEFORE the lock ends: principal minus 25%, rewards paid. The penalty
+    /// Leave BEFORE the lock ends: principal minus 75%, rewards paid. The penalty
     /// stays in the pool as reward budget.
     pub fn early_exit(ctx: Context<Exit>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
@@ -570,10 +587,12 @@ pub mod bayla_ladder {
         );
         // AUDIT M-3, exit side. This used to charge unconditionally, so in a degraded
         // pool `emergency_withdraw` STRICTLY DOMINATED the door named after what the
-        // user is actually doing: 100% of principal against 75%, with `claim_carried`
+        // user is actually doing: 100% of principal against 25%, with `claim_carried`
         // delivering the identical reward payout. Nobody could be forced into the paying
         // door — `EmergencyWithdraw`'s account set is a strict subset of `Exit`'s — but
-        // they could pick it by name and burn 25% for nothing. The doors now agree.
+        // they could pick it by name and burn 75% for nothing. The doors now agree, and
+        // they MUST keep agreeing: both call `penalty_for`, which
+        // `layout_tests::both_early_doors_charge_the_same_penalty` pins.
         let penalty = if ctx.accounts.pool.degraded {
             0
         } else {
@@ -583,7 +602,7 @@ pub mod bayla_ladder {
     }
 
     /// THE LAST RESORT. Principal only, at ANY time — including while locked (paying
-    /// the 25% unless the pool is degraded) and including when the reward vault is
+    /// the 75% unless the pool is degraded) and including when the reward vault is
     /// empty, closed, or wedged. This instruction declares NO reward vault (I-12).
     ///
     /// AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and
@@ -800,8 +819,12 @@ pub mod bayla_ladder {
         // AUDIT L-1. `rate = scheduled / REWARDS_DURATION_SECS`, integer division, so a
         // small-but-real reload truncates to a rate of ZERO — the window is extended by
         // 90 days, `RewardAdded` fires with a healthy-looking payload, and the pool emits
-        // nothing. Worse mid-window: the fold-in at math.rs:203 means a 1-unit top-up
-        // against a live tail can truncate the WHOLE remaining schedule away.
+        // nothing. Mid-window, `new_reward_rate` re-spreads the live tail over a fresh 90
+        // days, so a tiny top-up near the end of a window can floor the WHOLE rate to zero
+        // (this used to cite math.rs:203; the fold-in is `new_reward_rate`). Any such call
+        // also LOWERS the rate, so the rate guard below would refuse it too — this check
+        // simply reports first. Which error a doubly-invalid call gets is the only thing
+        // the ordering decides.
         //
         // Cost of this guard, stated rather than discovered later: the minimum reload is
         // `REWARDS_DURATION_SECS` raw units — 7.776 whole tokens at 6 decimals, but
@@ -817,6 +840,18 @@ pub mod bayla_ladder {
         require!(
             pool.total_weighted == 0 || rate.saturating_mul(PRECISION) >= pool.total_weighted,
             LadderError::RewardRateTooSmall
+        );
+        // THE RATE GUARD (owner decision 2026-09-17; design review I07). A reload inside a
+        // live window may not LOWER the per-second rate — see `math::rate_change_allowed`
+        // for the proof and the boundary. It must stay the LAST check and must run BEFORE
+        // the two assignments below: `pool.reward_rate` and `pool.period_finish` still hold
+        // the OLD values here (`checkpoint` writes neither), and after them the comparison
+        // would be against itself and pass vacuously. `layout_tests::
+        // notify_reward_is_wired_to_the_rate_guard` pins the order. Plain `//` comments on
+        // purpose: `///` docs on this handler are copied into the committed IDL.
+        require!(
+            rate_change_allowed(now, pool.period_finish, pool.reward_rate, rate),
+            LadderError::RewardRateWouldDecrease
         );
 
         pool.reward_rate = rate;
@@ -1309,7 +1344,9 @@ mod layout_tests {
         assert_eq!(LadderError::MintHasMintAuthority as u32 + 6000, 6025);
         assert_eq!(LadderError::PoolDegraded as u32 + 6000, 6026);
         assert_eq!(LadderError::WalletCapExceeded as u32 + 6000, 6027);
-        // 14 instructions -> 15 with cancel_cap_raise; no new error variants needed.
+        // 14 instructions -> 15 with cancel_cap_raise needed no new error variants.
+        // 2026-09-17: the rate guard added one, appended LAST.
+        assert_eq!(LadderError::RewardRateWouldDecrease as u32 + 6000, 6028);
     }
 
     /// THE DEPLOYER GATE MUST NOT BE THE PROGRAM ITSELF (audit L-5).
@@ -1473,10 +1510,13 @@ mod layout_tests {
      *   1. the maturity `require!` PASSING (its failing arm is tested), and
      *   2. `penalty == 0`, which `transfer_from_vault` short-circuits to a no-op — so
      *      the matured path issues FEWER CPIs than the path already proven.
-     * Each of those is pinned below. See `tests/matured.rs` for the execution itself.
+     * Each of those is pinned below. (This used to point at `tests/matured.rs`, which never
+     * existed. The execution itself happened on devnet on 2026-09-17 — 500 back, penalty
+     * 0, accounting reconciled to the raw unit — recorded in docs/TODO_OPERATOR.md O-0909-1.
+     * That was the 25% build; the matured path charges nothing at any rate.)
      */
 
-    /// The matured door must charge NOTHING. A non-zero literal here is a silent 25%
+    /// The matured door must charge NOTHING. A non-zero literal here is a silent 75%
     /// tax on every honest staker who waited out their lock.
     #[test]
     fn the_matured_door_charges_no_penalty() {
@@ -1566,5 +1606,81 @@ mod layout_tests {
             guard < cpi,
             "the zero-amount guard must come BEFORE the CPI, or it guards nothing"
         );
+    }
+
+    /// THE RATE GUARD MUST BE WIRED IN, AND IN THE RIGHT PLACE (owner decision 2026-09-17).
+    ///
+    /// `math::rate_change_allowed` is proven on the host, but a pure function proves
+    /// nothing about whether the handler calls it — the hatch's accrual wiring once
+    /// regressed with every test green for exactly that reason (see
+    /// `the_hatch_is_wired_to_the_lenient_accrual`). A `Context` cannot be built without
+    /// a validator, so this pins the source instead: the guard must be called with the
+    /// OLD rate and OLD period_finish, which means AFTER the new rate is computed and
+    /// BEFORE either field is overwritten. Moved below the assignments, it would compare
+    /// the new rate with itself and pass vacuously.
+    #[test]
+    fn notify_reward_is_wired_to_the_rate_guard() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("pub fn notify_reward")
+            .expect("notify_reward not found — this test must be re-anchored");
+        let body = &src[start
+            ..start
+                + src[start..]
+                    .find(
+                        "
+    }",
+                    )
+                    .expect("could not find the end of notify_reward")];
+        let compute = body
+            .find("new_reward_rate(")
+            .expect("the rate is no longer computed with new_reward_rate — re-anchor");
+        let guard = body
+            .find("rate_change_allowed(now, pool.period_finish, pool.reward_rate, rate)")
+            .expect("the rate guard is GONE from notify_reward, or its arguments were reordered");
+        let assign_rate = body
+            .find("pool.reward_rate = rate;")
+            .expect("reward_rate assignment not found — re-anchor");
+        let assign_finish = body
+            .find("pool.period_finish = now")
+            .expect("period_finish assignment not found — re-anchor");
+        assert!(compute < guard, "the guard must run after the new rate is computed");
+        assert!(
+            guard < assign_rate && guard < assign_finish,
+            "the guard must run BEFORE reward_rate and period_finish are overwritten"
+        );
+        assert!(
+            body.contains("LadderError::RewardRateWouldDecrease"),
+            "the guard must refuse with RewardRateWouldDecrease"
+        );
+    }
+
+    /// BOTH EARLY DOORS MUST CHARGE THE SAME PENALTY (owner decision 2026-09-17).
+    ///
+    /// `early_exit` and `emergency_withdraw` both take principal from a locked position.
+    /// If the hatch ever charged less, every leaver would take the hatch and the headline
+    /// penalty would be fiction; if it charged more, the last resort would punish the
+    /// people it exists for. Both must compute it through `penalty_for`. Before this test,
+    /// mutating the hatch to `position.amount / 4` or `0` left every Rust test green.
+    #[test]
+    fn both_early_doors_charge_the_same_penalty() {
+        let src = include_str!("lib.rs");
+        for door in ["pub fn early_exit", "pub fn emergency_withdraw"] {
+            let start = src
+                .find(door)
+                .unwrap_or_else(|| panic!("{door} not found — this test must be re-anchored"));
+            let body = &src[start
+                ..start
+                    + src[start..]
+                        .find(
+                            "
+    }",
+                        )
+                        .unwrap_or_else(|| panic!("could not find the end of {door}"))];
+            assert!(
+                body.contains("penalty_for("),
+                "{door} must compute its penalty with penalty_for — found:\n{body}"
+            );
+        }
     }
 }

@@ -159,7 +159,7 @@ export function exitIx(
  * The hatch. Principal only, no reward accounting — so it cannot revert on an
  * accounting drift or a dry reward vault, which is the whole point of it.
  *
- * ⚠️ NOT FREE WHILE LOCKED: it charges the same flat 25% as `early_exit` unless the
+ * ⚠️ NOT FREE WHILE LOCKED: it charges the same flat penalty as `early_exit` unless the
  * position has matured or the pool is `degraded`. Accrued rewards are not lost —
  * they move to `rewards_carried` and stay claimable via `claimCarriedIx`.
  *
