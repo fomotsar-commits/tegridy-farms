@@ -19,13 +19,14 @@
 //     node scripts/bayla-ladder-ops.mjs stake  --pool <p> --amount 500 --lock-days 90
 //     node scripts/bayla-ladder-ops.mjs claim  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0        # matured, free
-//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 25% penalty
+//     node scripts/bayla-ladder-ops.mjs exit   --pool <p> --nonce 0 --early # 75% penalty
 //     node scripts/bayla-ladder-ops.mjs hatch  --pool <p> --nonce 0
 //     node scripts/bayla-ladder-ops.mjs claim-carried --pool <p>
 //
 // ⚠ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the SAME flat
-// 25% as `early_exit` when `now < lock_end` and the pool is not `degraded`
-// (lib.rs:607-613). It is free only after maturity, or once the pool is degraded.
+// 75% as `early_exit` when `now < lock_end` and the pool is not `degraded`
+// (lib.rs `emergency_withdraw`). It is free only after maturity, or once the pool is
+// degraded — which frees `early_exit` too.
 // This file said "no penalty" unconditionally and the runbook agreed with it; both
 // were wrong, and the penalty is invisible in a dry run because it rides inside a
 // base64 `Program data:` event line. `hatch` now reads the position and prints the
@@ -93,9 +94,14 @@ const REWARD_VAULT_SEED = Buffer.from('rvault');
 const MIN_LOCK_SECS = 7 * 86_400;
 const MAX_LOCK_SECS = 4 * 365 * 86_400;
 const REWARDS_DURATION_SECS = 90 * 86_400;
-/** math.rs: penalty_for(a) = a * 2500 / 10000, floored. Used by BOTH exit doors. */
-const EARLY_EXIT_PENALTY_BPS = 2_500;
+/**
+ * math.rs: penalty_for(a) = a * 7500 / 10000, floored. Used by BOTH early doors.
+ * 75% since 2026-09-17; the test file reads it back out of math.rs. Not the EVM
+ * LighthouseLadder.sol, which still charges 25%.
+ */
+const EARLY_EXIT_PENALTY_BPS = 7_500;
 const BPS = 10_000;
+const PENALTY_PCT = `${EARLY_EXIT_PENALTY_BPS / 100}%`;
 
 const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
 const TOKEN_LEGACY = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
@@ -675,7 +681,7 @@ const USAGE = `bayla-ladder ops
   stake      --pool <addr> --amount <t> --lock-days <d>
   claim      --pool <addr> --nonce <n>
   exit       --pool <addr> --nonce <n> [--early]
-  hatch      --pool <addr> --nonce <n>       # principal; 25% penalty WHILE LOCKED
+  hatch      --pool <addr> --nonce <n>       # principal; 75% penalty WHILE LOCKED
   claim-carried --pool <addr>
   sweep      --pool <addr>                   # permissionless, no signer
   propose-cap-raise --pool <addr> --cap <t>     # authority; raise-only, runs after 48h
@@ -880,11 +886,11 @@ async function main() {
         // The two doors partition time; taking the wrong one is refused on-chain,
         // so say which one applies rather than letting it fail as a constraint.
         if (matured && early) console.log(`  ⚠ this position is MATURED — drop --early and withdraw for free`);
-        if (!matured && !early) console.log(`  ⚠ this position is still LOCKED — withdraw_matured will refuse it; --early costs 25%`);
+        if (!matured && !early) console.log(`  ⚠ this position is still LOCKED — withdraw_matured will refuse it; --early costs ${p.degraded ? 'nothing (the pool is degraded)' : PENALTY_PCT}`);
       }
       const pre = await ensureAta(conn, owner.publicKey, owner.publicKey, p);
       await submit(conn, [...pre, ixExit({ programId, owner: owner.publicKey, pool: poolKey, p, positionNonce: n, early })],
-        owner, { broadcast, label: early ? 'early-exit (25% penalty)' : 'withdraw-matured' });
+        owner, { broadcast, label: early ? `early-exit (${p.degraded ? 'no penalty, pool degraded' : `${PENALTY_PCT} penalty`})` : 'withdraw-matured' });
       return;
     }
 
@@ -895,7 +901,7 @@ async function main() {
       const n = intArg(args, 'nonce');
       // THE HATCH IS NOT FREE WHILE LOCKED, and this used to say it was.
       //
-      // `emergency_withdraw` (lib.rs:607-613) charges the SAME flat 25% as
+      // `emergency_withdraw` (lib.rs) charges the SAME flat 75% as
       // `early_exit` when `now < lock_end` and the pool is not `degraded`. It is
       // free only after maturity, or once the pool is degraded — the M-3 fix that
       // made the two doors agree so neither dominates the other.
@@ -912,16 +918,16 @@ async function main() {
       } else {
         const now = Math.floor(Date.now() / 1000);
         const locked = now < Number(pos.value.lockEnd);
-        // Same arithmetic as math.rs `penalty_for`: amount * 2500 / 10000, floored.
+        // Same arithmetic as math.rs `penalty_for`: amount * 7500 / 10000, floored.
         const penalty = locked && !p.degraded
           ? (pos.value.amount * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS)
           : 0n;
         console.log(`  amount        ${fmt(pos.value.amount, p.decimals)}`);
         console.log(`  status        ${locked ? 'STILL LOCKED' : 'matured'}${p.degraded ? ', pool DEGRADED' : ''}`);
         if (penalty > 0n) {
-          console.log(`  🔴 PENALTY    ${fmt(penalty, p.decimals)}  (25% — the hatch is NOT free while locked)`);
+          console.log(`  🔴 PENALTY    ${fmt(penalty, p.decimals)}  (${PENALTY_PCT} — the hatch is NOT free while locked)`);
           console.log(`  you receive   ${fmt(pos.value.amount - penalty, p.decimals)}`);
-          console.log(`  'exit --early' costs exactly the same 25% and ALSO pays your rewards out.`);
+          console.log(`  'exit --early' costs exactly the same ${PENALTY_PCT} and ALSO pays your rewards out.`);
           console.log(`  Waiting until ${new Date(Number(pos.value.lockEnd) * 1000).toISOString()} makes it free.`);
         } else {
           console.log(`  penalty       none — ${p.degraded ? 'the pool is degraded' : 'this position has matured'}`);
@@ -1057,8 +1063,9 @@ async function main() {
       const bad = authorityProblem(p, authority.publicKey) ?? declareDegradedProblem(p);
       if (bad) throw new Error(bad);
       console.log(`\ndeclare-degraded  -- ONE-WAY: there is no instruction that clears it`);
-      console.log(`  After this the pool takes NO new stakes, and the emergency hatch charges`);
-      console.log(`  no penalty while locked. Every existing position can still exit.`);
+      console.log(`  After this the pool takes NO new stakes, and neither early exit nor the`);
+      console.log(`  emergency hatch charges a penalty while locked. Every existing position can`);
+      console.log(`  still exit.`);
       // A dry run is always safe. Broadcasting an irreversible flag needs a second,
       // explicit word, so a --broadcast typed on the wrong line cannot set it.
       const unconfirmed = confirmPermanentProblem(broadcast, args);
