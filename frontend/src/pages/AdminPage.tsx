@@ -24,6 +24,7 @@ import { TypedConfirmation } from '../components/ui/TypedConfirmation';
 import { IntegratorFeesPanel } from '../components/launcher/IntegratorFeesPanel';
 import { BirthQueuePanel } from '../components/BirthQueuePanel';
 import { LAUNCHER_INTEGRATOR_ADDRESS } from '../lib/launcher/config';
+import { lpEmissionsPhase } from '../lib/lpEmissions';
 
 // Minimal ABI fragments for owner/admin reads not in the shared ABIs
 const OWNER_ABI = [
@@ -277,6 +278,8 @@ export default function AdminPage() {
       // LP Farming
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'rewardRate', chainId: CHAIN_ID },
       { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'totalRawSupply', chainId: CHAIN_ID },
+      // Appended, never inserted: every entry above is read back by index.
+      { address: LP_FARMING_ADDRESS, abi: LP_FARMING_ABI, functionName: 'periodFinish', chainId: CHAIN_ID },
     ],
     query: { enabled: isOwner && onCorrectChain },
   });
@@ -330,9 +333,32 @@ export default function AdminPage() {
 
   const lpRewardRate = safeBigInt(10);
   const totalSupply = safeBigInt(11);
+  const lpPeriodFinish = safeBigInt(12);
+  // `rewardRate` is Synthetix storage: it keeps its last value after `periodFinish`
+  // until the next notifyRewardAmount overwrites it, while earned() stops accruing.
+  // Printed raw, this card reported mainnet's leftover 0.003307/sec as the live rate
+  // on a farm whose period ended 2026-06-15. Gate on periodFinish, as useLPFarming
+  // (F100) and lib/lpEmissions do. An unread period gets no verdict and no rate; a
+  // period that READ as 0 was never funded, which lpEmissionsPhase calls 'unknown'.
+  const lpPhase = lpPeriodFinish != null ? lpEmissionsPhase(Number(lpPeriodFinish)) : undefined;
+  const lpPeriodDate = lpPeriodFinish != null ? new Date(Number(lpPeriodFinish) * 1000).toLocaleDateString() : '';
   const lpFarmItems = [
-    { label: 'Reward Rate', value: lpRewardRate != null ? `${Number(formatEther(lpRewardRate)).toFixed(6)}/sec` : '...' },
+    {
+      label: 'Reward Rate',
+      value: lpPhase === 'running'
+        ? (lpRewardRate != null ? `${Number(formatEther(lpRewardRate)).toFixed(6)}/sec` : '...')
+        : lpPhase === 'ended' ? '0/sec (period ended)'
+        : lpPhase === 'unknown' ? '0/sec (never funded)'
+        : '...',
+    },
     { label: 'Total Staked LP', value: totalSupply != null ? `${formatTokenAmount(Number(formatEther(totalSupply)))}` : '...' },
+    {
+      label: 'Reward Period',
+      value: lpPhase === 'running' ? `Ends ${lpPeriodDate}`
+        : lpPhase === 'ended' ? `Ended ${lpPeriodDate}`
+        : lpPhase === 'unknown' ? 'Never funded'
+        : '...',
+    },
   ];
 
   // Not connected
