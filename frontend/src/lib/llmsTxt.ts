@@ -7,8 +7,9 @@
  * scripts/llms-txt.mjs, which loads THIS module and writes its output to dist.
  *
  * NOTHING HERE IS TYPED THAT THE APP ALREADY KNOWS. The holder's own guide, written
- * 09-16, said an early exit costs 25%, and the BAYLA ladder's 75% made that false for
- * one rail within a day. So every number and every address below is read from the
+ * 09-16, said an early exit costs 25%. The BAYLA ladder's 75% made that false for one
+ * rail within a day, and the same day the 75% became a cap on a time-left schedule
+ * (trunk #592), which made "75%" false too. So every number and every address below is read from the
  * constant the app itself uses, and src/lib/llmsTxt.test.ts fails the moment a
  * rendered field disagrees with its source (and, for the staking terms, with the
  * Solidity the constant mirrors).
@@ -51,6 +52,13 @@ export interface StakingTerms {
   minLockSeconds: number;
   maxLockSeconds: number;
   earlyExitBps: number;
+  /**
+   * How `earlyExitBps` applies. Absent or 'flat': that share of principal on any early
+   * exit. 'time-left': veYFI's schedule, the time left on the lock over `maxLockSeconds`
+   * as a share of principal, with `earlyExitBps` as the cap (the BAYLA ladder, since
+   * 2026-09-17). A flat sentence for a schedule overstates every exit below the cap.
+   */
+  earlyExitSchedule?: 'flat' | 'time-left';
   minBoostBps?: number;
   maxBoostBps?: number;
   bonusBps?: number;
@@ -159,7 +167,8 @@ export function collectFacts(ledger: AddressLedger): LlmsFacts {
       ? {
           minLockSeconds: baylaLadder.MIN_LOCK_SECS,
           maxLockSeconds: baylaLadder.MAX_LOCK_SECS,
-          earlyExitBps: baylaLadder.EARLY_EXIT_PENALTY_BPS,
+          earlyExitBps: baylaLadder.MAX_EARLY_EXIT_PENALTY_BPS,
+          earlyExitSchedule: 'time-left',
           minBoostBps: baylaLadder.MIN_BOOST_BPS,
           maxBoostBps: baylaLadder.MAX_BOOST_BPS,
         }
@@ -196,7 +205,11 @@ function terms(t: StakingTerms): string {
     parts.push(`boost from ${multiplier(t.minBoostBps)} to ${multiplier(t.maxBoostBps)}`);
   }
   if (t.bonusBps) parts.push(`plus ${multiplier(t.bonusBps)} with a JBAC NFT`);
-  parts.push(`leaving a lock early costs ${percent(t.earlyExitBps)} of the amount staked`);
+  parts.push(
+    t.earlyExitSchedule === 'time-left'
+      ? `leaving a lock early costs the time left on it over ${duration(t.maxLockSeconds)} as a share of the amount staked, capped at ${percent(t.earlyExitBps)}`
+      : `leaving a lock early costs ${percent(t.earlyExitBps)} of the amount staked`,
+  );
   return parts.join('; ');
 }
 

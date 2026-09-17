@@ -218,8 +218,23 @@ describe('every generated number equals its source', () => {
     const both = await build({ VITE_BAYLA_LADDER_PROGRAM: PROGRAM, VITE_BAYLA_LADDER_POOL: POOL });
     expect(both.f.baylaLadderStaking).not.toBeNull();
     const bayla = await import('./ladder/program');
-    expect(both.out).toContain(`leaving a lock early costs ${percent(bayla.EARLY_EXIT_PENALTY_BPS)} of the amount staked.`);
-    expect(bayla.EARLY_EXIT_PENALTY_BPS).toBe(7_500);
+    // NOT A FLAT RATE (trunk #592, 2026-09-17): veYFI's schedule, the time left on the
+    // lock over four years, capped at 75%. A flat "costs 75%" would overstate every exit
+    // with under three years left, so the line names the schedule, read from the program.
+    const line = both.out.split('\n').find((l) => l.startsWith('- BAYLA ladder on Solana: '));
+    expect(line).toBe(
+      `- BAYLA ladder on Solana: locks from ${duration(bayla.MIN_LOCK_SECS)} to ${duration(bayla.MAX_LOCK_SECS)}; ` +
+        `boost from ${multiplier(bayla.MIN_BOOST_BPS)} to ${multiplier(bayla.MAX_BOOST_BPS)}; ` +
+        `leaving a lock early costs the time left on it over ${duration(bayla.MAX_LOCK_SECS)} as a share of the amount staked, ` +
+        `capped at ${percent(bayla.MAX_EARLY_EXIT_PENALTY_BPS)}.`,
+    );
+    // And the sentence is what the program's own arithmetic charges, not a paraphrase.
+    const principal = 1_000_000n;
+    const now = 1_800_000_000n;
+    const fourYears = BigInt(bayla.MAX_LOCK_SECS);
+    expect(bayla.penaltyFor(principal, now + fourYears / 4n, now), 'one year left of four').toBe(250_000n);
+    expect(bayla.penaltyFor(principal, now + fourYears, now), 'four years left: the cap').toBe(750_000n);
+    expect(bayla.penaltyFor(principal, now, now), 'matured').toBe(0n);
   }, 30_000);
 });
 
