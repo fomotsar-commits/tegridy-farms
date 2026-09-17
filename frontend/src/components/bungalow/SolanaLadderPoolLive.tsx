@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { PublicKey } from '@solana/web3.js';
@@ -123,7 +123,19 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const [action, setAction] = useState<{ busy?: string; note?: string; sig?: string } | null>(null);
   // Two-step confirm, keyed by nonce+door. A door that costs a share of someone's
   // principal (`EARLY_EXIT_PENALTY_BPS`) must never be one mis-click away.
-  const [confirmFor, setConfirmFor] = useState<string | null>(null);
+  // ⚠️ ARMED AGAINST ONE READ. Nonces restart at 0 for every wallet, so a bare
+  // `nonce:door` armed by one wallet came up pre-armed on the next wallet's first
+  // position after a switch. The armed door is stored with the exact wallet read its
+  // row was drawn from, and any other read — another wallet, or the same one after
+  // switching away and back — renders it disarmed (`armed` below).
+  const [confirmFor, setConfirmFor] = useState<{ read: typeof walletRead; door: string } | null>(null);
+  // Every pool and wallet read is started by the ONE effect below, so a wallet switch
+  // cancels it. `run()` and "Try again" used to call a refresh from the render they
+  // were clicked in and drop its cancellation: a read for the PREVIOUS wallet could
+  // land after the new wallet's, overwrite it, and strand the card on "Reading your
+  // positions…" with nothing on screen able to read again. They bump this instead.
+  const [readGen, setReadGen] = useState(0);
+  const reread = () => setReadGen((n) => n + 1);
 
   // One tick a minute keeps every countdown and every accrued figure honest without
   // a render loop. Rewards accrue per second, so a card that never re-rendered would
@@ -137,21 +149,20 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const walletKey = publicKey?.toBase58() ?? '';
   const pool = poolRead?.ok ? poolRead.value : null;
 
-  const refresh = useCallback(() => {
-    if (!config.ok) return () => {};
+  useEffect(() => {
+    if (!config.ok) return;
     let cancelled = false;
     void readLadderPool(connection, config.programId, config.pool).then((r) => {
       if (!cancelled) setPoolRead(r);
     });
     if (publicKey) {
+      const key = publicKey.toBase58();
       void readLadderWallet(connection, config.programId, config.pool, publicKey).then((r) => {
-        if (!cancelled) setWalletRead({ key: publicKey.toBase58(), result: r });
+        if (!cancelled) setWalletRead({ key, result: r });
       });
     }
     return () => { cancelled = true; };
-  }, [connection, config, publicKey]);
-
-  useEffect(() => refresh(), [refresh]);
+  }, [connection, config, publicKey, readGen]);
 
   // Vault balances need the pool's own vault addresses, so they ride their own effect.
   useEffect(() => {
@@ -190,6 +201,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // null exactly as it is for a wallet with nothing in it, and the card used to print
   // "0 / 20" and "No open positions" to someone whose money had simply not loaded yet.
   const walletLoaded = Boolean(walletKey) && walletRead?.key === walletKey;
+  const armed = confirmFor !== null && confirmFor.read === walletRead ? confirmFor.door : null;
+  const arm = (door: string | null) => setConfirmFor(door === null ? null : { read: walletRead, door });
 
   const decimals = pool?.decimals ?? bungalow.decimals ?? 6;
   const sym = bungalow.symbol;
@@ -257,7 +270,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
     } else {
       setAction({ note: res.reason, sig: res.signature });
     }
-    refresh();
+    reread();
   };
 
   /* ── render ───────────────────────────────────────────────────────────── */
@@ -358,7 +371,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
               <p role="alert" className="text-[13px] rounded-lg p-3 mb-4" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
                 {walletUnreadable} Nothing is shown below rather than a zero, because a read that did not land
                 is not the same as an empty position.{' '}
-                <button type="button" onClick={refresh} className="underline underline-offset-2">Try again</button>
+                <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
               </p>
             ) : !walletLoaded ? (
               <p role="status" className="text-white/70 text-[13px]">Reading your positions…</p>
@@ -518,8 +531,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                         sym={sym}
                         busy={action?.busy}
                         canWrite={canWrite && Boolean(ctx)}
-                        confirmFor={confirmFor}
-                        setConfirmFor={setConfirmFor}
+                        confirmFor={armed}
+                        setConfirmFor={arm}
                         onClaim={() => ctx && void run('Claim', () => ladderClaim(ctx, { positionNonce: p.nonce }))}
                         onExit={(early) => ctx && void run(early ? 'Early exit' : 'Withdraw', () => ladderExit(ctx, { positionNonce: p.nonce, early }))}
                         onHatch={() => ctx && void run('Emergency withdraw', () => ladderHatch(ctx, { positionNonce: p.nonce }))}

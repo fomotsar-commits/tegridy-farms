@@ -147,17 +147,22 @@ describe('a pool closed to new deposits', () => {
     expect(text).toMatch(/keeps running|comes back in full/i);
   });
 
-  it('does not tell stakers the pool is moving, or that they should or will migrate', async () => {
-    // This pool and the venue's lock ladder are SEPARATE products. "Staking is moving
-    // to our own program" and "cannot be carried across" framed the ladder as the
+  it('does not tell stakers the pool is moving, that they should migrate, or that another pool exists', async () => {
+    // "Staking is moving to our own program" and "cannot be carried across" framed a
     // successor and a migration as the missing step. What is true: the locks stay
-    // where they are and keep running.
+    // where they are and keep running, and nothing is moved.
+    //
+    // ⚠️ AND NO OTHER POOL. A later wording said "the venue's lock ladder IS a separate
+    // pool" — to every BAYLA visitor on production, where no ladder pool exists and no
+    // ladder card is mounted. CLOSED_POOL has no `ladderPool`, which is exactly
+    // production's setup, so the notice must not name one.
     render(<LighthousePoolLive bungalow={CLOSED_POOL} />);
     const notice = await screen.findByText(/closed to new deposits/i);
     const text = notice.parentElement?.textContent ?? '';
     expect(text).not.toMatch(/moving to|carried across|migrat|replac/i);
     expect(text).toMatch(/stay where they are/i);
-    expect(text).toMatch(/separate/i);
+    expect(text).toMatch(/nothing in this pool is moved/i);
+    expect(text).not.toMatch(/ladder|separate|another pool|other pool|new pool|own program/i);
   });
 
   it('leaves an OPEN pool completely alone', async () => {

@@ -520,8 +520,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                 </p>
                 <p className="text-white/50 text-[11px] leading-relaxed mt-2">
                   Existing locks stay where they are and keep running in this pool until the last one
-                  matures. The venue&rsquo;s lock ladder is a separate pool with its own terms; nothing
-                  in this pool is moved into it.
+                  matures; nothing in this pool is moved anywhere.
                 </p>
                 <p className="text-white/40 text-[11px] leading-relaxed mt-2">
                   To be exact about what changed: the pool still exists on-chain and its terms are

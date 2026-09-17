@@ -251,6 +251,16 @@ describe('checkDeposit — refuse locally, with a reason', () => {
     checkDeposit(pool, amt, wallet, lock, open);
 
   it('accepts a sane stake', () => expect(ok(500_000_000n).allowed).toBe(true));
+  it('refuses a DEGRADED pool before any other gate, as lib.rs `stake` does', () => {
+    // `stake` checks `!pool.degraded` first (PoolDegraded, 6026), before `amount > 0`.
+    // A deposit that clears every other gate must still be refused here, and the
+    // reason must be the degraded one even when the amount is also wrong.
+    const degraded = { ...pool, degraded: true };
+    const v = checkDeposit(degraded, 500_000_000n, 0n, 7 * 86_400, 0);
+    expect(v.allowed).toBe(false);
+    expect(v.reason).toMatch(/degraded/);
+    expect(checkDeposit(degraded, 0n, 0n, 7 * 86_400, 0).reason).toMatch(/degraded/);
+  });
   it('refuses below the minimum, without promising the minimum can never change', () => {
     // The program is upgradeable, so "cannot be lowered" was a promise nobody can make.
     const v = ok(1n);

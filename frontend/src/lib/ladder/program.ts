@@ -497,6 +497,9 @@ export function checkDeposit(
   lockSecs: number,
   openPositions: number,
 ): DepositVerdict {
+  // FIRST, as lib.rs `stake` checks it first (PoolDegraded). Unread, a degraded pool
+  // left the Lock button live under a banner saying the pool takes no new stakes.
+  if (pool.degraded) return { allowed: false, reason: 'This pool has been declared degraded and accepts no new stakes.' };
   if (amountRaw <= 0n) return { allowed: false, reason: 'Enter an amount.' };
   if (amountRaw < pool.minStakeRaw) {
     return { allowed: false, reason: `This is below this pool’s minimum stake, and the deployed program has no instruction to change it.` };
