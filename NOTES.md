@@ -337,6 +337,125 @@ the redirect, or the wallet's own in-app browser can bounce itself in a loop.
   `https://link.trustwallet.com/open_url?coin_id=<slip44>&url=<encoded>`. A wrong
   `coin_id` still opens the browser, so this fails silently on the wrong chain.
 
+## 2026-09-13 — correct bytes at an unchanged URL reach nobody who already resolved that URL
+
+**Believed:** if a site's icon files are wrong, replacing the bytes fixes it. The
+HTTP cache is the only thing between the file and the viewer, so serving the
+icon with `Cache-Control: public, max-age=0, must-revalidate` means every client
+re-checks and picks up the new art on its next visit.
+
+**Measured:** the venue's `apple-touch-icon.png` and both manifest icons carried
+a retired project's pixel logo, and a commit replaced all three with the correct
+mark. Production served the correct bytes from that moment — verified live,
+`curl -sI https://<site>/apple-touch-icon.png` returning `200 image/png`,
+`Cache-Control: public, max-age=0, must-revalidate`, ETag matching the new file.
+Weeks later the retired icon was still showing in a wallet's in-app browser, on
+its tab cards and in its search bar.
+
+The reason is that `Cache-Control` governs *the HTTP cache*. It says nothing to
+a client that resolved this origin's icon once, wrote the image into its own
+store keyed by **origin**, and never asks the network again. Browsers, in-app
+webviews, home-screen launchers and link unfurlers all keep a store like this.
+For them a new icon at an old filename does not exist — there is no request for
+a header to be attached to.
+
+What reaches them is a URL they have never seen, so the version token has to move in
+the markup and in every manifest, not just on disk. **Where in the URL it moves
+matters too.** The first fix put the token in a query (`/favicon.png?v=<token>`); two
+days later it moved into the path (`/icons/<token>/favicon.png`). A store that
+normalises or strips the query sees the URL it already holds, and nothing on the
+server side reveals which stores do that. A new path is a strict superset of a new
+query: every store that would notice the query notices the path, and so do the
+ones that ignore queries. Keep the canonical root files (`/favicon.ico`,
+`/apple-touch-icon.png`) as copies and never move them, because a deleted one falls
+into the SPA rewrite described below.
+
+Two things that follow:
+
+- **The revalidation headers were never the problem, so tightening them is not
+  the fix.** It is easy to spend the whole investigation on `Cache-Control`,
+  `ETag` and CDN `Age` — all of which were already correct here — because those
+  are the knobs a server exposes. The stale copy was never in a layer the server
+  can address.
+- **Derive the version token from the icon bytes, not by hand.** A hand-bumped
+  literal lets someone change the art and leave the token alone, which is the
+  original bug reproduced exactly. Hashing the icon files and asserting the
+  markup carries that hash means art that moves without its URL moving fails,
+  and the failure prints the token to paste in. The invariant worth pinning is
+  "when the bytes change, the URL changes with them" — **not** "the icon is the
+  right one", which was true for the entire life of the bug and would have
+  proved nothing.
+
+**The second half, and the reason a client had nothing better to fall back to:**
+under an SPA rewrite, a missing well-known asset is not a 404. The config here
+rewrites `/((?!api/).*)` to `/index.html`, and there was no `favicon.ico` on
+disk, so `GET /favicon.ico` returned **`200 text/html`, 12801 bytes** — verified
+live. Plenty of in-app browsers probe that root path before they parse a single
+`<link>` tag. A fetcher that gets a 200 it cannot decode has no failure to fall
+back *from*: it does not learn "no icon here", it just keeps whatever it already
+had. A real `.ico` on disk both answers the probe and removes the ambiguity.
+
+Generalises past favicons: any SPA-rewritten origin returns a decodable-looking
+200 for `/robots.txt`, `/.well-known/*`, `/sitemap.xml` and every other
+convention-probed path it does not actually ship. Absence and success are the
+same response, and only the client's parser can tell them apart.
+
+## 2026-09-13 — a source scanner's exemptions are where the bugs live, and `[^>]*` cannot match a JSX tag
+
+**Believed:** a registry that must stay in step with the code can be held there by
+a scan: read every call site, compare against the list, fail on the difference.
+Call sites the scan cannot resolve — a computed argument, a loop index — are a
+small, harmless remainder, so skipping them keeps the guard honest.
+
+**Measured:** the skipped remainder was where both real defects were.
+
+A hand-maintained inventory of 418 art surfaces had two guards over it, and both
+asked only *"is everything the code renders in the list?"*. Running the reverse
+question for the first time: **54 of the 418 were rendered by nothing at all** —
+whole retired pages, and 17 cards on a page that had been rebuilt down to 2.
+Nothing had ever asked, so nothing had ever said.
+
+And the exemption itself hid the opposite defect. The scanners matched
+`pageId="literal"`, so a surface selected by a computed value was invisible to
+them — it could neither be flagged as missing nor as dead. Two of the most-seen
+surfaces on the site were reachable *only* that way:
+
+    pageId={IS_ARRIVAL || identity ? 'home' : 'venue-home'}
+    const PAGE_ID = 'eth-curve';  …  <PageArtBackdrop pageId={PAGE_ID} />
+
+The home-page hero was unregistered and unplaceable in the editing tool for
+months, while an overrides file carried a saved pick for it the whole time —
+a pick nothing could display, edit, or reconcile.
+
+Three things that transfer:
+
+- **Run the reverse direction of any consistency guard at least once.** "Is
+  everything used in the list?" and "is everything in the list used?" are
+  different questions with different failure modes, and a codebase that only
+  ever asks the first accumulates dead entries silently — forever, because the
+  guard is green. A dead registry entry is worse than clutter when the registry
+  is an editing surface: it accepts input, writes a record, and affects nothing.
+- **`[^>]*` cannot match a JSX tag.** Any prop holding an arrow function
+  (`onClick={() => x}`) contains a `>` that truncates the match, so the parse
+  silently pairs an attribute with one from a *later* tag. This produced
+  confident, entirely wrong findings until the extractor was rewritten to walk
+  the tag tracking brace and quote depth. Same trap for any regex over a
+  brace-delimited language.
+- **Enumerate the components before scanning for them, and read each one's
+  defaults.** The first pass covered two of the five components that resolve
+  this value, and reported live entries as dead because their call sites were in
+  the other three. Three of the five default the index to `0`, so a tag with no
+  index prop anywhere in it still renders index 0 — a scan looking for an
+  explicit index sees nothing and concludes the surface is unused.
+
+The general shape: a static scanner is an argument with premises — *these*
+components, *this* call syntax, *these* defaults. The premises are invisible in
+the output, and a green result asserts them just as loudly as it asserts the
+conclusion. Before trusting a sweep, check the number it resolved: this one
+found 282 surfaces before the missing components were added and 302 after, and
+the 20-surface gap was the whole difference between a wrong answer and a right
+one.
+
 ## 2026-09-12 — a route stub whose pattern stops matching does not fail, it silently measures the unstubbed page
 
 **Believed:** if a Playwright `page.route(glob, r => r.abort())` is in the spec, the
@@ -1385,6 +1504,47 @@ mutation failed exactly 6 of 63.
 **Do:** to test one member of an OR, make every other member false, and assert that
 they are false in the test itself. Then the member under test is the only thing
 that can answer. "Everything failed" tests the union, not the clause.
+
+## 2026-09-10 — a reverted tx renders no receipt, so DOM assertions blame the UI
+
+**Believed:** asserting a receipt link appeared is a sufficient check that a money-path
+transaction landed.
+
+It is not, and the failure mode is actively misleading. These surfaces render **one**
+receipt line, for **any** confirmed transaction (an approval included), and render
+**nothing at all** for a reverted one. So when a burn reverts, the assertion is left
+looking at whichever earlier receipt is still on screen. The same single root cause
+produced three different messages depending only on poll timing — the previous step's
+receipt still being up, an approval's receipt satisfying the check and a puzzling
+failure four lines later, or no link at all. None of them says "it reverted".
+
+**Do:** on a fork, read the transaction's fate off the node, not off the DOM —
+`expectMinedSuccessfully(page, what, forkTxCount(page))` in `e2e/fixtures/wallet.ts`.
+Assert the chain *first*, then keep the DOM assertion; one pins the chain, the other
+pins the UI.
+
+## 2026-09-10 — pinning a fork block costs you the archive, and then the deadline
+
+Two traps that both look like "the app is broken", both hit while pinning
+`ANVIL_FORK_BLOCK` to reproduce a flake.
+
+**1. A pinned block is an archive request.** Forking at *latest* works on every public
+endpoint; forking at a block a few hours old does not. Measured, forking at a block
+~1,900 behind head: `eth.drpc.org` 408 "Request timeout on the free plan",
+`ethereum-rpc.publicnode.com` 403, `eth.merkle.io` 429, `1rpc.io` and
+`eth.rpc.blxrbdn.com` "historical state not available". Working:
+`eth-mainnet.public.blastapi.io`, `gateway.tenderly.co/public/mainnet`,
+`rpc.flashbots.net`. CI does not pin, so CI is unaffected — this bites the person
+reproducing.
+
+**2. A pinned block's clock lags, and every router call then reverts.** The app stamps
+`deadline = Date.now()/1000 + 1800` from the *browser's* clock;
+`TegridyRouter.MAX_DEADLINE` is 2 hours. So once the fork's `block.timestamp` lags
+wall-clock by more than **90 minutes**, every add, remove and swap reverts
+`DEADLINE_TOO_FAR` — not `EXPIRED`. Pinning a block that was fresh in the morning and
+re-running it after lunch silently converts a working suite into a wall of failures.
+This is the mirror of the `advanceForkTime` trap already noted in `wallet.ts`: pushing
+the chain *ahead* gives `EXPIRED`, letting it fall *behind* gives `DEADLINE_TOO_FAR`.
 
 ## 2026-09-10 — zeroing an input does not withdraw the claim built on it
 
