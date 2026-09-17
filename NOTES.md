@@ -15,6 +15,64 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — wagmi reports a revert as an ERROR, so `isError` is two facts that need opposite advice
+
+**Believed:** `useWaitForTransactionReceipt()` hands back a reverted transaction the way the
+JSON-RPC does, as a receipt on `data` with `status: 'reverted'` and `isSuccess: true`, and
+`isError` means the receipt could not be read. Every money hook here was written to that:
+revert branches keyed off `isSuccess && data.status !== 'success'`, and `isError` toasted
+"Transaction failed". A unit suite mocked exactly that shape and stayed green.
+
+**Measured** by driving the installed `@wagmi/core` 3.6.5 `waitForTransactionReceipt` against
+a local anvil through a switchable JSON-RPC proxy (one scratch script, each case a real
+mined transaction):
+
+| Real outcome | What the action throws |
+|---|---|
+| revert | `CallExecutionError` → `ExecutionRevertedError` |
+| revert, state changed afterwards | `CallExecutionError` (the replay is pinned to the tx's own block) |
+| revert, replay `eth_call` slower than 10s | bare `Error('unknown reason')` |
+| success, `eth_getTransactionReceipt` → `{result: null}` | `TransactionReceiptNotFoundError` |
+| **revert**, `eth_getTransactionReceipt` → `{result: null}` | `TransactionReceiptNotFoundError` |
+| success, receipt/tx reads HTTP 500 | `HttpRequestError` |
+| revert, `getTransaction` 500s during the replay | `HttpRequestError` |
+| node unreachable, or 429 on every call | nothing: **never errors**, loads forever |
+
+On `status === 'reverted'` wagmi does not return the receipt. It replays the transaction with
+viem's `call` to recover a reason and **throws**. So no revert ever reaches `isSuccess`, and
+every revert branch keyed off it was unreachable code. A real revert went down the `isError`
+path and said "Transaction failed" (or, in `useSwap`, nothing, with the in-flight latch left
+set). The unit mock encoded the wrong belief, so it could not notice.
+
+Three consequences that transfer to any wagmi app:
+
+1. **Split `isError` by error type, and default to "unreadable".** A `CallExecutionError`
+   can only come from wagmi's revert branch, because viem's receipt waiter never calls
+   `call`. Everything else is "we could not read it". That includes the bare `Error` in
+   row 3: it also comes from the revert branch, but a bare `Error` is a shape anything can
+   throw. The default matters because the two mistakes are not symmetric: calling an
+   unreadable success "reverted, try again" makes the user pay twice, while calling a
+   revert "unconfirmed, check the explorer" costs them one click.
+2. **"Unreadable" copy must not guess the outcome.** Rows 3, 5 and 7 are real reverts that
+   land on the unreadable side. "It may well have succeeded" is false for them. The honest
+   sentence is "we can't tell whether it went through; check before you resend".
+3. **An outage is not an error at all.** With wagmi's default `timeout: 0`, a node that is
+   simply down never rejects: the hook sits in `isLoading` forever. Any UX that waits for
+   `isError` to release a spinner or a latch waits forever.
+
+**Do:** pin the library's error shapes with a test that runs the REAL action against a
+scripted EIP-1193 provider (`custom({ request })`, `retryCount: 0`, `pollingInterval: 20`
+runs a whole receipt wait in ~16ms), not a hand-built mock of the hook. A mock of the hook
+repeats whatever the author believed. Then pin the hooks against both shapes.
+
+### A ref latch leaves the button enabled, so `toBeEnabled` cannot see a dead CTA
+
+`useSwap` guards `executeSwap` with `isPendingRef`. Left set, it does not re-render, so the
+Swap button stays enabled and every click returns at the guard's line. The rescued e2e leg
+asserted `toBeEnabled()` after the fault, and that passes on the broken code. **Do:** assert
+the click reaches the chain. Read the fork's send count before the click, click, and poll
+for it to grow. In unit form, call the action twice and count `writeContract` calls.
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
