@@ -324,7 +324,7 @@ describe('the stake form refuses what the program would refuse', () => {
     draw();
     const input = await screen.findByLabelText('Amount');
     fireEvent.change(input, { target: { value: '1' } });
-    expect(await screen.findByText(/cannot be lowered/i)).toBeTruthy();
+    expect(await screen.findByText(/no instruction to change it/i)).toBeTruthy();
     const stake = screen.getByRole('button', { name: /Lock BAYLA/ });
     expect((stake as HTMLButtonElement).disabled).toBe(true);
   });
@@ -334,7 +334,7 @@ describe('the stake form refuses what the program would refuse', () => {
     // gate, and a refusal test alone cannot tell the two apart.
     draw();
     fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
-    expect(screen.queryByText(/cannot be lowered/i)).toBeNull();
+    expect(screen.queryByText(/no instruction to change it/i)).toBeNull();
     const stake = screen.getByRole('button', { name: /Lock BAYLA/ });
     expect((stake as HTMLButtonElement).disabled).toBe(false);
   });
@@ -387,7 +387,7 @@ describe('MAX writes a value the parser can read back', () => {
 
 /* ────────── 6. carried rewards are a balance, and must be reachable ────────── */
 
-describe('rewards the hatch set aside', () => {
+describe('carried rewards — from the hatch or a short reward vault', () => {
   it('shows a carried balance and a way to claim it', async () => {
     reads.wallet = {
       ok: true,
@@ -397,6 +397,9 @@ describe('rewards the hatch set aside', () => {
     };
     draw();
     expect(await screen.findByText(/42 BAYLA/)).toBeTruthy();
+    // Both sources, not just the hatch: an exit against a short reward vault carries
+    // the unpaid remainder here too, and the exit copy sends stakers to this box.
+    expect(screen.getByText(/could not cover when it closed/)).toBeTruthy();
     const btn = await screen.findByRole('button', { name: 'Claim carried' });
     btn.click();
     expect(writes.carried).toHaveBeenCalledTimes(1);
@@ -460,7 +463,7 @@ describe('pool-level reward figures', () => {
     // refuses a zero rate. "Ended" would tell a reader a stream once ran here.
     draw();
     const grid = await statGrid();
-    expect(grid.textContent).toMatch(/never been funded/);
+    expect(grid.textContent).toMatch(/no reward window has ever been scheduled/);
     expect(grid.textContent).not.toMatch(/ended|has closed/);
     expect(screen.queryByText('Rewards per day')).toBeNull();
     expect(screen.queryByText('Funded through')).toBeNull();
@@ -476,7 +479,7 @@ describe('pool-level reward figures', () => {
     expect(grid.textContent).toMatch(/ended/);
     expect(grid.textContent).toContain(dateOf(NOW - 2 * DAY));
     expect(grid.textContent).toMatch(/no new rewards are accruing/);
-    expect(grid.textContent).not.toMatch(/never been funded/);
+    expect(grid.textContent).not.toMatch(/no reward window has ever been scheduled/);
     expect(screen.queryByText('Rewards per day')).toBeNull();
     expect(screen.queryByText('Funded through')).toBeNull();
   });
@@ -589,12 +592,16 @@ describe('what the exit buttons promise', () => {
 
 describe('the upgradeability disclosure', () => {
   it('says matured positions keep full weight, that an upgrade may reset them to the base, and who can upgrade', async () => {
+    // "Who" is the upgrade AUTHORITY, not "a multisig": the devnet deployment's
+    // authority is not a multisig, and this card renders against whatever program id
+    // it is configured with.
     draw();
     await statGrid();
-    const disclosure = screen.getByText(/upgradeable/).closest('p')!;
+    const disclosure = screen.getByText(/can be upgraded/).closest('p')!;
     const text = disclosure.textContent ?? '';
     expect(text).toMatch(/keeps? (its|their) full (weight|boost)/);
-    expect(text).toMatch(/multisig/);
+    expect(text).toMatch(/upgrade authority/);
+    expect(text).not.toMatch(/multisig/);
     expect(text).toMatch(/may reset/);
     expect(text).toContain('0.40×');
   });

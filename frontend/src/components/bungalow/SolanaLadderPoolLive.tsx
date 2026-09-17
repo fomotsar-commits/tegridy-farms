@@ -277,7 +277,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
         {config.ok && (
           <p className="text-white/60 text-[11px] leading-relaxed mb-4 max-w-2xl">
             A position keeps its full weight after its lock opens, for as long as it stays in the pool.
-            This program is upgradeable by a multisig, and a future upgrade may reset matured positions
+            The program can be upgraded by its upgrade authority, and a future upgrade may reset matured positions
             to the {boostLabel(MIN_BOOST_BPS)} base weight. Everything on this card describes the program
             as deployed today.
           </p>
@@ -343,7 +343,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                   note={`closed ${dateOf(pool.periodFinish)} — no new rewards are accruing`} />
               ) : (
                 <Stat label="Reward window" value="not started"
-                  note="this pool has never been funded — no rewards are accruing" />
+                  note="no reward window has ever been scheduled — no rewards are accruing" />
               )}
               <Stat label="Minimum stake" value={fmtRaw(pool.minStakeRaw, decimals)} unit={sym}
                 note="the deployed program has no setter for it" />
@@ -377,13 +377,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                 </div>
 
                 {/* Carried rewards are real money in a field. A UI that never shows
-                    them hides a balance the hatch deliberately preserved. */}
+                    them hides a balance the program deliberately preserved: the hatch
+                    carries accrual, and either exit door carries what a short reward
+                    vault could not pay (lib.rs `exit_with_penalty`). */}
                 {carriedRaw !== null && carriedRaw > 0n && (
                   <div className="rounded-lg p-3 mb-4 flex flex-wrap items-center justify-between gap-3"
                     style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
                     <p className="text-white/85 text-[13px] m-0">
                       <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position —
-                      rewards the emergency hatch set aside rather than paid out. They are still yours.
+                      rewards the reward vault could not cover when it closed, or that the emergency hatch set
+                      aside. They are still yours.
                     </p>
                     <button type="button" disabled={!canWrite || !ctx}
                       onClick={() => ctx && void run('Claim carried', () => ladderClaimCarried(ctx))}
@@ -600,15 +603,9 @@ function PositionRow({
     : 0;
 
   const quote = (door: 'matured' | 'early' | 'hatch') => quotes.find((q) => q.door === door)!;
-  const quoted = quote(matured ? 'matured' : 'early');
-  // ⚠️ `early_exit` charges NOTHING in a degraded pool (lib.rs early_exit:
-  // `if pool.degraded { 0 } else { penalty_for(..) }`), but `quoteExit` prices the
-  // early door at the full penalty regardless. Pricing it here keeps the button from
-  // quoting a charge the program will not take — the exact exit the flag was declared
-  // to allow. Redundant, and harmless, once `quoteExit` honours `degraded` itself.
-  const normal = !matured && pool.degraded
-    ? { ...quoted, penaltyRaw: 0n, receivesRaw: position.amountRaw }
-    : quoted;
+  // `quoteExit` prices the early door at 0 in a degraded pool, as lib.rs `early_exit`
+  // charges it (#586) — so the button can never quote a charge the program will not take.
+  const normal = quote(matured ? 'matured' : 'early');
   const hatch = quote('hatch');
   // `claim` and both exit doors pay min(owed, reward vault) and keep the remainder
   // owed (math.rs `payable`); an exit carries it to UserStats.rewards_carried. So a

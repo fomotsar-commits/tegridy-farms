@@ -251,10 +251,13 @@ describe('checkDeposit — refuse locally, with a reason', () => {
     checkDeposit(pool, amt, wallet, lock, open);
 
   it('accepts a sane stake', () => expect(ok(500_000_000n).allowed).toBe(true));
-  it('refuses below the minimum, and says it cannot be lowered', () => {
+  it('refuses below the minimum, without promising the minimum can never change', () => {
+    // The program is upgradeable, so "cannot be lowered" was a promise nobody can make.
     const v = ok(1n);
     expect(v.allowed).toBe(false);
     expect(v.reason).toMatch(/minimum/i);
+    expect(v.reason).toMatch(/deployed program/);
+    expect(v.reason).not.toMatch(/cannot be lowered/i);
   });
   it('refuses zero and negative', () => {
     expect(ok(0n).allowed).toBe(false);
