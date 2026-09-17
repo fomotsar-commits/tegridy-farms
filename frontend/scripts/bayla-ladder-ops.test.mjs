@@ -1191,6 +1191,17 @@ describe('parity with math.rs — every expected value printed by rustc', () => 
   });
 });
 
+/**
+ * Source with its comments removed, so a guard that is commented out stops matching.
+ * A block comment is removed when it opens a line or closes on the line it opens; `//`
+ * only at a line start or after whitespace, so a URL's `https://` survives.
+ */
+const stripComments = (src) => src
+  .replace(/\r\n/g, '\n')
+  .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, '')
+  .replace(/\/\*.*?\*\//g, '')
+  .replace(/(^|[ \t])\/\/.*$/gm, '$1');
+
 describe('chain time comes from the Clock sysvar, never this machine', () => {
   // A REAL devnet Clock account, fetched read-only on 2026-09-16 with
   // getMultipleAccounts(["SysvarC1ock11111111111111111111111111111111"], base64):
@@ -1233,9 +1244,23 @@ describe('chain time comes from the Clock sysvar, never this machine', () => {
     expect(decodeClock(null)).toMatchObject({ ok: false });
   });
 
-  it('there is no wall clock anywhere in the CLI source', () => {
-    const src = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
-    expect(src.match(/Date\.now\(/g)).toBeNull();
+  it('there is no wall clock anywhere in the CLI code', () => {
+    const code = stripComments(readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8'));
+    // `Date()` with no argument covers `new Date()` and the bare call; both read this machine.
+    for (const clock of [/\bDate\.now\b/, /\bDate\(\s*\)/, /\bperformance\.now\b/, /\bprocess\.hrtime\b/]) {
+      expect(code.match(new RegExp(clock.source, 'g')), String(clock)).toBeNull();
+    }
+    // Formatting a CHAIN timestamp stays legal: `new Date(<seconds> * 1000)` reads no clock.
+    expect(code).toMatch(/new Date\(Number\(/);
+  });
+
+  it('the comment stripper removes a guard commented out either way, and keeps code and URLs', () => {
+    const guard = '      const blind = unpreviewedExitProblem(broadcast, pos);\n      if (blind) throw new Error(blind);';
+    expect(stripComments(guard.replace(/^ {6}/gm, '      // '))).not.toMatch(/unpreviewedExitProblem|throw/);
+    expect(stripComments(`      /*\n${guard}\n      */`)).not.toMatch(/unpreviewedExitProblem|throw/);
+    expect(stripComments(`      /* ${guard.replace('\n', ' ')} */`)).not.toMatch(/unpreviewedExitProblem|throw/);
+    expect(stripComments(`${guard} // trailing`)).toBe(`${guard} `);
+    expect(stripComments("  const rpc = 'https://api.devnet.solana.com';")).toContain('https://api.devnet.solana.com');
   });
 
   it('a Number where the chain timestamp belongs is refused, not coerced', () => {
@@ -1634,17 +1659,19 @@ describe('program error codes', () => {
 import {
   solvencyVerdicts, unpreviewedExitProblem, notifyMode, notifyPreviewLines, notifyCommand,
 } from './bayla-ladder-ops.mjs';
+import { vi } from 'vitest';
 
 /** The rustc vector with a day of emission un-banked: stored owed 4,000,000 raw, live 90,400,000. */
 const UNBANKED = RUST.checkpoint.find((c) => c[0] === 'live outstanding: a day un-banked');
 const UNBANKED_NOW = BigInt(UNBANKED[2][0]);
-const CLI_SRC = readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8');
-/** One `case '<name>': { ... }` of main(), up to the next case. */
+/** The CLI's CODE: comments stripped, so a commented-out line never satisfies a pin. */
+const CLI_CODE = stripComments(readFileSync(new URL('./bayla-ladder-ops.mjs', import.meta.url), 'utf8'));
+/** One `case '<name>': { ... }` of main(), up to the next case, comments stripped. */
 const caseBlock = (name) => {
-  const start = CLI_SRC.indexOf(`    case '${name}': {`);
+  const start = CLI_CODE.indexOf(`    case '${name}': {`);
   expect(start, `case '${name}' not found in main()`).toBeGreaterThan(-1);
-  const end = CLI_SRC.slice(start + 1).search(/\n {4}(case '|default:)/);
-  return CLI_SRC.slice(start, start + 1 + end);
+  const end = CLI_CODE.slice(start + 1).search(/\n {4}(case '|default:)/);
+  return CLI_CODE.slice(start, start + 1 + end);
 };
 
 describe('notify preview — the guards that had no test', () => {
@@ -1767,8 +1794,12 @@ describe('read — the I-1 and I-4 solvency verdicts', () => {
 
   it('`read` prints these rows and exits with their code', () => {
     const block = caseBlock('read');
-    expect(block).toContain('solvencyVerdicts(p, snap.now, { stakeVault: sv, rewardVault: rv })');
-    expect(block).toMatch(/if \(solvency\.exitCode\) process\.exitCode = solvency\.exitCode;/);
+    // The bindings too: swapped, each vault would be judged against the other invariant.
+    expect(block).toMatch(/^\s*const sv = snap\.stakeVault;$/m);
+    expect(block).toMatch(/^\s*const rv = snap\.rewardVault;$/m);
+    expect(block).toMatch(/^\s*const solvency = solvencyVerdicts\(p, snap\.now, \{ stakeVault: sv, rewardVault: rv \}\);$/m);
+    expect(block).toMatch(/^\s*for \(const row of solvency\.rows\) for \(const line of row\.lines\) console\.log\(line\);$/m);
+    expect(block).toMatch(/^\s*if \(solvency\.exitCode\) process\.exitCode = solvency\.exitCode;$/m);
   });
 });
 
@@ -1794,6 +1825,21 @@ describe('exit and hatch never BROADCAST a penalty nobody previewed', () => {
       expect(m.index, `${cmd}: guard before submit`).toBeLessThan(block.indexOf('submit('));
     }
   });
+
+  it('both commands PRINT the penalty preview, computed at the CHAIN clock; --early is strictly a bare flag', () => {
+    const exit = caseBlock('exit');
+    // `--early no` parses "no" as the flag's value; a truthy check would take the 75% door.
+    expect(exit).toMatch(/^\s*const early = args\.early === true;$/m);
+    expect(exit).toMatch(/^\s*const pv = exitPreview\(pos\.value, p, snap\.now, early \? 'early_exit' : 'withdraw_matured'\);$/m);
+    const hatch = caseBlock('hatch');
+    expect(hatch).toMatch(/^\s*const pv = exitPreview\(pos\.value, p, snap\.now, 'emergency_withdraw'\);$/m);
+    for (const [cmd, block] of [['exit', exit], ['hatch', hatch]]) {
+      expect(block, `${cmd}: the preview is printed`)
+        .toMatch(/^\s*for \(const line of exitReport\(pv, pos\.value, p, snap\.now\)\) console\.log\(line\);$/m);
+      expect(block, `${cmd}: snap is the chain snapshot the position rides in`)
+        .toMatch(/^\s*const snap = await loadSnapshot\(conn, programId, poolKey,\s*\{ extra: \[positionPda\(programId, poolKey, owner\.publicKey, n\)\] \}\);$/m);
+    }
+  });
 });
 
 describe('notify --preview — no keypair, nothing built, and never with --broadcast', () => {
@@ -1815,63 +1861,101 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
     expect(() => notifyMode(argv('--preview', 'false'))).toThrow(/--preview takes no value/);
   });
 
-  // The command itself, against an RPC that can ONLY read the snapshot: a blockhash fetch,
-  // a simulation or a send would throw "is not a function". The pool is the notify
-  // describe's base: 1000/s, 1,000,000s left, 20,000 tokens in the reward vault.
+  // The command itself, against an RPC that answers BY ADDRESS and records every call, so
+  // an account read from the wrong address comes back absent, and a blockhash fetch or a
+  // simulation shows up in `calls`. The pool is the notify describe's base: 1000/s,
+  // 1,000,000s left, 20,000 tokens in the reward vault; the authority's ATA holds 1,000,000.
   const TOKEN_2022 = new PublicKey('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
   const AUTHORITY = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK'); // stands in for a Squads vault
   const POOL = poolPda(PROGRAM, MINT, 0);
+  const FUNDER = ataFor(MINT, AUTHORITY, TOKEN_2022);
+  const SNAPSHOT = ['getAccountInfo', 'snapshot:5'];
+  const SIMULATED = [...SNAPSHOT, 'getLatestBlockhash', 'simulateTransaction'];
   const u128le = (d, v, o) => { d.writeBigUInt64LE(v & ((1n << 64n) - 1n), o); d.writeBigUInt64LE(v >> 64n, o + 8); };
-  const poolAccount = () => {
+  const poolAccount = ({ authority = AUTHORITY, totalWeighted = 40_000_000n } = {}) => {
     const d = Buffer.alloc(POOL_L.SIZE);
     Buffer.from(ACCT.Pool).copy(d, 0);
     MINT.toBuffer().copy(d, POOL_L.mint);
     TOKEN_2022.toBuffer().copy(d, POOL_L.tokenProgram);
     d[POOL_L.decimals] = 6;
-    AUTHORITY.toBuffer().copy(d, POOL_L.authority);
+    authority.toBuffer().copy(d, POOL_L.authority);
     vaultPda(PROGRAM, STAKE_VAULT_SEED, POOL).toBuffer().copy(d, POOL_L.stakeVault);
     vaultPda(PROGRAM, REWARD_VAULT_SEED, POOL).toBuffer().copy(d, POOL_L.rewardVault);
     d.writeBigUInt64LE(100_000_000n, POOL_L.minStake);
     d.writeBigUInt64LE(1_000_000_000n, POOL_L.depositCap);
-    u128le(d, 40_000_000n, POOL_L.totalWeighted);
+    u128le(d, totalWeighted, POOL_L.totalWeighted);
     u128le(d, 1_000n, POOL_L.rewardRate);
     d.writeBigInt64LE(2_000_000n, POOL_L.periodFinish);
     d.writeBigInt64LE(1_000_000n, POOL_L.lastUpdateTime);
     return { owner: PROGRAM, data: d };
   };
-  const tokenAccount = (amount) => {
+  /** A token account of MINT; `holder` is the token-account owner at @32. */
+  const tokenAccount = (amount, holder = PublicKey.default) => {
     const d = Buffer.alloc(165);
     MINT.toBuffer().copy(d, 0);
+    holder.toBuffer().copy(d, 32);
     d.writeBigUInt64LE(amount, 64);
     return { owner: TOKEN_2022, data: d };
   };
-  const readOnlyRpc = () => {
+  /**
+   * `pool` shapes the pool in the snapshot; `addressed` the one a lone getAccountInfo
+   * returns (they differ only to model an authority moving between the two reads).
+   * `funder: null` is an authority with no ATA for the mint.
+   */
+  const stubRpc = ({ pool = {}, addressed = pool, funder = tokenAccount(1_000_000_000_000n, AUTHORITY) } = {}) => {
     const calls = [];
+    const clock = Buffer.alloc(40);
+    clock.writeBigInt64LE(1_000_000n, 32);
+    const byAddress = new Map([
+      [POOL.toBase58(), poolAccount(pool)],
+      ['SysvarC1ock11111111111111111111111111111111', { owner: SYSVAR_OWNER, data: clock }],
+      [vaultPda(PROGRAM, REWARD_VAULT_SEED, POOL).toBase58(), tokenAccount(20_000_000_000n)],
+      [vaultPda(PROGRAM, STAKE_VAULT_SEED, POOL).toBase58(), tokenAccount(0n)],
+      [FUNDER.toBase58(), funder],
+    ]);
     return {
       calls,
+      getAccountInfo: async (key) => {
+        calls.push('getAccountInfo');
+        return key.equals(POOL) ? poolAccount(addressed) : null;
+      },
       getMultipleAccountsInfoAndContext: async (keys) => {
-        calls.push(keys.length);
-        const clock = Buffer.alloc(40);
-        clock.writeBigInt64LE(1_000_000n, 32);
-        return { context: { slot: 9 }, value: [poolAccount(), { owner: SYSVAR_OWNER, data: clock }, tokenAccount(20_000_000_000n), tokenAccount(0n)] };
+        calls.push(`snapshot:${keys.length}`);
+        return { context: { slot: 9 }, value: keys.map((k) => byAddress.get(k.toBase58()) ?? null) };
+      },
+      getLatestBlockhash: async () => {
+        calls.push('getLatestBlockhash');
+        return { blockhash: PublicKey.default.toBase58(), lastValidBlockHeight: 1 };
+      },
+      simulateTransaction: async () => {
+        calls.push('simulateTransaction');
+        return { value: { err: null, logs: [], unitsConsumed: 1 } };
       },
     };
   };
   const noKeypair = () => { throw new Error('signer() was called: --preview must not read a keypair'); };
-  const run = async (rpc, ...extra) => {
+  /** Holds the pool authority's PUBLIC key only: nothing in these tests may sign. */
+  const theAuthority = () => ({ publicKey: AUTHORITY });
+  const runAs = async (signer, rpc, ...extra) => {
     const lines = [];
     const args = parseArgs(['notify', '--pool', POOL.toBase58(), ...extra]);
     const code = await notifyCommand(args, {
-      conn: rpc, programId: PROGRAM, broadcast: args.broadcast === true, signer: noKeypair, log: (l) => lines.push(l),
+      conn: rpc, programId: PROGRAM, broadcast: args.broadcast === true, signer, log: (l) => lines.push(l),
     });
     return { code, text: lines.join('\n') };
   };
+  const run = (rpc, ...extra) => runAs(noKeypair, rpc, ...extra);
+  /** `submit` prints with console.log; keep the signing-path tests' output quiet. */
+  const quietly = async (fn) => {
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try { return await fn(); } finally { spy.mockRestore(); }
+  };
 
-  it('a preview that holds the rate exits 0 with no keypair and one read, printing the authority and the minimum --amount', async () => {
-    const rpc = readOnlyRpc();
+  it('a preview that holds the rate exits 0 with no keypair and one snapshot, printing the authority and the minimum --amount', async () => {
+    const rpc = stubRpc();
     const { code, text } = await run(rpc, '--amount', '7000', '--preview');
     expect(code).toBe(0);
-    expect(rpc.calls).toEqual([4]);
+    expect(rpc.calls).toEqual(SNAPSHOT);
     expect(text).toContain('PREVIEW — no keypair was read; nothing was built, simulated or sent.');
     expect(text).toContain(`pool authority     ${AUTHORITY.toBase58()}`);
     expect(text).toContain('minimum --amount   6,776  holds the current rate if it lands at chain now');
@@ -1881,21 +1965,105 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
   });
 
   it('a preview the program would refuse exits 1, still with no keypair and no transaction', async () => {
-    const rpc = readOnlyRpc();
+    const rpc = stubRpc();
     const { code, text } = await run(rpc, '--amount', '1000', '--preview');
     expect(code).toBe(1);
-    expect(rpc.calls).toEqual([4]);
+    expect(rpc.calls).toEqual(SNAPSHOT);
     expect(text).toMatch(/REFUSED: .*RewardRateWouldDecrease \(6028\)/);
   });
 
   it('--preview with --broadcast is refused before the RPC or a keypair is touched', async () => {
-    const rpc = readOnlyRpc();
+    const rpc = stubRpc();
     await expect(run(rpc, '--amount', '7000', '--preview', '--broadcast')).rejects.toThrow(/--preview never sends/);
     expect(rpc.calls).toEqual([]);
   });
 
   it('without --preview the keypair is still required', async () => {
-    await expect(run(readOnlyRpc(), '--amount', '7000')).rejects.toThrow(/signer\(\) was called/);
+    const rpc = stubRpc();
+    await expect(run(rpc, '--amount', '7000')).rejects.toThrow(/signer\(\) was called/);
+    expect(rpc.calls).toEqual([]);
+  });
+
+  // THE FUNDER. lib.rs NotifyReward validates `funder_ata` before the handler runs, so an
+  // absent one is refused even with amount 0, and the transfer out of it runs before
+  // EmissionExceedsFunding. The program takes ANY token account of the mint the authority
+  // holds; the CLI can read only the ATA, and says so.
+  it('an authority with NO ATA for the mint is refused, even at --amount 0, and the refusal says only the ATA was checked', async () => {
+    for (const amounts of [['--amount', '7000'], ['--amount', '0', '--from-budget', '7000']]) {
+      const rpc = stubRpc({ funder: null });
+      const { code, text } = await run(rpc, ...amounts, '--preview');
+      expect(code, amounts.join(' ')).toBe(1);
+      expect(rpc.calls).toEqual(SNAPSHOT);
+      expect(text).toMatch(/REFUSED: the funder token account .*missing/);
+      expect(text).toContain("only the pool authority's ATA is checked");
+    }
+    // ...and the same from-budget reload with the ATA present (holding nothing) is accepted.
+    expect((await run(stubRpc({ funder: tokenAccount(0n, AUTHORITY) }), '--amount', '0', '--from-budget', '7000', '--preview')).code).toBe(0);
+  });
+
+  it('an ATA holding less than --amount is refused; exactly --amount is not', async () => {
+    const short = await run(stubRpc({ funder: tokenAccount(6_999_999_999n, AUTHORITY) }), '--amount', '7000', '--preview');
+    expect(short.code).toBe(1);
+    expect(short.text).toMatch(/REFUSED: the funder token account holds 6,999.999999, less than --amount 7,000/);
+    expect(short.text).toContain("only the pool authority's ATA is checked");
+    const exact = await run(stubRpc({ funder: tokenAccount(7_000_000_000n, AUTHORITY) }), '--amount', '7000', '--preview');
+    expect(exact.code).toBe(0);
+    expect(exact.text).not.toContain('REFUSED');
+  });
+
+  it('a token account at the ATA address held by someone else is not the funder', async () => {
+    const { code, text } = await run(stubRpc({ funder: tokenAccount(1_000_000_000_000n, OWNER) }), '--amount', '7000', '--preview');
+    expect(code).toBe(1);
+    expect(text).toMatch(/REFUSED: the funder token account .*not the pool authority/);
+  });
+
+  it('an authority that moved between addressing the ATA and the snapshot is refused, not mis-read', async () => {
+    const rpc = stubRpc({ addressed: { authority: OWNER } });
+    await expect(run(rpc, '--amount', '7000', '--preview')).rejects.toThrow(/pool authority changed/);
+  });
+
+  it('the funder refusal comes FIRST: Anchor rejects the account before the handler checks anything', () => {
+    const pool = poolOf(['100000000', '40000000', '0', '0', '1000000', '0', '0', '0', '0', '0']);
+    const pv = notifyPreview({
+      pool, now: 1_000_000n, rewardVaultRaw: 0n, amount: 0n, fromBudget: 0n, funder: { ok: false, reason: 'missing' },
+    });
+    expect(pv.problems[0]).toMatchObject({ code: null, text: expect.stringMatching(/^the funder token account/) });
+    expect(programVerdict(pv)).toBe('ZeroAmount');
+  });
+
+  // PAST THE SIGNER. These refusals are the CLI's own: the program accepts an empty-pool
+  // notify, and a landing RISK passes simulation by definition, so the throws in
+  // notifyCommand are the only thing between them and a broadcast.
+  it('a CLI-only problem (an empty pool) throws before a blockhash or a simulation; --allow-empty-pool reaches the simulation', async () => {
+    const refused = stubRpc({ pool: { totalWeighted: 0n } });
+    await expect(quietly(() => runAs(theAuthority, refused, '--amount', '7000')))
+      .rejects.toThrow(/notify refused before anything was built or sent: 1 problem/);
+    expect(refused.calls).toEqual(SNAPSHOT);
+    const allowed = stubRpc({ pool: { totalWeighted: 0n } });
+    const { code, text } = await quietly(() => runAs(theAuthority, allowed, '--amount', '7000', '--allow-empty-pool'));
+    expect(code).toBe(0);
+    expect(text).toMatch(/note: total_weighted 0 is below the floor .*Proceeding \(--allow-empty-pool\)/);
+    expect(allowed.calls).toEqual(SIMULATED);
+  });
+
+  it('a missing funder ATA is refused on the signing path too, before anything is built', async () => {
+    const rpc = stubRpc({ funder: null });
+    await expect(quietly(() => runAs(theAuthority, rpc, '--amount', '7000'))).rejects.toThrow(/refused before anything was built/);
+    expect(rpc.calls).toEqual(SNAPSHOT);
+  });
+
+  it('a landing RISK refuses --broadcast before anything is built; the dry run still simulates', async () => {
+    // 6,776 is the minimum at chain now and below the minimum 120s later: a RISK, not a problem.
+    const sent = stubRpc();
+    await expect(quietly(() => runAs(theAuthority, sent, '--amount', '6776', '--broadcast')))
+      .rejects.toThrow(/refusing to BROADCAST with a landing RISK/);
+    expect(sent.calls).toEqual(SNAPSHOT);
+    const dry = stubRpc();
+    const { code, text } = await quietly(() => runAs(theAuthority, dry, '--amount', '6776'));
+    expect(code).toBe(0);
+    expect(text).toMatch(/RISK: 6,776 holds the rate only if it lands NOW/);
+    expect(text).not.toContain('REFUSED');
+    expect(dry.calls).toEqual(SIMULATED);
   });
 
   it('the minimum --amount is net of --from-budget, and there is none after the window', () => {
@@ -1912,7 +2080,8 @@ describe('notify --preview — no keypair, nothing built, and never with --broad
     const block = caseBlock('notify');
     expect(block).toContain('notifyCommand(args, { conn, programId, broadcast, signer })');
     expect(block).not.toMatch(/signer\(\)/);
-    expect(block).toMatch(/if \(code\) process\.exitCode = code;/);
+    expect(block).toMatch(/^\s*const code = await notifyCommand\(args, \{ conn, programId, broadcast, signer \}\);$/m);
+    expect(block).toMatch(/^\s*if \(code\) process\.exitCode = code;$/m);
   });
 });
 

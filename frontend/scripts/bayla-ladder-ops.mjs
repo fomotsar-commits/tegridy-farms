@@ -370,6 +370,19 @@ function decodeTokenAccount(info, p) {
   return { ok: true, value: { amount: rdU64(data, 64) } };
 }
 
+/**
+ * notify_reward's `funder_ata` as this CLI addresses it: the pool authority's ASSOCIATED
+ * token account. lib.rs `NotifyReward` constrains it to `mint == pool.mint && owner ==
+ * authority`, so the holder at @32 is checked too: a legacy SPL account's owner can be
+ * reassigned away from the address it was derived for.
+ */
+function decodeFunderAta(info, p) {
+  const t = decodeTokenAccount(info, p);
+  if (!t.ok) return t;
+  const holder = rdKey(info.data, 32);
+  return holder.equals(p.authority) ? t : { ok: false, reason: `held by ${holder.toBase58()}, not the pool authority` };
+}
+
 // ── the reward engine, replayed off-chain (PURE, BigInt) ─────────────────────
 //
 // `rewards_emitted` is only BANKED when an instruction checkpoints the pool, so the
@@ -574,15 +587,22 @@ function fromBudgetMax({ pool, now, rewardVaultRaw, amount = 0n, margin = budget
 
 /**
  * notify_reward, previewed at chain `now` against a same-slot snapshot. Checks run in
- * lib.rs order, so the first `problems` entry that carries a `code` is the error the
- * program would raise. Entries without a code are this CLI's own refusals.
+ * lib.rs order, so the first `problems` entry that carries a `code` is the first LADDER
+ * error the program would raise. Entries without a code are this CLI's own refusals, or
+ * refusals raised outside the ladder's error codes (the funder account, below).
+ *
+ * NOT EVERY REFUSAL. `funder` is the pool authority's ASSOCIATED token account, as
+ * `decodeFunderAta` returns it. The program accepts ANY token account of the mint that the
+ * authority holds, so a transaction built elsewhere (a Squads multisig) may name another
+ * one, and nothing here can see it. Omitted, the funder is not modelled at all (the rustc
+ * vectors model the transfer as `vault + amount`); `notifyCommand` always passes it.
  *
  *   problems  always refused before anything is sent
  *   risks     refused under --broadcast: true at preview time, but at risk of flipping
  *             in the seconds before the transaction lands
  *   notes     printed only
  */
-function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, allowEmptyPool = false,
+function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, funder, allowEmptyPool = false,
   slackSecs = LANDING_SLACK_SECS }) {
   chainTime(now);
   const d = pool.decimals;
@@ -591,6 +611,8 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, allowEmp
   const risks = [];
   const notes = [];
   const program = (code, text) => problems.push({ code, name: LADDER_ERRORS[code], text: `${text} (${errName(code)})` });
+  const ataOnly = 'only the pool authority\'s ATA is checked; a transaction built elsewhere (e.g. Squads) ' +
+    'may name another token account the authority holds for this mint';
 
   const oldRate = pool.rewardRate;
   const pf = pool.periodFinish;
@@ -599,9 +621,21 @@ function notifyPreview({ pool, now, rewardVaultRaw, amount, fromBudget, allowEmp
   const leftover = satMul(remaining, oldRate);
   const scheduled = amount + fromBudget;
 
+  // Anchor validates `funder_ata` BEFORE the handler runs, so an absent or foreign account
+  // is refused even when nothing is transferred.
+  if (funder !== undefined && funder?.ok !== true) {
+    problems.push({ code: null, text: `the funder token account is unusable (${funder?.reason ?? 'unread'}): ` +
+      `notify_reward refuses it before any check below, even with --amount 0 — ${ataOnly}` });
+  }
   if (amount === 0n && fromBudget === 0n) program(6001, 'nothing is scheduled: pass --amount and/or --from-budget');
   if (amount > U64_MAX || fromBudget > U64_MAX || scheduled > U64_MAX) {
     problems.push({ code: null, text: 'amount + from-budget exceeds u64; the program would saturate it silently' });
+  }
+  // The transfer runs after the checkpoint and BEFORE EmissionExceedsFunding, so a short
+  // funder fails in the token program first.
+  if (funder?.ok === true && funder.value.amount < amount) {
+    problems.push({ code: null, text: `the funder token account holds ${fmt(funder.value.amount, d)}, less than --amount ` +
+      `${fmt(amount, d)}: the token program refuses the transfer before the ladder's own checks — ${ataOnly}` });
   }
   const c = checkpointReplay(pool, now);
   const vaultPost = rewardVaultRaw + amount;
@@ -1334,10 +1368,17 @@ async function notifyCommand(args, { conn, programId, broadcast, signer, log = c
   // it as a file, and the rate guard (6028) makes previewing a reload essential.
   const authority = needsKeypair ? signer() : null;
   const poolKey = new PublicKey(need(args, 'pool'));
-  // ONE same-slot read of the pool, the Clock and both vaults. The preview is
-  // meaningless against a balance nobody read, so an unreadable vault throws.
-  const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true });
+  // The funder ATA is derived from the pool's mint, authority and token program, so the
+  // pool is read once to ADDRESS it. Every figure used below then comes from ONE same-slot
+  // read of the pool, the Clock, both vaults and that ATA. The preview is meaningless
+  // against a balance nobody read, so an unreadable vault throws.
+  const addressed = await loadPool(conn, programId, poolKey);
+  const funderKey = ataFor(addressed.mint, addressed.authority, addressed.tokenProgram);
+  const snap = await loadSnapshot(conn, programId, poolKey, { requireVaults: true, extra: [funderKey] });
   const p = snap.pool;
+  if (!ataFor(p.mint, p.authority, p.tokenProgram).equals(funderKey)) {
+    throw new Error('the pool authority changed between addressing its ATA and the snapshot — re-run');
+  }
   if (needsKeypair) {
     const notMine = authorityProblem(p, authority.publicKey);
     if (notMine) throw new Error(notMine);
@@ -1347,6 +1388,7 @@ async function notifyCommand(args, { conn, programId, broadcast, signer, log = c
   // mid-window fold-in (not scheduled / 90 days), and nothing is sent that it would refuse.
   const pv = notifyPreview({
     pool: p, now: snap.now, rewardVaultRaw: snap.rewardVault.value.amount, amount, fromBudget,
+    funder: decodeFunderAta(snap.extra[0], p),
     allowEmptyPool: args.allowEmptyPool === true,
   });
   log(`\nnotify-reward over ${REWARDS_DURATION_SECS / 86400} days${max ? '  (--from-budget max)' : ''}${preview ? '  (--preview)' : ''}`);
@@ -1378,7 +1420,9 @@ const USAGE = `bayla-ladder ops
                                              # mid-window the rate may not fall; the preview prints the minimum
                                              # --preview: NO --keypair, nothing built/simulated/sent; prints the
                                              #   pool authority and the minimum --amount (for a Squads authority).
-                                             #   Exits 1 if the notify would be refused. Not with --broadcast.
+                                             #   Exits 1 on a refusal it models. NOT every refusal: the funder
+                                             #   is checked as the authority's ATA only, and a Squads transaction
+                                             #   may name another token account. Not with --broadcast.
   stake      --pool <addr> --amount <t> --lock-days <d>
   claim      --pool <addr> --nonce <n>
   exit       --pool <addr> --nonce <n> [--early]
