@@ -207,6 +207,47 @@ function overrideSavePlugin(opts: OverrideSaveOptions): Plugin {
 
 // The two studio endpoints. Each renders its whole module source so the file
 // on disk stays deterministic (sorted keys, stable header) and diffs cleanly.
+/**
+ * ANSWER TEN, RULING 2: THE APP STYLESHEETS STOP GATING THE FIRST FRAME.
+ *
+ * Measured on the island's phone throttle (150 ms round trip, 1.6 Mbps, CPU 4x):
+ * with the hero in the HTML, the H1 still painted at ~1,650 ms, because first
+ * paint waited on index-*.css (41 KB), a render-blocking <link> in <head> sharing
+ * the throttled link with the fonts and the module preloads. It finished at
+ * ~1,520 ms; the paint followed. The static frame does not need that sheet: its
+ * critical CSS is inline in index.html.
+ *
+ * So the built stylesheet links move from <head> to just after #root. A stylesheet
+ * in the body still blocks painting of what comes AFTER it and still blocks the
+ * module scripts, so React never commits unstyled; it just no longer holds back the
+ * frame above it. fonts.css stays in <head> (1 KB, and the H1 wants its font).
+ * html's own background is inline too, so no route flashes white meanwhile.
+ *
+ * Fails the build if the shape it relies on is missing, rather than silently
+ * shipping a head that still blocks.
+ */
+function firstFrameStylesheetsPlugin(): Plugin {
+  return {
+    name: 'first-frame-stylesheets',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        const links = html.match(/<link rel="stylesheet" crossorigin href="\/assets\/[^"]+\.css">/g) ?? [];
+        const anchor = '<!-- /first-frame --></div>';
+        if (links.length === 0 || html.split(anchor).length !== 2) {
+          throw new Error(
+            `[first-frame-stylesheets] expected built stylesheet links and exactly one first-frame root; found ${links.length} links. index.html changed shape: update this plugin deliberately.`,
+          );
+        }
+        let out = html;
+        for (const link of links) out = out.replace(link, '');
+        return out.replace(anchor, `${anchor}\n    ${links.join('\n    ')}`);
+      },
+    },
+  };
+}
+
 function artStudioPlugin(): Plugin {
   return overrideSavePlugin({
     name: 'art-studio-save',
@@ -327,6 +368,7 @@ export default defineConfig(({ mode }) => {
       artStudioPlugin(),
       bungalowStudioPlugin(),
       doorStudioPlugin(),
+      firstFrameStylesheetsPlugin(),
       ...(process.env.ANALYZE ? [visualizer({ open: true, gzipSize: true, filename: 'dist/bundle-analysis.html' })] : []),
     ],
     resolve: {
@@ -471,7 +513,21 @@ export default defineConfig(({ mode }) => {
       // Fix: CSS preload errors on lazy-loaded chunks (Nakamigos App.css)
       // Vite's modulePreload inserts <link rel="modulepreload"> that can fail on some CDNs
       cssCodeSplit: true,
-      modulePreload: { polyfill: false },
+      modulePreload: {
+        polyfill: false,
+        // ANSWER TEN, RULING 2: THE WALLET STACK LOADS AFTER FIRST PAINT. Vite wrote
+        // every static dependency of the entry into index.html as a modulepreload,
+        // so a phone fetched vendor-wagmi (1.9 MB, 298 KB gzipped), viem, crypto,
+        // framer and query in parallel with the stylesheet that gates the first
+        // paint, on a link that has none of it to spare. The island measured `/`
+        // painting nothing until 6.7 s. The HTML's static first frame needs none
+        // of them. Filtered for the HTML host ONLY: the chunks still load, found
+        // from the entry once it arrives, and lazy routes keep their own preloads.
+        resolveDependencies: (_filename, deps, { hostType }) =>
+          hostType === 'html'
+            ? deps.filter((d) => !/(^|\/)vendor-(wagmi|viem|crypto|shared-wallet-plumbing|framer|query)-/.test(d))
+            : deps,
+      },
       rollupOptions: {
         output: {
           manualChunks(id) {

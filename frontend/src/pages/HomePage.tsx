@@ -56,6 +56,9 @@ const REF_STORAGE_KEY = 'tegridy_ref';
 // only the Tegridy personality words are contained to the TOWELI bungalow.
 const IS_TOWELI_ARRIVAL = arrivalVoice() === 'toweli';
 
+/** Answer ten, ruling 2: flipped by the first home mount, so only that one skips the hero's entrance. */
+let homeMountedOnce = false;
+
 const CORE_LOOP_STEPS = [
   IS_TOWELI_ARRIVAL
     ? { label: 'People trade TOWELI', sub: 'on the venue DEX' }
@@ -115,6 +118,15 @@ const HOW_IT_WORKS_STEPS = IS_TOWELI_ARRIVAL ? [
 ];
 
 export default function HomePage() {
+  // ANSWER TEN, RULING 2: the hero does not fade in over the static first frame the
+  // visitor is already reading. Only the document's first home mount, and only when
+  // index.html's frame was actually shown (theme-init stamps the attribute).
+  const [heroAlreadyOnScreen] = useState(
+    () => !homeMountedOnce && typeof document !== 'undefined' && document.documentElement.getAttribute('data-first-frame') === 'venue',
+  );
+  useEffect(() => {
+    homeMountedOnce = true;
+  }, []);
   // Jungle Bay bungalows: resolved FIRST because the title below depends on
   // it — the /bayla door serves her <title> statically for crawlers, and
   // without this the SPA would overwrite it back to the venue title the
@@ -249,7 +261,7 @@ export default function HomePage() {
 
       <div className="relative z-10 max-w-[1200px] mx-auto px-4 md:px-6">
         <div className="pt-28 pb-20">
-          <m.div className="max-w-xl relative" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <m.div className="max-w-xl relative" initial={heroAlreadyOnScreen ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             {/* Readability scrim — softly darkens the art behind the hero copy so the white
                 text stays legible over light patches of the art (e.g. the pale ape on the
                 left). Additive only: fades to transparent, so the art elsewhere is untouched. */}

@@ -136,12 +136,40 @@
          synchronously above and can read both conditions. That is EARLIER than
          this tag was, not later.
          Lock-step with pageArt('home', 0) is pinned by src/lib/heroPreload.test.ts. -->
+    <!-- ANSWER TEN, RULING 2: THE FIRST FRAME IS THE HERO. Critical CSS for the
+         static hero inside #root. An inline STYLE, never an inline script: the CSP
+         pins every inline script by hash, and style-src already allows inline.
+         The frame is hidden unless /theme-init.js opens it (only on `/` with no
+         other resident's skin), because the SPA fallback serves this file on every
+         route. React's first commit replaces it; FirstFrame.tsx reuses the ff-*
+         classes so the swap does not move. Pinned by src/lib/firstFrame.test.ts. -->
+    <style>
+      html{background:#060c1a}
+      #first-frame{display:none}
+      html[data-first-frame="venue"] #first-frame{display:block}
+      html[data-first-frame="venue"] body{background:#060c1a;margin:0}
+      .ff-bg{position:fixed;inset:0;z-index:0;background:#060c1a}
+      .ff-bg img{display:block;width:100%;height:100%;object-fit:cover;object-position:center}
+      .ff-wrap{position:relative;z-index:10;max-width:1200px;margin:0 auto;padding:112px 16px 80px;box-sizing:border-box}
+      .ff-in-layout{margin-top:-3.5rem}
+      .ff-col{position:relative;max-width:36rem}
+      .ff-h1{margin:0 0 1rem;color:#fff;font-family:'Archivo','Helvetica Neue',Arial,sans-serif;font-weight:900;font-size:1.875rem;line-height:1.1;letter-spacing:-0.025em;text-shadow:0 2px 8px #000,0 0 16px rgba(0,0,0,.7)}
+      .ff-plain,.ff-hook{margin:0 0 .75rem;max-width:28rem;font-family:'Inter',system-ui,sans-serif;font-weight:600;font-size:1rem;line-height:1.625;text-shadow:0 1px 6px rgba(0,0,0,.95)}
+      .ff-plain{color:#fff}
+      .ff-hook{color:#4CAF50}
+      .ff-form{display:flex;flex-wrap:wrap;gap:.5rem;margin:0 0 1.25rem;max-width:28rem}
+      .ff-input{flex:1 1 0;min-width:0;padding:.5rem .75rem;border-radius:.5rem;border:1px solid rgba(139,92,246,.4);background:rgba(0,0,0,.55);color:#fff;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;outline:none}
+      .ff-input:focus-visible{box-shadow:0 0 0 2px #8b5cf6}
+      .ff-btn{padding:.5rem 1.25rem;border-radius:10px;border:1px solid rgba(129,199,132,.45);background:linear-gradient(145deg,#1b5e20 0%,#2e7d32 35%,#4CAF50 65%,#1b5e20 100%);color:#fff;font-family:'Inter',system-ui,sans-serif;font-weight:700;font-size:13px;letter-spacing:.02em;text-shadow:0 1px 2px rgba(0,0,0,.5);cursor:pointer}
+      @media (min-width:640px){.ff-input{min-width:280px}}
+      @media (min-width:768px){.ff-wrap{padding-left:24px;padding-right:24px}.ff-h1{font-size:3.75rem}.ff-plain,.ff-hook{font-size:1.125rem}}
+    </style>
     <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"WebApplication","name":"MEMETICS.FINANCE","description":"The venue of Jungle Bay Island. Memetic finance on Ethereum, Base and Solana.","url":"https://memetics.finance","applicationCategory":"DeFi","operatingSystem":"Web"}
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><!-- first-frame --><div id="first-frame"><div class="ff-bg"><img src="/art/door-home.jpg" srcset="/_derived/art/door-home-jpg-128.webp 128w, /_derived/art/door-home-jpg-480.webp 480w, /_derived/art/door-home-jpg-960.webp 960w, /art/door-home.jpg 2048w" sizes="100vw" alt="" width="1200" height="800" loading="lazy" decoding="async"></div><div class="ff-wrap"><div class="ff-col"><h1 class="ff-h1" elementtiming="first-frame-h1">MEMETICS.FINANCE <br><span>Held time counts here.</span></h1><p class="ff-plain">Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.</p><p class="ff-hook">Your heat already exists. It started counting at your first buy.</p><form class="ff-form" method="get" action="/"><input class="ff-input" name="heat" placeholder="0x&hellip; or a Solana address" aria-label="Wallet address to read Heat for (Ethereum or Solana)" autocomplete="off" spellcheck="false" required><button class="ff-btn" type="submit">Read Heat</button></form></div></div></div><!-- /first-frame --></div>
     <!-- F30: JS-disabled visitors otherwise get a blank #root. -->
     <noscript>
       <div style="max-width:640px;margin:48px auto;padding:24px;font-family:system-ui,sans-serif;color:#ede9fe;text-align:center;line-height:1.5">

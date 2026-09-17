@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { takeFirstFrameDraft } from '../lib/firstFrameDraft';
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
 import { tierAtFloor } from '../lib/heat/heatOracle';
@@ -32,7 +34,10 @@ export function VenueHero() {
   // string cannot be poured into the input.
   const [searchParams] = useSearchParams();
   const heatParam = searchParams.get('heat');
-  const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : null;
+  // Answer ten, ruling 2: an address typed into the first frame before React
+  // arrived, taken once on mount. A shared ?heat= link still wins.
+  const [typedBeforeReact] = useState(() => takeFirstFrameDraft());
+  const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : typedBeforeReact;
   const launchFloor = heatLaunchFloor();
 
   return (

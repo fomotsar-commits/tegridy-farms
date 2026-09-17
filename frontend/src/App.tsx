@@ -8,6 +8,7 @@ import '@rainbow-me/rainbowkit/styles.css';
 import { config } from './lib/wagmi';
 import { AppLayout } from './components/layout/AppLayout';
 import { PageSkeleton } from './components/PageSkeleton';
+import { FirstFrame } from './components/FirstFrame';
 import { SwapSkeleton, FarmSkeleton, DashboardSkeleton } from './components/PageSkeletons';
 import { safeSetItem, safeGetItem } from './lib/storage';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -359,7 +360,10 @@ function AnimatedRoutes() {
           index
           element={
             <BungalowDoor id={VENUE_ID}>
-              <Suspense fallback={<PageSkeleton />}><HomePage /></Suspense>
+              {/* Answer ten, ruling 2: the venue's first frame, never "Loading...",
+                  while the home page's chunk arrives. Only here: a door renders its
+                  resident's hero, not the venue's. FirstFrame.tsx says why. */}
+              <Suspense fallback={<FirstFrame />}><HomePage /></Suspense>
             </BungalowDoor>
           }
         />

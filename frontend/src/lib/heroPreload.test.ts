@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { pageArt } from './artConfig';
+import { derivedUrl, naturalWidthOf, widthsFor } from './artSrcSet';
 import { VENUE_ID } from '../components/bungalow/BungalowDoor';
 
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -137,5 +138,53 @@ describe('theme-init.js emits the preload only where the hero is rendered', () =
 
   it('preloads nothing when a deep link names another bungalow', () => {
     expect(run('/?bungalow=bayla')).toBeNull();
+  });
+
+  // ANSWER TEN, RULING 2. The preload named only the 2,048 px original, while the
+  // hero ArtImg offers 128/480/960 webp at sizes 100vw. A phone at 2x or lower
+  // downloaded 442 KB here and then a 45 KB webp for the <img>: the hero twice.
+  // The static first frame's <img> asks with the same srcset, so the preload
+  // must too, or the first paint pays for a picture nobody draws.
+  it('preloads with the same srcset and sizes the hero <img> asks for', () => {
+    const src = pageArt('venue-home', 0).src;
+    const expected = [
+      ...widthsFor(src).map((w) => `${derivedUrl(src, w)} ${w}w`),
+      `${src} ${naturalWidthOf(src)}w`,
+    ].join(', ');
+    const link = run('/');
+    expect(link?.getAttribute('imagesrcset')).toBe(expected);
+    expect(link?.getAttribute('imagesizes')).toBe('100vw');
+  });
+});
+
+describe('theme-init.js opens the first frame only where it is the page', () => {
+  function gate(pathAndSearch: string): string | null {
+    window.history.replaceState(null, '', pathAndSearch);
+    document.documentElement.removeAttribute('data-first-frame');
+    new Function(themeInit)();
+    return document.documentElement.getAttribute('data-first-frame');
+  }
+
+  afterEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute('data-first-frame');
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('opens it on / for a first-time visitor and for one who chose the venue', () => {
+    expect(gate('/')).toBe('venue');
+    localStorage.setItem('tegridy-bungalow', VENUE_ID);
+    expect(gate('/')).toBe('venue');
+  });
+
+  it('keeps it shut everywhere the venue hero is not what renders', () => {
+    // index.html is served for EVERY route by the SPA fallback, so an ungated
+    // frame would flash the venue's H1 over /farm, a room, or a 404.
+    expect(gate('/farm')).toBeNull();
+    expect(gate('/bayla')).toBeNull();
+    localStorage.setItem('tegridy-bungalow', 'toweli');
+    expect(gate('/')).toBeNull();
+    localStorage.clear();
+    expect(gate('/?bungalow=bayla')).toBeNull();
   });
 });
