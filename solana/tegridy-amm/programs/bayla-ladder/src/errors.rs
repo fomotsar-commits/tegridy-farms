@@ -19,7 +19,7 @@ pub enum LadderError {
     TooManyPositions,
     #[msg("Deposit would exceed the pool's cap")]
     DepositCapExceeded,
-    #[msg("Position is still locked — use early_exit or emergency_withdraw (75% penalty)")]
+    #[msg("Position is still locked — use early_exit or emergency_withdraw (penalty: time left / 4 years, up to 75%)")]
     StillLocked,
     #[msg("Position has matured — use withdraw_matured; it must not eat a penalty by accident")]
     UseWithdrawMatured,

@@ -765,7 +765,7 @@ describe("bayla-ladder", () => {
         "NOTE: the MATURED path cannot be reached without a clock warp — see the header"
       ));
 
-    it("early_exit takes exactly 75%, and the penalty lands in the REWARD vault", async () => {
+    it("early_exit on a 4-year lock takes the 75% cap, and the penalty lands in the REWARD vault", async () => {
       const before = await bal(carolAta);
       const rvBefore = await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool));
       await program.methods
@@ -775,7 +775,9 @@ describe("bayla-ladder", () => {
         .rpc();
 
       const out = (await bal(carolAta)).sub(before);
-      // 75% forfeited (owner decision 2026-09-17): 10,000 staked -> 7,500 penalty, 2,500 back.
+      // veYFI's schedule, min(time_left / 4y, 75%) (owner decision 2026-09-17). The beforeEach
+      // lock is MAX_LOCK, so time_left is over three years and the cap applies exactly:
+      // 10,000 staked -> 7,500 penalty, 2,500 back.
       const penalty = tok(10_000).mul(new BN(3)).div(new BN(4));
       assert.equal(penalty.toString(), tok(7_500).toString(), "arithmetic of the fixture");
       assert.equal(
@@ -810,6 +812,56 @@ describe("bayla-ladder", () => {
       );
     });
 
+    it("a 7-day lock left early pays veYFI's time-left share, nowhere near the 75% cap", async () => {
+      // penalty = amount x min(time_left / 4y, 75%), two floors as veYFI does them. A 7-day
+      // lock exited straight away has at most 7 days left, so it forfeits at most 7/1460 of
+      // principal (~0.48%). Bounded, not exact: the exit's clock second is not known in
+      // advance. A flat 75% here would forfeit 7,500; the schedule forfeits under 48.
+      const nonce = 1;
+      await program.methods
+        .stake(tok(10_000), new BN(MIN_LOCK))
+        .accounts({
+          owner: carol.publicKey,
+          pool: ctx.pool,
+          mint: ctx.mint,
+          userStats: userPda(ctx.pool, carol.publicKey),
+          position: positionPda(ctx.pool, carol.publicKey, nonce),
+          ownerAta: carolAta,
+          stakeVault: vaultPda(STAKE_VAULT_SEED, ctx.pool),
+          tokenProgram: ctx.programId,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([carol])
+        .rpc();
+      const before = await bal(carolAta);
+      const rvBefore = await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool));
+      await program.methods
+        .earlyExit()
+        .accounts({ ...exitAccounts(), position: positionPda(ctx.pool, carol.publicKey, nonce) })
+        .signers([carol])
+        .rpc();
+
+      const penalty = tok(10_000).sub((await bal(carolAta)).sub(before));
+      const SCALE = new BN(10).pow(new BN(18));
+      const charge = (secsLeft: number) =>
+        tok(10_000).mul(new BN(secsLeft).mul(SCALE).div(new BN(MAX_LOCK))).div(SCALE);
+      const upper = charge(MIN_LOCK);
+      const lower = charge(MIN_LOCK - 600);
+      assert.isTrue(
+        penalty.lte(upper) && penalty.gte(lower),
+        `penalty ${penalty.toString()} is outside [${lower.toString()}, ${upper.toString()}]`
+      );
+      assert.isTrue(penalty.gtn(0), "a locked early exit must still pay something");
+      assert.equal(
+        (await bal(vaultPda(REWARD_VAULT_SEED, ctx.pool))).sub(rvBefore).toString(),
+        penalty.toString(),
+        "the time-left penalty is retained as reward budget, exactly as the capped one"
+      );
+      assert.isNull(
+        await conn.getAccountInfo(positionPda(ctx.pool, carol.publicKey, nonce))
+      );
+    });
+
     it("THE CENTRAL PROMISE: emergency_withdraw returns principal with an EMPTY reward vault", async () => {
       // The reward vault has never been funded in this pool. On the rented rail this
       // is Streamflow 6012 — claim AND unstake revert, and principal is held hostage
@@ -837,7 +889,7 @@ describe("bayla-ladder", () => {
       assert.equal(
         out.toString(),
         tok(2_500).toString(),
-        "25% out while locked (the hatch charges the same 75% as early_exit)"
+        "25% out on a 4-year lock (the hatch charges the same capped 75% as early_exit)"
       );
       const pool = await program.account.pool.fetch(ctx.pool);
       assert.equal(
@@ -899,7 +951,8 @@ describe("bayla-ladder", () => {
     it("AUDIT H-1: a retained penalty is SCHEDULABLE with no fresh capital", async () => {
       // This is the finding that mattered most. Before the fix the rate was a pure
       // function of the freshly-transferred `amount`, so the penalty a leaver left behind
-      // (25% when H-1 was found; 75% since 2026-09-17) could never be scheduled at all.
+      // (25% when H-1 was found; up to 75%, by time left, since 2026-09-17) could never be
+      // scheduled at all.
       // A `notify_reward(0, penalty)` was impossible: `amount > 0` was required.
       // This pool has never been funded (period_finish == 0), so the rate guard does not
       // apply here; mid-window, a penalty-only reload would be refused unless it covers

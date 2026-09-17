@@ -26,9 +26,10 @@
 //     while locked and refuses new stakes. It does not touch existing weights. It
 //     changes what the exit doors cost, so it changes what the UI must say.
 //
-// ⚠️ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same flat
+// ⚠️ THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same
 // penalty as `early_exit` when `now < lock_end` and the pool is not degraded
-// (bayla-ladder/src/lib.rs, `emergency_withdraw`) — 75% since the 2026-09-17 rebuild.
+// (bayla-ladder/src/lib.rs, `emergency_withdraw`) — since 2026-09-17, veYFI's schedule:
+// the time left on the lock over four years, capped at 75%.
 // Confirmed on chain against the superseded 25% build: the `Withdrawn` event on a
 // 500-token locked position decoded to `amount=375, penalty=125`, while the
 // `transfer_checked` in that same transaction moved only 375 — so the penalty is
@@ -74,12 +75,17 @@ export const MIN_LOCK_SECS = 7 * 86_400;
 export const MAX_LOCK_SECS = 4 * 365 * 86_400;
 export const REWARDS_DURATION_SECS = 90 * 86_400;
 /**
- * Both early doors charge this while locked. `penalty_for(a) = a * 7500 / 10000`,
- * floored. 75% since 2026-09-17 (owner decision); `program.test.ts` reads it back out
- * of math.rs. NOT the EVM `LighthouseLadder.sol`, which still charges 25%.
+ * The CAP on the early-exit penalty: 75%, reached with three or more years left. The
+ * penalty itself is veYFI's schedule — see `penaltyFor`. `program.test.ts` reads this and
+ * `PENALTY_SCALE` back out of math.rs. NOT the EVM `LighthouseLadder.sol`, which still
+ * charges a flat 25%.
  */
-export const EARLY_EXIT_PENALTY_BPS = 7_500;
+export const MAX_EARLY_EXIT_PENALTY_BPS = 7_500;
 export const BPS = 10_000;
+/** veYFI's `SCALE`: the penalty ratio is fixed-point at 1e18, as math.rs does it. */
+export const PENALTY_SCALE = 1_000_000_000_000_000_000n;
+/** veYFI's `MAX_PENALTY_RATIO`, `SCALE * 3 / 4`, derived from the bps cap. */
+export const MAX_PENALTY_RATIO = (PENALTY_SCALE * BigInt(MAX_EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
 /** The ladder's ends, in bps: 0.40x at the 7-day floor, 4.00x at 4 years. */
 export const MIN_BOOST_BPS = 4_000;
 export const MAX_BOOST_BPS = 40_000;
@@ -397,9 +403,32 @@ export function weightForStake(amountRaw: bigint, lockSecs: number): bigint {
   return (amountRaw * BigInt(boostBpsForLock(lockSecs))) / BigInt(BPS);
 }
 
-/** `penalty_for` — `EARLY_EXIT_PENALTY_BPS` of principal, floored, exactly as `math.rs` computes it. */
-export function penaltyFor(amountRaw: bigint): bigint {
-  return (amountRaw * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
+/**
+ * `penalty_for(amount, lock_end, now)` — veYFI's early-exit penalty, exactly as `math.rs`
+ * computes it: `min(time_left / 4 years, 75%)` of principal, floored TWICE in veYFI's order
+ * (the ratio at 1e18, then the amount). Zero once the lock has ended.
+ */
+export function penaltyFor(amountRaw: bigint, lockEnd: bigint, nowSecs: bigint): bigint {
+  const left = lockEnd - nowSecs;
+  if (left <= 0n) return 0n;
+  const max = BigInt(MAX_LOCK_SECS);
+  const timeLeft = left < max ? left : max;
+  const r = (timeLeft * PENALTY_SCALE) / max;
+  const ratio = r < MAX_PENALTY_RATIO ? r : MAX_PENALTY_RATIO;
+  return (amountRaw * ratio) / PENALTY_SCALE;
+}
+
+/**
+ * A penalty as a share of principal, for display: floored to hundredths of a percent and
+ * printed without trailing zeros ("75%", "25%", "0.47%"). Never rounds UP, so a card never
+ * shows a price above the one the program charges.
+ */
+export function penaltyPct(penaltyRaw: bigint, amountRaw: bigint): string {
+  if (amountRaw <= 0n) return '0%';
+  const hundredths = (penaltyRaw * 10_000n) / amountRaw;
+  const whole = hundredths / 100n;
+  const frac = (hundredths % 100n).toString().padStart(2, '0').replace(/0+$/, '');
+  return frac ? `${whole}.${frac}%` : `${whole}%`;
 }
 
 export type ExitDoor = 'matured' | 'early' | 'hatch';
@@ -435,11 +464,13 @@ export function quoteExit(
   pool: Pick<LadderPoolView, 'degraded'>,
   nowSecs: number,
 ): ExitQuote[] {
-  const matured = BigInt(Math.floor(nowSecs)) >= position.lockEnd;
+  const now = BigInt(Math.floor(nowSecs));
+  const matured = now >= position.lockEnd;
   const locked = !matured;
   const full = position.amountRaw;
-  const pen = penaltyFor(full);
-  const pct = `${EARLY_EXIT_PENALTY_BPS / 100}%`;
+  const pen = penaltyFor(full, position.lockEnd, now);
+  const pct = penaltyPct(pen, full);
+  const schedule = `the time left over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%`;
   const earlyPenalty = pool.degraded ? 0n : pen;
   const hatchPenalty = locked && !pool.degraded ? pen : 0n;
   return [
@@ -458,7 +489,7 @@ export function quoteExit(
       reason: matured
         ? 'already matured — the program sends you to the free door instead'
         : earlyPenalty > 0n
-          ? `${pct} retained; your accrued rewards are paid out`
+          ? `${pct} retained (${schedule}); your accrued rewards are paid out`
           : 'free while the pool is degraded; your accrued rewards are paid out',
     },
     {
@@ -467,7 +498,7 @@ export function quoteExit(
       receivesRaw: full - hatchPenalty,
       refused: false,
       reason: hatchPenalty > 0n
-        ? `${pct} retained — the hatch is NOT free while locked; rewards are deferred, not lost`
+        ? `${pct} retained (${schedule}) — the hatch is NOT free while locked; rewards are deferred, not lost`
         : pool.degraded
           ? 'free while the pool is degraded; rewards are deferred, not lost'
           : 'free after maturity; rewards are deferred, not lost',
@@ -497,9 +528,12 @@ export function checkDeposit(
   lockSecs: number,
   openPositions: number,
 ): DepositVerdict {
+  // FIRST, as lib.rs `stake` checks it first (PoolDegraded). Unread, a degraded pool
+  // left the Lock button live under a banner saying the pool takes no new stakes.
+  if (pool.degraded) return { allowed: false, reason: 'This pool has been declared degraded and accepts no new stakes.' };
   if (amountRaw <= 0n) return { allowed: false, reason: 'Enter an amount.' };
   if (amountRaw < pool.minStakeRaw) {
-    return { allowed: false, reason: `This pool has a minimum stake. It cannot be lowered — the program has no setter for it.` };
+    return { allowed: false, reason: `This is below this pool’s minimum stake, and the deployed program has no instruction to change it.` };
   }
   if (lockSecs < MIN_LOCK_SECS) return { allowed: false, reason: 'The shortest lock this pool allows is 7 days.' };
   if (lockSecs > MAX_LOCK_SECS) return { allowed: false, reason: 'The longest lock this pool allows is 4 years.' };

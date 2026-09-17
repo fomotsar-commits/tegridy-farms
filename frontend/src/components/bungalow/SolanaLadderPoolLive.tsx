@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import — same rule as SolanaProviders.
 import '../../lib/solanaPolyfill';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { PublicKey } from '@solana/web3.js';
@@ -10,7 +10,9 @@ import type { Bungalow } from '../../lib/bungalows';
 import {
   isLadderConfigured, ladderProgramId,
   boostBpsForLock, weightForStake, quoteExit, checkDeposit, earnedNow, rewardRunwaySecs,
-  MAX_LOCK_SECS, MAX_POSITIONS, EARLY_EXIT_PENALTY_BPS,
+  minWeightFloor,
+  MAX_LOCK_SECS, MAX_POSITIONS, MAX_EARLY_EXIT_PENALTY_BPS, MIN_BOOST_BPS,
+  penaltyFor, penaltyPct,
   type LadderPoolView, type LadderPositionView,
 } from '../../lib/ladder/program';
 import {
@@ -28,15 +30,17 @@ import { fmtRaw, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '..
  * A `bayla-ladder` pool, LIVE.
  *
  * The Solana twin of EvmLadderPoolLive, against this venue's own Anchor program
- * rather than LighthouseLadder.sol. It sits BESIDE the Streamflow card rather than
- * replacing it: the lighthouse pool holds real stakers whose positions must stay
- * visible while they are still in it, and a card that vanished the moment a second
- * pool was configured would hide their money.
+ * rather than LighthouseLadder.sol. It sits beside the Streamflow card. The two are
+ * separate products on separate programs: neither replaces the other and nothing
+ * moves between them, so a card that vanished the moment a second pool was
+ * configured would hide real stakers' money.
  *
  * ── THE FOUR THINGS THIS CARD MUST NOT GET WRONG ────────────────────────────
  *
- * 1. THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same flat
- *    25% as `early_exit` unless the position has matured or the pool is degraded.
+ * 1. THE HATCH IS NOT FREE WHILE LOCKED. `emergency_withdraw` charges the same penalty
+ *    as `early_exit` — veYFI's schedule, the time left over four years capped at 75% —
+ *    unless the position has matured or the pool is degraded (and in a degraded pool
+ *    `early_exit` is free too).
  *    An earlier version of the operator CLI, the runbook and a sentence said out
  *    loud all had it costing nothing; the penalty rides inside a base64 event, so a
  *    dry run does not show it. Every door here is priced by `quoteExit()` and the
@@ -53,11 +57,11 @@ import { fmtRaw, toPlain, toRaw, humanDuration, lockLabel, boostLabel } from '..
  *    most-repeated defect and the one it can least afford on a page with a stake
  *    button.
  *
- * 4. THE DEPOSIT GATES ARE ON CHAIN. `min_stake` (immutable — the program has no
- *    setter for it), `deposit_cap`, `max_wallet_principal` and a per-wallet position
- *    limit are all enforced by the program. `checkDeposit()` runs them here first so
- *    a refusal explains itself instead of arriving as a constraint failure after a
- *    fee has been paid.
+ * 4. THE DEPOSIT GATES ARE ON CHAIN. `min_stake` (the deployed program has no setter
+ *    for it — but the program is upgradeable), `deposit_cap`, `max_wallet_principal`
+ *    and a per-wallet position limit are all enforced by the program. `checkDeposit()`
+ *    runs them here first so a refusal explains itself instead of arriving as a
+ *    constraint failure after a fee has been paid.
  */
 export function SolanaLadderPoolLive({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   return (
@@ -72,7 +76,9 @@ const DAY = 86_400;
 /** The rungs this card offers. Every one is inside the program's 7d..4y range. */
 const RUNGS = [7 * DAY, 30 * DAY, 90 * DAY, 180 * DAY, 365 * DAY, 2 * 365 * DAY, MAX_LOCK_SECS];
 
-const SECS_PER_YEAR = 365 * DAY;
+/** A unix second as a calendar date a person can hold, in their own locale. */
+const dateOf = (secs: bigint) =>
+  new Date(Number(secs) * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
 type Config =
   | { ok: true; programId: PublicKey; pool: PublicKey }
@@ -117,9 +123,21 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const [amount, setAmount] = useState('');
   const [lockSecs, setLockSecs] = useState<number>(RUNGS[0]!);
   const [action, setAction] = useState<{ busy?: string; note?: string; sig?: string } | null>(null);
-  // Two-step confirm, keyed by nonce+door. A door that costs a quarter of someone's
-  // principal must never be one mis-click away.
-  const [confirmFor, setConfirmFor] = useState<string | null>(null);
+  // Two-step confirm, keyed by nonce+door. A door that costs a share of someone's
+  // principal (up to `MAX_EARLY_EXIT_PENALTY_BPS`) must never be one mis-click away.
+  // ⚠️ ARMED AGAINST ONE READ. Nonces restart at 0 for every wallet, so a bare
+  // `nonce:door` armed by one wallet came up pre-armed on the next wallet's first
+  // position after a switch. The armed door is stored with the exact wallet read its
+  // row was drawn from, and any other read — another wallet, or the same one after
+  // switching away and back — renders it disarmed (`armed` below).
+  const [confirmFor, setConfirmFor] = useState<{ read: typeof walletRead; door: string } | null>(null);
+  // Every pool and wallet read is started by the ONE effect below, so a wallet switch
+  // cancels it. `run()` and "Try again" used to call a refresh from the render they
+  // were clicked in and drop its cancellation: a read for the PREVIOUS wallet could
+  // land after the new wallet's, overwrite it, and strand the card on "Reading your
+  // positions…" with nothing on screen able to read again. They bump this instead.
+  const [readGen, setReadGen] = useState(0);
+  const reread = () => setReadGen((n) => n + 1);
 
   // One tick a minute keeps every countdown and every accrued figure honest without
   // a render loop. Rewards accrue per second, so a card that never re-rendered would
@@ -133,21 +151,20 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const walletKey = publicKey?.toBase58() ?? '';
   const pool = poolRead?.ok ? poolRead.value : null;
 
-  const refresh = useCallback(() => {
-    if (!config.ok) return () => {};
+  useEffect(() => {
+    if (!config.ok) return;
     let cancelled = false;
     void readLadderPool(connection, config.programId, config.pool).then((r) => {
       if (!cancelled) setPoolRead(r);
     });
     if (publicKey) {
+      const key = publicKey.toBase58();
       void readLadderWallet(connection, config.programId, config.pool, publicKey).then((r) => {
-        if (!cancelled) setWalletRead({ key: publicKey.toBase58(), result: r });
+        if (!cancelled) setWalletRead({ key, result: r });
       });
     }
     return () => { cancelled = true; };
-  }, [connection, config, publicKey]);
-
-  useEffect(() => refresh(), [refresh]);
+  }, [connection, config, publicKey, readGen]);
 
   // Vault balances need the pool's own vault addresses, so they ride their own effect.
   useEffect(() => {
@@ -182,6 +199,12 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   // pending read from a failed one has been told nothing by either.
   const balanceLoaded = Boolean(walletKey) && balance.key === walletKey;
   const walletRaw = balanceLoaded ? balance.raw : null;
+  // The same three states for the positions read. Before it lands, `walletView` is
+  // null exactly as it is for a wallet with nothing in it, and the card used to print
+  // "0 / 20" and "No open positions" to someone whose money had simply not loaded yet.
+  const walletLoaded = Boolean(walletKey) && walletRead?.key === walletKey;
+  const armed = confirmFor !== null && confirmFor.read === walletRead ? confirmFor.door : null;
+  const arm = (door: string | null) => setConfirmFor(door === null ? null : { read: walletRead, door });
 
   const decimals = pool?.decimals ?? bungalow.decimals ?? 6;
   const sym = bungalow.symbol;
@@ -193,7 +216,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
   const identityMismatch = pool !== null && pool.mint !== (bungalow.address ?? '');
 
   const positions = useMemo(() => walletView?.open ?? [], [walletView]);
-  const openCount = walletView?.stats?.openPositions ?? 0;
+  // `stats === null` on a LOADED view is a real zero (never staked here); no view at
+  // all is not a count of anything.
+  const openCount = walletView ? (walletView.stats?.openPositions ?? 0) : null;
   const myPrincipal = walletView ? walletPrincipalRaw(walletView) : null;
   const carriedRaw = walletView?.stats?.rewardsCarriedRaw ?? null;
 
@@ -206,16 +231,29 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
 
   const amountRaw = toRaw(amount, decimals);
   const overBalance = amountRaw !== null && walletRaw !== null && amountRaw > walletRaw;
-  const verdict = pool && amountRaw !== null
-    ? checkDeposit(pool, amountRaw, myPrincipal ?? 0n, lockSecs, openCount)
+  // A verdict is only computed from counts that were READ, never from assumed zeros.
+  const verdict = pool && amountRaw !== null && myPrincipal !== null && openCount !== null
+    ? checkDeposit(pool, amountRaw, myPrincipal, lockSecs, openCount)
     : null;
 
+  // ⚠️ NO APR, NO PERCENTAGE, ON PURPOSE. A per-token yield depends on who else is in
+  // the pool and at what weight, on the window being refilled, and on the vault — none
+  // of which the chain fixes. What it DOES fix is how many tokens the whole pool is
+  // scheduled to receive per second, and until when. So the card shows exactly that,
+  // and only while the window is open. An earlier "configured rate" annualised this and
+  // divided by total principal rather than total weight, so it was not even the rate
+  // its own note named.
+  //
+  // `rewardRunwaySecs` is null only when no rate has ever been set — `notify_reward`
+  // refuses a zero rate — so null means NEVER FUNDED, and 0 means the window ENDED.
+  // Those are different facts, and neither is a live stream.
   const runway = pool ? rewardRunwaySecs(pool, nowSec) : null;
-  // What the pool is CONFIGURED to emit, per year, against the principal in it. A
-  // rate the vault cannot back still reads as configuration — never as money paid.
-  const configuredApr = pool && pool.totalPrincipalRaw > 0n && pool.rewardRate > 0n && Number(pool.periodFinish) > nowSec
-    ? Number(pool.rewardRate * BigInt(SECS_PER_YEAR)) / Number(pool.totalPrincipalRaw)
-    : null;
+  const rewardWindow: 'never' | 'ended' | 'live' = runway === null ? 'never' : runway > 0 ? 'live' : 'ended';
+  const perDayRaw = pool && rewardWindow === 'live' ? pool.rewardRate * BigInt(DAY) : null;
+  // Invariant I-11: below this total weight the accumulator does not move and the
+  // interval is lost, not banked. Every admissible stake clears it, so in practice
+  // this is "nobody is staked".
+  const belowFloor = pool !== null && pool.totalWeighted < minWeightFloor(pool.minStakeRaw);
 
   const invoker = wallet?.adapter as SignerWalletAdapter | undefined;
   const canWrite = Boolean(invoker && publicKey && config.ok && pool && !identityMismatch && !action?.busy);
@@ -234,7 +272,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
     } else {
       setAction({ note: res.reason, sig: res.signature });
     }
-    refresh();
+    reread();
   };
 
   /* ── render ───────────────────────────────────────────────────────────── */
@@ -249,6 +287,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
         <h2 className="heading-luxury text-xl text-white mb-3">
           Lock {sym}, earn a weighted share
         </h2>
+        {/* Owner-mandated disclosure. Every rule on this card is what the DEPLOYED
+            program enforces; the upgrade authority can change any of it. */}
+        {config.ok && (
+          <p className="text-white/60 text-[11px] leading-relaxed mb-4 max-w-2xl">
+            A position keeps its full weight after its lock opens, for as long as it stays in the pool.
+            The program can be upgraded by its upgrade authority, and a future upgrade may reset matured positions
+            to the {boostLabel(MIN_BOOST_BPS)} base weight. Everything on this card describes the program
+            as deployed today.
+          </p>
+        )}
 
         {!config.ok && (
           <p role="alert" className="text-[13px] rounded-lg p-3" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}>
@@ -277,8 +325,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
             {pool.degraded && (
               <p role="alert" className="text-[13px] rounded-lg p-3 mb-4" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
                 <strong>This pool has been declared degraded.</strong> It takes no new stakes. Every open
-                position still exits, and while it is degraded the emergency hatch charges no penalty at all —
-                that is what the flag is for, and it is one-way, so it cannot be switched back.
+                position still exits, and while it is degraded neither early exit nor the emergency hatch
+                charges any penalty — that is what the flag is for. The deployed program has no instruction
+                to switch it back.
               </p>
             )}
 
@@ -291,16 +340,28 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                 note={vaults === null ? 'reading…' : vaults.rewardRaw === null ? 'could not be read' : undefined}
               />
               <Stat label={`${sym} locked here`} value={fmtRaw(pool.totalPrincipalRaw, decimals)} unit={sym} />
-              <Stat
-                label="Configured rate"
-                value={configuredApr === null ? '—' : `${(configuredApr * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`}
-                note={configuredApr === null ? 'no live rate' : 'at 1.00×, if the pool stays this size'}
-              />
-              <Stat label="Rewards run until"
-                value={runway === null || runway <= 0 ? 'ended' : humanDuration(runway)}
-                note={runway === null || runway <= 0 ? 'the emission period has closed' : undefined} />
+              {rewardWindow === 'live' ? (
+                <>
+                  <Stat
+                    label="Rewards per day"
+                    value={fmtRaw(perDayRaw, decimals)}
+                    unit={sym}
+                    note={belowFloor
+                      ? 'scheduled, but nothing accrues while no one is staked, and that time is not paid out later'
+                      : 'to all stakers combined, split by weight'}
+                  />
+                  <Stat label="Funded through" value={dateOf(pool.periodFinish)}
+                    note={`the current reward window closes in ${humanDuration(runway ?? 0)}`} />
+                </>
+              ) : rewardWindow === 'ended' ? (
+                <Stat label="Reward window" value="ended"
+                  note={`closed ${dateOf(pool.periodFinish)} — no new rewards are accruing`} />
+              ) : (
+                <Stat label="Reward window" value="not started"
+                  note="no reward window has ever been scheduled — no rewards are accruing" />
+              )}
               <Stat label="Minimum stake" value={fmtRaw(pool.minStakeRaw, decimals)} unit={sym}
-                note="fixed — the program has no setter" />
+                note="the deployed program has no setter for it" />
             </div>
 
             {/* ── your position ────────────────────────────────────────── */}
@@ -312,14 +373,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
               <p role="alert" className="text-[13px] rounded-lg p-3 mb-4" style={{ background: 'rgba(240,178,107,0.10)', border: '1px solid rgba(240,178,107,0.4)', color: '#f0b26b' }}>
                 {walletUnreadable} Nothing is shown below rather than a zero, because a read that did not land
                 is not the same as an empty position.{' '}
-                <button type="button" onClick={refresh} className="underline underline-offset-2">Try again</button>
+                <button type="button" onClick={reread} className="underline underline-offset-2">Try again</button>
               </p>
+            ) : !walletLoaded ? (
+              <p role="status" className="text-white/70 text-[13px]">Reading your positions…</p>
             ) : (
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <Stat label="Your principal" value={fmtRaw(myPrincipal, decimals)} unit={sym} />
                   <Stat label="Earned, unclaimed" value={fmtRaw(myEarned, decimals)} unit={sym} />
-                  <Stat label="Open positions" value={`${openCount} / ${MAX_POSITIONS}`} />
+                  <Stat label="Open positions" value={openCount === null ? '–' : `${openCount} / ${MAX_POSITIONS}`} />
                   <Stat
                     label="In your wallet"
                     value={!balanceLoaded ? '…' : fmtRaw(walletRaw, decimals)}
@@ -329,13 +392,16 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                 </div>
 
                 {/* Carried rewards are real money in a field. A UI that never shows
-                    them hides a balance the hatch deliberately preserved. */}
+                    them hides a balance the program deliberately preserved: the hatch
+                    carries accrual, and either exit door carries what a short reward
+                    vault could not pay (lib.rs `exit_with_penalty`). */}
                 {carriedRaw !== null && carriedRaw > 0n && (
                   <div className="rounded-lg p-3 mb-4 flex flex-wrap items-center justify-between gap-3"
                     style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--color-kyle-40)' }}>
                     <p className="text-white/85 text-[13px] m-0">
                       <strong>{fmtRaw(carriedRaw, decimals)} {sym}</strong> carried from a closed position —
-                      rewards the emergency hatch set aside rather than paid out. They are still yours.
+                      rewards the reward vault could not cover when it closed, or that the emergency hatch set
+                      aside. They are still yours.
                     </p>
                     <button type="button" disabled={!canWrite || !ctx}
                       onClick={() => ctx && void run('Claim carried', () => ladderClaimCarried(ctx))}
@@ -408,7 +474,7 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                       and unlock in {humanDuration(lockSecs)}.{' '}
                       {pool.degraded
                         ? 'While the pool is degraded it accepts no new stakes.'
-                        : `Leaving early costs ${EARLY_EXIT_PENALTY_BPS / 100}% of the principal.`}
+                        : `Leaving straight away would forfeit ${penaltyPct(penaltyFor(amountRaw, BigInt(lockSecs), 0n), amountRaw)} of the principal; the penalty is the time left on the lock over four years, capped at ${MAX_EARLY_EXIT_PENALTY_BPS / 100}%, so it shrinks as the lock runs down.`}
                     </p>
                   )}
 
@@ -467,8 +533,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { ladderPool: string } }) {
                         sym={sym}
                         busy={action?.busy}
                         canWrite={canWrite && Boolean(ctx)}
-                        confirmFor={confirmFor}
-                        setConfirmFor={setConfirmFor}
+                        confirmFor={armed}
+                        setConfirmFor={arm}
                         onClaim={() => ctx && void run('Claim', () => ladderClaim(ctx, { positionNonce: p.nonce }))}
                         onExit={(early) => ctx && void run(early ? 'Early exit' : 'Withdraw', () => ladderExit(ctx, { positionNonce: p.nonce, early }))}
                         onHatch={() => ctx && void run('Emergency withdraw', () => ladderHatch(ctx, { positionNonce: p.nonce }))}
@@ -521,7 +587,7 @@ function Stat({ label, value, unit, note }: { label: string; value: string; unit
  * One position, and the price of every way out of it.
  *
  * ⚠️ THE HATCH ROW IS THE WHOLE POINT OF THIS COMPONENT. `quoteExit()` prices all
- * three doors against the live pool, so the 25% the hatch charges while locked is on
+ * three doors against the live pool, so the penalty the hatch charges while locked is on
  * the button rather than in a footnote — and it becomes "no penalty" by itself the
  * moment the position matures or the pool is degraded, because the quote is computed,
  * not written down.
@@ -552,8 +618,14 @@ function PositionRow({
     : 0;
 
   const quote = (door: 'matured' | 'early' | 'hatch') => quotes.find((q) => q.door === door)!;
+  // `quoteExit` prices the early door at 0 in a degraded pool, as lib.rs `early_exit`
+  // charges it (#586) — so the button can never quote a charge the program will not take.
   const normal = quote(matured ? 'matured' : 'early');
   const hatch = quote('hatch');
+  // `claim` and both exit doors pay min(owed, reward vault) and keep the remainder
+  // owed (math.rs `payable`); an exit carries it to UserStats.rewards_carried. So a
+  // promise that rewards "are paid out" is only true when the vault covers them.
+  const rewardsPaid = 'Your rewards are paid up to what the reward vault holds; any remainder stays owed to you and claimable later.';
 
   const key = (door: string) => `${position.nonce}:${door}`;
 
@@ -578,13 +650,16 @@ function PositionRow({
           {busy === 'Claim' ? 'Claiming…' : 'Claim rewards'}
         </button>
 
-        {/* The normal door. Free once matured, 25% before — and the program refuses
-            whichever one is not open, so only the open one is offered. */}
+        {/* The normal door. Free once matured (or in a degraded pool), charged the
+            time-left penalty before — and the program refuses whichever one is not
+            open, so only the open one is offered. */}
         <ExitButton
           label={matured ? `Withdraw ${fmtRaw(normal.receivesRaw, decimals)} ${sym}` : `Exit early — keep ${fmtRaw(normal.receivesRaw, decimals)} ${sym}`}
           detail={matured
-            ? 'No penalty. Your rewards are paid out with it.'
-            : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. Your rewards ARE paid out.`}
+            ? `No penalty. ${rewardsPaid}`
+            : pool.degraded
+              ? `No penalty while the pool is degraded. ${rewardsPaid}`
+              : `${fmtRaw(normal.penaltyRaw, decimals)} ${sym} is retained. ${rewardsPaid}`}
           needsConfirm={!matured}
           confirmed={confirmFor === key('normal')}
           onArm={() => setConfirmFor(key('normal'))}

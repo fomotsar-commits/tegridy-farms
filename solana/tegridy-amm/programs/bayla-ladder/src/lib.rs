@@ -1,13 +1,14 @@
-//! # bayla-ladder — lock-ladder staking with a flat 75% early-exit penalty
+//! # bayla-ladder — lock-ladder staking with veYFI's early-exit penalty (up to 75%)
 //!
 //! The Solana port of `contracts/src/LighthouseLadder.sol`: Synthetix's reward
 //! engine with boosted weight as its divisor and multiplier, a 7d→4y ladder at
-//! 0.40x→4.00x (TOWELI parity), and THREE exits — matured, early (−75% of principal,
-//! rewards paid), and an emergency hatch (the same −75% while locked) that never touches
-//! the reward vault.
+//! 0.40x→4.00x (TOWELI parity), and THREE exits — matured, early (principal minus
+//! `min(time left / 4 years, 75%)`, rewards paid), and an emergency hatch (the same penalty
+//! while locked) that never touches the reward vault.
 //!
 //! TWO DELIBERATE DIVERGENCES from the Solidity, both owner decisions of 2026-09-17:
-//! the penalty is 75% here and stays 25% there (`math::EARLY_EXIT_PENALTY_BPS`), and a
+//! the penalty here is veYFI's time-left schedule capped at 75% (`math::penalty_for`) and
+//! stays a flat 25% there, and a
 //! reload inside a live window may not lower the reward rate (`math::rate_change_allowed`),
 //! which the Solidity and Synthetix both allow.
 //!
@@ -105,15 +106,15 @@
 //! since 2026-09-17 it cannot slow a LIVE window either: a mid-window `notify_reward`
 //! may not lower the rate. It can still wait for a window to end and restart it low.
 //!
-//! What that list must NOT be read as: "a stolen key is harmless". At a 75% penalty,
-//! whoever holds the authority AND a locked position escapes three quarters of their
-//! own principal by firing `declare_degraded`. That is a custody problem, not a code
+//! What that list must NOT be read as: "a stolen key is harmless". With up to 75% at
+//! stake, whoever holds the authority AND a long-locked position escapes up to three
+//! quarters of their own principal by firing `declare_degraded`. That is a custody problem, not a code
 //! one — the pool authority belongs in a multisig before any funds go in. Also: every
 //! guarantee here holds only while the UPGRADE authority does not replace the program.
 //!
 //! CORRECTED 2026-09-06 (audit M-3): this used to end "or change what anyone was
 //! promised", which was false. `declare_degraded` cannot touch
-//! `EARLY_EXIT_PENALTY_BPS`, but it zeroes the penalty on both exit doors and ends
+//! the penalty schedule, but it zeroes the penalty on both exit doors and ends
 //! penalty inflow permanently — and before this commit it left `stake` open too, so
 //! the 4.00x rung could be bought with no lock at all. What is true is narrower and
 //! worth saying exactly: the flag can only move in the direction that frees stakers
@@ -167,11 +168,11 @@
 //! ## What is NOT ported from the Solidity, and why
 //!
 //! `LighthouseLadder.emergencyWithdraw` charges its 25% while locked, unconditionally
-//! (and the rate itself is not ported either: this program charges 75%).
+//! (and the rate itself is not ported either: this program charges veYFI's schedule).
 //! Here BOTH early doors charge nothing once `declare_degraded` has been called — the
 //! one-way flag that answers "what if the operator is the failure". Under the venue's
 //! own upgrade authority, holders will want a hatch that works when the venue is the
-//! problem, and charging them 75% then reads badly.
+//! problem, and charging them up to 75% then reads badly.
 //!
 //! Its cost is honest and belongs in the panel copy: it stops future penalty inflow,
 //! transferring value from stayers to leavers, and it CLOSES THE POOL TO NEW STAKES
@@ -417,7 +418,7 @@ pub mod bayla_ladder {
         // The objection is weaker than it looks. A pause is reversible and its abuse is
         // to TRAP people; this is one-way and can only ever RELEASE them — firing it gives
         // every staker a free exit. (It is NOT worthless to a thief: a key-holder who also
-        // holds a locked position escapes their own 75% penalty by firing it. That is why
+        // holds a locked position escapes their own penalty (up to 75%) by firing it. That is why
         // the pool authority must be a multisig, and it is outside what code can fix.) And a
         // pool whose operator has declared it broken should not be taking new money.
         require!(!ctx.accounts.pool.degraded, LadderError::PoolDegraded);
@@ -575,8 +576,8 @@ pub mod bayla_ladder {
         exit_with_penalty(ctx, now, 0)
     }
 
-    /// Leave BEFORE the lock ends: principal minus 75%, rewards paid. The penalty
-    /// stays in the pool as reward budget.
+    /// Leave BEFORE the lock ends: principal minus veYFI's penalty, min(time left / 4 years,
+    /// 75%), rewards paid. The penalty stays in the pool as reward budget.
     pub fn early_exit(ctx: Context<Exit>) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
         // The reference's H-3: a matured position must never eat a penalty by
@@ -587,22 +588,28 @@ pub mod bayla_ladder {
         );
         // AUDIT M-3, exit side. This used to charge unconditionally, so in a degraded
         // pool `emergency_withdraw` STRICTLY DOMINATED the door named after what the
-        // user is actually doing: 100% of principal against 25%, with `claim_carried`
-        // delivering the identical reward payout. Nobody could be forced into the paying
-        // door — `EmergencyWithdraw`'s account set is a strict subset of `Exit`'s — but
-        // they could pick it by name and burn 75% for nothing. The doors now agree, and
-        // they MUST keep agreeing: both call `penalty_for`, which
+        // user is actually doing: all of the principal against principal minus the
+        // penalty, with `claim_carried` delivering the identical reward payout. Nobody
+        // could be forced into the paying door — `EmergencyWithdraw`'s account set is a
+        // strict subset of `Exit`'s — but they could pick it by name and burn the penalty
+        // for nothing (25% when M-3 was found). The doors now agree, and
+        // they MUST keep agreeing: both call `penalty_for` with the position's own
+        // `lock_end` and this instruction's `now`, which
         // `layout_tests::both_early_doors_charge_the_same_penalty` pins.
         let penalty = if ctx.accounts.pool.degraded {
             0
         } else {
-            penalty_for(ctx.accounts.position.amount)
+            penalty_for(
+                ctx.accounts.position.amount,
+                ctx.accounts.position.lock_end,
+                now,
+            )
         };
         exit_with_penalty(ctx, now, penalty)
     }
 
     /// THE LAST RESORT. Principal only, at ANY time — including while locked (paying
-    /// the 75% unless the pool is degraded) and including when the reward vault is
+    /// the same time-left penalty as `early_exit` unless the pool is degraded) and including when the reward vault is
     /// empty, closed, or wedged. This instruction declares NO reward vault (I-12).
     ///
     /// AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and
@@ -625,7 +632,7 @@ pub mod bayla_ladder {
         let position = &ctx.accounts.position;
         let locked = now < position.lock_end;
         let penalty = if locked && !ctx.accounts.pool.degraded {
-            penalty_for(position.amount)
+            penalty_for(position.amount, position.lock_end, now)
         } else {
             0
         };
@@ -1513,11 +1520,11 @@ mod layout_tests {
      * Each of those is pinned below. (This used to point at `tests/matured.rs`, which never
      * existed. The execution itself happened on devnet on 2026-09-17 — 500 back, penalty
      * 0, accounting reconciled to the raw unit — recorded in docs/TODO_OPERATOR.md O-0909-1.
-     * That was the 25% build; the matured path charges nothing at any rate.)
+     * That was the 25% build; the matured path charges nothing under any schedule.)
      */
 
-    /// The matured door must charge NOTHING. A non-zero literal here is a silent 75%
-    /// tax on every honest staker who waited out their lock.
+    /// The matured door must charge NOTHING. A non-zero literal here is a silent tax on
+    /// every honest staker who waited out their lock.
     #[test]
     fn the_matured_door_charges_no_penalty() {
         let src = include_str!("lib.rs");
@@ -1660,8 +1667,10 @@ mod layout_tests {
     /// `early_exit` and `emergency_withdraw` both take principal from a locked position.
     /// If the hatch ever charged less, every leaver would take the hatch and the headline
     /// penalty would be fiction; if it charged more, the last resort would punish the
-    /// people it exists for. Both must compute it through `penalty_for`. Before this test,
-    /// mutating the hatch to `position.amount / 4` or `0` left every Rust test green.
+    /// people it exists for. Both must compute it through `penalty_for`, fed the position's
+    /// own `lock_end` and the instruction's `now` — the schedule is time-left, so a door
+    /// fed a different clock charges a different price. Before this test, mutating the
+    /// hatch to `position.amount / 4` or `0` left every Rust test green.
     #[test]
     fn both_early_doors_charge_the_same_penalty() {
         let src = include_str!("lib.rs");
@@ -1681,6 +1690,24 @@ mod layout_tests {
                 body.contains("penalty_for("),
                 "{door} must compute its penalty with penalty_for — found:\n{body}"
             );
+            // The schedule is time-left, so the ARGUMENTS are the price: both doors must
+            // pass the position's own amount and lock_end, and this instruction's `now`.
+            let call = &body[body.find("penalty_for(").unwrap() + "penalty_for(".len()..];
+            let args: Vec<&str> = call[..call.find(')').expect("unclosed penalty_for call")]
+                .split(',')
+                .map(str::trim)
+                .filter(|a| !a.is_empty())
+                .collect();
+            assert_eq!(args.len(), 3, "{door}: penalty_for takes three arguments, got {args:?}");
+            assert!(
+                args[0].ends_with("position.amount"),
+                "{door} must charge the position's own amount, got {args:?}"
+            );
+            assert!(
+                args[1].ends_with("position.lock_end"),
+                "{door} must measure time left from the position's own lock_end, got {args:?}"
+            );
+            assert_eq!(args[2], "now", "{door} must price the penalty at this instruction's now");
         }
     }
 }

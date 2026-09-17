@@ -4,7 +4,7 @@
     "name": "bayla_ladder",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Lock-ladder staking with a flat 75% early exit — the Solana port of LighthouseLadder.sol"
+    "description": "Lock-ladder staking with veYFI's early-exit penalty (time left / 4 years, up to 75%) — the Solana port of LighthouseLadder.sol"
   },
   "instructions": [
     {
@@ -247,8 +247,8 @@
     {
       "name": "early_exit",
       "docs": [
-        "Leave BEFORE the lock ends: principal minus 75%, rewards paid. The penalty",
-        "stays in the pool as reward budget."
+        "Leave BEFORE the lock ends: principal minus veYFI's penalty, min(time left / 4 years,",
+        "75%), rewards paid. The penalty stays in the pool as reward budget."
       ],
       "discriminator": [
         57,
@@ -362,7 +362,7 @@
       "name": "emergency_withdraw",
       "docs": [
         "THE LAST RESORT. Principal only, at ANY time — including while locked (paying",
-        "the 75% unless the pool is degraded) and including when the reward vault is",
+        "the same time-left penalty as `early_exit` unless the pool is degraded) and including when the reward vault is",
         "empty, closed, or wedged. This instruction declares NO reward vault (I-12).",
         "",
         "AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and",
@@ -1229,7 +1229,7 @@
     {
       "code": 6007,
       "name": "StillLocked",
-      "msg": "Position is still locked — use early_exit or emergency_withdraw (75% penalty)"
+      "msg": "Position is still locked — use early_exit or emergency_withdraw (penalty: time left / 4 years, up to 75%)"
     },
     {
       "code": 6008,
@@ -1663,7 +1663,7 @@
               "charge no penalty while locked, and `stake` is refused. It answers \"what if the",
               "operator is the failure\", and it only ever moves in the direction that frees",
               "stakers — but it is not worthless to a thief: a key-holder who also holds a",
-              "locked position escapes their own 75% penalty by firing it. Its cost is honest —",
+              "locked position escapes their own penalty (up to 75%) by firing it. Its cost is honest —",
               "it stops future penalty inflow."
             ],
             "type": "bool"

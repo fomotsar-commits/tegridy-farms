@@ -29,7 +29,7 @@ import {
   decodeLadderPool, decodeLadderPosition, decodeLadderUserStats,
   boostBpsForLock, weightForStake, penaltyFor, quoteExit, checkDeposit,
   MIN_LOCK_SECS, MAX_LOCK_SECS, MIN_BOOST_BPS, MAX_BOOST_BPS, MAX_POSITIONS,
-  EARLY_EXIT_PENALTY_BPS, BPS,
+  MAX_EARLY_EXIT_PENALTY_BPS, PENALTY_SCALE, MAX_PENALTY_RATIO, penaltyPct,
   PRECISION, minWeightFloor, lastTimeApplicable, rewardPerWeightNow, earnedNow,
 } from './program';
 
@@ -139,49 +139,81 @@ describe('the ladder — pinned to weights the chain produced', () => {
   });
 });
 
-describe('the penalty — read from the program, and checked against a real event', () => {
-  it('is the constant math.rs declares — read from the source, not remembered', () => {
-    // Three copies of this number exist: math.rs, this module and the operator CLI.
+describe('the penalty — the veYFI schedule, read from the program and checked against it', () => {
+  const DAY = 86_400n;
+  const YEAR = 365n * DAY;
+  const NOW = 1_800_000_000n;
+  const pen = (amount: bigint, left: bigint) => penaltyFor(amount, NOW + left, NOW);
+
+  it('uses the cap and scale math.rs declares — read from the source, not remembered', () => {
+    // Three copies of this schedule exist: math.rs, this module and the operator CLI.
     // A copy that lags the program quotes a staker the wrong price for their own
     // principal, and nothing on chain would say so until they paid it. NOT a
     // conditional skip: a missing math.rs fails here rather than passing quietly.
     expect(existsSync(MATH_RS), `math.rs not found at ${MATH_RS}`).toBe(true);
-    const m = /pub const EARLY_EXIT_PENALTY_BPS: u64 = ([\d_]+);/.exec(readFileSync(MATH_RS, 'utf8'));
-    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in math.rs — re-anchor this test').not.toBeNull();
-    expect(EARLY_EXIT_PENALTY_BPS).toBe(Number(m![1]!.replace(/_/g, '')));
+    const src = readFileSync(MATH_RS, 'utf8');
+    const cap = /pub const MAX_EARLY_EXIT_PENALTY_BPS: u64 = ([\d_]+);/.exec(src);
+    expect(cap, 'MAX_EARLY_EXIT_PENALTY_BPS not found in math.rs — re-anchor this test').not.toBeNull();
+    expect(MAX_EARLY_EXIT_PENALTY_BPS).toBe(Number(cap![1]!.replace(/_/g, '')));
+    const scale = /pub const PENALTY_SCALE: u128 = ([\d_]+);/.exec(src);
+    expect(scale, 'PENALTY_SCALE not found in math.rs — re-anchor this test').not.toBeNull();
+    expect(PENALTY_SCALE).toBe(BigInt(scale![1]!.replace(/_/g, '')));
+    // And the flat constant is gone, so no copy can keep charging a flat rate.
+    expect(src).not.toMatch(/pub const EARLY_EXIT_PENALTY_BPS/);
   });
 
-  it('is 75%, floored, exactly as math.rs computes it', () => {
-    // The same cases math.rs `penalty_is_exactly_three_quarters_rounded_down` pins.
-    expect(EARLY_EXIT_PENALTY_BPS).toBe(7500);
-    expect(BPS).toBe(10000);
-    expect(penaltyFor(1_000_000n)).toBe(750_000n);
-    expect(penaltyFor(3n)).toBe(2n);     // 2.25 floors, never rounds up
-    expect(penaltyFor(7n)).toBe(5n);     // 5.25
-    expect(penaltyFor(1n)).toBe(0n);
+  it('charges min(time left / 4 years, 75%), floored twice — the cases math.rs pins', () => {
+    expect(MAX_PENALTY_RATIO).toBe((PENALTY_SCALE * 3n) / 4n);
+    // the cap: three years or more left
+    expect(pen(1_000_000_000_000n, 3n * YEAR)).toBe(750_000_000_000n);
+    expect(pen(1_000_000_000_000n, 4n * YEAR)).toBe(750_000_000_000n);
+    expect(pen(1_000_000_000_000n, 10n * YEAR)).toBe(750_000_000_000n);
+    // below it, time left over four years
+    expect(pen(1_000_000_000_000n, 2n * YEAR)).toBe(500_000_000_000n);
+    expect(pen(1_000_000_000_000n, YEAR)).toBe(250_000_000_000n);
+    expect(pen(1_000_000_000_000n, DAY)).toBe(684_931_506n);
+    expect(pen(1_460n, DAY)).toBe(0n);                 // the two floors, in veYFI's order
+    // nothing at or after lock_end
+    expect(pen(1_000_000_000_000n, 0n)).toBe(0n);
+    expect(pen(1_000_000_000_000n, -DAY)).toBe(0n);
+    // floors at the cap, never the whole principal
+    expect(pen(3n, 4n * YEAR)).toBe(2n);
+    expect(pen(1n, 4n * YEAR)).toBe(0n);
+    const U64_MAX = 18_446_744_073_709_551_615n;
+    expect(pen(U64_MAX, 4n * YEAR)).toBe(13_835_058_055_282_163_711n);
   });
 
-  it('a 500-token locked exit keeps 125 and retains 375', () => {
-    // HISTORY, so nobody "restores" the old numbers: the live `Withdrawn` event this
-    // test was first pinned to (devnet, 2026-09-09) decoded to amount=375,
-    // penalty=125. That was the SUPERSEDED 25% build. It confirmed the shape —
-    // floor(principal x bps / 10_000), retained, not transferred — and the rate is
-    // the only thing the 2026-09-17 rebuild changed.
-    const amount = 500_000_000n;
-    expect(penaltyFor(amount)).toBe(375_000_000n);
-    expect(amount - penaltyFor(amount)).toBe(125_000_000n);
+  it('prints the share without ever rounding it up', () => {
+    expect(penaltyPct(750_000_000_000n, 1_000_000_000_000n)).toBe('75%');
+    expect(penaltyPct(250_000_000n, 1_000_000_000n)).toBe('25%');
+    expect(penaltyPct(2_397_260n, 500_000_000n)).toBe('0.47%');   // 0.479452% floors
+    expect(penaltyPct(684_931_506n, 1_000_000_000_000n)).toBe('0.06%');
+    expect(penaltyPct(0n, 500_000_000n)).toBe('0%');
+    expect(penaltyPct(1n, 0n)).toBe('0%');
+  });
+
+  it('HISTORY: the devnet Withdrawn event was the superseded flat-25% build', () => {
+    // The live `Withdrawn` event first pinned here (devnet, 2026-09-09) decoded to
+    // amount=375, penalty=125 on a 500-token position — the flat 25% build. Under veYFI's
+    // schedule that 7-day position, exited at once, would forfeit under half a percent.
+    expect(pen(500_000_000n, 7n * DAY)).toBe(2_397_260n);
+    // ...and 125 is exactly what one year left costs now.
+    expect(pen(500_000_000n, YEAR)).toBe(125_000_000n);
   });
 });
 
 describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
   const NOW = 1_800_000_000;
-  const locked = { amountRaw: 500_000_000n, lockEnd: BigInt(NOW + 86_400) };
+  // Four years left: over three, so the schedule is at its 75% cap.
+  const locked = { amountRaw: 500_000_000n, lockEnd: BigInt(NOW + 4 * 365 * 86_400) };
+  const lockedOneYear = { amountRaw: 500_000_000n, lockEnd: BigInt(NOW + 365 * 86_400) };
+  const lockedOneWeek = { amountRaw: 500_000_000n, lockEnd: BigInt(NOW + 7 * 86_400) };
   const matured = { amountRaw: 500_000_000n, lockEnd: BigInt(NOW - 86_400) };
   const healthy = { degraded: false };
   const degraded = { degraded: true };
   const door = (qs: ReturnType<typeof quoteExit>, d: string) => qs.find((q) => q.door === d)!;
 
-  it('WHILE LOCKED the hatch costs the SAME 75% as an early exit', () => {
+  it('WHILE LOCKED (four years left) the hatch costs the SAME capped 75% as an early exit', () => {
     // The defect this whole module exists to not repeat: the CLI and the runbook
     // both said the hatch was free, and the penalty is invisible in a simulation.
     const q = quoteExit(locked, healthy, NOW);
@@ -231,11 +263,24 @@ describe('quoteExit — the doors, and what each ACTUALLY costs', () => {
     expect(door(q, 'early').reason).toMatch(/free while the pool is degraded/);
   });
 
-  it('the matured door is free and the early door is not', () => {
+  it('the matured door is free, and the early door is refused (and would charge nothing)', () => {
     const q = quoteExit(matured, healthy, NOW);
     expect(door(q, 'matured').penaltyRaw).toBe(0n);
     expect(door(q, 'matured').receivesRaw).toBe(500_000_000n);
-    expect(door(q, 'early').penaltyRaw).toBe(375_000_000n);
+    expect(door(q, 'early').refused).toBe(true);
+    expect(door(q, 'early').penaltyRaw).toBe(0n);
+  });
+
+  it('the price FALLS as the lock runs down: one year left is 25%, one week under half a percent', () => {
+    const year = quoteExit(lockedOneYear, healthy, NOW);
+    expect(door(year, 'early').penaltyRaw).toBe(125_000_000n);
+    expect(door(year, 'hatch').penaltyRaw).toBe(125_000_000n);
+    expect(door(year, 'early').reason).toMatch(/^25% retained/);
+    const week = quoteExit(lockedOneWeek, healthy, NOW);
+    expect(door(week, 'early').penaltyRaw).toBe(2_397_260n);
+    expect(door(week, 'hatch').penaltyRaw).toBe(door(week, 'early').penaltyRaw);
+    expect(door(week, 'hatch').reason).toMatch(/^0\.47% retained/);
+    expect(door(week, 'hatch').reason).toMatch(/time left over four years, capped at 75%/);
   });
 });
 
@@ -251,10 +296,23 @@ describe('checkDeposit — refuse locally, with a reason', () => {
     checkDeposit(pool, amt, wallet, lock, open);
 
   it('accepts a sane stake', () => expect(ok(500_000_000n).allowed).toBe(true));
-  it('refuses below the minimum, and says it cannot be lowered', () => {
+  it('refuses a DEGRADED pool before any other gate, as lib.rs `stake` does', () => {
+    // `stake` checks `!pool.degraded` first (PoolDegraded, 6026), before `amount > 0`.
+    // A deposit that clears every other gate must still be refused here, and the
+    // reason must be the degraded one even when the amount is also wrong.
+    const degraded = { ...pool, degraded: true };
+    const v = checkDeposit(degraded, 500_000_000n, 0n, 7 * 86_400, 0);
+    expect(v.allowed).toBe(false);
+    expect(v.reason).toMatch(/degraded/);
+    expect(checkDeposit(degraded, 0n, 0n, 7 * 86_400, 0).reason).toMatch(/degraded/);
+  });
+  it('refuses below the minimum, without promising the minimum can never change', () => {
+    // The program is upgradeable, so "cannot be lowered" was a promise nobody can make.
     const v = ok(1n);
     expect(v.allowed).toBe(false);
     expect(v.reason).toMatch(/minimum/i);
+    expect(v.reason).toMatch(/deployed program/);
+    expect(v.reason).not.toMatch(/cannot be lowered/i);
   });
   it('refuses zero and negative', () => {
     expect(ok(0n).allowed).toBe(false);

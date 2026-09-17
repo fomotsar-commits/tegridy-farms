@@ -5,7 +5,7 @@
 // helper never produced. Three of those would cost a user real money:
 //
 //   1. The emergency hatch priced as free while a position is LOCKED. It charges the
-//      same flat 75% as an early exit, the penalty rides inside a base64 event so no
+//      same time-left penalty as an early exit (veYFI's, capped at 75%), the penalty rides inside a base64 event so no
 //      dry run reveals it, and this repo has already had that wrong in the operator
 //      CLI, in the runbook, and out loud.
 //   2. Rewards printed from the stored `rewards_owed`, which only moves when somebody
@@ -15,7 +15,7 @@
 // The READ SEAM is mocked one module below the card and the math above it stays real,
 // which is what makes those three assertions mean anything.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
 import type { Bungalow } from '../../lib/bungalows';
 
 const DAY = 86_400;
@@ -127,8 +127,10 @@ const poolView = (o: Record<string, unknown> = {}) => ({
 const position = (o: Record<string, unknown> = {}) => ({
   address: 'POS0', pool: POOL_ADDR, owner: OWNER, nonce: 0,
   amountRaw: 500_000_000n,                 // 500 BAYLA
-  weight: 200_000_000n,                    // 0.40x, the seven-day floor
-  lockEnd: BigInt(NOW + 7 * DAY),          // LOCKED
+  weight: 2_000_000_000n,                  // 4.00x, the four-year top
+  // LOCKED, with four years left: over three, so veYFI's schedule is at its 75% cap and
+  // every price below is the capped one (375 of 500). A short lock is priced separately.
+  lockEnd: BigInt(NOW + 4 * 365 * DAY),
   rewardPerWeightPaid: 0n,
   rewardsOwed: 0n,
   ...o,
@@ -170,13 +172,24 @@ const draw = () => render(<SolanaLadderPoolLive bungalow={BUNGALOW} />);
 
 describe('the emergency hatch is priced, never assumed', () => {
   it('⚠️ a LOCKED position is told the hatch costs 375 of its 500', () => {
-    // 500 x 7500bps = 375. The single most expensive thing this repo has said
-    // wrongly about this program.
+    // Four years left: the 75% cap, 375 of 500. The single most expensive thing this
+    // repo has said wrongly about this program is that the hatch is free.
     draw();
     return screen.findByText(/Emergency withdraw — costs 375 BAYLA/).then((btn) => {
       expect(btn).toBeTruthy();
       expect(screen.queryByText(/Emergency withdraw — no penalty/)).toBeNull();
     });
+  });
+
+  it('a SHORT lock is quoted its time-left price, not the cap', async () => {
+    // veYFI's schedule: 7 days left on 500 is floor(500e6 x floor(604_800e18 / 4y) / 1e18)
+    // = 2_397_260 raw — under half a percent. A card still quoting the cap would tell
+    // this staker their exit costs 375.
+    reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW + 7 * DAY), weight: 200_000_000n })] }) };
+    draw();
+    expect(await screen.findByText(`Emergency withdraw — costs ${fmtRaw(2_397_260n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.getByText(`Exit early — keep ${fmtRaw(497_602_740n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.queryByText(/costs 375 BAYLA/)).toBeNull();
   });
 
   it('a MATURED position is told the hatch is free, because by then it is', async () => {
@@ -188,7 +201,7 @@ describe('the emergency hatch is priced, never assumed', () => {
 
   it('a DEGRADED pool frees the hatch even while the position is locked', async () => {
     // The flag exists so a captured or absent operator cannot trap anyone. If the
-    // card kept quoting 75% here it would deter the exit the flag was set to allow.
+    // card kept quoting the penalty here it would deter the exit the flag was set to allow.
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
     expect(await screen.findByText(/Emergency withdraw — no penalty/)).toBeTruthy();
@@ -324,9 +337,19 @@ describe('the stake form refuses what the program would refuse', () => {
     draw();
     const input = await screen.findByLabelText('Amount');
     fireEvent.change(input, { target: { value: '1' } });
-    expect(await screen.findByText(/cannot be lowered/i)).toBeTruthy();
+    expect(await screen.findByText(/no instruction to change it/i)).toBeTruthy();
     const stake = screen.getByRole('button', { name: /Lock BAYLA/ });
     expect((stake as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('tells a staker, before they lock, what leaving straight away would cost — and that it shrinks', async () => {
+    // The default rung is 7 days: 200 BAYLA forfeits 958_904 raw at once, 0.47% floored.
+    draw();
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+    const line = await screen.findByText(/Leaving straight away would forfeit/);
+    expect(line.textContent).toMatch(/forfeit 0\.47% of the principal/);
+    expect(line.textContent).toMatch(/time left on the lock over four years, capped at 75%/);
+    expect(line.textContent).toMatch(/shrinks as the lock runs down/);
   });
 
   it('accepts an amount that clears every gate', async () => {
@@ -334,7 +357,7 @@ describe('the stake form refuses what the program would refuse', () => {
     // gate, and a refusal test alone cannot tell the two apart.
     draw();
     fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
-    expect(screen.queryByText(/cannot be lowered/i)).toBeNull();
+    expect(screen.queryByText(/no instruction to change it/i)).toBeNull();
     const stake = screen.getByRole('button', { name: /Lock BAYLA/ });
     expect((stake as HTMLButtonElement).disabled).toBe(false);
   });
@@ -346,10 +369,19 @@ describe('the stake form refuses what the program would refuse', () => {
     expect(await screen.findByText(/more BAYLA than this wallet holds/)).toBeTruthy();
   });
 
-  it('a degraded pool takes no new stakes, and says why', async () => {
+  it('a degraded pool takes no new stakes, says why, and offers no live Lock button', async () => {
+    // MUTATION-FOUND by review: this asserted only the banner, and the Lock button sat
+    // ENABLED beneath it for any amount that cleared the other gates — `stake` refuses
+    // a degraded pool first (lib.rs PoolDegraded), so the click bought a wallet prompt
+    // and a refusal. 200 is the amount the healthy-pool test above accepts, so the
+    // degraded flag is the only thing that can be disabling the button here.
     reads.pool = { ok: true, value: poolView({ degraded: true }) };
     draw();
     expect(await screen.findByText(/takes no new stakes/)).toBeTruthy();
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+    expect(await screen.findByText(/declared degraded and accepts no new stakes/)).toBeTruthy();
+    const stake = screen.getByRole('button', { name: /Lock BAYLA/ });
+    expect((stake as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('names the per-wallet position limit from the program, not a literal', async () => {
@@ -387,7 +419,7 @@ describe('MAX writes a value the parser can read back', () => {
 
 /* ────────── 6. carried rewards are a balance, and must be reachable ────────── */
 
-describe('rewards the hatch set aside', () => {
+describe('carried rewards — from the hatch or a short reward vault', () => {
   it('shows a carried balance and a way to claim it', async () => {
     reads.wallet = {
       ok: true,
@@ -397,6 +429,9 @@ describe('rewards the hatch set aside', () => {
     };
     draw();
     expect(await screen.findByText(/42 BAYLA/)).toBeTruthy();
+    // Both sources, not just the hatch: an exit against a short reward vault carries
+    // the unpaid remainder here too, and the exit copy sends stakers to this box.
+    expect(screen.getByText(/could not cover when it closed/)).toBeTruthy();
     const btn = await screen.findByRole('button', { name: 'Claim carried' });
     btn.click();
     expect(writes.carried).toHaveBeenCalledTimes(1);
@@ -419,5 +454,323 @@ describe('with no wallet connected', () => {
     // Pool-level figures do not need a wallet, and withholding them would make the
     // card look broken to anyone deciding whether to connect at all.
     expect(screen.getByText('Reward vault')).toBeTruthy();
+  });
+});
+
+/* ────────── 8. pool-level reward figures: never annualised ────────── */
+
+// The card used to print a "Configured rate" percentage: rewardRate x a year divided
+// by total PRINCIPAL. Rewards are split by WEIGHT, so that figure was the pool
+// average, not the 1.00x rate its note claimed, and a percentage per token is a
+// yield promise the program does not make. What the chain actually fixes is how many
+// tokens the whole pool is scheduled to receive per second, and until when.
+const { fmtRaw } = await import('../../lib/ladder/format');
+const dateOf = (secs: number) =>
+  new Date(secs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+const statGrid = async () => (await screen.findByText('Reward vault')).parentElement!.parentElement!;
+const stat = (label: string) => within(screen.getByText(label).parentElement!);
+
+describe('pool-level reward figures', () => {
+  it('a LIVE window shows tokens per day to ALL stakers and the funded-through date, and no percentage', async () => {
+    // 1 BAYLA a second. Weight is 4x principal, so any figure divided by principal
+    // instead of weight would be off by 4x; the per-day figure divides by neither.
+    reads.pool = {
+      ok: true,
+      value: poolView({ rewardRate: 1_000_000n, totalWeighted: 4_000_000_000n }),
+    };
+    draw();
+    const grid = await statGrid();
+    // Never annualised, never a per-token percentage.
+    expect(grid.textContent).not.toMatch(/%/);
+    expect(document.body.textContent).not.toMatch(/\bAPR\b|\bAPY\b|per year|annual/i);
+    await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
+    const perDay = stat('Rewards per day');
+    expect(perDay.getByText(fmtRaw(86_400_000_000n, 6))).toBeTruthy();
+    expect(screen.getByText('Rewards per day').parentElement!.textContent).toMatch(/all stakers combined/);
+    expect(stat('Funded through').getByText(dateOf(NOW + 30 * DAY))).toBeTruthy();
+  });
+
+  it('a pool that was NEVER funded does not say its rewards ended, and shows no stream', async () => {
+    // rewardRate 0 is only reachable before the first notify_reward: the program
+    // refuses a zero rate. "Ended" would tell a reader a stream once ran here.
+    draw();
+    const grid = await statGrid();
+    expect(grid.textContent).toMatch(/no reward window has ever been scheduled/);
+    expect(grid.textContent).not.toMatch(/ended|has closed/);
+    expect(screen.queryByText('Rewards per day')).toBeNull();
+    expect(screen.queryByText('Funded through')).toBeNull();
+  });
+
+  it('an ENDED window says when it closed and that nothing new accrues, and shows no stream', async () => {
+    reads.pool = {
+      ok: true,
+      value: poolView({ rewardRate: 1_000_000n, periodFinish: BigInt(NOW - 2 * DAY) }),
+    };
+    draw();
+    const grid = await statGrid();
+    expect(grid.textContent).toMatch(/ended/);
+    expect(grid.textContent).toContain(dateOf(NOW - 2 * DAY));
+    expect(grid.textContent).toMatch(/no new rewards are accruing/);
+    expect(grid.textContent).not.toMatch(/no reward window has ever been scheduled/);
+    expect(screen.queryByText('Rewards per day')).toBeNull();
+    expect(screen.queryByText('Funded through')).toBeNull();
+  });
+
+  it('a live window over an EMPTY pool says nothing accrues, rather than implying a payout', async () => {
+    // Below the I-11 floor the accumulator does not move and the interval is lost.
+    reads.pool = {
+      ok: true,
+      value: poolView({ rewardRate: 1_000_000n, totalPrincipalRaw: 0n, totalWeighted: 0n }),
+    };
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+    draw();
+    await statGrid();
+    await waitFor(() => expect(screen.getByText('Rewards per day')).toBeTruthy());
+    expect(screen.getByText('Rewards per day').parentElement!.textContent).toMatch(/nothing accrues/);
+  });
+
+  it('the minimum stake is not called immutable without saying it is the DEPLOYED program', async () => {
+    draw();
+    await statGrid();
+    const note = screen.getByText('Minimum stake').parentElement!.textContent ?? '';
+    expect(note).toMatch(/deployed program/);
+    expect(note).not.toMatch(/fixed/);
+  });
+});
+
+/* ────────── 9. a wallet read still in flight is not an empty wallet ────────── */
+
+describe('a wallet read that has not landed yet', () => {
+  it('⚠️ renders a reading state, never "0 / 20" or "No open positions"', async () => {
+    // The pending path of the venue's most-repeated defect: before the read lands,
+    // the card told a staker checking on their money that they held none of it.
+    let release: (v: unknown) => void = () => {};
+    const pending = new Promise((r) => { release = r; });
+    const read = await import('../../lib/ladder/read');
+    vi.mocked(read.readLadderWallet).mockImplementation(() => pending as never);
+    try {
+      draw();
+      await statGrid();
+      expect(screen.queryByText('No open positions in this pool.')).toBeNull();
+      expect(document.body.textContent).not.toMatch(/\b0 \/ 20\b/);
+      expect(await screen.findByText(/Reading your positions/)).toBeTruthy();
+
+      // ...and the reading state is not permanent: once the read lands, it is shown.
+      release({ ok: true, value: walletView() });
+      expect(await screen.findByText('1 / 20')).toBeTruthy();
+      expect(screen.queryByText(/Reading your positions/)).toBeNull();
+    } finally {
+      vi.mocked(read.readLadderWallet).mockImplementation(async () => reads.wallet as never);
+    }
+  });
+
+  it('a wallet that has READ as never having staked still says so — a real zero stays a zero', async () => {
+    // The counter-pin: a fix that shows "reading" forever, or hides a genuine empty
+    // wallet, must fail here.
+    reads.wallet = { ok: true, value: { stats: null, slots: [], open: [], truncated: false } };
+    draw();
+    expect(await screen.findByText('No open positions in this pool.')).toBeTruthy();
+    expect(within(screen.getByText('Open positions').parentElement!).getByText('0 / 20')).toBeTruthy();
+    expect(screen.queryByText(/Reading your positions/)).toBeNull();
+  });
+});
+
+/* ────────── 10. the exit doors do not overstate ────────── */
+
+describe('what the exit buttons promise', () => {
+  it('an EARLY exit says rewards are paid up to what the reward vault holds, the rest stays owed', async () => {
+    // exit_with_penalty pays min(owed, reward vault) and carries the remainder to
+    // UserStats.rewards_carried. "Your rewards ARE paid out" is false when the vault is short.
+    draw();
+    const detail = await screen.findByText(/is retained\./);
+    expect(detail.textContent).toMatch(/up to what the reward vault holds/);
+    expect(detail.textContent).toMatch(/stays owed/);
+    expect(detail.textContent).toMatch(/claimable later/);
+    expect(document.body.textContent).not.toMatch(/ARE paid out/);
+  });
+
+  it('a MATURED withdraw makes the same qualified promise', async () => {
+    reads.wallet = { ok: true, value: walletView({ open: [position({ lockEnd: BigInt(NOW - 1) })] }) };
+    draw();
+    const detail = await screen.findByText(/^No penalty\./);
+    expect(detail.textContent).toMatch(/up to what the reward vault holds/);
+    expect(detail.textContent).toMatch(/stays owed/);
+  });
+
+  it('⚠️ in a DEGRADED pool the early door is priced free, because early_exit charges nothing there', async () => {
+    // lib.rs early_exit: `if pool.degraded { 0 } else { penalty_for(amount) }`. A card
+    // quoting the penalty here deters the exit the flag was declared to allow.
+    // Penalty-independent on purpose: 500 in, 500 back.
+    reads.pool = { ok: true, value: poolView({ degraded: true }) };
+    draw();
+    expect(await screen.findByText(`Exit early — keep ${fmtRaw(500_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.queryByText(/is retained\./)).toBeNull();
+  });
+
+  it('the DEGRADED banner names BOTH early doors as penalty-free, and does not promise forever', async () => {
+    reads.pool = { ok: true, value: poolView({ degraded: true }) };
+    draw();
+    const banner = (await screen.findByText(/declared degraded/)).parentElement!;
+    const text = banner.textContent ?? '';
+    expect(text).toMatch(/early exit/i);
+    expect(text).toMatch(/emergency hatch/i);
+    expect(text).toMatch(/penalty/i);
+    expect(text).not.toMatch(/cannot be switched back/);
+    expect(text).toMatch(/deployed program/);
+  });
+});
+
+/* ────────── 11. the program can change, and the card says so ────────── */
+
+describe('the upgradeability disclosure', () => {
+  it('says matured positions keep full weight, that an upgrade may reset them to the base, and who can upgrade', async () => {
+    // "Who" is the upgrade AUTHORITY, not "a multisig": the devnet deployment's
+    // authority is not a multisig, and this card renders against whatever program id
+    // it is configured with.
+    draw();
+    await statGrid();
+    const disclosure = screen.getByText(/can be upgraded/).closest('p')!;
+    const text = disclosure.textContent ?? '';
+    expect(text).toMatch(/keeps? (its|their) full (weight|boost)/);
+    expect(text).toMatch(/upgrade authority/);
+    expect(text).not.toMatch(/multisig/);
+    expect(text).toMatch(/may reset/);
+    expect(text).toContain('0.40×');
+  });
+});
+
+/* ────────── 12. switching wallets while something is in flight ────────── */
+
+// A wallet switch does not unmount this card, and every wallet's first position is
+// nonce 0 (`UserStats.next_nonce` starts at 0 per owner). So anything the card holds
+// for one wallet — a read still in flight, an armed exit door — lands on the next
+// wallet's identically-numbered position unless it is tied to the wallet it came from.
+const OTHER = '7YttLkHDoNj9wyDur5pM1ejNaAvT9X4eqaYcHQqtj2G5';
+const EMPTY = { stats: null, slots: [], open: [], truncated: false };
+
+describe('switching wallets while something is in flight', () => {
+  let read: typeof import('../../lib/ladder/read');
+  const connect = (key: string) => { walletState.publicKey = { toBase58: () => key }; };
+  const redraw = (rerender: (ui: React.ReactElement) => void) =>
+    rerender(<SolanaLadderPoolLive bungalow={BUNGALOW} />);
+
+  beforeEach(async () => {
+    read = await import('../../lib/ladder/read');
+    vi.mocked(read.readLadderWallet).mockClear();
+  });
+  afterEach(() => {
+    vi.mocked(read.readLadderWallet).mockImplementation(async () => reads.wallet as never);
+  });
+
+  it('⚠️ a write that settles AFTER a switch re-reads the CONNECTED wallet, and never strands it on "Reading"', async () => {
+    // Review repro: A starts a stake, the user switches to B, then A's signature is
+    // rejected. The write's refresh came from the render the click was in, so it read
+    // A and landed A's answer on top of B's. With no key match the card sat on
+    // "Reading your positions…" for good — no retry there, and every button that could
+    // read again hidden behind it.
+    vi.mocked(read.readLadderWallet).mockImplementation(async (_c, _p, _pool, owner) =>
+      ({ ok: true, value: owner.toBase58() === OWNER ? walletView() : EMPTY }) as never);
+    let settle: (v: { ok: false; reason: string }) => void = () => {};
+    writes.stake.mockImplementationOnce(() => new Promise((r) => { settle = r; }) as never);
+
+    const { rerender } = draw();
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '200' } });
+    const lock = screen.getByRole('button', { name: /Lock BAYLA/ }) as HTMLButtonElement;
+    await waitFor(() => expect(lock.disabled).toBe(false));
+    fireEvent.click(lock);
+    expect(writes.stake).toHaveBeenCalledTimes(1);
+
+    connect(OTHER);
+    redraw(rerender);
+    expect(await screen.findByText('0 / 20')).toBeTruthy();          // B's own read landed
+
+    vi.mocked(read.readLadderWallet).mockClear();
+    await act(async () => { settle({ ok: false, reason: 'User rejected the request.' }); });
+    expect(await screen.findByText('User rejected the request.')).toBeTruthy();
+    await waitFor(() => expect(read.readLadderWallet).toHaveBeenCalled());
+    // Judge the card only after every read the settled write started has landed.
+    await act(async () => {
+      await Promise.all(vi.mocked(read.readLadderWallet).mock.results.map((r) => r.value));
+    });
+
+    const owners = vi.mocked(read.readLadderWallet).mock.calls.map((c) => c[3].toBase58());
+    expect(owners).not.toContain(OWNER);
+    expect(screen.queryByText(/Reading your positions/)).toBeNull();
+    expect(screen.getByText('0 / 20')).toBeTruthy();
+  });
+
+  it('⚠️ a read for the PREVIOUS wallet that lands late is never stored for the connected one', async () => {
+    // "Try again" read through an uncancellable closure as well: switch while its read
+    // is in flight, and A's late answer overwrote B's.
+    let releaseA: (v: unknown) => void = () => {};
+    let pendingA: Promise<unknown> = Promise.resolve();
+    let aReads = 0;
+    vi.mocked(read.readLadderWallet).mockImplementation((_c, _p, _pool, owner) => {
+      if (owner.toBase58() !== OWNER) return Promise.resolve({ ok: true, value: EMPTY }) as never;
+      aReads += 1;
+      if (aReads === 1) {
+        return Promise.resolve({ ok: false, unreadable: true, reason: 'your position could not be read: RPC 503' }) as never;
+      }
+      pendingA = new Promise((r) => { releaseA = r; });
+      return pendingA as never;
+    });
+
+    const { rerender } = draw();
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(aReads).toBe(2));                     // A's retry is in flight
+
+    connect(OTHER);
+    redraw(rerender);
+    expect(await screen.findByText('0 / 20')).toBeTruthy();          // B's read landed first
+
+    await act(async () => {
+      releaseA({ ok: true, value: walletView() });
+      await pendingA;
+    });
+
+    expect(screen.queryByText(/Reading your positions/)).toBeNull();
+    expect(screen.getByText('0 / 20')).toBeTruthy();
+    expect(screen.queryByText('1 / 20')).toBeNull();                 // nor A's positions under B
+  });
+
+  // B's first position: 800 BAYLA, nonce 0 — the same nonce as A's.
+  const B_VIEW = walletView({
+    stats: { address: 'USB', nextNonce: 1, openPositions: 1, rewardsCarriedRaw: 0n, principalRaw: 800_000_000n },
+    open: [position({ address: 'POSB0', owner: OTHER, amountRaw: 800_000_000n, weight: 3_200_000_000n })],
+  });
+  const byOwner = () => vi.mocked(read.readLadderWallet).mockImplementation(async (_c, _p, _pool, owner) =>
+    ({ ok: true, value: owner.toBase58() === OWNER ? walletView() : B_VIEW }) as never);
+
+  it('⚠️ an exit door armed by one wallet is NOT armed for the next wallet\'s same-nonce position', async () => {
+    // Review repro: A armed its hatch, the user switched to B, and B's nonce-0 row came
+    // up already on "Confirm" — the 600 BAYLA price gone from the button, one click from
+    // `ladderHatch` signed by B.
+    byOwner();
+    const { rerender } = draw();
+    fireEvent.click(await screen.findByText(/Emergency withdraw — costs 375 BAYLA/));
+    expect(await screen.findByText('Confirm')).toBeTruthy();         // armed, for A
+
+    connect(OTHER);
+    redraw(rerender);
+    expect(await screen.findByText(`Exit early — keep ${fmtRaw(200_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.queryByText('Confirm')).toBeNull();
+    fireEvent.click(screen.getByText(/Emergency withdraw — costs 600 BAYLA/));
+    expect(writes.hatch).not.toHaveBeenCalled();                      // armed for B now, not fired
+  });
+
+  it('switching away and BACK disarms it too — a confirm belongs to the positions it was given against', async () => {
+    byOwner();
+    const { rerender } = draw();
+    fireEvent.click(await screen.findByText(/Emergency withdraw — costs 375 BAYLA/));
+    expect(await screen.findByText('Confirm')).toBeTruthy();
+
+    connect(OTHER);
+    redraw(rerender);
+    expect(await screen.findByText(`Exit early — keep ${fmtRaw(200_000_000n, 6)} BAYLA`)).toBeTruthy();
+    connect(OWNER);
+    redraw(rerender);
+    expect(await screen.findByText(`Exit early — keep ${fmtRaw(125_000_000n, 6)} BAYLA`)).toBeTruthy();
+    expect(screen.queryByText('Confirm')).toBeNull();
+    expect(screen.getByText(/Emergency withdraw — costs 375 BAYLA/)).toBeTruthy();
   });
 });

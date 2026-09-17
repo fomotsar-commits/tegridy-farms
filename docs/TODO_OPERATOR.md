@@ -44,22 +44,81 @@ real transactions. Full record, with the measured compute and the reconciled acc
 | keys | `C:/Users/jimbo/solana-keys/` — outside the repo, **unbacked-up** |
 
 Eight of fifteen instructions executed on chain. Accounting reconciled to the last digit.
-The 0.40x floor rung and the 25% hatch penalty both moved from claim to measurement.
+The 0.40x floor rung and the hatch penalty both moved from claim to measurement — the
+penalty as **25%, measured on the superseded 25% build**.
 
-### 🔴 O-0909-1 — DATED: run `withdraw_matured` on **2026-09-16**
+> ⚠️ **2026-09-17 — the ladder is being rebuilt with veYFI's early-exit penalty**,
+> `amount × min(time left / 4 years, 75%)` (`math::penalty_for`): three or more years left
+> forfeits 75%, one year 25%, seven days about 0.48%, and nothing at or after `lock_end`.
+> It replaced a flat 75% set earlier the same day; EVM/TOWELI stay 25%. The rebuild
+> also adds a `notify_reward` guard that refuses a mid-window reload lowering the rate
+> (6028 `RewardRateWouldDecrease`). `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the flat-25%
+> build with no guard, so every penalty figure in this section is a record of that build,
+> and **nothing has been measured on chain under the schedule**. Upgrade the devnet program
+> to the schedule build before any preview environment points at it. Decisions (including
+> the reward-sizing bound the schedule brings) and the superseded mainnet artifact:
+> `docs/BAYLA_LADDER_GOLIVE_CHECKLIST.md`.
 
-It is the ONLY principal path that has never executed anywhere. Position `#2` was opened
-at the 7-day minimum on 2026-09-09 specifically so it would mature on the 16th:
+### ✅ O-0909-1 — DONE 2026-09-17: `withdraw_matured` executed on devnet
+
+It was the ONLY principal path that had never executed anywhere. Position `#2` was opened
+at the 7-day minimum on 2026-09-09 specifically so it would mature on the 16th. It ran on
+2026-09-17, finalized, tx
+`4AYtGTnHvSV3bCuaq4nhQPSLnvbc6pnJJfaNY7SqC2FeR2QYQK3ukdwJbAzFjEXNynWYxpBHP9pgRkPYSyAZWeAf`
+(slot 499599875, 25,314 CU — identical to the simulation). Read back on chain, not taken
+from the CLI's success line:
+
+| check | expected | on chain |
+|---|---|---|
+| `Withdrawn.amount` | 500 | **500.000000** |
+| `Withdrawn.penalty` / `emergency` | 0 / false | **0 / false** |
+| `penalty_collected_cumulative` | unchanged | **250 → 250** |
+| `total_principal` | −500 | **1,000 → 500** |
+| `total_weighted` | −#2's weight | **−200,000,000** (the 0.40× rung) |
+| `rewards_paid` delta | = `RewardPaid.amount` | **1,995.875081 = 1,995.875081** |
+
+`withdraw_matured` also CLAIMS in the same instruction — that is why it makes two
+`TransferChecked` calls and emits `RewardPaid` beside `Withdrawn`. The 1,995 BAYLA is devnet
+test funding, not an APR signal.
+
+**Every figure in that table was measured on the superseded 25% build.** The
+`penalty_collected_cumulative` of 250 is the two 25% penalties of 125 from the 09-09 run.
+The matured door passes a zero penalty at any rate (`withdraw_matured` calls
+`exit_with_penalty(ctx, now, 0)`), so "500 back, penalty 0" carries over to the schedule
+build; the 250 does not.
+
+**The command as it was written here did not run** — it omitted `--program`, and the CLI
+refuses without it (`--program <id> (or BAYLA_LADDER_PROGRAM) is required`). The devnet
+program id was verified on chain rather than assumed: it is executable, and it is the owner
+of pool `2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4`. The working command:
 
 ```bash
 cd frontend
-node scripts/bayla-ladder-ops.mjs exit --pool 2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4   --nonce 2 --keypair C:/Users/jimbo/solana-keys/devnet-deploy.json
+node scripts/bayla-ladder-ops.mjs exit --program HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK --pool 2RJNUuj3y8CDibhCehvRoufAvkBG9idpKrryYosvZxi4 --nonce 2 --keypair C:/Users/jimbo/solana-keys/devnet-deploy.json
 # dry run first; add --broadcast. NO --early: the point is the FREE matured door.
 ```
 
-Expect the full 500 back with **no** penalty, and `penalty_collected_cumulative`
-unchanged. **This cannot be automated from a cloud runner** — it needs the operator's
-local signing key. Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
+⚠️ **Size a top-up and judge solvency from `read`'s `outstanding (LIVE)` line and its I-4
+verdict — never from `outstanding (stored)`.** `rewards_emitted` is banked lazily, only when
+an instruction runs `checkpoint()`, so the stored figure is stale on a quiet pool. What this
+run found, with the CLI as it was before #588 (one "outstanding owed" line, the stored
+figure): nobody had touched this pool since 2026-09-09 09:57:24, so `read` reported
+**0.019 BAYLA** owed while the true liability was **~4,275 BAYLA** — 7.70 days of un-banked
+emission. The dry run's 1,995-BAYLA payout looked like a 100,000× overpay until the pool
+account was decoded; it reconciled to within 0.012% of position #2's 46.68% weight share.
+The PROGRAM is safe: `notify_reward` calls `checkpoint()` before it computes `outstanding`
+and before both solvency `require!`s (in `notify_reward` itself).
+#588 replaced that line: `read` now prints `outstanding (stored)` beside
+`outstanding (LIVE)` (checkpoint replayed to chain now) and judges I-4 against the live
+figure — `invariant I-4 holds: reward vault >= live outstanding` is the only pass, and a
+BROKEN or UNVERIFIED I-4 makes `read` exit 1. `notify --preview` prints it as `owed (LIVE)`.
+The hand formula `rewards_emitted + reward_rate × (min(now, period_finish) −
+last_update_time) − rewards_paid` is a cross-check only: it overstates by the whole
+`reward_rate × (min(now, period_finish) − last_update_time)` term while `total_weighted` is
+below `min_weight_floor(min_stake)` (an empty pool), because the program burns those
+seconds (I-11).
+
+Position `#3` (30-day) matures 2026-10-09 if a second sample is wanted.
 
 ### 🔴 O-0909-2 — the devnet upgrade authority is a key Claude generated
 
@@ -284,7 +343,13 @@ the 90-day decision, or change the default — and note that `min_duration` / `m
 **create-only and immutable** on the stake program, so a pool created at 365 days keeps that maximum
 for its whole life even though the UI will not offer it.
 
-### ⬜ O-0906-5 — PR #445 (`feat/bayla-ladder`) is the replacement rail, open and green, recorded nowhere
+### ✅ O-0906-5 — PR #445 (`feat/bayla-ladder`) merged (`8bef013c`) — a SEPARATE rail, not a replacement
+
+> **Superseded framing (owner decision 2026-09-17):** the Streamflow BAYLA pool and the
+> ladder are separate products. The ladder does not replace the Streamflow rail, and no
+> migration is planned; the Streamflow pool keeps running and still needs its own reward
+> funding through its last lock. The body below is kept as the record of what was believed
+> on 2026-09-06, under the banner above that says not to act on it.
 
 An Anchor program at `solana/tegridy-amm/programs/bayla-ladder/`, **39 checks — 32 pass, 7 skipping,
 zero failures**. It matters here because it is the rail that ends this incident class, and **it was
