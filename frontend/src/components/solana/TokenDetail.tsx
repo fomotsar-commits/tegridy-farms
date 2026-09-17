@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { resolveMint, type SolToken } from '../../lib/solanaTokenList';
 
 /**
@@ -36,20 +36,29 @@ export function TokenDetail({ token, onClose }: { token: SolToken; onClose: () =
     return () => ctrl.abort();
   }, [token]);
 
+  // The parent mounts this with an INLINE arrow, so a bare `[onClose]` dep tore
+  // this setup down and re-ran it on EVERY parent render: the cleanup restored
+  // focus to the opener and the setup re-focused the panel, yanking the caret
+  // away from whoever was typing (and churning the scroll-lock save/restore).
+  // Hold the latest callback in a ref so the setup below is mount-scoped.
+  const onCloseRef = useRef(onClose);
+  useLayoutEffect(() => { onCloseRef.current = onClose; });
+
   // Escape to close + scroll lock + focus restore (the TokenPicker pattern).
   useEffect(() => {
     const prevFocus = document.activeElement as HTMLElement | null;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     panelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
       prevFocus?.focus();
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-scoped on purpose; onClose is read through onCloseRef
+  }, []);
 
   const age = detail.firstPoolCreatedAt ? daysSince(detail.firstPoolCreatedAt) : null;
   const audit = detail.audit;
