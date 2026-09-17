@@ -468,17 +468,25 @@ describe('the two commands that had no builder at all', () => {
 });
 
 describe('the hatch penalty the CLI now prints', () => {
-  // lib.rs:607-613 — emergency_withdraw charges penalty_for(amount) when
-  // `now < lock_end && !degraded`. math.rs floors amount * 2500 / 10000.
+  // lib.rs emergency_withdraw charges penalty_for(amount) when
+  // `now < lock_end && !degraded`. math.rs floors amount * 7500 / 10000.
   // The CLI claimed "no penalty" unconditionally until this was caught.
   const pen = (amount) => (BigInt(amount) * BigInt(EARLY_EXIT_PENALTY_BPS)) / BigInt(BPS);
 
-  it('is 25%, floored, exactly as math.rs computes it', () => {
-    expect(EARLY_EXIT_PENALTY_BPS).toBe(2500);
+  it('is the constant math.rs declares, read from the source', () => {
+    const src = readFileSync(new URL('../../solana/tegridy-amm/programs/bayla-ladder/src/math.rs', import.meta.url), 'utf8');
+    const m = /pub const EARLY_EXIT_PENALTY_BPS: u64 = ([\d_]+);/.exec(src);
+    expect(m, 'EARLY_EXIT_PENALTY_BPS not found in math.rs - re-anchor this test').not.toBeNull();
+    expect(EARLY_EXIT_PENALTY_BPS).toBe(Number(m[1].replace(/_/g, '')));
+  });
+
+  it('is 75%, floored, exactly as math.rs computes it', () => {
+    expect(EARLY_EXIT_PENALTY_BPS).toBe(7500);
     expect(BPS).toBe(10000);
-    expect(pen(1000000)).toBe(250000n);
-    expect(pen(3)).toBe(0n);
-    expect(pen(7)).toBe(1n);
+    expect(pen(1000000)).toBe(750000n);
+    expect(pen(3)).toBe(2n);
+    expect(pen(7)).toBe(5n);
+    expect(pen(1)).toBe(0n);
   });
 });
 

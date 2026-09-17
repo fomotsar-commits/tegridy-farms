@@ -53,6 +53,33 @@ const KNOWN_BLIND_SPOTS = [
   'A PARTIAL SIGNAL EXEMPTS THE WHOLE FILE -- see the census line above. One signal word anywhere clears every collapse in that file, however many are left unguarded. This is the same shape as the .every() spot one level up: there, a partial failure stays silent; here, a partial FIX does.',
 ];
 
+// T18 2026-09-10 -- the burn-down triage, so the remaining list is a work queue
+// and not a shrug. Every entry was read against its contract address in
+// src/lib/constants.ts; "dormant" means that address is literally 0x0 today, so
+// the batch is `enabled: false` and the collapse cannot be reached until the
+// rail ships. Dormant is NOT absolution -- it is the reason the deadline is the
+// rail's launch day rather than now.
+const BASELINE_TRIAGE = {
+  'src/hooks/useAutoRefreshBoost.ts':
+    'LIVE (LPFarming). Fail-CLOSED by luck: needsRefresh requires BOTH balances > 0n, so any collapse disarms the refreshBoost prompt rather than firing it. But raw/effective are RETURNED bare, so a partial read hands a caller a real raw balance beside a fabricated 0 effective one.',
+  'src/hooks/useBribes.ts':
+    'DORMANT (VOTE_INCENTIVES_ADDRESS == 0x0). Worst shape in the list once it ships: bribeFeeBps collapses to a hardcoded 300, i.e. an outage renders as a specific 3% fee nobody read.',
+  'src/hooks/useGaugeList.ts':
+    'DORMANT (GAUGE_CONTROLLER_ADDRESS == 0x0). Per-gauge weight/emission collapse to 0n inside a map, so one failed entry in a batch of many silently zeroes a single row while its neighbours look fine.',
+  'src/hooks/usePremiumAccess.ts':
+    'LIVE (PremiumAccess). hasPremium collapses to false (fail-closed, correct), but monthlyFeeToweli collapses to 0n -- a price of zero on the surface that sizes an approval.',
+  'src/hooks/useProtocolStats.ts':
+    'LIVE (SwapFeeRouter + TegridyStaking). Contained at its ONE consumer: ProtocolStats.tsx gates every card on > 0, so an outage hides the cards instead of publishing $0 lifetime volume. The trap is that the hook exports bare zeros with no signal, so consumer number two inherits it.',
+  'src/hooks/useRestaking.ts':
+    'DORMANT (TEGRIDY_RESTAKING_ADDRESS == 0x0; see reference_restaking_not_deployed). Also carries the value-proxy shape usePoolData was fixed for: `restakerData ? ... : 0n`.',
+  'src/hooks/useRevenueStats.ts':
+    'LIVE (RevenueDistributor + ReferralSplitter). pendingETH collapsing to 0n is the exact shape PR #406 fixed elsewhere -- a claim button reading "nothing to claim" on an outage.',
+  'src/hooks/useSwapAllowance.ts':
+    'LIVE (ERC20 allowance vs SwapFeeRouter / UniV2 router). Collapse is fail-safe in direction (0n allowance over-prompts an approve, it never skips one), so the cost is a wasted approval tx, not a loss.',
+  'src/hooks/useTegridyScore.ts':
+    'DORMANT (COMMUNITY_GRANTS_ADDRESS and MEME_BOUNTY_BOARD_ADDRESS are both 0x0). The two flagged collapses are on those two dormant reads; the live TegridyStaking read in the same file is not among them.',
+};
+
 const ZEROISH = String.raw`(?:0n|0|\[\]|false|''|"")`;
 
 const COLLAPSE_PATTERNS = [
@@ -89,7 +116,15 @@ const COLLAPSE_PATTERNS = [
 // for having done the work.
 //
 // Widening this list widens the exemption below, so the census exists.
-const SIGNAL_RE = /\b\w*(?:Unread|ReadOk|ReadFailed|Observed|Available|Unavailable|Incomplete)\b/;
+//
+// T18 2026-09-10: `Known` was added for EvmLighthousePoolLive.tsx, which had the
+// signal all along, spelled outside this list: `view.coreKnown` withholds every
+// figure on an outage instead of rendering zeros. (That component was doubly a
+// false positive: its flagged `amountRaw ?? 0n` hits are the parsed AMOUNT INPUT
+// BOX, not a contract read at all -- the read-alias-default pattern keys on a
+// `Raw` suffix and cannot tell the two apart. Left as-is; narrowing the pattern
+// would cost real catches.)
+const SIGNAL_RE = /\b\w*(?:Unread|ReadOk|ReadFailed|Observed|Available|Unavailable|Incomplete|Known)\b/;
 const USES_READ_RE = /\buseReadContracts?\b/;
 
 function walk(dir, out = []) {
@@ -189,6 +224,14 @@ function selfTest() {
       src: `const { data } = useReadContracts({});\nconst n = data?.[0]?.status === 'success' ? Number(data[0].result) : null;` },
     { name: 'Incomplete counts as a signal (useVestingFactory / useAirdropFactory spelling)', flagged: false,
       src: `const { data } = useReadContracts({});\nconst total = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;\nconst readIncomplete = !data || data.some((r) => r.status !== 'success');` },
+    // T18: the `Known` spelling the baseline review found in use. It expresses
+    // the same property the guard is actually asking for.
+    { name: 'coreKnown counts as a signal (EvmLighthousePoolLive)', flagged: false,
+      src: `const { data } = useReadContracts({});\nconst staked = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;\nconst coreKnown = data?.[0]?.status === 'success';` },
+    // ...and the widening must not turn into a blanket amnesty: a file that
+    // collapses and says nothing is still flagged, however it is spelled.
+    { name: 'collapse with an unrelated vocabulary is still flagged', flagged: true,
+      src: `const { data } = useReadContracts({});\nconst staked = data?.[0]?.status === 'success' ? data[0].result as bigint : 0n;\nconst isLoading = false;\nconst refetch = () => {};` },
     // THE FIG LEAF, pinned as a test so it cannot be mistaken for an oversight.
     // Two collapses; a signal covering only the first; the file goes unflagged.
     // flagged:false is the CORRECT answer for this guard as designed -- the
@@ -244,7 +287,7 @@ if (argv.includes('--update')) {
   writeFileSync(
     BASELINE_PATH,
     JSON.stringify({
-      note: 'Files that collapse a contract read with no unread signal, as of the guard landing. This list may SHRINK, never grow. See check-unread-signal.mjs.',
+      note: 'Files that collapse a contract read with no unread signal. This list may SHRINK, never grow. Per-file triage (live vs dormant rail, and what a degraded read renders as) lives in BASELINE_TRIAGE in check-unread-signal.mjs and prints on every green run.',
       files: offenders.map((o) => o.file),
     }, null, 2) + '\n',
   );
@@ -295,6 +338,11 @@ if (fixed.length) {
 if (bad) process.exit(1);
 
 console.log(`check-unread-signal: ok (${offenders.length} baselined file(s) still to burn down)`);
+for (const o of offenders) {
+  console.log(`  - ${o.file} [${o.shapes.join(', ')}]`);
+  const why = BASELINE_TRIAGE[o.file];
+  if (why) console.log(`      ${why}`);
+}
 
 // The exemption, as a number rather than a caveat. Advisory only -- it never
 // sets `bad`, because a file here is usually correct and two of them are the

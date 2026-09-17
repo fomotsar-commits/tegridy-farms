@@ -263,8 +263,10 @@ describe('LPFarmingSection — farm-wide reads GENUINE ZERO', () => {
   it('reports a real empty farm as 0, and keeps the invitation', () => {
     // The load-bearing counter-test: an empty farm is a real, publishable state and
     // "be the first to stake" is the correct thing to say about it. A fix that
-    // blanked every zero would break this.
-    render(<LPFarmingSection lpFarm={farm()} isConnected={false} />);
+    // blanked every zero would break this. On a LIVE schedule: on an ended one the
+    // invitation is itself a bug (#509) — a deposit into a farm paying nothing.
+    const future = Math.floor(Date.now() / 1000) + 86_400;
+    render(<LPFarmingSection lpFarm={farm({ isActive: true, periodFinish: future })} isConnected={false} />);
 
     expect(tileValue('Total LP Staked').textContent).toBe('0.0000');
     expect(invitation()).toBeInTheDocument();

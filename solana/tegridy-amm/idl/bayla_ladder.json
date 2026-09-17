@@ -4,7 +4,7 @@
     "name": "bayla_ladder",
     "version": "0.1.0",
     "spec": "0.1.0",
-    "description": "Lock-ladder staking with a flat 25% early exit — the Solana port of LighthouseLadder.sol"
+    "description": "Lock-ladder staking with a flat 75% early exit — the Solana port of LighthouseLadder.sol"
   },
   "instructions": [
     {
@@ -247,7 +247,7 @@
     {
       "name": "early_exit",
       "docs": [
-        "Leave BEFORE the lock ends: principal minus 25%, rewards paid. The penalty",
+        "Leave BEFORE the lock ends: principal minus 75%, rewards paid. The penalty",
         "stays in the pool as reward budget."
       ],
       "discriminator": [
@@ -362,7 +362,7 @@
       "name": "emergency_withdraw",
       "docs": [
         "THE LAST RESORT. Principal only, at ANY time — including while locked (paying",
-        "the 25% unless the pool is degraded) and including when the reward vault is",
+        "the 75% unless the pool is degraded) and including when the reward vault is",
         "empty, closed, or wedged. This instruction declares NO reward vault (I-12).",
         "",
         "AUDIT C3: it still checkpoints, because a checkpoint is pure accounting and",
@@ -1229,7 +1229,7 @@
     {
       "code": 6007,
       "name": "StillLocked",
-      "msg": "Position is still locked — use early_exit or emergency_withdraw (25% penalty)"
+      "msg": "Position is still locked — use early_exit or emergency_withdraw (75% penalty)"
     },
     {
       "code": 6008,
@@ -1330,6 +1330,11 @@
       "code": 6027,
       "name": "WalletCapExceeded",
       "msg": "This wallet already holds its maximum share of the pool"
+    },
+    {
+      "code": 6028,
+      "name": "RewardRateWouldDecrease",
+      "msg": "A reload inside a live window may not lower the reward rate: schedule at least reward_rate x seconds elapsed, or wait for period_finish"
     }
   ],
   "types": [
@@ -1654,10 +1659,12 @@
           {
             "name": "degraded",
             "docs": [
-              "ONE-WAY. When set, `emergency_withdraw` charges no penalty while locked. This",
-              "is the answer to \"what if the operator is the failure\": a flag that can only",
-              "ever move in the direction that frees stakers gives a stolen key nothing it",
-              "wants. Its cost is honest — it stops future penalty inflow."
+              "ONE-WAY. When set, BOTH early doors (`early_exit` and `emergency_withdraw`)",
+              "charge no penalty while locked, and `stake` is refused. It answers \"what if the",
+              "operator is the failure\", and it only ever moves in the direction that frees",
+              "stakers — but it is not worthless to a thief: a key-holder who also holds a",
+              "locked position escapes their own 75% penalty by firing it. Its cost is honest —",
+              "it stops future penalty inflow."
             ],
             "type": "bool"
           },
