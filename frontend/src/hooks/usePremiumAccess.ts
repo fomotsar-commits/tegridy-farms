@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import { PREMIUM_ACCESS_ABI, ERC20_ABI } from '../lib/contracts';
 import { PREMIUM_ACCESS_ADDRESS, TOWELI_ADDRESS, JBAC_NFT_ADDRESS, CHAIN_ID, isDeployed } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
+import { receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 
 export function usePremiumAccess() {
   const chainId = useChainId();
@@ -16,21 +18,23 @@ export function usePremiumAccess() {
   const isPending = isApprovePending || isActionPending;
 
   // Track each tx independently so approve doesn't shadow the subsequent action tx
-  const { data: approveReceipt, isLoading: isApproveConfirming, isSuccess: isApproveReceiptFetched, isError: isApproveTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
-  const { data: actionReceipt, isLoading: isActionConfirming, isSuccess: isActionReceiptFetched, isError: isActionTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
+  const approveReceiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: approveHash });
+  const actionReceiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash: actionHash });
+  const { isLoading: isApproveConfirming } = approveReceiptQuery;
+  const { isLoading: isActionConfirming } = actionReceiptQuery;
 
-  // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too, which fired the
-  // "confirmed!" toasts for a reverted approve/subscribe. Only
-  // `receipt.status === 'success'` is a real success.
-  const isApproveReverted = isApproveReceiptFetched && !!approveReceipt && approveReceipt.status !== 'success';
-  const isApproveSuccess = isApproveReceiptFetched && !isApproveReverted;
-  const isActionReverted = isActionReceiptFetched && !!actionReceipt && actionReceipt.status !== 'success';
-  const isActionSuccess = isActionReceiptFetched && !isActionReverted;
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means a receipt query
+  // settled, and its `isError` covers both a REVERT and a receipt we never got.
+  // Those need opposite advice. See receiptOutcome in lib/txErrors.ts.
+  const {
+    isSuccess: isApproveSuccess, isReverted: isApproveReverted, isUnconfirmed: isApproveUnconfirmed,
+  } = receiptOutcome(approveReceiptQuery);
+  const {
+    isSuccess: isActionSuccess, isReverted: isActionReverted, isUnconfirmed: isActionUnconfirmed,
+  } = receiptOutcome(actionReceiptQuery);
 
   const isConfirming = isApproveConfirming || isActionConfirming;
   const isSuccess = isApproveSuccess || isActionSuccess;
-  void (isApproveTxError || isActionTxError);
   const hash = actionHash ?? approveHash;
 
   // Check if user holds a JBAC NFT
@@ -198,21 +202,31 @@ export function usePremiumAccess() {
     }
   }, [isActionSuccess, refetch, resetAction]);
 
+  // No receipt came back for the approval or the action. "Failed on-chain" was a
+  // claim about a chain nobody had read.
   useEffect(() => {
-    if (isApproveTxError) {
-      toast.error('Approval transaction failed on-chain');
+    if (isApproveUnconfirmed && approveHash) {
+      surfaceUnconfirmedTx(toast, {
+        hash: approveHash,
+        explorerUrl: getTxUrl(chainId, approveHash),
+        repeatCost: 'your allowance is already set and a second approval just costs gas.',
+      });
       const t = setTimeout(() => { resetApprove(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isApproveTxError, resetApprove]);
+  }, [isApproveUnconfirmed, approveHash, chainId, resetApprove]);
 
   useEffect(() => {
-    if (isActionTxError) {
-      toast.error('Transaction failed on-chain');
+    if (isActionUnconfirmed && actionHash) {
+      surfaceUnconfirmedTx(toast, {
+        hash: actionHash,
+        explorerUrl: getTxUrl(chainId, actionHash),
+        repeatCost: 'sending it again pays for premium a second time.',
+      });
       const t = setTimeout(() => { resetAction(); }, 0);
       return () => clearTimeout(t);
     }
-  }, [isActionTxError, resetAction]);
+  }, [isActionUnconfirmed, actionHash, chainId, resetAction]);
 
   useEffect(() => {
     if (isApproveReverted) {

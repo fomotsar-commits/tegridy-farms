@@ -7,7 +7,7 @@ import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, C
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
 
 export function useFarmActions() {
   const chainId = useChainId();
@@ -51,26 +51,18 @@ export function useFarmActions() {
     lastActionRef.current = 'action';
   }, [address]);
 
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-    isError: isReceiptError,
-  } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     chainId: CHAIN_ID,
     hash,
   });
-  // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
-  // FETCHED" — a transaction that reverted on-chain also produces a receipt,
-  // so `isSuccess` latched true and the UI showed confetti + "Transaction
-  // confirmed" for a stake/withdraw/claim that moved nothing. Only
-  // `receipt.status === 'success'` is an actual on-chain success.
-  // `receipt` is always defined once wagmi reports isSuccess at runtime; the
-  // null-check is defensive only, so a wagmi shape drift can never turn a
-  // genuinely successful tx into a false "reverted" alarm.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  const { data: receipt, isLoading: isConfirming } = receiptQuery;
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means "a receipt query
+  // settled", and its `isError` covers both a REVERT and a receipt we never got.
+  // Those need opposite advice, so they are split here. See receiptOutcome in
+  // lib/txErrors.ts for what wagmi actually returns in each case.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
+  /** Not a confirmed success: it reverted, or we never found out. */
+  const isTxError = isReverted || isUnconfirmed;
 
   useEffect(() => {
     if (isSuccess && hash) {
@@ -112,12 +104,11 @@ export function useFarmActions() {
   }, [isSuccess, hash, address, chainId]);
 
   useEffect(() => {
-    if (isTxError && hash) {
-      toast.error(isReverted ? 'Transaction reverted on-chain' : 'Transaction failed', {
+    if (isReverted && hash) {
+      toast.error('Transaction reverted on-chain', {
         id: `err-${hash}`,
-        description: isReverted
-          ? 'The network rejected it — nothing was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then adjust your amount or lock and try again.'
-          : undefined,
+        description:
+          'The network rejected it — nothing was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then adjust your amount or lock and try again.',
         action: {
           label: 'Explorer',
           onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
@@ -129,7 +120,26 @@ export function useFarmActions() {
       txAddressRef.current = undefined;
       lastActionRef.current = 'action';
     }
-  }, [isTxError, isReverted, hash, chainId]);
+  }, [isReverted, hash, chainId]);
+
+  // No receipt came back. Until 2026-09-17 this shared the branch above and said
+  // "Transaction failed" with no description, which told the user their stake was
+  // gone when it may have been sitting in a block we could not see. A revert says
+  // try again; this says look first.
+  useEffect(() => {
+    if (isUnconfirmed && hash) {
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again stakes, withdraws or claims a second time.',
+      });
+      // We cannot attribute this stake, so it must not be attributed to whatever
+      // tx confirms next. A lost analytics event beats a misattributed one.
+      pendingStakeRef.current = null;
+      txAddressRef.current = undefined;
+      lastActionRef.current = 'action';
+    }
+  }, [isUnconfirmed, hash, chainId]);
 
   useEffect(() => {
     // F474: classify wallet cancellations as a soft "Cancelled" info toast

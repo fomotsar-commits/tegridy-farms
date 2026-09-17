@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 import type { ContractMetadata } from '../lib/nftMetadata';
 
 /// Resolve an `ar://` URI (or bare Arweave tx ID) into a gateway URL the
@@ -54,14 +55,13 @@ export function useNFTDropV2(dropAddress: string) {
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID — see useLPFarming.ts.
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isReceiptError } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
-  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED mints too. Only
-  // receipt.status === 'success' is a real success. isReverted folds into
-  // isTxError so the `inFlight` guard below can't latch forever after a revert.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const { isLoading: isConfirming } = receiptQuery;
+  // A revert and a receipt we never got both arrive from wagmi as `isError`, and
+  // they need opposite advice. See receiptOutcome in lib/txErrors.ts. Both fold
+  // into isTxError so the `inFlight` guard below can't latch forever.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
+  const isTxError = isReverted || isUnconfirmed;
 
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
@@ -321,13 +321,20 @@ export function useNFTDropV2(dropAddress: string) {
             ? 'No ETH was sent back — your refund is still claimable.'
             : 'Nothing was minted and your ETH was not taken.',
         });
-      } else {
-        toast.error(lastActionRef.current === 'refund' ? 'Refund failed' : 'Mint failed');
+      } else if (hash) {
+        // No receipt came back, so nothing is known either way.
+        surfaceUnconfirmedTx(toast, {
+          hash,
+          explorerUrl: getTxUrl(chainId, hash),
+          repeatCost: lastActionRef.current === 'refund'
+            ? 'there is nothing left to refund and a second attempt just costs gas.'
+            : 'sending it again mints and pays a second time.',
+        });
       }
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, isReverted, writeError, reset]);
+  }, [isSuccess, isTxError, isReverted, writeError, reset, hash, chainId]);
 
   return {
     // Read data

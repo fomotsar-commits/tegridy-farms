@@ -10,6 +10,7 @@ import {
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
+import { receiptOutcome } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
@@ -17,7 +18,9 @@ import { VENUE } from '../lib/arrival';
 import { getActiveBungalow } from '../lib/bungalows';
 import { artImgProps } from '../lib/artSrcSet';
 
-type TxStatus = 'pending' | 'confirmed' | 'failed';
+// 'unconfirmed': the receipt query gave up without an answer. Not 'failed', which
+// would claim a revert nobody read.
+type TxStatus = 'pending' | 'confirmed' | 'failed' | 'unconfirmed';
 
 /* ─── Sanitize text for rendered receipts ───
    F10: every value here is rendered as a JSX text node (and via html2canvas of
@@ -226,18 +229,21 @@ function TransactionReceiptOverlay({
   // single-block confirmation can still revert under reorg; sharing or
   // declaring "Confirmed" before that has bitten users with a viral receipt
   // pointing at a reverted tx. Tri-state covers pending / confirmed / failed.
-  const { data: rcpt, isSuccess: rcptOk, isError: rcptErr } = useWaitForTransactionReceipt({
+  const rcptQuery = useWaitForTransactionReceipt({
     hash: safeTxHash as `0x${string}` | undefined,
     confirmations: 2,
     query: { enabled: !!safeTxHash },
   });
+  // wagmi's isError covers both a revert and a receipt it never got; only the
+  // first is 'failed'. See receiptOutcome in lib/txErrors.ts.
+  const { isSuccess: rcptOk, isReverted: rcptReverted, isUnconfirmed: rcptUnconfirmed } = receiptOutcome(rcptQuery);
   const status: TxStatus = useMemo(() => {
     if (!safeTxHash) return 'confirmed'; // legacy / synthetic receipts
-    if (rcptErr) return 'failed';
-    if (rcpt?.status === 'reverted') return 'failed';
-    if (rcptOk && rcpt?.status === 'success') return 'confirmed';
+    if (rcptReverted) return 'failed';
+    if (rcptUnconfirmed) return 'unconfirmed';
+    if (rcptOk) return 'confirmed';
     return 'pending';
-  }, [safeTxHash, rcptOk, rcptErr, rcpt]);
+  }, [safeTxHash, rcptOk, rcptReverted, rcptUnconfirmed]);
 
   const chainLabel = getChainLabel(chainId);
 
@@ -279,7 +285,7 @@ function TransactionReceiptOverlay({
 
   const handleShareX = useCallback(() => {
     if (status === 'failed') return; // disabled
-    if (status === 'pending') {
+    if (status === 'pending' || status === 'unconfirmed') {
       setShowPendingShareModal(true);
       return;
     }
@@ -397,10 +403,12 @@ function TransactionReceiptOverlay({
                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                     : status === 'failed'
                       ? 'bg-red-500/15 text-red-300 border border-red-500/30'
-                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse'
+                      : status === 'unconfirmed'
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse'
                 }`}
               >
-                {status === 'confirmed' ? 'Confirmed' : status === 'failed' ? 'Failed' : 'Pending'}
+                {status === 'confirmed' ? 'Confirmed' : status === 'failed' ? 'Failed' : status === 'unconfirmed' ? 'Unconfirmed' : 'Pending'}
               </div>
             </div>
           </div>
@@ -479,6 +487,8 @@ function TransactionReceiptOverlay({
                   ? 'Cannot share — transaction reverted'
                   : status === 'pending'
                     ? 'Tx still pending — confirm before sharing'
+                    : status === 'unconfirmed'
+                      ? "We couldn't confirm this tx — check the explorer before sharing"
                     : 'Share this receipt to X'
               }
               className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"

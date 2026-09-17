@@ -105,3 +105,111 @@ export function surfaceTxError(err: unknown, toast: ToastLike, opts: SurfaceOpts
 
   toast.error(extractErrorMessage(err));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// WHAT A RECEIPT QUERY ACTUALLY TOLD US.
+//
+// `useWaitForTransactionReceipt` has three terminal outcomes and exposes them as
+// two flags that do not mean what their names suggest. Measured 2026-09-17 with
+// the installed @wagmi/core 3.6.5 / viem 2.56.5 against a local anvil node:
+//
+//   the tx succeeded                  → isSuccess, data.status === 'success'
+//   the tx REVERTED                   → isError, error.name === 'CallExecutionError'
+//   the node never returned a receipt → isError, error.name ===
+//                                       'TransactionReceiptNotFoundError'
+//                                       (or an HTTP/RPC error), for a tx that
+//                                       succeeded just as often as one that did not
+//
+// wagmi does NOT return a reverted receipt: on `status === 'reverted'` it replays
+// the call to fetch a reason and THROWS the result. So `isSuccess` with
+// `data.status === 'reverted'` never happens through wagmi, and every branch that
+// waited for it was unreachable. A real revert and an unread receipt both arrived
+// as `isError`, and both were called "Transaction failed".
+//
+// That is right for a revert and wrong for the other one. "Failed" tells the user
+// to send it again, and if the transaction landed, an add, stake or swap sent again
+// pays twice.
+//
+// Only `CallExecutionError` counts as a revert. wagmi's revert branch is the only
+// place a receipt wait runs `eth_call`, so that error cannot come from a failed
+// read. Everything else, including shapes nobody has seen yet, is reported as
+// unconfirmed: the wrong answer there costs the user a look at the explorer, while
+// the wrong answer the other way costs them a duplicate transaction.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** The subset of wagmi's `useWaitForTransactionReceipt` result this reads. */
+export type ReceiptQueryLike = {
+  data?: { status?: string } | undefined;
+  isSuccess: boolean;
+  isError: boolean;
+  error?: unknown;
+};
+
+export type ReceiptOutcome = {
+  /** Mined and succeeded. */
+  isSuccess: boolean;
+  /** Mined and reverted: nothing moved, and "try again" is correct advice. */
+  isReverted: boolean;
+  /** No receipt came back. Nothing is known, so the only honest advice is "look first". */
+  isUnconfirmed: boolean;
+};
+
+/** A receipt-wait error that can only have come from a transaction that reverted. */
+export function isRevertedReceiptError(error: unknown): boolean {
+  return (error as { name?: unknown } | null | undefined)?.name === 'CallExecutionError';
+}
+
+export function receiptOutcome(q: ReceiptQueryLike): ReceiptOutcome {
+  // A fetched receipt that is not 'success' is kept as a revert even though wagmi
+  // never produces one, so a future wagmi that stops throwing cannot turn a
+  // revert into a success.
+  const fetchedReverted = q.isSuccess && !!q.data && q.data.status !== 'success';
+  const erroredReverted = q.isError && isRevertedReceiptError(q.error);
+  return {
+    isSuccess: q.isSuccess && !fetchedReverted,
+    isReverted: fetchedReverted || erroredReverted,
+    isUnconfirmed: q.isError && !erroredReverted,
+  };
+}
+
+/** Toast surface `surfaceUnconfirmedTx` needs: sonner's `warning(title, opts)`. */
+export type UnconfirmedToastLike = {
+  warning: (msg: string, opts?: {
+    id?: string;
+    description?: string;
+    duration?: number;
+    action?: { label: string; onClick: () => void };
+  }) => void;
+};
+
+/** `0x1234abcd…9876fedc`: enough to match on an explorer, short enough for a toast. */
+export function shortHash(hash: string): string {
+  return hash.length > 22 ? `${hash.slice(0, 10)}…${hash.slice(-8)}` : hash;
+}
+
+/**
+ * Tell the user we could not confirm their transaction, and that it may well have
+ * succeeded.
+ *
+ * `repeatCost` finishes the sentence "…before you send it again: if it landed, ___".
+ * It is written per call site because a duplicate costs something different for an
+ * add, a swap and a claim.
+ *
+ * A warning, not an error, because nothing is known to have gone wrong. It stays up
+ * for 30s because it is the only thing between the user and a duplicate spend, and
+ * the 4s the surrounding effects reset in is too short to read it.
+ */
+export function surfaceUnconfirmedTx(
+  toast: UnconfirmedToastLike,
+  opts: { hash: string; explorerUrl: string; repeatCost: string },
+): void {
+  toast.warning("We couldn't confirm this transaction", {
+    id: `unconfirmed-${opts.hash}`,
+    description:
+      `${shortHash(opts.hash)} was submitted, but its receipt never came back. That is our read of ` +
+      `the network failing, not the transaction — it may well have succeeded. Open it on the ` +
+      `explorer before you send it again: if it landed, ${opts.repeatCost}`,
+    action: { label: 'Check on Explorer', onClick: () => window.open(opts.explorerUrl, '_blank') },
+    duration: 30_000,
+  });
+}

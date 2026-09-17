@@ -17,6 +17,8 @@ const wagmiState = vi.hoisted(() => {
     // FE-HIGH-6: addCustomToken re-verifies symbol/decimals on-chain before
     // adding. Tests configure the "on-chain" ERC20 shape the mock returns.
     erc20Shape: { symbol: 'FOO', decimals: 18 } as { symbol: string; decimals: number },
+    // When set, the receipt query errors with this `.name` (a write error does not).
+    receiptErrorName: undefined as string | undefined,
   };
 });
 
@@ -54,7 +56,8 @@ vi.mock('wagmi', async () => {
     useWaitForTransactionReceipt: () => ({
       isLoading: wagmiState.writeStatus.isConfirming,
       isSuccess: wagmiState.writeStatus.isSuccess,
-      isError: wagmiState.writeStatus.isTxError,
+      isError: wagmiState.writeStatus.isTxError || !!wagmiState.receiptErrorName,
+      error: wagmiState.receiptErrorName ? { name: wagmiState.receiptErrorName } : null,
     }),
     // AUDIT (Wave-2 2026-05-20): added when useSwap began consuming
     // `usePublicClient` for direct `viemClient.readContract` calls — the
@@ -184,6 +187,7 @@ function resetWagmi() {
   wagmiState.ethBalance = { value: parseEther('5'), decimals: 18 };
   wagmiState.tokenBalance = parseUnits('1000000', 18); // plenty
   wagmiState.erc20Shape = { symbol: 'FOO', decimals: 18 };
+  wagmiState.receiptErrorName = undefined;
   wagmiState.writeContractMock.mockReset();
 }
 
@@ -487,4 +491,41 @@ describe('useSwap', () => {
     expect(result.current.isPending).toBe(true);
     expect(result.current.isConfirming).toBe(false);
   });
+});
+
+// ────────────── A terminal receipt error releases the Swap button ─────────
+//
+// wagmi reports BOTH a reverted swap and a receipt it never got as a receipt-query
+// error (a revert as `CallExecutionError`). Until 2026-09-17 nothing in useSwap
+// handled that error, so `isPendingRef` stayed latched and every later executeSwap
+// returned at its first line: the Swap button went dead until a reload.
+describe('useSwap: a receipt error does not leave the Swap button dead', () => {
+  const HASH = '0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed' as `0x${string}`;
+
+  beforeEach(() => {
+    resetWagmi();
+    quoteState.current = defaultQuote();
+    allowanceState.needsApproval = false;
+    try { window.localStorage.clear(); } catch { /* jsdom only */ }
+  });
+
+  for (const errorName of ['CallExecutionError', 'TransactionReceiptNotFoundError']) {
+    it(`after a ${errorName}, the next swap still dispatches`, () => {
+      const { result, rerender } = renderHook(() => useSwap());
+      act(() => result.current.setInputAmount('0.5'));
+      act(() => result.current.executeSwap());
+      expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1);
+
+      // The swap was sent, and its receipt query then errored.
+      wagmiState.writeStatus = { ...wagmiState.writeStatus, hash: HASH };
+      wagmiState.receiptErrorName = errorName;
+      rerender();
+
+      act(() => result.current.executeSwap());
+      expect(
+        wagmiState.writeContractMock,
+        'the second swap never reached the wallet: the in-flight latch was never released',
+      ).toHaveBeenCalledTimes(2);
+    });
+  }
 });
