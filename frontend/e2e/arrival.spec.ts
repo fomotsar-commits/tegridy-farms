@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { CURTAIN_BUDGET_MS, DEADLINE_SLACK_MS, SKIP_DISSOLVE_MS } from '../src/components/loader/constants';
+import {
+  CURTAIN_BUDGET_MS, DEADLINE_SLACK_MS, SKIP_DISSOLVE_MS, CURTAIN_DETACH_BUDGET_MS,
+} from '../src/components/loader/constants';
 
 // THE ARRIVAL, WALKED — wave seven, element A (and element E's overlay sweep).
 //
@@ -49,6 +51,8 @@ declare global {
   interface Window {
     __arrival?: ArrivalClock;
     __curtainContextDenied?: number;
+    /** `__arrival.added` in epoch ms, so screencast frames can be placed against it. */
+    __arrivalEpoch?: number;
   }
 }
 
@@ -137,6 +141,179 @@ test.describe('the curtain, not the wall', () => {
     );
     expect(hit.arrival, 'the curtain is answering the hit-test over the hero').toBeNull();
     expect(hit.tag).not.toBe('CANVAS');
+  });
+
+  test('the curtain is out of sight by its budget with the main thread blocked solid', async ({ page, browserName, context }) => {
+    chromiumOnly(browserName);
+    // THE PROMISE, PUT TO THE ONLY THING THAT CAN KEEP IT.
+    //
+    // Every other timing test in this file ends up measuring a TIMER. The
+    // budget was held by two setTimeouts and the React render that removes the
+    // overlay -- all main-thread work -- so a machine with a busy thread moves
+    // the deadline by however long the task in front of it runs. Measured on
+    // the pre-fix build at 6x CPU throttle with the curtain's tick disabled, so
+    // the deadline is the only ending and its lateness is the entire number:
+    // 3,177 / 3,180 / 3,321 / 3,361 ms against a 2,900 ms deadline. Four runs
+    // of four, every one over budget.
+    //
+    // So the curtain also fades out on a Web Animations opacity animation,
+    // which runs on the COMPOSITOR and keeps its time while script is blocked.
+    // This asserts that, and nothing softer.
+    //
+    // BLOCKED, NOT THROTTLED. A busy loop bounded by performance.now() is the
+    // same 3,000 ms on every machine, so this means as much on a loaded CI box
+    // as on an idle one -- and on the pre-fix build it CANNOT pass, because
+    // neither timer can run inside the window it asserts on.
+    //
+    // SCREENCAST, NOT SCREENSHOT. Page.captureScreenshot is served by the same
+    // blocked renderer and comes back late: the first version of this probe
+    // used it and read every sample after the fact, which is how a screenshot
+    // clock can agree with the bug. Page.screencastFrame is PUSHED by the
+    // compositor as it produces frames, so it can see a thread it is not on.
+    const BLOCK_FROM = 400;
+    const BLOCK_FOR = 3_000;
+    const MARKER = { r: 255, g: 0, b: 255 };
+
+    // A KNOWN COLOUR UNDER THE CURTAIN. The claim is about the OVERLAY's
+    // opacity, so what shows through must not depend on the art, the theme, or
+    // whatever the hero has managed to paint by then.
+    await page.addInitScript((m) => {
+      const paint = () => {
+        const el = document.createElement('div');
+        el.id = '__curtainProbe';
+        el.style.cssText =
+          `position:fixed;inset:0;z-index:500;pointer-events:none;background:rgb(${m.r},${m.g},${m.b})`;
+        document.body.appendChild(el);
+      };
+      if (document.body) paint();
+      else document.addEventListener('DOMContentLoaded', paint);
+    }, MARKER);
+
+    await armArrivalClock(page);
+
+    // Hold the main thread from +400 ms after the overlay mounts, straight
+    // across the deadline. Bounded by performance.now() so it is wall-clock
+    // exact rather than however many iterations this box gets through.
+    await page.addInitScript(
+      ({ from, forMs }) => {
+        const wait = () => {
+          if (window.__arrival?.added === undefined) { setTimeout(wait, 10); return; }
+          window.__arrivalEpoch = performance.timeOrigin + window.__arrival.added;
+          setTimeout(() => {
+            const end = performance.now() + forMs;
+            while (performance.now() < end) { /* the machine the deadline is for */ }
+          }, from);
+        };
+        wait();
+      },
+      { from: BLOCK_FROM, forMs: BLOCK_FOR },
+    );
+
+    const cdp = await context.newCDPSession(page);
+    const frames: Array<{ epochMs: number; data: string }> = [];
+    cdp.on('Page.screencastFrame', (f) => {
+      // The frame's OWN timestamp, not our receive time: delivery crosses a
+      // process boundary and would smear the number being asserted on.
+      const ts = f.metadata?.timestamp;
+      if (ts) frames.push({ epochMs: ts * 1000, data: f.data });
+      cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+    });
+    await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
+
+    await page.goto('/');
+    await expect(curtain(page)).toBeAttached({ timeout: 10_000 });
+    await expect(curtain(page)).toHaveCount(0, { timeout: CURTAIN_DETACH_BUDGET_MS + 6_000 });
+    await cdp.send('Page.stopScreencast');
+
+    const arrivalEpoch = await page.evaluate(() => window.__arrivalEpoch);
+    expect(arrivalEpoch, 'the page never stamped the overlay mount in epoch time').toBeDefined();
+
+    // Decode in a SECOND page. The page under test spent this run blocked, and
+    // reusing it would make the reader wait on the very thread being accused.
+    const reader = await context.newPage();
+    await reader.setContent('<canvas id="k"></canvas>');
+    const sampled: Array<{ at: number; rgb: number[] }> = [];
+    for (const fr of frames) {
+      const at = Math.round(fr.epochMs - arrivalEpoch!);
+      if (at < 0 || at > CURTAIN_DETACH_BUDGET_MS) continue;
+      const rgb = await reader.evaluate(async (b64) => {
+        const img = new Image();
+        img.src = 'data:image/png;base64,' + b64;
+        await img.decode();
+        const k = document.getElementById('k') as HTMLCanvasElement;
+        k.width = img.width; k.height = img.height;
+        const cx = k.getContext('2d')!;
+        cx.drawImage(img, 0, 0);
+        const d = cx.getImageData(Math.floor(img.width / 2), Math.floor(img.height / 2), 1, 1).data;
+        return [d[0]!, d[1]!, d[2]!];
+      }, fr.data);
+      sampled.push({ at, rgb });
+    }
+    await reader.close();
+
+    const clock = await readClock(page);
+    const lifetime = clock.removed! - clock.added!;
+    console.log(`[arrival] blocked-thread run: ${sampled.length} frames, DOM lifetime ${Math.round(lifetime)} ms`);
+
+    // THE INVARIANT THAT STOPS THIS PASSING FOR THE WRONG REASON. If the node
+    // left the DOM inside the budget, the curtain ended the ordinary way and
+    // the compositor proved nothing. The block exists to make that impossible;
+    // this is what checks the block actually took.
+    expect(
+      lifetime,
+      'the DOM removal was on time, so the main thread was never really blocked and this asserts nothing',
+    ).toBeGreaterThan(CURTAIN_BUDGET_MS);
+
+    const clear = (p: { rgb: number[] }) => p.rgb[0]! >= 240 && p.rgb[2]! >= 240 && p.rgb[1]! <= 40;
+    const opaque = (p: { rgb: number[] }) => p.rgb[0]! <= 40 && p.rgb[2]! <= 40;
+
+    // BOTH WAYS. Mid-arrival the curtain must still BE a curtain. An animation
+    // that began fading at mount would sail through the assertion below and be
+    // a bug: it would eat the arrival it exists to bound.
+    const mid = sampled.filter((p) => p.at > 800 && p.at < CURTAIN_BUDGET_MS - SKIP_DISSOLVE_MS - 300);
+    expect(mid.length, 'no frames mid-arrival, so the hold is untested').toBeGreaterThan(0);
+    expect(
+      mid.every(opaque),
+      `the curtain is already fading mid-arrival: ${JSON.stringify(mid.slice(0, 4))}`,
+    ).toBe(true);
+
+    // THE ASSERTION. At the budget, WITH THE THREAD STILL HELD, the overlay is
+    // transparent and the page shows through it.
+    //
+    // THE LAST FRAME AT OR BEFORE THE BUDGET, because that is what is on the
+    // screen at the budget. A compositor emits a frame when something CHANGES;
+    // once the fade is done it stops, so the window [budget, budget+400] is
+    // routinely empty and asking for a frame inside it fails a curtain that is
+    // already gone. Measured: the fade's last frame lands at ~2,918 ms and the
+    // next one is at ~3,598 ms, after the block. What is painted at 3,000 ms is
+    // the 2,918 ms frame.
+    //
+    // Two earlier versions of this assertion were wrong in opposite directions.
+    // "First frame at or after the budget" was answered on one run by a frame
+    // at +3,568 ms -- 168 ms after the thread came back -- so the ORDINARY
+    // TIMERS satisfied it and it would have passed on the pre-fix build.
+    // "Some frame inside [budget, end of block]" then failed a correct curtain
+    // for the gap above. This reads the screen at the budget instead.
+    const before = sampled.filter((p) => p.at <= CURTAIN_BUDGET_MS);
+    expect(before.length, 'no frames at or before the budget, so nothing was measured').toBeGreaterThan(0);
+    const onScreen = before[before.length - 1]!;
+
+    // AND THAT FRAME MUST BE ONE THE BLOCK WITNESSED. If the compositor's last
+    // word before the budget predates the block, the fade never ran during it
+    // and this is reading a stale frame rather than a kept promise.
+    expect(
+      onScreen.at,
+      `the last frame before the budget (+${onScreen.at} ms) predates the block, so the compositor was never tested`,
+    ).toBeGreaterThan(BLOCK_FROM);
+
+    console.log(`[arrival] on screen at the budget: the +${onScreen.at} ms frame, rgb(${onScreen.rgb.join(',')})`);
+    expect(
+      clear(onScreen),
+      `the curtain was still on screen at ${CURTAIN_BUDGET_MS} ms with the thread held (frame +${onScreen.at} ms, rgb(${onScreen.rgb.join(',')}))`,
+    ).toBe(true);
+
+    // And the dead node does leave, once the thread it needs comes back.
+    expect(lifetime).toBeLessThanOrEqual(CURTAIN_DETACH_BUDGET_MS);
   });
 
   test('the curtain is gone inside its budget with no input at all', async ({ page, browserName }) => {

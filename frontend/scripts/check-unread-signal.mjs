@@ -142,13 +142,20 @@ export function scan(root = SRC_ROOT) {
  * MEASUREMENT of how much the file-scoped exemption covers, because a caveat in
  * prose is not a number anyone acts on.
  *
- * IT MEASURES EXPOSURE, NOT DEBT, AND IT WILL NOT GO DOWN AS THESE ARE FIXED.
- * The house convention KEEPS the collapse and adds a signal beside it, so a leg
- * that has just been fixed correctly still counts here -- `minStake` below is
- * guarded now and the 69 did not move. The number falls only if a file stops
- * collapsing altogether, which is not what we ask for. Read it as "collapse
- * sites this guard never looked at", never as a burn-down chart; the baseline
- * is the burn-down chart.
+ * IT MEASURES EXPOSURE, NOT DEBT. IT GOES *UP* WHEN YOU FIX SOMETHING.
+ *
+ * Expect this and do not "correct" it. The house convention KEEPS the collapse
+ * and adds a signal beside it, so:
+ *   - fixing one leg of an already-exempt file changes nothing -- `minStake` is
+ *     guarded now and its file's count did not move;
+ *   - fixing a BASELINED file moves the whole file across, and every collapse
+ *     site in it joins this number. usePremiumAccess left the baseline (11 ->
+ *     10) and the census rose by exactly its 7 sites, 69 -> 76. That is the
+ *     guard reporting honestly, not a regression.
+ *
+ * The number falls only if a file stops collapsing altogether, which is not
+ * what the convention asks for. Read it as "collapse sites this guard never
+ * looked at", never as a burn-down chart. THE BASELINE IS THE BURN-DOWN CHART.
  *
  * Worked example, and the reason this exists: useLPFarming.ts derives
  * `positionUnread` from entries [5][6][7] of an 11-entry batch -- correctly, and

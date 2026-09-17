@@ -153,7 +153,12 @@ export function useZapPlan({
       lockDurationSeconds: lockDurationSeconds?.toString(),
     };
     const routes: ZapRoutes = { toTowelie: toweliRoute, toEth: ethRoute };
-    return planZap(descriptor, routes, chainId);
+    // The VENUE's chain, not the wallet's. Passing `chainId` for both sides compared the
+    // wallet with itself, so the planner's chain refusal could never fire; a wallet on an
+    // L2 fell through to `route-unavailable` instead, because `useSwapQuote` gates its
+    // reads on the wallet chain and hands back empty legs. Every address this plan targets
+    // is compiled in at CHAIN_ID, so that is the only chain it can be executed on.
+    return planZap(descriptor, routes, CHAIN_ID);
   }, [
     address,
     inputToken,
