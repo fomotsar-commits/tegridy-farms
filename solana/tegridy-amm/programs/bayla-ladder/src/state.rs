@@ -99,7 +99,7 @@ pub struct Pool {
     /// charge no penalty while locked, and `stake` is refused. It answers "what if the
     /// operator is the failure", and it only ever moves in the direction that frees
     /// stakers — but it is not worthless to a thief: a key-holder who also holds a
-    /// locked position escapes their own 75% penalty by firing it. Its cost is honest —
+    /// locked position escapes their own penalty (up to 75%) by firing it. Its cost is honest —
     /// it stops future penalty inflow.
     pub degraded: bool,
 

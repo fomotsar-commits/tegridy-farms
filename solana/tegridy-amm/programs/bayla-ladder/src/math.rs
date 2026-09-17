@@ -69,24 +69,41 @@ pub const MAX_LOCK_SECS: i64 = 4 * 365 * 86_400;
 pub const MIN_BOOST_BPS: u64 = 4_000;
 pub const MAX_BOOST_BPS: u64 = 40_000;
 
-/// Flat, any-time, compile-time. There is deliberately NO setter and NO decay: a
-/// penalty that decays to zero at maturity (kfarms) is not the product, and a penalty
-/// an admin can retune is a surface an attacker who steals the key would want.
+/// THE EARLY-EXIT PENALTY IS veYFI's, COPIED (owner decision 2026-09-17, replacing the
+/// flat 75% set earlier that day): the share of principal forfeited is the time left on
+/// the lock over FOUR YEARS, capped at 75% — `min(time_left / 4y, 75%)`. A lock with
+/// three or more years left pays the full 75%; one year left pays 25%; a day left pays
+/// 1/1460. It is compile-time, with NO setter: a penalty an admin can retune is a surface
+/// an attacker who steals the key would want. See [`penalty_for`] for the source lines.
 ///
-/// **75% FORFEITED — the leaver keeps 25%.** This DIFFERS from
-/// `LighthouseLadder.sol`'s `EARLY_EXIT_PENALTY_BPS = 2_500`, which stays 25%: owner
-/// decision 2026-09-17, for the BAYLA Solana ladder only. Both early doors charge it —
-/// `early_exit` and, while locked, `emergency_withdraw` — and they MUST stay equal, or
-/// every leaver takes the cheaper door (see the comment above `emergency_withdraw`).
+/// This DIFFERS from `LighthouseLadder.sol`'s flat `EARLY_EXIT_PENALTY_BPS = 2_500`, which
+/// stays 25% (BAYLA Solana ladder only). Both early doors charge it — `early_exit` and,
+/// while locked, `emergency_withdraw` — and they MUST stay equal, or every leaver takes
+/// the cheaper door (see the comment above `emergency_withdraw`).
 ///
-/// Because this is a compile-time constant and no account stores it, changing it by
-/// UPGRADE applies retroactively to every position already open. It is set before the
-/// mainnet deploy for exactly that reason; after launch, treat it as frozen.
-pub const EARLY_EXIT_PENALTY_BPS: u64 = 7_500;
+/// THE TRADE, stated rather than glossed. Weight is frozen at stake time, so claiming a
+/// longer lock than you will serve earns extra reward that the penalty must outweigh.
+/// Under this schedule that stops paying only while the max-boost reward rate stays
+/// below roughly 28% a year; above it, "lock 4 years and leave early" beats an honest
+/// shorter lock. veYFI itself has the same bound (~25%), and holds it by paying a low
+/// yield. The pool's reward sizing, not this constant, is what keeps it there.
+///
+/// Because no account stores the schedule, changing it by UPGRADE applies retroactively
+/// to every position already open. After launch, treat it as frozen.
+pub const MAX_EARLY_EXIT_PENALTY_BPS: u64 = 7_500;
+
+/// veYFI's `SCALE`: the penalty ratio is fixed-point at 1e18, exactly as the source.
+pub const PENALTY_SCALE: u128 = 1_000_000_000_000_000_000;
+
+/// veYFI's `MAX_PENALTY_RATIO` (`SCALE * 3 / 4`), derived from the bps cap so the two
+/// cannot disagree.
+pub const MAX_PENALTY_RATIO: u128 =
+    PENALTY_SCALE * (MAX_EARLY_EXIT_PENALTY_BPS as u128) / (BPS as u128);
 
 // A penalty above 100% would not revert: `amount.saturating_sub(penalty)` would clamp it
 // to zero and quietly confiscate the whole principal. Refuse to compile instead.
-const _: () = assert!(EARLY_EXIT_PENALTY_BPS <= BPS);
+const _: () = assert!(MAX_EARLY_EXIT_PENALTY_BPS <= BPS);
+const _: () = assert!(MAX_PENALTY_RATIO == PENALTY_SCALE * 3 / 4);
 
 /// Owner decision 2026-09-06: rewards are RELOADED every 90 days and DISTRIBUTED per
 /// second. `notify_reward` sets a per-second rate over this window; a reload mid-window
@@ -296,14 +313,36 @@ pub fn payable(owed: u128, reward_vault: u64) -> (u64, u128) {
     (pay, owed.saturating_sub(pay as u128))
 }
 
-/// The 75% early-exit penalty (the leaver keeps 25%), exact. Rounds DOWN, so the leaver
-/// never pays a base unit more than 75% and the pool never claims one it was not owed.
+/// The early-exit penalty for a position of `amount` whose lock ends at `lock_end`, at
+/// chain time `now`. yearn/veYFI `VotingYFI.vy` `withdraw`, line for line:
 ///
-/// Widen to u128 BEFORE multiplying. At 7_500 a u64 multiply overflows for any amount
-/// above ~2.46e15 raw, and under `overflow-checks = true` that would panic both early
-/// doors — including the unconditional hatch. `penalty_for(u64::MAX)` pins this.
-pub fn penalty_for(amount: u64) -> u64 {
-    ((amount as u128) * (EARLY_EXIT_PENALTY_BPS as u128) / (BPS as u128)) as u64
+/// ```text
+/// time_left = min(old_locked.end - block.timestamp, MAX_LOCK_DURATION)
+/// penalty_ratio = min(time_left * SCALE / MAX_LOCK_DURATION, MAX_PENALTY_RATIO)
+/// penalty = old_locked.amount * penalty_ratio / SCALE
+/// ```
+///
+/// Two floors, in that order, as the source does — so the leaver never pays a base unit
+/// more than the schedule and the pool never claims one it was not owed. `MAX_LOCK_SECS`
+/// stands in for `MAX_LOCK_DURATION` (veYFI rounds four years down to whole weeks; this
+/// ladder's four years are exact, and the ladder's own top rung is the same constant).
+/// A lock that has ended (`time_left <= 0`) pays nothing — veYFI's unsigned subtraction
+/// would revert there, and both callers only reach this while locked anyway.
+///
+/// Widen to u128 BEFORE multiplying: `u64::MAX x MAX_PENALTY_RATIO` is ~1.4e37, far inside
+/// u128 and far outside u64, and under `overflow-checks = true` a u64 multiply would panic
+/// both early doors — including the unconditional hatch. `penalty_for(u64::MAX, ..)` pins it.
+pub fn penalty_for(amount: u64, lock_end: i64, now: i64) -> u64 {
+    let time_left = lock_end.saturating_sub(now);
+    if time_left <= 0 {
+        return 0;
+    }
+    let time_left = core::cmp::min(time_left, MAX_LOCK_SECS) as u128;
+    let penalty_ratio = core::cmp::min(
+        time_left * PENALTY_SCALE / (MAX_LOCK_SECS as u128),
+        MAX_PENALTY_RATIO,
+    );
+    ((amount as u128) * penalty_ratio / PENALTY_SCALE) as u64
 }
 
 /// Synthetix `notifyRewardAmount` rate: a reload after the window ends starts fresh;
@@ -356,11 +395,12 @@ pub fn rate_change_allowed(now: i64, period_finish: i64, old_rate: u128, new_rat
 /// `reward_funded_cumulative` would be exact, and in doing so made the rate a pure
 /// function of the freshly-transferred `amount`. Consequence: lifetime emission could
 /// never exceed the sum of `notify_reward` amounts, so the retained early-exit penalty
-/// (25% when H-1 was found; 75% since 2026-09-17), every
+/// (25% when H-1 was found; up to 75%, by time left, since 2026-09-17), every
 /// swept emergency-hatch penalty, every un-emitted second of a lapsed window and any
 /// stranger's donation were **permanently unspendable by any key in the system** —
 /// there is no `recover_tokens` and no `close_pool`, deliberately. One early exit of
-/// 1,000,000 BAYLA stranded 250,000 at the then-25% rate (it would be 750,000 today),
+/// 1,000,000 BAYLA stranded 250,000 at the then-25% rate (it would be 750,000 today with
+/// three or more years left),
 /// and `sweep_orphaned_penalty` was an economic no-op.
 ///
 /// Interaction with [`rate_change_allowed`]: scheduling a retained penalty MID-window is
@@ -568,22 +608,62 @@ mod tests {
     }
 
     #[test]
-    fn penalty_is_exactly_three_quarters_rounded_down() {
-        // 1e12 x 7_500 / 10_000 = 750_000_000_000 exactly.
-        assert_eq!(penalty_for(1_000_000_000_000), 750_000_000_000);
-        // Rounds DOWN, so the leaver is never over-charged: 3 x 0.75 = 2.25 -> 2. A CEIL
-        // would give 3 — the whole principal — which is what these three lines exist to
-        // catch. 1 x 0.75 = 0.75 -> 0 and 2 x 0.75 = 1.5 -> 1 kill the same mutant twice.
-        assert_eq!(penalty_for(3), 2);
-        assert_eq!(penalty_for(1), 0);
-        assert_eq!(penalty_for(2), 1);
-        assert_eq!(penalty_for(4), 3); // exact
-        // Pins the u128 widening: a u64 multiply overflows long before u64::MAX (above
-        // ~2.46e15 raw at 7_500) and panics BOTH early doors under overflow-checks.
-        // The literal is floor(u64::MAX x 3 / 4). Do not "simplify" it: `u64::MAX / 4 * 3`
-        // is ...709 and `u64::MAX - u64::MAX / 4` is ...712 (the ceil); both are wrong.
-        assert_eq!(penalty_for(u64::MAX), 13_835_058_055_282_163_711);
-        assert_eq!(u64::MAX - penalty_for(u64::MAX), 1u64 << 62); // what the leaver keeps
+    fn penalty_is_veyfi_time_left_over_four_years_capped_at_three_quarters() {
+        const DAY: i64 = 86_400;
+        const YEAR: i64 = 365 * DAY;
+        let now = 1_800_000_000i64;
+        let p = |amount: u64, left: i64| penalty_for(amount, now + left, now);
+
+        // The cap: three years left is exactly 75%, and so is anything longer — four
+        // years, and past the ladder's top rung (veYFI's min(time_left, MAX) clamp).
+        assert_eq!(p(1_000_000_000_000, 3 * YEAR), 750_000_000_000);
+        assert_eq!(p(1_000_000_000_000, 4 * YEAR), 750_000_000_000);
+        assert_eq!(p(1_000_000_000_000, 10 * YEAR), 750_000_000_000);
+        // Below the cap it is time_left / 4y, exactly at the round points...
+        assert_eq!(p(1_000_000_000_000, 2 * YEAR), 500_000_000_000);
+        assert_eq!(p(1_000_000_000_000, YEAR), 250_000_000_000);
+        // ...and floored TWICE, in veYFI's order. One day left: ratio = floor(1e18/1460)
+        // = 684_931_506_849_315, then floor(1e12 x ratio / 1e18) = 684_931_506. A single
+        // combined floor would give the same here; the next line is where they differ.
+        assert_eq!(p(1_000_000_000_000, DAY), 684_931_506);
+        // 1_460 x floor(1e18/1460) / 1e18 = 0.99999999999999990 -> 0. One combined floor
+        // (1_460 x 86_400 / 126_144_000 = 1 exactly) would charge 1: the order matters.
+        assert_eq!(p(1_460, DAY), 0);
+
+        // Nothing once the lock has ended, and nothing AT lock_end (time_left == 0).
+        assert_eq!(p(1_000_000_000_000, 0), 0);
+        assert_eq!(p(1_000_000_000_000, -DAY), 0);
+        assert_eq!(penalty_for(1_000_000_000_000, i64::MIN, i64::MAX), 0); // no overflow
+
+        // Rounds DOWN at the cap: 3 x 0.75 = 2.25 -> 2, never the whole principal.
+        assert_eq!(p(3, 4 * YEAR), 2);
+        assert_eq!(p(1, 4 * YEAR), 0);
+        assert_eq!(p(2, 4 * YEAR), 1);
+        assert_eq!(p(4, 4 * YEAR), 3); // exact
+
+        // Pins the u128 widening: floor(u64::MAX x 3 / 4). Do not "simplify" it:
+        // `u64::MAX / 4 * 3` is ...709 and `u64::MAX - u64::MAX / 4` is ...712 (the ceil).
+        assert_eq!(p(u64::MAX, 4 * YEAR), 13_835_058_055_282_163_711);
+        assert_eq!(u64::MAX - p(u64::MAX, 4 * YEAR), 1u64 << 62); // what the leaver keeps
+    }
+
+    #[test]
+    fn the_penalty_never_rises_as_the_lock_runs_down_and_never_passes_the_cap() {
+        // Waiting must never cost more. Checked across the whole four years in hour
+        // steps, for an amount large enough that the floors do not hide a step.
+        let amount = u64::MAX;
+        let cap = ((amount as u128) * 3 / 4) as u64;
+        let lock_end = 2_000_000_000i64;
+        let mut prev = u64::MAX;
+        let mut t = lock_end - MAX_LOCK_SECS - 3_600;
+        while t <= lock_end {
+            let pen = penalty_for(amount, lock_end, t);
+            assert!(pen <= prev, "penalty rose as time passed at now={t}");
+            assert!(pen <= cap, "penalty passed 75% at now={t}");
+            prev = pen;
+            t += 3_600;
+        }
+        assert_eq!(prev, 0, "at lock_end the penalty is zero");
     }
 
     #[test]
@@ -738,7 +818,8 @@ mod tests {
         // 250,000 at the then-25% rate): one early exit of 1,000,000 BAYLA now retains
         // 750,000 in the pool as reward budget. Every downstream assertion below still
         // holds at 750e9 — recomputed, not assumed.
-        let penalty = penalty_for(1_000_000_000_000);
+        // Three or more years left, so the veYFI schedule is at its 75% cap.
+        let penalty = penalty_for(1_000_000_000_000, 4 * 365 * 86_400, 0);
         assert_eq!(penalty, 750_000_000_000);
 
         // Nothing has been emitted or paid; the vault holds exactly the penalty.
