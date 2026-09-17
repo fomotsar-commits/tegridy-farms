@@ -93,6 +93,16 @@ describe("the footer's chrome follows the route", () => {
     expect(container.textContent ?? '').toContain('Bayla');
   });
 
+  it('speaks the resident card without a prose dash on the resident own door', () => {
+    // Answer ten, ruling 6: " <NAME> bungalow, Jungle Bay Island." The em dash here
+    // rendered in all eleven settled rooms at once, from one line of the footer.
+    walkedThrough('bayla');
+    const { container } = at('/bayla', <Footer />);
+    const text = container.textContent ?? '';
+    expect(text).toContain('Bayla bungalow, Jungle Bay Island.');
+    expect(text).not.toContain('—');
+  });
+
   it('names no resident beside the room label in a TOWELI room', () => {
     // The label reads "Bungalows · <room>" on a door. In a protocol room it is
     // the bare word, because the room is not theirs. The separator is a middle

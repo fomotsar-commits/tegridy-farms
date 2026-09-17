@@ -62,9 +62,12 @@ export function LaunchAfterlife({ outcomes }: LaunchAfterlifeProps) {
     <section aria-label="Launch Afterlife ledger" className="space-y-4">
       <header>
         <h2 className="text-lg font-semibold text-white">Launch Afterlife</h2>
+        {/* Answer ten, ruling 5: the Afterlife's sentence comes out of the fold. The
+            venue's rewrite lived only inside "How the rail works", which a stranger
+            never opens; this header is what they actually read. Verbatim. */}
         <p className="text-white/50 text-xs mt-1 max-w-xl leading-relaxed">
-          The permanent, public ledger of every launch this rail has powered — the ones that worked
-          and the ones that didn&rsquo;t. We publish the failures too; that is the whole point.
+          A launch's afterlife is its holders' clocks. Every launch this rail has powered is recorded
+          here, the ones that failed too.
         </p>
       </header>
 

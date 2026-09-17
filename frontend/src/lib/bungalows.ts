@@ -214,7 +214,7 @@ export function bungalowArtFor(id: string, name: string): ArtPiece[] | undefined
     id: f.replace(/\.[^.]+$/, ''),
     src: `/art/${id}/${f}`,
     title: `${name} #${String(i + 1).padStart(2, '0')}`,
-    description: `${name} bungalow — Jungle Bay Island`,
+    description: `${name} bungalow, Jungle Bay Island`,
   }));
 }
 
@@ -291,8 +291,8 @@ function settledIdentity(
     heroLine: 'Settled on Jungle Bay Island.',
     heroCopy:
       `${name} holds a bungalow on Jungle Bay Island, living on ${chainWord}. ` +
-      `The venue speaks ${symbol} today — trade route, scanner, held-time heat ` +
-      `and the live market all work right now — while the walls wear the ` +
+      `The venue speaks ${symbol} today: trade route, scanner, held-time heat ` +
+      `and the live market all work right now, while the walls wear the ` +
       `island's classic art until ${name}'s community brings its own drop.`,
     museLine: 'Built brick by brick by its people.',
     museBy: communityLabel ?? 'Jungle Bay Island',
@@ -638,7 +638,7 @@ export function bungalowTradeBlurb(b: Bungalow, solanaSwapLive: boolean): string
   const tradable = 'to' in route || route.kind === 'swap';
   return tradable
     ? `Trade ${b.symbol} on ${chainWord}; scan any token on either chain.`
-    : `${b.symbol} lives on ${chainWord} — chart and contract on its page; scan any token on either chain.`;
+    : `${b.symbol} lives on ${chainWord}. Chart and contract on its page; scan any token on either chain.`;
 }
 
 /**

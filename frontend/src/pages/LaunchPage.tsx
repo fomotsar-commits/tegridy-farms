@@ -1199,11 +1199,11 @@ function LauncherExplainer() {
           protocol making it. What is here now is what the VENUE has to say
           about a launch's day two, and it is three things it can answer for
           itself: the clock, the door, and the flame. */}
+      {/* ANSWER TEN, RULING 5: the clock left this card for the ledger itself
+          (LaunchAfterlife's header), because this card sits inside a fold no
+          stranger opens and the ledger does not. The card keeps the door and the
+          flame, which is exactly what the ruling left it. */}
       <ExplainerCard title="The Launch Afterlife: a day 2">
-        <p>
-          A launch's afterlife is its holders' clocks. They start at their first buy and keep running for as long as
-          the tokens are held, which is the one number this venue counts.
-        </p>
         <p>
           When its community settles, it gets its own door in the hall: its own room, its own art, and its own board.
         </p>

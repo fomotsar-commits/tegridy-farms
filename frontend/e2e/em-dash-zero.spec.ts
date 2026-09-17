@@ -158,7 +158,11 @@ const VENUE_VOICE_DEBT: Record<string, number> = {
   // with it, and the card's own title dash became a colon. MOVED, not cut -
   // the words still render, and the section is what the census reads them
   // under. src/pages/recordSurfaces.test.ts pins who may declare one.
-  '/launch': 27,
+  // 27 -> 26 on answer ten's ruling 5: the ledger a stranger actually sees
+  // (LaunchAfterlife's header, OUTSIDE the fold) opens on the holders' clocks
+  // now, and its old opening carried one prose dash. The empty-state line
+  // below it keeps one; the ruling named only the opening.
+  '/launch': 26,
 
 };
 
@@ -389,25 +393,31 @@ test.describe('element I: em dashes in venue-voice prose', () => {
 // TOWELI's OWN room it is that room's prose, not a resident's copy leaking into
 // the venue's.
 const ROOM_VOICE_DEBT: Record<string, number> = {
-  // MEASURED 2026-09-16 against a production build, one door at a time.
+  // THE ELEVEN SETTLED ROOMS ARE AT ZERO (answer ten, ruling 6). They sat at 6,
+  // 5 and 4, and not one of those dashes was a room's own copy: the six EVM
+  // rooms carried six shared nodes (settled hero, market footnote, scoped read
+  // intro, holders idle line, footer card, footer chart line), the four Solana
+  // rooms five (their footer trade line had no dash), and /bayla four (its hero
+  // is island canon). Punctuation only, words unchanged, in one commit - and at
+  // zero a room now fails on its FIRST prose dash, like every finished route.
+  // src/components/bungalow/roomProse.test.tsx guards the same sources on every
+  // push, for every resident, including the byline dash no walker can see.
+  //
   // The two TOWELI-skin doors carry the whole protocol cluster, which is why
-  // they are an order above the rest; the settled doors share one hero and one
-  // market footnote; /bayla is the island's own canon, already rewritten by the
-  // island in answer eight; and the quiet slot says almost nothing, so it is
-  // at zero and stays there by the same rule every finished route does.
+  // they are an order above the rest; the quiet slot says almost nothing.
   '/toweli': 22,
   '/towelie': 22,
-  '/bayla': 4,
-  '/pepe': 6,
-  '/qr': 6,
-  '/mfer': 6,
-  '/bnkr': 6,
-  '/drb': 6,
-  '/bobo': 5,
-  '/jbm': 6,
-  '/soy': 5,
-  '/brainlet': 5,
-  '/rizz': 5,
+  '/bayla': 0,
+  '/pepe': 0,
+  '/qr': 0,
+  '/mfer': 0,
+  '/bnkr': 0,
+  '/drb': 0,
+  '/bobo': 0,
+  '/jbm': 0,
+  '/soy': 0,
+  '/brainlet': 0,
+  '/rizz': 0,
   '/nb1': 0,
 };
 

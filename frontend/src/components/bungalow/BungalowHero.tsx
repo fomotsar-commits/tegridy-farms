@@ -95,7 +95,10 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
           style={{ background: 'rgba(6,12,26,0.55)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
         >
           <span className="text-white/90">&ldquo;{id.museLine}&rdquo;</span>
-          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&mdash; {id.museBy}</span>
+          {/* A middle dot, as the venue hero uses (answer ten, ruling 6). The dash
+              here sat alone in its own text node, so every count filed it as the
+              unread placeholder while every reader saw a prose dash. */}
+          <span className="text-[11px] not-italic" style={{ color: 'var(--color-weed)' }}>&middot; {id.museBy}</span>
         </span>
       </div>
 

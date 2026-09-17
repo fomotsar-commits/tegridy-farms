@@ -112,7 +112,7 @@ export function BungalowHolders({ bungalow }: { bungalow: Bungalow }) {
       ) : !armed ? (
         <p className="text-[12px] text-white/55">
           Reads the largest {bungalow.symbol} accounts on demand and measures concentration
-          with the venue's own scanner. Not run automatically — it is a real chain scan.
+          with the venue's own scanner. Not run automatically. It is a real chain scan.
         </p>
       ) : (
         <p className="text-[12px]" style={{ color: '#f0b26b' }}>

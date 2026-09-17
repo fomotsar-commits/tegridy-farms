@@ -134,7 +134,7 @@ export function Footer() {
                 is untouched in the default. */}
             {bungalowIdentity ? (
               <p className="text-[13px] leading-relaxed max-w-[280px]" style={{ ...LINK_SHADOW, color: 'var(--color-kyle)' }}>
-                {bungalowIdentity.name} bungalow — Jungle Bay Island. {bungalowIdentity.tagline}{' '}
+                {bungalowIdentity.name} bungalow, Jungle Bay Island. {bungalowIdentity.tagline}{' '}
                 {bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}
               </p>
             ) : toweliVoice ? (

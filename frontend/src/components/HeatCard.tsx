@@ -263,7 +263,7 @@ export function HeatCard({
             Your held time in {scopeTo.symbol}
           </p>
           <p className="text-white/55 text-[12px] mt-0.5">
-            Read any wallet. Held time is the island's, not this room's — the
+            Read any wallet. Held time is the island's, not this room's: the
             same number the venue reads, answered for {scopeTo.symbol}.
           </p>
         </div>
