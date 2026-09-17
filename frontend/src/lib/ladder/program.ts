@@ -497,9 +497,12 @@ export function checkDeposit(
   lockSecs: number,
   openPositions: number,
 ): DepositVerdict {
+  // FIRST, as lib.rs `stake` checks it first (PoolDegraded). Unread, a degraded pool
+  // left the Lock button live under a banner saying the pool takes no new stakes.
+  if (pool.degraded) return { allowed: false, reason: 'This pool has been declared degraded and accepts no new stakes.' };
   if (amountRaw <= 0n) return { allowed: false, reason: 'Enter an amount.' };
   if (amountRaw < pool.minStakeRaw) {
-    return { allowed: false, reason: `This pool has a minimum stake. It cannot be lowered — the program has no setter for it.` };
+    return { allowed: false, reason: `This is below this pool’s minimum stake, and the deployed program has no instruction to change it.` };
   }
   if (lockSecs < MIN_LOCK_SECS) return { allowed: false, reason: 'The shortest lock this pool allows is 7 days.' };
   if (lockSecs > MAX_LOCK_SECS) return { allowed: false, reason: 'The longest lock this pool allows is 4 years.' };

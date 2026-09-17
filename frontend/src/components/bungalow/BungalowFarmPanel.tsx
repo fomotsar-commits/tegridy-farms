@@ -91,8 +91,7 @@ export function BungalowFarmPanel({ bungalow }: { bungalow: Bungalow }) {
             <>
               {bungalow.tagline} The lighthouse pool is live for {bungalow.symbol} on{' '}
               {chainLabel} — created on-chain, readable by anyone. The numbers below
-              are read straight from the pool, and rewards only ever show what the
-              vault actually holds.
+              are read straight from the pool.
             </>
           ) : (
             <>

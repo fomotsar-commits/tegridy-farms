@@ -1,8 +1,9 @@
 // CLOSING THE DOOR MUST NOT LOCK ANYONE IN.
 //
-// `depositsClosed` retires the BAYLA Streamflow pool while it keeps running for
-// up to a year, because its stakers are locked and Streamflow has no migration
-// between pools. The whole risk of a flag like this is scope: it is supposed to
+// `depositsClosed` stops the venue offering the BAYLA Streamflow pool to new
+// stakers while it keeps running for up to a year, because its stakers are
+// locked. (The venue's lock ladder is a separate product, not its replacement.)
+// The whole risk of a flag like this is scope: it is supposed to
 // remove ONE control — the stake form — and it sits in the same component as
 // every exit those stakers have.
 //
@@ -144,6 +145,24 @@ describe('a pool closed to new deposits', () => {
     expect(text).toMatch(/still exists on-chain|immutable/i);
     // And it must not read as an outage or a loss to the people already in.
     expect(text).toMatch(/keeps running|comes back in full/i);
+  });
+
+  it('does not tell stakers the pool is moving, that they should migrate, or that another pool exists', async () => {
+    // "Staking is moving to our own program" and "cannot be carried across" framed a
+    // successor and a migration as the missing step. What is true: the locks stay
+    // where they are and keep running, and nothing is moved.
+    //
+    // ⚠️ AND NO OTHER POOL. A later wording said "the venue's lock ladder IS a separate
+    // pool" — to every BAYLA visitor on production, where no ladder pool exists and no
+    // ladder card is mounted. CLOSED_POOL has no `ladderPool`, which is exactly
+    // production's setup, so the notice must not name one.
+    render(<LighthousePoolLive bungalow={CLOSED_POOL} />);
+    const notice = await screen.findByText(/closed to new deposits/i);
+    const text = notice.parentElement?.textContent ?? '';
+    expect(text).not.toMatch(/moving to|carried across|migrat|replac/i);
+    expect(text).toMatch(/stay where they are/i);
+    expect(text).toMatch(/nothing in this pool is moved/i);
+    expect(text).not.toMatch(/ladder|separate|another pool|other pool|new pool|own program/i);
   });
 
   it('leaves an OPEN pool completely alone', async () => {
