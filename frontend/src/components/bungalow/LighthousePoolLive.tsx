@@ -506,8 +506,8 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
             {/* Replaces the stake form and NOTHING else. Claim, unstake and the
                 principal rescue below are untouched by design: a closed door is
                 for people arriving, never for people leaving. See
-                `depositsClosed` in lib/bungalows.ts for why this pool is being
-                retired while it keeps running. */}
+                `depositsClosed` in lib/bungalows.ts for why this pool is closed
+                to new stakes while it keeps running. */}
             {bungalow.depositsClosed && (
               <div className="rounded-xl p-4 mb-4" style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(227,179,65,0.4)' }}>
                 <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: '#e3b341' }}>
@@ -519,9 +519,9 @@ function Inner({ bungalow }: { bungalow: Bungalow & { stakePool: string } }) {
                   when its lock opens.
                 </p>
                 <p className="text-white/50 text-[11px] leading-relaxed mt-2">
-                  Staking is moving to our own program. Existing locks cannot be carried across
-                  &mdash; Streamflow has no migration between pools &mdash; so this one stays open until
-                  the last lock matures rather than stranding anybody.
+                  Existing locks stay where they are and keep running in this pool until the last one
+                  matures. The venue&rsquo;s lock ladder is a separate pool with its own terms; nothing
+                  in this pool is moved into it.
                 </p>
                 <p className="text-white/40 text-[11px] leading-relaxed mt-2">
                   To be exact about what changed: the pool still exists on-chain and its terms are

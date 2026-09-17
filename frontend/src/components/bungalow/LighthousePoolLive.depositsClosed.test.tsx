@@ -1,8 +1,9 @@
 // CLOSING THE DOOR MUST NOT LOCK ANYONE IN.
 //
-// `depositsClosed` retires the BAYLA Streamflow pool while it keeps running for
-// up to a year, because its stakers are locked and Streamflow has no migration
-// between pools. The whole risk of a flag like this is scope: it is supposed to
+// `depositsClosed` stops the venue offering the BAYLA Streamflow pool to new
+// stakers while it keeps running for up to a year, because its stakers are
+// locked. (The venue's lock ladder is a separate product, not its replacement.)
+// The whole risk of a flag like this is scope: it is supposed to
 // remove ONE control — the stake form — and it sits in the same component as
 // every exit those stakers have.
 //
@@ -144,6 +145,19 @@ describe('a pool closed to new deposits', () => {
     expect(text).toMatch(/still exists on-chain|immutable/i);
     // And it must not read as an outage or a loss to the people already in.
     expect(text).toMatch(/keeps running|comes back in full/i);
+  });
+
+  it('does not tell stakers the pool is moving, or that they should or will migrate', async () => {
+    // This pool and the venue's lock ladder are SEPARATE products. "Staking is moving
+    // to our own program" and "cannot be carried across" framed the ladder as the
+    // successor and a migration as the missing step. What is true: the locks stay
+    // where they are and keep running.
+    render(<LighthousePoolLive bungalow={CLOSED_POOL} />);
+    const notice = await screen.findByText(/closed to new deposits/i);
+    const text = notice.parentElement?.textContent ?? '';
+    expect(text).not.toMatch(/moving to|carried across|migrat|replac/i);
+    expect(text).toMatch(/stay where they are/i);
+    expect(text).toMatch(/separate/i);
   });
 
   it('leaves an OPEN pool completely alone', async () => {
