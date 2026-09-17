@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 
 export interface WhitelistedToken {
   address: Address;
@@ -25,12 +26,11 @@ export function useBribes() {
   const isDeployed = checkDeployed(VOTE_INCENTIVES_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
-  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // A revert and a receipt we never got both arrive from wagmi as `isError`, and
+  // they need opposite advice. See receiptOutcome in lib/txErrors.ts.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
   // 2026-07-26: an approval is a prerequisite, not the deposit. Track when the
   // in-flight tx is an approve so the toast says "approved — now confirm your
   // deposit" instead of a generic "confirmed". Reset to 'action' in both toast
@@ -369,19 +369,22 @@ export function useBribes() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-    if (isTxError || writeError) {
-      // F474: classify a wallet rejection (writeError) as "Cancelled"; keep the
-      // generic message for a bare on-chain revert.
+    if (isUnconfirmed || writeError) {
+      // F474: classify a wallet rejection (writeError) as "Cancelled".
       if (writeError) surfaceTxError(writeError, toast, { component: 'useBribes' });
-      else toast.error('Transaction failed');
+      // No receipt came back, so nothing is known either way.
+      else if (hash) surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again deposits or claims a second time.',
+      });
       lastActionRef.current = 'action';
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetchAll, reset]);
+  }, [isSuccess, isUnconfirmed, writeError, refetchAll, reset, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of "Transaction confirmed!" (see derivation above).
+  // On-chain revert: the contract rejected it, so nothing moved.
   useEffect(() => {
     if (isReverted) {
       toast.error('Transaction reverted on-chain', {

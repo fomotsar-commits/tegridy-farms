@@ -20,7 +20,12 @@ const refetch = vi.fn();
 const resetWrite = vi.fn();
 
 let account: string | undefined = '0x00000000000000000000000000000000000000A1';
-let receiptState: { data?: { status: string; blockNumber: bigint }; isSuccess: boolean; isError: boolean } = {
+let receiptState: {
+  data?: { status: string; blockNumber: bigint };
+  isSuccess: boolean;
+  isError: boolean;
+  error?: { name: string };
+} = {
   isSuccess: false,
   isError: false,
 };
@@ -28,11 +33,13 @@ let writeHash: string | undefined;
 
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
+const toastWarning = vi.fn();
 
 vi.mock('sonner', () => ({
   toast: {
     error: (...a: unknown[]) => toastError(...a),
     success: (...a: unknown[]) => toastSuccess(...a),
+    warning: (...a: unknown[]) => toastWarning(...a),
     info: vi.fn(),
   },
 }));
@@ -54,6 +61,7 @@ vi.mock('wagmi', () => ({
     data: receiptState.data,
     isSuccess: receiptState.isSuccess,
     isError: receiptState.isError,
+    error: receiptState.error ?? null,
   }),
 }));
 
@@ -67,6 +75,7 @@ beforeEach(() => {
   readContract.mockReset();
   toastError.mockReset();
   toastSuccess.mockReset();
+  toastWarning.mockReset();
   account = '0x00000000000000000000000000000000000000A1';
   writeHash = undefined;
   receiptState = { isSuccess: false, isError: false };
@@ -121,6 +130,32 @@ describe('a write only ever goes where the plan said', () => {
 });
 
 describe('a receipt is not a success', () => {
+  // What wagmi actually does with a revert: it throws, so the query errors with
+  // `CallExecutionError` and no receipt data. The test below it covers a fetched
+  // reverted receipt, a shape wagmi does not produce.
+  it('reports a revert that arrives as a receipt-query error as reverted', async () => {
+    writeHash = '0xabc';
+    receiptState = { isSuccess: false, isError: true, error: { name: 'CallExecutionError' } };
+    renderHook(() => useYieldDeposit({ venue: LIDO, amountText: '1', rocket: null }));
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls[0]![0])).toMatch(/reverted/i);
+    expect(toastWarning).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('says a deposit whose receipt never came back may have succeeded, and does not call it failed', async () => {
+    writeHash = '0xabc';
+    receiptState = { isSuccess: false, isError: true, error: { name: 'TransactionReceiptNotFoundError' } };
+    renderHook(() => useYieldDeposit({ venue: LIDO, amountText: '1', rocket: null }));
+    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
+    const opts = toastWarning.mock.calls[0]![1] as { description: string; action?: unknown };
+    expect(opts.description).toMatch(/may well have succeeded/i);
+    expect(opts.description).toMatch(/before you send it again/i);
+    expect(opts.action).toBeTruthy();
+    expect(toastError).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
   it('reports a reverted transaction as reverted and reads no balances', async () => {
     // wagmi's isSuccess means the receipt ARRIVED. A reverted transaction
     // produces one too — this repo shipped "confirmed" for stakes that moved

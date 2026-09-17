@@ -6,7 +6,7 @@ import { LP_FARMING_ABI, ERC20_ABI } from '../lib/contracts';
 import { LP_FARMING_ADDRESS, TEGRIDY_LP_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000' as const;
 
@@ -21,22 +21,14 @@ export function useLPFarming() {
   // the underlying viem call listens on the wallet's CURRENT chain — if the user
   // switched mid-flight (or clicked "switch network" right after submitting),
   // confirmation listens on the wrong chain and silently never fires.
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-    isError: isReceiptError,
-  } = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
-  // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
-  // FETCHED". A transaction that REVERTED on-chain still produces a receipt,
-  // so this flag latched true and the section showed "Transaction confirmed!",
-  // cleared the typed amount and refetched — for a stake/withdraw/claim that
-  // never happened. `receipt.status === 'success'` is the only real success.
-  // The `!!receipt` guard is defensive: at runtime wagmi always has the receipt
-  // once isSuccess is true, so it can never mask a genuine revert.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const { isLoading: isConfirming } = receiptQuery;
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means "a receipt query
+  // settled", and its `isError` covers both a REVERT and a receipt we never got.
+  // Those need opposite advice, so they are split here. See receiptOutcome in
+  // lib/txErrors.ts for what wagmi actually returns in each case.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
+  const isTxError = isReverted || isUnconfirmed;
 
   // R034 H2: address-snapshot + last-handled-hash refs to drop receipt-effect
   // for a wallet that swapped between submit and confirm.
@@ -246,13 +238,21 @@ export function useLPFarming() {
       return;
     }
     lastHandledHashRef.current = hash;
-    toast.error(isReverted ? 'Transaction reverted on-chain' : 'Transaction failed', {
-      id: `err-${hash}`,
-      description: isReverted
-        ? 'The network rejected it — no LP was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then check your allowance and balance and try again.'
-        : undefined,
-      action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
-    });
+    if (isReverted) {
+      toast.error('Transaction reverted on-chain', {
+        id: `err-${hash}`,
+        description:
+          'The network rejected it — no LP was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then check your allowance and balance and try again.',
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(chainId, hash), '_blank') },
+      });
+    } else {
+      // No receipt came back: "failed" would tell the user to send it again.
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again stakes, withdraws or claims a second time.',
+      });
+    }
     setTimeout(() => reset(), 4000);
   }, [isTxError, isReverted, hash, address, chainId, reset]);
 

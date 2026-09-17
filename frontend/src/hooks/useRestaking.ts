@@ -4,7 +4,8 @@ import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { TEGRIDY_RESTAKING_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { TEGRIDY_RESTAKING_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 
 export function useRestaking() {
   const chainId = useChainId();
@@ -14,12 +15,11 @@ export function useRestaking() {
   const isDeployed = checkDeployed(TEGRIDY_RESTAKING_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
-  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // A revert and a receipt we never got both arrive from wagmi as `isError`, and
+  // they need opposite advice. See receiptOutcome in lib/txErrors.ts.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
 
   // Read user's staking position + restaking state in parallel.
   // R043 H-062-02: chainId pin on every entry. NOT also gated on the wallet's
@@ -142,12 +142,19 @@ export function useRestaking() {
     }
   }, [isSuccess, refetch]);
 
+  // No receipt came back. "Transaction failed on-chain" was a claim about a
+  // chain nobody had read.
   useEffect(() => {
-    if (isTxError) toast.error('Transaction failed on-chain');
-  }, [isTxError]);
+    if (isUnconfirmed && hash) {
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again restakes, unrestakes or claims a second time.',
+      });
+    }
+  }, [isUnconfirmed, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of the success toast (see derivation above).
+  // On-chain revert: the contract rejected it, so nothing moved.
   useEffect(() => {
     if (isReverted) {
       toast.error('Transaction reverted on-chain', {

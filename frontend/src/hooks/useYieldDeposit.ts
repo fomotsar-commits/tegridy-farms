@@ -11,6 +11,7 @@ import {
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { getTxUrl } from '../lib/explorer';
+import { receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
 import { surfaceTxError } from '../lib/txErrors';
 import {
   depositPlan,
@@ -173,10 +174,15 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
     resetWrite();
   }
 
-  const { data: receipt, isSuccess: receiptFetched, isError: receiptError } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     chainId: YIELD_CHAIN_ID,
     hash,
   });
+  const { data: receipt, isSuccess: receiptFetched, isError: receiptError } = receiptQuery;
+  // wagmi reports a revert as an ERROR, not as a receipt with status 'reverted',
+  // so the revert toast in the effect below only covers a shape wagmi never
+  // returns. The error effect further down handles what it actually does.
+  const { isReverted: receiptReverted, isUnconfirmed: receiptUnconfirmed } = receiptOutcome(receiptQuery);
 
   useEffect(() => {
     if (!receiptFetched || !receipt || !hash) return;
@@ -242,6 +248,31 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
     }
 
   }, [receiptFetched, receipt, hash, address, refetchErc20, resetWrite, stepIndex, client, venue.id]);
+
+  // A revert, or no receipt at all. Until 2026-09-17 both ended the step silently:
+  // the revert toast above never fired, and nothing said the deposit might have landed.
+  useEffect(() => {
+    if (!hash || !(receiptReverted || receiptUnconfirmed)) return;
+    if (settledHashRef.current === hash) return;
+    settledHashRef.current = hash;
+    if (txAccountRef.current && txAccountRef.current !== address) return;
+    if (receiptReverted) {
+      toast.error('That transaction reverted on-chain', {
+        id: hash,
+        description: 'Nothing moved. The protocol rejected it — check the explorer for the revert reason.',
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(YIELD_CHAIN_ID, hash), '_blank') },
+      });
+      return;
+    }
+    const isLast = stepIndex >= stepCountRef.current - 1;
+    surfaceUnconfirmedTx(toast, {
+      hash,
+      explorerUrl: getTxUrl(YIELD_CHAIN_ID, hash),
+      repeatCost: isLast
+        ? 'a second deposit moves the funds again.'
+        : 'the approval is already set and a second one just costs gas.',
+    });
+  }, [hash, receiptReverted, receiptUnconfirmed, address, stepIndex]);
 
   const [lastReceiptError, setLastReceiptError] = useState(receiptError);
   if (lastReceiptError !== receiptError) {

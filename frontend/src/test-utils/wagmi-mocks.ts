@@ -67,6 +67,10 @@ interface WriteStatus {
   receiptStatus?: 'success' | 'reverted';
   blockNumber?: bigint;
   errorName?: string;
+  // The receipt query errors but the write itself did not: the tx was sent and
+  // its receipt then failed or reverted. Without it, `isTxError` also sets the
+  // write error, which every surface handles before it looks at the receipt.
+  receiptErrorOnly?: boolean;
 }
 
 interface WagmiMockState {
@@ -221,7 +225,7 @@ vi.mock('wagmi', () => {
     writeContract: state.writeContractMock,
     data: state.writeStatus.hash,
     isPending: state.writeStatus.isPending,
-    error: state.writeStatus.isTxError ? new Error('write failed') : undefined,
+    error: state.writeStatus.isTxError && !state.writeStatus.receiptErrorOnly ? new Error('write failed') : undefined,
     reset: vi.fn(),
   });
 

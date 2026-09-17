@@ -8,6 +8,7 @@ import { type TokenInfo, DEFAULT_TOKENS } from '../lib/tokenList';
 import { decodeRevertReason } from '../lib/revertDecoder';
 import { trackSwap } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
+import { receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
 import { useSwapQuote, QUOTE_MAX_AGE_MS as _QUOTE_MAX_AGE_MS } from './useSwapQuote';
 import { useSwapAllowance } from './useSwapAllowance';
 
@@ -244,23 +245,16 @@ export function useSwap() {
     query: { enabled: !!address && !!toToken && !toToken.isNative, refetchInterval: 30_000 },
   });
 
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-    isError: isReceiptError,
-  } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
-  // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
-  // FETCHED". A swap that REVERTED on-chain still produces a receipt, so this
-  // latched true and we fired "WAGMI! Swap confirmed" + trackSwap for a trade
-  // that never executed (and, on the approve leg, told the user the token was
-  // approved when the allowance was unchanged). `receipt.status === 'success'`
-  // is the only real success. The `!!receipt` guard is defensive: at runtime
-  // wagmi always has the receipt once isSuccess is true, so it can never mask
-  // a genuine revert.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // AUDIT (receipt-status): wagmi's `isSuccess` only means "a receipt query
+  // settled", and its `isError` covers both a REVERT and a receipt we never got.
+  // Until 2026-09-17 a real revert arrived as `isError`, which nothing here
+  // handled: no toast, and `isPendingRef` stayed latched, so every later swap
+  // returned at its first line until a reload. See receiptOutcome in
+  // lib/txErrors.ts for what wagmi actually returns in each case.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
+  const isTxError = isReverted || isUnconfirmed;
 
   const [fotRetryAttempted, setFotRetryAttempted] = useState(false);
 
@@ -347,6 +341,32 @@ export function useSwap() {
       duration: 10_000,
     });
   }, [isReverted, hash, allowance, refetchFromBalance, chainId]);
+
+  // No receipt came back. Shares `lastHandledHashRef` with the two effects above
+  // so exactly one of the three claims a given hash. Like the revert, it releases
+  // the in-flight latch; unlike the revert, it must not say the swap failed.
+  useEffect(() => {
+    if (!isUnconfirmed || !hash) return;
+    if (lastHandledHashRef.current === hash) return;
+    lastHandledHashRef.current = hash;
+    const wasApprove = lastActionRef.current === 'approve';
+    lastActionRef.current = null;
+    isPendingRef.current = false;
+    // We cannot attribute this swap, so it must not be attributed to the next one.
+    submittedInputAmountRef.current = '';
+    submittedRouteRef.current = '';
+    if (wasApprove) allowance.resetMultiStepApprove?.();
+    // If it landed, the allowance or balances moved.
+    allowance.refetchAllowance();
+    refetchFromBalance();
+    surfaceUnconfirmedTx(toast, {
+      hash,
+      explorerUrl: getTxUrl(chainId, hash),
+      repeatCost: wasApprove
+        ? 'your allowance is already set and a second approval just costs gas.'
+        : 'a second swap trades your tokens all over again.',
+    });
+  }, [isUnconfirmed, hash, allowance, refetchFromBalance, chainId]);
 
   useEffect(() => {
     if (!writeError) return;

@@ -11,7 +11,8 @@ import { ArtImg } from '../ArtImg';
 import { sanitizeUserText, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
 // F321: classify wallet-rejection vs revert for the write effect.
-import { surfaceTxError } from '../../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../../lib/txErrors';
+import { getTxUrl } from '../../lib/explorer';
 
 const CARD_BORDER = 'var(--color-purple-12)';
 
@@ -40,14 +41,13 @@ export function GrantsSection() {
     return true;
   };
   const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isReceiptError } = useWaitForTransactionReceipt({ hash: txHash });
-  // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted vote/finalize/createProposal can't toast
-  // "Transaction confirmed!" and refetch as if it landed.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // AUDIT (receipt-status): wagmi's isSuccess only means a receipt query settled,
+  // and its isError covers both a REVERT and a receipt we never got. Those need
+  // opposite advice. See receiptOutcome in lib/txErrors.ts.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
+  const isTxError = isReverted || isUnconfirmed;
 
   const { data: proposalCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({
     address: gcAddr, abi: COMMUNITY_GRANTS_ABI, chainId: CHAIN_ID, functionName: 'proposalCount',
@@ -105,11 +105,16 @@ export function GrantsSection() {
     if (isTxError || writeError) {
       if (isReverted) toast.error('Transaction reverted on-chain — no proposal, vote, or finalization was recorded; nothing changed');
       else if (writeError) surfaceTxError(writeError, toast, { component: 'GrantsSection' });
-      else toast.error('Transaction failed');
+      // No receipt came back, so nothing is known either way.
+      else if (txHash) surfaceUnconfirmedTx(toast, {
+        hash: txHash,
+        explorerUrl: getTxUrl(chainId, txHash),
+        repeatCost: 'sending it again proposes, votes or finalizes a second time.',
+      });
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, isReverted, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset]);
+  }, [isSuccess, isTxError, isReverted, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset, txHash, chainId]);
 
   const handleVote = (proposalId: number, support: boolean) => {
     // T7 fix: gate on a connected account, not just chain. When disconnected,

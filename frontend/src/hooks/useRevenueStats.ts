@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 import { REVENUE_DISTRIBUTOR_ABI, REFERRAL_SPLITTER_ABI } from '../lib/contracts';
 import { REVENUE_DISTRIBUTOR_ADDRESS, REFERRAL_SPLITTER_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, receiptOutcome, surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 
 export function useRevenueStats() {
   const { address } = useAccount();
@@ -17,12 +18,11 @@ export function useRevenueStats() {
   const isPending = isClaimPending;
   const writeError = claimError;
 
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched, isError: isTxError } = useWaitForTransactionReceipt({ hash });
-  // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
-  // receipt was FETCHED" — it latches true for on-chain REVERTED txs too. Only
-  // receipt.status === 'success' is a real success; the toasts below key off this.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  const receiptQuery = useWaitForTransactionReceipt({ hash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // A revert and a receipt we never got both arrive from wagmi as `isError`, and
+  // they need opposite advice. See receiptOutcome in lib/txErrors.ts.
+  const { isSuccess, isReverted, isUnconfirmed } = receiptOutcome(receiptQuery);
 
   // F47 (T7): the global lifetime figures (totalDistributed / totalClaimed /
   // epochCount / totalReferralsPaid) are public protocol stats — they back the
@@ -167,19 +167,22 @@ export function useRevenueStats() {
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }
-    if (isTxError || writeError) {
+    if (isUnconfirmed || writeError) {
       // F474: a writeError carries the wallet rejection — classify it (so a
-      // cancel shows "Cancelled", not a scary "Transaction failed"). A bare
-      // on-chain revert (isTxError, no writeError) keeps the generic message.
+      // cancel shows "Cancelled", not a scary "Transaction failed").
       if (writeError) surfaceTxError(writeError, toast, { component: 'useRevenueStats' });
-      else toast.error('Transaction failed');
+      // No receipt came back, so nothing is known either way.
+      else if (hash) surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'there is nothing left to claim and a second attempt just costs gas.',
+      });
       const t = setTimeout(resetClaim, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, writeError, refetch, resetClaim]);
+  }, [isSuccess, isUnconfirmed, writeError, refetch, resetClaim, hash, chainId]);
 
-  // On-chain revert: the receipt fetch succeeded (so isTxError stays false) but
-  // the tx failed — honest error instead of "Transaction confirmed!" (see derivation above).
+  // On-chain revert: the contract rejected it, so nothing moved.
   useEffect(() => {
     if (isReverted) {
       toast.error('Transaction reverted on-chain', {
