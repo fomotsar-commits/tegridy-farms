@@ -28,8 +28,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { MIN_BOOST_BPS, MAX_BOOST_BPS } from '../lib/constants';
+import { MIN_BOOST_BPS, MAX_BOOST_BPS, CHAIN_ID } from '../lib/constants';
 import { BUNGALOWS } from '../lib/bungalows';
+import { AGGREGATOR_NAMES, SUPPORTED_CHAIN_ID } from '../lib/aggregator';
+import { farmCardDesc } from '../lib/lpEmissions';
+import { HOME_SWAP_CARD } from '../lib/copy';
 import { ONBOARDING_SURFACES, onboardingSteps } from '../components/onboarding/onboardingSteps';
 import { islandPools } from '../lib/terminal/islandPools';
 
@@ -291,5 +294,94 @@ describe('the venue-voiced PROSE speaks for the island, not for one resident', (
         `${ticker} holds a front-row chip no other resident holds — see components/swap/TokenSelectModal.tsx`,
       ).not.toContain(ticker);
     }
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * THE HOME SURFACE CARDS, WHICH DESCRIBE ROOMS THEY DO NOT OWN.
+ *
+ * ⚠️ READ THE GATE BEFORE READING THE COPY. This grid renders behind
+ * `IS_TOWELI_ARRIVAL && !bungalowIdentity` (HomePage.tsx) — it is inside TOWELI's
+ * own bungalow, and the ruling at the top of this file does NOT reach it. The
+ * venue is not speaking here; a resident is, in his own house. The card beside
+ * this one says "Stake TOWELI to earn now" (lpEmissions.farmCardDesc) and is
+ * meant to. Anyone arriving at this file to "finish the sweep" by stripping
+ * tickers out of this grid would be deleting a resident's furniture to prove the
+ * venue owns none, which is the exact over-correction the header above warns
+ * about — so both halves are pinned below.
+ *
+ * WHAT WAS ACTUALLY WRONG, and it is not a voice fault: the /swap card described
+ * a SHARED surface as one pair on one route. "Trade ETH ↔ TOWELI via Uniswap V2"
+ * over `stat: 'Uniswap V2'` named one of the NINE sources useSwapQuote races —
+ * the venue's own pool, Uniswap V2, and the seven aggregators in
+ * AGGREGATOR_NAMES — and dropped the venue's own DEX from the description of the
+ * venue's own swap surface. Same family as the "2 pools" stat contradicting its
+ * own body two cards over: a string that was true when it was typed and was
+ * never re-read against the thing it describes.
+ *
+ * The pair ban is REGISTRY-DERIVED, like every other ticker rule in this file. A
+ * test pinned to the literal "ETH ↔ TOWELI" would pass the day the card read
+ * "ETH ↔ BAYLA", which is the property actually at stake.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe('the Home surface cards describe the surface they link to', () => {
+  const residentTickers = BUNGALOWS.map((b) => b.symbol).filter((s) => /^[A-Z]{3,}$/.test(s));
+
+  it('precondition: the registry holds several residents to be even-handed between', () => {
+    expect(residentTickers, 'TOWELI is not in the registry — the pair rule below pins nothing')
+      .toContain('TOWELI');
+    expect(residentTickers.length, 'one resident is not an island').toBeGreaterThan(3);
+  });
+
+  it('does not pin the shared swap surface to one resident PAIR', () => {
+    // /swap quotes every token in the list, not a pair. Banning the adjacency
+    // rather than the ticker is what lets TOWELI keep the mention he is entitled
+    // to in his own bungalow while "ETH ↔ <anyone>" stays out.
+    for (const ticker of residentTickers) {
+      const pair = new RegExp(
+        String.raw`\b(?:W?ETH)\b\s*[↔<>/–—-]+\s*${ticker}\b` +
+        String.raw`|\b${ticker}\b\s*[↔<>/–—-]+\s*(?:W?ETH)\b`,
+        'i',
+      );
+      expect(
+        HOME_SWAP_CARD.desc,
+        `the Home /swap card sells a whole token list as the ${ticker} pair — see lib/copy.ts HOME_SWAP_CARD`,
+      ).not.toMatch(pair);
+    }
+  });
+
+  it('names the venue\'s own DEX and the aggregators, not one source of the nine', () => {
+    expect(HOME_SWAP_CARD.desc, 'the venue\'s own DEX is missing from the description of the venue\'s own swap surface')
+      .toMatch(/\b(?:venue|native)\b[^.]{0,16}\bDEX\b/i);
+    expect(HOME_SWAP_CARD.desc, 'the routed aggregators are missing — seven of the nine sources')
+      .toMatch(/aggregator/i);
+    // Constant-derived: a genuine change to what /swap races moves this list and
+    // the copy together, and only a DRIFT between them fails.
+    const oneSourceOfNine = [...Object.values(AGGREGATOR_NAMES), 'Uniswap V2', 'Venue DEX'];
+    expect(
+      oneSourceOfNine,
+      `the stat prints "${HOME_SWAP_CARD.stat}" as though one source were the route`,
+    ).not.toContain(HOME_SWAP_CARD.stat);
+  });
+
+  it('claims exactly the chain that surface runs on, and no more', () => {
+    // A FORWARD guard, not a regression pin: 'Ethereum' was already correct. It
+    // is correct BECAUSE both legs are mainnet — the on-chain routes read at
+    // CHAIN_ID and the aggregator leg short-circuits off SUPPORTED_CHAIN_ID — so
+    // the day either moves, a single-chain label on this card needs re-reading.
+    expect(
+      SUPPORTED_CHAIN_ID,
+      'the aggregator leg no longer follows CHAIN_ID — re-read the /swap card\'s single chain label',
+    ).toBe(CHAIN_ID);
+    expect(HOME_SWAP_CARD.label).toBe('Ethereum');
+  });
+
+  it('leaves the resident\'s own furniture standing — a reword, not a de-naming', () => {
+    // The other half, and the reason this block is not a ticker ban. Both cards
+    // render ONLY in TOWELI's bungalow. A sweep that strips his name out of his
+    // own house to satisfy the header above has broken something, not fixed it.
+    expect(farmCardDesc('ended'), 'the /farm card was de-named in TOWELI\'s own bungalow')
+      .toContain('TOWELI');
+    expect(HOME_SWAP_CARD.desc, 'the /swap card was de-named in TOWELI\'s own bungalow')
+      .toContain('TOWELI');
   });
 });
