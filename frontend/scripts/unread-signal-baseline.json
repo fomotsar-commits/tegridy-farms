@@ -10,7 +10,6 @@
     "src/hooks/useProtocolStats.ts",
     "src/hooks/useRestaking.ts",
     "src/hooks/useRevenueStats.ts",
-    "src/hooks/useSwapAllowance.ts",
-    "src/hooks/useTegridyScore.ts"
+    "src/hooks/useSwapAllowance.ts"
   ]
 }
