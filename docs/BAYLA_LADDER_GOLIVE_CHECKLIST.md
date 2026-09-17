@@ -2,9 +2,11 @@
 
 **Status as of 2026-09-17: NOT READY. Do not move SOL yet. A REBUILD IS REQUIRED.**
 (Updated 09-17: the devnet `withdraw_matured` precondition is now DONE — §3. Updated again
-09-17: the owner decided a **75% early-exit penalty** and a **reload rate guard** for the
+09-17: the owner decided a new early-exit penalty and a **reload rate guard** for the
 ladder, so the program changes, the mainnet artifact `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` is **SUPERSEDED**, and the
-decisions are recorded in the next section. The hard gates in §1 and §2 still stand.)
+decisions are recorded in the next section. The penalty was first set to a flat 75%, and
+later the same day **replaced by Yearn's veYFI schedule: `min(time left / 4 years, 75%)`**
+(D1). The hard gates in §1 and §2 still stand.)
 
 This is the sequenced answer to "are we ready to load SOL, load the rewards, and get staking".
 It is a companion to `solana/tegridy-amm/BAYLA_LADDER_MAINNET_RUNBOOK.md`, not a replacement:
@@ -19,13 +21,15 @@ because an unrecorded "fine" gets re-litigated.
 
 ## The four-line summary
 
-1. The code is **being rebuilt**: a 75% early-exit penalty and a reload rate guard
-   ([#586](https://github.com/fomotsar-commits/tegridy-farms/pull/586)). That PR also moves
-   the frontend's and the ops CLI's copies of the penalty to `7_500`, and tests read both
-   back out of `math.rs`. The card renders nowhere until go-live (`VITE_BAYLA_LADDER_PROGRAM`
-   is unset in every Vercel environment — checked 2026-09-17), so what must happen **in
-   lockstep** is go-live itself: two environment variables and a redeploy (§6), pointed at a
-   program that charges 75%.
+1. The code is **being rebuilt**: a reload rate guard
+   ([#586](https://github.com/fomotsar-commits/tegridy-farms/pull/586)) and veYFI's
+   time-left early-exit penalty, `min(time left / 4 years, 75%)` (`math::penalty_for`,
+   branch `feat/bayla-ladder-yearn-penalty`), which replaced the flat 75% #586 merged earlier
+   the same day. #586 moved the frontend's and the ops CLI's copies of the penalty to a
+   flat `7_500`; both must now carry the schedule instead. The card renders nowhere until
+   go-live (`VITE_BAYLA_LADDER_PROGRAM` is unset in every Vercel environment — checked
+   2026-09-17), so what must happen **in lockstep** is go-live itself: two environment
+   variables and a redeploy (§6), pointed at a program that charges the same schedule.
 2. The program is **not deployed**. The address is unclaimed, the deployer is being
    rotated, and the artifact built so far (`fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`) is superseded.
 3. The real blocker is **key custody quality**, not key custody existence — see §1.
@@ -35,21 +39,38 @@ because an unrecorded "fine" gets re-litigated.
 
 ---
 
-## The 75% rebuild — decisions on record (2026-09-17)
+## The rebuild — decisions on record (2026-09-17)
 
 Owner decisions. They are recorded here so they are not re-opened; the gates they create
 are marked in the sections below.
 
 | # | Decision | Where it bites |
 |---|---|---|
-| D1 | **Early-exit penalty 75% forfeited** (`EARLY_EXIT_PENALTY_BPS = 7_500`; the leaver keeps 25%). `emergency_withdraw` charges the same while locked; both early doors charge 0 once the pool is `degraded`. **Solana ladder only**: the EVM `LighthouseLadder.sol`, TOWELI and every EVM frontend file stay 25%. There is no TOWELI parity on the penalty. | §4, "What becomes irreversible" |
+| D1 | **Early-exit penalty: Yearn's veYFI schedule, copied from yearn/veYFI `VotingYFI.vy`.** `penalty = amount × min(time_left / 4 years, 75%)`, where `time_left = lock_end − now`, floored twice in veYFI's order (`math::penalty_for`; the cap is `MAX_EARLY_EXIT_PENALTY_BPS = 7_500`). On 1,000,000 BAYLA: three or more years left forfeits 750,000; two years, 500,000; one year, 250,000; seven days, 4,794.520547 (about 0.48%); nothing at or after `lock_end`. It **replaced the flat 75% set earlier the same day** (#586), and it **overrides design review item I14** (recorded below the table). `emergency_withdraw` charges the same while locked; both early doors charge 0 once the pool is `degraded`, and a matured exit charges 0. **Solana ladder only**: the EVM `LighthouseLadder.sol`, TOWELI and every EVM frontend file stay 25%. There is no TOWELI parity on the penalty. | §4 (reward sizing), "What becomes irreversible" |
 | D2 | **Reload rate guard.** While `now < period_finish`, `notify_reward` refuses a reload whose new rate is below the current `reward_rate`: error **6028 `RewardRateWouldDecrease`** (`math::rate_change_allowed(now, period_finish, old_rate, new_rate) = now >= period_finish \|\| new_rate >= old_rate`). At or after `period_finish` any rate is allowed. | §4 top-ups |
 | D3 | **Key rotation — option (A)** (§1). A fresh deployer, generated outside any cloud-synced folder, is compiled into the rebuild. | §1, §5 |
 | D4 | **The pool authority is a multisig before any funds.** The deployer creates the pool, hands the authority to the multisig, and only then is anything funded. | §5 |
 | D5 | **Matured positions keep full boost indefinitely — disclosed, not changed.** Weight is frozen at stake time (`Position.weight` in `state.rs`) with no forced maturity, decay or kick (the `Pool.max_wallet_principal` doc in `state.rs`). A future upgrade MAY reset matured weight to 0.40x. | disclosure |
-| D6 | **The program is upgradeable, and that is stated.** Upgrade authority: the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (runbook §3). Its **member set and time lock are unconfirmed** (runbook §3). A penalty change by upgrade would apply to every open position, because no account stores the rate. | disclosure |
+| D6 | **The program is upgradeable, and that is stated.** Upgrade authority: the Squads vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (runbook §3). Its **member set and time lock are unconfirmed** (runbook §3). A penalty change by upgrade would apply to every open position, because no account stores the schedule. | disclosure |
 | D7 | **Reward funding never stops.** No sunset, no wind-down: every window is reloaded before its `period_finish` (§4 reload policy). | §4 |
 | D8 | **The Streamflow lighthouse pool and the ladder are separate products.** No migration, no integration. The Streamflow pool still needs its own funding through its last lock. | §4, §7 |
+
+**D1 overrides design review item I14 — recorded so it is not re-litigated.** I14 rejected
+a decaying penalty for two reasons: it makes "lock 4 years and bail" cheaper, and it cuts
+the penalty inflow that feeds later reward windows. **The owner overrode I14 on 2026-09-17**,
+choosing friendliness to honest leavers over the flat 75%'s stronger bound: under the
+schedule, someone whose plans change a month before their lock ends forfeits about 2%, not
+75%. The overridden concern is real, and this is its price:
+
+- **Weights are frozen at stake time** (D5), so a position that claims a longer lock than it
+  serves keeps the longer lock's boost until it leaves. Under the schedule, "lock 4 years and
+  leave early" beats an honest shorter lock once the **max-boost reward rate exceeds roughly
+  28% a year**. A flat 75% would have held to about 83%.
+- veYFI has the same bound (about 25%) and holds it by paying a low yield. The program does
+  not enforce it here either: **reward sizing does** (§4, "The penalty schedule caps how rich
+  a window may be").
+- Penalty inflow is smaller, because any leaver with under three years left forfeits less
+  than 75%. Plan reloads on fresh capital; treat recycled penalties as a bonus.
 
 **What these decisions void or add:**
 
@@ -58,18 +79,20 @@ are marked in the sections below.
   carries the 25% penalty, no rate guard, and the hot faucet key `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` as its
   compiled deployer. **Do not deploy it.** A rebuild from the audited commit, with the
   rotated deployer, is required (runbook §4).
-- **The external audit must cover the constant change and the rate guard.** A sign-off on
-  code from before them does not satisfy runbook §0's "deploy the exact commit the auditor
-  signed off on" (§2).
-- **The frontend must never point at a program charging a different rate.**
-  `EARLY_EXIT_PENALTY_BPS` in `program.ts` is a separate literal from the program's `math.rs`
-  constant (a test now reads one against the other), and nothing on chain exposes the rate,
-  so a card built at one rate against a program at the other misquotes every early exit
+- **The external audit must cover the penalty schedule and the rate guard.** A sign-off on
+  code from before them — including #586's flat 75%, which the schedule replaced — does not
+  satisfy runbook §0's "deploy the exact commit the auditor signed off on" (§2).
+- **The frontend must never point at a program charging a different penalty.** The card
+  (`frontend/src/lib/ladder/program.ts`) and the ops CLI carry their own copies of the
+  penalty, separate from `math::penalty_for`, and nothing on chain exposes the schedule, so
+  a card built on one penalty against a program charging another misquotes every early exit
   (§6).
-- **Devnet must be upgraded to the 75% build before any preview environment points at
-  it.** `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the 25% build with no rate
-  guard. Every devnet penalty figure in the repo was measured on that superseded build;
-  nothing has been measured at 75%.
+- **Reward loads now have a ceiling the program does not enforce:** keep the max-boost
+  annual reward rate under about 28% (§4).
+- **Devnet must be upgraded to the schedule build before any preview environment points at
+  it.** `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the flat-25% build with no
+  rate guard. Every devnet penalty figure in the repo was measured on that superseded build;
+  nothing has been measured on chain under the schedule.
 
 ---
 
@@ -130,7 +153,7 @@ The two options as they were weighed:
 - **(A) Rotate before deploying — recommended, and CHOSEN.** Generate a fresh deployer on a
   clean path outside any cloud-synced folder, re-run the artifact build with that pubkey as
   `deployer`, and use it. Cost: one CI run, and the current `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` artifact is void —
-  which the 75% rebuild requires anyway.
+  which the penalty and rate-guard rebuild requires anyway.
 - **(B) Deploy with `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9`, rotate the authority immediately after init — NOT
   taken.** Cheaper, but the hot key is the sole authority during the deploy window, and the runbook records that a
   Squads vault **cannot** sign the CLI's `accept-authority` — that half must be driven from
@@ -146,22 +169,25 @@ than trusting the marker file, and move `OneDrive\Desktop\faucet\` out of the sy
 `BAYLA_LADDER_MAINNET_RUNBOOK.md` §0 is an explicit precondition list — *"all of them,
 before anything costs SOL."* **Five of ten boxes are unchecked.** (It was five of seven
 until 2026-09-17, when the devnet `withdraw_matured` box was ticked with evidence — §3. The
-75% rebuild then added three: the penalty and the deployer rotation, both decided, and the
+rebuild then added three: the penalty and the deployer rotation, both decided, and the
 multisig pool authority, still open.)
 
 - the external audit report being in, with every fix merged — its *"write the hash here:
   `________`"* line is still literally blank, **and the audited commit must now contain the
-  75% constant and the rate guard**;
+  veYFI penalty schedule (`math::penalty_for`) and the rate guard**;
 - both keyfiles backed up offline (see §1);
 - the pool authority handed to a multisig before any funds (D4);
 - a keyed mainnet RPC;
 - ~3 SOL in the deployer — the **rotated** deployer (D3).
 
-**The external audit must cover the constant change and the rate guard.** Both are
-program changes made after the 2026-09-06 internal audit: `EARLY_EXIT_PENALTY_BPS` moves
-from 2_500 to 7_500 (it prices both early doors), and `notify_reward` gains a refusal
-(6028). A sign-off on code from before them — or on the superseded `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` build —
-does not satisfy the runbook's "deploy the exact commit the auditor signed off on".
+**The external audit must cover the penalty schedule and the rate guard.** Both are
+program changes made after the 2026-09-06 internal audit: the audited build's flat
+`EARLY_EXIT_PENALTY_BPS = 2_500` is gone, replaced by `math::penalty_for` — veYFI's
+time-left schedule, capped at `MAX_EARLY_EXIT_PENALTY_BPS = 7_500` — which prices both early
+doors from the position's `lock_end` and the instruction's clock; and `notify_reward` gains a
+refusal (6028). A sign-off on code from before them — on the superseded `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` build, or on
+#586's flat 75%, which the schedule replaced — does not satisfy the runbook's "deploy the
+exact commit the auditor signed off on".
 
 **And the audit scope is unconfirmed.** `AUDIT_RFQ.md:3-12` and `AUDIT_OUTREACH.md:17,24` scope
 only `cp-swap` (Scope A) and `tegridy-launch` (Scope B). **`bayla-ladder` appears in neither** —
@@ -195,11 +221,11 @@ entitled to make — but make it explicitly, in writing, rather than by omission
       ⚠️ **Measured on the superseded 25% build.** The `250 → 250` is two 25% penalties of
       125 from the 09-09 run. The matured door passes a zero penalty whatever the rate
       (`withdraw_matured` calls `exit_with_penalty(ctx, now, 0)`), so "500 returned,
-      penalty 0" carries over to the 75% build; the 250 does not, and nothing has been
-      measured at 75%.
+      penalty 0" carries over to the schedule build; the 250 does not, and nothing has
+      been measured on chain under the schedule.
 - [ ] ~~**Download the mainnet artifact and verify its hash.**~~ **SUPERSEDED 2026-09-17 —
       do not download or deploy `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`** (25% penalty, no rate guard, hot faucet
-      deployer). Instead, once the audited commit contains the 75% constant and the rate
+      deployer). Instead, once the audited commit contains the penalty schedule and the rate
       guard, **rebuild** it with the rotated deployer (runbook §4) and verify the new
       artifact's hash. GitHub deletes an artifact 30 days after its run.
       ⚠️ The only `.so` on this machine today is the **devnet** one
@@ -257,10 +283,15 @@ Operator policy; the program enforces none of it except the rate guard.
   nobody.
 - **Keep the first window small.** Loaded BAYLA is one-way, and the rate guard means a rate
   set too high cannot come down until that window's `period_finish`.
+- **Keep the max-boost annual reward rate under about 28%.** Above it, the penalty
+  schedule no longer stops "lock 4 years and leave early" paying (D1; "The penalty schedule
+  caps how rich a window may be", below).
 - **Keep the undeployed reward runway in the multisig, not the vault.**
 - **Recycle penalties at the regular reload**, as `from_budget` beside fresh capital.
   Mid-window penalty-only reloads are refused unless they alone cover
-  `reward_rate × elapsed` (see "Top-ups inside a window" below).
+  `reward_rate × elapsed` (see "Top-ups inside a window" below). Under the schedule any
+  leaver with under three years left forfeits less than 75%, so do not plan a window around
+  penalty inflow.
 - **Publish dates, never rates or APRs.**
 
 The exact commands and arithmetic are in runbook §8 and §11.
@@ -276,7 +307,34 @@ The program's floors are trivial — they are not guidance:
   wallets** on 2026-09-12 (runbook §6). It is a sizing reference, not a migration cohort —
   nothing moves from that pool (D8).
 
-**The number is an economic decision, not a technical one.**
+**The number is an economic decision, not a technical one** — but it has a ceiling, next.
+
+### The penalty schedule caps how rich a window may be (~28% a year at max boost)
+
+The program enforces none of this; reward sizing is the only thing holding it.
+
+Weights are frozen at stake time (D5), so the early-exit penalty is all that stops a staker
+taking a 4-year lock's 4.00x boost and leaving whenever it suits them. Under veYFI's
+schedule (D1) the penalty shrinks as the time left shrinks, so it outweighs the extra
+reward only while the reward is modest: once the **max-boost annual reward rate** — what a
+4.00x position earns in a year, as a share of its principal — exceeds **roughly 28%**,
+"lock 4 years and leave early" beats an honest shorter lock. veYFI has the same bound
+(about 25%) and holds it by paying a low yield. A flat 75% would have held to about 83%;
+the owner chose the schedule knowing that (D1, overriding I14).
+
+The operator rule:
+
+- **Size every reward load so the max-boost annual rate stays under about 28%.** At a
+  given pool state that rate is `reward_rate × 31,536,000 × 4 / total_weighted`, both in
+  raw base units (a 4.00x position's weight is four times its principal). `read` shows
+  `total_weighted` raw but the rate in whole BAYLA per second, so multiply that by 10^6
+  first.
+  For a full 90-day window it is `scheduled × 365/90 × 4 / total_weighted`, so **schedule
+  less than about 1.7% of `total_weighted` per window**, in the same raw units.
+- **Size against the smallest `total_weighted` you expect, not today's.** The rate per unit
+  of weight rises as stakers leave, and a live window's rate cannot be lowered before its
+  `period_finish` (D2).
+- **Publish dates, not rates** (reload policy above).
 
 ### Top-ups inside a window cannot lower the rate — they are refused (D2)
 
@@ -349,12 +407,15 @@ both in `lib.rs` — and the `math.rs` constant is only the penalty.)
 
 - **`min_stake` and `max_wallet_principal` have no setter** (runbook §6): written once in
   `initialize_pool`, never changed.
-- **The early-exit penalty is a compile-time constant with no setter: 75% forfeited, 25%
-  returned** (`EARLY_EXIT_PENALTY_BPS = 7_500` in `math.rs`, from #586, merged on trunk as
-  `be20d8073fff0ab8d6ead3f5c4ff3791d91e9845`; only the superseded devnet deployment
-  `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` and the superseded
-  `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` artifact still carry
-  `2_500`). Only a program upgrade through the Squads vault
+- **The early-exit penalty is compiled in, with no setter: veYFI's schedule,
+  `amount × min(time_left / 4 years, 75%)`** (`math::penalty_for`, capped by
+  `MAX_EARLY_EXIT_PENALTY_BPS = 7_500` in `math.rs`, branch
+  `feat/bayla-ladder-yearn-penalty`). It replaced the flat 75% of #586 (merged on trunk as
+  `be20d8073fff0ab8d6ead3f5c4ff3791d91e9845`), which was never deployed to devnet or
+  mainnet; only the
+  superseded devnet deployment `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` and the
+  superseded `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5` artifact
+  still carry the original flat `2_500`. Only a program upgrade through the Squads vault
   could change it (D6).
 - **`deposit_cap` only rises,** 48 hours after `propose_cap_raise`, via the permissionless
   `execute_cap_raise`, which **has never succeeded anywhere**.
@@ -372,7 +433,7 @@ Nothing here is runnable until §1 and §2 are resolved.
 | # | Step | Signs | Notes |
 |---|---|---|---|
 | 1 | Resolve key custody | — | §1. **Decided: rotate (A)** — generate the fresh deployer outside any cloud-synced folder |
-| 2 | Resolve audit scope | — | §2 — must cover the 75% constant and the rate guard |
+| 2 | Resolve audit scope | — | §2 — must cover the penalty schedule and the rate guard |
 | 3 | `withdraw_matured` on devnet | `devnet-deploy.json` | ✅ **done 2026-09-17** — §3 (on the superseded 25% build) |
 | 4 | Rebuild the artifact from the audited commit | — | runbook §4, `deployer` = the rotated key. **Never `fada8148d28644dc0fbc2a0fb6bbe66ca656e688d76634f08d39e3981b5c44a5`** |
 | 5 | Fund the deployer ~3 SOL | — | ~2.62 needed; the **rotated** deployer — never `GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9` or `5MtoeJ8DXcgWZQJAgGgDefd5hbq4KAe3K47yL9Nc87vq` |
@@ -382,8 +443,8 @@ Nothing here is runnable until §1 and §2 are resolved.
 | 9 | Transfer upgrade authority → Squads | current upgrade authority | |
 | 10 | `init-pool` | **the rotated deployer only** | sets `pool.authority` to itself; reward vault is a program PDA, rent 0.0062 SOL |
 | 11 | Hand the pool authority → multisig | deployer proposes; multisig accepts **inside its own app** | D4 — **before any funds**. Confirm with `read` |
-| 12 | Two Vercel vars + **redeploy** | — | §6 — the build must carry the 75% frontend constant |
-| 13 | Let stakers arrive, then `notify` (fund rewards) | the multisig pool authority | one-way; never an empty pool; small first window — §4 |
+| 12 | Two Vercel vars + **redeploy** | — | §6 — the build must carry the same penalty schedule as the program |
+| 13 | Let stakers arrive, then `notify` (fund rewards) | the multisig pool authority | one-way; never an empty pool; small first window; max-boost annual rate under ~28% — §4 |
 | 14 | Reload every ~60–75 days, before `period_finish` | the multisig pool authority | never lapses — §4 reload policy |
 | 15 | Register addresses | — | §7 |
 
@@ -398,23 +459,30 @@ simulation runs against the real mint and program, so it doubles as the final mi
 This is still mostly good news. The entire ladder stack is merged on trunk:
 `SolanaLadderPoolLive.tsx`, `src/lib/ladder/{program,ix,read,write,format}.ts`, the lazy
 import, and the registry field. **265 tests pass** (verified by running them, not inferred
-from a glob — 2026-09-15, before the 75% decision).
+from a glob — 2026-09-15, before either penalty decision).
 
-**The one code change is carried by #586:** the card's penalty constant
-(`EARLY_EXIT_PENALTY_BPS` in `frontend/src/lib/ladder/program.ts`) becomes `7_500`. It is a
-separate literal from the program's `math.rs` constant, and the ops CLI carries a third
-(`EARLY_EXIT_PENALTY_BPS` in `frontend/scripts/bayla-ladder-ops.mjs`); #586's tests read
-both back out of `math.rs`, so they cannot drift from the source. Nothing on chain exposes
-the rate — the IDL has no constants and no account stores it — so the card cannot read the
-truth; it can only be built to match. Merging #586 changes nothing anyone sees, because the
-card is not mounted in any Vercel environment. What must happen **in lockstep** is the
-go-live below: the two variables go in only once the program they name charges 75%. A card at one rate in front of a program at the other misquotes every
-early exit, in the direction that matters: at 25% copy over a 75% program it tells a
-leaver they keep three times what they do.
+**The one code change is the penalty, and it ships with the program.** #586 had moved the
+card's copy and the ops CLI's copy to a flat `7_500`. The schedule's branch
+(`feat/bayla-ladder-yearn-penalty`) replaces both in the same change: `penaltyFor` in
+`frontend/src/lib/ladder/program.ts` and in `frontend/scripts/bayla-ladder-ops.mjs` compute
+veYFI's `penalty_for` from the position's own `lock_end` at the chain clock, with the same two
+floors. Their tests read `MAX_EARLY_EXIT_PENALTY_BPS` and `PENALTY_SCALE` back out of
+`math.rs`, and assert the flat constant is gone, so neither copy can keep charging a flat rate.
+Nothing on chain exposes the schedule — the IDL has no constants and no account stores it —
+so the card cannot read the truth; it can only be built to match. Merging the change alters
+nothing anyone sees, because the card is not mounted in any Vercel environment. What must
+happen **in lockstep** is the go-live below: the two variables go in only once the program
+they name charges the same schedule. A card whose penalty disagrees with the program
+misquotes every early exit. Worked on 500 BAYLA: a card still on the flat 75% tells a
+7-day staker leaving at once that they forfeit 375, when the program takes about 2.40; a
+card at the superseded flat 25% tells a leaver with three or more years left that they keep
+375, when they keep 125 — three times what they do.
 
-**Devnet must be upgraded to the 75% build before any preview environment points at it.**
-`HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the superseded 25% build with no rate guard, so a Preview pointed at
-the devnet pool with a 75% frontend would misquote the same way in reverse.
+**Devnet must be upgraded to the schedule build before any preview environment points at
+it.** `HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK` still runs the superseded flat-25%
+build with no rate guard, so a Preview pointed at the devnet pool with a schedule frontend
+would misquote too: it would tell a 7-day leaver they forfeit about 0.48% when that program
+takes 25%.
 
 Then two variables, then a redeploy:
 
@@ -451,9 +519,9 @@ They are on `mvp-launch` only. Branch from trunk.
 - [ ] **Reload the ladder before every `period_finish`** — the first reload ~60–75 days
       after the first `notify`, and every window after (D7, §4). Publish the date, not a
       rate.
-- [ ] When registering the ladder in `addresses.json`, its `role` says **75%** early-exit
-      penalty — not the 25% of the EVM `LighthouseLadder.sol` entries it may be copied
-      from (runbook §10).
+- [ ] When registering the ladder in `addresses.json`, its `role` names **veYFI's
+      time-left early-exit penalty, up to 75%** — not the 25% of the EVM
+      `LighthouseLadder.sol` entries it may be copied from, and not a flat 75% (runbook §10).
 
 ---
 
@@ -461,9 +529,13 @@ They are on `mvp-launch` only. Branch from trunk.
 
 - **BAYLA in the reward vault.** No clawback, ever.
 - **`pool.authority`**, until a two-step propose/accept completes. Loss is final.
-- **`min_stake`, `max_wallet_principal`, and the 75% early-exit penalty** — no setter.
-  (`deposit_cap` can only go up. The penalty could change only by a program upgrade, and
-  that would reach every open position.)
+- **`min_stake`, `max_wallet_principal`, and the early-exit penalty schedule,
+  `min(time_left / 4 years, 75%)`** — no setter. (`deposit_cap` can only go up. The
+  penalty could change only by a program upgrade, and that would reach every open
+  position.)
+- **The reward-sizing bound the schedule leaves.** Frozen weights plus a time-left penalty
+  mean a max-boost annual reward rate above about 28% pays "lock 4 years and leave early",
+  and a live window's rate cannot come down before its `period_finish` (§4).
 - **A rate set too high** stays until that window's `period_finish` (up to 90 days): the
   rate guard refuses a mid-window reload that lowers it.
 - **`declare_degraded`** is one-way and closes the pool to new stakes.
@@ -474,6 +546,7 @@ They are on `mvp-launch` only. Branch from trunk.
 *Assembled 2026-09-15 from a 25-agent readiness audit (61 checklist items, blockers
 adversarially verified), plus direct on-chain reads and local key derivation. Every "verified"
 claim in §0 was re-checked by hand. Where this file and a prior handoff disagree, this file
-states how it was checked — prefer the one with a method. Updated 2026-09-17 for the 75%
-rebuild's decisions; nothing in that update was measured on chain, because nothing has
-run at 75% anywhere.*
+states how it was checked — prefer the one with a method. Updated 2026-09-17 for the
+rebuild's decisions — first the flat 75%, then veYFI's schedule, which replaced it the same
+day; nothing in those updates was measured on chain, because neither has run on devnet or
+mainnet.*
