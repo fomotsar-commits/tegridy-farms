@@ -20,6 +20,8 @@ import { fetchHeat, isSupportedHeatAddress, HeatUnavailableError } from '../lib/
 import {
   isStale,
   nextTier,
+  tierFor,
+  tierAtFloor,
   gateDecision,
   TIER_FLOORS,
   type HeatReading,
@@ -851,19 +853,24 @@ function ScopedReading({
  * served numbers: the rung's floor minus the degrees the island served. No
  * projection, no date, no rate - the instrument never computes a degree.
  *
- * THE RESIDENT RUNG CARRIES ITS OWN SENTENCE, and the number in it is READ at
- * render time from heatLaunchFloor(), the same helper the launch gate enforces
- * with. Typing 80 would make this line disagree with the gate the day an
- * operator sets VITE_HEAT_LAUNCH_FLOOR.
+ * THE LAUNCH FLOOR'S RUNG CARRIES ITS OWN SENTENCE, and the number in it is READ
+ * at render time from heatLaunchFloor(), the same helper the launch gate
+ * enforces with. Typing 80 would make this line disagree with the gate the day
+ * an operator sets VITE_HEAT_LAUNCH_FLOOR.
  *
- * FOR THE ISLAND, ONE DRIFT NAMED: the rung's floor (TIER_FLOORS.Resident) and
- * the launch floor (heatLaunchFloor) are TWO dials that happen to agree at 80.
- * Set only the second and this ladder prints "Resident 80" with "At 123 degrees
- * you reach Resident" under it. Both numbers are read, neither is invented, and
- * the contradiction is real - which dial is canonical is the island's to say.
+ * BOTH DIALS ARE CANONICAL (answer ten, ruling 4), which settles the drift this
+ * comment used to name. TIER_FLOORS is the island's standard: what tier a number
+ * is. heatLaunchFloor() is the venue's policy: what number opens the launch door.
+ * Neither answers the other's question, so neither yields. The defect was the
+ * word "Resident", TYPED beside a number that was read. So the sentence hangs
+ * under the rung tierFor(floor) returns, and names a tier only when
+ * tierAtFloor(floor) finds the floor exactly on one: 150 says Builder under
+ * Builder, 123 names nothing under Resident.
  */
 function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeof nextTier> }) {
   const launchFloor = heatLaunchFloor();
+  const launchRung = tierFor(launchFloor);
+  const launchTier = tierAtFloor(launchFloor);
   // TIER_FLOORS is published high-to-low; a ladder is climbed low-to-high.
   const rungs = [...TIER_FLOORS].reverse();
   return (
@@ -890,9 +897,9 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
                   {(rung.floor - degrees).toFixed(2)}&deg; to {rung.tier}
                 </p>
               )}
-              {rung.tier === 'Resident' && (
+              {rung.tier === launchRung && (
                 <p className="text-[11.5px] mt-0.5 ml-[76px]" style={{ color: 'var(--color-kyle)' }}>
-                  {heatExampleLine(launchFloor)}
+                  {heatExampleLine(launchFloor, launchTier)}
                 </p>
               )}
             </li>
@@ -905,6 +912,7 @@ function TierLadder({ degrees, next }: { degrees: number; next: ReturnType<typeo
 
 function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
   const floor = heatLaunchFloor();
+  const floorTier = tierAtFloor(floor);
   const d = gateDecision(reading.address, reading, now, floor, heatGateMaxAgeDays());
   const warm = d.state === 'WARM';
   const pct = Math.min(100, (reading.degrees / floor) * 100);
@@ -921,9 +929,11 @@ function Eligibility({ reading, now }: { reading: HeatReading; now: number }) {
         <span className="text-[12.5px] font-semibold" style={{ color: warm ? 'var(--color-kyle)' : 'rgba(255,255,255,0.75)' }}>
           {warm ? '✓ Can launch a token here' : 'Cannot launch a token yet'}
         </span>
-        {/* Tier word VERBATIM. "Residents may plant" is the door's own sentence. */}
+        {/* The tier is named only when the floor sits exactly on its rung
+            (answer ten, ruling 4). Between rungs the number stands alone,
+            because no tier opens a door at 123. */}
         <span className="text-[11px] text-white/45">
-          the door opens at {floor}° · Resident
+          the door opens at {floor}°{floorTier ? ` · ${floorTier}` : ''}
         </span>
       </div>
 

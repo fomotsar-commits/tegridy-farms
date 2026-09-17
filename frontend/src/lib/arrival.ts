@@ -1,4 +1,7 @@
 import { getActiveBungalow, BAYLA_ART } from './bungalows';
+// Type only: the example line takes its tier as an argument, so this eagerly
+// loaded module never pulls the heat oracle into the entry chunk.
+import type { HeatTier } from './heat/heatOracle';
 
 /**
  * ARRIVAL VOICE: the single choke point for WHO the venue speaks as
@@ -113,9 +116,18 @@ export function isToweliVoice(): boolean {
  * THE CALLER PASSES THE FLOOR rather than this file reading the env, so the
  * sentence stays a pure function of a number and the one place that decides
  * what the floor IS stays lib/heat/heatGateConfig.ts.
+ *
+ * AND THE TIER, SINCE ANSWER TEN (ruling 4). Reading the floor was only half the
+ * fix: the word "Resident" was still typed beside it, so a floor of 123 printed
+ * "you reach Resident" under a number no rung sits on. The caller now passes
+ * tierAtFloor(floor): a tier when the floor lands exactly on a rung, and null
+ * between rungs, where no tier is named at all. Taken as an argument rather than
+ * imported, so this eagerly loaded module stays free of the heat oracle.
  */
-export function heatExampleLine(floor: number): string {
-  return `At ${floor} degrees you reach Resident, the tier that may plant a launch here.`;
+export function heatExampleLine(floor: number, tier: HeatTier | null): string {
+  return tier
+    ? `At ${floor} degrees you reach ${tier}, the tier that may plant a launch here.`
+    : `The launch door opens at ${floor} degrees.`;
 }
 
 export const VENUE = {
@@ -126,7 +138,7 @@ export const VENUE = {
   /** One-line world placement. The island authors the standard; the venue
    *  is a place on the island's map. The island never operates the venue. */
   tagline: 'Memetic Finance on Jungle Bay Island',
-  heroTitle: 'MEMETICS.FINANCE.',
+  heroTitle: 'MEMETICS.FINANCE',
   heroLine: 'Held time counts here.',
   heroCopy:
     'The venue of Jungle Bay Island. Bungalows for meme communities, launches ' +

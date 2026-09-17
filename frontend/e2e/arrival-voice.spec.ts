@@ -46,8 +46,11 @@ test.describe('arrival voice', () => {
     await page.goto('/');
 
     await expect(page).toHaveTitle(/MEMETICS/i, { timeout: 20_000 });
-    await expect(page.locator('h1')).toContainText('MEMETICS.FINANCE');
-    await expect(page.locator('h1')).toContainText('Held time counts here.');
+    // EXACT, not a substring (answer ten, ruling 3). toContainText('MEMETICS.FINANCE')
+    // passed with the stray period after FINANCE and would pass without the space at
+    // the <br> joint too, so it could never have caught either. Playwright's text
+    // concatenates text nodes, which is exactly how a reader hears the join.
+    await expect(page.locator('h1')).toHaveText('MEMETICS.FINANCE Held time counts here.');
     // The classic cluster is relocated, not deleted — it must not be here.
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
     // Wordmarks follow the voice: nav and footer both speak the venue.

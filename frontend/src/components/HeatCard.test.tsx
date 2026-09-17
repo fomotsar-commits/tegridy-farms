@@ -631,6 +631,12 @@ async function ladderRows(): Promise<string[]> {
 }
 
 describe('the ladder', () => {
+  // Unstubbed here and not inside the test body: a stub set before an awaited
+  // assertion that throws would otherwise leak its floor into every later test.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   // 95 degrees: Drifter, Observer and Resident reached, Builder next at 150.
   const MID = { degrees: 95, tier: 'Resident' as const };
 
@@ -675,18 +681,39 @@ describe('the ladder', () => {
     expect(await screen.findByText('55.00° to Builder')).toBeTruthy();
   });
 
-  it('reads the Resident line from the LIVE launch floor, never a typed number', async () => {
-    // The island's own mutation: set the floor to 123 and the sentence must say
-    // 123. A hardcoded 80 disagrees with the gate that actually decides whether
-    // this wallet may plant a launch, and the venue would be quoting a
-    // threshold it does not apply.
+  // ANSWER TEN, RULING 4: BOTH DIALS ARE CANONICAL, AND THE WORD IS DERIVED.
+  //
+  // The test this pair replaces asserted "At 123 degrees you reach Resident",
+  // which was the defect itself: the floor was read, the word beside it was
+  // typed. TIER_FLOORS answers "what tier is this number" and heatLaunchFloor()
+  // answers "what number opens the launch door"; neither overrides the other,
+  // so the word must come from asking the first dial about the second.
+  //
+  // The assertions sit on the SENTENCE <p> and the eligibility span, never the
+  // whole rung <li>: each rung prints its own tier label, so the Resident row
+  // legitimately says "Resident" beside a 123 sentence hung under it.
+  it('names no tier beside a floor that sits between rungs (123)', async () => {
     vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '123');
     h.fetchHeat.mockResolvedValue(wireReading(MID));
     mount();
-    expect(
-      await screen.findByText('At 123 degrees you reach Resident, the tier that may plant a launch here.'),
-    ).toBeTruthy();
-    vi.unstubAllEnvs();
+    const sentence = await screen.findByText('The launch door opens at 123 degrees.');
+    expect(sentence.textContent).not.toMatch(/Elder|Builder|Resident|Observer|Drifter/);
+    // Hung under the rung tierFor returns, which for 123 is Resident.
+    expect(sentence.closest('li')?.textContent).toContain('Resident');
+    expect(screen.getByText('the door opens at 123°')).toBeTruthy();
+    expect(screen.queryByText(/you reach/)).toBeNull();
+  });
+
+  it('names the tier a floor sits exactly on, under that rung (150)', async () => {
+    vi.stubEnv('VITE_HEAT_LAUNCH_FLOOR', '150');
+    h.fetchHeat.mockResolvedValue(wireReading(MID));
+    mount();
+    const sentence = await screen.findByText(
+      'At 150 degrees you reach Builder, the tier that may plant a launch here.',
+    );
+    expect(sentence.closest('li')?.textContent).toContain('150°');
+    expect(screen.getByText('the door opens at 150° · Builder')).toBeTruthy();
+    expect(screen.queryByText(/reach Resident|· Resident/)).toBeNull();
   });
 
   it('shows no ladder at all on a cold read', async () => {

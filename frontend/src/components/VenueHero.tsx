@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { heatExampleLine, VENUE, OPEN_VENUE_WELCOME_EVENT } from '../lib/arrival';
 import { heatLaunchFloor } from '../lib/heat/heatGateConfig';
+import { tierAtFloor } from '../lib/heat/heatOracle';
 import { HeatCard } from './HeatCard';
 
 /**
@@ -32,11 +33,16 @@ export function VenueHero() {
   const [searchParams] = useSearchParams();
   const heatParam = searchParams.get('heat');
   const initialAddress = heatParam ? heatParam.trim().slice(0, 64) || null : null;
+  const launchFloor = heatLaunchFloor();
 
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-        {VENUE.heroTitle}<br /><span className="text-white">{VENUE.heroLine}</span>
+        {/* A REAL SPACE BEFORE THE BREAK (answer ten, ruling 3). A <br> is not
+            text, so with the period gone the heading read "MEMETICS.FINANCEHeld"
+            to anything that reads text: a screen reader, a crawler, an unfurl. A
+            space before a forced break is never drawn, so nothing moves on screen. */}
+        {VENUE.heroTitle}{' '}<br /><span className="text-white">{VENUE.heroLine}</span>
       </h1>
 
       {/* PLAIN LANGUAGE FIRST (field review, 2026-09-03). The island writing
@@ -103,7 +109,7 @@ export function VenueHero() {
             lib/arrival.ts, which sources them from heatOracle.ts. */}
         <p className="text-white/60 text-[12px] leading-relaxed mt-3">{VENUE.heatPlain}</p>
         <p className="text-[12px] leading-relaxed mt-1" style={{ color: 'var(--color-kyle)' }}>
-          {heatExampleLine(heatLaunchFloor())}
+          {heatExampleLine(launchFloor, tierAtFloor(launchFloor))}
         </p>
       </div>
 
