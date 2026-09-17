@@ -15,6 +15,46 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — a Foundry broadcast's `hash` can belong to a different transaction of the same run
+
+**Believed:** in `contracts/broadcast/<Script>.s.sol/<chainId>/run-*.json`, `transactions[i].hash`
+is the hash of `transactions[i]`. If that hash exists on chain, succeeded, and sits in the
+recorded block, the entry is proven.
+
+**Measured** while verifying receipts rescued from abandoned branches (PR #598). For every
+entry I fetched the on-chain tx at the same `(from, nonce)`, choosing only among the file's own
+recorded hashes, then compared `to`, the full calldata and the created address:
+
+- `DeployBaseMVP.s.sol/8453` (14 txs, all in one Base block): **10 of 14 entries carry the hash
+  of a different entry.** The *set* of hashes is exact. Each entry's nonce, calldata and
+  `contractAddress` are exact. `receipts[]` is internally consistent: each receipt's fields
+  belong to its own `transactionHash`. Only the `transactions[i].hash` pairing is wrong. The file
+  says TegridyFactory was created by the tx that actually called `setSequencerFeed`.
+- `DeployRoleSafes.s.sol/8453`, already on trunk: 3 of 4 wrong.
+- Mainnet runs from the same deployer (1, 2, 5 and 5 txs): all correct.
+- Blockscout's explorer index gave the same pairing independently.
+
+Every mislabelled hash passes the "exists, status 1, right block" check. That check therefore
+cannot catch it; only comparing the tx *content* can. The cause was not established (forge
+version, concurrent sends on 2-second blocks?). Do not write it down as known.
+
+Two traps on the verification path, measured the same day:
+
+- `ethereum-rpc.publicnode.com` answers `eth_getTransactionByHash` / `eth_getTransactionReceipt`
+  for June-2026 mainnet txs with HTTP 200 and `"result": null`. `eth.drpc.org` and
+  `eth-mainnet.public.blastapi.io` return those same txs. A null looks exactly like "this hash was
+  never mined".
+- An Etherscan v2 free key gets `NOTOK "Free API access is not supported for this chain"` for
+  `chainid=8453`. `https://base.blockscout.com/api/v2/transactions/<hash>` is keyless and returns
+  status, block, nonce, `created_contract` and the decoded method.
+
+**Do:** key broadcast entries by `(from, nonce)`, never by `hash`. When the question is "which tx
+created X", take the answer from the chain (the receipt at that nonce) or from an explorer's
+creation index, not from the JSON. Treat a null tx lookup as UNKNOWN until a second provider
+agrees.
+
+---
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
