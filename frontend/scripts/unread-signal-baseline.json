@@ -5,7 +5,6 @@
     "src/hooks/useBribes.ts",
     "src/hooks/useGaugeList.ts",
     "src/hooks/useProtocolStats.ts",
-    "src/hooks/useRestaking.ts",
-    "src/hooks/useRevenueStats.ts"
+    "src/hooks/useRestaking.ts"
   ]
 }

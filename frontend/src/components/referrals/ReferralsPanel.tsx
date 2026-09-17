@@ -78,6 +78,7 @@ export function ReferralsPanel() {
         wallet={address ?? null}
         onChainReferrer={revenue.referrer}
         hasReferrer={revenue.hasReferrer}
+        referrerUnread={revenue.referrerUnread}
         onLink={connected ? revenue.setReferrer : undefined}
         busy={busy}
       />
