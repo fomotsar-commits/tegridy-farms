@@ -1866,6 +1866,15 @@ absence of errors:
 - `ANVIL_FORK_URL` is `https://ethereum-rpc.publicnode.com`, hardcoded at `ci.yml:400`. **No secret
   is involved**, and `ANVIL_FORK_BLOCK` is unset, so there is no stale block pin. Both of the usual
   suspects are ruled out by construction.
+  > **SUPERSEDED 2026-09-09 — the endpoint half of this paragraph is now false.** publicnode began
+  > answering archive requests with HTTP 403 `-32602 "Archive requests require a personal token"`,
+  > and an `anvil --fork-url` *is* an archive request, so the fork stopped resolving and the job
+  > died before Playwright started — on trunk and on every PR. The line moved to
+  > `${{ secrets.ANVIL_FORK_URL || 'https://eth.drpc.org' }}`, so there **is** now an optional
+  > secret: set `ANVIL_FORK_URL` to a keyed archive RPC if drpc starts throttling under CI load,
+  > and no code change is needed. `ANVIL_FORK_BLOCK` is still unset — that half stands.
+  > Verify any replacement by **forking** it, not with a `latest` read: publicnode still answers
+  > `latest` and still cannot fork.
 
 **The ~21-second clustering is not a shared hang.** It is a literal `{ timeout: 20_000 }`
 copy-pasted into the first blocking assertion of each spec (`claim-rewards:64`, `lending:75`,
