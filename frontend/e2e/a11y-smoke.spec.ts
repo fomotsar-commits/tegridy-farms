@@ -102,14 +102,28 @@ test.describe('a11y landmarks — core pages', () => {
   });
 
   test('TokenSelectModal dialog is labelled by its visible heading', async ({ page, walletMock: _w }) => {
-    await page.goto('/swap');
-    // Force-render the modal without a full wallet flow — look for the
-    // dialog after clicking a From token button. The button's aria-label
-    // starts with "Change token to pay with".
+    // NO WALLET, AND NO SKIP. The From-token button renders for a disconnected
+    // visitor: TradePage's swap form is public (the T7 note above its From
+    // block) and only the action button gates on connect.
+    //
+    // This used to read `fromButton.count()` straight after `page.goto` and skip
+    // on 0, blaming "the wallet gate". count() does not wait, and /swap is two
+    // lazy() chunks — TradeHostPage, then TradePage — that are only REQUESTED
+    // after the `load` event goto resolves on. Measured 2026-09-10 (chromium,
+    // --workers=1, 5 of 5 runs): count() read 0 with eth_accounts [], the chunks
+    // were requested ~35ms and ~125ms after load, and the button was visible ~1s
+    // later. It skipped on every run and asserted nothing.
+    //
+    // gotoRoute waits for the lazy page to actually mount, so a missing button
+    // below is a fact about the mounted page, not about how fast chunks arrived.
+    await gotoRoute(page, '/swap');
     const fromButton = page.getByRole('button', { name: /change token to pay with/i }).first();
-    if ((await fromButton.count()) === 0) {
-      test.skip(true, 'TokenSelectModal is only rendered after wallet gate clears; skipping in disconnected run.');
-    }
+    await expect(
+      fromButton,
+      'the From-token button is missing from a mounted /swap with no wallet connected. The swap form ' +
+        'renders for everyone (TradePage, T7); if that changed on purpose, call walletMock.connect() ' +
+        'before navigating. Do not reinstate a skip.',
+    ).toBeVisible();
     await fromButton.click();
 
     const dialog = page.getByRole('dialog', { name: /select token/i });
