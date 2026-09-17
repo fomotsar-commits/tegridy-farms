@@ -120,6 +120,9 @@ export const VENUE = {
     'Stake meme tokens, swap on Ethereum, Base and Solana, and check any token before you buy.',
   /** Second person, present tense, the viewer's own stake. */
   heroHook: 'Your heat already exists. It started counting at your first buy.',
+  /** Under the instrument, and in llms.txt: one source, so the two cannot disagree. */
+  heatPerWallet:
+    "Held time is measured per wallet. A bag moved to a new wallet starts that wallet's clock at the move.",
   /**
    * HEAT, MECHANICALLY — the sentence that has to be true.
    *

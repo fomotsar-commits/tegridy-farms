@@ -91,10 +91,7 @@ export function VenueHero() {
             than pretending the island can see across wallets by itself. The second
             says what to do about it, at the island's door, which is the only place
             it can be done. */}
-        <p className="text-white/70 text-[12px] leading-relaxed mt-3">
-          Held time is measured per wallet. A bag moved to a new wallet starts that
-          wallet&apos;s clock at the move.
-        </p>
+        <p className="text-white/70 text-[12px] leading-relaxed mt-3">{VENUE.heatPerWallet}</p>
         <p className="text-white/70 text-[12px] leading-relaxed mt-2">
           Hold in several wallets?{' '}
           <a

@@ -218,6 +218,14 @@ export function Footer() {
                   {l.label}
                 </Link>
               ))}
+              {/* llms.txt (answer ten, §2): what an AI assistant may say about the
+                  venue, in the venue's words. A PLAIN <a>, never a router <Link>:
+                  /llms.txt is a static file, and client-side routing would land on
+                  the not-found page without ever requesting it. One footer link
+                  and nothing on the arrival, by the island's terms. */}
+              <a href="/llms.txt" className={LINK_CLASS} style={LINK_SHADOW}>
+                For your AI
+              </a>
               {/* TOWELI market links (Uniswap/Etherscan/GeckoTerminal) — inside
                   the TOWELI bungalow only; the bungalow card above carries each
                   other resident's own explorer link.

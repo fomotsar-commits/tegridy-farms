@@ -163,6 +163,24 @@ test.describe('SEO & social metadata', () => {
     expect(res.status()).toBe(200);
   });
 
+  // llms.txt (answer ten, §2). A bare `status 200` proves nothing here: the SPA
+  // fallback answers 200 text/html for ANY missing path, so an assistant asking for
+  // a file that was never built would read the app shell and be told it succeeded.
+  // So this reads the content type and the body, and a control asks for a file
+  // that does not exist to prove this server has the fallback being guarded against.
+  test('llms.txt is a real text file, not the SPA shell', async ({ page }) => {
+    const res = await page.request.get('/llms.txt');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type'] ?? '').toMatch(/^text\/plain/);
+    const body = await res.text();
+    expect(body.startsWith('# memetics.finance\n'), 'llms.txt is not the generated file').toBe(true);
+    expect(body).not.toMatch(/<!doctype/i);
+    expect(body).toContain('https://memetics.finance/read/<address>');
+
+    const control = await page.request.get('/llms-absent-control.txt');
+    expect(control.headers()['content-type'] ?? '', 'this server has no SPA fallback, so the check above proves less').toMatch(/text\/html/);
+  });
+
   test('og.svg hero banner is served', async ({ page }) => {
     const res = await page.request.get('/og.svg');
     expect(res.status()).toBe(200);
