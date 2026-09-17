@@ -344,7 +344,7 @@ export default function HomePage() {
                 per-address badges. So the headline leads with the one differentiator
                 a skeptic can check in a single click. */}
             <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-              Farm TOWELI.<br /><span className="text-white">Check our work.</span>
+              Farm TOWELI.{' '}<br /><span className="text-white">Check our work.</span>
             </h1>
 
             {/* 2026-08-07: added the Solana sentence. It is deliberately a SEPARATE

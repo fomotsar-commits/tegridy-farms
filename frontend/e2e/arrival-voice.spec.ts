@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { FAQ_INTRO } from '../src/lib/copy';
+import { gotoRoute } from './fixtures/routes';
 
 // ARRIVAL IDENTITY 2026-08-27 — the containment contract, walked end to end.
 //
@@ -42,13 +43,19 @@ test.describe('arrival voice', () => {
     await page.addInitScript(() => {
       try { localStorage.setItem('tegridy-bungalow', 'venue'); } catch { /* ignore */ }
     });
-    await page.goto('/');
+    // gotoRoute, not goto: `/` now paints the same H1 twice before the real one, as
+    // static HTML and then as React's busy fallback (answer ten, ruling 2). An
+    // assertion that retries until it matches would pass on either of those and never
+    // see VenueHero's own heading, so this waits for the page to be the page.
+    await gotoRoute(page, '/');
 
     await expect(page).toHaveTitle(/MEMETICS/i, { timeout: 20_000 });
     // EXACT, not a substring (answer ten, ruling 3). toContainText('MEMETICS.FINANCE')
     // passed with the stray period after FINANCE and would pass without the space at
     // the <br> joint too, so it could never have caught either. Playwright's text
     // concatenates text nodes, which is exactly how a reader hears the join.
+    await expect(page.locator('#first-frame')).toHaveCount(0);
+    await expect(page.locator('main#main-content [aria-busy="true"]')).toHaveCount(0);
     await expect(page.locator('h1')).toHaveText('MEMETICS.FINANCE Held time counts here.');
     // The classic cluster is relocated, not deleted — it must not be here.
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);

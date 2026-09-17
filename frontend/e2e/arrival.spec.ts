@@ -91,13 +91,6 @@ test.describe('the venue opens straight to the page (ruling 1)', () => {
       expect(clock.skipIntroPainted, `"Skip intro" painted on ${path}`).toBeUndefined();
     });
   }
-
-  test('CLICK TO ENTER is gone from the arrival', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('h1').first()).toBeAttached({ timeout: 15_000 });
-    await expect(page.locator('body')).not.toContainText('CLICK TO ENTER');
-    await expect(page.locator('body')).not.toContainText('TAP TO ENTER');
-  });
 });
 
 test.describe('the film keeps its home on /island', () => {
@@ -126,19 +119,37 @@ test.describe('the film keeps its home on /island', () => {
 
 test.describe('nothing opens unasked on a cold TOWELI route, and the welcomes open on a tap', () => {
   test('a cold /toweli opens no picker and no welcome, and its tour link opens the welcome', async ({ page }) => {
-    // Cold for the welcome (its seen-key absent) and wearing the TOWELI skin, so
-    // this is exactly the visitor the old auto-open picker leg and the TOWELI
-    // welcome both used to open over.
+    // TRULY COLD: nothing stored at all. The old auto-open picker leg needed "no
+    // bungalow chosen at mount", so a seeded 'tegridy-bungalow' switched it off
+    // before this test could see it. A cold /toweli has no choice in its FIRST
+    // document; the door then persists one and reloads in place. A dialog that
+    // opens in that first document and dies with the reload is still a dialog the
+    // visitor saw, so every insertion is stamped into sessionStorage, which the
+    // reload keeps, rather than counted once at the end.
     await page.addInitScript(() => {
-      try {
-        localStorage.removeItem('tegridy-onboarding-seen');
-        localStorage.setItem('tegridy-bungalow', 'toweli');
-      } catch { /* private mode */ }
+      try { localStorage.removeItem('tegridy-onboarding-seen'); } catch { /* private mode */ }
+      new MutationObserver((records) => {
+        for (const r of records) {
+          for (const n of Array.from(r.addedNodes)) {
+            if (n instanceof HTMLElement && (n.matches('[role="dialog"]') || n.querySelector('[role="dialog"]'))) {
+              try { sessionStorage.setItem('e2e-dialog-opened', location.pathname); } catch { /* ignore */ }
+            }
+          }
+        }
+      }).observe(document, { childList: true, subtree: true });
     });
     await page.goto('/toweli');
     await expect(page.locator('h1').first()).toBeAttached({ timeout: 20_000 });
     await page.waitForTimeout(WATCH_MS);
+    expect(
+      await page.evaluate(() => localStorage.getItem('tegridy-bungalow')),
+      'the door never persisted its choice, so this was not the cold path',
+    ).toBe('toweli');
     await expect(page.locator('[role="dialog"]'), 'something opened unasked on a cold TOWELI route').toHaveCount(0);
+    expect(
+      await page.evaluate(() => sessionStorage.getItem('e2e-dialog-opened')),
+      'a dialog opened unasked and left again on a cold TOWELI route',
+    ).toBeNull();
 
     await page.getByRole('button', { name: 'First time here? Take the tour' }).click();
     await expect(

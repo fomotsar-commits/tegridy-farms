@@ -28,7 +28,9 @@ export function BungalowHero({ bungalow }: { bungalow: Bungalow & { identity: Bu
   return (
     <>
       <h1 className="heading-luxury text-3xl md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
-        {id.heroTitle}<br /><span className="text-white">{id.heroLine}</span>
+        {/* A real space before the break, as on the venue hero (answer ten, ruling 3):
+            a <br> is not text, so without it the heading read "BAYLA.The muse". */}
+        {id.heroTitle}{' '}<br /><span className="text-white">{id.heroLine}</span>
       </h1>
 
       <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
