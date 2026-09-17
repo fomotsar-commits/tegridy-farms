@@ -161,6 +161,50 @@ export const SKIP_DISSOLVE_MS = 400;
 export const CURTAIN_BUDGET_MS = 3000;
 
 /**
+ * WHAT THE BUDGET ABOVE IS A PROMISE ABOUT: the curtain being GONE TO LOOK AT.
+ *
+ * The budget was enforced by two setTimeouts, and a timer is main-thread work.
+ * So was the render that removes the overlay. On a machine whose main thread is
+ * busy, all of it waits behind whatever task is already running, and the
+ * deadline lands as late as that task is long -- which is exactly the machine
+ * the deadline exists for. Measured on this build at 6x CPU throttle with the
+ * curtain's tick disabled, so the deadline is the only ending and its lateness
+ * is the entire number: 3,177 / 3,180 / 3,321 / 3,361 ms against a 2,900 ms
+ * deadline. Four runs of four, every one of them over the budget. At 4x with
+ * the curtain drawing normally: 2,988 / 3,156 / 3,302 / 3,530 ms.
+ *
+ * THE SPLIT. AppLoader now also fades the overlay out with a Web Animations
+ * opacity animation armed at the same commit. That runs on the COMPOSITOR
+ * thread, so it keeps its time while script is blocked solid -- probed at 4x
+ * with the main thread in a busy loop from +900 to +4,025 ms: 20 frames
+ * delivered, opacity all the way to 0, landing 2,900 ms after the node
+ * appeared, while neither timer ran at all.
+ *
+ * Removing the NODE still needs the main thread and always will. So the element
+ * makes two promises now instead of one it could not keep:
+ *
+ *   CURTAIN_BUDGET_MS        the curtain is invisible by here. Compositor-held,
+ *                            so a busy main thread cannot move it.
+ *   CURTAIN_DETACH_BUDGET_MS the dead node is out of the DOM by here. Held by
+ *                            the same timers as before, and therefore only as
+ *                            punctual as the machine.
+ *
+ * THIS IS NOT THE BUDGET WIDENED. CURTAIN_BUDGET_MS is untouched at 3,000 and
+ * is now kept by something a long task cannot reach, which is strictly more
+ * than was true before. The second number is not a softer version of the first;
+ * it bounds a DIFFERENT event, one that was never separately stated and was
+ * silently failing inside the first.
+ *
+ * The node it bounds is invisible (opacity 0) and pass-through
+ * (pointerEvents: 'none') for the whole window, so what this number governs is
+ * housekeeping, not anything a visitor can see or touch. The one thing it does
+ * govern is the Skip button, which opts back into pointer events -- an
+ * invisible control over the hero until the node goes. That is why this is a
+ * bound with a test and not an untimed "eventually".
+ */
+export const CURTAIN_DETACH_BUDGET_MS = 4500;
+
+/**
  * What the deadline keeps back from CURTAIN_BUDGET_MS for the machine.
  *
  * The budget promises when the curtain is GONE, and a timer can only keep that
