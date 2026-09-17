@@ -40,7 +40,14 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
   // in the farm. Honest and self-correcting: as more LP is staked the APR falls
   // toward steady state. Null when nothing is staked yet (an APR needs a non-zero
   // denominator) or while pool data is still loading — never a fabricated figure.
+  //
+  // Null, too, once the reward period has ended. useLPFarming zeroes the rate after
+  // `periodFinish` (F100), and this memo used to divide that zero: with LP staked on
+  // an ended period it returned exactly 0, and the hero printed a green "0.00%"
+  // captioned "falls as more LP is staked" — a live, diluting yield on a schedule
+  // that pays nothing. There is no APR to estimate there; the null branch says why.
   const lpApr = useMemo(() => {
+    if (!lpFarm.isActive) return null;
     const lpSupply = poolTVL.lpSupply;
     const staked = lpFarm.totalStaked;
     if (!poolTVL.isLoaded || lpSupply === 0n || staked === 0n || price.priceInUsd <= 0) return null;
@@ -48,7 +55,7 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
     if (!(stakedUsd > 0)) return null;
     const annualRewardsUsd = lpFarm.rewardRatePerYear * price.priceInUsd;
     return (annualRewardsUsd / stakedUsd) * 100;
-  }, [poolTVL.isLoaded, poolTVL.lpSupply, poolTVL.tvl, lpFarm.totalStaked, lpFarm.rewardRatePerYear, price.priceInUsd]);
+  }, [lpFarm.isActive, poolTVL.isLoaded, poolTVL.lpSupply, poolTVL.tvl, lpFarm.totalStaked, lpFarm.rewardRatePerYear, price.priceInUsd]);
 
   // Loading skeleton — render whenever we're still reading, regardless of deploy status.
   // Prior guard (`isDeployed && isReadLoading`) skipped the skeleton when isDeployed was
@@ -185,16 +192,21 @@ export function LPFarmingSection({ lpFarm, isConnected }: LPFarmingSectionProps)
               <>
                 <span className="stat-value text-[26px] font-bold text-white/70">&ndash;</span>
                 <span className="text-white/55 text-[10px]">
-                  {/* An unread pool total must not invite you to be first on a
-                      farm that may be fully subscribed. `statsUnread` includes the
+                  {/* The ORDER is the fix. An unread read stays first: it must not
+                      invite you to be first on a farm that may be fully subscribed,
+                      and it outranks the ended claim too. `statsUnread` includes the
                       pool totals (poolStatsUnread) and every other farm-wide read,
-                      and the notice above carries the Retry this points at. */}
+                      and the notice above carries the Retry this points at. The
+                      ended period comes BEFORE the empty pool — the other way round,
+                      a farm paying nothing invited "be the first to stake LP to
+                      activate the live APR". Worded as an end, not "between epochs":
+                      the Reward Rate tile below says why that reads as a lull. */}
                   {lpFarm.statsUnread
                     ? 'the farm figures could not be read — retry above'
-                    : lpFarm.totalStaked === 0n
-                      ? 'be the first to stake LP to activate the live APR'
-                      : !lpFarm.isActive
-                        ? 'between LP reward epochs — staked LP is safe'
+                    : !lpFarm.isActive
+                      ? 'reward period ended — staking LP earns nothing until the farm is refunded'
+                      : lpFarm.totalStaked === 0n
+                        ? 'be the first to stake LP to activate the live APR'
                         : 'calculating…'}
                 </span>
               </>
