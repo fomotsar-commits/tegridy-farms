@@ -122,6 +122,30 @@ file that was proven.
 
 ---
 
+## 2026-09-17 — mutate an effect's condition without its deps and the mutated line never runs
+
+**Believed:** to prove a test pins an effect's gate, swap the flag in its condition
+(`if (!isSuccess …)` → `if (!isReceiptFetched …)`) and watch the test go red. If it
+stays green, the test is missing a case.
+
+**Measured** in PR #613's mutation rig, on the success-toast effects in PoolCard
+(AMMSection) and OwnerAdminPanelV2. The condition-only swap SURVIVED both revert tests
+(5/5 and 4/4 green), and the tests were fine. The deps still read `[isSuccess, txHash]`.
+A reverted receipt sets the fetched flag but leaves the derived `isSuccess` false and the
+hash unchanged, so React never re-ran the effect and the mutated condition was never
+evaluated. Swapping the deps too, `[isReceiptFetched, txHash]`, which is how the
+regression would actually be written, killed both, each by its own revert test.
+
+eslint tells the two mutants apart. On AMMSection the condition-only one raised
+`react-hooks/exhaustive-deps` ("missing dependency: 'poolTxReceiptFetched'"): 8 warnings
+against trunk's 7. The faithful one was lint-clean at 7.
+
+**Do:** mutate an effect's condition and its deps together. Before you believe a
+survivor, lint the mutant: an `exhaustive-deps` warning on it means the mutant was not
+faithful and the survival proves nothing.
+
+---
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
