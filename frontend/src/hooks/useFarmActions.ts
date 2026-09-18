@@ -7,7 +7,7 @@ import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, C
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
 
 export function useFarmActions() {
   const chainId = useChainId();
@@ -51,26 +51,22 @@ export function useFarmActions() {
     lastActionRef.current = 'action';
   }, [address]);
 
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-    isError: isReceiptError,
-  } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     chainId: CHAIN_ID,
     hash,
   });
+  const { data: receipt, isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
-  // FETCHED" — a transaction that reverted on-chain also produces a receipt,
-  // so `isSuccess` latched true and the UI showed confetti + "Transaction
-  // confirmed" for a stake/withdraw/claim that moved nothing. Only
-  // `receipt.status === 'success'` is an actual on-chain success.
-  // `receipt` is always defined once wagmi reports isSuccess at runtime; the
-  // null-check is defensive only, so a wagmi shape drift can never turn a
-  // genuinely successful tx into a false "reverted" alarm.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
-  const isTxError = isReceiptError || isReverted;
+  // FETCHED", so it can never alone mean a stake/withdraw/claim succeeded.
+  //
+  // 2026-09-17: and `isError` is TWO facts needing OPPOSITE advice. wagmi THROWS
+  // on a reverted receipt, so a real revert lands in `isError` (the old
+  // `isSuccess`-keyed revert branch never fired), and so does "we could not READ
+  // the receipt", which this hook toasted as "Transaction failed". receiptOutcome
+  // splits them by error type; see lib/txErrors.ts for the measurements.
+  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  /** Not a confirmed success. Covers both "it reverted" and "we never found out". */
+  const isTxError = isReceiptUnreadable || isReverted;
 
   useEffect(() => {
     if (isSuccess && hash) {
@@ -112,12 +108,11 @@ export function useFarmActions() {
   }, [isSuccess, hash, address, chainId]);
 
   useEffect(() => {
-    if (isTxError && hash) {
-      toast.error(isReverted ? 'Transaction reverted on-chain' : 'Transaction failed', {
+    if (isReverted && hash) {
+      toast.error('Transaction reverted on-chain', {
         id: `err-${hash}`,
-        description: isReverted
-          ? 'The network rejected it — nothing was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then adjust your amount or lock and try again.'
-          : undefined,
+        description:
+          'The network rejected it — nothing was staked, withdrawn or claimed (gas was still spent). Open it on the explorer for the revert reason, then adjust your amount or lock and try again.',
         action: {
           label: 'Explorer',
           onClick: () => window.open(getTxUrl(chainId, hash), '_blank'),
@@ -129,7 +124,28 @@ export function useFarmActions() {
       txAddressRef.current = undefined;
       lastActionRef.current = 'action';
     }
-  }, [isTxError, isReverted, hash, chainId]);
+  }, [isReverted, hash, chainId]);
+
+  // The receipt read failed. This shared the branch above and said "Transaction
+  // failed" with no description at all, a dead end that told the user their stake
+  // was gone when it may have been sitting in a block we simply could not see. Its
+  // own effect now, because the advice is the opposite: a revert says retry, this
+  // says look first.
+  useEffect(() => {
+    if (isReceiptUnreadable && hash) {
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(chainId, hash),
+        repeatCost: 'sending it again stakes, withdraws or claims a second time.',
+      });
+      // Same snapshot drop as the revert path, for the opposite reason: we
+      // cannot attribute this stake, so it must not be attributed to whatever
+      // tx confirms NEXT. A lost analytics event beats a misattributed one.
+      pendingStakeRef.current = null;
+      txAddressRef.current = undefined;
+      lastActionRef.current = 'action';
+    }
+  }, [isReceiptUnreadable, hash, chainId]);
 
   useEffect(() => {
     // F474: classify wallet cancellations as a soft "Cancelled" info toast

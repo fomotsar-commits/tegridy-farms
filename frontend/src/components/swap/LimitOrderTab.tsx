@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { useLimitOrders, type LimitOrder } from '../../hooks/useLimitOrders';
 import { useCowLimitOrder, type CowLimitRecord } from '../../hooks/useCowLimitOrder';
 import { DEFAULT_TOKENS } from '../../lib/tokenList';
-import { WETH_ADDRESS } from '../../lib/constants';
+import { WETH_ADDRESS, CHAIN_ID } from '../../lib/constants';
+import { getTxUrl } from '../../lib/explorer';
 import { formatTokenAmount } from '../../lib/formatting';
 
 const EXPIRY_OPTIONS = [
@@ -288,10 +289,27 @@ function OrderRow({ order, onCancel }: { order: LimitOrder; onCancel?: () => voi
           className={`text-[10px] ${order.status === 'active' ? 'text-success' : order.status === 'expired' ? 'text-danger' : 'text-white'}`}>
           {expiryStr}
         </span>
+        {order.status === 'executing' && order.txHash && (
+          <a href={getTxUrl(CHAIN_ID, order.txHash)} target="_blank" rel="noopener noreferrer"
+            className="text-white underline text-[10px] min-h-[44px] flex items-center">
+            View tx
+          </a>
+        )}
         {onCancel && order.status === 'active' && (
           <button onClick={onCancel}
             className="text-white hover:text-danger text-[10px] min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-colors">
             Cancel
+          </button>
+        )}
+        {/* An executing order is never fired again, so one whose transaction was
+            dropped or replaced (or whose tab closed before the wallet returned a
+            hash) would wait forever. Removing it only stops tracking it; it
+            cannot send anything. */}
+        {onCancel && order.status === 'executing' && (
+          <button onClick={onCancel}
+            title="Stops tracking this order. The transaction already sent is not affected."
+            className="text-white hover:text-danger text-[10px] min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer transition-colors">
+            Remove
           </button>
         )}
       </div>

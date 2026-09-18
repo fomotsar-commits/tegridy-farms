@@ -191,6 +191,11 @@ export function forkTxCount(page: Page): number {
   return forkSends.get(page)?.length ?? 0;
 }
 
+/** The hash of the `index`-th transaction this page sent to the fork, if it has been sent. */
+export function forkTxHash(page: Page, index: number): string | undefined {
+  return forkSends.get(page)?.[index]?.hash;
+}
+
 /**
  * Assert the first transaction the page sent after `since` MINED SUCCESSFULLY — read off
  * the node, not the DOM — and return its hash.
@@ -666,6 +671,240 @@ export const test = base.extend<Fixtures>({
 export { expect };
 
 /**
+ * FAULT INJECTION: make the app's receipt read fail while the transaction still lands.
+ *
+ * WHY THIS EXISTS. `useWaitForTransactionReceipt().isError` means "we could not READ
+ * the receipt" — the node was down, rate-limited, or had simply not indexed the tx
+ * yet. Every hook that surfaced it called it "Transaction failed", which is the
+ * house's "unreadable must not read as fine" rule inverted, and the inverted form is
+ * the more expensive one: "failed" invites a resend, and a resent add or swap pays
+ * twice. Nothing in the suite could reach that branch, because on a healthy fork the
+ * receipt always comes back.
+ *
+ * HOW. Every read the app makes goes out over the RPC hosts in `APP_RPC_HOSTS`,
+ * already routed to anvil by `routeAppReadsToAnvil`. This registers a LATER handler
+ * on the same patterns that answers `eth_getTransactionReceipt` with a valid
+ * JSON-RPC `{result: null}` — the exact shape a node that has not indexed the tx
+ * returns, NOT an error — and `route.fallback()`s everything else through to the
+ * bridge. viem retries the null, exhausts its budget (~20s) and lands in its error
+ * state, which is the branch under test.
+ *
+ * WHAT STAYS REAL, and this is the whole point of injecting HERE rather than mocking
+ * the hook: the transaction itself is submitted through `window.ethereum` →
+ * `__tegridyAnvilRpc`, a Node-side fetch that never touches `page.route`. So it is
+ * mined, for real, on the fork, while the app is told nothing. `receiptsAskedFor()`
+ * hands back the hashes the app asked about so a test can read the REAL receipt off
+ * anvil and prove the transaction the user was told about actually succeeded.
+ *
+ * Call it after any setup legs (approvals) have confirmed — it blinds every receipt
+ * read from the moment it is installed, including theirs.
+ */
+export async function blindReceiptReads(page: Page): Promise<{ receiptsAskedFor: () => string[] }> {
+  const asked: string[] = [];
+  for (const pattern of APP_RPC_HOSTS) {
+    await page.route(pattern, async (route) => {
+      const body = route.request().postData() ?? '';
+      let parsed: unknown;
+      try { parsed = JSON.parse(body); } catch { await route.fallback(); return; }
+      const calls = Array.isArray(parsed) ? parsed : [parsed];
+      const isReceiptRead = calls.some(
+        (c) => (c as { method?: string })?.method === 'eth_getTransactionReceipt',
+      );
+      if (!isReceiptRead) { await route.fallback(); return; }
+      for (const c of calls) {
+        const h = (c as { params?: unknown[] })?.params?.[0];
+        if (typeof h === 'string' && !asked.includes(h)) asked.push(h);
+      }
+      // A VALID RESPONSE, not an abort. An aborted request makes viem's `fallback`
+      // transport rotate to the other host and can surface as a transport error —
+      // a different failure mode. `{result: null}` is what an honest, merely
+      // un-indexed node says, and it is the one the app mishandles.
+      const answer = (c: unknown) => ({
+        jsonrpc: '2.0',
+        id: (c as { id?: unknown })?.id ?? null,
+        result: null,
+      });
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'access-control-allow-origin': '*',
+          'access-control-allow-headers': '*',
+          'access-control-allow-methods': 'POST,OPTIONS',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(Array.isArray(parsed) ? calls.map(answer) : answer(parsed)),
+      });
+    });
+  }
+  return { receiptsAskedFor: () => [...asked] };
+}
+
+/**
+ * Record every toast this page renders from now on, whether or not it is still on
+ * screen when you look.
+ *
+ * ⚠ THIS IS NOT OPTIONAL INSTRUMENTATION — a plain locator assertion CANNOT SEE the
+ * bug. Sonner's default duration is 4s and the effects under test call `reset()` on
+ * the same 4s timer, so "Transaction failed" appears about two seconds after the
+ * click and is gone long before an end-of-window `expect(...).toHaveCount(0)` runs.
+ * Measured: the first pre-fix run of this suite reported "no toast of any kind
+ * matched" and listed only a stale approval toast — the defect had come and gone
+ * inside the wait. A MutationObserver keeps the transcript; a locator only ever
+ * samples the present.
+ */
+export async function recordToasts(page: Page): Promise<{ seen: () => string[] }> {
+  const seen: string[] = [];
+  await page.exposeFunction('__tegridyToastSeen', (text: string) => {
+    const t = text.trim();
+    if (t && !seen.includes(t)) seen.push(t);
+  });
+  await page.evaluate(() => {
+    const w = window as unknown as { __tegridyToastSeen: (t: string) => void };
+    // Sonner mounts the <li> first and fills it a tick later, so sample EVERY toast
+    // currently in the DOM on every mutation rather than reading added nodes once.
+    const sample = () => {
+      for (const el of Array.from(document.querySelectorAll('[data-sonner-toast]'))) {
+        w.__tegridyToastSeen(el.textContent ?? '');
+      }
+    };
+    sample();
+    new MutationObserver(sample).observe(document.body, {
+      childList: true, subtree: true, characterData: true,
+    });
+  });
+  return { seen: () => [...seen] };
+}
+
+const UNCONFIRMED = /(couldn.?t|could not|cannot|unable to) confirm/i;
+
+/** Poll a toast transcript until `match` appears, then keep listening for trailers. */
+async function awaitToast(
+  page: Page,
+  recorder: { seen: () => string[] },
+  match: (t: string) => boolean,
+): Promise<{ seen: string[]; transcript: string }> {
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline && !recorder.seen().some(match)) {
+    await page.waitForTimeout(200);
+  }
+  // Keep listening a little longer: a hook that raises the right toast AND a wrong one
+  // still has the bug, and the second may trail the first.
+  await page.waitForTimeout(3_000);
+  const seen = recorder.seen();
+  return { seen, transcript: seen.length ? seen.join('  ||  ') : '(no toast was rendered at all)' };
+}
+
+/**
+ * The toast a hook must raise when the receipt read failed: honest about not knowing,
+ * carrying the hash and somewhere to check it, and explicit that a resend costs twice.
+ *
+ * Asserted as behaviour, not as a fixed string: it must NOT be the settled-failure
+ * claim, it must NOT claim the transaction may have succeeded (a real revert whose
+ * receipt read also failed lands in this branch too), it MUST say the outcome is
+ * unknown, and it MUST offer the explorer. `recorder` must be installed BEFORE the
+ * action.
+ */
+export async function expectUnconfirmedToast(
+  page: Page,
+  recorder: { seen: () => string[] },
+  what: string,
+): Promise<void> {
+  const { seen, transcript } = await awaitToast(page, recorder, (t) => UNCONFIRMED.test(t));
+
+  const honest = seen.filter((t) => UNCONFIRMED.test(t));
+  expect(
+    honest.length,
+    `${what}: nothing ever said the transaction could not be CONFIRMED. An unreadable ` +
+      `receipt is a terminal state; silence about it is its own defect. Toasts seen: ${transcript}`,
+  ).toBeGreaterThan(0);
+
+  const text = honest[0];
+  expect(
+    text,
+    `${what}: the toast does not say the outcome is unknown, so it still reads as a ` +
+      `verdict. Text was: ${text}`,
+  ).toMatch(/can.?t tell whether it went through/i);
+  expect(
+    text,
+    `${what}: the toast guesses the transaction SUCCEEDED. A real revert whose receipt read ` +
+      `also failed lands in this branch too, and that guess is false for it. Text was: ${text}`,
+  ).not.toMatch(/succeeded/i);
+  expect(
+    text,
+    `${what}: the toast does not warn what a resend costs — that warning is the entire ` +
+      `reason this branch is not allowed to say "failed". Text was: ${text}`,
+  ).toMatch(/before you send it again/i);
+  expect(
+    text,
+    `${what}: the toast does not carry the transaction hash, so the user cannot tell ` +
+      `WHICH transaction to go and check. Text was: ${text}`,
+  ).toMatch(/0x[0-9a-fA-F]{6,}/);
+  expect(
+    text,
+    `${what}: no explorer link. "We could not read it" is only actionable if the user is ` +
+      `handed the place where they CAN read it. Text was: ${text}`,
+  ).toMatch(/explorer/i);
+
+  // THE INVERTED CLAIM MUST NEVER HAVE BEEN MADE. This is the assertion that fails on
+  // pre-fix code, where the branch fired a bare `toast.error('Transaction failed')`.
+  expect(
+    seen.filter((t) => /^Transaction failed|reverted/i.test(t)),
+    `${what}: the app called a transaction that was mined SUCCESSFULLY a failure. That ` +
+      `is an instruction to resend, and a resend pays twice. Toasts seen: ${transcript}`,
+  ).toEqual([]);
+}
+
+/**
+ * The toast a hook must raise for a transaction that genuinely REVERTED on-chain: it
+ * says so, and it does not borrow the unconfirmed copy.
+ *
+ * wagmi THROWS on a reverted receipt, so a revert arrives on the same `isError` flag as
+ * an unreadable receipt. Telling this user "we can't tell whether it went through" is
+ * false (we read the receipt) and sends them to the explorer for an answer the app
+ * already had. Pre-fix trunk said "Transaction failed"; the first port of the
+ * unreadable fix said it "may well have succeeded". Both fail here.
+ */
+export async function expectRevertToast(
+  page: Page,
+  recorder: { seen: () => string[] },
+  what: string,
+): Promise<void> {
+  const REVERTED = /reverted/i;
+  const { seen, transcript } = await awaitToast(
+    page, recorder, (t) => REVERTED.test(t) || UNCONFIRMED.test(t) || /^Transaction failed/i.test(t),
+  );
+  expect(
+    seen.filter((t) => REVERTED.test(t)).length,
+    `${what}: nothing said the transaction REVERTED, though the node's receipt says it did. ` +
+      `Toasts seen: ${transcript}`,
+  ).toBeGreaterThan(0);
+  expect(
+    seen.filter((t) => UNCONFIRMED.test(t) || /succeeded|went through/i.test(t)),
+    `${what}: a transaction the app read as reverted was reported as unconfirmed or possibly ` +
+      `successful. Toasts seen: ${transcript}`,
+  ).toEqual([]);
+  expect(
+    seen.filter((t) => /^Transaction failed/i.test(t)),
+    `${what}: the bare "Transaction failed" is the pre-fix copy. Toasts seen: ${transcript}`,
+  ).toEqual([]);
+}
+
+/**
+ * FAULT INJECTION: make the NEXT transaction this page sends revert on-chain, for real.
+ *
+ * Sets the gas limit of the next `eth_sendTransaction` the bridge relays to `gas`, in
+ * place of the buffered estimate. Pick a value above the intrinsic cost (so the node
+ * accepts it) and below what the call needs (so it runs out mid-execution): the result
+ * is a mined receipt with status 0x0, which is exactly what wagmi sees for any other
+ * revert. It is also a revert wagmi's own replay reproduces, because the replay reuses
+ * the transaction's gas. One-shot: the send after it is untouched.
+ */
+export function starveNextSend(page: Page, gas: bigint): void {
+  starvedSends.set(page, gas);
+}
+const starvedSends = new WeakMap<Page, bigint>();
+
+/**
  * Installed BEFORE the app bundle evaluates. Anything inside must be self-contained
  * because Playwright serializes the function body across the page boundary.
  */
@@ -964,7 +1203,12 @@ async function installAnvilBridge(page: Page, rpcUrl: string): Promise<void> {
       if (method === 'eth_sendTransaction') {
         const tx = params?.[0] as Record<string, unknown> | undefined;
         if (typeof tx?.from === 'string') await rpc('anvil_impersonateAccount', [tx.from]);
-        if (tx && tx.gas === undefined) await bufferGas(rpc, tx);
+        const starved = starvedSends.get(page);
+        if (tx && starved !== undefined) {
+          // starveNextSend: a deliberate on-chain revert. One-shot.
+          starvedSends.delete(page);
+          tx.gas = `0x${starved.toString(16)}`;
+        } else if (tx && tx.gas === undefined) await bufferGas(rpc, tx);
         const hash = (await rpc(method, params)) as string;
         // Recorded so a spec can read this transaction's fate straight off the node — see
         // `expectMinedSuccessfully`. The bridge is the one place that sees every send,
