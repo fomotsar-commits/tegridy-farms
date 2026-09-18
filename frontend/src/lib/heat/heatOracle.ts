@@ -356,7 +356,7 @@ export function gateDecision(
       degrees: null,
       tier: null,
       asOfUnix: null,
-      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided — try again in a moment.',
+      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided. Try again in a moment.',
     };
   }
 
@@ -380,7 +380,9 @@ export function gateDecision(
       state: 'WARM',
       reason: 'qualified',
       qualified: true,
-      detail: `${reading.degrees.toFixed(2)}° — ${reading.tier}. The launch lane is open.`,
+      // The WALLET's reading, named as such: the tier word is this wallet's, never the
+      // floor's (answer ten, ruling 4), and the dash that joined them was prose.
+      detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The launch lane is open.`,
     };
   }
 
@@ -390,7 +392,7 @@ export function gateDecision(
     state: 'COLD',
     reason: 'below-floor',
     qualified: false,
-    detail: `${reading.degrees.toFixed(2)}° — ${reading.tier}. The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
+    detail: `This wallet reads ${reading.degrees.toFixed(2)}° (${reading.tier}). The door opens at ${floor}°, and degrees are held time: they accrue by holding tokens the island measures, and they cannot be bought.`,
   };
 }
 
