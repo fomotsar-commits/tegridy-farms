@@ -15,6 +15,40 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — a replaced transaction's receipt wait resolves, and a speed-up looks exactly like a cancel
+
+**Believed:** when a wallet cancels or speeds up a pending transaction, viem's
+`waitForTransactionReceipt` throws `TransactionReplacedError` (ethers did), so a success
+receipt means your transaction ran. And if it does resolve instead, checking
+`receipt.transactionHash === hash` is the fix.
+
+**Measured** against @wagmi/core 3.6.5 / viem 2.56.5, driving the real action and the real
+`useWaitForTransactionReceipt` hook through a scripted EIP-1193 node: the submitted hash has
+no receipt, `eth_getTransactionByHash` still returns it pending, and the next block holds a
+same-sender, same-nonce transaction whose receipt is success. All three reasons (`cancelled`,
+`repriced`, `replaced`) RESOLVE the wait with the replacement's receipt: `status: 'success'`,
+the replacement's hash. Nothing throws. viem 2 does not define `TransactionReplacedError` at
+all. The reason arrives only through `onReplaced`, which wagmi's hook forwards to the action
+and leaves out of its query key.
+
+A wallet cancel is a 0-value send to yourself, so its receipt is a success, and every surface
+that read `isSuccess` confirmed the action that was cancelled.
+
+### The hash check is wrong the other way
+
+A speed-up (same to, value and calldata, more gas) resolves exactly like a cancel: another
+hash, a success receipt. It is the same call, and it ran. Calling it "did not happen" invites
+a resend that pays twice, and speed-up is the most common replacement there is. Nothing in
+the receipt tells the two apart; only `onReplaced`'s reason does.
+
+**Do:** pass `onReplaced` on every wait and record the reason per submitted hash. Count a
+foreign receipt as success only when the reason is `repriced`. With no recorded reason, say
+you can't tell, and never "it did not happen". Bind any proof or stored record to the hash
+that mined, not the one you submitted: a proof link to a hash that was sped up points at a
+transaction that never mined. (PR #622.)
+
+---
+
 ## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
 
 **Believed:** carrying a value from pre-React markup into a lazily loaded component is a
