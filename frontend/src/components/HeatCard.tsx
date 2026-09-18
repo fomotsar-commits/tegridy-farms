@@ -593,10 +593,10 @@ function Reading({
       >
         <span>
           {reading.asOfUnix === null
-            ? 'Reckoned: never — this wallet has no measured holdings'
+            ? 'Reckoned: never. This wallet has no measured holdings'
             : `Reckoned ${agoLabel(reading.asOfUnix, now)}`}
         </span>
-        {stale && <span className="font-semibold">Stale — older than 7 days, so it decides nothing</span>}
+        {stale && <span className="font-semibold">Stale: older than 7 days, so it decides nothing</span>}
       </div>
 
       {/* LAUNCH ELIGIBILITY, from the same primitive the launch paths enforce with, so
