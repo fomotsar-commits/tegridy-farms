@@ -29,6 +29,42 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🟡 2026-09-17 — redeploy StakingMonitorView (display only, no funds, not urgent)
+
+### ⬜ O-0917-1 — one deploy of a stateless view, then a one-line address swap
+
+**What is wrong.** The live `StakingMonitorView` (`0xbE1E75124C7F07d5B681839C42d8e751f0d0fcfC`)
+keeps projecting reward emission while staking is paused. The staking contract freezes emission
+during a pause, so the projected part is never paid. During a pause the site's Claimable figure
+shows more than `getReward` will pay, and so does the pause-only emergency exit's warning that it
+"forfeits your unclaimed rewards (currently X TOWELI)". Measured in
+`contracts/test/StakingMonitorViewPause_2026_09_17.t.sol`: two equal stakers, one day, pause, one
+emergency withdrawal, three paused days. The view showed **302,400 TOWELI** and `getReward` paid
+**43,200**. While staking runs the view is exact, and staking was running on 2026-09-17
+(`paused() == false`). No funds are at risk and `TegridyStaking` is untouched.
+
+**The fix is in source only.** It needs one deploy: a 3 KB view with no owner, no funds and no
+setters, which nothing on-chain calls. Any funded key can send it.
+
+**Run** (from `contracts/`):
+
+```bash
+forge script script/DeployStakingMonitorView.s.sol --rpc-url <mainnet RPC> --account <any funded key> --broadcast --verify
+```
+
+**You should see** `StakingMonitorView deployed: 0x…`, `staking paused at deploy: false`, and a
+non-zero `of which with pending rewards:`. Before it sends anything, the script compares the new view
+with the live one on every read for token ids 1 to 32 and aborts on any difference. The one
+difference it allows is `earned` while paused, where the new view must be equal or lower. A
+mismatch means the new view is not a drop-in replacement: stop and say so.
+
+**Then (an agent can do this):** set `STAKING_MONITOR_VIEW_ADDRESS` in
+`frontend/src/lib/constants.ts`, move `staking-monitor-view` in `frontend/scripts/addresses.json` to
+the new address with the broadcast as evidence (keep the old one as a retired entry), and update the
+CONTRACTS.md and README.md rows. Until then the site keeps reading the old view.
+
+---
+
 ## 🟢 2026-09-09 — BAYLA-LADDER IS LIVE ON DEVNET, and one dated task falls out of it
 
 The lock-ladder staking program is deployed and its whole lifecycle has been driven with
