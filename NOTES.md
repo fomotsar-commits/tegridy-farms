@@ -2247,3 +2247,32 @@ Mutation-check both sides of a change that alters *when* a module is evaluated.
   not the verdict.
 - `no-unused-vars` does not flag a bare side-effect `import "x";` — it declares no
   binding. Lint will not remove the warming import; a human might.
+
+---
+
+## 2026-09-17 — `git log -G` dates code by its first *mention*, comments included
+
+**Believed:** the oldest commit that `git log --all --reflog -G '<call>' -- <file>` returns
+is the commit that introduced the call.
+
+**Measured:** while re-verifying `MICROSCOPE_REMEDIATION_2026_05_01.md` (#620), row H5
+("restaking calls `staking.kick(tokenId)` first") was checked this way.
+`-G 'staking\.kick\('` on `TegridyRestaking.sol` put the oldest hit at `f9a3656b`
+(2026-05-02). That commit only adds a *comment* that mentions `staking.kick(tokenId)`. The
+first real call, `try staking.kick(info.tokenId) {} catch {}`, landed in `86b69f70` on
+2026-05-16, two weeks later. `-G` greps every changed diff line, comments and NatSpec
+included, and this repo's comments routinely name the fix they anticipate.
+
+The same trap works in reverse. `_jsonEscape` appears in history only inside a comment
+saying it was removed; no commit ever defined it.
+
+**Do:**
+
+- Treat the first `-G` hit as a lead, then open its diff.
+- When the question is "did this code ever exist, and when", anchor the pattern on code
+  shape (`-G 'try staking\.kick\(info'`) rather than on a name.
+- For a negative claim, extract the function body from every historical version and grep
+  it with comments stripped: `git log --all --reflog --format=%H -- <path>`, then
+  `git show <sha>:<path>`, then a brace-matcher. That disproved H4's "the transfer path
+  decays" across all 124 versions of `_settleRewardsOnTransfer`, where a name grep could
+  only have said "no hits".
