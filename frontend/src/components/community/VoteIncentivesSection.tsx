@@ -75,12 +75,21 @@ function scrollTo(id: string) {
 // ─── Commit-reveal persistence (localStorage) ──────────────────────
 // Store per-commit payloads so a user who reloads between commit and reveal
 // doesn't lose the salt/pair/power that the contract needs to validate.
+//
+// A record holds NO commit index. The contract numbers only the commits that
+// LAND (`commitIndex = voterCommits[user][epoch].length`, then push), and a record
+// is saved before the wallet answers, when nobody can know whether it ever will.
+// Builds before 2026-09-18 saved `commitIndex = <length of this browser's list>`,
+// so one commit rejected in the wallet, reverted, or made from another browser
+// shifted every later record off its slot. Its reveal reverted, and an unrevealed
+// commit's 10 TOWELI bond can be swept to treasury once the reveal deadline
+// passes. The panel finds each record's slot on-chain by its hash instead; a
+// `commitIndex` still stored by those builds is ignored.
 interface CommitRecord {
   salt: Hex;
   pair: Address;
   power: string; // store as string to keep JSON bigint-safe; parse on reveal
   commitHash: Hex;
-  commitIndex: number;
   committedAt: number;
 }
 const COMMIT_KEY = (chainId: number, voter: Address, epoch: number) =>
@@ -91,10 +100,18 @@ function loadCommits(key: string): CommitRecord[] {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((r): r is CommitRecord => typeof r?.commitHash === 'string')
+      : [];
   } catch {
     return [];
   }
+}
+
+/** One entry of `voterCommits[user][epoch]`, as the contract holds it. */
+interface OnchainCommit {
+  commitHash: Hex;
+  revealed: boolean;
 }
 
 function saveCommits(key: string, records: CommitRecord[]) {
@@ -930,7 +947,7 @@ export function CommitRevealPanel({
   userPower: bigint | null; userUsed: bigint | null; commitBond: bigint; toweliAllowance: bigint;
   isBusy: boolean; isPending: boolean; isConfirming: boolean;
   onApproveBond: (amount: bigint) => void;
-  onCommit: (pair: Address, power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'commitIndex' | 'committedAt'>) => void;
+  onCommit: (pair: Address, power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'committedAt'>) => void;
   onReveal: (commitIndex: number, pair: Address, power: bigint, salt: Hex) => void;
 }) {
   const { address } = useAccount();
@@ -951,6 +968,62 @@ export function CommitRevealPanel({
       setCommits(list);
     }
   }, [key, isBusy]);
+
+  // The voter's commits as the contract numbers them. A saved record is revealed
+  // at the slot whose hash it matches, never at a position in this browser's list
+  // (see Commit-reveal persistence above).
+  const viAddr = VOTE_INCENTIVES_ADDRESS as Address;
+  const { data: countData, isError: countUnread, refetch: refetchCount } = useReadContract({
+    address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'voterCommitCount',
+    args: address ? [address, BigInt(voteEpoch)] : undefined,
+    chainId: CHAIN_ID,
+    query: { enabled: !!address, refetchInterval: 30_000 },
+  });
+  const onchainCount = typeof countData === 'bigint' ? Number(countData) : null;
+  const slotReads = useMemo(
+    () => address && onchainCount
+      ? Array.from({ length: onchainCount }, (_, i) => ({
+          address: viAddr, abi: VOTE_INCENTIVES_ABI, functionName: 'voterCommits' as const,
+          args: [address, BigInt(voteEpoch), BigInt(i)] as const,
+          chainId: CHAIN_ID,
+        }))
+      : [],
+    [address, onchainCount, voteEpoch, viAddr],
+  );
+  const { data: slotData, isError: slotsUnread, refetch: refetchSlots } = useReadContracts({
+    contracts: slotReads,
+    query: { enabled: slotReads.length > 0, refetchInterval: 30_000 },
+  });
+  // null until every slot has been read. Nothing is offered for reveal on a
+  // partial read: an unread slot may be the one a record lives at. Once read, a
+  // slot's hash never changes and `revealed` only turns true, so a later failed
+  // refetch keeps the last full read rather than taking the Reveal away.
+  const onchain = useMemo<OnchainCommit[] | null>(() => {
+    if (onchainCount === null) return null;
+    if (onchainCount === 0) return [];
+    if (!slotData || slotData.length !== onchainCount) return null;
+    const out: OnchainCommit[] = [];
+    for (const r of slotData) {
+      if (r.status !== 'success') return null;
+      const [commitHash, , revealed] = r.result as readonly [Hex, bigint, boolean];
+      out.push({ commitHash, revealed });
+    }
+    return out;
+  }, [onchainCount, slotData]);
+  const onchainUnread = onchain === null
+    && (countUnread || slotsUnread || (slotData?.some((r) => r.status !== 'success') ?? false));
+
+  // Re-read once a transaction stops being in flight, whatever its outcome: a
+  // commit that landed takes a new slot and a reveal marks one revealed, while a
+  // rejected or reverted one changes nothing, and reading again is harmless.
+  const wasBusy = useRef(isBusy);
+  useEffect(() => {
+    if (wasBusy.current && !isBusy && address) {
+      refetchCount();
+      if (slotReads.length > 0) refetchSlots();
+    }
+    wasBusy.current = isBusy;
+  }, [isBusy, address, slotReads.length, refetchCount, refetchSlots]);
 
   useEffect(() => {
     if (!pair && gauges.length > 0) setPair(gauges[0]!.pair);
@@ -1053,22 +1126,54 @@ export function CommitRevealPanel({
             {commits.map((c) => {
               const gauge = gauges.find((g) => g.pair.toLowerCase() === c.pair.toLowerCase());
               const label = gauge?.label ?? shortenAddress(c.pair);
+              const slot = onchain ? onchain.findIndex((o) => o.commitHash.toLowerCase() === c.commitHash.toLowerCase()) : -1;
+              const landed = slot >= 0 ? onchain![slot]! : null;
+              const note = onchainUnread
+                ? 'Could not read your on-chain commits — reload before revealing.'
+                : !onchain
+                ? 'Checking on-chain…'
+                : landed?.revealed
+                ? 'Revealed — bond refunded.'
+                : landed
+                ? null
+                : commitOpen
+                ? 'Not on-chain yet: still confirming, or rejected in the wallet, or reverted. It can only be revealed once it lands.'
+                : 'Never reached the chain — no bond was taken and there is nothing to reveal.';
               return (
-                <div key={c.commitIndex} className="rounded-lg p-3 flex items-center justify-between gap-2 flex-wrap" style={{ background: 'rgba(13,21,48,0.7)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div key={c.commitHash} className="rounded-lg p-3 flex items-center justify-between gap-2 flex-wrap" style={{ background: 'rgba(13,21,48,0.7)', border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div className="min-w-0">
                     <p className="text-white text-[12.5px] font-medium">{label}</p>
-                    <p className="text-[10.5px] text-white/55 font-mono">Index {c.commitIndex} · {formatTokenAmount(formatEther(BigInt(c.power)), 4)} power</p>
+                    <p className="text-[10.5px] text-white/55 font-mono">{landed ? `Commit #${slot} · ` : ''}{formatTokenAmount(formatEther(BigInt(c.power)), 4)} power</p>
+                    {note && <p className="text-[10.5px] text-white/55">{note}</p>}
                   </div>
-                  <button onClick={() => onReveal(c.commitIndex, c.pair, BigInt(c.power), c.salt)}
-                    disabled={isBusy || !revealOpen}
-                    className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
-                    {revealOpen ? (isPending ? 'Confirm…' : isConfirming ? 'Revealing…' : 'Reveal') : 'Reveal opens later'}
-                  </button>
+                  {landed && !landed.revealed && (
+                    <button onClick={() => onReveal(slot, c.pair, BigInt(c.power), c.salt)}
+                      disabled={isBusy || !revealOpen}
+                      className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+                      {revealOpen ? (isPending ? 'Confirm…' : isConfirming ? 'Revealing…' : 'Reveal') : 'Reveal opens later'}
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
+
+        {/* A landed commit this browser holds no salt for cannot be revealed
+            here, and its bond can be swept to treasury after the reveal deadline. */}
+        {(() => {
+          if (!onchain) return null;
+          const mine = new Set(commits.map((c) => c.commitHash.toLowerCase()));
+          const orphans = onchain.filter((o) => !o.revealed && !mine.has(o.commitHash.toLowerCase())).length;
+          if (orphans === 0) return null;
+          return (
+            <p className="text-[11px] text-amber-300">
+              {orphans === 1 ? '1 commit' : `${orphans} commits`} on-chain {orphans === 1 ? 'has' : 'have'} no saved secret in this browser,
+              so {orphans === 1 ? 'it' : 'they'} cannot be revealed here. Reveal from the browser that made {orphans === 1 ? 'it' : 'them'},
+              or the {formatTokenAmount(formatEther(commitBond), 0)} TOWELI bond is forfeited after the reveal deadline.
+            </p>
+          );
+        })()}
 
         {!commitOpen && !revealOpen && commits.length === 0 && (
           <p className="text-[11.5px] text-white/55 text-center pt-2">This epoch's voting is closed.</p>
@@ -1431,18 +1536,15 @@ export function VoteIncentivesSection() {
     } catch { /* invalid */ }
   };
 
-  const handleCommitVote = (_pair: Address, _power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'commitIndex' | 'committedAt'>) => {
+  const handleCommitVote = (_pair: Address, _power: bigint, commitHash: Hex, record: Omit<CommitRecord, 'committedAt'>) => {
     if (!address) return;
-    // Capture hash + record; persist after we learn the commitIndex on success.
+    // Persist BEFORE broadcasting: a tab closed after signing but before the tx
+    // confirms still holds the salt to reveal with. This ADDS a record and saves
+    // no index; the panel finds the commit's slot on-chain by its hash.
+    const key = COMMIT_KEY(chainId, address, prevEpoch);
+    saveCommits(key, [...loadCommits(key), { ...record, committedAt: Math.floor(Date.now() / 1000) }]);
     // De-drift 2026-05-31: forward _power — contract commitVote now requires it.
     bribes.commitVote(prevEpoch, commitHash, _power);
-    // We don't know the commitIndex yet — we'll reconcile by reading voterCommits.length on next refetch.
-    // Stash a pending record keyed by commitHash so we can assign commitIndex when we see it.
-    const key = COMMIT_KEY(chainId, address, prevEpoch);
-    const existing = loadCommits(key);
-    const tentativeIndex = existing.length; // contract pushes to same array so index ≈ current length
-    const rec: CommitRecord = { ...record, commitIndex: tentativeIndex, committedAt: Math.floor(Date.now() / 1000) };
-    saveCommits(key, [...existing, rec]);
   };
   const handleRevealVote = (commitIndex: number, pair: Address, power: bigint, salt: Hex) => {
     bribes.revealVote(prevEpoch, commitIndex, pair, power, salt);
