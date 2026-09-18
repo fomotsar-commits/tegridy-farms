@@ -7,6 +7,8 @@ import { SWAP_FEE_ROUTER_ABI, UNISWAP_V2_ROUTER_ABI, TEGRIDY_ROUTER_ABI, ERC20_A
 import { SWAP_FEE_ROUTER_ADDRESS, UNISWAP_V2_ROUTER, TEGRIDY_ROUTER_ADDRESS, WETH_ADDRESS, CHAIN_ID } from '../lib/constants';
 import { isValidAddress as isValidTokenAddress } from '../lib/tokenList';
 import { resolveLimitFill } from '../lib/limitOrderMath';
+import { surfaceUnconfirmedTx } from '../lib/txErrors';
+import { getTxUrl } from '../lib/explorer';
 
 export interface LimitOrder {
   id: string;
@@ -17,6 +19,12 @@ export interface LimitOrder {
   createdAt: number;
   expiresAt: number;
   status: 'active' | 'expired' | 'filled' | 'executing';
+  /**
+   * The swap sent for this order, recorded when the wallet hands back the hash.
+   * An 'executing' order is never fired again by the poller; while its receipt
+   * cannot be read, the poller re-reads this hash until it settles.
+   */
+  txHash?: `0x${string}`;
 }
 
 interface StoragePayload {
@@ -113,6 +121,7 @@ function isValidOrder(o: unknown): o is LimitOrder {
   if (typeof r.expiresAt !== 'number' || r.expiresAt <= 0) return false;
   if (typeof r.status !== 'string' || !VALID_ORDER_STATUSES.has(r.status as string)) return false;
   if (!isValidTokenObj(r.fromToken) || !isValidTokenObj(r.toToken)) return false;
+  if (r.txHash !== undefined && (typeof r.txHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(r.txHash))) return false;
   return true;
 }
 
@@ -240,16 +249,38 @@ export function useLimitOrders() {
     persist(orders.filter(o => o.id !== id));
   }, [address, orders, persist]);
 
-  const markFilled = useCallback((id: string) => {
-    executingRef.current.delete(id); // terminal — drop tracking
-    releaseTabLock(id);
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === id ? { ...o, status: 'filled' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
-    toast.success('Limit order confirmed on-chain!');
+  /**
+   * Apply one change to one order, in storage first. The receipt waiter can
+   * outlive the component (viem waits up to 180s), and a functional setState on
+   * an unmounted component never runs, so a write that has to survive leaving
+   * the page cannot live only in React state. State gets the same change by id,
+   * so a write that lands after the wallet switched accounts changes nothing on
+   * screen.
+   */
+  const patchOrder = useCallback((id: string, patch: (o: LimitOrder) => LimitOrder) => {
+    if (!address) return;
+    const apply = (list: LimitOrder[]) => list.map(o => (o.id === id ? patch(o) : o));
+    saveOrders(address, apply(loadOrders(address)));
+    ordersRef.current = apply(ordersRef.current);
+    setOrders(apply);
   }, [address]);
+
+  /**
+   * Settle a sent order from a receipt we READ. Keyed on the hash, so the live
+   * waiter and a later re-read of the same receipt settle it once.
+   */
+  const settleOrder = useCallback((id: string, hash: `0x${string}`, succeeded: boolean) => {
+    executingRef.current.delete(id); // terminal — drop tracking
+    const current = address ? loadOrders(address).find(o => o.id === id) : undefined;
+    if (current?.status === 'executing' && current.txHash === hash) {
+      patchOrder(id, o => (succeeded
+        ? { ...o, status: 'filled' as const }
+        : { ...o, status: 'active' as const, txHash: undefined }));
+      if (succeeded) toast.success('Limit order confirmed on-chain!');
+      else toast.error('Limit order transaction reverted on-chain.');
+    }
+    releaseTabLock(id);
+  }, [address, patchOrder]);
 
   const revertOrderStatus = useCallback((orderId: string) => {
     executingRef.current.delete(orderId);
@@ -263,20 +294,36 @@ export function useLimitOrders() {
 
   const waitForReceipt = useCallback(async (hash: `0x${string}`, orderId: string) => {
     if (!publicClient) return;
+    let receipt;
     try {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status === 'success') {
-        markFilled(orderId);
-      } else {
-        revertOrderStatus(orderId);
-        toast.error('Limit order transaction reverted on-chain.');
-      }
+      receipt = await publicClient.waitForTransactionReceipt({ hash });
     } catch (err) {
-      revertOrderStatus(orderId);
-      toast.error('Limit order failed: could not confirm transaction.');
+      // viem RETURNS a reverted receipt, so this catch only means we could not
+      // read one: nothing is known about the swap. It is not a failure, and the
+      // order stays 'executing' with its txHash, which the poller never fires; it
+      // re-reads the hash instead. "Failed" here used to put the order back to
+      // 'active', and the next poll swapped a second time.
+      executingRef.current.delete(orderId);
+      releaseTabLock(orderId);
+      surfaceUnconfirmedTx(toast, {
+        hash,
+        explorerUrl: getTxUrl(CHAIN_ID, hash),
+        repeatCost: 'placing the order again swaps a second time. This order waits until it can read the result.',
+      });
       if (import.meta.env.DEV) console.error('Limit order waitForTransactionReceipt error:', err);
+      return;
     }
-  }, [publicClient, markFilled, revertOrderStatus]);
+    settleOrder(orderId, hash, receipt.status === 'success');
+  }, [publicClient, settleOrder]);
+
+  /** Re-read the receipt of an order sent earlier. Still unreadable: keep waiting. */
+  const recheckSent = useCallback((id: string, hash: `0x${string}`) => {
+    if (!publicClient) return;
+    publicClient.getTransactionReceipt({ hash }).then(
+      receipt => settleOrder(id, hash, receipt.status === 'success'),
+      () => { /* still unreadable; the warning already said so */ },
+    );
+  }, [publicClient, settleOrder]);
 
   const executeOrder = useCallback(async (order: LimitOrder) => {
     if (!address || !writeContract || !publicClient) return;
@@ -284,12 +331,9 @@ export function useLimitOrders() {
     if (isExecuting(order.id)) return;
     if (!claimTabLock(order.id)) return;
     executingRef.current.set(order.id, { txHash: null, submittedAt: Date.now() });
-
-    setOrders(prev => {
-      const updated = prev.map(o => o.id === order.id ? { ...o, status: 'executing' as const } : o);
-      if (address) saveOrders(address, updated);
-      return updated;
-    });
+    // Through storage, not a functional update: the txHash written at submission
+    // and the settle check both read this status back from storage.
+    patchOrder(order.id, o => ({ ...o, status: 'executing' as const }));
 
     const path = buildPath(order.fromToken, order.toToken);
     const parsedAmount = parseUnits(order.amount, order.fromToken.decimals);
@@ -393,6 +437,9 @@ export function useLimitOrders() {
       // R042 HIGH-5: back-fill the txHash on the execution record.
       const rec = executingRef.current.get(order.id);
       if (rec) rec.txHash = hash;
+      // Recorded before anything waits on it, so an unread receipt, a reload or
+      // leaving the page still leaves a hash to settle this order by.
+      patchOrder(order.id, o => ({ ...o, txHash: hash }));
       toast.info('Limit order submitted, waiting for on-chain confirmation...');
       waitForReceipt(hash, order.id);
     };
@@ -441,7 +488,7 @@ export function useLimitOrders() {
     } catch {
       revertOrderStatus(order.id);
     }
-  }, [address, chainId, writeContract, publicClient, markFilled, revertOrderStatus, waitForReceipt]);
+  }, [address, chainId, writeContract, publicClient, patchOrder, revertOrderStatus, waitForReceipt, isExecuting]);
 
   // Price polling: check active orders against on-chain price
   useEffect(() => {
@@ -468,6 +515,12 @@ export function useLimitOrders() {
         });
         if (hasExpired) {
           persist(updated);
+        }
+
+        // An order already sent is never fired again from here. If its live
+        // waiter gave up, re-read its receipt instead.
+        for (const o of currentOrders) {
+          if (o.status === 'executing' && o.txHash && !isExecuting(o.id)) recheckSent(o.id, o.txHash);
         }
 
         const activeList = (hasExpired ? updated : currentOrders).filter(
@@ -524,7 +577,7 @@ export function useLimitOrders() {
       // same order. Entries are removed only on terminal outcomes
       // (markFilled / revertOrderStatus) or 5-minute TTL expiry.
     };
-  }, [address, publicClient, persist, executeOrder, isExecuting]);
+  }, [address, publicClient, persist, executeOrder, isExecuting, recheckSent]);
 
   const activeOrders = orders.filter(o => o.status === 'active' || o.status === 'executing');
   const pastOrders = orders.filter(o => o.status === 'expired' || o.status === 'filled');
