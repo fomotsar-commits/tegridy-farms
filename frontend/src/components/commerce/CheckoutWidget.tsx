@@ -21,6 +21,8 @@ import { recordSettlement } from '../../lib/commerce/store';
 import { canSign, settlementStandingText, type SettlementAttestation } from '../../lib/commerce/settlement';
 import { judgeReceipt } from '../../lib/commerce/receiptProof';
 import { paymentLinkUrl } from '../../lib/commerce/paymentLink';
+import { receiptOutcome, shortHash } from '../../lib/txErrors';
+import { getTxUrl } from '../../lib/explorer';
 import { SettlementDisclosure } from './SettlementDisclosure';
 import { ProofOfPaymentPanel } from './ProofOfPaymentPanel';
 
@@ -160,17 +162,18 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
   });
 
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
-  const {
-    data: receipt,
-    isLoading: isConfirming,
-    isSuccess: isReceiptFetched,
-  } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's `isSuccess` only means the receipt
-  // was FETCHED — it latches true for an on-chain REVERTED transfer too, which
-  // would have rendered "The transfer confirmed on chain" and offered "Tell the
-  // merchant" for a payment that never moved. Only `receipt.status === 'success'`
-  // is a real success, and since 2026-09-02 not even that is enough: judgeReceipt
-  // reads the logs.
+  // was FETCHED. Only `receipt.status === 'success'` is a real success, and since
+  // 2026-09-02 not even that is enough: judgeReceipt reads the logs.
+  //
+  // 2026-09-17: and a revert never arrives as a receipt at all — wagmi THROWS on
+  // a reverted receipt, so judgeReceipt's "this transaction reverted" verdict
+  // never rendered. A reverted transfer, and one whose receipt could not be read,
+  // both left the panel empty with "Pay the exact amount" re-armed: for the
+  // second, an invitation to pay twice. receiptOutcome tells them apart.
+  const { isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
   const { data: block } = useBlock({
     blockNumber: receipt?.blockNumber,
     chainId: invoice?.chainId,
@@ -185,8 +188,12 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
             { status: receipt.status, logs: receipt.logs },
             block ? { timestamp: block.timestamp } : null,
           )
-        : null,
-    [invoice, receipt, block],
+        : invoice && isReverted
+          // wagmi read this receipt, saw `reverted`, and threw instead of
+          // returning it. The status is all a revert verdict reads.
+          ? judgeReceipt(invoice, { status: 'reverted', logs: [] }, null)
+          : null,
+    [invoice, receipt, block, isReverted],
   );
 
   // Three states, not two. `undefined` from a read that has not answered is not
@@ -524,7 +531,7 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
                 </>
               ) : null}
 
-              {isReceiptFetched && txHash && verdict ? (
+              {(isReceiptFetched || isReverted) && txHash && verdict ? (
                 <div
                   className={`mt-4 rounded-lg border p-3 ${
                     verdict.verification === 'chain-confirmed'
@@ -593,6 +600,28 @@ export function CheckoutWidget({ invoiceId, link, fetchImpl }: CheckoutWidgetPro
                   >
                     Done
                   </button>
+                </div>
+              ) : null}
+
+              {isReceiptUnreadable && txHash ? (
+                <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-3">
+                  <p className="text-[13px] leading-relaxed text-white/85">
+                    {shortHash(txHash)} was sent, but its result could not be read, so we can&apos;t tell whether
+                    the merchant was paid.
+                  </p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-white/75">
+                    Check it on the explorer before you pay again: if it landed, paying again sends {due} a
+                    second time.
+                  </p>
+                  <p className="mt-2 break-all font-mono text-[11px] text-white/60">{txHash}</p>
+                  <a
+                    href={getTxUrl(invoice.chainId, txHash)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary mt-3 inline-flex min-h-11 items-center px-4 py-1.5 text-[12px]"
+                  >
+                    Check on the explorer
+                  </a>
                 </div>
               ) : null}
             </section>

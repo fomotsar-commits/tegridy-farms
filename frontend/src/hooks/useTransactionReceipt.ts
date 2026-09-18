@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 import { useWaitForTransactionReceipt } from 'wagmi';
+import { isRevertedReceiptError } from '../lib/txErrors';
 
 export type ReceiptType = 'swap' | 'stake' | 'unstake' | 'claim' | 'vote' | 'bounty' | 'lock' | 'approve' | 'liquidity_add' | 'liquidity_remove' | 'subscribe' | 'claim_revenue';
 
@@ -89,9 +90,9 @@ export type TrackedReceiptStatus =
   | 'idle'        // no hash yet
   | 'pending'     // wagmi still confirming
   | 'confirmed'   // receipt.status === 'success' AND >= `confirmations` blocks deep
-  | 'failed'      // receipt.status === 'reverted'
+  | 'failed'      // the tx reverted (wagmi THROWS CallExecutionError for it)
   | 'replaced'    // wagmi raised TransactionReplacedError (RBF / cancellation)
-  | 'dropped';    // wagmi raised TransactionNotFoundError or unknown error
+  | 'dropped';    // any other error: the receipt was not read, so NOTHING is known
 
 export interface TrackedReceipt {
   status: TrackedReceiptStatus;
@@ -129,6 +130,20 @@ export function useTrackedTransactionReceipt(
   }
 
   if (result.isError) {
+    // 2026-09-17: a revert lands HERE, not on `isSuccess` below. wagmi's
+    // waitForTransactionReceipt throws on `status === 'reverted'` (it replays the
+    // tx to recover a reason), so the `receipt.status !== 'success'` branch below
+    // never saw a real revert and every one reported 'dropped'. Only a
+    // CallExecutionError is positive evidence of a revert; see lib/txErrors.ts.
+    if (isRevertedReceiptError(result.error)) {
+      return {
+        status: 'failed',
+        isPending: false,
+        isConfirmed: false,
+        isTerminal: true,
+        ...(errorName !== undefined ? { errorName } : {}),
+      };
+    }
     if (errorName === 'TransactionReplacedError') {
       return {
         status: 'replaced',

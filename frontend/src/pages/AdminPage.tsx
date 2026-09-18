@@ -4,6 +4,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { formatEther } from 'viem';
 import { toast } from 'sonner';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { formatTokenAmount, formatNumber } from '../lib/formatting';
 import {
   TEGRIDY_STAKING_ADDRESS, SWAP_FEE_ROUTER_ADDRESS, SWAP_FEE_ROUTER_ADMIN_ADDRESS, PREMIUM_ACCESS_ADDRESS,
@@ -111,12 +112,17 @@ function PauseControls({
   refetchReads: () => Promise<unknown>;
 }) {
   const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate the
-  // success toast on receipt.status.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED. 2026-09-17: and a revert never reaches it — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted pause was
+  // silent. useReceiptOutcome splits `isError` into revert vs unreadable.
+  const { isSuccess, isReverted, isReceiptUnreadable } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'the contract is already in the state you asked for.',
+  });
 
   // R007 Pattern B — fire the toast exactly once per `txHash` going confirmed,
   // no matter how many re-renders see `isSuccess: true`. Reads the dedup ref
@@ -143,6 +149,12 @@ function PauseControls({
         : 'Pause transaction reverted on-chain — the contract is still active.');
     }
   }, [isReverted, txHash, isPaused]);
+
+  // Unreadable: nothing is known, so re-read the pill rather than leave it
+  // asserting the pre-transaction state beside a "can't tell" warning.
+  useEffect(() => {
+    if (isReceiptUnreadable) void refetchReads();
+  }, [isReceiptUnreadable, refetchReads]);
 
   // F384: surface a wallet rejection / gas-estimate failure instead of failing
   // silently (mirrors usePremiumAccess error toasting). Deduped per error.

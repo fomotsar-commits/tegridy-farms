@@ -10,6 +10,7 @@ import {
 } from '../hooks/useTransactionReceipt';
 import { formatTokenAmount } from '../lib/formatting';
 import { getTxUrl, getChainLabel } from '../lib/explorer';
+import { receiptOutcome } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { RECEIPT_COPY } from '../lib/copy';
 import { SITE_URL } from '../lib/constants';
@@ -17,7 +18,9 @@ import { VENUE } from '../lib/arrival';
 import { getActiveBungalow } from '../lib/bungalows';
 import { artImgProps } from '../lib/artSrcSet';
 
-type TxStatus = 'pending' | 'confirmed' | 'failed';
+// 'unconfirmed': the receipt wait gave up without reading a result. Not 'failed',
+// which claims a revert nobody saw.
+type TxStatus = 'pending' | 'confirmed' | 'failed' | 'unconfirmed';
 
 /* ─── Sanitize text for rendered receipts ───
    F10: every value here is rendered as a JSX text node (and via html2canvas of
@@ -226,18 +229,24 @@ function TransactionReceiptOverlay({
   // single-block confirmation can still revert under reorg; sharing or
   // declaring "Confirmed" before that has bitten users with a viral receipt
   // pointing at a reverted tx. Tri-state covers pending / confirmed / failed.
-  const { data: rcpt, isSuccess: rcptOk, isError: rcptErr } = useWaitForTransactionReceipt({
+  //
+  // 2026-09-17: wagmi's isError is a revert (it THROWS on a reverted receipt) OR
+  // a receipt it never read, and every isError used to print "Failed" and disable
+  // Share — a claim about a transaction nobody saw revert. receiptOutcome splits them.
+  const rcptQuery = useWaitForTransactionReceipt({
     hash: safeTxHash as `0x${string}` | undefined,
     confirmations: 2,
     query: { enabled: !!safeTxHash },
   });
+  const { isSuccess: rcptOk, isReverted: rcptReverted, isReceiptUnreadable: rcptUnreadable } =
+    receiptOutcome(rcptQuery);
   const status: TxStatus = useMemo(() => {
     if (!safeTxHash) return 'confirmed'; // legacy / synthetic receipts
-    if (rcptErr) return 'failed';
-    if (rcpt?.status === 'reverted') return 'failed';
-    if (rcptOk && rcpt?.status === 'success') return 'confirmed';
+    if (rcptReverted) return 'failed';
+    if (rcptUnreadable) return 'unconfirmed';
+    if (rcptOk) return 'confirmed';
     return 'pending';
-  }, [safeTxHash, rcptOk, rcptErr, rcpt]);
+  }, [safeTxHash, rcptOk, rcptReverted, rcptUnreadable]);
 
   const chainLabel = getChainLabel(chainId);
 
@@ -279,7 +288,7 @@ function TransactionReceiptOverlay({
 
   const handleShareX = useCallback(() => {
     if (status === 'failed') return; // disabled
-    if (status === 'pending') {
+    if (status === 'pending' || status === 'unconfirmed') {
       setShowPendingShareModal(true);
       return;
     }
@@ -397,10 +406,18 @@ function TransactionReceiptOverlay({
                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                     : status === 'failed'
                       ? 'bg-red-500/15 text-red-300 border border-red-500/30'
-                      : 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse'
+                      : status === 'unconfirmed'
+                        ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                        : 'bg-amber-500/15 text-amber-300 border border-amber-500/30 animate-pulse'
                 }`}
               >
-                {status === 'confirmed' ? 'Confirmed' : status === 'failed' ? 'Failed' : 'Pending'}
+                {status === 'confirmed'
+                  ? 'Confirmed'
+                  : status === 'failed'
+                    ? 'Reverted'
+                    : status === 'unconfirmed'
+                      ? 'Unconfirmed'
+                      : 'Pending'}
               </div>
             </div>
           </div>
@@ -479,7 +496,9 @@ function TransactionReceiptOverlay({
                   ? 'Cannot share — transaction reverted'
                   : status === 'pending'
                     ? 'Tx still pending — confirm before sharing'
-                    : 'Share this receipt to X'
+                    : status === 'unconfirmed'
+                      ? "We couldn't read this tx's result — check the explorer before sharing"
+                      : 'Share this receipt to X'
               }
               className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               style={{
@@ -531,10 +550,12 @@ function TransactionReceiptOverlay({
                 onClick={(e) => e.stopPropagation()}
               >
                 <p id="pending-share-title" className="text-[13px] text-amber-300 font-semibold mb-2">
-                  Tx still pending
+                  {status === 'unconfirmed' ? "Couldn't confirm this tx" : 'Tx still pending'}
                 </p>
                 <p id="pending-share-desc" className="text-[12px] text-white/75 mb-4">
-                  Wait for confirmation before sharing — pending transactions can revert under reorg.
+                  {status === 'unconfirmed'
+                    ? "We couldn't read its result, so we can't tell whether it went through. Check the explorer before sharing."
+                    : 'Wait for confirmation before sharing — pending transactions can revert under reorg.'}
                 </p>
                 <div className="flex gap-2">
                   <button

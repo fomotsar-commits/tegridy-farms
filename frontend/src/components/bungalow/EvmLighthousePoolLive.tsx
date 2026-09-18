@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_STAKING_ABI, ERC20_ABI } from '../../lib/contracts';
 import { deriveEvmLighthouse, fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
-import { surfaceTxError } from '../../lib/txErrors';
+import { receiptOutcome, surfaceTxError } from '../../lib/txErrors';
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -122,10 +122,12 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const { writeContractAsync } = useWriteContract();
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>(undefined);
-  const { data: receipt } = useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId });
   // wagmi's isSuccess only means FETCHED; only receipt.status is the truth
-  // (receipt-status audit, 2026-08-24).
-  const lastConfirmed = receipt?.status === 'success';
+  // (receipt-status audit, 2026-08-24). 2026-09-17: and a revert never arrives
+  // as a receipt — wagmi THROWS on one — so "REVERTED on-chain" below never
+  // rendered: a revert, and a receipt nobody could read, both said "pending"
+  // for good. receiptOutcome splits wagmi's `isError` into the two.
+  const lastOutcome = receiptOutcome(useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId }));
 
   const amountRaw = (() => {
     try {
@@ -308,7 +310,13 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                       <a href={getTxUrl(poolChainId, lastHash)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
                         {shortenAddress(lastHash, 6)} ↗
                       </a>{' '}
-                      {lastConfirmed ? '· confirmed' : receipt ? '· REVERTED on-chain' : '· pending'}
+                      {lastOutcome.isSuccess
+                        ? '· confirmed'
+                        : lastOutcome.isReverted
+                          ? '· REVERTED on-chain'
+                          : lastOutcome.isReceiptUnreadable
+                            ? "· couldn't read the result, so we can't tell whether it went through. Check the link before sending it again"
+                            : '· pending'}
                     </p>
                   )}
                 </>

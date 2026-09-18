@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundError } from 'viem';
 import { YIELD_ADDRESSES } from '../lib/yield/protocols';
 import { yieldVenue } from '../lib/yield/venues';
 
@@ -20,7 +21,7 @@ const refetch = vi.fn();
 const resetWrite = vi.fn();
 
 let account: string | undefined = '0x00000000000000000000000000000000000000A1';
-let receiptState: { data?: { status: string; blockNumber: bigint }; isSuccess: boolean; isError: boolean } = {
+let receiptState: { data?: { status: string; blockNumber: bigint }; isSuccess: boolean; isError: boolean; error?: unknown } = {
   isSuccess: false,
   isError: false,
 };
@@ -28,11 +29,13 @@ let writeHash: string | undefined;
 
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
+const toastWarning = vi.fn();
 
 vi.mock('sonner', () => ({
   toast: {
     error: (...a: unknown[]) => toastError(...a),
     success: (...a: unknown[]) => toastSuccess(...a),
+    warning: (...a: unknown[]) => toastWarning(...a),
     info: vi.fn(),
   },
 }));
@@ -54,6 +57,7 @@ vi.mock('wagmi', () => ({
     data: receiptState.data,
     isSuccess: receiptState.isSuccess,
     isError: receiptState.isError,
+    error: receiptState.error ?? null,
   }),
 }));
 
@@ -67,6 +71,7 @@ beforeEach(() => {
   readContract.mockReset();
   toastError.mockReset();
   toastSuccess.mockReset();
+  toastWarning.mockReset();
   account = '0x00000000000000000000000000000000000000A1';
   writeHash = undefined;
   receiptState = { isSuccess: false, isError: false };
@@ -133,6 +138,45 @@ describe('a receipt is not a success', () => {
     expect(readContract).not.toHaveBeenCalled();
     const description = (toastError.mock.calls[0]![1] as { description: string }).description;
     expect(description).toMatch(/Nothing moved/);
+  });
+
+  // The test above models a reverted receipt delivered as data. wagmi 3 never
+  // does that: waitForTransactionReceipt THROWS on a reverted receipt, so a real
+  // revert arrives on `isError` (a viem CallExecutionError), and so does a
+  // receipt that could not be read. Until 2026-09-17 both set phase 'failed'
+  // without a word — the revert toast only covered the shape above.
+  it('reports a THROWN revert as reverted (the shape wagmi actually delivers)', async () => {
+    writeHash = '0xabc';
+    const { result, rerender } = renderHook(() => useYieldDeposit({ venue: LIDO, amountText: '1', rocket: null }));
+    act(() => result.current.submit());
+    receiptState = {
+      isSuccess: false,
+      isError: true,
+      error: new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted' }), {}),
+    };
+    rerender();
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(result.current.phase).toBe('failed');
+    expect(toastError.mock.calls[0]![0]).toMatch(/reverted on-chain/i);
+    expect((toastError.mock.calls[0]![1] as { description: string }).description).toMatch(/Nothing moved/);
+    expect(toastWarning).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it('never calls an UNREADABLE receipt failed: phase unconfirmed, and a "can\'t tell" warning', async () => {
+    writeHash = '0xabc';
+    const { result, rerender } = renderHook(() => useYieldDeposit({ venue: LIDO, amountText: '1', rocket: null }));
+    act(() => result.current.submit());
+    receiptState = { isSuccess: false, isError: true, error: new TransactionReceiptNotFoundError({ hash: '0xabc' }) };
+    rerender();
+    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
+    expect(result.current.phase).toBe('unconfirmed');
+    const [title, opts] = toastWarning.mock.calls[0] as [string, { description: string }];
+    expect(title).toMatch(/couldn.?t confirm/i);
+    expect(opts.description).toMatch(/can.?t tell whether it went through/i);
+    expect(opts.description).toMatch(/a second deposit moves the funds again/);
+    expect(toastError).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 
   it('reads the receipt token at TWO named blocks on a real success', async () => {

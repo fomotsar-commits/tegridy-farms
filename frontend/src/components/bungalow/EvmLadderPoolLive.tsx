@@ -9,7 +9,7 @@ import {
   isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
-import { surfaceTxError } from '../../lib/txErrors';
+import { receiptOutcome, surfaceTxError } from '../../lib/txErrors';
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { LOCK_DURATIONS } from '../../lib/copy';
 import { CopyButton } from '../ui/CopyButton';
@@ -143,7 +143,10 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
 
   const { writeContractAsync } = useWriteContract();
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>();
-  const { data: receipt } = useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId });
+  // wagmi THROWS on a reverted receipt, so "REVERTED on-chain" below never
+  // rendered: a revert, and a receipt nobody could read, both said "pending" for
+  // good (2026-09-17). receiptOutcome splits wagmi's `isError` into the two.
+  const lastOutcome = receiptOutcome(useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId }));
 
   const amountRaw = (() => {
     try { return amount.trim() ? parseUnits(amount.trim(), decimals) : 0n; } catch { return null; }
@@ -401,7 +404,13 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                     <a href={getTxUrl(poolChainId, lastHash)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
                       {shortenAddress(lastHash, 6)} ↗
                     </a>{' '}
-                    {receipt?.status === 'success' ? '· confirmed' : receipt ? '· REVERTED on-chain' : '· pending'}
+                    {lastOutcome.isSuccess
+                      ? '· confirmed'
+                      : lastOutcome.isReverted
+                        ? '· REVERTED on-chain'
+                        : lastOutcome.isReceiptUnreadable
+                          ? "· couldn't read the result, so we can't tell whether it went through. Check the link before sending it again"
+                          : '· pending'}
                   </p>
                 )}
               </>

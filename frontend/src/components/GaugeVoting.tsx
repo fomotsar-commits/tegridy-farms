@@ -11,6 +11,7 @@ import { surfaceTxError } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { ArtImg } from './ArtImg';
 import { useGaugeList } from '../hooks/useGaugeList';
+import { useReceiptOutcome } from '../hooks/useReceiptOutcome';
 import { artImgProps } from '../lib/artSrcSet';
 
 const GAUGE_STAT_ARTS = [pageArt('gauge-voting', 0), pageArt('gauge-voting', 1), pageArt('gauge-voting', 2)];
@@ -109,13 +110,24 @@ export function GaugeVoting() {
   //       'legacy' = one-step vote() kept only for emergencies.
   const [mode, setMode] = useState<'commit' | 'legacy'>('commit');
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted commit/reveal/vote can't toast success or
-  // clear the local reveal salt.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED. A reverted commit/reveal/vote must not toast success or clear
+  // the local reveal salt.
+  //
+  // 2026-09-17: and a revert never reached isSuccess anyway — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and a reverted vote was
+  // silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    // Every repeat reverts on-chain (AlreadyCommitted / AlreadyVotedThisEpoch),
+    // but handleCommit saves a NEW salt before it prompts, so the repeat that
+    // matters is a second commit.
+    repeatCost:
+      'a second vote or reveal reverts, and a second commit also replaces the reveal secret saved in this browser, so the first vote could not be revealed.',
+  });
 
   // Stable boolean from a runtime constant — hooks below run unconditionally
   // and use `query: { enabled: !notDeployed }` so the network requests don't
