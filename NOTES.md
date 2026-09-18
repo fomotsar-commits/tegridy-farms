@@ -15,6 +15,63 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — a ledger row that holds on trunk today can still be false: read it at the ledger's own commit
+
+**Believed:** a remediation ledger row saying "Closed" can be checked against today's
+trunk. If the property it names holds on trunk, the row is right.
+
+**Measured** re-checking the staking and LP Medium rows of
+`.audit_101/MICROSCOPE_REMEDIATION_2026_05_01.md` (#608). Three rows each described a
+specific change. None of those changes exists on any ref, reflog or stash, and a trunk-only
+check passes two of the three rows anyway:
+
+| Row | Ledger's closure | At the ledger's own commit `7e7a4a15` | Trunk today |
+|---|---|---|---|
+| M-S1 | `emergencyWithdrawPosition` gains `updateReward` | still open | holds, via a different fix (`d6b1f5b1`, next day) |
+| M-S5 | `notifyRewardAmount` drops its `duration` argument | still open | holds, via a different fix (`f89c97a7`, next day) |
+| M-S7 | floor division becomes ceiling division | still open | still open |
+
+The ledger was committed at 23:31 the night before the fixes that actually closed M-S1 and
+M-S5 landed. "The property holds today" gets two rows right while their descriptions stay
+fiction. A later session trusting the M-S1 row would then believe `updateReward` guards the
+path. It doesn't: three other pieces do, and the committed suite doesn't see them. With all
+three reverted, all 554 tests in the 16 suites that deploy and pause staking still pass.
+
+**Do:** check a "Closed" row at three points, not one:
+1. **The ledger's own commit:** `git show <ledger-commit>:<file>`. Was the row true when written?
+2. **All history:** `git log --all --reflog -G '<pattern>'`. Did the described change ever exist?
+3. **Trunk and the deployed build:** does the property hold now, and *by what*?
+
+If (3) holds by a different mechanism than the row names, rewrite the row. The mechanism is the
+thing the next reader will rely on.
+
+### A commit message's "no code change" is a claim too
+
+`d6b1f5b1`'s message says DS2-04 "documented the pause-aware accumulator design choice in
+NatSpec; no code change". Its diff adds the `&& !paused()` guard, a pre-pause
+`_accumulateRewards()` call and the `unpause()` reset: the three lines that actually close M-S1.
+Read `git show <c> -- <file>`, not `git show -s`.
+
+### `git log -G` is always an extended regex
+
+`git log -G 'notifyRewardAmount\(uint256 [a-z_]+, *uint256'` matched three commits. Under a
+basic regex, `\(` would open a group that never closes, which is an error, and `+` would be a
+literal plus sign. So `-G` parses the pattern as an extended regex whether or not `-E` is given,
+and `\(` there is a literal parenthesis.
+
+### Under via_ir, `vm.warp(block.timestamp + dt)` can reuse a stale timestamp
+
+A test body that called `vm.warp(block.timestamp + ...)` three times paid out exactly the
+pre-unpause share and zero for the day after unpause. That is only possible if the last warp
+landed at or before the unpause timestamp, i.e. that `block.timestamp` read returned an earlier
+value. The same test paid the exact expected amount once every warp went through a storage
+clock seeded from a literal (`uint256 t = 1_000_000;` then `t += dt; vm.warp(t);`), which never
+reads `block.timestamp`. The failure was a plausible number, not a revert. Seed the clock from a
+literal, not from a local copy of `block.timestamp`, or read time with
+`vm.getBlockTimestamp()`, which several suites here already do.
+
+---
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
