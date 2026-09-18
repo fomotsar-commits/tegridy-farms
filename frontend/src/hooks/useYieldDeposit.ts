@@ -11,7 +11,7 @@ import {
 import { toast } from 'sonner';
 import { ERC20_ABI } from '../lib/contracts';
 import { getTxUrl } from '../lib/explorer';
-import { surfaceTxError } from '../lib/txErrors';
+import { receiptOutcome, surfaceTxError, surfaceUnconfirmedTx } from '../lib/txErrors';
 import {
   depositPlan,
   YIELD_CHAIN_ID,
@@ -37,6 +37,10 @@ import type { YieldVenue } from '../lib/yield/venues';
 //   produces a receipt too — the farm page showed "confirmed" for stakes that
 //   moved nothing until this was fixed (useFarmActions.ts:64).
 //
+//   (2026-09-17: wagmi 3 never actually DELIVERS that receipt. It throws on a
+//   reverted one, so a real revert arrives on `isError`, next to "we could not
+//   read the receipt". receiptOutcome tells them apart; see lib/txErrors.ts.)
+//
 //   Every in-flight ref is wiped on an account switch (useFarmActions.ts:41-45),
 //   so a wallet that reconnects between submit and confirm cannot inherit the
 //   previous wallet's pending step and report its result as its own.
@@ -48,7 +52,8 @@ import type { YieldVenue } from '../lib/yield/venues';
 // blocks — and stating one number would turn an accrual into a claim about what
 // the deposit produced.
 
-export type StepPhase = 'idle' | 'submitting' | 'confirming' | 'done' | 'failed';
+/** 'unconfirmed': sent, but the receipt could not be read. Never 'failed'. */
+export type StepPhase = 'idle' | 'submitting' | 'confirming' | 'done' | 'failed' | 'unconfirmed';
 
 export interface ReceiptBalanceReport {
   before: bigint;
@@ -173,10 +178,12 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
     resetWrite();
   }
 
-  const { data: receipt, isSuccess: receiptFetched, isError: receiptError } = useWaitForTransactionReceipt({
+  const receiptQuery = useWaitForTransactionReceipt({
     chainId: YIELD_CHAIN_ID,
     hash,
   });
+  const { data: receipt, isSuccess: receiptFetched, isError: receiptError } = receiptQuery;
+  const { isReverted: receiptReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
 
   useEffect(() => {
     if (!receiptFetched || !receipt || !hash) return;
@@ -243,11 +250,40 @@ export function useYieldDeposit({ venue, amountText, rocket }: UseYieldDepositAr
 
   }, [receiptFetched, receipt, hash, address, refetchErc20, resetWrite, stepIndex, client, venue.id]);
 
+  // wagmi's `isError` is two facts (2026-09-17): a revert, which it THROWS rather
+  // than returning as a receipt, and a receipt it could not read. Both used to
+  // land here as 'failed' with no word said: the revert toast above only covers
+  // a shape wagmi never delivers, and "failed" is a claim about an unread receipt.
   const [lastReceiptError, setLastReceiptError] = useState(receiptError);
   if (lastReceiptError !== receiptError) {
     setLastReceiptError(receiptError);
-    if (receiptError) setPhase('failed');
+    if (receiptError) setPhase(receiptReverted ? 'failed' : 'unconfirmed');
   }
+
+  useEffect(() => {
+    if (!hash || !(receiptReverted || isReceiptUnreadable)) return;
+    if (settledHashRef.current === hash) return;
+    settledHashRef.current = hash;
+    // Same rule as the receipt effect: say nothing about a transaction this
+    // account did not send.
+    if (txAccountRef.current && txAccountRef.current !== address) return;
+    if (receiptReverted) {
+      toast.error('That transaction reverted on-chain', {
+        id: hash,
+        description: 'Nothing moved. The protocol rejected it — check the explorer for the revert reason.',
+        action: { label: 'Explorer', onClick: () => window.open(getTxUrl(YIELD_CHAIN_ID, hash), '_blank') },
+      });
+      return;
+    }
+    const isLast = stepIndex >= stepCountRef.current - 1;
+    surfaceUnconfirmedTx(toast, {
+      hash,
+      explorerUrl: getTxUrl(YIELD_CHAIN_ID, hash),
+      repeatCost: isLast
+        ? 'a second deposit moves the funds again.'
+        : 'the approval is already set, and a second one only costs gas.',
+    });
+  }, [hash, receiptReverted, isReceiptUnreadable, address, stepIndex]);
 
   const submit = useCallback(() => {
     if (plan.state !== 'ready' && plan.state !== 'needs-approval') return;

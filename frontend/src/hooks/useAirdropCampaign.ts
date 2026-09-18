@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useReadContract, useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import { isAddress, type Address, type Hex } from 'viem';
@@ -6,6 +6,7 @@ import { AIRDROP_DISTRIBUTOR_ABI, AIRDROP_FACTORY_ABI, ERC20_ABI } from '../lib/
 import { AIRDROP_FACTORY_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
 import { surfaceTxError } from '../lib/txErrors';
 import type { OnChainCampaign } from '../lib/merkle';
+import { useReceiptOutcome } from './useReceiptOutcome';
 
 /**
  * One campaign's on-chain state, plus the claim writes.
@@ -112,7 +113,18 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
   };
 
   const { writeContract, data: hash, isPending, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const { isLoading: isConfirming } = receiptQuery;
+  // wagmi THROWS on a reverted receipt, so a reverted claim arrived on `isError`,
+  // which nothing read: a revert and an unreadable receipt were both silent.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'claiming again reverts, because the allocation is already claimed.',
+  });
+  useEffect(() => {
+    if (isReverted) toast.error('Claim reverted on-chain — nothing was claimed, and any claim fee was not taken.');
+  }, [isReverted]);
 
   /**
    * Claim. The entry point is chosen by THIS campaign's snapshotted fee, read above —

@@ -13,6 +13,7 @@ import { VOTE_INCENTIVES_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID } from '../.
 import { VOTE_INCENTIVES_ABI, TEGRIDY_STAKING_ABI } from '../../lib/contracts';
 import { useBribes, type WhitelistedToken } from '../../hooks/useBribes';
 import { useGaugeList, type GaugeInfo } from '../../hooks/useGaugeList';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { shortenAddress, formatTokenAmount } from '../../lib/formatting';
 import { InfoTooltip, StepIndicator } from '../ui/InfoTooltip';
 import { GOVERNANCE_COPY } from '../../lib/copy';
@@ -1087,7 +1088,19 @@ export function VoteIncentivesSection() {
   const viAddr = VOTE_INCENTIVES_ADDRESS as Address;
 
   const { writeContract: writeLocal, data: localTx, isPending: isLocalSigning } = useWriteContract();
-  const { isLoading: isLocalConfirming } = useWaitForTransactionReceipt({ hash: localTx });
+  const localQuery = useWaitForTransactionReceipt({ hash: localTx });
+  const { isLoading: isLocalConfirming } = localQuery;
+  // Only `isLoading` was read here, so a reverted withdrawPendingETH (wagmi
+  // THROWS on a reverted receipt, onto `isError`) and an unreadable receipt were
+  // both silent: the button just came back. See useReceiptOutcome.
+  const { isReverted: isLocalReverted } = useReceiptOutcome(localQuery, {
+    hash: localTx,
+    chainId: CHAIN_ID,
+    repeatCost: 'withdrawing again reverts unless more ETH has come due since.',
+  });
+  useEffect(() => {
+    if (isLocalReverted) toast.error('ETH withdrawal reverted on-chain — nothing was withdrawn; your pending ETH is unchanged.');
+  }, [isLocalReverted]);
 
   const [selectedPair, setSelectedPair] = useState<Address | null>(null);
   const [voteInput, setVoteInput] = useState('');
