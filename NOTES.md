@@ -15,6 +15,41 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — viem returns the revert that wagmi throws, and a receipt waiter outlives the component that started it
+
+**Believed:** a `catch` around a receipt wait means the transaction failed; and a hook that
+settles its own state when the receipt arrives keeps that state right, because the wait
+lives in the hook.
+
+**Measured** on the DCA and limit-order keepers and three create flows (PR #618), against
+the installed viem 2.56.5 source and pre-fix vitest runs. Both were wrong.
+
+### Same function name, opposite contract
+
+`useWaitForTransactionReceipt` (wagmi) THROWS on a reverted receipt, so its `isError` is two
+facts. `publicClient.waitForTransactionReceipt` (viem, called directly) RETURNS the reverted
+receipt; its promise rejects only when no receipt could be read (180s default timeout,
+`TransactionReceiptNotFoundError`, transport). So in a `publicClient` catch nothing at all is
+known about the transaction. Five sites called that catch a failure. Two were keepers that
+then released the schedule or order; one unread receipt produced a second swap on every
+poll (3 in 3 polls, measured).
+
+**Do:** in a `publicClient` wait, the `status !== 'success'` branch is the revert and the
+catch is "unread". Decide per site what state is safe while unread, and never let it mean
+"try again automatically".
+
+### Settling state after an await: unmounted means never
+
+viem waits up to 180 seconds. A user who leaves the page in that time unmounts the hook, and
+a functional `setState` on an unmounted component is dropped without running, including any
+`localStorage` write placed inside the updater. The DCA hook's success path saved that way,
+so a swap that landed was never recorded, and the next mount found the schedule due again.
+A vitest that unmounts before rejecting the wait reproduces it.
+
+**Do:** record the in-flight hash when the wallet returns it, and write it through storage
+first, then apply the same change to state by id. Settle keyed on that hash, so the old
+waiter coming back after a re-read (or a second tab) cannot count it twice.
+
 ## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
 
 **Believed:** carrying a value from pre-React markup into a lazily loaded component is a
