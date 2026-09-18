@@ -132,11 +132,15 @@ function loadOrders(address: string): LimitOrder[] {
   }
 }
 
-function saveOrders(address: string, orders: LimitOrder[]) {
+/** False when the write did not land (storage full or blocked). */
+function saveOrders(address: string, orders: LimitOrder[]): boolean {
   try {
     const payload: StoragePayload = { version: STORAGE_VERSION, orders };
     localStorage.setItem(getStorageKey(address), JSON.stringify(payload));
-  } catch { /* ignore */ }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function buildPath(fromToken: LimitOrder['fromToken'], toToken: LimitOrder['toToken']): `0x${string}`[] {
@@ -178,6 +182,10 @@ export function useLimitOrders() {
   const [orders, setOrders] = useState<LimitOrder[]>([]);
   const ordersRef = useRef<LimitOrder[]>([]);
   const executingRef = useRef<Map<string, ExecutionRecord>>(new Map());
+  // False while this tab's writes are not landing (storage full or blocked).
+  // The list then lives in this tab only, and keeps working there, so an order
+  // missing from storage says nothing about another tab.
+  const storageHoldsListRef = useRef(true);
   const { writeContract } = useWriteContract();
 
   /** Returns true if a non-stale execution record exists for this orderId. */
@@ -202,9 +210,12 @@ export function useLimitOrders() {
     requestNotificationPermission();
     // Another tab wrote this wallet's orders: take its copy. The browser fires
     // `storage` in every OTHER tab once the write has landed there, so a reload
-    // here reads it. (key null = storage was cleared.)
+    // here reads it. (key null = storage was cleared.) Not while this tab's own
+    // writes fail: storage lacks its orders then, and a reload would drop them.
     const key = getStorageKey(address);
-    const onStorage = (e: StorageEvent) => { if (e.key === key || e.key === null) reload(); };
+    const onStorage = (e: StorageEvent) => {
+      if (storageHoldsListRef.current && (e.key === key || e.key === null)) reload();
+    };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [address]);
@@ -221,7 +232,7 @@ export function useLimitOrders() {
    */
   const updateOrders = useCallback((change: (list: LimitOrder[]) => LimitOrder[]) => {
     if (!address) return;
-    saveOrders(address, change(loadOrders(address)));
+    storageHoldsListRef.current = saveOrders(address, change(loadOrders(address)));
     ordersRef.current = change(ordersRef.current);
     setOrders(change);
   }, [address]);
@@ -303,7 +314,7 @@ export function useLimitOrders() {
     // prompt). Storage is the copy every tab writes, so fire only an order it
     // still holds as active, and otherwise take its copy.
     const stored = loadOrders(address);
-    if (stored.find(o => o.id === order.id)?.status !== 'active') {
+    if (storageHoldsListRef.current && stored.find(o => o.id === order.id)?.status !== 'active') {
       ordersRef.current = stored;
       setOrders(stored);
       return;

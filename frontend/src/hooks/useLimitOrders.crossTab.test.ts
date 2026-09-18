@@ -19,6 +19,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import { dispatchStorageEvent } from '../test-utils/storageEvent';
 
 const { toast, writeContract, client } = vi.hoisted(() => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
@@ -111,6 +112,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks(); // the Storage.prototype.setItem spies below
 });
 
 describe('useLimitOrders — an order another tab already moved is not fired again', () => {
@@ -246,12 +248,12 @@ describe('useLimitOrders — a stale tab\'s write keeps what the other tab wrote
     expect(b.result.current.orders[0]?.status).toBe('active');
 
     seed(order('order-1', { status: 'filled' }));
-    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY })); });
+    act(() => { dispatchStorageEvent(STORAGE_KEY, localStorage.getItem(STORAGE_KEY)); });
     expect(b.result.current.orders[0]?.status).toBe('filled');
 
     // A change to some other key is not this wallet's list.
     seed(order('order-1', { status: 'expired' }));
-    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'tegridy_something_else' })); });
+    act(() => { dispatchStorageEvent('tegridy_something_else', null); });
     expect(b.result.current.orders[0]?.status).toBe('filled');
   });
 });
@@ -278,6 +280,33 @@ describe('useLimitOrders — one tab (unchanged behaviour)', () => {
     client.waitForTransactionReceipt.mockReturnValue(new Promise(() => {}));
     await flush(POLL_MS);
     expect(writeContract).toHaveBeenCalledTimes(2);
+  });
+
+  // Storage full (or blocked): the order never reaches storage, so storage cannot
+  // speak for it. It lives in this tab and fires here, as the tab-only watch
+  // promises, rather than being read as "cancelled elsewhere" and dropped.
+  it('storage that will not take a write: an order made here still fires here, once, and stays listed', async () => {
+    localStorage.clear();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    const { result } = renderHook(() => useLimitOrders());
+    act(() => {
+      result.current.createOrder({ fromToken: ETH, toToken: TOWELI, amount: '0.01', targetPrice: '1', expiresAt: Date.now() + 86_400_000 });
+    });
+    await flush(POLL_MS);
+    await flush(POLL_MS);
+    expect(writeContract).toHaveBeenCalledTimes(1);
+    expect(result.current.orders.map((o) => o.status)).toEqual(['filled']);
+  });
+
+  it('storage that will not take a write: another tab\'s storage event does not drop this tab\'s orders', async () => {
+    localStorage.clear();
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('QuotaExceededError'); });
+    const { result } = renderHook(() => useLimitOrders());
+    act(() => {
+      result.current.createOrder({ fromToken: ETH, toToken: TOWELI, amount: '0.02', targetPrice: '1000000', expiresAt: Date.now() + 86_400_000 });
+    });
+    act(() => { dispatchStorageEvent(STORAGE_KEY, null); });
+    expect(result.current.orders).toHaveLength(1);
   });
 
   it('an order created here is stored and shown, and a cancel removes it from both', async () => {
