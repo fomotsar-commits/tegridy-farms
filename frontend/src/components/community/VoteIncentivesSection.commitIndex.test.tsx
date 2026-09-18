@@ -286,6 +286,17 @@ describe('VoteIncentives commit-reveal — reveals target the commit that landed
     expect(screen.getByText(/no saved secret in this browser/i)).toBeInTheDocument();
   });
 
+  it('does not report a commit already revealed from another browser as at risk', async () => {
+    h.state.chain.commits.push({ commitHash: `0x${'ee'.repeat(32)}`, bond: 0n, revealed: true });
+    const view = openPage('commit');
+    lands(await commit('5'));
+    view.unmount();
+
+    openPage('reveal');
+    expect(await offeredReveals()).toEqual(['ok']);
+    expect(screen.queryByText(/no saved secret in this browser/i)).toBeNull();
+  });
+
   it('reveals records saved by the previous build, whose stored index is wrong', async () => {
     const saltA = `0x${'a1'.repeat(32)}` as Hex;
     const saltB = `0x${'b2'.repeat(32)}` as Hex;
