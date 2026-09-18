@@ -15,6 +15,34 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-18 — two copies of one poller under fake timers never overlap, so neither is ever stale
+
+**Believed:** mounting a polling hook twice in one jsdom window (two `renderHook`s sharing
+its localStorage) and advancing fake timers is a fair two-tab test. Both intervals are due
+at the same instant, so each copy acts on what it read before the other one wrote.
+
+**Measured** while writing the cross-tab test for `useLimitOrders` (PR #629), with the RPC
+mocks resolving immediately. `vi.advanceTimersByTimeAsync` runs due timers one at a time and
+drains the microtask queue between callbacks. Tab A's whole interval callback (price read,
+lock claim, send, receipt, mark filled, lock released) therefore finished before tab B's
+callback started, although B was due in the same millisecond. On the old hook the first poll
+fired one order **twice**: B acted on the lock A had just released. With the fix, B re-read
+storage right after A's write and was never stale when it wrote. As a result, the test built
+to catch a stale tab's whole-list save ("creating an order in a stale tab does not put a
+filled order back to active") **passed with `createOrder` reverted to exactly that save**,
+the mutant it existed to kill.
+
+**Do:** mount the second copy half an interval later (`renderHook`, then
+`advanceTimersByTimeAsync(interval / 2)`, then `renderHook`). Each step is then one copy's
+check (A, B, A, B), and between a check of A's and B's next one, B holds whatever it last
+read. With that stagger the same test failed on the mutant, as intended. Run the mutant
+against the staggered version to prove the window exists. Separately, jsdom fires no
+`storage` event for a write in the same window. Two mounted hooks never hear each other,
+which is the right worst case for a guard, but a `storage` listener then needs its own test
+that dispatches the event by hand.
+
+---
+
 ## 2026-09-17 — a value handed across a Suspense render is gone if the render that took it is thrown away
 
 **Believed:** carrying a value from pre-React markup into a lazily loaded component is a
