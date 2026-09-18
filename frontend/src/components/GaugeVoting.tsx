@@ -18,6 +18,14 @@ const GAUGE_STAT_ARTS = [pageArt('gauge-voting', 0), pageArt('gauge-voting', 1),
 // ─── Commit-Reveal Local Storage ────────────────────────────────────
 // We persist {salt, gauges, weights, commitmentHash} per (chainId, voter, tokenId, epoch)
 // so the user can close the tab between commit and reveal and still reveal.
+//
+// A key holds EVERY record saved under it, and a reveal uses the one whose hash
+// is the commitment actually on-chain. The salt is saved before the wallet
+// prompt, when nobody can know whether an earlier commit for the same key was
+// never sent, is still pending, or has already landed, so no save may replace
+// another. A single slot did: a second Commit click (the first commit had landed,
+// but the page had not re-read it) replaced the landed commit's salt, the repeat
+// reverted with AlreadyCommitted, and no saved salt could open the commitment.
 type CommitmentRecord = {
   salt: Hex;
   gauges: Address[];
@@ -30,18 +38,28 @@ type CommitmentRecord = {
 const COMMITMENT_KEY = (chainId: number, voter: Address, tokenId: bigint, epoch: number) =>
   `tegridy:gaugeCommit:${chainId}:${voter.toLowerCase()}:${tokenId.toString()}:${epoch}`;
 
-function loadCommitment(key: string): CommitmentRecord | null {
+function loadCommitments(key: string): CommitmentRecord[] {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as CommitmentRecord) : null;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CommitmentRecord | CommitmentRecord[];
+    // Records saved before 2026-09-17 are a single object, not a list.
+    return (Array.isArray(parsed) ? parsed : [parsed])
+      .filter((r): r is CommitmentRecord => typeof r?.commitmentHash === 'string');
   } catch {
-    return null;
+    return [];
   }
 }
 
 function saveCommitment(key: string, record: CommitmentRecord) {
-  try { localStorage.setItem(key, JSON.stringify(record)); }
+  try { localStorage.setItem(key, JSON.stringify([...loadCommitments(key), record])); }
   catch (err) { console.warn('[GaugeVoting] commitment persist failed', err); }
+}
+
+/// The saved record that opens `onchainHash`, or null when none does.
+function findCommitment(key: string, onchainHash: Hex): CommitmentRecord | null {
+  const want = onchainHash.toLowerCase();
+  return loadCommitments(key).find((r) => r.commitmentHash.toLowerCase() === want) ?? null;
 }
 
 function clearCommitment(key: string) {
@@ -176,7 +194,7 @@ export function GaugeVoting() {
     query: { enabled: !notDeployed && tokenId !== undefined && tokenId > 0n },
   });
 
-  const { data: lastVotedData } = useReadContract({
+  const { data: lastVotedData, refetch: refetchLastVoted } = useReadContract({
     address: gcAddr, abi: GAUGE_CONTROLLER_ABI, chainId: CHAIN_ID, functionName: 'lastVotedEpoch', args: tokenId !== undefined ? [tokenId] : undefined,
     query: { enabled: !notDeployed && tokenId !== undefined && tokenId > 0n },
   });
@@ -188,7 +206,7 @@ export function GaugeVoting() {
   });
 
   // Commitment on-chain (present if user has committed for this epoch)
-  const { data: onchainCommitment } = useReadContract({
+  const { data: onchainCommitment, refetch: refetchCommitment } = useReadContract({
     address: gcAddr, abi: GAUGE_CONTROLLER_ABI, chainId: CHAIN_ID, functionName: 'commitmentOf',
     args: tokenId !== undefined && currentEpoch !== undefined ? [tokenId, BigInt(currentEpoch)] : undefined,
     query: { enabled: !notDeployed && tokenId !== undefined && tokenId > 0n && currentEpoch !== undefined },
@@ -209,11 +227,13 @@ export function GaugeVoting() {
     return COMMITMENT_KEY(chainId, address as Address, tokenId, currentEpoch);
   }, [chainId, address, tokenId, currentEpoch]);
 
+  // Only the record that opens the ON-CHAIN commitment: a salt that does not
+  // match it can only revert with CommitmentMismatch.
   const [localCommitment, setLocalCommitment] = useState<CommitmentRecord | null>(null);
   useEffect(() => {
-    if (!commitmentKey) { setLocalCommitment(null); return; }
-    setLocalCommitment(loadCommitment(commitmentKey));
-  }, [commitmentKey, txHash, isSuccess]);
+    if (!commitmentKey || !hasOnchainCommitment) { setLocalCommitment(null); return; }
+    setLocalCommitment(findCommitment(commitmentKey, onchainCommitment as Hex));
+  }, [commitmentKey, hasOnchainCommitment, onchainCommitment]);
 
   // ─── Weight Allocation ──────────────────────────────────────
   const totalWeight = useMemo(() => Object.values(weights).reduce((a, b) => a + b, 0), [weights]);
@@ -267,11 +287,12 @@ export function GaugeVoting() {
     );
     // Persist BEFORE broadcasting — if the user closes the tab after signing
     // but before the tx confirms, they still have the salt to reveal later.
+    // This ADDS a record: an earlier one for this key may belong to a commit
+    // that already landed (see Commit-Reveal Local Storage above).
     saveCommitment(commitmentKey, {
       salt, gauges: voteGauges, weights: voteWeights.map((w) => w.toString()),
       commitmentHash, committedAt: Math.floor(Date.now() / 1000),
     });
-    setLocalCommitment(loadCommitment(commitmentKey));
     try {
       writeContract({
         chainId: CHAIN_ID,
@@ -300,18 +321,34 @@ export function GaugeVoting() {
     }
   }, [tokenId, localCommitment, writeContract, gcAddr, chainId]);
 
-  // On confirm: toast, clear localStorage if reveal just landed, refetch window state.
+  // On confirm: toast, refetch window state.
   useEffect(() => {
     if (!isSuccess) return;
     toast.success('Transaction confirmed');
     refetchRevealWindow();
-    // If the user just revealed (hasVotedThisEpoch becomes true via chain read),
-    // clean up the local commitment record since it's no longer useful.
-    if (hasVotedThisEpoch && commitmentKey) {
-      clearCommitment(commitmentKey);
-      setLocalCommitment(null);
-    }
-  }, [isSuccess, hasVotedThisEpoch, commitmentKey, refetchRevealWindow]);
+  }, [isSuccess, refetchRevealWindow]);
+
+  // If the user just revealed (hasVotedThisEpoch becomes true via the re-read
+  // below), clean up the local commitment records since they're no longer useful.
+  // Its own effect, so that flip does not fire the confirm toast a second time.
+  useEffect(() => {
+    if (!isSuccess || !hasVotedThisEpoch || !commitmentKey) return;
+    clearCommitment(commitmentKey);
+    setLocalCommitment(null);
+  }, [isSuccess, hasVotedThisEpoch, commitmentKey]);
+
+  // Re-read the commitment and the vote marker once a tx stops confirming,
+  // whatever the outcome: landed, reverted (wagmi throws on a revert), or a
+  // receipt that could not be read, when the tx may still have landed. Only the
+  // reveal window used to be re-read, so after a commit landed the page kept its
+  // pre-commit read of an EMPTY commitment and went on offering the sliders and
+  // an enabled Commit button until something else, such as a window-focus
+  // refetch, read it again.
+  useEffect(() => {
+    if (!txHash || isConfirming) return;
+    refetchCommitment();
+    refetchLastVoted();
+  }, [txHash, isConfirming, refetchCommitment, refetchLastVoted]);
 
   // Honest failure path: the receipt arrived but the tx reverted on-chain.
   useEffect(() => {
