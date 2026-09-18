@@ -75,6 +75,43 @@ them by PID before reinstalling.
 
 ---
 
+## 2026-09-17 — a view that copies a write path's arithmetic has to copy its guards too
+
+**Believed:** `StakingMonitorView.earned` could be trusted during a pause because its math is a
+line-for-line copy of the write path. `StakingViewLib.earnedFromMem` does the same
+elapsed × rate projection, the same pool cap and the same debt subtraction as
+`accumulateRewards` followed by `getReward`, and it carries a comment demanding lockstep with its
+storage twin.
+
+**Measured** (`contracts/test/StakingMonitorViewPause_2026_09_17.t.sol`, forge 1.5.1, PR #624): the copy
+took the arithmetic and left out the condition around it. `accumulateRewards` projects only
+`if (… && !cfg.isPaused)`, and the pause flag is not among the view's inputs. Two equal stakers,
+one day, pause, one emergency withdrawal, three paused days: the view showed **302,400** TOWELI
+and `getReward` at the unpause instant paid **43,200**. The lockstep comment could not catch
+this. Both copies inside the library agree with each other; the guard lives in the caller's
+`Cfg`, which neither copy sees.
+
+### Pin the view to the write path while the guard is active, and in both directions
+
+- "While paused, `earned()` equals what `getReward` pays at the unpause instant" failed on the old
+  code (302,400 vs 43,200).
+- A test asserting only "the view does not move while paused" passes a view that never projects
+  at all. That mutant (always anchor at now) passed the paused leg and was killed only by the
+  second leg: "while running, `earned()` equals what the claim pays."
+- Mutation results: pre-fix, always-frozen and inverted-check each fail at least one leg. Neither
+  leg compares against a literal, so both survive a change of rate, pool size or boost curve.
+
+### Read the guard in the same call as the math
+
+The fix reads `paused()` inside the view's own `eth_call`, so pause state is never unknown: a
+failed read reverts the whole view. The frontend alternative was to read `paused()` in a separate
+multicall batch and redo the math in TypeScript. That adds a third state, "pause unread", which
+then needs its own withheld display (an unread flag must not read as "running"), plus a second
+copy of the math that can drift the same way this one did. When a guard can be read on-chain next
+to the numbers it gates, read it there.
+
+---
+
 ## 2026-09-17 — `git bundle verify` passes a bundle cut in half, so a safety net is only proven by restoring from it
 
 **Believed:** a bundle that `git bundle verify` accepts is a backup you can delete against.
