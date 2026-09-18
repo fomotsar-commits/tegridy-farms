@@ -19,7 +19,7 @@
  *   try { await writeContractAsync(...) }
  *   catch (err) { surfaceTxError(err, toast, { component: 'StakingCard' }); }
  */
-import { UserRejectedRequestError } from 'viem';
+import { UserRejectedRequestError, type ReplacementReason } from 'viem';
 
 // R080: exported so test mocks can be typed against the same shape. Tests
 // pass vitest mocks (a callable + constructor intersection) which match
@@ -164,33 +164,113 @@ export function isRevertedReceiptError(error: unknown): boolean {
   return (error as { name?: unknown } | null)?.name === 'CallExecutionError';
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// A RECEIPT IS ONLY PROOF OF ITS OWN TRANSACTION.
+//
+// When a wallet replaces a pending transaction (same sender, same nonce), viem's
+// waitForTransactionReceipt does not fail. It finds the replacement in a block
+// and RESOLVES with the replacement's receipt, whatever the reason. The only
+// signs are its `onReplaced` callback and a `data.transactionHash` that is not
+// the hash we submitted. A wallet "cancel" is a 0-value send to yourself, so its
+// receipt says `status: 'success'`, and `isSuccess` fired every surface's success
+// path for an action that never ran.
+//
+// Measured 2026-09-17 against @wagmi/core 3.6.5 / viem 2.56.5, the original's
+// receipt missing and the next block holding a same-nonce tx whose receipt is
+// success (pinned by txErrors.receipt.test.ts):
+//
+//   cancel: 0-value self-send       -> resolves, the cancel's receipt,   reason 'cancelled'
+//   speed-up: same to/value/input   -> resolves, the speed-up's receipt, reason 'repriced'
+//   any other tx at that nonce      -> resolves, that tx's receipt,      reason 'replaced'
+//
+// Nothing throws. viem 2 does not define TransactionReplacedError at all.
+//
+// A speed-up IS the action: the same call with more gas. So the check cannot be a
+// bare hash comparison, which would tell a sped-up user their swap did not happen
+// and invite a second one that pays twice. A receipt cannot tell a speed-up from
+// a different call to the same contract, so the reason is viem's own: every
+// receipt wait passes `onReplaced: noteReplacement`. A foreign receipt with no
+// recorded reason is never a success, and is not called a cancel either.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** viem's verdict, per submitted hash. A hash is replaced at most once. */
+const replacementReasons = new Map<string, ReplacementReason>();
+
+/**
+ * Pass as `onReplaced` to every `useWaitForTransactionReceipt`. viem says WHY a
+ * transaction was replaced only here, and calls it just before it resolves with
+ * the replacement's receipt, so the reason is on record before any render sees
+ * that receipt.
+ */
+export function noteReplacement(r: { reason: ReplacementReason; replacedTransaction: { hash: string } }): void {
+  replacementReasons.set(r.replacedTransaction.hash.toLowerCase(), r.reason);
+}
+
+export type ReceiptReplacement = {
+  /** The transaction that confirmed in place of the one submitted. */
+  hash: `0x${string}`;
+  /** viem's reason, or 'unknown' when no receipt wait recorded one. */
+  reason: ReplacementReason | 'unknown';
+};
+
+/**
+ * The transaction that confirmed in place of `submitted`, or null when `data` is
+ * `submitted`'s own receipt (or there is no receipt yet).
+ */
+export function receiptReplacement(
+  data: { transactionHash: string } | undefined,
+  submitted: string | undefined,
+): ReceiptReplacement | null {
+  // wagmi's receipt always carries its hash. A shape without one names no other
+  // transaction either, so it is not called a replacement (nor crashes a render).
+  if (!data || typeof data.transactionHash !== 'string') return null;
+  if (submitted && data.transactionHash.toLowerCase() === submitted.toLowerCase()) return null;
+  return {
+    hash: data.transactionHash as `0x${string}`,
+    reason: (submitted && replacementReasons.get(submitted.toLowerCase())) || 'unknown',
+  };
+}
+
 /** The subset of `useWaitForTransactionReceipt()` the outcome is derived from. */
 export type ReceiptQueryLike = {
-  data?: { status: string } | undefined;
+  data?: { status: string; transactionHash: string } | undefined;
   isSuccess: boolean;
   isError: boolean;
   error?: unknown;
 };
 
 /**
- * Split a receipt wait into the three outcomes that need different words.
+ * Split a receipt wait into the outcomes that need different words.
  *
- * `isSuccess` — a receipt came back and it says success.
+ * `hash` is the hash the surface SUBMITTED, the one it passed to the wait. The
+ * receipt only counts for the surface if it is that transaction's own.
+ *
+ * `isSuccess` — `hash`'s receipt came back and says success (or a speed-up of it did).
  * `isReverted` — the transaction reverted (thrown by wagmi, or a reverted receipt
  *   delivered as data, which wagmi 3 never does but costs nothing to honour).
  * `isReceiptUnreadable` — nothing is known. Never call this a failure.
+ * `isReplaced` — another transaction confirmed at `hash`'s nonce: a cancel, a
+ *   different call, or one whose reason was never recorded. What was sent did not
+ *   run as sent. Terminal, like the other two.
+ * `replacement` — set whenever the receipt is not `hash`'s own, a speed-up included.
  */
-export function receiptOutcome(q: ReceiptQueryLike): {
+export function receiptOutcome(q: ReceiptQueryLike, hash: string | undefined): {
   isSuccess: boolean;
   isReverted: boolean;
   isReceiptUnreadable: boolean;
+  isReplaced: boolean;
+  replacement: ReceiptReplacement | null;
 } {
   const thrownRevert = q.isError && isRevertedReceiptError(q.error);
   const isReverted = thrownRevert || (q.isSuccess && !!q.data && q.data.status !== 'success');
+  const replacement = q.isSuccess ? receiptReplacement(q.data, hash) : null;
+  const isReplaced = !isReverted && !!replacement && replacement.reason !== 'repriced';
   return {
-    isSuccess: q.isSuccess && !isReverted,
+    isSuccess: q.isSuccess && !isReverted && !isReplaced,
     isReverted,
     isReceiptUnreadable: q.isError && !thrownRevert,
+    isReplaced,
+    replacement,
   };
 }
 
@@ -236,6 +316,43 @@ export function surfaceUnconfirmedTx(
       `${shortHash(opts.hash)} was sent, but we couldn't read its result, so we can't tell ` +
       `whether it went through. Check it on the explorer before you send it again: if it ` +
       `landed, ${opts.repeatCost}`,
+    action: { label: 'Check on Explorer', onClick: () => window.open(opts.explorerUrl, '_blank') },
+    duration: 30_000,
+  });
+}
+
+/**
+ * Tell the user that another transaction from their wallet confirmed in place of
+ * the one they sent, so what they sent did not happen.
+ *
+ * Only for `receiptOutcome().isReplaced`. A speed-up is never passed here: it is
+ * the same call, it ran, and saying otherwise invites a second one.
+ *
+ * `explorerUrl` should point at the REPLACEMENT, the transaction that did confirm.
+ * With no recorded reason the copy makes no claim either way: the replacement may
+ * be a speed-up, so the only honest advice is to look before sending again.
+ */
+export function surfaceReplacedTx(
+  toast: UnconfirmedToastLike,
+  opts: { hash: string; replacement: ReceiptReplacement; explorerUrl: string },
+): void {
+  const sent = shortHash(opts.hash);
+  const took = shortHash(opts.replacement.hash);
+  const { reason } = opts.replacement;
+  const title = reason === 'cancelled' ? 'Transaction cancelled' : 'Transaction replaced';
+  const description =
+    reason === 'cancelled'
+      ? `${sent} was cancelled in your wallet: an empty transaction (${took}) confirmed in its ` +
+        `place, so what you sent did not happen.`
+      : reason === 'replaced'
+        ? `Your wallet replaced ${sent} with a different transaction (${took}), which confirmed ` +
+          `in its place. What you sent did not happen as sent.`
+        : `Another transaction from your wallet (${took}) confirmed in place of ${sent}. If you ` +
+          `sped it up, it went through; if you cancelled or changed it, it did not. Check it on ` +
+          `the explorer before you send it again.`;
+  toast.warning(title, {
+    id: `replaced-${opts.hash}`,
+    description,
     action: { label: 'Check on Explorer', onClick: () => window.open(opts.explorerUrl, '_blank') },
     duration: 30_000,
   });

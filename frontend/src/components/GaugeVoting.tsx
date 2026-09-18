@@ -7,7 +7,7 @@ import { GAUGE_CONTROLLER_ADDRESS, TEGRIDY_STAKING_ADDRESS, CHAIN_ID, isDeployed
 import { GAUGE_CONTROLLER_ABI, TEGRIDY_STAKING_ABI } from '../lib/contracts';
 import { formatTokenAmount, shortenAddress } from '../lib/formatting';
 import { InfoTooltip } from './ui/InfoTooltip';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, noteReplacement } from '../lib/txErrors';
 import { pageArt } from '../lib/artConfig';
 import { ArtImg } from './ArtImg';
 import { useGaugeList } from '../hooks/useGaugeList';
@@ -110,7 +110,7 @@ export function GaugeVoting() {
   //       'legacy' = one-step vote() kept only for emergencies.
   const [mode, setMode] = useState<'commit' | 'legacy'>('commit');
   const { writeContract, data: txHash, isPending: isSigning } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED. A reverted commit/reveal/vote must not toast success or clear

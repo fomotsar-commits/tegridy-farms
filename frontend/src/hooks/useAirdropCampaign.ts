@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { isAddress, type Address, type Hex } from 'viem';
 import { AIRDROP_DISTRIBUTOR_ABI, AIRDROP_FACTORY_ABI, ERC20_ABI } from '../lib/contracts';
 import { AIRDROP_FACTORY_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, noteReplacement } from '../lib/txErrors';
 import type { OnChainCampaign } from '../lib/merkle';
 import { useReceiptOutcome } from './useReceiptOutcome';
 
@@ -113,7 +113,7 @@ export function useAirdropCampaign(distributor: Address | null, index: number | 
   };
 
   const { writeContract, data: hash, isPending, reset } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // wagmi THROWS on a reverted receipt, so a reverted claim arrived on `isError`,
   // which nothing read: a revert and an unreadable receipt were both silent.

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 import { useWaitForTransactionReceipt } from 'wagmi';
-import { isRevertedReceiptError } from '../lib/txErrors';
+import { isRevertedReceiptError, noteReplacement, receiptOutcome } from '../lib/txErrors';
 
 export type ReceiptType = 'swap' | 'stake' | 'unstake' | 'claim' | 'vote' | 'bounty' | 'lock' | 'approve' | 'liquidity_add' | 'liquidity_remove' | 'subscribe' | 'claim_revenue';
 
@@ -91,7 +91,7 @@ export type TrackedReceiptStatus =
   | 'pending'     // wagmi still confirming
   | 'confirmed'   // receipt.status === 'success' AND >= `confirmations` blocks deep
   | 'failed'      // the tx reverted (wagmi THROWS CallExecutionError for it)
-  | 'replaced'    // wagmi raised TransactionReplacedError (RBF / cancellation)
+  | 'replaced'    // the wallet cancelled or replaced it: the receipt is ANOTHER tx's
   | 'dropped';    // any other error: the receipt was not read, so NOTHING is known
 
 export interface TrackedReceipt {
@@ -101,6 +101,8 @@ export interface TrackedReceipt {
   isTerminal: boolean;
   blockNumber?: bigint;
   errorName?: string;
+  /** For 'replaced': the transaction that confirmed at this one's nonce instead. */
+  replacedBy?: `0x${string}`;
 }
 
 /**
@@ -118,12 +120,17 @@ export function useTrackedTransactionReceipt(
   // `error`, so the reverted branch could never fire and a reverted tx reported
   // 'confirmed' — the exact bug this wrapper exists to prevent. Read the real
   // shape; the test mock now mirrors real wagmi instead of the fiction.
-  const result = useWaitForTransactionReceipt({ hash, confirmations });
+  const result = useWaitForTransactionReceipt({ hash, confirmations, onReplaced: noteReplacement });
   const receipt = result.data;
-  // Widened to string: wagmi's error union does not name viem's
-  // TransactionReplacedError/TransactionNotFoundError, but they are what the
-  // underlying waitForTransactionReceipt actually throws on RBF/drop.
+  // Widened to string: wagmi's error union is narrower than what the underlying
+  // viem calls can throw.
   const errorName: string | undefined = result.error?.name;
+  // 2026-09-17: 'replaced' used to key on a thrown TransactionReplacedError, which
+  // viem 2 does not define and never throws, so it was unreachable. A replaced
+  // transaction RESOLVES, with the replacement's receipt (a cancel's says
+  // success), and reported 'confirmed'. The hash mismatch is the signal; a
+  // speed-up is the same call and stays 'confirmed'. See lib/txErrors.ts.
+  const { isReplaced, replacement } = receiptOutcome(result, hash);
 
   if (!hash) {
     return { status: 'idle', isPending: false, isConfirmed: false, isTerminal: false };
@@ -144,15 +151,6 @@ export function useTrackedTransactionReceipt(
         ...(errorName !== undefined ? { errorName } : {}),
       };
     }
-    if (errorName === 'TransactionReplacedError') {
-      return {
-        status: 'replaced',
-        isPending: false,
-        isConfirmed: false,
-        isTerminal: true,
-        errorName,
-      };
-    }
     // TransactionNotFoundError + unknown errors fold to "dropped" — safer
     // default than pretending a missing tx is still pending.
     return {
@@ -165,6 +163,15 @@ export function useTrackedTransactionReceipt(
   }
 
   if (result.isSuccess) {
+    if (isReplaced && replacement) {
+      return {
+        status: 'replaced',
+        isPending: false,
+        isConfirmed: false,
+        isTerminal: true,
+        replacedBy: replacement.hash,
+      };
+    }
     if (receipt && receipt.status !== 'success') {
       return {
         status: 'failed',

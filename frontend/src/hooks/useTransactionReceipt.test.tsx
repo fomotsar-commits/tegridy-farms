@@ -4,6 +4,7 @@ import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundE
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 
 import { useTrackedTransactionReceipt } from './useTransactionReceipt';
+import { noteReplacement } from '../lib/txErrors';
 
 const HASH = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as `0x${string}`;
 
@@ -78,15 +79,36 @@ describe('useTrackedTransactionReceipt — R044 H3 reorg defense', () => {
     expect(result.current.isConfirmed).toBe(false);
   });
 
-  it('reports replaced when wagmi raises TransactionReplacedError', () => {
-    wagmiMock.setWriteStatus({
-      isTxError: true,
-      hash: HASH,
-      errorName: 'TransactionReplacedError',
-    });
-    const { result } = renderHook(() => useTrackedTransactionReceipt(HASH));
+  // viem 2 never throws TransactionReplacedError (it does not define it). A
+  // replaced tx RESOLVES with the replacement's receipt, and a wallet cancel's
+  // says success, so this used to report 'confirmed'. See lib/txErrors.ts.
+  const OTHER = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as `0x${string}`;
+
+  it("reports replaced when the receipt is a cancel that took this hash's nonce", () => {
+    const hash = '0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' as `0x${string}`;
+    noteReplacement({ reason: 'cancelled', replacedTransaction: { hash } });
+    wagmiMock.setWriteStatus({ isSuccess: true, hash, receiptHash: OTHER, receiptStatus: 'success' });
+    const { result } = renderHook(() => useTrackedTransactionReceipt(hash));
     expect(result.current.status).toBe('replaced');
+    expect(result.current.isConfirmed).toBe(false);
     expect(result.current.isTerminal).toBe(true);
+    expect(result.current.replacedBy).toBe(OTHER);
+  });
+
+  it("reports replaced for another tx's receipt even when no reason was recorded", () => {
+    const hash = '0xa2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2' as `0x${string}`;
+    wagmiMock.setWriteStatus({ isSuccess: true, hash, receiptHash: OTHER, receiptStatus: 'success' });
+    const { result } = renderHook(() => useTrackedTransactionReceipt(hash));
+    expect(result.current.status).toBe('replaced');
+  });
+
+  it('a speed-up is the same call, so it stays confirmed', () => {
+    const hash = '0xa3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3' as `0x${string}`;
+    noteReplacement({ reason: 'repriced', replacedTransaction: { hash } });
+    wagmiMock.setWriteStatus({ isSuccess: true, hash, receiptHash: OTHER, receiptStatus: 'success' });
+    const { result } = renderHook(() => useTrackedTransactionReceipt(hash));
+    expect(result.current.status).toBe('confirmed');
+    expect(result.current.isConfirmed).toBe(true);
   });
 
   it('reports dropped when wagmi raises TransactionNotFoundError on first observation', () => {

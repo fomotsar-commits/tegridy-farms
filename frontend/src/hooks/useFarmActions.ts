@@ -7,7 +7,8 @@ import { TEGRIDY_STAKING_ADDRESS, TOWELI_ADDRESS, REVENUE_DISTRIBUTOR_ADDRESS, C
 import { trackStake } from '../lib/analytics';
 import { getTxUrl } from '../lib/explorer';
 import { safeParseEtherPositive } from '../lib/safeParseEther';
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 
 export function useFarmActions() {
   const chainId = useChainId();
@@ -54,6 +55,7 @@ export function useFarmActions() {
   const receiptQuery = useWaitForTransactionReceipt({
     chainId: CHAIN_ID,
     hash,
+    onReplaced: noteReplacement,
   });
   const { data: receipt, isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status): wagmi's `isSuccess` only means "the receipt was
@@ -64,9 +66,14 @@ export function useFarmActions() {
   // `isSuccess`-keyed revert branch never fired), and so does "we could not READ
   // the receipt", which this hook toasted as "Transaction failed". receiptOutcome
   // splits them by error type; see lib/txErrors.ts for the measurements.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
-  /** Not a confirmed success. Covers both "it reverted" and "we never found out". */
-  const isTxError = isReceiptUnreadable || isReverted;
+  //
+  // And a receipt is only proof of its OWN transaction: a stake the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
+  /** Not a confirmed success: it reverted, we never found out, or it was replaced. */
+  const isTxError = isReceiptUnreadable || isReverted || isReplaced;
 
   useEffect(() => {
     if (isSuccess && hash) {
@@ -131,13 +138,18 @@ export function useFarmActions() {
   // was gone when it may have been sitting in a block we simply could not see. Its
   // own effect now, because the advice is the opposite: a revert says retry, this
   // says look first.
+  //
+  // A cancelled or replaced tx drops the same snapshots: it staked nothing. Its
+  // warning is useReplacedTxNotice's, above.
   useEffect(() => {
-    if (isReceiptUnreadable && hash) {
-      surfaceUnconfirmedTx(toast, {
-        hash,
-        explorerUrl: getTxUrl(chainId, hash),
-        repeatCost: 'sending it again stakes, withdraws or claims a second time.',
-      });
+    if ((isReceiptUnreadable || isReplaced) && hash) {
+      if (isReceiptUnreadable) {
+        surfaceUnconfirmedTx(toast, {
+          hash,
+          explorerUrl: getTxUrl(chainId, hash),
+          repeatCost: 'sending it again stakes, withdraws or claims a second time.',
+        });
+      }
       // Same snapshot drop as the revert path, for the opposite reason: we
       // cannot attribute this stake, so it must not be attributed to whatever
       // tx confirms NEXT. A lost analytics event beats a misattributed one.
@@ -145,7 +157,7 @@ export function useFarmActions() {
       txAddressRef.current = undefined;
       lastActionRef.current = 'action';
     }
-  }, [isReceiptUnreadable, hash, chainId]);
+  }, [isReceiptUnreadable, isReplaced, hash, chainId]);
 
   useEffect(() => {
     // F474: classify wallet cancellations as a soft "Cancelled" info toast

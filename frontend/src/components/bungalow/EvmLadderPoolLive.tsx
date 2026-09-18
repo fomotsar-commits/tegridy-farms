@@ -9,7 +9,7 @@ import {
   isC1UnsafeLadder,
 } from '../../lib/lighthouseLadder';
 import { fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
-import { receiptOutcome, surfaceTxError } from '../../lib/txErrors';
+import { noteReplacement, receiptOutcome, surfaceTxError } from '../../lib/txErrors';
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { LOCK_DURATIONS } from '../../lib/copy';
 import { CopyButton } from '../ui/CopyButton';
@@ -146,7 +146,12 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
   // wagmi THROWS on a reverted receipt, so "REVERTED on-chain" below never
   // rendered: a revert, and a receipt nobody could read, both said "pending" for
   // good (2026-09-17). receiptOutcome splits wagmi's `isError` into the two.
-  const lastOutcome = receiptOutcome(useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId }));
+  // And a receipt is only proof of its OWN transaction: a deposit the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const lastOutcome = receiptOutcome(
+    useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId, onReplaced: noteReplacement }),
+    lastHash,
+  );
 
   const amountRaw = (() => {
     try { return amount.trim() ? parseUnits(amount.trim(), decimals) : 0n; } catch { return null; }
@@ -410,7 +415,13 @@ export function EvmLadderPoolLive({ bungalow }: { bungalow: Bungalow & { stakePo
                         ? '· REVERTED on-chain'
                         : lastOutcome.isReceiptUnreadable
                           ? "· couldn't read the result, so we can't tell whether it went through. Check the link before sending it again"
-                          : '· pending'}
+                          : lastOutcome.isReplaced
+                            ? lastOutcome.replacement?.reason === 'cancelled'
+                              ? '· cancelled in your wallet, so it did not happen'
+                              : lastOutcome.replacement?.reason === 'replaced'
+                                ? '· replaced in your wallet by another transaction, so it did not happen as sent'
+                                : '· another transaction from your wallet confirmed in its place. Check the link before sending it again'
+                            : '· pending'}
                   </p>
                 )}
               </>

@@ -36,7 +36,9 @@ interface Harness {
   balance: bigint | undefined;
   balanceLoading: boolean;
   balanceError: boolean;
-  receipt: { status: 'success' | 'reverted'; logs: Log[]; blockNumber: bigint } | undefined;
+  receipt: { status: 'success' | 'reverted'; logs: Log[]; blockNumber: bigint; transactionHash?: string } | undefined;
+  /** viem's reason when the receipt is ANOTHER tx's, passed to onReplaced as viem does. */
+  replacedReason: 'cancelled' | 'replaced' | 'repriced' | undefined;
   block: { timestamp: bigint } | undefined;
   /** What the receipt wait failed with: wagmi THROWS a revert, and a read can fail. */
   receiptError: unknown;
@@ -52,6 +54,7 @@ const h: Harness = {
   balanceLoading: false,
   balanceError: false,
   receipt: undefined,
+  replacedReason: undefined,
   block: undefined,
   receiptError: undefined,
 };
@@ -84,13 +87,16 @@ vi.mock('wagmi', () => ({
     isPending: false,
     reset: vi.fn(),
   }),
-  useWaitForTransactionReceipt: () => ({
-    data: h.receipt,
-    isLoading: false,
-    isSuccess: h.receipt !== undefined,
-    isError: h.receiptError !== undefined,
-    error: h.receiptError ?? null,
-  }),
+  useWaitForTransactionReceipt: ({ hash, onReplaced }: { hash?: string; onReplaced?: (r: unknown) => void }) => {
+    if (hash && h.replacedReason) onReplaced?.({ reason: h.replacedReason, replacedTransaction: { hash } });
+    return {
+      data: h.receipt,
+      isLoading: false,
+      isSuccess: h.receipt !== undefined,
+      isError: h.receiptError !== undefined,
+      error: h.receiptError ?? null,
+    };
+  },
   useBlock: () => ({ data: h.block }),
 }));
 
@@ -161,6 +167,7 @@ beforeEach(() => {
   h.balanceLoading = false;
   h.balanceError = false;
   h.receipt = undefined;
+  h.replacedReason = undefined;
   h.block = undefined;
   h.receiptError = undefined;
 });
@@ -340,6 +347,35 @@ describe('the receipt is judged from its logs, not announced from its status', (
     expect(text).not.toMatch(/does NOT contain the transfer to you/i);
     expect(text).not.toMatch(/the transfer to you was found in it/i);
     expect(text).not.toMatch(/reverted/i);
+  });
+
+  // When the wallet replaces the payment at its nonce, viem RESOLVES the wait
+  // with the replacement's receipt (lib/txErrors.receipt.test.ts).
+  it('does not judge a cancel as the payment: no verdict, no proof, and says it did not happen', async () => {
+    const CANCEL = `0x${'cc'.repeat(32)}`;
+    h.replacedReason = 'cancelled';
+    h.receipt = { status: 'success', logs: [], blockNumber: 21_000_000n, transactionHash: CANCEL };
+    h.block = { timestamp: BigInt(NOW) };
+    draw(verified());
+    expect(await screen.findByText(/cancelled in your wallet/i)).toBeInTheDocument();
+    expect(screen.getByText(/this payment did not happen/i)).toBeInTheDocument();
+    const text = document.body.textContent ?? '';
+    expect(text, 'the cancel was judged as if it were the payment').not.toMatch(/does NOT contain the transfer to you/i);
+    expect(text).not.toMatch(/the transfer to you was found in it/i);
+    expect(screen.queryByText('Proof of payment')).toBeNull();
+    expect(screen.getByRole('link', { name: /check on the explorer/i }).getAttribute('href')).toContain(CANCEL);
+  });
+
+  it('binds the proof of a sped-up payment to the hash that MINED, not the one that was dropped', async () => {
+    const SPED = `0x${'5e'.repeat(32)}`;
+    h.replacedReason = 'repriced';
+    h.receipt = { status: 'success', logs: [transferLog(10n ** 18n)], blockNumber: 21_000_000n, transactionHash: SPED };
+    h.block = { timestamp: BigInt(NOW) };
+    draw(verified());
+    expect(await screen.findByText('Proof of payment')).toBeInTheDocument();
+    expect(screen.getByText(/the transfer to you was found in it/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`#i=PAYLOAD&tx=${SPED}`))).toBeInTheDocument();
+    expect(document.body.textContent ?? '', 'a proof link to a hash that never mined').not.toContain(`tx=${HASH}`);
   });
 
   it('hands the buyer a proof link that carries the hash', async () => {

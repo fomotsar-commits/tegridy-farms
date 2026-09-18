@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { VOTE_INCENTIVES_ABI, ERC20_ABI } from '../lib/contracts';
 import { VOTE_INCENTIVES_ADDRESS, TOWELI_WETH_LP_ADDRESS, TOWELI_ADDRESS, CHAIN_ID, isDeployed as checkDeployed } from '../lib/constants';
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 import { getTxUrl } from '../lib/explorer';
 
 export interface WhitelistedToken {
@@ -26,7 +27,7 @@ export function useBribes() {
   const isDeployed = checkDeployed(VOTE_INCENTIVES_ADDRESS);
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
   // receipt was FETCHED". Only receipt.status === 'success' is a real success.
@@ -35,7 +36,11 @@ export function useBribes() {
   // (wagmi THROWS on a reverted receipt, so the revert effect below never fired)
   // and so does "we could not READ the receipt", which was toasted "Transaction
   // failed". receiptOutcome splits them by error type; see lib/txErrors.ts.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
+  // And a receipt is only proof of its OWN transaction: a deposit the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
   // 2026-07-26: an approval is a prerequisite, not the deposit. Track when the
   // in-flight tx is an approve so the toast says "approved — now confirm your
   // deposit" instead of a generic "confirmed". Reset to 'action' in both toast
@@ -374,10 +379,12 @@ export function useBribes() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-    if (isReceiptUnreadable || writeError) {
+    // A cancelled or replaced tx resets here too; its warning is
+    // useReplacedTxNotice's, above.
+    if (isReceiptUnreadable || isReplaced || writeError) {
       // F474: classify a wallet rejection (writeError) as "Cancelled".
       if (writeError) surfaceTxError(writeError, toast, { component: 'useBribes' });
-      else if (hash) {
+      else if (hash && isReceiptUnreadable) {
         // The receipt READ failed (the revert case has its own effect below). This
         // said "Transaction failed", a claim about a transaction nobody looked at.
         // See surfaceUnconfirmedTx.
@@ -391,7 +398,7 @@ export function useBribes() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isReceiptUnreadable, writeError, refetchAll, reset, hash, chainId]);
+  }, [isSuccess, isReceiptUnreadable, isReplaced, writeError, refetchAll, reset, hash, chainId]);
 
   // On-chain revert: we read the receipt and the tx failed — honest error instead
   // of "Transaction confirmed!". Unreachable until 2026-09-17 (see derivation above).

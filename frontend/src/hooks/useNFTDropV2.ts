@@ -4,7 +4,8 @@ import { toast } from 'sonner';
 import { TEGRIDY_DROP_V2_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
 import { formatWei } from '../lib/formatting';
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../lib/txErrors';
+import { useReplacedTxNotice } from './useReceiptOutcome';
 import { getTxUrl } from '../lib/explorer';
 import type { ContractMetadata } from '../lib/nftMetadata';
 
@@ -55,16 +56,20 @@ export function useNFTDropV2(dropAddress: string) {
 
   const { writeContract, data: hash, isPending, reset, error: writeError } = useWriteContract();
   // AUDIT FIX FE-LOW-04: pin receipt resolution to CHAIN_ID — see useLPFarming.ts.
-  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID });
+  const receiptQuery = useWaitForTransactionReceipt({ hash, chainId: CHAIN_ID, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's raw `isSuccess` only means "the
   // receipt was FETCHED". Only receipt.status === 'success' is a real success.
   // 2026-09-17: and wagmi's `isError` is both a real revert (wagmi THROWS on a
   // reverted receipt) and "we could not READ the receipt"; receiptOutcome splits
   // them by error type (lib/txErrors.ts). Both fold into isTxError so the
-  // `inFlight` guard below can't latch forever after either.
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
-  const isTxError = isReceiptUnreadable || isReverted;
+  // `inFlight` guard below can't latch forever after either. A mint the wallet
+  // cancelled or replaced is a third such end: its receipt is the cancel's, and
+  // says success (see lib/txErrors.ts). Its warning is useReplacedTxNotice's.
+  const outcome = receiptOutcome(receiptQuery, hash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, hash, chainId);
+  const isTxError = isReceiptUnreadable || isReverted || isReplaced;
 
   const enabled = !!dropAddress && dropAddress !== '0x0000000000000000000000000000000000000000';
 
@@ -324,7 +329,7 @@ export function useNFTDropV2(dropAddress: string) {
             ? 'No ETH was sent back — your refund is still claimable.'
             : 'Nothing was minted and your ETH was not taken.',
         });
-      } else if (hash) {
+      } else if (hash && isReceiptUnreadable) {
         // Neither a rejection nor a revert: the receipt READ failed, so nothing at all
         // is known. This said "Mint failed" — and a resent mint on a drop that already
         // minted spends the price a second time. See surfaceUnconfirmedTx.
@@ -339,7 +344,7 @@ export function useNFTDropV2(dropAddress: string) {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, isReverted, writeError, reset, hash, chainId]);
+  }, [isSuccess, isTxError, isReverted, isReceiptUnreadable, writeError, reset, hash, chainId]);
 
   return {
     // Read data

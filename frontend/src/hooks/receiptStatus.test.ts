@@ -48,6 +48,13 @@ const wagmiState = vi.hoisted(() => ({
   // What wagmi puts on `error` when `isError` is set. The hooks tell a revert
   // from an unreadable receipt by this alone.
   receiptError: undefined as unknown,
+  // A same-nonce transaction from the same wallet that confirmed INSTEAD of
+  // `hash`. viem does not fail the wait for it: it resolves with the
+  // replacement's receipt, and says why only through `onReplaced`, which the
+  // mock calls as viem does, if the hook passed one (`silent`: it never runs).
+  replacement: undefined as
+    | { hash: `0x${string}`; reason: 'cancelled' | 'replaced' | 'repriced'; silent?: boolean }
+    | undefined,
   writeContractMock: null as unknown as ReturnType<typeof import('vitest').vi.fn>,
 }));
 
@@ -85,15 +92,31 @@ vi.mock('wagmi', async () => {
     useWatchContractEvent: () => undefined,
     // Real wagmi shape: the receipt lives on `data`, and `isSuccess` is true
     // whenever the receipt was retrieved — reverted or not.
-    useWaitForTransactionReceipt: () => ({
-      data: wagmiState.receiptQuerySucceeded
-        ? { status: wagmiState.receiptStatus, transactionHash: wagmiState.hash, blockNumber: 21_000_000n }
-        : undefined,
-      isLoading: wagmiState.isConfirming,
-      isSuccess: wagmiState.receiptQuerySucceeded,
-      isError: wagmiState.receiptQueryErrored,
-      error: wagmiState.receiptQueryErrored ? wagmiState.receiptError : null,
-    }),
+    useWaitForTransactionReceipt: (opts?: { onReplaced?: (r: unknown) => void }) => {
+      const { replacement } = wagmiState;
+      const data = wagmiState.receiptQuerySucceeded
+        ? {
+            status: wagmiState.receiptStatus,
+            transactionHash: replacement?.hash ?? wagmiState.hash,
+            blockNumber: 21_000_000n,
+          }
+        : undefined;
+      if (data && replacement && !replacement.silent) {
+        opts?.onReplaced?.({
+          reason: replacement.reason,
+          replacedTransaction: { hash: wagmiState.hash },
+          transaction: { hash: replacement.hash },
+          transactionReceipt: data,
+        });
+      }
+      return {
+        data,
+        isLoading: wagmiState.isConfirming,
+        isSuccess: wagmiState.receiptQuerySucceeded,
+        isError: wagmiState.receiptQueryErrored,
+        error: wagmiState.receiptQueryErrored ? wagmiState.receiptError : null,
+      };
+    },
   };
 });
 
@@ -229,6 +252,7 @@ function resetMocks() {
   wagmiState.receiptQueryErrored = false;
   wagmiState.receiptError = undefined;
   wagmiState.receiptStatus = 'success';
+  wagmiState.replacement = undefined;
   wagmiState.writeContractMock?.mockReset();
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
@@ -456,4 +480,130 @@ describe('an unreadable receipt must not render as failure', () => {
     const swap = renderHook(() => useSwap());
     expect(swap.result.current.isTxError).toBe(true);
   });
+});
+
+/**
+ * A RECEIPT IS ONLY PROOF OF ITS OWN TRANSACTION.
+ *
+ * When the wallet replaces a pending transaction at the same nonce, viem's waiter
+ * does not fail. It resolves with the REPLACEMENT's receipt, whatever the reason
+ * (measured against the real library in lib/txErrors.receipt.test.ts). A wallet
+ * "cancel" is a 0-value send to yourself, so its receipt says success, and every
+ * hook here reported the stake, swap or claim it replaced as confirmed.
+ *
+ *   cancelled / replaced   =>  hook.isSuccess === false, no success toast, no analytics
+ *                          /\  a warning that it was cancelled or replaced and did not happen
+ *                          /\  the in-flight latch is released
+ *   repriced (a speed-up)  =>  still a success: the same call ran, under a new hash
+ *   reason never recorded  =>  not a success, and no verdict either way
+ */
+const REPLACEMENT_HASH = '0x5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed' as `0x${string}`;
+
+/**
+ * The submitted hash was replaced by REPLACEMENT_HASH, whose receipt says success.
+ * Every call submits a fresh hash: viem's reason is recorded per submitted hash,
+ * and one case's record must not answer for the next.
+ */
+let submittedSeq = 0;
+function landReplacement(reason: 'cancelled' | 'replaced' | 'repriced', opts: { silent?: boolean } = {}) {
+  landReceipt('success');
+  submittedSeq += 1;
+  wagmiState.hash = `0x${submittedSeq.toString(16).padStart(64, 'c')}` as `0x${string}`;
+  wagmiState.replacement = { hash: REPLACEMENT_HASH, reason, silent: opts.silent };
+}
+
+describe('a cancelled or replaced transaction must not render as success', () => {
+  beforeEach(resetMocks);
+
+  for (const reason of ['cancelled', 'replaced'] as const) {
+    for (const { name, use } of ALL_HOOKS) {
+      it(`${name}: a ${reason} tx is not a success`, () => {
+        landReplacement(reason);
+        const { result } = renderHook(use);
+        expect(result.current.isSuccess, `a ${reason} tx reported success off the replacement's receipt`).toBe(false);
+        expect(toast.success).not.toHaveBeenCalled();
+      });
+
+      it(`${name}: a ${reason} tx says so, and that what was sent did not happen`, () => {
+        landReplacement(reason);
+        renderHook(use);
+        const calls = vi.mocked(toast.warning).mock.calls;
+        expect(calls.length, 'the hook said nothing at all about a terminal transaction').toBeGreaterThan(0);
+        const [title, opts] = calls[0] as [string, Record<string, unknown> | undefined];
+        expect(title).toMatch(reason === 'cancelled' ? /cancel/i : /replac/i);
+        const description = String(opts?.description ?? '');
+        expect(description).toMatch(/did not happen/i);
+        expect(description, 'the copy does not name the tx that confirmed instead').toMatch(/0x5eed5eed/);
+        expect(opts?.action, 'no explorer action').toBeTruthy();
+        // Not a revert and not a failure: what was sent never ran at all.
+        const errors = vi.mocked(toast.error).mock.calls.map(([m]) => String(m));
+        expect(errors.filter((m) => /fail|revert/i.test(m))).toEqual([]);
+      });
+    }
+  }
+
+  for (const { name, use } of ALL_HOOKS) {
+    it(`${name}: another tx's receipt with no recorded reason is not a success, and says check first`, () => {
+      landReplacement('cancelled', { silent: true });
+      const { result } = renderHook(use);
+      expect(result.current.isSuccess).toBe(false);
+      expect(toast.success).not.toHaveBeenCalled();
+      const [, opts] = (vi.mocked(toast.warning).mock.calls[0] ?? []) as [string, Record<string, unknown> | undefined];
+      expect(String(opts?.description ?? '')).toMatch(/before you send it again/i);
+    });
+  }
+
+  it('useSwap: a cancelled swap is not sent to analytics', () => {
+    landReplacement('cancelled');
+    renderHook(() => useSwap());
+    expect(trackSwap).not.toHaveBeenCalled();
+  });
+
+  it('useFarmActions: a cancelled stake is not sent to analytics', () => {
+    const { result, rerender } = renderHook(() => useFarmActions());
+    act(() => result.current.stake('10', 86400n));
+    landReplacement('cancelled');
+    rerender();
+    expect(trackStake).not.toHaveBeenCalled();
+  });
+
+  it('useSwap: after a cancelled swap, the next swap is actually sent', () => {
+    const { result, rerender } = renderHook(() => useSwap());
+    act(() => result.current.setInputAmount('0.01'));
+    act(() => result.current.executeSwap());
+    expect(wagmiState.writeContractMock).toHaveBeenCalledTimes(1);
+    landReplacement('cancelled');
+    rerender();
+    act(() => result.current.executeSwap());
+    expect(
+      wagmiState.writeContractMock,
+      'the second swap was swallowed: the in-flight latch was never released',
+    ).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a sped-up transaction is still a success', () => {
+  beforeEach(resetMocks);
+
+  // The control, and the reason the check cannot be a bare hash comparison: a
+  // speed-up resolves exactly like a cancel (another hash, a success receipt).
+  // Calling it "did not happen" tells the user to send the swap again, and the
+  // second one pays twice. This also fails any hook that does not pass
+  // `onReplaced`, because then the reason is never known.
+  for (const { name, use } of HOOKS) {
+    it(`${name}: a repriced tx reports success`, () => {
+      landReplacement('repriced');
+      const { result } = renderHook(use);
+      expect(result.current.isSuccess).toBe(true);
+      expect(toast.success).toHaveBeenCalled();
+      expect(toast.warning).not.toHaveBeenCalled();
+    });
+  }
+  for (const { name, use } of ALL_HOOKS) {
+    it(`${name}: a repriced tx is not called cancelled, replaced or unconfirmed`, () => {
+      landReplacement('repriced');
+      renderHook(use);
+      expect(vi.mocked(toast.warning).mock.calls.map(([m]) => String(m))).toEqual([]);
+    });
+  }
 });

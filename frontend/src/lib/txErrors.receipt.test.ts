@@ -14,11 +14,14 @@
  * txErrors.ts); this is the fast copy that runs on every push.
  */
 import { describe, it, expect } from 'vitest';
-import { createConfig } from 'wagmi';
+import { createElement, type ReactNode } from 'react';
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createConfig, WagmiProvider, useWaitForTransactionReceipt } from 'wagmi';
 import { waitForTransactionReceipt } from 'wagmi/actions';
 import { custom } from 'viem';
 import { foundry } from 'viem/chains';
-import { isRevertedReceiptError, receiptOutcome } from './txErrors';
+import { isRevertedReceiptError, noteReplacement, receiptOutcome } from './txErrors';
 
 const HASH = '0x1111111111111111111111111111111111111111111111111111111111111111';
 const BLOCK_HASH = '0x2222222222222222222222222222222222222222222222222222222222222222';
@@ -86,8 +89,8 @@ describe('a genuine REVERT, as wagmi actually delivers it', () => {
     });
     expect((err as Error).name).toBe('CallExecutionError');
     expect(isRevertedReceiptError(err)).toBe(true);
-    expect(receiptOutcome({ data: undefined, isSuccess: false, isError: true, error: err })).toEqual({
-      isSuccess: false, isReverted: true, isReceiptUnreadable: false,
+    expect(receiptOutcome({ data: undefined, isSuccess: false, isError: true, error: err }, HASH)).toEqual({
+      isSuccess: false, isReverted: true, isReceiptUnreadable: false, isReplaced: false, replacement: null,
     });
   });
 
@@ -102,7 +105,7 @@ describe('a genuine REVERT, as wagmi actually delivers it', () => {
     });
     expect(Object.getPrototypeOf(err)).toBe(Error.prototype);
     expect(isRevertedReceiptError(err)).toBe(false);
-    expect(receiptOutcome({ isSuccess: false, isError: true, error: err }).isReceiptUnreadable).toBe(true);
+    expect(receiptOutcome({ isSuccess: false, isError: true, error: err }, HASH).isReceiptUnreadable).toBe(true);
   });
 
   it('the replay itself hits a transport error -> still a revert (the receipt WAS read)', async () => {
@@ -120,8 +123,8 @@ describe('a receipt we could NOT read is never classified as a revert', () => {
     const err = await thrownBy({ ...base, eth_getTransactionReceipt: () => null });
     expect((err as Error).name).toBe('TransactionReceiptNotFoundError');
     expect(isRevertedReceiptError(err)).toBe(false);
-    expect(receiptOutcome({ data: undefined, isSuccess: false, isError: true, error: err })).toEqual({
-      isSuccess: false, isReverted: false, isReceiptUnreadable: true,
+    expect(receiptOutcome({ data: undefined, isSuccess: false, isError: true, error: err }, HASH)).toEqual({
+      isSuccess: false, isReverted: false, isReceiptUnreadable: true, isReplaced: false, replacement: null,
     });
   });
 
@@ -141,20 +144,115 @@ describe('receiptOutcome controls', () => {
       configFor({ ...base, eth_getTransactionReceipt: () => receipt('0x1') }),
       { hash: HASH },
     );
-    expect(receiptOutcome({ data, isSuccess: true, isError: false })).toEqual({
-      isSuccess: true, isReverted: false, isReceiptUnreadable: false,
+    expect(receiptOutcome({ data, isSuccess: true, isError: false }, HASH)).toEqual({
+      isSuccess: true, isReverted: false, isReceiptUnreadable: false, isReplaced: false, replacement: null,
     });
   });
 
   it('a reverted receipt delivered as DATA is still a revert (defensive; wagmi 3 throws instead)', () => {
-    expect(receiptOutcome({ data: { status: 'reverted' }, isSuccess: true, isError: false })).toEqual({
-      isSuccess: false, isReverted: true, isReceiptUnreadable: false,
+    expect(receiptOutcome({ data: { status: 'reverted', transactionHash: HASH }, isSuccess: true, isError: false }, HASH)).toEqual({
+      isSuccess: false, isReverted: true, isReceiptUnreadable: false, isReplaced: false, replacement: null,
     });
   });
 
   it('an error with no evidence of a revert defaults to unreadable', () => {
     for (const error of [undefined, null, 'boom', new TypeError('x'), new Error('unknown reason'), { name: 'HttpRequestError' }]) {
-      expect(receiptOutcome({ isSuccess: false, isError: true, error }).isReceiptUnreadable).toBe(true);
+      expect(receiptOutcome({ isSuccess: false, isError: true, error }, HASH).isReceiptUnreadable).toBe(true);
     }
   });
+});
+
+// ─── A REPLACED transaction ─────────────────────────────────────────────────
+// The wallet put another transaction at the submitted one's nonce, and that one
+// mined. The node has no receipt for the submitted hash; getTransaction still
+// returns it pending (viem needs that to look for a replacement), and the latest
+// block holds a same-sender, same-nonce transaction whose receipt is success.
+const R_HASH = '0x3333333333333333333333333333333333333333333333333333333333333333';
+const REPLACEMENTS = {
+  // What a wallet "cancel" sends: 0 value, to yourself, no calldata.
+  cancelled: { to: FROM, input: '0x', value: '0x0' },
+  // What a wallet "speed up" sends: the same call with more gas.
+  repriced: { to: TO, input: '0xa9059cbb', value: '0x0', maxFeePerGas: '0x77359400' },
+  // Anything else at that nonce.
+  replaced: { to: TO, input: '0xdeadbeef', value: '0x0' },
+} as const;
+type Kind = keyof typeof REPLACEMENTS;
+
+let submittedSeq = 0;
+/** A fresh submitted hash per case: viem's reason is recorded per submitted hash. */
+function replacedBy(kind: Kind): { hash: `0x${string}`; script: Script } {
+  submittedSeq += 1;
+  const hash = `0x${submittedSeq.toString(16).padStart(64, '9')}` as `0x${string}`;
+  const pending = { ...tx, hash, input: '0xa9059cbb', nonce: '0x7', blockHash: null, blockNumber: null, transactionIndex: null };
+  const mined = { ...tx, ...REPLACEMENTS[kind], hash: R_HASH, nonce: '0x7', blockNumber: '0x6' };
+  return {
+    hash,
+    script: {
+      ...base,
+      eth_blockNumber: () => '0x6',
+      eth_getTransactionByHash: ([h]) => (h === hash ? pending : mined),
+      eth_getBlockByNumber: () => ({ ...(base.eth_getBlockByNumber!([]) as object), number: '0x6', transactions: [mined] }),
+      eth_getTransactionReceipt: ([h]) =>
+        h === hash ? null : { ...receipt('0x1'), transactionHash: R_HASH, to: mined.to, blockNumber: '0x6' },
+    },
+  };
+}
+
+describe('a REPLACED transaction, as wagmi actually delivers it', () => {
+  for (const kind of Object.keys(REPLACEMENTS) as Kind[]) {
+    it(`${kind}: the wait RESOLVES with the replacement's success receipt, and only onReplaced says why`, async () => {
+      const { hash, script } = replacedBy(kind);
+      const reasons: string[] = [];
+      const data = await waitForTransactionReceipt(configFor(script), {
+        hash,
+        onReplaced: (r) => { reasons.push(r.reason); noteReplacement(r); },
+      });
+      // The measured fact this whole fix rests on. If wagmi or viem start throwing
+      // here instead, this goes red and the handling below needs revisiting.
+      expect(data.status).toBe('success');
+      expect(data.transactionHash).toBe(R_HASH);
+      expect(data.transactionHash).not.toBe(hash);
+      expect(reasons).toEqual([kind]);
+
+      const outcome = receiptOutcome({ data, isSuccess: true, isError: false }, hash);
+      expect(outcome.replacement).toEqual({ hash: R_HASH, reason: kind });
+      if (kind === 'repriced') {
+        // A speed-up is the same call. It ran.
+        expect(outcome).toMatchObject({ isSuccess: true, isReplaced: false });
+      } else {
+        expect(outcome).toMatchObject({ isSuccess: false, isReplaced: true, isReverted: false, isReceiptUnreadable: false });
+      }
+    });
+  }
+
+  it('without onReplaced the reason is unknown, so even a speed-up is not called a success', async () => {
+    const { hash, script } = replacedBy('repriced');
+    const data = await waitForTransactionReceipt(configFor(script), { hash });
+    expect(receiptOutcome({ data, isSuccess: true, isError: false }, hash)).toMatchObject({
+      isSuccess: false, isReplaced: true, replacement: { hash: R_HASH, reason: 'unknown' },
+    });
+  });
+
+  // The hook is what the surfaces call. This pins that it forwards `onReplaced`
+  // to the action: if it stopped, every speed-up would read as "replaced".
+  for (const kind of ['cancelled', 'repriced'] as const) {
+    it(`${kind}, through the real useWaitForTransactionReceipt hook`, async () => {
+      const { hash, script } = replacedBy(kind);
+      const config = configFor(script);
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(WagmiProvider, { config }, createElement(QueryClientProvider, { client }, children));
+      const { result } = renderHook(
+        () => useWaitForTransactionReceipt({ hash, chainId: foundry.id, onReplaced: noteReplacement }),
+        { wrapper },
+      );
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      // What every surface read as "my transaction succeeded" before this fix.
+      expect(result.current.data?.status).toBe('success');
+      expect(result.current.data?.transactionHash).toBe(R_HASH);
+      const outcome = receiptOutcome(result.current, hash);
+      expect(outcome.replacement?.reason).toBe(kind);
+      expect(outcome.isSuccess).toBe(kind === 'repriced');
+    });
+  }
 });

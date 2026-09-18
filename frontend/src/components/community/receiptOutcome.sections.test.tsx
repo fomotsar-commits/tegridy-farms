@@ -87,3 +87,24 @@ for (const { name, render } of SECTIONS) {
     });
   });
 }
+
+// viem RESOLVES a replaced wait with the replacement's receipt; a wallet
+// cancel's says success (lib/txErrors.receipt.test.ts).
+for (const { name, render } of SECTIONS) {
+  describe(`${name}: a tx the wallet cancelled`, () => {
+    it('is not "confirmed", and says it was cancelled and did not happen', async () => {
+      const { noteReplacement } = await import('../../lib/txErrors');
+      const submitted = `0x${'5c'.repeat(32)}` as const;
+      noteReplacement({ reason: 'cancelled', replacedTransaction: { hash: submitted } });
+      wagmiMock.setWriteStatus({
+        hash: submitted, isSuccess: true, receiptStatus: 'success', receiptHash: `0x${'0d'.repeat(32)}`,
+      });
+      render();
+
+      expect(vi.mocked(toast.success).mock.calls.map(([m]) => String(m)), 'a cancel read as the action').toEqual([]);
+      const [title, opts] = vi.mocked(toast.warning).mock.calls[0] as [string, Record<string, unknown>];
+      expect(title).toMatch(/cancel/i);
+      expect(String(opts.description)).toMatch(/did not happen/i);
+    });
+  });
+}

@@ -20,6 +20,7 @@ import { GOVERNANCE_COPY } from '../../lib/copy';
 import { pageArt } from '../../lib/artConfig';
 import { ArtImg } from '../ArtImg';
 import { artImgProps } from '../../lib/artSrcSet';
+import { noteReplacement } from '../../lib/txErrors';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -1088,7 +1089,7 @@ export function VoteIncentivesSection() {
   const viAddr = VOTE_INCENTIVES_ADDRESS as Address;
 
   const { writeContract: writeLocal, data: localTx, isPending: isLocalSigning } = useWriteContract();
-  const localQuery = useWaitForTransactionReceipt({ hash: localTx });
+  const localQuery = useWaitForTransactionReceipt({ hash: localTx, onReplaced: noteReplacement });
   const { isLoading: isLocalConfirming } = localQuery;
   // Only `isLoading` was read here, so a reverted withdrawPendingETH (wagmi
   // THROWS on a reverted receipt, onto `isError`) and an unreadable receipt were

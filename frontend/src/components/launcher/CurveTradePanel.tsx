@@ -32,6 +32,7 @@ import {
 } from '../../lib/launcher/curveIdentity';
 import { useCurveIdentity } from '../../hooks/useCurveIdentity';
 import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
+import { noteReplacement } from '../../lib/txErrors';
 
 /** Completes "…before you send it again: if it landed, ___" per action. */
 const REPEAT_COST: Record<string, string> = {
@@ -489,25 +490,28 @@ export function CurveTradePanel({ launcher, token, chainId, tokenSymbol = 'TOKEN
     hash: tx?.hash,
     chainId,
     query: { enabled: tx !== null },
+    onReplaced: noteReplacement,
   });
-  const { isSuccess, isReverted, isReceiptUnreadable } = useReceiptOutcome(receiptQuery, {
+  // A buy the wallet cancelled or replaced is a fourth end: the wait resolves with
+  // the cancel's success receipt, which said "Buy confirmed." (lib/txErrors.ts).
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
     hash: tx?.hash,
     chainId,
     repeatCost: (tx && REPEAT_COST[tx.label]) ?? 'sending it again repeats it.',
   });
   useEffect(() => {
-    if (!tx || !(isSuccess || isReverted || isReceiptUnreadable)) return;
+    if (!tx || !(isSuccess || isReverted || isReceiptUnreadable || isReplaced)) return;
     if (isSuccess) {
       toast.success(`${tx.label} confirmed.`);
     } else if (isReverted) {
       toast.error(`${tx.label} failed on-chain (reverted) — nothing changed. Check slippage, or whether the curve just closed.`);
     }
-    // Unreadable: useReceiptOutcome has already said we can't tell.
+    // Unreadable or replaced: useReceiptOutcome has already said which.
     setTx(null);
     void refetchLaunch();
     void refetchBalance();
     void refetchAllowance();
-  }, [tx, isSuccess, isReverted, isReceiptUnreadable, refetchLaunch, refetchBalance, refetchAllowance]);
+  }, [tx, isSuccess, isReverted, isReceiptUnreadable, isReplaced, refetchLaunch, refetchBalance, refetchAllowance]);
 
   const launch = useMemo(() => toCurveLaunch(launchRaw), [launchRaw]);
   // Hook order: resolve identity unconditionally (before the loading return).

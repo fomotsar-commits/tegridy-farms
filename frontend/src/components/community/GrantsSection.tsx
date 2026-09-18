@@ -11,7 +11,8 @@ import { ArtImg } from '../ArtImg';
 import { sanitizeUserText, DEFAULT_DESCRIPTION_LIMIT } from '../../lib/textSafety';
 import { SafeText } from '../ui/SafeText';
 // F321: classify wallet-rejection vs revert for the write effect.
-import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome } from '../../lib/txErrors';
+import { surfaceTxError, surfaceUnconfirmedTx, receiptOutcome, noteReplacement } from '../../lib/txErrors';
+import { useReplacedTxNotice } from '../../hooks/useReceiptOutcome';
 import { getTxUrl } from '../../lib/explorer';
 
 const CARD_BORDER = 'var(--color-purple-12)';
@@ -41,7 +42,7 @@ export function GrantsSection() {
     return true;
   };
   const { writeContract, data: txHash, isPending: isSigning, reset, error: writeError } = useWriteContract();
-  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
@@ -51,8 +52,12 @@ export function GrantsSection() {
   // 2026-09-17: and wagmi's isError is both a real revert (wagmi THROWS on a
   // reverted receipt, so the status gate alone never saw one) and "we could not
   // READ the receipt". receiptOutcome splits them by error type (lib/txErrors.ts).
-  const { isSuccess, isReverted, isReceiptUnreadable } = receiptOutcome(receiptQuery);
-  const isTxError = isReceiptUnreadable || isReverted;
+  // And a receipt is only proof of its OWN transaction: one the wallet cancelled
+  // resolves with the cancel's success receipt. Its warning is useReplacedTxNotice's.
+  const outcome = receiptOutcome(receiptQuery, txHash);
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = outcome;
+  useReplacedTxNotice(outcome, txHash, chainId);
+  const isTxError = isReceiptUnreadable || isReverted || isReplaced;
 
   const { data: proposalCount, isLoading: countLoading, refetch: refetchCount } = useReadContract({
     address: gcAddr, abi: COMMUNITY_GRANTS_ABI, chainId: CHAIN_ID, functionName: 'proposalCount',
@@ -112,7 +117,7 @@ export function GrantsSection() {
       else if (writeError) surfaceTxError(writeError, toast, { component: 'GrantsSection' });
       // Not a revert and not a rejection: the receipt READ failed, so nothing is
       // known either way. "Transaction failed" was a claim about an unread receipt.
-      else if (txHash) surfaceUnconfirmedTx(toast, {
+      else if (txHash && isReceiptUnreadable) surfaceUnconfirmedTx(toast, {
         hash: txHash,
         explorerUrl: getTxUrl(chainId, txHash),
         repeatCost: 'sending it again proposes, votes or finalizes a second time.',
@@ -120,7 +125,7 @@ export function GrantsSection() {
       const t = setTimeout(reset, 0);
       return () => clearTimeout(t);
     }
-  }, [isSuccess, isTxError, isReverted, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset, txHash, chainId]);
+  }, [isSuccess, isTxError, isReverted, isReceiptUnreadable, writeError, refetchCount, refetchGranted, refetchProposals, refetchVoteChecks, reset, txHash, chainId]);
 
   const handleVote = (proposalId: number, support: boolean) => {
     // T7 fix: gate on a connected account, not just chain. When disconnected,

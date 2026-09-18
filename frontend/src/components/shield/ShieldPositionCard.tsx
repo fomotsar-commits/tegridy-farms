@@ -2,7 +2,7 @@ import { useAccount, useChainId, useSendTransaction, useWaitForTransactionReceip
 import { formatEther } from 'viem';
 import { CHAIN_ID } from '../../lib/constants';
 import { getTxUrl } from '../../lib/explorer';
-import { receiptOutcome } from '../../lib/txErrors';
+import { noteReplacement, receiptOutcome } from '../../lib/txErrors';
 import { BAND_LABEL, type ShieldHealthBand } from '../../lib/shield/health';
 import { prepareRepay } from '../../lib/shield/preparedAction';
 import { SHIELD_COPY } from '../../lib/shield/automation';
@@ -36,7 +36,7 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
   const { address } = useAccount();
   const chainId = useChainId();
   const { sendTransaction, data: txHash, isPending, error } = useSendTransaction();
-  const receipt = useWaitForTransactionReceipt({ hash: txHash });
+  const receipt = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
   // was FETCHED. Only receipt.data.status === 'success' is an on-chain success.
   //
@@ -44,7 +44,12 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
   // receipt, so the "reverted" line below never rendered and a reverted repay
   // showed nothing at all. receiptOutcome splits `isError` into revert vs "could
   // not read it", and each gets its own line.
-  const { isSuccess: isConfirmed, isReverted, isReceiptUnreadable } = receiptOutcome(receipt);
+  //
+  // And a receipt is only proof of its OWN transaction: a repay the wallet
+  // cancelled resolves with the cancel's success receipt, which printed
+  // "Repayment confirmed" over a loan still open (lib/txErrors.ts).
+  const { isSuccess: isConfirmed, isReverted, isReceiptUnreadable, isReplaced, replacement } =
+    receiptOutcome(receipt, txHash);
 
   const prepared = prepareRepay({
     loanId: position.loanId,
@@ -172,6 +177,19 @@ export function ShieldPositionCard({ position }: { position: ShieldPosition }) {
                 Check it on the explorer
               </a>{' '}
               before you send it again: if it landed, a second repay reverts and only costs gas.
+            </p>
+          )}
+          {isReplaced && replacement && (
+            <p className="mt-2 text-[11px] leading-snug" style={{ color: '#FFD37C' }} role="status">
+              {replacement.reason === 'cancelled'
+                ? 'The repayment was cancelled in your wallet, so it did not happen. The loan is unchanged.'
+                : replacement.reason === 'replaced'
+                  ? 'Your wallet replaced the repayment with a different transaction, so it did not happen as sent.'
+                  : 'Another transaction from your wallet confirmed in place of the repayment. If you sped it up, it went through; if you cancelled or changed it, it did not.'}{' '}
+              <a href={getTxUrl(CHAIN_ID, replacement.hash)} target="_blank" rel="noopener noreferrer" className="underline">
+                Check what confirmed
+              </a>{' '}
+              before you send it again.
             </p>
           )}
           {isConfirmed && (

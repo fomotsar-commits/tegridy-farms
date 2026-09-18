@@ -14,22 +14,23 @@ import { CallExecutionError, ExecutionRevertedError, TransactionReceiptNotFoundE
 import { wagmiMock } from '../test-utils/wagmi-mocks';
 import { TransactionReceiptProvider } from './TransactionReceipt';
 import { useTransactionReceipt } from '../hooks/useTransactionReceipt';
+import { noteReplacement } from '../lib/txErrors';
 
 const HASH = `0x${'ab'.repeat(32)}` as const;
 
-function Opener() {
+function Opener({ txHash }: { txHash: string }) {
   const { showReceipt } = useTransactionReceipt();
   return (
-    <button onClick={() => showReceipt({ type: 'stake', data: { amount: '1', token: 'TOWELI', txHash: HASH } })}>
+    <button onClick={() => showReceipt({ type: 'stake', data: { amount: '1', token: 'TOWELI', txHash } })}>
       open receipt
     </button>
   );
 }
 
-function open() {
+function open(txHash: string = HASH) {
   render(
     <TransactionReceiptProvider>
-      <Opener />
+      <Opener txHash={txHash} />
     </TransactionReceiptProvider>,
   );
   fireEvent.click(screen.getByText('open receipt'));
@@ -65,5 +66,30 @@ describe('TransactionReceipt status badge', () => {
     const ask = screen.getByRole('alertdialog');
     expect(within(ask).getByText(/couldn.?t confirm this tx/i)).toBeInTheDocument();
     expect(within(ask).getByText(/can.?t tell whether it went through/i)).toBeInTheDocument();
+  });
+});
+
+// When the wallet replaces the tx at its nonce, viem RESOLVES the wait with the
+// replacement's receipt (lib/txErrors.receipt.test.ts); a cancel's says success.
+describe('TransactionReceipt status badge, for a tx the wallet replaced', () => {
+  const OTHER = `0x${'0d'.repeat(32)}` as const;
+
+  it('a cancelled tx reads Replaced, never Confirmed, and Share is disabled', () => {
+    const cancelled = `0x${'c1'.repeat(32)}` as const;
+    noteReplacement({ reason: 'cancelled', replacedTransaction: { hash: cancelled } });
+    wagmiMock.setWriteStatus({ hash: cancelled, isSuccess: true, receiptHash: OTHER, receiptStatus: 'success' });
+    const dialog = open(cancelled);
+    expect(within(dialog).getByText('Replaced')).toBeInTheDocument();
+    expect(within(dialog).queryByText('Confirmed'), 'a cancel read as the stake').toBeNull();
+    expect(shareButton(dialog)).toBeDisabled();
+  });
+
+  it('a sped-up tx is the same call, so it reads Confirmed', () => {
+    const sped = `0x${'c2'.repeat(32)}` as const;
+    noteReplacement({ reason: 'repriced', replacedTransaction: { hash: sped } });
+    wagmiMock.setWriteStatus({ hash: sped, isSuccess: true, receiptHash: OTHER, receiptStatus: 'success' });
+    const dialog = open(sped);
+    expect(within(dialog).getByText('Confirmed')).toBeInTheDocument();
+    expect(shareButton(dialog)).toBeEnabled();
   });
 });
