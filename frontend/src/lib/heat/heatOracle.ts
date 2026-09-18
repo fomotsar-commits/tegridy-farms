@@ -356,7 +356,7 @@ export function gateDecision(
       degrees: null,
       tier: null,
       asOfUnix: null,
-      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided — try again in a moment.',
+      detail: 'The island’s instrument is unreachable, so the door cannot read you. Nothing has been decided. Try again in a moment.',
     };
   }
 

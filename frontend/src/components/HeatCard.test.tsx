@@ -246,6 +246,14 @@ describe('the cold read — the most important copy on the site', () => {
     ).toBeTruthy();
   });
 
+  // The freshness strip is prose on the venue home, a route held at zero em dashes, and
+  // only a read puts it on screen, so the route's own ratchet never sees it.
+  it('says it was never reckoned without a prose em dash', async () => {
+    mount();
+    const line = await screen.findByText(/^Reckoned: never/);
+    expect(line.textContent).toBe('Reckoned: never. This wallet has no measured holdings');
+  });
+
   it('offers the hall as the one thing to do', async () => {
     mount();
     const link = await screen.findByRole('link', { name: 'Pick a bungalow' });
@@ -837,5 +845,14 @@ describe('the wallet fill', () => {
     // No error code, no reason, no retry - and the field is still there to paste into.
     expect(screen.queryByText(/User rejected/)).toBeNull();
     expect(field()).toBeTruthy();
+  });
+});
+
+describe('a reading older than the freshness law allows', () => {
+  it('says it is stale without a prose em dash', async () => {
+    h.fetchHeat.mockResolvedValue(wireReading({ as_of_unix: NOW - 8 * 86_400, observedAt: NOW - 8 * 86_400 }));
+    mount();
+    const line = await screen.findByText(/^Stale/);
+    expect(line.textContent).toBe('Stale: older than 7 days, so it decides nothing');
   });
 });

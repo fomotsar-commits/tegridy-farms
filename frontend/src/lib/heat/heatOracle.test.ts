@@ -179,6 +179,20 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     expect(warm.detail).toBe('This wallet reads 195.54° (Builder). The launch lane is open.');
   });
 
+  // Every branch of the same function, not the two the fix was about: a review found the
+  // unreadable branch still ending "Nothing has been decided — try again", which the door
+  // shows and the launch error banner repeats, and which no walk without a wallet renders.
+  it('says every verdict without a prose em dash: unreadable, stale, cold and warm', () => {
+    const verdicts = [
+      gateDecision(ADDR, null, asOf, 123),
+      gateDecision(ADDR, at(195.54, 'Builder'), asOf + 30 * DAY, 123),
+      gateDecision(ADDR, at(95, 'Resident'), asOf, 123),
+      gateDecision(ADDR, at(195.54, 'Builder'), asOf, 123),
+    ];
+    expect(verdicts.map((d) => d.state)).toEqual(['STALE', 'STALE', 'COLD', 'WARM']);
+    for (const d of verdicts) expect(d.detail, `${d.state}: ${d.detail}`).not.toContain('—');
+  });
+
   it('a wallet with no measured holdings is COLD, not STALE — its null reckoning date is not an outage', () => {
     const d = gateDecision(ADDR, parseHeatReading(COLD), asOf);
     expect(d.state).toBe('COLD');
