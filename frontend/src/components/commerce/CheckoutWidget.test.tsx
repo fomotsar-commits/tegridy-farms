@@ -9,7 +9,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { encodeAbiParameters, encodeEventTopics, erc20Abi, pad, type Log } from 'viem';
+import {
+  CallExecutionError,
+  ExecutionRevertedError,
+  TransactionReceiptNotFoundError,
+  encodeAbiParameters,
+  encodeEventTopics,
+  erc20Abi,
+  pad,
+  type Log,
+} from 'viem';
 
 const MERCHANT = '0x1111111111111111111111111111111111111111' as const;
 const BUYER = '0x2222222222222222222222222222222222222222' as const;
@@ -27,8 +36,12 @@ interface Harness {
   balance: bigint | undefined;
   balanceLoading: boolean;
   balanceError: boolean;
-  receipt: { status: 'success' | 'reverted'; logs: Log[]; blockNumber: bigint } | undefined;
+  receipt: { status: 'success' | 'reverted'; logs: Log[]; blockNumber: bigint; transactionHash?: string } | undefined;
+  /** viem's reason when the receipt is ANOTHER tx's, passed to onReplaced as viem does. */
+  replacedReason: 'cancelled' | 'replaced' | 'repriced' | undefined;
   block: { timestamp: bigint } | undefined;
+  /** What the receipt wait failed with: wagmi THROWS a revert, and a read can fail. */
+  receiptError: unknown;
 }
 
 const h: Harness = {
@@ -41,7 +54,9 @@ const h: Harness = {
   balanceLoading: false,
   balanceError: false,
   receipt: undefined,
+  replacedReason: undefined,
   block: undefined,
+  receiptError: undefined,
 };
 
 // ONE object for the whole file, because real wagmi memoises its public client
@@ -68,17 +83,20 @@ vi.mock('wagmi', () => ({
   }),
   useWriteContract: () => ({
     writeContract: vi.fn(),
-    data: h.receipt ? HASH : undefined,
+    data: h.receipt || h.receiptError !== undefined ? HASH : undefined,
     isPending: false,
     reset: vi.fn(),
   }),
-  useWaitForTransactionReceipt: () => ({
-    data: h.receipt,
-    isLoading: false,
-    isSuccess: h.receipt !== undefined,
-    isError: false,
-    error: null,
-  }),
+  useWaitForTransactionReceipt: ({ hash, onReplaced }: { hash?: string; onReplaced?: (r: unknown) => void }) => {
+    if (hash && h.replacedReason) onReplaced?.({ reason: h.replacedReason, replacedTransaction: { hash } });
+    return {
+      data: h.receipt,
+      isLoading: false,
+      isSuccess: h.receipt !== undefined,
+      isError: h.receiptError !== undefined,
+      error: h.receiptError ?? null,
+    };
+  },
   useBlock: () => ({ data: h.block }),
 }));
 
@@ -149,7 +167,9 @@ beforeEach(() => {
   h.balanceLoading = false;
   h.balanceError = false;
   h.receipt = undefined;
+  h.replacedReason = undefined;
   h.block = undefined;
+  h.receiptError = undefined;
 });
 
 describe('the link is judged before any figure is a debt', () => {
@@ -302,6 +322,60 @@ describe('the receipt is judged from its logs, not announced from its status', (
     h.block = undefined;
     draw(verified());
     expect(await screen.findByText(/block time not read/i)).toBeInTheDocument();
+  });
+
+  // wagmi never returns a reverted receipt: waitForTransactionReceipt THROWS on
+  // one. Until 2026-09-17 this widget read only `data`, so a reverted transfer
+  // and a transfer whose receipt could not be read BOTH left the panel empty with
+  // "Pay the exact amount" re-armed — for the second, an invitation to pay twice.
+  it('says a thrown revert moved nothing, rather than showing nothing', async () => {
+    h.receiptError = new CallExecutionError(new ExecutionRevertedError({ message: 'execution reverted' }), {});
+    draw(verified());
+    expect(await screen.findByText(/reverted on chain, so no WETH moved and the merchant was not paid/i)).toBeInTheDocument();
+    expect(screen.getByText(/does NOT contain the transfer to you/i)).toBeInTheDocument();
+    expect(document.body.textContent ?? '').not.toMatch(/can.?t tell whether the merchant was paid/i);
+  });
+
+  it('says an unreadable receipt could have landed, and what paying again costs', async () => {
+    h.receiptError = new TransactionReceiptNotFoundError({ hash: HASH });
+    draw(verified());
+    expect(await screen.findByText(/can.?t tell whether\s+the merchant was paid/i)).toBeInTheDocument();
+    expect(screen.getByText(/paying again sends 1\.?0* WETH a\s+second time/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /check on the explorer/i }).getAttribute('href')).toContain(HASH);
+    // Neither verdict: nothing was read.
+    const text = document.body.textContent ?? '';
+    expect(text).not.toMatch(/does NOT contain the transfer to you/i);
+    expect(text).not.toMatch(/the transfer to you was found in it/i);
+    expect(text).not.toMatch(/reverted/i);
+  });
+
+  // When the wallet replaces the payment at its nonce, viem RESOLVES the wait
+  // with the replacement's receipt (lib/txErrors.receipt.test.ts).
+  it('does not judge a cancel as the payment: no verdict, no proof, and says it did not happen', async () => {
+    const CANCEL = `0x${'cc'.repeat(32)}`;
+    h.replacedReason = 'cancelled';
+    h.receipt = { status: 'success', logs: [], blockNumber: 21_000_000n, transactionHash: CANCEL };
+    h.block = { timestamp: BigInt(NOW) };
+    draw(verified());
+    expect(await screen.findByText(/cancelled in your wallet/i)).toBeInTheDocument();
+    expect(screen.getByText(/this payment did not happen/i)).toBeInTheDocument();
+    const text = document.body.textContent ?? '';
+    expect(text, 'the cancel was judged as if it were the payment').not.toMatch(/does NOT contain the transfer to you/i);
+    expect(text).not.toMatch(/the transfer to you was found in it/i);
+    expect(screen.queryByText('Proof of payment')).toBeNull();
+    expect(screen.getByRole('link', { name: /check on the explorer/i }).getAttribute('href')).toContain(CANCEL);
+  });
+
+  it('binds the proof of a sped-up payment to the hash that MINED, not the one that was dropped', async () => {
+    const SPED = `0x${'5e'.repeat(32)}`;
+    h.replacedReason = 'repriced';
+    h.receipt = { status: 'success', logs: [transferLog(10n ** 18n)], blockNumber: 21_000_000n, transactionHash: SPED };
+    h.block = { timestamp: BigInt(NOW) };
+    draw(verified());
+    expect(await screen.findByText('Proof of payment')).toBeInTheDocument();
+    expect(screen.getByText(/the transfer to you was found in it/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`#i=PAYLOAD&tx=${SPED}`))).toBeInTheDocument();
+    expect(document.body.textContent ?? '', 'a proof link to a hash that never mined').not.toContain(`tx=${HASH}`);
   });
 
   it('hands the buyer a proof link that carries the hash', async () => {

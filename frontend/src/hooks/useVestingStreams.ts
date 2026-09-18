@@ -1,11 +1,12 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useReadContracts, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { toast } from 'sonner';
 import type { Address } from 'viem';
 import { ERC20_ABI, VESTING_WALLET_ABI } from '../lib/contracts';
 import { CHAIN_ID } from '../lib/constants';
-import { surfaceTxError } from '../lib/txErrors';
+import { surfaceTxError, noteReplacement } from '../lib/txErrors';
 import { useVestingFactory } from './useVestingFactory';
+import { useReceiptOutcome } from './useReceiptOutcome';
 
 /**
  * The connected wallet's vesting streams, both directions, with the schedule fields a
@@ -159,7 +160,18 @@ export function useVestingStreams() {
   );
 
   const { writeContract, data: hash, isPending, reset } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash });
+  const receiptQuery = useWaitForTransactionReceipt({ chainId: CHAIN_ID, hash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
+  // wagmi THROWS on a reverted receipt, so a reverted release arrived on
+  // `isError`, which nothing read: a revert and an unreadable receipt were silent.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash,
+    chainId: CHAIN_ID,
+    repeatCost: 'releasing again only sends what has vested since.',
+  });
+  useEffect(() => {
+    if (isReverted) toast.error('Release reverted on-chain — no tokens moved.');
+  }, [isReverted]);
 
   /**
    * Crank a stream's release. Permissionless by design — the destination is `owner()`

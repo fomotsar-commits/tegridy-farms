@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { Bungalow } from '../../lib/bungalows';
 import { LIGHTHOUSE_STAKING_ABI, ERC20_ABI } from '../../lib/contracts';
 import { deriveEvmLighthouse, fmtRaw, fmtRunway } from '../../lib/evmLighthouse';
-import { surfaceTxError } from '../../lib/txErrors';
+import { noteReplacement, receiptOutcome, surfaceTxError } from '../../lib/txErrors';
 import { getTxUrl, getAddressUrl } from '../../lib/explorer';
 import { CopyButton } from '../ui/CopyButton';
 import { shortenAddress } from '../../lib/formatting';
@@ -122,10 +122,17 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
 
   const { writeContractAsync } = useWriteContract();
   const [lastHash, setLastHash] = useState<`0x${string}` | undefined>(undefined);
-  const { data: receipt } = useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId });
   // wagmi's isSuccess only means FETCHED; only receipt.status is the truth
-  // (receipt-status audit, 2026-08-24).
-  const lastConfirmed = receipt?.status === 'success';
+  // (receipt-status audit, 2026-08-24). 2026-09-17: and a revert never arrives
+  // as a receipt — wagmi THROWS on one — so "REVERTED on-chain" below never
+  // rendered: a revert, and a receipt nobody could read, both said "pending"
+  // for good. receiptOutcome splits wagmi's `isError` into the two.
+  // And a receipt is only proof of its OWN transaction: a deposit the wallet
+  // cancelled resolves with the cancel's success receipt (see lib/txErrors.ts).
+  const lastOutcome = receiptOutcome(
+    useWaitForTransactionReceipt({ hash: lastHash, chainId: poolChainId, onReplaced: noteReplacement }),
+    lastHash,
+  );
 
   const amountRaw = (() => {
     try {
@@ -308,7 +315,19 @@ export function EvmLighthousePoolLive({ bungalow }: { bungalow: Bungalow & { sta
                       <a href={getTxUrl(poolChainId, lastHash)} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
                         {shortenAddress(lastHash, 6)} ↗
                       </a>{' '}
-                      {lastConfirmed ? '· confirmed' : receipt ? '· REVERTED on-chain' : '· pending'}
+                      {lastOutcome.isSuccess
+                        ? '· confirmed'
+                        : lastOutcome.isReverted
+                          ? '· REVERTED on-chain'
+                          : lastOutcome.isReceiptUnreadable
+                            ? "· couldn't read the result, so we can't tell whether it went through. Check the link before sending it again"
+                            : lastOutcome.isReplaced
+                              ? lastOutcome.replacement?.reason === 'cancelled'
+                                ? '· cancelled in your wallet, so it did not happen'
+                                : lastOutcome.replacement?.reason === 'replaced'
+                                  ? '· replaced in your wallet by another transaction, so it did not happen as sent'
+                                  : '· another transaction from your wallet confirmed in its place. Check the link before sending it again'
+                              : '· pending'}
                     </p>
                   )}
                 </>

@@ -6,7 +6,9 @@ import type { Address } from 'viem';
 import { formatEther } from 'viem';
 import { LEGACY_STAKING_ADDRESSES, CHAIN_ID } from '../../lib/constants';
 import { TEGRIDY_STAKING_ABI } from '../../lib/contracts';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
 import { ArtImg } from '../ArtImg';
+import { noteReplacement } from '../../lib/txErrors';
 
 // The legacy deployments are the same TegridyStaking family as the live one, so
 // TEGRIDY_STAKING_ABI covers userTokenId/getPosition/withdraw/earlyWithdraw
@@ -63,13 +65,20 @@ export function LegacyStakingExit() {
   const { writeContract, data: txHash, isPending, reset } = useWriteContract();
   // Merge 2026-08-24: trunk's receipt-status derivation + the multichain
   // branch's chainId pin, both load-bearing.
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash, chainId: CHAIN_ID });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, chainId: CHAIN_ID, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted withdraw/earlyWithdraw doesn't silently clear
+  // was FETCHED. Gate so a reverted withdraw/earlyWithdraw doesn't silently clear
   // the confirm state as if the exit had gone through.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  //
+  // 2026-09-17: and a revert never reached isSuccess anyway — wagmi THROWS on a
+  // reverted receipt, so the revert branch below was dead and a reverted exit
+  // was silent. useReceiptOutcome reads the thrown revert.
+  const { isSuccess, isReverted, isReceiptUnreadable, isReplaced } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'withdrawing again reverts, because the position is already closed.',
+  });
 
   useEffect(() => {
     if (isSuccess) {
@@ -88,6 +97,17 @@ export function LegacyStakingExit() {
     toast.error('Withdrawal reverted on-chain — no TOWELI moved; your position is unchanged');
     reset();
   }, [isReverted, reset]);
+
+  // Unreadable: useReceiptOutcome says we can't tell. Re-read the positions so a
+  // withdrawal that did land drops off the list rather than inviting a second one.
+  // Same for one the wallet cancelled or replaced (useReceiptOutcome says which):
+  // the list, not the receipt, is what shows whether the position is still open.
+  useEffect(() => {
+    if (!isReceiptUnreadable && !isReplaced) return;
+    idReads.refetch();
+    posReads.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isReceiptUnreadable, isReplaced]);
 
   const positions: (LegacyPosition & { idx: number })[] = [];
   LEGACY_STAKING_ADDRESSES.forEach((c, i) => {

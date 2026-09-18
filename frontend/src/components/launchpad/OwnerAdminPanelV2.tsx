@@ -10,6 +10,8 @@ import { pageArt } from '../../lib/artConfig';
 import { INPUT, LABEL, BTN_EMERALD, PHASE_LABELS } from './launchpadConstants';
 import { ArtCard } from './launchpadShared';
 import { TypedConfirmation } from '../ui/TypedConfirmation';
+import { useReceiptOutcome } from '../../hooks/useReceiptOutcome';
+import { noteReplacement } from '../../lib/txErrors';
 
 /** Whole non-negative integer, as typed. `type=number` still admits "1.5" and "1e3". */
 function safeWholeBigInt(value: string): bigint | null {
@@ -70,12 +72,19 @@ export function OwnerAdminPanelV2({ dropAddress, deployed }: {
   const [dutchDuration, setDutchDuration] = useState('');
 
   const { writeContract, data: txHash, isPending } = useWriteContract();
-  const { data: receipt, isLoading: isConfirming, isSuccess: isReceiptFetched } = useWaitForTransactionReceipt({ hash: txHash });
+  const receiptQuery = useWaitForTransactionReceipt({ hash: txHash, onReplaced: noteReplacement });
+  const { isLoading: isConfirming } = receiptQuery;
   // AUDIT (receipt-status, 2026-08-24): wagmi's isSuccess only means the receipt
-  // was FETCHED — it latches true for on-chain REVERTED txs too. Gate on
-  // receipt.status so a reverted admin write can't read as applied.
-  const isReverted = isReceiptFetched && !!receipt && receipt.status !== 'success';
-  const isSuccess = isReceiptFetched && !isReverted;
+  // was FETCHED; a reverted admin write must not read as applied.
+  //
+  // 2026-09-17: and a revert never reached isSuccess anyway — wagmi THROWS on a
+  // reverted receipt, so the revert toast below was dead and the submit-time
+  // "<fn> succeeded" stood uncorrected. useReceiptOutcome reads the thrown revert.
+  const { isSuccess, isReverted } = useReceiptOutcome(receiptQuery, {
+    hash: txHash,
+    chainId: CHAIN_ID,
+    repeatCost: 'sending it again applies the change a second time, or reverts if it can only happen once.',
+  });
   const busy = isPending || isConfirming || !deployed;
 
   const { data: onchainPhase, refetch: refetchPhase } = useReadContract({
