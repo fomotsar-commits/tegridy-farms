@@ -15,6 +15,35 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-09-17 — a rule moved into a tested helper is not pinned where it is called
+
+**Believed:** once an honesty rule is a pure, well-tested function, a page that calls it
+is covered. If someone put the page's old inline logic back, the helper's tests would
+catch it.
+
+**Measured** while porting `verdictFromReads` (#597), the rule that keeps "couldn't read
+the locker" apart from "this token hasn't graduated". It has 6 unit tests, and 6 mutations
+of the helper's body were each killed. Then the *caller* was restored verbatim to its
+pre-fix form: `LaunchPage.tsx`'s inline `if (!stream) → 'not-graduated'`, with the helper
+left intact. **All 31 tests in the helper's file stayed green.** Only a source-level pin on
+the call site (`launchReattestVerdictWiring.test.ts`) went red. A helper test proves the
+rule exists. It says nothing about whether anyone calls it.
+
+**Do:** make "restore the caller verbatim" its own mutation, separate from mutating the
+helper. When the caller can't be rendered cheaply (an unexported component, or a path
+that needs a connected wallet), pin the call site in source, as
+`launchPriceWiring.test.ts` does. Strip comments before matching, so prose about the old
+bug can't satisfy the pin.
+
+### Incidental: an "unknown" message can make the opposite claim
+
+The rescued copy for the new unknown state said the gap "says nothing about this token",
+then ended with "the fee split committed at launch is unaffected and still on-chain". That
+asserts a launch split exists for whatever address was pasted, including tokens that
+never came through the rail. Fixing a false *negative* claim is exactly when a false
+*positive* one slips in. Check both directions: does an unknown state avoid the negative
+claim, and does it avoid asserting anything positive about the input?
+
 ## 2026-09-16 — a merge train's green ticks are claims about a base, a scope and a moment
 
 **Believed:** working a backlog of open PRs is bookkeeping. A PR whose checks read green
