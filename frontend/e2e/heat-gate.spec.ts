@@ -133,7 +133,7 @@ test.describe('the launch door', () => {
     const door = await openLaunch(page);
     await expect(door.getByText('WARM', { exact: true })).toBeVisible();
     // The reading itself, not merely the verdict word.
-    await expect(door.getByText(/195\.54° — Builder\. The launch lane is open\./)).toBeVisible();
+    await expect(door.getByText('This wallet reads 195.54° (Builder). The launch lane is open.')).toBeVisible();
 
     // Custody proof is the NEXT step, and it exists only because heat already passed.
     await expect(door.getByRole('button', { name: /prove this wallet is yours/i })).toBeVisible();

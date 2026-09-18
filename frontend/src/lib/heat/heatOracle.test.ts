@@ -162,6 +162,23 @@ describe('gateDecision — the gate primitive, fail-closed', () => {
     expect(d.detail).toContain('held time');
   });
 
+  // THE WALLET'S TIER, NOT THE FLOOR'S (follow-up to answer ten, ruling 4). The line read
+  // "95.00° — Resident. The door opens at 123°": the wallet's tier word sat right beside
+  // the floor, the very pairing ruling 4 took off the other four surfaces, joined by a
+  // prose em dash that only a read ever put on screen. At floor 123, a Resident wallet is
+  // exactly the case where "Resident" and "123" must not read as one sentence.
+  it('names the tier as the wallet\'s own reading, never beside the floor, and with no em dash', () => {
+    const cold = gateDecision(ADDR, at(95, 'Resident'), asOf, 123);
+    const warm = gateDecision(ADDR, at(195.54, 'Builder'), asOf, 123);
+    for (const d of [cold, warm]) {
+      expect(d.detail, d.state).not.toContain('—');
+      expect(d.detail, d.state).toMatch(/^This wallet reads \d+\.\d{2}° \((Resident|Builder)\)\. /);
+    }
+    expect(cold.detail).toContain('This wallet reads 95.00° (Resident). The door opens at 123°');
+    expect(cold.detail).not.toMatch(/Resident\. The door opens/);
+    expect(warm.detail).toBe('This wallet reads 195.54° (Builder). The launch lane is open.');
+  });
+
   it('a wallet with no measured holdings is COLD, not STALE — its null reckoning date is not an outage', () => {
     const d = gateDecision(ADDR, parseHeatReading(COLD), asOf);
     expect(d.state).toBe('COLD');
